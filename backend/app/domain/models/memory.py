@@ -13,6 +13,10 @@ class MemoryConfig:
     """Configuration for memory management"""
     max_messages: int = 100
     auto_compact_threshold: int = 50
+    # Token-based threshold for smart compaction (default: 80k tokens)
+    auto_compact_token_threshold: int = 80000
+    # Use token-based compaction instead of message count
+    use_token_threshold: bool = True
     compactable_functions: List[str] = None
     preserve_recent: int = 10
 
@@ -24,6 +28,8 @@ class MemoryConfig:
                 "shell_exec",
                 "file_read",
                 "file_list",
+                "browser_get_content",
+                "info_search_web",
             ]
 
 
@@ -58,10 +64,21 @@ class Memory(BaseModel):
         self._check_auto_compact()
 
     def _check_auto_compact(self) -> None:
-        """Check if auto-compaction should be triggered"""
-        if len(self.messages) >= self.config.auto_compact_threshold:
-            logger.debug(f"Auto-compacting memory at {len(self.messages)} messages")
-            self.smart_compact()
+        """Check if auto-compaction should be triggered based on token or message count"""
+        if self.config.use_token_threshold:
+            # Token-based compaction
+            estimated_tokens = self.estimate_tokens()
+            if estimated_tokens >= self.config.auto_compact_token_threshold:
+                logger.debug(
+                    f"Auto-compacting memory at {estimated_tokens} tokens "
+                    f"(threshold: {self.config.auto_compact_token_threshold})"
+                )
+                self.smart_compact()
+        else:
+            # Legacy message-count based compaction
+            if len(self.messages) >= self.config.auto_compact_threshold:
+                logger.debug(f"Auto-compacting memory at {len(self.messages)} messages")
+                self.smart_compact()
 
     def get_messages(self) -> List[Dict[str, Any]]:
         """Get all message history"""
@@ -169,12 +186,23 @@ class Memory(BaseModel):
             role = msg.get("role", "unknown")
             role_counts[role] = role_counts.get(role, 0) + 1
 
-        return {
+        estimated_tokens = self.estimate_tokens()
+        stats = {
             "total_messages": len(self.messages),
             "role_counts": role_counts,
-            "estimated_tokens": self.estimate_tokens(),
+            "estimated_tokens": estimated_tokens,
             "auto_compact_threshold": self.config.auto_compact_threshold,
+            "use_token_threshold": self.config.use_token_threshold,
         }
+
+        if self.config.use_token_threshold:
+            stats["token_threshold"] = self.config.auto_compact_token_threshold
+            stats["token_usage_percent"] = (
+                estimated_tokens / self.config.auto_compact_token_threshold * 100
+                if self.config.auto_compact_token_threshold > 0 else 0
+            )
+
+        return stats
 
     @property
     def empty(self) -> bool:

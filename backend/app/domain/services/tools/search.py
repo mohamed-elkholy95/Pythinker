@@ -160,6 +160,8 @@ class SearchTool(BaseTool):
             "For research/comparison tasks, you MUST visit official product pages "
             "to verify specifications before making claims. "
             "Prioritize: manufacturer sites > review sites (Wirecutter, RTINGS) > forums."
+            "\n\nRECENCY CHECK: Verify publish dates on sources - prefer content from last 6 months. "
+            "Do NOT rely on your model knowledge for prices, specs, or availability - it may be outdated."
         )
 
         if result.message:
@@ -175,16 +177,22 @@ class SearchTool(BaseTool):
 
 IMPORTANT: Search snippets are NOT valid sources for factual claims.
 For research/comparison tasks, you MUST visit the returned URLs to verify information.
-Priority: Official product pages > Review sites (Wirecutter, RTINGS) > Forums""",
+Priority: Official product pages > Review sites (Wirecutter, RTINGS) > Forums
+
+RECENCY BEST PRACTICES:
+- For products/reviews/prices: Use date_range="past_month" or "past_year"
+- Add current year (2025/2026) to queries for time-sensitive topics
+- For technology/software: Always filter to recent results
+- For evergreen topics (history, concepts): "all" is acceptable""",
         parameters={
             "query": {
                 "type": "string",
-                "description": "Search query in Google search style, using 3-5 keywords."
+                "description": "Search query in Google search style, using 3-5 keywords. Include current year for time-sensitive topics."
             },
             "date_range": {
                 "type": "string",
                 "enum": ["all", "past_hour", "past_day", "past_week", "past_month", "past_year"],
-                "description": "(Optional) Time range filter for search results."
+                "description": "Time range filter. RECOMMENDED: Use 'past_month' or 'past_year' for products, reviews, prices, or any time-sensitive information."
             }
         },
         required=["query"]

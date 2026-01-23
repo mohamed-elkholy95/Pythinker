@@ -15,9 +15,17 @@ DEFAULTS (use these, don't ask):
 - Options: popular/mainstream choices
 
 RESEARCH TASK STEPS (3-5 steps max):
-1. Search and gather candidates
-2. Visit official pages and verify specs
-3. Write report with sources (.md file)
+1. Learn domain terminology, then search RECENT sources + TOP COMPETITORS (4-5 brands)
+2. Visit official pages - verify products match user's specified technology/requirements
+3. Compare LIKE-FOR-LIKE only (same technology, similar tier) - exclude mismatched types
+4. Write report with verified specs, sources, and any terminology clarifications (.md file)
+
+RESEARCH RULES:
+- RECENCY: Always search online. Never use model knowledge for facts/prices/specs
+- TERMINOLOGY: Learn domain terms first - user terms often have specific meanings
+- TECHNOLOGY MATCH: Only include products with the technology type user specified
+- COMPETITORS: Always include 4-5 alternatives from major brands in the category
+- PROFESSIONAL USE: Check customization, programmability, reliability, cross-platform support
 
 JSON FORMAT:
 ```json

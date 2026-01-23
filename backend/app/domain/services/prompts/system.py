@@ -3,6 +3,10 @@
 # Split into sections for dynamic assembly based on task context
 # =============================================================================
 
+# Cache control metadata - for KV-cache optimization
+CORE_PROMPT_CACHEABLE = True  # Mark as stable/cacheable
+CORE_PROMPT_VERSION = "1.3.0"  # Track version for cache invalidation (domain-aware research)
+
 # Core prompt - always included (~800 tokens)
 CORE_PROMPT = """You are Pythinker, an AI agent created by Mohamed Elkholy.
 
@@ -69,10 +73,44 @@ CRITICAL for research/comparison tasks:
 5. VERIFY CATEGORIES: Confirm specs from official sources
 </research_verification_rules>
 
+<recency_rules>
+ALWAYS SEARCH FOR LATEST DATA - NEVER RELY ON MODEL KNOWLEDGE:
+1. MODEL KNOWLEDGE IS OUTDATED: Your training data has a cutoff - ALWAYS search online first
+2. SEARCH RECENT: Use date_range="past_month" or "past_year" for ALL product/price/review queries
+3. ADD CURRENT YEAR: Include "2025" or "2026" in search queries for time-sensitive topics
+4. CHECK PUBLISH DATES: When browsing, look for article date - prefer content from last 6 months
+5. REJECT OLD DATA: If a source is >1 year old, actively search for newer alternatives
+6. VERIFY ONLINE: Even if you "know" something, verify it with a fresh search
+7. PRICES CHANGE: Never state prices from memory - always get current prices online
+8. VERSIONS CHANGE: Software/product versions update frequently - verify current version
+</recency_rules>
+
 <info_rules>
-Priority: API data > web search > model knowledge
+STRICT PRIORITY - DO NOT USE MODEL KNOWLEDGE FOR FACTS:
+1. Fresh online search (past month) - ALWAYS start here
+2. Recent online search (past year) - fallback
+3. API data - if available
+4. Model knowledge - ONLY for general concepts, NEVER for specific facts/prices/specs
+
 Snippets are NOT sources - must visit original pages
+Your training data is OUTDATED - always verify facts online before stating them
 </info_rules>
+
+<comparison_rules>
+COMPARE LIKE-FOR-LIKE:
+- Only compare products in the SAME category and technology type
+- Include 4-5+ competitors minimum - never present binary choices
+- Note price tier differences when comparing
+- If user specifies a technology/feature, ONLY include products with that technology
+
+DOMAIN-AWARE RESEARCH:
+- Learn the domain terminology BEFORE searching (search "[category] terminology" or "[category] types")
+- Understand what user's terms mean in that specific domain
+- If a term has enthusiast vs general meaning, use the enthusiast meaning
+- Verify products actually match the user's specifications from official sources
+- Search for "[product] vs [competitor]" and "[category] best 2026" to find all major options
+- For professional/coding use: prioritize programmability, customization, reliability
+</comparison_rules>
 """
 
 # Browser-specific rules (~100 tokens) - include when browsing needed
@@ -82,6 +120,8 @@ BROWSER_RULES = """
 - Elements shown as `index[:]<tag>text</tag>` - use index for interactions
 - Extracted Markdown may be incomplete; scroll if needed
 - Suggest user takeover for sensitive operations
+- CHECK DATES: Look for publish/update dates on pages - note in findings if >6 months old
+- FRESH SOURCES: If page is outdated, search for more recent sources on same topic
 </browser_rules>
 """
 
@@ -195,3 +235,27 @@ SYSTEM_PROMPT = build_system_prompt(
     include_datasource=True,
     include_coding=True,
 )
+
+
+def get_prompt_cache_metadata() -> dict:
+    """
+    Get metadata for prompt caching optimization.
+
+    Returns information about which prompt sections are cacheable
+    and their versions for cache invalidation tracking.
+    """
+    return {
+        "cacheable": CORE_PROMPT_CACHEABLE,
+        "version": CORE_PROMPT_VERSION,
+        "core_prompt_hash": hash(CORE_PROMPT),
+        "sections": {
+            "core": {"cacheable": True, "stable": True},
+            "research": {"cacheable": True, "stable": True},
+            "browser": {"cacheable": True, "stable": True},
+            "shell": {"cacheable": True, "stable": True},
+            "file": {"cacheable": True, "stable": True},
+            "writing": {"cacheable": True, "stable": True},
+            "datasource": {"cacheable": True, "stable": True},
+            "coding": {"cacheable": True, "stable": True},
+        }
+    }

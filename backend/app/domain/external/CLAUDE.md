@@ -7,5 +7,6 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
-| #7476 | 10:31 PM | 🔵 | Configuration Reveals DeepSeek Model with Search Provider Options | ~598 |
+| #7410 | 10:22 PM | 🔵 | LLM Protocol Defines Standard Interface for AI Service Integration | ~494 |
+| #7387 | 10:16 PM | 🔵 | SearchEngine Protocol Defines External Search Integration Contract | ~373 |
 </claude-mem-context>

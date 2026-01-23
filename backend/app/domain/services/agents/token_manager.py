@@ -2,14 +2,51 @@
 Token management for context window handling.
 
 Provides accurate token counting and intelligent message trimming
-to stay within model context limits.
+to stay within model context limits. Includes pressure monitoring
+for proactive context management.
 """
 
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
+from enum import Enum
 
 logger = logging.getLogger(__name__)
+
+
+class PressureLevel(str, Enum):
+    """Context pressure levels for proactive management"""
+    NORMAL = "normal"      # < 75% - operating normally
+    WARNING = "warning"    # 75-85% - consider summarizing
+    CRITICAL = "critical"  # 85-95% - begin proactive trimming
+    OVERFLOW = "overflow"  # > 95% - force immediate action
+
+
+@dataclass
+class PressureStatus:
+    """Status of context pressure with recommendations"""
+    level: PressureLevel
+    usage_percent: float
+    current_tokens: int
+    max_tokens: int
+    available_tokens: int
+    recommendations: List[str]
+
+    def to_context_signal(self) -> Optional[str]:
+        """Generate context signal to inject into prompts"""
+        if self.level == PressureLevel.NORMAL:
+            return None
+
+        signal_parts = [
+            f"CONTEXT PRESSURE: {self.usage_percent:.0%} used ({self.current_tokens:,}/{self.max_tokens:,} tokens)."
+        ]
+
+        if self.recommendations:
+            signal_parts.append("Consider:")
+            for rec in self.recommendations:
+                signal_parts.append(f"- {rec}")
+
+        return "\n".join(signal_parts)
 
 # Try to import tiktoken for accurate counting
 try:
@@ -34,7 +71,8 @@ class TokenManager:
     Manages token counting and context trimming for LLM interactions.
 
     Uses tiktoken for accurate counting when available, falls back to
-    approximate counting otherwise.
+    approximate counting otherwise. Includes pressure monitoring for
+    proactive context management.
     """
 
     # Approximate tokens per character for fallback estimation
@@ -42,6 +80,13 @@ class TokenManager:
 
     # Token overhead per message (role, separators, etc.)
     MESSAGE_OVERHEAD = 4
+
+    # Context pressure thresholds (fraction of max tokens)
+    PRESSURE_THRESHOLDS = {
+        "warning": 0.75,   # 75% - suggest planning for summarization
+        "critical": 0.85,  # 85% - begin proactive trimming
+        "overflow": 0.95,  # 95% - force summarization
+    }
 
     # Default model context limits
     MODEL_LIMITS = {
@@ -380,3 +425,82 @@ class TokenManager:
             "effective_limit": self._effective_limit,
             "tiktoken_available": TIKTOKEN_AVAILABLE
         }
+
+    def get_context_pressure(
+        self,
+        messages: List[Dict[str, Any]]
+    ) -> PressureStatus:
+        """
+        Get current context pressure status with recommendations.
+
+        Analyzes current token usage and provides actionable guidance
+        for managing context before it overflows.
+
+        Args:
+            messages: Current conversation messages
+
+        Returns:
+            PressureStatus with level, metrics, and recommendations
+        """
+        current_tokens = self.count_messages_tokens(messages)
+        usage_ratio = current_tokens / self._effective_limit
+        available = self._effective_limit - current_tokens
+
+        # Determine pressure level
+        if usage_ratio >= self.PRESSURE_THRESHOLDS["overflow"]:
+            level = PressureLevel.OVERFLOW
+        elif usage_ratio >= self.PRESSURE_THRESHOLDS["critical"]:
+            level = PressureLevel.CRITICAL
+        elif usage_ratio >= self.PRESSURE_THRESHOLDS["warning"]:
+            level = PressureLevel.WARNING
+        else:
+            level = PressureLevel.NORMAL
+
+        # Generate recommendations based on level
+        recommendations = self._get_pressure_recommendations(level, usage_ratio)
+
+        return PressureStatus(
+            level=level,
+            usage_percent=usage_ratio,
+            current_tokens=current_tokens,
+            max_tokens=self._effective_limit,
+            available_tokens=available,
+            recommendations=recommendations
+        )
+
+    def _get_pressure_recommendations(
+        self,
+        level: PressureLevel,
+        usage_ratio: float
+    ) -> List[str]:
+        """Generate recommendations based on pressure level"""
+        if level == PressureLevel.NORMAL:
+            return []
+
+        recommendations = []
+
+        if level == PressureLevel.WARNING:
+            recommendations = [
+                "Summarizing completed work to save tokens",
+                "Saving detailed findings to files for reference",
+                "Focusing on remaining essential steps"
+            ]
+        elif level == PressureLevel.CRITICAL:
+            recommendations = [
+                "Immediately save important findings to files",
+                "Complete current step and summarize progress",
+                "Remove verbose tool outputs from context"
+            ]
+        elif level == PressureLevel.OVERFLOW:
+            recommendations = [
+                "URGENT: Context overflow imminent",
+                "Force-save all critical data to files NOW",
+                "Aggressive context trimming will occur"
+            ]
+
+        return recommendations
+
+    def should_trigger_compaction(self, messages: List[Dict[str, Any]]) -> bool:
+        """Check if context pressure warrants compaction"""
+        pressure = self.get_context_pressure(messages)
+        return pressure.level in (PressureLevel.CRITICAL, PressureLevel.OVERFLOW)

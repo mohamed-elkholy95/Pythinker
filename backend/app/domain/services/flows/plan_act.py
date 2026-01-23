@@ -37,6 +37,7 @@ from app.domain.services.tools.message import MessageTool
 from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.idle import IdleTool
 from app.domain.services.agents.error_handler import ErrorHandler, ErrorType, ErrorContext
+from app.domain.services.agents.task_state_manager import TaskStateManager
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -120,6 +121,9 @@ class PlanActFlow(BaseFlow):
 
         # Track background tasks for cleanup
         self._background_tasks: set = set()
+
+        # Task state manager for todo recitation
+        self._task_state_manager = TaskStateManager(sandbox)
 
     def _background_compact_memory(self) -> None:
         """Schedule memory compaction as a non-blocking background task"""
@@ -240,6 +244,13 @@ class PlanActFlow(BaseFlow):
                         if isinstance(event, PlanEvent) and event.status == PlanStatus.CREATED:
                             self.plan = event.plan
                             logger.info(f"Agent {self._agent_id} created plan successfully with {len(event.plan.steps)} steps")
+
+                            # Initialize task state for recitation
+                            self._task_state_manager.initialize_from_plan(
+                                objective=message.message,
+                                steps=[{"id": s.id, "description": s.description} for s in event.plan.steps]
+                            )
+
                             yield TitleEvent(title=event.plan.title)
                             yield MessageEvent(role="assistant", message=event.plan.message)
                         yield event
@@ -259,8 +270,16 @@ class PlanActFlow(BaseFlow):
                         continue
                     # Execute step
                     logger.info(f"Agent {self._agent_id} started executing step {step.id}: {step.description[:50]}...")
+
+                    # Mark step as in progress for task state
+                    self._task_state_manager.update_step_status(str(step.id), "in_progress")
+
                     async for event in self.executor.execute_step(self.plan, step, message):
                         yield event
+
+                    # Mark step as completed in task state
+                    self._task_state_manager.update_step_status(str(step.id), "completed")
+
                     logger.info(f"Agent {self._agent_id} completed step {step.id}, state changed from {AgentStatus.EXECUTING} to {AgentStatus.UPDATING}")
                     # Non-blocking background memory compaction
                     self._background_compact_memory()

@@ -20,6 +20,7 @@ class PlanStatus(str, Enum):
 class StepStatus(str, Enum):
     """Step status enum"""
     STARTED = "started"
+    RUNNING = "running"
     FAILED = "failed"
     COMPLETED = "completed"
 
