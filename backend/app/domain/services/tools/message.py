@@ -18,23 +18,32 @@ class MessageTool(BaseTool):
             "text": {
                 "type": "string",
                 "description": "Message text to display to user"
+            },
+            "attachments": {
+                "anyOf": [
+                    {"type": "string"},
+                    {"items": {"type": "string"}, "type": "array"}
+                ],
+                "description": "(Optional) List of attachments to show to user, can be file paths or URLs"
             }
         },
         required=["text"]
     )
     async def message_notify_user(
         self,
-        text: str
+        text: str,
+        attachments: Optional[Union[str, List[str]]] = None
     ) -> ToolResult:
         """Send notification message to user, no response needed
-        
+
         Args:
             text: Message text to display to user
-            
+            attachments: (Optional) List of attachments to show to user
+
         Returns:
             Message sending result
         """
-            
+
         # Return success result, actual UI display logic implemented by caller
         return ToolResult(success=True, data="Continue")
     
