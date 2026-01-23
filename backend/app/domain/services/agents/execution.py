@@ -29,6 +29,7 @@ from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.file import FileTool
 from app.domain.services.tools.message import MessageTool
 from app.domain.utils.json_parser import JsonParser
+from app.domain.services.agents.prompt_adapter import PromptAdapter
 import logging
 
 logger = logging.getLogger(__name__)
@@ -58,20 +59,36 @@ class ExecutionAgent(BaseAgent):
             json_parser=json_parser,
             tools=tools
         )
+        # Initialize prompt adapter for dynamic context injection
+        self._prompt_adapter = PromptAdapter()
     
     async def execute_step(self, plan: Plan, step: Step, message: Message) -> AsyncGenerator[BaseEvent, None]:
-        message = EXECUTION_PROMPT.format(
-            step=step.description, 
+        # Increment iteration counter for prompt adapter
+        self._prompt_adapter.increment_iteration()
+
+        # Build base execution prompt
+        base_prompt = EXECUTION_PROMPT.format(
+            step=step.description,
             message=message.message,
             attachments="\n".join(message.attachments),
             language=plan.language
         )
+
+        # Adapt prompt with context-specific guidance if applicable
+        if self._prompt_adapter.should_inject_guidance():
+            execution_message = self._prompt_adapter.adapt_prompt(base_prompt)
+            logger.debug("Injected context guidance into execution prompt")
+        else:
+            execution_message = base_prompt
+
         step.status = ExecutionStatus.RUNNING
         yield StepEvent(status=StepStatus.STARTED, step=step)
-        async for event in self.execute(message):
+        async for event in self.execute(execution_message):
             if isinstance(event, ErrorEvent):
                 step.status = ExecutionStatus.FAILED
                 step.error = event.error
+                # Track error for prompt adapter
+                self._prompt_adapter.track_tool_use("error", success=False, error=event.error)
                 yield StepEvent(status=StepStatus.FAILED, step=step)
             elif isinstance(event, MessageEvent):
                 step.status = ExecutionStatus.COMPLETED
@@ -85,6 +102,12 @@ class ExecutionAgent(BaseAgent):
                     yield MessageEvent(message=step.result)
                 continue
             elif isinstance(event, ToolEvent):
+                # Track tool usage for prompt adapter
+                if event.status == ToolStatus.CALLED:
+                    success = event.function_result.success if event.function_result else True
+                    error = event.function_result.message if event.function_result and not success else None
+                    self._prompt_adapter.track_tool_use(event.function_name, success=success, error=error)
+
                 if event.function_name == "message_ask_user":
                     if event.status == ToolStatus.CALLING:
                         yield MessageEvent(message=event.function_args.get("text", ""))

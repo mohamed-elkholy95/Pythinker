@@ -113,13 +113,47 @@ class WaitEvent(BaseEvent):
     """Wait event"""
     type: Literal["wait"] = "wait"
 
+
+class KnowledgeEvent(BaseEvent):
+    """Knowledge event from the knowledge module"""
+    type: Literal["knowledge"] = "knowledge"
+    scope: str
+    content: str
+
+
+class DatasourceEvent(BaseEvent):
+    """Datasource event from the datasource module"""
+    type: Literal["datasource"] = "datasource"
+    api_name: str
+    documentation: str
+
+
+class IdleEvent(BaseEvent):
+    """Idle event when agent enters standby state"""
+    type: Literal["idle"] = "idle"
+    reason: Optional[str] = None
+
+
+class MCPHealthEvent(BaseEvent):
+    """MCP server health status event"""
+    type: Literal["mcp_health"] = "mcp_health"
+    server_name: str
+    healthy: bool
+    error: Optional[str] = None
+    tools_available: int = 0
+
+
 AgentEvent = Union[
     ErrorEvent,
-    PlanEvent, 
+    PlanEvent,
     ToolEvent,
     StepEvent,
     MessageEvent,
     DoneEvent,
     TitleEvent,
     WaitEvent,
+    KnowledgeEvent,
+    DatasourceEvent,
+    IdleEvent,
+    MCPHealthEvent,
 ]

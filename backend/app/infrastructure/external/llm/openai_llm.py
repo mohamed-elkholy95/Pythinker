@@ -2,6 +2,7 @@ from typing import List, Dict, Any, Optional
 from openai import AsyncOpenAI
 from app.domain.external.llm import LLM
 from app.core.config import get_settings
+from app.domain.services.agents.error_handler import TokenLimitExceeded
 import logging
 import asyncio
 import time
@@ -96,8 +97,20 @@ class OpenAILLM(LLM):
                 return response.choices[0].message.model_dump()
 
             except Exception as e:
-                error_msg = f"Error calling OpenAI API on attempt {attempt + 1}: {str(e)}"
-                logger.error(error_msg)
+                error_msg = str(e).lower()
+                # Check for token limit errors and raise specific exception
+                if any(term in error_msg for term in [
+                    'context_length_exceeded',
+                    'maximum context length',
+                    'too many tokens',
+                    'max_tokens',
+                    'context window'
+                ]):
+                    logger.warning(f"Token limit exceeded: {e}")
+                    raise TokenLimitExceeded(str(e))
+
+                error_log = f"Error calling OpenAI API on attempt {attempt + 1}: {str(e)}"
+                logger.error(error_log)
                 if attempt == max_retries:
                     raise e
                 continue

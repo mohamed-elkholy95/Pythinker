@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 from app.domain.services.flows.base import BaseFlow
 from app.domain.models.agent import Agent
 from app.domain.models.message import Message
@@ -11,6 +12,8 @@ from app.domain.models.event import (
     MessageEvent,
     DoneEvent,
     TitleEvent,
+    IdleEvent,
+    ErrorEvent,
 )
 from app.domain.models.plan import ExecutionStatus
 from app.domain.services.agents.planner import PlannerAgent
@@ -30,8 +33,11 @@ from app.domain.services.tools.browser import BrowserTool
 from app.domain.services.tools.file import FileTool
 from app.domain.services.tools.message import MessageTool
 from app.domain.services.tools.search import SearchTool
+from app.domain.services.tools.idle import IdleTool
+from app.domain.services.agents.error_handler import ErrorHandler, ErrorType, ErrorContext
 
 logger = logging.getLogger(__name__)
+
 
 class AgentStatus(str, Enum):
     IDLE = "idle"
@@ -40,6 +46,7 @@ class AgentStatus(str, Enum):
     SUMMARIZING = "summarizing"
     COMPLETED = "completed"
     UPDATING = "updating"
+    ERROR = "error"
 
 class PlanActFlow(BaseFlow):
     def __init__(
@@ -62,14 +69,22 @@ class PlanActFlow(BaseFlow):
         self.status = AgentStatus.IDLE
         self.plan = None
 
+        # State management for error recovery
+        self._previous_status: Optional[AgentStatus] = None
+        self._error_context: Optional[ErrorContext] = None
+        self._error_handler = ErrorHandler()
+        self._max_error_recovery_attempts = 3
+        self._error_recovery_attempts = 0
+
         tools = [
             ShellTool(sandbox),
             BrowserTool(browser),
             FileTool(sandbox),
             MessageTool(),
+            IdleTool(),
             mcp_tool
         ]
-        
+
         # Only add search tool when search_engine is not None
         if search_engine:
             tools.append(SearchTool(search_engine))
@@ -83,7 +98,7 @@ class PlanActFlow(BaseFlow):
             json_parser=json_parser,
         )
         logger.debug(f"Created planner agent for Agent {self._agent_id}")
-            
+
         self.executor = ExecutionAgent(
             agent_id=self._agent_id,
             agent_repository=self._repository,
@@ -93,18 +108,76 @@ class PlanActFlow(BaseFlow):
         )
         logger.debug(f"Created execution agent for Agent {self._agent_id}")
 
+    @asynccontextmanager
+    async def state_context(self, new_status: AgentStatus):
+        """
+        Context manager for state transitions with automatic error handling.
+
+        Automatically transitions to ERROR state on exception and
+        preserves previous status for recovery.
+
+        Usage:
+            async with self.state_context(AgentStatus.PLANNING):
+                # Do planning work
+                # Auto-transitions to ERROR on exception
+        """
+        old_status = self.status
+        self.status = new_status
+        logger.debug(f"Agent {self._agent_id} entering state: {new_status}")
+
+        try:
+            yield
+        except Exception as e:
+            self._previous_status = old_status
+            self._error_context = self._error_handler.classify_error(e)
+            self.status = AgentStatus.ERROR
+            logger.error(f"Agent {self._agent_id} error in state {new_status}: {e}")
+            raise
+
+    async def handle_error_state(self) -> bool:
+        """
+        Handle ERROR state with recovery attempts.
+
+        Returns:
+            True if recovery successful and can continue, False otherwise
+        """
+        if self.status != AgentStatus.ERROR:
+            return True
+
+        if not self._error_context:
+            logger.error("No error context available for recovery")
+            return False
+
+        if self._error_recovery_attempts >= self._max_error_recovery_attempts:
+            logger.error(f"Max recovery attempts ({self._max_error_recovery_attempts}) reached")
+            return False
+
+        self._error_recovery_attempts += 1
+        logger.info(f"Attempting error recovery ({self._error_recovery_attempts}/{self._max_error_recovery_attempts})")
+
+        # Try to recover based on error type
+        if self._error_context.recoverable:
+            # Restore previous status
+            if self._previous_status:
+                self.status = self._previous_status
+                self._previous_status = None
+                logger.info(f"Recovered to previous state: {self.status}")
+                return True
+
+        return False
+
     async def run(self, message: Message) -> AsyncGenerator[BaseEvent, None]:
 
         # TODO: move to task runner
         session = await self._session_repository.find_by_id(self._session_id)
         if not session:
             raise ValueError(f"Session {self._session_id} not found")
-        
+
         if session.status != SessionStatus.PENDING:
             logger.debug(f"Session {self._session_id} is not in PENDING status, rolling back")
             await self.executor.roll_back(message)
             await self.planner.roll_back(message)
-        
+
         if session.status == SessionStatus.RUNNING:
             logger.debug(f"Session {self._session_id} is in RUNNING status")
             self.status = AgentStatus.PLANNING
@@ -113,69 +186,94 @@ class PlanActFlow(BaseFlow):
             logger.debug(f"Session {self._session_id} is in WAITING status")
             self.status = AgentStatus.EXECUTING
 
-        await self._session_repository.update_status(self._session_id, SessionStatus.RUNNING)  
+        await self._session_repository.update_status(self._session_id, SessionStatus.RUNNING)
         self.plan = session.get_last_plan()
 
         logger.info(f"Agent {self._agent_id} started processing message: {message.message[:50]}...")
         step = None
         while True:
-            if self.status == AgentStatus.IDLE:
-                logger.info(f"Agent {self._agent_id} state changed from {AgentStatus.IDLE} to {AgentStatus.PLANNING}")
-                self.status = AgentStatus.PLANNING
-            elif self.status == AgentStatus.PLANNING:
-                # Create plan
-                logger.info(f"Agent {self._agent_id} started creating plan")
-                async for event in self.planner.create_plan(message):
-                    if isinstance(event, PlanEvent) and event.status == PlanStatus.CREATED:
-                        self.plan = event.plan
-                        logger.info(f"Agent {self._agent_id} created plan successfully with {len(event.plan.steps)} steps")
-                        yield TitleEvent(title=event.plan.title)
-                        yield MessageEvent(role="assistant", message=event.plan.message)
-                    yield event
-                logger.info(f"Agent {self._agent_id} state changed from {AgentStatus.PLANNING} to {AgentStatus.EXECUTING}")
-                self.status = AgentStatus.EXECUTING
-                if len(event.plan.steps) == 0:
-                    logger.info(f"Agent {self._agent_id} created plan successfully with no steps")
+            try:
+                # Handle error state with recovery
+                if self.status == AgentStatus.ERROR:
+                    if await self.handle_error_state():
+                        logger.info(f"Agent {self._agent_id} recovered from error state")
+                        continue
+                    else:
+                        # Cannot recover, yield error and exit
+                        error_msg = self._error_context.message if self._error_context else "Unknown error"
+                        yield ErrorEvent(error=f"Agent failed after recovery attempts: {error_msg}")
+                        break
+
+                if self.status == AgentStatus.IDLE:
+                    logger.info(f"Agent {self._agent_id} state changed from {AgentStatus.IDLE} to {AgentStatus.PLANNING}")
+                    self.status = AgentStatus.PLANNING
+                elif self.status == AgentStatus.PLANNING:
+                    # Create plan
+                    logger.info(f"Agent {self._agent_id} started creating plan")
+                    async for event in self.planner.create_plan(message):
+                        if isinstance(event, PlanEvent) and event.status == PlanStatus.CREATED:
+                            self.plan = event.plan
+                            logger.info(f"Agent {self._agent_id} created plan successfully with {len(event.plan.steps)} steps")
+                            yield TitleEvent(title=event.plan.title)
+                            yield MessageEvent(role="assistant", message=event.plan.message)
+                        yield event
+                    logger.info(f"Agent {self._agent_id} state changed from {AgentStatus.PLANNING} to {AgentStatus.EXECUTING}")
+                    self.status = AgentStatus.EXECUTING
+                    if len(event.plan.steps) == 0:
+                        logger.info(f"Agent {self._agent_id} created plan successfully with no steps")
+                        self.status = AgentStatus.COMPLETED
+
+                elif self.status == AgentStatus.EXECUTING:
+                    # Execute plan
+                    self.plan.status = ExecutionStatus.RUNNING
+                    step = self.plan.get_next_step()
+                    if not step:
+                        logger.info(f"Agent {self._agent_id} has no more steps, state changed from {AgentStatus.EXECUTING} to {AgentStatus.COMPLETED}")
+                        self.status = AgentStatus.SUMMARIZING
+                        continue
+                    # Execute step
+                    logger.info(f"Agent {self._agent_id} started executing step {step.id}: {step.description[:50]}...")
+                    async for event in self.executor.execute_step(self.plan, step, message):
+                        yield event
+                    logger.info(f"Agent {self._agent_id} completed step {step.id}, state changed from {AgentStatus.EXECUTING} to {AgentStatus.UPDATING}")
+                    await self.executor.compact_memory()
+                    logger.debug(f"Agent {self._agent_id} compacted memory")
+                    self.status = AgentStatus.UPDATING
+                elif self.status == AgentStatus.UPDATING:
+                    # Update plan
+                    logger.info(f"Agent {self._agent_id} started updating plan")
+                    async for event in self.planner.update_plan(self.plan, step):
+                        yield event
+                    logger.info(f"Agent {self._agent_id} plan update completed, state changed from {AgentStatus.UPDATING} to {AgentStatus.EXECUTING}")
+                    self.status = AgentStatus.EXECUTING
+                elif self.status == AgentStatus.SUMMARIZING:
+                    # Conclusion
+                    logger.info(f"Agent {self._agent_id} started summarizing")
+                    async for event in self.executor.summarize():
+                        yield event
+                    logger.info(f"Agent {self._agent_id} summarizing completed, state changed from {AgentStatus.SUMMARIZING} to {AgentStatus.COMPLETED}")
                     self.status = AgentStatus.COMPLETED
-                    
-            elif self.status == AgentStatus.EXECUTING:
-                # Execute plan
-                self.plan.status = ExecutionStatus.RUNNING
-                step = self.plan.get_next_step()
-                if not step:
-                    logger.info(f"Agent {self._agent_id} has no more steps, state changed from {AgentStatus.EXECUTING} to {AgentStatus.COMPLETED}")
-                    self.status = AgentStatus.SUMMARIZING
-                    continue
-                # Execute step
-                logger.info(f"Agent {self._agent_id} started executing step {step.id}: {step.description[:50]}...")
-                async for event in self.executor.execute_step(self.plan, step, message):
-                    yield event
-                logger.info(f"Agent {self._agent_id} completed step {step.id}, state changed from {AgentStatus.EXECUTING} to {AgentStatus.UPDATING}")
-                await self.executor.compact_memory()
-                logger.debug(f"Agent {self._agent_id} compacted memory")
-                self.status = AgentStatus.UPDATING
-            elif self.status == AgentStatus.UPDATING:
-                # Update plan
-                logger.info(f"Agent {self._agent_id} started updating plan")
-                async for event in self.planner.update_plan(self.plan, step):
-                    yield event
-                logger.info(f"Agent {self._agent_id} plan update completed, state changed from {AgentStatus.UPDATING} to {AgentStatus.EXECUTING}")
-                self.status = AgentStatus.EXECUTING
-            elif self.status == AgentStatus.SUMMARIZING:
-                # Conclusion
-                logger.info(f"Agent {self._agent_id} started summarizing")
-                async for event in self.executor.summarize():
-                    yield event
-                logger.info(f"Agent {self._agent_id} summarizing completed, state changed from {AgentStatus.SUMMARIZING} to {AgentStatus.COMPLETED}")
-                self.status = AgentStatus.COMPLETED
-            elif self.status == AgentStatus.COMPLETED:
-                self.plan.status = ExecutionStatus.COMPLETED
-                logger.info(f"Agent {self._agent_id} plan has been completed")
-                yield PlanEvent(status=PlanStatus.COMPLETED, plan=self.plan)
-                self.status = AgentStatus.IDLE
-                break
+                elif self.status == AgentStatus.COMPLETED:
+                    self.plan.status = ExecutionStatus.COMPLETED
+                    logger.info(f"Agent {self._agent_id} plan has been completed")
+                    yield PlanEvent(status=PlanStatus.COMPLETED, plan=self.plan)
+                    self.status = AgentStatus.IDLE
+                    break
+
+            except Exception as e:
+                # Classify and handle error
+                self._error_context = self._error_handler.classify_error(e)
+                self._previous_status = self.status
+                self.status = AgentStatus.ERROR
+                logger.error(f"Agent {self._agent_id} encountered error: {e}")
+
+                # If not recoverable, yield error and exit
+                if not self._error_context.recoverable:
+                    yield ErrorEvent(error=f"Unrecoverable error: {self._error_context.message}")
+                    break
+
         yield DoneEvent()
-        
+
         logger.info(f"Agent {self._agent_id} message processing completed")
     
     def is_done(self) -> bool:
