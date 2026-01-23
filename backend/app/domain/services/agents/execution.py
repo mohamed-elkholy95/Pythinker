@@ -10,7 +10,14 @@ from app.domain.external.search import SearchEngine
 from app.domain.external.file import FileStorage
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.services.prompts.system import SYSTEM_PROMPT
-from app.domain.services.prompts.execution import EXECUTION_SYSTEM_PROMPT, EXECUTION_PROMPT, SUMMARIZE_PROMPT
+from app.domain.services.prompts.execution import (
+    EXECUTION_SYSTEM_PROMPT,
+    EXECUTION_PROMPT,
+    SUMMARIZE_PROMPT,
+    build_execution_prompt
+)
+from app.domain.services.agents.task_state_manager import get_task_state_manager
+from app.domain.services.agents.token_manager import TokenManager
 from app.domain.models.event import (
     BaseEvent,
     StepEvent,
@@ -66,12 +73,24 @@ class ExecutionAgent(BaseAgent):
         # Increment iteration counter for prompt adapter
         self._prompt_adapter.increment_iteration()
 
-        # Build base execution prompt
-        base_prompt = EXECUTION_PROMPT.format(
+        # Get task state context signal for recitation
+        task_state_manager = get_task_state_manager()
+        task_state_signal = task_state_manager.get_context_signal()
+
+        # Get context pressure signal if memory is under pressure
+        pressure_signal = None
+        if self.memory:
+            pressure = self._token_manager.get_context_pressure(self.memory.get_messages())
+            pressure_signal = pressure.to_context_signal()
+
+        # Build execution prompt with context signals
+        base_prompt = build_execution_prompt(
             step=step.description,
             message=message.message,
             attachments="\n".join(message.attachments),
-            language=plan.language
+            language=plan.language,
+            pressure_signal=pressure_signal,
+            task_state=task_state_signal
         )
 
         # Adapt prompt with context-specific guidance if applicable
@@ -119,13 +138,47 @@ class ExecutionAgent(BaseAgent):
         step.status = ExecutionStatus.COMPLETED
 
     async def summarize(self) -> AsyncGenerator[BaseEvent, None]:
-        message = SUMMARIZE_PROMPT
-        async for event in self.execute(message):
-            if isinstance(event, MessageEvent):
-                logger.debug(f"Execution agent summary: {event.message}")
-                parsed_response = await self.json_parser.parse(event.message)
-                message = Message.model_validate(parsed_response)
-                attachments = [FileInfo(file_path=file_path) for file_path in message.attachments]
-                yield MessageEvent(message=message.message, attachments=attachments)
-                continue
-            yield event
+        """
+        Summarize the completed task without tool execution.
+        This method asks the LLM for a summary directly, bypassing the tool loop.
+        """
+        # Yield a status event to indicate summarizing phase
+        yield StepEvent(status=StepStatus.RUNNING, step=Step(
+            id="summarize",
+            description="Preparing final summary...",
+            status=ExecutionStatus.IN_PROGRESS
+        ))
+
+        # Add summarize prompt to memory and ask LLM directly (no tools)
+        await self._add_to_memory([{"role": "user", "content": SUMMARIZE_PROMPT}])
+        await self._ensure_within_token_limit()
+
+        try:
+            # Call LLM WITHOUT tools to get a pure text summary
+            response = await self.llm.ask(
+                self.memory.get_messages(),
+                tools=None,  # No tools during summarization
+                response_format={"type": "json_object"},
+                tool_choice=None
+            )
+
+            content = response.get("content", "")
+            logger.debug(f"Execution agent summary response: {content}")
+
+            # Parse and yield the summary message
+            parsed_response = await self.json_parser.parse(content)
+            message = Message.model_validate(parsed_response)
+            attachments = [FileInfo(file_path=file_path) for file_path in message.attachments]
+
+            # Mark summarize step as completed
+            yield StepEvent(status=StepStatus.COMPLETED, step=Step(
+                id="summarize",
+                description="Summary complete",
+                status=ExecutionStatus.COMPLETED
+            ))
+
+            yield MessageEvent(message=message.message, attachments=attachments)
+
+        except Exception as e:
+            logger.error(f"Error during summarization: {e}")
+            yield ErrorEvent(error=f"Failed to generate summary: {str(e)}")
