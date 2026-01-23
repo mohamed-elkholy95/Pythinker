@@ -17,6 +17,7 @@ export const TOOL_FUNCTION_MAP: {[key: string]: string} = {
   "file_find_by_name": "Finding file",
   
   // Browser tools
+  "browser_get_content": "Fast fetching content",
   "browser_view": "Viewing webpage",
   "browser_navigate": "Navigating to webpage",
   "browser_restart": "Restarting browser",
@@ -29,13 +30,20 @@ export const TOOL_FUNCTION_MAP: {[key: string]: string} = {
   "browser_scroll_down": "Scrolling down",
   "browser_console_exec": "Executing JS code",
   "browser_console_view": "Viewing console output",
+
+  // Browser Agent tools
+  "browser_agent_run": "Running autonomous web task",
+  "browser_agent_extract": "Extracting web data",
   
   // Search tools
   "info_search_web": "Searching web",
   
   // Message tools
   "message_notify_user": "Sending notification",
-  "message_ask_user": "Asking question"
+  "message_ask_user": "Asking question",
+
+  // Idle tool
+  "idle_standby": "Entering standby mode"
 };
 
 /**
@@ -52,6 +60,7 @@ export const TOOL_FUNCTION_ARG_MAP: {[key: string]: string} = {
   "file_str_replace": "file",
   "file_find_in_content": "file",
   "file_find_by_name": "path",
+  "browser_get_content": "url",
   "browser_view": "page",
   "browser_navigate": "url",
   "browser_restart": "url",
@@ -66,7 +75,10 @@ export const TOOL_FUNCTION_ARG_MAP: {[key: string]: string} = {
   "browser_console_view": "console",
   "info_search_web": "query",
   "message_notify_user": "message",
-  "message_ask_user": "question"
+  "message_ask_user": "question",
+  "browser_agent_run": "task",
+  "browser_agent_extract": "extraction_goal",
+  "idle_standby": "reason"
 };
 
 /**
@@ -76,15 +88,19 @@ export const TOOL_NAME_MAP: {[key: string]: string} = {
   "shell": "Terminal",
   "file": "File",
   "browser": "Browser",
+  "browser_agent": "Browser Agent",
   "info": "Information",
   "message": "Message",
-  "mcp": "MCP Tool"
+  "mcp": "MCP Tool",
+  "idle": "Standby"
 };
 
 import SearchIcon from '../components/icons/SearchIcon.vue';
 import EditIcon from '../components/icons/EditIcon.vue';
 import BrowserIcon from '../components/icons/BrowserIcon.vue';
 import ShellIcon from '../components/icons/ShellIcon.vue';
+import GlobeIcon from '../components/icons/GlobeIcon.vue';
+import IdleIcon from '../components/icons/IdleIcon.vue';
 
 /**
  * Tool icon mapping
@@ -93,9 +109,11 @@ export const TOOL_ICON_MAP: {[key: string]: any} = {
   "shell": ShellIcon,
   "file": EditIcon,
   "browser": BrowserIcon,
+  "browser_agent": GlobeIcon,
   "search": SearchIcon,
   "message": "",
-  "mcp": SearchIcon  // Using search icon temporarily, can create dedicated MCP icon later
+  "mcp": SearchIcon,  // Using search icon temporarily, can create dedicated MCP icon later
+  "idle": IdleIcon
 };
 
 import ShellToolView from '@/components/toolViews/ShellToolView.vue';
@@ -112,5 +130,6 @@ export const TOOL_COMPONENT_MAP: {[key: string]: any} = {
   "file": FileToolView,
   "search": SearchToolView,
   "browser": BrowserToolView,
+  "browser_agent": BrowserToolView,  // Uses browser view to show VNC
   "mcp": McpToolView
 };

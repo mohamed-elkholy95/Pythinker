@@ -34,16 +34,16 @@ class StuckDetector:
 
     def __init__(
         self,
-        window_size: int = 5,
-        threshold: int = 3,
-        similarity_threshold: float = 0.9
+        window_size: int = 10,
+        threshold: int = 5,
+        similarity_threshold: float = 0.95
     ):
         """
         Initialize the stuck detector.
 
         Args:
             window_size: Number of recent responses to track
-            threshold: Number of similar responses to trigger stuck detection
+            threshold: Number of IDENTICAL responses to trigger stuck detection
             similarity_threshold: Minimum similarity ratio to consider responses similar
         """
         self._window_size = window_size
@@ -52,7 +52,7 @@ class StuckDetector:
         self._response_history: deque[ResponseRecord] = deque(maxlen=window_size)
         self._stuck_count = 0
         self._recovery_attempts = 0
-        self._max_recovery_attempts = 3
+        self._max_recovery_attempts = 5  # More recovery attempts before giving up
 
     def track_response(self, response: Dict[str, Any]) -> bool:
         """
@@ -119,24 +119,25 @@ class StuckDetector:
             normalized_content = " ".join(content.lower().split())
             hash_components.append(normalized_content)
 
-        # Include tool call structure
+        # Include tool call structure with argument values for better differentiation
         if tool_calls:
             for tc in tool_calls:
                 func = tc.get("function", {})
                 func_name = func.get("name", "")
-                # Include function name and argument keys (not values, as values might vary slightly)
+                # Include function name AND argument values to differentiate different searches
                 args = func.get("arguments", "")
                 if isinstance(args, str):
                     try:
                         import json
                         args_dict = json.loads(args)
-                        arg_keys = sorted(args_dict.keys()) if isinstance(args_dict, dict) else []
+                        # Include key=value pairs, sorted for consistency
+                        arg_pairs = sorted(f"{k}={v}" for k, v in args_dict.items()) if isinstance(args_dict, dict) else [args]
                     except:
-                        arg_keys = []
+                        arg_pairs = [args] if args else []
                 else:
-                    arg_keys = sorted(args.keys()) if isinstance(args, dict) else []
+                    arg_pairs = sorted(f"{k}={v}" for k, v in args.items()) if isinstance(args, dict) else []
 
-                hash_components.append(f"{func_name}:{','.join(arg_keys)}")
+                hash_components.append(f"{func_name}:{','.join(arg_pairs)}")
 
         combined = "|".join(hash_components)
         return hashlib.md5(combined.encode()).hexdigest()
@@ -145,7 +146,8 @@ class StuckDetector:
         """
         Detect if recent responses show a stuck pattern.
 
-        Returns True if threshold number of similar responses detected.
+        Returns True if threshold number of IDENTICAL responses detected.
+        Uses a conservative approach to avoid false positives.
         """
         if len(self._response_history) < self._threshold:
             return False
@@ -157,7 +159,17 @@ class StuckDetector:
 
         # Check if any hash appears threshold times or more
         max_count = max(hash_counts.values()) if hash_counts else 0
-        return max_count >= self._threshold
+
+        # Additional check: require the repeated hash to be in the most recent responses
+        # This prevents old patterns from triggering false positives
+        if max_count >= self._threshold:
+            recent_hashes = [r.content_hash for r in list(self._response_history)[-3:]]
+            most_common_hash = max(hash_counts, key=hash_counts.get)
+            # Only flag as stuck if the repeated pattern includes recent responses
+            recent_matches = sum(1 for h in recent_hashes if h == most_common_hash)
+            return recent_matches >= 2  # At least 2 of last 3 are the repeated pattern
+
+        return False
 
     def is_stuck(self) -> bool:
         """Check if currently in stuck state"""

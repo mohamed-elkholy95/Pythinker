@@ -68,12 +68,19 @@ class McpToolContent(BaseModel):
     """MCP tool content"""
     result: Any
 
+class BrowserAgentToolContent(BaseModel):
+    """Browser agent tool content"""
+    result: Any
+    steps_taken: int = 0
+    screenshot: Optional[str] = None
+
 ToolContent = Union[
     BrowserToolContent,
     SearchToolContent,
     ShellToolContent,
     FileToolContent,
-    McpToolContent
+    McpToolContent,
+    BrowserAgentToolContent
 ]
 
 class ToolEvent(BaseEvent):

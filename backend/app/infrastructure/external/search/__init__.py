@@ -13,7 +13,8 @@ def get_search_engine() -> Optional[SearchEngine]:
     from app.infrastructure.external.search.google_search import GoogleSearchEngine
     from app.infrastructure.external.search.baidu_search import BaiduSearchEngine
     from app.infrastructure.external.search.bing_search import BingSearchEngine
-    
+    from app.infrastructure.external.search.searxng_search import SearXNGSearchEngine
+
     settings = get_settings()
     if settings.search_provider == "google":
         if settings.google_search_api_key and settings.google_search_engine_id:
@@ -30,7 +31,10 @@ def get_search_engine() -> Optional[SearchEngine]:
     elif settings.search_provider == "bing":
         logger.info("Initializing Bing Search Engine")
         return BingSearchEngine()
+    elif settings.search_provider == "searxng":
+        logger.info("Initializing SearXNG Search Engine")
+        return SearXNGSearchEngine(base_url=settings.searxng_url)
     else:
         logger.warning(f"Unknown search provider: {settings.search_provider}")
-    
+
     return None 

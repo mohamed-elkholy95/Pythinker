@@ -10,8 +10,8 @@ class Settings(BaseSettings):
     
     # Model configuration
     model_name: str = "deepseek-chat"
-    temperature: float = 0.7
-    max_tokens: int = 2000
+    temperature: float = 0.3  # Lower temperature for deterministic JSON responses
+    max_tokens: int = 8000  # Increased from 2000 to allow complete responses
     
     # MongoDB configuration
     mongodb_uri: str = "mongodb://mongodb:27017"
@@ -37,9 +37,20 @@ class Settings(BaseSettings):
     sandbox_no_proxy: str | None = None
     
     # Search engine configuration
-    search_provider: str | None = "bing"  # "baidu", "google", "bing"
+    search_provider: str | None = "bing"  # "baidu", "google", "bing", "searxng"
     google_search_api_key: str | None = None
     google_search_engine_id: str | None = None
+    searxng_url: str | None = "http://searxng:8080"  # SearXNG instance URL
+
+    # Browser Agent configuration
+    browser_agent_enabled: bool = True
+    browser_agent_max_steps: int = 25
+    browser_agent_timeout: int = 300
+    browser_agent_use_vision: bool = True
+    browser_agent_max_failures: int = 5  # Max retries for failed steps
+    browser_agent_llm_timeout: int = 90  # Timeout for LLM calls in seconds
+    browser_agent_step_timeout: int = 120  # Timeout per step in seconds
+    browser_agent_flash_mode: bool = False  # Fast mode skips thinking (less reliable)
     
     # Auth configuration
     auth_provider: str = "password"  # "password", "none", "local"

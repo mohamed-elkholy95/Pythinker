@@ -35,13 +35,85 @@ class OpenAILLM(LLM):
     def max_tokens(self) -> int:
         return self._max_tokens
     
+    def _validate_and_fix_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Validate message sequence and fix tool_call/tool_response ordering issues.
+
+        Ensures every assistant message with tool_calls is followed by the
+        corresponding tool responses before any other message type.
+        """
+        if not messages:
+            return messages
+
+        fixed_messages = []
+        pending_tool_ids = set()
+
+        for i, msg in enumerate(messages):
+            role = msg.get("role", "")
+
+            # Check if this is an assistant message with tool_calls
+            if role == "assistant" and msg.get("tool_calls"):
+                # If we have pending tool_ids from a previous assistant message,
+                # that means we never got responses - skip the orphaned message
+                if pending_tool_ids:
+                    logger.warning(f"Removing orphaned assistant message with unfulfilled tool_calls: {pending_tool_ids}")
+                    pending_tool_ids = set()
+
+                # Track the new tool_call_ids
+                pending_tool_ids = {
+                    tc.get("id") for tc in msg.get("tool_calls", []) if tc.get("id")
+                }
+                fixed_messages.append(msg)
+
+            elif role == "tool":
+                tool_call_id = msg.get("tool_call_id")
+                if tool_call_id in pending_tool_ids:
+                    pending_tool_ids.discard(tool_call_id)
+                    fixed_messages.append(msg)
+                elif not pending_tool_ids:
+                    # Orphaned tool response - skip it
+                    logger.warning(f"Removing orphaned tool response with id: {tool_call_id}")
+                else:
+                    # Tool response for unknown id - still add it if we're expecting responses
+                    fixed_messages.append(msg)
+
+            else:
+                # Regular message (user/system/assistant without tool_calls)
+                if pending_tool_ids:
+                    # We have an incomplete tool sequence - remove the assistant message
+                    logger.warning(f"Incomplete tool sequence detected, removing last assistant message")
+                    # Find and remove the last assistant message with tool_calls
+                    for j in range(len(fixed_messages) - 1, -1, -1):
+                        if fixed_messages[j].get("role") == "assistant" and fixed_messages[j].get("tool_calls"):
+                            fixed_messages.pop(j)
+                            break
+                    pending_tool_ids = set()
+
+                fixed_messages.append(msg)
+
+        # Handle trailing incomplete tool sequence
+        if pending_tool_ids:
+            logger.warning(f"Trailing incomplete tool sequence, removing last assistant message")
+            for j in range(len(fixed_messages) - 1, -1, -1):
+                if fixed_messages[j].get("role") == "assistant" and fixed_messages[j].get("tool_calls"):
+                    fixed_messages.pop(j)
+                    break
+
+        if len(fixed_messages) != len(messages):
+            logger.info(f"Fixed message sequence: {len(messages)} -> {len(fixed_messages)} messages")
+
+        return fixed_messages
+
     async def ask(self, messages: List[Dict[str, str]],
                 tools: Optional[List[Dict[str, Any]]] = None,
                 response_format: Optional[Dict[str, Any]] = None,
                 tool_choice: Optional[str] = None) -> Dict[str, Any]:
         """Send chat request to OpenAI API with retry mechanism"""
+        # Validate and fix message sequence before sending
+        messages = self._validate_and_fix_messages(messages)
+
         max_retries = 3
-        base_delay = 1.0  
+        base_delay = 1.0
 
         for attempt in range(max_retries + 1):  # every try
             response = None
