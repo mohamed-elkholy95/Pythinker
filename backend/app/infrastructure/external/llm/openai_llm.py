@@ -3,6 +3,10 @@ from openai import AsyncOpenAI
 from app.domain.external.llm import LLM
 from app.core.config import get_settings
 from app.domain.services.agents.error_handler import TokenLimitExceeded
+from app.domain.services.agents.prompt_cache_manager import (
+    PromptCacheManager,
+    get_prompt_cache_manager
+)
 import logging
 import asyncio
 import time
@@ -17,10 +21,14 @@ class OpenAILLM(LLM):
             api_key=settings.api_key,
             base_url=settings.api_base
         )
-        
+
         self._model_name = settings.model_name
         self._temperature = settings.temperature
         self._max_tokens = settings.max_tokens
+
+        # Initialize prompt cache manager for KV-cache optimization
+        self._cache_manager = get_prompt_cache_manager(self._model_name)
+
         logger.info(f"Initialized OpenAI LLM with model: {self._model_name}")
     
     @property
@@ -107,10 +115,15 @@ class OpenAILLM(LLM):
     async def ask(self, messages: List[Dict[str, str]],
                 tools: Optional[List[Dict[str, Any]]] = None,
                 response_format: Optional[Dict[str, Any]] = None,
-                tool_choice: Optional[str] = None) -> Dict[str, Any]:
-        """Send chat request to OpenAI API with retry mechanism"""
+                tool_choice: Optional[str] = None,
+                enable_caching: bool = True) -> Dict[str, Any]:
+        """Send chat request to OpenAI API with retry mechanism and caching support"""
         # Validate and fix message sequence before sending
         messages = self._validate_and_fix_messages(messages)
+
+        # Apply cache optimization for message structure
+        if enable_caching and self._cache_manager:
+            messages = self._cache_manager.prepare_messages_for_caching(messages)
 
         max_retries = 3
         base_delay = 1.0
@@ -186,4 +199,10 @@ class OpenAILLM(LLM):
                 if attempt == max_retries:
                     raise e
                 continue
+
+    def get_cache_metrics(self) -> Dict[str, Any]:
+        """Get prompt caching performance metrics"""
+        if self._cache_manager:
+            return self._cache_manager.get_metrics()
+        return {}
 

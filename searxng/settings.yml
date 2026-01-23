@@ -1,0 +1,96 @@
+# SearXNG settings for Pythinker Agent integration
+# see https://docs.searxng.org/admin/settings/index.html
+
+use_default_settings: true
+
+general:
+  instance_name: "Pythinker Search"
+  debug: false
+  privacypolicy_url: false
+  contact_url: false
+  enable_metrics: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "en"
+  formats:
+    - html
+    - json  # Enable JSON API for programmatic access
+
+server:
+  # Bind to all interfaces for Docker networking
+  bind_address: "0.0.0.0"
+  port: 8080
+  secret_key: "pythinker-searxng-secret-key-change-in-production"
+  limiter: false  # Disable rate limiting for internal use
+  image_proxy: false
+  http_protocol_version: "1.1"
+
+ui:
+  static_use_hash: true
+  default_locale: "en"
+  query_in_title: true
+  infinite_scroll: false
+  center_alignment: false
+  default_theme: simple
+  theme_args:
+    simple_style: auto
+
+# Enable specific search engines
+engines:
+  # Google
+  - name: google
+    engine: google
+    shortcut: g
+    disabled: false
+
+  # Bing
+  - name: bing
+    engine: bing
+    shortcut: b
+    disabled: false
+
+  # DuckDuckGo
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: false
+
+  # Brave
+  - name: brave
+    engine: brave
+    shortcut: br
+    disabled: false
+
+  # Wikipedia
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: w
+    disabled: false
+
+  # GitHub
+  - name: github
+    engine: github
+    shortcut: gh
+    disabled: false
+
+  # Stack Overflow
+  - name: stackoverflow
+    engine: stackoverflow
+    shortcut: so
+    disabled: false
+
+  # Arxiv (for academic papers)
+  - name: arxiv
+    engine: arxiv
+    shortcut: ar
+    disabled: false
+
+outgoing:
+  # Use default request settings
+  request_timeout: 6.0
+  max_request_timeout: 15.0
+  useragent_suffix: ""
+  pool_connections: 100
+  pool_maxsize: 20

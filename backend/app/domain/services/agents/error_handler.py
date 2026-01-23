@@ -2,13 +2,14 @@
 Centralized error handling for agent operations.
 
 Provides error classification, context tracking, and recovery strategies
-for various failure modes in the agent execution pipeline.
+for various failure modes in the agent execution pipeline. Integrates
+with error pattern analysis for proactive guidance.
 """
 
 import logging
 from enum import Enum
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, Callable, Awaitable
+from typing import Optional, Dict, Any, Callable, Awaitable, List
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -202,11 +203,22 @@ class ErrorHandler:
         if len(self._error_history) > self._max_history:
             self._error_history = self._error_history[-self._max_history:]
 
-    def get_recovery_prompt(self, error_context: ErrorContext) -> Optional[str]:
+    def get_recovery_prompt(
+        self,
+        error_context: ErrorContext,
+        tool_name: Optional[str] = None
+    ) -> Optional[str]:
         """
         Generate a recovery prompt based on error context.
 
-        Used to help the LLM recover from certain error states.
+        Includes pattern-based insights when available.
+
+        Args:
+            error_context: The error context
+            tool_name: Optional tool name for pattern-specific guidance
+
+        Returns:
+            Recovery prompt string
         """
         prompts = {
             ErrorType.JSON_PARSE: (
@@ -238,7 +250,70 @@ class ErrorHandler:
             )
         }
 
-        return prompts.get(error_context.error_type)
+        base_prompt = prompts.get(error_context.error_type, "")
+
+        # Try to add pattern-based insights
+        pattern_insights = self._get_pattern_insights(tool_name)
+        if pattern_insights:
+            if base_prompt:
+                return f"{base_prompt}\n\n{pattern_insights}"
+            return pattern_insights
+
+        return base_prompt if base_prompt else None
+
+    def _get_pattern_insights(self, tool_name: Optional[str] = None) -> Optional[str]:
+        """Get insights from error pattern analysis"""
+        try:
+            from app.domain.services.agents.error_pattern_analyzer import get_error_pattern_analyzer
+
+            analyzer = get_error_pattern_analyzer()
+            patterns = analyzer.analyze_patterns()
+
+            if not patterns:
+                return None
+
+            # Get relevant patterns
+            if tool_name:
+                relevant = [p for p in patterns if tool_name in p.affected_tools]
+                if relevant:
+                    return relevant[0].to_context_signal()
+
+            # Return most confident pattern
+            if patterns:
+                best = max(patterns, key=lambda p: p.confidence)
+                return best.to_context_signal()
+
+        except Exception as e:
+            logger.debug(f"Could not get pattern insights: {e}")
+
+        return None
+
+    def record_tool_error(
+        self,
+        tool_name: str,
+        error_context: ErrorContext,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """Record a tool error for pattern analysis"""
+        try:
+            from app.domain.services.agents.error_pattern_analyzer import get_error_pattern_analyzer
+
+            analyzer = get_error_pattern_analyzer()
+            analyzer.record_error(tool_name, error_context, metadata)
+
+        except Exception as e:
+            logger.debug(f"Could not record tool error: {e}")
+
+    def record_tool_success(self, tool_name: str) -> None:
+        """Record a tool success to break failure streaks"""
+        try:
+            from app.domain.services.agents.error_pattern_analyzer import get_error_pattern_analyzer
+
+            analyzer = get_error_pattern_analyzer()
+            analyzer.record_success(tool_name)
+
+        except Exception as e:
+            logger.debug(f"Could not record tool success: {e}")
 
     def get_recent_errors(self, error_type: Optional[ErrorType] = None, limit: int = 10) -> list[ErrorContext]:
         """Get recent errors, optionally filtered by type"""

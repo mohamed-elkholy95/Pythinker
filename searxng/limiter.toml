@@ -1,0 +1,6 @@
+# SearXNG rate limiter configuration
+# Disabled for internal Pythinker agent use
+
+[botdetection.ip_limit]
+# Disable IP-based rate limiting for internal API use
+link_token = false

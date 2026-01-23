@@ -1,4 +1,20 @@
 # Execution prompt
+from typing import Optional
+
+# Context pressure signal template - injected when pressure is high
+CONTEXT_PRESSURE_SIGNAL = """
+---
+{pressure_signal}
+---
+"""
+
+# Task state template - for todo recitation mechanism
+TASK_STATE_SIGNAL = """
+---
+CURRENT TASK STATE:
+{task_state}
+---
+"""
 
 EXECUTION_SYSTEM_PROMPT = """
 You are a task execution agent, and you need to complete the following steps:
@@ -34,6 +50,13 @@ For research/comparison tasks, before returning results you MUST:
 2. Include source URLs for all factual claims in your result
 3. Flag if any claims are unverified or if sources contradict each other
 4. Confirm category/type classifications from official specifications
+
+ALWAYS SEARCH FOR LATEST DATA:
+- NEVER rely on your model knowledge for prices, specs, or product info - it is OUTDATED
+- Use date_range="past_month" or "past_year" when searching for products/reviews
+- Add current year (2025/2026) to search queries for time-sensitive topics
+- Check publish dates on pages - prefer sources from last 6 months
+- If only old sources exist, explicitly note "Latest available info as of [date]"
 
 FILE FORMAT REQUIREMENTS:
 - Research reports, comparisons, documentation → save as .md (Markdown)
@@ -128,3 +151,68 @@ EXAMPLE JSON OUTPUT:
     ]
 }}
 """
+
+
+def build_execution_prompt(
+    step: str,
+    message: str,
+    attachments: str,
+    language: str,
+    pressure_signal: Optional[str] = None,
+    task_state: Optional[str] = None
+) -> str:
+    """
+    Build execution prompt with optional context signals.
+
+    Args:
+        step: Current step description
+        message: User message
+        attachments: User attachments
+        language: Working language
+        pressure_signal: Optional context pressure warning
+        task_state: Optional current task state for recitation
+
+    Returns:
+        Formatted execution prompt with injected signals
+    """
+    prompt = EXECUTION_PROMPT.format(
+        step=step,
+        message=message,
+        attachments=attachments,
+        language=language
+    )
+
+    # Inject pressure signal if present
+    if pressure_signal:
+        prompt = CONTEXT_PRESSURE_SIGNAL.format(
+            pressure_signal=pressure_signal
+        ) + prompt
+
+    # Inject task state for recitation if present
+    if task_state:
+        prompt = TASK_STATE_SIGNAL.format(
+            task_state=task_state
+        ) + prompt
+
+    return prompt
+
+
+def build_execution_system_prompt(
+    base_prompt: str,
+    pressure_signal: Optional[str] = None
+) -> str:
+    """
+    Build execution system prompt with optional pressure warning.
+
+    Args:
+        base_prompt: Base system prompt
+        pressure_signal: Optional context pressure warning
+
+    Returns:
+        System prompt with pressure signal if needed
+    """
+    if pressure_signal:
+        return base_prompt + "\n\n" + CONTEXT_PRESSURE_SIGNAL.format(
+            pressure_signal=pressure_signal
+        )
+    return base_prompt
