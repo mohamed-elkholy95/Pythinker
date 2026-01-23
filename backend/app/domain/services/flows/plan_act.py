@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from contextlib import asynccontextmanager
 from app.domain.services.flows.base import BaseFlow
 from app.domain.models.agent import Agent
@@ -30,11 +31,13 @@ from app.domain.models.session import SessionStatus
 from app.domain.services.tools.mcp import MCPTool
 from app.domain.services.tools.shell import ShellTool
 from app.domain.services.tools.browser import BrowserTool
+from app.domain.services.tools.browser_agent import BrowserAgentTool
 from app.domain.services.tools.file import FileTool
 from app.domain.services.tools.message import MessageTool
 from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.idle import IdleTool
 from app.domain.services.agents.error_handler import ErrorHandler, ErrorType, ErrorContext
+from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +64,7 @@ class PlanActFlow(BaseFlow):
         json_parser: JsonParser,
         mcp_tool: MCPTool,
         search_engine: Optional[SearchEngine] = None,
+        cdp_url: Optional[str] = None,
     ):
         self._agent_id = agent_id
         self._repository = agent_repository
@@ -89,6 +93,12 @@ class PlanActFlow(BaseFlow):
         if search_engine:
             tools.append(SearchTool(search_engine))
 
+        # Add browser agent tool when cdp_url is available and enabled
+        settings = get_settings()
+        if cdp_url and settings.browser_agent_enabled:
+            tools.append(BrowserAgentTool(cdp_url))
+            logger.info(f"Browser agent tool enabled for Agent {agent_id}")
+
         # Create planner and execution agents
         self.planner = PlannerAgent(
             agent_id=self._agent_id,
@@ -107,6 +117,22 @@ class PlanActFlow(BaseFlow):
             json_parser=json_parser,
         )
         logger.debug(f"Created execution agent for Agent {self._agent_id}")
+
+        # Track background tasks for cleanup
+        self._background_tasks: set = set()
+
+    def _background_compact_memory(self) -> None:
+        """Schedule memory compaction as a non-blocking background task"""
+        async def _compact():
+            try:
+                await self.executor.compact_memory()
+                logger.debug(f"Agent {self._agent_id} background memory compact completed")
+            except Exception as e:
+                logger.warning(f"Agent {self._agent_id} background memory compact failed: {e}")
+
+        task = asyncio.create_task(_compact())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     @asynccontextmanager
     async def state_context(self, new_status: AgentStatus):
@@ -236,8 +262,8 @@ class PlanActFlow(BaseFlow):
                     async for event in self.executor.execute_step(self.plan, step, message):
                         yield event
                     logger.info(f"Agent {self._agent_id} completed step {step.id}, state changed from {AgentStatus.EXECUTING} to {AgentStatus.UPDATING}")
-                    await self.executor.compact_memory()
-                    logger.debug(f"Agent {self._agent_id} compacted memory")
+                    # Non-blocking background memory compaction
+                    self._background_compact_memory()
                     self.status = AgentStatus.UPDATING
                 elif self.status == AgentStatus.UPDATING:
                     # Update plan

@@ -128,11 +128,14 @@ class RedisStreamTask(Task):
     @classmethod
     async def destroy(cls) -> None:
         """Destroy all task instances."""
-        for task_id in cls._task_registry:
-            task = cls._task_registry[task_id]
-            task.cancel()
-            if task._runner:
-                await task._runner.destroy()
+        # Copy keys to list to avoid "dictionary changed size during iteration"
+        task_ids = list(cls._task_registry.keys())
+        for task_id in task_ids:
+            task = cls._task_registry.get(task_id)
+            if task:
+                task.cancel()
+                if task._runner:
+                    await task._runner.destroy()
         cls._task_registry.clear()
     
     def __repr__(self) -> str:

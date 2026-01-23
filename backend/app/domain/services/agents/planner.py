@@ -77,15 +77,33 @@ class PlannerAgent(BaseAgent):
                 logger.debug(f"Planner agent update plan: {event.message}")
                 parsed_response = await self.json_parser.parse(event.message)
                 updated_plan = Plan.model_validate(parsed_response)
-                new_steps = [Step.model_validate(step) for step in updated_plan.steps]
-                
+                new_steps = [Step.model_validate(s) for s in updated_plan.steps]
+
+                # Find remaining pending steps in current plan
+                remaining_pending = [s for s in plan.steps if not s.is_done()]
+
+                # SAFEGUARD: If LLM returns empty/fewer steps but we have pending steps,
+                # keep the original pending steps (prevent premature task completion)
+                if len(new_steps) == 0 and len(remaining_pending) > 1:
+                    logger.warning(
+                        f"LLM returned empty steps but {len(remaining_pending)} steps remain. "
+                        "Keeping original pending steps."
+                    )
+                    # Mark current step as done and keep the rest
+                    for s in plan.steps:
+                        if s.id == step.id:
+                            s.mark_done()
+                            break
+                    yield PlanEvent(status=PlanStatus.UPDATED, plan=plan)
+                    return
+
                 # Find the index of the first pending step
                 first_pending_index = None
-                for i, step in enumerate(plan.steps):
-                    if not step.is_done():
+                for i, s in enumerate(plan.steps):
+                    if not s.is_done():
                         first_pending_index = i
                         break
-                
+
                 # If there are pending steps, replace all pending steps
                 if first_pending_index is not None:
                     # Keep completed steps
@@ -94,7 +112,7 @@ class PlannerAgent(BaseAgent):
                     updated_steps.extend(new_steps)
                     # Update steps in plan
                     plan.steps = updated_steps
-                
+
                 yield PlanEvent(status=PlanStatus.UPDATED, plan=plan)
             else:
                 yield event

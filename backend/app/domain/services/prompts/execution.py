@@ -14,42 +14,57 @@ You are executing the task:
 {step}
 
 Note:
-- **It you that to do the task, not the user**
+- **It is you who does the task, not the user**
 - **You must use the language provided by user's message to execute the task**
-- You must use message_notify_user tool to notify users within one sentence:
-    - What tools you are going to use and what you are going to do with them
-    - What you have done by tools
-    - What you are going to do or have done within one sentence
-- If you need to ask user for input or take control of the browser, you must use message_ask_user tool to ask user for input
-- Don't tell how to do the task, determine by yourself.
-- Deliver the final result to user not the todo list, advice or plan
+- Use message_notify_user to briefly state what you're doing (one sentence max)
+- Don't tell how to do the task, determine by yourself
+- Deliver the final result to user, not todo lists, advice or plans
 
-Return format requirements:
-- Must return JSON format that complies with the following TypeScript interface
-- Must include all required fields as specified
+AUTONOMOUS EXECUTION - NO QUESTIONS:
+- For research/comparison/recommendation tasks: NEVER use message_ask_user
+- Only use message_ask_user for: login credentials, payment info, or explicit user action required
+- Use sensible defaults: mid-range budget ($100-200), current year, popular options
+- If user said "continue"/"proceed"/"go ahead" - execute immediately, zero questions
+- State assumptions via notify, NEVER ask for confirmation
+- Pick the most common interpretation of ambiguous requests and proceed
 
+RESEARCH TASK VERIFICATION:
+For research/comparison tasks, before returning results you MUST:
+1. Verify factual claims by visiting official product pages (not just snippets)
+2. Include source URLs for all factual claims in your result
+3. Flag if any claims are unverified or if sources contradict each other
+4. Confirm category/type classifications from official specifications
+
+FILE FORMAT REQUIREMENTS:
+- Research reports, comparisons, documentation → save as .md (Markdown)
+- Code files → save with appropriate extension (.py, .js, .html, etc.)
+- Data exports → save as .csv or .json
+- NEVER save research reports as JSON - always use Markdown for readability
+
+RESPONSE FORMAT (for system, NOT for user files):
+- Your response to this prompt must be JSON format (TypeScript interface below)
+- This is different from files you create - files should be Markdown/code/etc.
 
 TypeScript Interface Definition:
 ```typescript
 interface Response {{
-  /** Whether the task is executed successfully **/
+  /** Whether THIS STEP (not entire task) executed successfully **/
   success: boolean;
   /** Array of file paths in sandbox for generated files to be delivered to user **/
   attachments: string[];
-
-  /** Task result, empty if no result to deliver **/
+  /** Step result - what was accomplished in THIS step only **/
   result: string;
 }}
 ```
 
+IMPORTANT: success=true means THIS STEP completed, NOT the entire task.
+The planner will determine if more steps remain.
+
 EXAMPLE JSON OUTPUT:
 {{
     "success": true,
-    "result": "We have finished the task",
-    "attachments": [
-        "/home/ubuntu/file1.md",
-        "/home/ubuntu/file2.md"
-    ],
+    "result": "Completed step: searched for keyboards and found 5 candidates",
+    "attachments": []
 }}
 
 Input:
@@ -74,13 +89,21 @@ Task:
 """
 
 SUMMARIZE_PROMPT = """
-You are finished the task, and you need to deliver the final result to user.
+Deliver the FINAL completed result to user.
 
-Note:
-- You should explain the final result to user in detail.
-- Write a markdown content to deliver the final result to user if necessary.
-- Use file tools to deliver the files generated above to user if necessary.
-- Deliver the files generated above to user if necessary.
+RULES:
+- This is called ONLY when ALL steps are complete
+- Provide the full research report/deliverable
+- Write as MARKDOWN (.md files), NOT JSON
+- Include all sources and citations
+- Do NOT say "next step" or "when you request" - the task is DONE
+
+FOR RESEARCH/COMPARISON RESULTS:
+- Include source URLs for all factual claims (format: "claim (Source: URL)")
+- Add a "Sources" section at the end listing all URLs visited
+- If any claims could not be verified, explicitly state "Unverified: [claim]"
+- If sources contradicted each other, note: "Contradiction: Source A says X, Source B says Y"
+- Verify category/type claims match official specifications before including them
 
 Return format requirements:
 - Must return JSON format that complies with the following TypeScript interface

@@ -20,6 +20,7 @@ class ErrorType(str, Enum):
     TOKEN_LIMIT = "token_limit"
     TOOL_EXECUTION = "tool_execution"
     LLM_API = "llm_api"
+    LLM_EMPTY_RESPONSE = "llm_empty_response"
     MCP_CONNECTION = "mcp_connection"
     TIMEOUT = "timeout"
     STUCK_LOOP = "stuck_loop"
@@ -129,6 +130,10 @@ class ErrorHandler:
         if any(term in message_lower for term in ['tool', 'function', 'execute', 'invoke']):
             return ErrorType.TOOL_EXECUTION
 
+        # Empty response errors from LLM
+        if any(term in message_lower for term in ['empty response', 'no content', 'empty content']):
+            return ErrorType.LLM_EMPTY_RESPONSE
+
         return ErrorType.UNKNOWN
 
     def _get_recovery_strategy(self, error_type: ErrorType, message: str) -> tuple[Optional[str], bool]:
@@ -162,6 +167,10 @@ class ErrorHandler:
             ),
             ErrorType.STUCK_LOOP: (
                 "Inject recovery prompt to break loop",
+                True
+            ),
+            ErrorType.LLM_EMPTY_RESPONSE: (
+                "Retry with simplified prompt or different approach",
                 True
             ),
             ErrorType.UNKNOWN: (
@@ -220,6 +229,12 @@ class ErrorHandler:
             ErrorType.TOKEN_LIMIT: (
                 "The context has been trimmed due to length limits. Please continue "
                 "from where you left off, focusing on the most recent task."
+            ),
+            ErrorType.LLM_EMPTY_RESPONSE: (
+                "Your previous response was empty. Please provide a response by either:\n"
+                "1. Using a tool to accomplish the task, OR\n"
+                "2. Providing a text response if the task is complete.\n"
+                "You must respond with either a tool call or content."
             )
         }
 

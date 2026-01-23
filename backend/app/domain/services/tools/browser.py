@@ -1,22 +1,123 @@
+import logging
+import re
 from typing import Optional
+import aiohttp
 from app.domain.external.browser import Browser
 from app.domain.services.tools.base import tool, BaseTool
 from app.domain.models.tool_result import ToolResult
 
+logger = logging.getLogger(__name__)
+
+# Singleton HTTP client session for connection pooling
+_http_session: Optional[aiohttp.ClientSession] = None
+
+
+async def get_http_session() -> aiohttp.ClientSession:
+    """Get or create shared HTTP session for connection pooling"""
+    global _http_session
+    if _http_session is None or _http_session.closed:
+        timeout = aiohttp.ClientTimeout(total=30, connect=10)
+        _http_session = aiohttp.ClientSession(
+            timeout=timeout,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        )
+    return _http_session
+
+
+def html_to_text(html: str, max_length: int = 50000) -> str:
+    """Convert HTML to clean text, stripping tags and extracting content.
+
+    A lightweight alternative to BeautifulSoup for simple text extraction.
+    """
+    # Remove scripts and styles
+    html = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL | re.IGNORECASE)
+
+    # Remove HTML comments
+    html = re.sub(r'<!--.*?-->', '', html, flags=re.DOTALL)
+
+    # Convert common block elements to newlines
+    html = re.sub(r'<(p|div|br|h[1-6]|li|tr)[^>]*>', '\n', html, flags=re.IGNORECASE)
+
+    # Remove all other HTML tags
+    html = re.sub(r'<[^>]+>', '', html)
+
+    # Decode common HTML entities
+    html = html.replace('&nbsp;', ' ')
+    html = html.replace('&amp;', '&')
+    html = html.replace('&lt;', '<')
+    html = html.replace('&gt;', '>')
+    html = html.replace('&quot;', '"')
+    html = html.replace('&#39;', "'")
+
+    # Clean up whitespace
+    html = re.sub(r'\n\s*\n', '\n\n', html)
+    html = re.sub(r' +', ' ', html)
+    html = html.strip()
+
+    return html[:max_length] if len(html) > max_length else html
+
+
 class BrowserTool(BaseTool):
-    """Browser tool class, providing browser interaction functions"""
+    """Browser tool class, providing browser interaction functions with text-first mode"""
 
     name: str = "browser"
-    
+
     def __init__(self, browser: Browser):
         """Initialize browser tool class
-        
+
         Args:
             browser: Browser service
         """
         super().__init__()
         self.browser = browser
     
+    @tool(
+        name="browser_get_content",
+        description="""Fast fetch page content as text (no browser rendering).
+Use for research tasks when you only need to read text content without interactions.
+Much faster than browser_navigate for read-only pages. Falls back to browser_navigate on failure.""",
+        parameters={
+            "url": {
+                "type": "string",
+                "description": "Complete URL to fetch content from. Must include protocol prefix."
+            }
+        },
+        required=["url"]
+    )
+    async def browser_get_content(self, url: str) -> ToolResult:
+        """Fast fetch page content as text without browser rendering.
+
+        Uses lightweight HTTP client for speed. Ideal for research tasks.
+        Falls back to full browser navigation on failure.
+
+        Args:
+            url: Complete URL to fetch
+
+        Returns:
+            Page text content
+        """
+        try:
+            session = await get_http_session()
+            async with session.get(url, allow_redirects=True) as response:
+                if response.status == 200:
+                    content_type = response.headers.get('Content-Type', '')
+                    if 'text/html' in content_type or 'text/plain' in content_type:
+                        html = await response.text()
+                        text = html_to_text(html)
+                        if len(text) > 500:  # Valid content threshold
+                            return ToolResult(
+                                success=True,
+                                message=f"Fast fetch successful ({len(text)} chars)",
+                                data={"content": text, "url": str(response.url)}
+                            )
+                    logger.debug(f"Content type {content_type} not suitable for fast fetch")
+        except Exception as e:
+            logger.debug(f"Fast fetch failed for {url}: {e}, falling back to browser")
+
+        # Fallback to full browser navigation
+        return await self.browser_navigate(url)
+
     @tool(
         name="browser_view",
         description="View content of the current browser page. Use for checking the latest state of previously opened pages.",
@@ -25,7 +126,7 @@ class BrowserTool(BaseTool):
     )
     async def browser_view(self) -> ToolResult:
         """View current browser page content
-        
+
         Returns:
             Browser page content
         """

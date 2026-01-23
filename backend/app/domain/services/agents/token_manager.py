@@ -50,6 +50,8 @@ class TokenManager:
         "gpt-4-turbo": 128000,
         "gpt-4o": 128000,
         "gpt-4o-mini": 128000,
+        "gpt-5": 128000,
+        "gpt-5.2": 128000,
         "gpt-5-nano": 128000,
         "gpt-5-mini": 128000,
         "o1": 128000,
@@ -59,8 +61,8 @@ class TokenManager:
         "default": 8192
     }
 
-    # Safety margin (reserve tokens for response)
-    SAFETY_MARGIN = 4096
+    # Safety margin (reserve tokens for response) - reduced from 4096 for better context utilization
+    SAFETY_MARGIN = 2048
 
     def __init__(
         self,
@@ -219,7 +221,8 @@ class TokenManager:
         Trim messages to fit within context limit.
 
         Preserves system prompts and recent messages, removing older
-        messages from the middle.
+        messages from the middle. Ensures tool_call/tool_response pairs
+        are kept together to maintain valid message sequences.
 
         Args:
             messages: List of message dicts
@@ -242,37 +245,57 @@ class TokenManager:
             "Trimming messages..."
         )
 
-        # Separate messages into categories
-        system_messages = []
-        other_messages = []
+        # Group messages: tool_calls must stay with their tool responses
+        message_groups = self._group_tool_messages(messages)
 
-        for i, msg in enumerate(messages):
-            if msg.get("role") == "system" and preserve_system:
-                system_messages.append((i, msg))
+        # Separate groups into categories
+        system_groups = []
+        other_groups = []
+
+        for group in message_groups:
+            first_msg = group[0][1]
+            if first_msg.get("role") == "system" and preserve_system:
+                system_groups.append(group)
             else:
-                other_messages.append((i, msg))
+                other_groups.append(group)
 
-        # Preserve recent messages
-        recent_messages = other_messages[-preserve_recent:] if preserve_recent else []
-        trimmable_messages = other_messages[:-preserve_recent] if preserve_recent else other_messages
+        # Preserve recent groups (count by original message count)
+        recent_msg_count = 0
+        recent_groups = []
+        for group in reversed(other_groups):
+            group_msg_count = len(group)
+            if recent_msg_count + group_msg_count <= preserve_recent:
+                recent_groups.insert(0, group)
+                recent_msg_count += group_msg_count
+            else:
+                break
+
+        trimmable_groups = other_groups[:len(other_groups) - len(recent_groups)] if recent_groups else other_groups
 
         # Calculate tokens we need to remove
-        system_tokens = sum(self.count_message_tokens(m).total for _, m in system_messages)
-        recent_tokens = sum(self.count_message_tokens(m).total for _, m in recent_messages)
+        system_tokens = sum(
+            self.count_message_tokens(m).total
+            for group in system_groups for _, m in group
+        )
+        recent_tokens = sum(
+            self.count_message_tokens(m).total
+            for group in recent_groups for _, m in group
+        )
         available_tokens = self._effective_limit - system_tokens - recent_tokens
 
-        # Trim from oldest trimmable messages
-        kept_messages = []
+        # Trim from oldest trimmable groups (keep groups intact)
+        kept_groups = []
         kept_tokens = 0
 
-        for i, msg in reversed(trimmable_messages):
-            msg_tokens = self.count_message_tokens(msg).total
-            if kept_tokens + msg_tokens <= available_tokens:
-                kept_messages.insert(0, (i, msg))
-                kept_tokens += msg_tokens
+        for group in reversed(trimmable_groups):
+            group_tokens = sum(self.count_message_tokens(m).total for _, m in group)
+            if kept_tokens + group_tokens <= available_tokens:
+                kept_groups.insert(0, group)
+                kept_tokens += group_tokens
 
         # Reconstruct message list
-        all_kept = system_messages + kept_messages + recent_messages
+        all_kept_groups = system_groups + kept_groups + recent_groups
+        all_kept = [msg for group in all_kept_groups for msg in group]
         all_kept.sort(key=lambda x: x[0])  # Restore original order
 
         trimmed_messages = [msg for _, msg in all_kept]
@@ -281,6 +304,60 @@ class TokenManager:
         logger.info(f"Trimmed {len(messages) - len(trimmed_messages)} messages ({tokens_removed} tokens)")
 
         return trimmed_messages, tokens_removed
+
+    def _group_tool_messages(
+        self,
+        messages: List[Dict[str, Any]]
+    ) -> List[List[Tuple[int, Dict[str, Any]]]]:
+        """
+        Group messages so tool_calls stay with their tool responses.
+
+        An assistant message with tool_calls must be followed by all its
+        tool responses before the next user/assistant message.
+
+        Returns:
+            List of message groups, where each group is a list of (index, message) tuples
+        """
+        groups = []
+        current_group = []
+        pending_tool_call_ids = set()
+
+        for i, msg in enumerate(messages):
+            role = msg.get("role", "")
+
+            if role == "assistant" and msg.get("tool_calls"):
+                # Start new group with assistant message that has tool_calls
+                if current_group:
+                    groups.append(current_group)
+                current_group = [(i, msg)]
+                # Track expected tool responses
+                pending_tool_call_ids = {
+                    tc.get("id") for tc in msg.get("tool_calls", []) if tc.get("id")
+                }
+            elif role == "tool":
+                # Add tool response to current group
+                current_group.append((i, msg))
+                tool_call_id = msg.get("tool_call_id")
+                if tool_call_id in pending_tool_call_ids:
+                    pending_tool_call_ids.discard(tool_call_id)
+                # If all tool responses received, close the group
+                if not pending_tool_call_ids and current_group:
+                    groups.append(current_group)
+                    current_group = []
+            else:
+                # Regular message - close current group and start new one
+                if current_group:
+                    groups.append(current_group)
+                current_group = [(i, msg)]
+                groups.append(current_group)
+                current_group = []
+                pending_tool_call_ids = set()
+
+        # Don't forget the last group
+        if current_group:
+            groups.append(current_group)
+
+        return groups
 
     def estimate_response_tokens(self, prompt_tokens: int) -> int:
         """

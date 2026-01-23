@@ -43,6 +43,9 @@ services:
       redis:
         condition: service_started
         required: true
+      searxng:
+        condition: service_started
+        required: false
     restart: unless-stopped
     networks:
       - pythinker-network
@@ -100,6 +103,24 @@ services:
 
   redis:
     image: redis:7.0
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+
+  searxng:
+    image: searxng/searxng:latest
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    ports:
+      - "8888:8080"
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8888/
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
     restart: unless-stopped
     networks:
       - pythinker-network

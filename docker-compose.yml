@@ -70,6 +70,22 @@ services:
     networks:
       - pythinker-network
 
+  searxng:
+    image: searxng/searxng:latest
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8888/
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+
 volumes:
   mongodb_data:
     name: pythinker-mongodb-data

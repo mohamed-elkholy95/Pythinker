@@ -15,6 +15,7 @@ from app.domain.models.event import (
     ShellToolContent,
     SearchToolContent,
     BrowserToolContent,
+    BrowserAgentToolContent,
     ToolStatus,
     AgentEvent,
     McpToolContent,
@@ -80,6 +81,7 @@ class AgentTaskRunner(TaskRunner):
             self._json_parser,
             self._mcp_tool,
             self._search_engine,
+            cdp_url=self._sandbox.cdp_url,
         )
 
     async def _put_and_add_event(self, task: Task, event: AgentEvent) -> None:
@@ -129,28 +131,53 @@ class AgentTaskRunner(TaskRunner):
             logger.exception(f"Agent {self._agent_id} failed to sync file: {e}")
 
     async def _sync_message_attachments_to_storage(self, event: MessageEvent) -> None:
-        """Sync message attachments and update event attachments"""
+        """Sync message attachments concurrently and update event attachments"""
         attachments: List[FileInfo] = []
         try:
             if event.attachments:
-                for attachment in event.attachments:
-                    file_info = await self._sync_file_to_storage(attachment.file_path)
-                    if file_info:
-                        attachments.append(file_info)
+                # Sync all attachments concurrently
+                sync_tasks = [
+                    self._sync_file_to_storage(attachment.file_path)
+                    for attachment in event.attachments
+                ]
+                results = await asyncio.gather(*sync_tasks, return_exceptions=True)
+
+                for result in results:
+                    if isinstance(result, Exception):
+                        logger.warning(f"Attachment sync failed: {result}")
+                    elif result:
+                        attachments.append(result)
             event.attachments = attachments
         except Exception as e:
             logger.exception(f"Agent {self._agent_id} failed to sync attachments to storage: {e}")
     
     async def _sync_message_attachments_to_sandbox(self, event: MessageEvent) -> None:
-        """Sync message attachments and update event attachments"""
+        """Sync message attachments concurrently and update event attachments"""
         attachments: List[FileInfo] = []
         try:
             if event.attachments:
-                for attachment in event.attachments:
-                    file_info = await self._sync_file_to_sandbox(attachment.file_id)
-                    if file_info:
-                        attachments.append(file_info)
-                        await self._session_repository.add_file(self._session_id, file_info)
+                # Sync all attachments concurrently
+                sync_tasks = [
+                    self._sync_file_to_sandbox(attachment.file_id)
+                    for attachment in event.attachments
+                ]
+                results = await asyncio.gather(*sync_tasks, return_exceptions=True)
+
+                # Process results and add to session
+                add_file_tasks = []
+                for result in results:
+                    if isinstance(result, Exception):
+                        logger.warning(f"Sandbox sync failed: {result}")
+                    elif result:
+                        attachments.append(result)
+                        add_file_tasks.append(
+                            self._session_repository.add_file(self._session_id, result)
+                        )
+
+                # Add files to session concurrently
+                if add_file_tasks:
+                    await asyncio.gather(*add_file_tasks, return_exceptions=True)
+
             event.attachments = attachments
         except Exception as e:
             logger.exception(f"Agent {self._agent_id} failed to sync attachments to event: {e}")
@@ -176,10 +203,17 @@ class AgentTaskRunner(TaskRunner):
                 elif event.tool_name == "file":
                     if "file" in event.function_args:
                         file_path = event.function_args["file"]
-                        file_read_result = await self._sandbox.file_read(file_path)
-                        file_content: str = file_read_result.data.get("content", "")
+                        # Read file and sync to storage concurrently
+                        file_read_task = self._sandbox.file_read(file_path)
+                        sync_task = self._sync_file_to_storage(file_path)
+                        file_read_result, _ = await asyncio.gather(
+                            file_read_task, sync_task, return_exceptions=True
+                        )
+                        if isinstance(file_read_result, Exception):
+                            file_content = f"(Error: {file_read_result})"
+                        else:
+                            file_content = file_read_result.data.get("content", "")
                         event.tool_content = FileToolContent(content=file_content)
-                        await self._sync_file_to_storage(file_path)
                     else:
                         event.tool_content = FileToolContent(content="(No Content)")
                 elif event.tool_name == "mcp":
@@ -198,11 +232,30 @@ class AgentTaskRunner(TaskRunner):
                     else:
                         logger.warning("MCP tool: No function_result found")
                         event.tool_content = McpToolContent(result="No result available")
-                    
+
                     logger.debug(f"MCP tool_content set to: {event.tool_content}")
                     if event.tool_content:
                         logger.debug(f"MCP tool_content.result: {event.tool_content.result}")
                         logger.debug(f"MCP tool_content dict: {event.tool_content.model_dump()}")
+                elif event.tool_name == "browser_agent":
+                    # Handle browser agent tool results with screenshot
+                    logger.debug(f"Processing browser_agent tool event: function_result={event.function_result}")
+                    screenshot_id = await self._get_browser_screenshot()
+                    if event.function_result:
+                        result_data = event.function_result.data if hasattr(event.function_result, 'data') else {}
+                        steps_taken = result_data.get('steps_taken', 0) if isinstance(result_data, dict) else 0
+                        result = result_data.get('result', str(result_data)) if isinstance(result_data, dict) else str(result_data)
+                        event.tool_content = BrowserAgentToolContent(
+                            result=result,
+                            steps_taken=steps_taken,
+                            screenshot=screenshot_id
+                        )
+                    else:
+                        event.tool_content = BrowserAgentToolContent(
+                            result="No result available",
+                            steps_taken=0,
+                            screenshot=screenshot_id
+                        )
                 else:
                     logger.warning(f"Agent {self._agent_id} received unknown tool event: {event.tool_name}")
         except Exception as e:
@@ -212,8 +265,18 @@ class AgentTaskRunner(TaskRunner):
         """Process agent's message queue and run the agent's flow"""
         try:
             logger.info(f"Agent {self._agent_id} message processing task started")
-            await self._sandbox.ensure_sandbox()
-            await self._mcp_tool.initialized(await self._mcp_repository.get_mcp_config())
+
+            # Initialize sandbox and MCP tool concurrently
+            async def init_mcp():
+                config = await self._mcp_repository.get_mcp_config()
+                await self._mcp_tool.initialized(config)
+
+            await asyncio.gather(
+                self._sandbox.ensure_sandbox(),
+                init_mcp(),
+                return_exceptions=True
+            )
+            logger.debug(f"Agent {self._agent_id} concurrent initialization completed")
             while not await task.input_stream.is_empty():
                 event = await self._pop_event(task)
                 message = ""

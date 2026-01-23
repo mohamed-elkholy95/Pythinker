@@ -3,7 +3,7 @@ import logging
 import asyncio
 import uuid
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional, AsyncGenerator
+from typing import List, Dict, Any, Optional, AsyncGenerator, Tuple
 from app.domain.external.llm import LLM
 from app.domain.models.agent import Agent
 from app.domain.models.memory import Memory
@@ -25,6 +25,20 @@ from app.domain.services.agents.token_manager import TokenManager
 from app.domain.services.agents.error_handler import ErrorHandler, TokenLimitExceeded, ErrorType
 
 logger = logging.getLogger(__name__)
+
+# Tools that are safe to execute in parallel (read-only, no side effects)
+SAFE_PARALLEL_TOOLS = {
+    "info_search_web",
+    "file_read",
+    "file_search",
+    "file_list_directory",
+    "browser_get_content",  # Fast text-only fetch
+    "browser_view",
+    "browser_screenshot",
+}
+
+# Maximum number of concurrent tool executions
+MAX_CONCURRENT_TOOLS = 3
 class BaseAgent(ABC):
     """
     Base agent class, defining the basic behavior of the agent
@@ -35,7 +49,8 @@ class BaseAgent(ABC):
     format: Optional[str] = None
     max_iterations: int = 100
     max_retries: int = 3
-    retry_interval: float = 1.0
+    retry_interval: float = 0.3  # Faster retry with exponential backoff
+    retry_backoff: float = 1.5  # Backoff multiplier (0.3s -> 0.45s -> 0.67s)
     tool_choice: Optional[str] = None
 
     def __init__(
@@ -73,9 +88,11 @@ class BaseAgent(ABC):
         raise ValueError(f"Unknown tool: {function_name}")
 
     async def invoke_tool(self, tool: BaseTool, function_name: str, arguments: Dict[str, Any]) -> ToolResult:
-        """Invoke specified tool, with retry mechanism"""
+        """Invoke specified tool, with retry mechanism and exponential backoff"""
 
         retries = 0
+        current_interval = self.retry_interval
+        last_error = ""
         while retries <= self.max_retries:
             try:
                 return await tool.invoke_function(function_name, **arguments)
@@ -83,64 +100,164 @@ class BaseAgent(ABC):
                 last_error = str(e)
                 retries += 1
                 if retries <= self.max_retries:
-                    await asyncio.sleep(self.retry_interval)
+                    await asyncio.sleep(current_interval)
+                    current_interval *= self.retry_backoff  # Exponential backoff
                 else:
                     logger.exception(f"Tool execution failed, {function_name}, {arguments}")
                     break
-        
+
         return ToolResult(success=False, message=last_error)
+
+    def _can_parallelize_tools(self, tool_calls: List[Dict]) -> bool:
+        """Check if all tool calls in the list can be executed in parallel"""
+        if len(tool_calls) <= 1:
+            return False
+        return all(
+            tc.get("function", {}).get("name") in SAFE_PARALLEL_TOOLS
+            for tc in tool_calls
+        )
+
+    async def _invoke_tool_with_semaphore(
+        self,
+        semaphore: asyncio.Semaphore,
+        tool_call: Dict,
+        function_args: Dict[str, Any]
+    ) -> Tuple[Dict, BaseTool, ToolResult]:
+        """Invoke a single tool with semaphore limiting concurrent executions"""
+        async with semaphore:
+            function_name = tool_call["function"]["name"]
+            tool = self.get_tool(function_name)
+            result = await self.invoke_tool(tool, function_name, function_args)
+            return tool_call, tool, result
     
     async def execute(self, request: str, format: Optional[str] = None) -> AsyncGenerator[BaseEvent, None]:
         format = format or self.format
-        message = await self.ask(request, format)
+        # Don't use json_object format when tools are available - causes empty responses
+        # Only enforce JSON format after tool calling is complete
+        has_tools = bool(self.get_available_tools())
+        initial_format = None if has_tools else format
+        message = await self.ask(request, initial_format)
         for _ in range(self.max_iterations):
             if not message.get("tool_calls"):
                 break
+
+            tool_calls = message["tool_calls"]
             tool_responses = []
-            for tool_call in message["tool_calls"]:
-                if not tool_call.get("function"):
-                    continue
-                
-                function_name = tool_call["function"]["name"]
-                tool_call_id = tool_call["id"] or str(uuid.uuid4())
-                function_args = await self.json_parser.parse(tool_call["function"]["arguments"])
-                
-                tool = self.get_tool(function_name)
 
-                # Generate event before tool call
-                yield ToolEvent(
-                    status=ToolStatus.CALLING,
-                    tool_call_id=tool_call_id,
-                    tool_name=tool.name,
-                    function_name=function_name,
-                    function_args=function_args
-                )
+            # Check if we can execute tools in parallel
+            if self._can_parallelize_tools(tool_calls):
+                # Parse all arguments first
+                parsed_calls = []
+                for tool_call in tool_calls[:MAX_CONCURRENT_TOOLS]:  # Limit parallel calls
+                    if not tool_call.get("function"):
+                        continue
+                    function_name = tool_call["function"]["name"]
+                    tool_call_id = tool_call["id"] or str(uuid.uuid4())
+                    function_args = await self.json_parser.parse(tool_call["function"]["arguments"])
+                    tool = self.get_tool(function_name)
 
-                result = await self.invoke_tool(tool, function_name, function_args)
-                
-                # Generate event after tool call
-                yield ToolEvent(
-                    status=ToolStatus.CALLED,
-                    tool_call_id=tool_call_id,
-                    tool_name=tool.name,
-                    function_name=function_name,
-                    function_args=function_args,
-                    function_result=result
-                )
+                    # Emit CALLING events for all parallel tools
+                    yield ToolEvent(
+                        status=ToolStatus.CALLING,
+                        tool_call_id=tool_call_id,
+                        tool_name=tool.name,
+                        function_name=function_name,
+                        function_args=function_args
+                    )
+                    parsed_calls.append((tool_call, tool_call_id, function_args, tool))
 
-                tool_response = {
-                    "role": "tool",
-                    "function_name": function_name,
-                    "tool_call_id": tool_call_id,
-                    "content": result.model_dump_json()
-                }
-                tool_responses.append(tool_response)
+                # Execute all tools concurrently with semaphore
+                semaphore = asyncio.Semaphore(MAX_CONCURRENT_TOOLS)
+                tasks = []
+                for tool_call, tool_call_id, function_args, tool in parsed_calls:
+                    function_name = tool_call["function"]["name"]
+                    tasks.append(
+                        self._execute_parallel_tool(
+                            semaphore, tool, function_name, function_args,
+                            tool_call_id
+                        )
+                    )
+
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # Process results and emit CALLED events
+                for (tool_call, tool_call_id, function_args, tool), result in zip(parsed_calls, results):
+                    function_name = tool_call["function"]["name"]
+                    if isinstance(result, Exception):
+                        result = ToolResult(success=False, message=str(result))
+
+                    yield ToolEvent(
+                        status=ToolStatus.CALLED,
+                        tool_call_id=tool_call_id,
+                        tool_name=tool.name,
+                        function_name=function_name,
+                        function_args=function_args,
+                        function_result=result
+                    )
+
+                    tool_responses.append({
+                        "role": "tool",
+                        "function_name": function_name,
+                        "tool_call_id": tool_call_id,
+                        "content": result.model_dump_json() if hasattr(result, 'model_dump_json') else str(result)
+                    })
+            else:
+                # Sequential execution for non-parallelizable tools (original behavior)
+                for tool_call in tool_calls:
+                    if not tool_call.get("function"):
+                        continue
+
+                    function_name = tool_call["function"]["name"]
+                    tool_call_id = tool_call["id"] or str(uuid.uuid4())
+                    function_args = await self.json_parser.parse(tool_call["function"]["arguments"])
+
+                    tool = self.get_tool(function_name)
+
+                    # Generate event before tool call
+                    yield ToolEvent(
+                        status=ToolStatus.CALLING,
+                        tool_call_id=tool_call_id,
+                        tool_name=tool.name,
+                        function_name=function_name,
+                        function_args=function_args
+                    )
+
+                    result = await self.invoke_tool(tool, function_name, function_args)
+
+                    # Generate event after tool call
+                    yield ToolEvent(
+                        status=ToolStatus.CALLED,
+                        tool_call_id=tool_call_id,
+                        tool_name=tool.name,
+                        function_name=function_name,
+                        function_args=function_args,
+                        function_result=result
+                    )
+
+                    tool_responses.append({
+                        "role": "tool",
+                        "function_name": function_name,
+                        "tool_call_id": tool_call_id,
+                        "content": result.model_dump_json()
+                    })
 
             message = await self.ask_with_messages(tool_responses)
         else:
             yield ErrorEvent(error="Maximum iteration count reached, failed to complete the task")
-        
+
         yield MessageEvent(message=message["content"])
+
+    async def _execute_parallel_tool(
+        self,
+        semaphore: asyncio.Semaphore,
+        tool: BaseTool,
+        function_name: str,
+        function_args: Dict[str, Any],
+        tool_call_id: str
+    ) -> ToolResult:
+        """Execute a single tool with semaphore limiting concurrent executions"""
+        async with semaphore:
+            return await self.invoke_tool(tool, function_name, function_args)
     
     async def _ensure_memory(self):
         if not self.memory:
@@ -202,7 +319,12 @@ class BaseAgent(ABC):
                     "content": message.get("content"),
                 }
                 if message.get("tool_calls"):
-                    filtered_message["tool_calls"] = message.get("tool_calls")[:1]
+                    tool_calls = message.get("tool_calls", [])
+                    # Allow multiple tool calls for safe parallel tools
+                    if self._can_parallelize_tools(tool_calls):
+                        filtered_message["tool_calls"] = tool_calls[:MAX_CONCURRENT_TOOLS]
+                    else:
+                        filtered_message["tool_calls"] = tool_calls[:1]
             else:
                 logger.warning(f"Unknown message role: {message.get('role')}")
                 filtered_message = message

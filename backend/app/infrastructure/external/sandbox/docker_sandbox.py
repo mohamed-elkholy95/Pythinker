@@ -45,26 +45,26 @@ class DockerSandbox(Sandbox):
     @staticmethod
     def _get_container_ip(container) -> str:
         """Get container IP address from network settings
-        
+
         Args:
             container: Docker container instance
-            
+
         Returns:
             Container IP address
         """
         # Get container network settings
-        network_settings = container.attrs['NetworkSettings']
-        ip_address = network_settings['IPAddress']
-        
+        network_settings = container.attrs.get('NetworkSettings', {})
+        ip_address = network_settings.get('IPAddress', '')
+
         # If default network has no IP, try to get IP from other networks
         if not ip_address and 'Networks' in network_settings:
             networks = network_settings['Networks']
             # Try to get IP from first available network
             for network_name, network_config in networks.items():
-                if 'IPAddress' in network_config and network_config['IPAddress']:
+                if network_config.get('IPAddress'):
                     ip_address = network_config['IPAddress']
                     break
-        
+
         return ip_address
 
     @staticmethod
@@ -469,9 +469,9 @@ class DockerSandbox(Sandbox):
         try:
             if self.client:
                 await self.client.aclose()
-            if self.container_name:
+            if self._container_name:
                 docker_client = docker.from_env()
-                docker_client.containers.get(self.container_name).remove(force=True)
+                docker_client.containers.get(self._container_name).remove(force=True)
             return True
         except Exception as e:
             logger.error(f"Failed to destroy Docker sandbox: {str(e)}")
