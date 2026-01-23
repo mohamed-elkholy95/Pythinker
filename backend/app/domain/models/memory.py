@@ -32,10 +32,16 @@ class Memory(BaseModel):
     Memory class, defining the basic behavior of memory
     """
     messages: List[Dict[str, Any]] = []
-    config: MemoryConfig = Field(default_factory=MemoryConfig)
+    # Exclude config from serialization - it's runtime-only configuration
+    config: MemoryConfig = Field(default_factory=MemoryConfig, exclude=True)
 
     class Config:
         arbitrary_types_allowed = True
+
+    def model_post_init(self, __context) -> None:
+        """Ensure config is always initialized after deserialization"""
+        if self.config is None:
+            object.__setattr__(self, 'config', MemoryConfig())
 
     def get_message_role(self, message: Dict[str, Any]) -> str:
         """Get the role of the message"""
