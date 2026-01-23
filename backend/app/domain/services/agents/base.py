@@ -20,6 +20,9 @@ from app.domain.models.event import (
 )
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.utils.json_parser import JsonParser
+from app.domain.services.agents.stuck_detector import StuckDetector
+from app.domain.services.agents.token_manager import TokenManager
+from app.domain.services.agents.error_handler import ErrorHandler, TokenLimitExceeded, ErrorType
 
 logger = logging.getLogger(__name__)
 class BaseAgent(ABC):
@@ -49,6 +52,11 @@ class BaseAgent(ABC):
         self.json_parser = json_parser
         self.tools = tools
         self.memory = None
+
+        # Initialize reliability components
+        self._stuck_detector = StuckDetector(window_size=5, threshold=3)
+        self._token_manager = TokenManager(model_name=getattr(llm, 'model_name', 'gpt-4'))
+        self._error_handler = ErrorHandler()
     
     def get_available_tools(self) -> Optional[List[Dict[str, Any]]]:
         """Get all available tools list"""
@@ -156,15 +164,29 @@ class BaseAgent(ABC):
     async def ask_with_messages(self, messages: List[Dict[str, Any]], format: Optional[str] = None) -> Dict[str, Any]:
         await self._add_to_memory(messages)
 
+        # Check and handle token limits before making LLM call
+        await self._ensure_within_token_limit()
+
         response_format = None
         if format:
             response_format = {"type": format}
-        
-        for _ in range(self.max_retries):
-            message = await self.llm.ask(self.memory.get_messages(), 
-                                            tools=self.get_available_tools(), 
-                                            response_format=response_format,
-                                            tool_choice=self.tool_choice)
+
+        for retry in range(self.max_retries):
+            try:
+                message = await self.llm.ask(self.memory.get_messages(),
+                                                tools=self.get_available_tools(),
+                                                response_format=response_format,
+                                                tool_choice=self.tool_choice)
+            except TokenLimitExceeded as e:
+                logger.warning(f"Token limit exceeded, trimming context: {e}")
+                await self._handle_token_limit_exceeded()
+                continue
+            except Exception as e:
+                error_context = self._error_handler.classify_error(e)
+                if error_context.error_type == ErrorType.TOKEN_LIMIT:
+                    await self._handle_token_limit_exceeded()
+                    continue
+                raise
 
             filtered_message = {}
             if message.get("role") == "assistant":
@@ -184,10 +206,56 @@ class BaseAgent(ABC):
             else:
                 logger.warning(f"Unknown message role: {message.get('role')}")
                 filtered_message = message
-            
+
+            # Track response for stuck detection
+            is_stuck = self._stuck_detector.track_response(filtered_message)
+            if is_stuck and self._stuck_detector.can_attempt_recovery():
+                self._stuck_detector.record_recovery_attempt()
+                recovery_prompt = self._stuck_detector.get_recovery_prompt()
+                logger.warning(f"Agent stuck detected, injecting recovery prompt")
+                await self._add_to_memory([
+                    filtered_message,
+                    {"role": "user", "content": recovery_prompt}
+                ])
+                continue
+
             await self._add_to_memory([filtered_message])
             return filtered_message
         raise Exception(f"Empty response from LLM after {self.max_retries} retries")
+
+    async def _ensure_within_token_limit(self) -> None:
+        """Ensure memory is within token limits, trim if necessary"""
+        await self._ensure_memory()
+        current_messages = self.memory.get_messages()
+
+        if not self._token_manager.is_within_limit(current_messages):
+            logger.warning("Memory exceeds token limit, trimming...")
+            trimmed_messages, tokens_removed = self._token_manager.trim_messages(
+                current_messages,
+                preserve_system=True,
+                preserve_recent=6
+            )
+            self.memory.messages = trimmed_messages
+            await self._repository.save_memory(self._agent_id, self.name, self.memory)
+            logger.info(f"Trimmed memory, removed {tokens_removed} tokens")
+
+    async def _handle_token_limit_exceeded(self) -> None:
+        """Handle token limit exceeded error by aggressively trimming context"""
+        await self._ensure_memory()
+        current_messages = self.memory.get_messages()
+
+        # First compact verbose tool results
+        self.memory.smart_compact()
+
+        # Then trim messages
+        trimmed_messages, tokens_removed = self._token_manager.trim_messages(
+            self.memory.get_messages(),
+            preserve_system=True,
+            preserve_recent=4  # More aggressive trim
+        )
+        self.memory.messages = trimmed_messages
+        await self._repository.save_memory(self._agent_id, self.name, self.memory)
+        logger.info(f"Handled token limit by trimming {tokens_removed} tokens")
 
     async def ask(self, request: str, format: Optional[str] = None) -> Dict[str, Any]:
         return await self.ask_with_messages([
