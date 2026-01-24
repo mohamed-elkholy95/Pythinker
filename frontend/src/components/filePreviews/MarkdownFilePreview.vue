@@ -21,8 +21,8 @@ const props = defineProps<{
     file: FileInfo;
 }>();
 
-// Configure marked options
-marked.setOptions({
+// Configure marked options using modern API
+marked.use({
     breaks: true,
     gfm: true,
 });

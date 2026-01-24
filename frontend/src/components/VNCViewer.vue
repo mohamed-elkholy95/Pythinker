@@ -19,7 +19,7 @@
 <script setup lang="ts">
 import { ref, onBeforeUnmount, onMounted, onUnmounted, watch } from 'vue';
 import { getVNCUrl } from '@/api/agent';
-// @ts-ignore
+// @ts-expect-error - NoVNC doesn't have TypeScript definitions
 import RFB from '@novnc/novnc/lib/rfb';
 
 const props = defineProps<{

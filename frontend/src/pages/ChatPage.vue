@@ -145,6 +145,14 @@
             class="flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[var(--background-white-main)] hover:bg-[var(--background-gray-main)] clickable border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)] absolute -top-20 left-1/2 -translate-x-1/2">
             <ArrowDown class="text-[var(--icon-primary)]" :size="20" />
           </button>
+          <!-- Task Progress Bar - shown above ChatBox when ToolPanel is closed -->
+          <TaskProgressBar
+            v-if="!isToolPanelOpen"
+            :plan="plan"
+            :isLoading="isLoading"
+            :isThinking="isThinking"
+            class="mb-2"
+          />
           <PlanPanel v-if="plan && plan.steps.length > 0" :plan="plan" />
           <ChatBox v-model="inputMessage" :rows="1" @submit="handleSubmit" :isRunning="isLoading" @stop="handleStop"
             :attachments="attachments" />
@@ -153,7 +161,11 @@
     </div>
     <ToolPanel ref="toolPanel" :size="toolPanelSize" :sessionId="sessionId" :realTime="realTime"
       :isShare="false"
-      @jumpToRealTime="jumpToRealTime" />
+      :plan="plan"
+      :isLoading="isLoading"
+      :isThinking="isThinking"
+      @jumpToRealTime="jumpToRealTime"
+      @panelStateChange="handlePanelStateChange" />
   </SimpleBar>
 
   <!-- Report Modal -->
@@ -202,6 +214,7 @@ import { SessionStatus } from '../types/response';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import LoadingIndicator from '@/components/ui/LoadingIndicator.vue';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
+import TaskProgressBar from '@/components/TaskProgressBar.vue';
 import { ReportModal } from '@/components/report';
 import type { ReportData } from '@/components/report';
 import { useReport, extractSectionsFromMarkdown } from '@/composables/useReport';
@@ -301,6 +314,14 @@ const hasReportMessage = computed(() => {
   return messages.value.some(message => message.type === 'report');
 });
 
+// Track if ToolPanel is open (for TaskProgressBar positioning)
+const isToolPanelOpen = ref(false);
+
+// Handle tool panel state changes
+const handlePanelStateChange = (isOpen: boolean) => {
+  isToolPanelOpen.value = isOpen;
+};
+
 // Handle message event
 const handleMessageEvent = (messageData: MessageEventData) => {
   // Assistant message means agent finished thinking
@@ -333,7 +354,7 @@ const handleToolEvent = (toolData: ToolEventData) => {
   }
 
   const lastStep = getLastStep();
-  let toolContent: ToolContent = {
+  const toolContent: ToolContent = {
     ...toolData
   }
   if (lastTool.value && lastTool.value.tool_call_id === toolContent.tool_call_id) {

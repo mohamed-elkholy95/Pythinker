@@ -1,5 +1,5 @@
-import { ref, computed } from 'vue';
-import type { ReportData, ReportSection } from '@/components/report/ReportCard.vue';
+import { ref } from 'vue';
+import type { ReportData, ReportSection } from '@/components/report/types';
 import type { FileInfo } from '@/api/file';
 
 const isReportModalOpen = ref(false);

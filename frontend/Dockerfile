@@ -1,20 +1,20 @@
-# Use Node.js as base image
-FROM node:18-alpine as build-stage
+# Use Node.js as base image with bun
+FROM oven/bun:1 as build-stage
 
 # Set working directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json files
-COPY package*.json ./
+# Copy package files
+COPY package.json bun.lock* ./
 
 # Install project dependencies
-RUN npm ci
+RUN bun install --frozen-lockfile
 
 # Copy project files
 COPY . .
 
-# Build application - skip type checking
-RUN npm run build
+# Build application
+RUN bun run build
 
 # Use nginx as production environment image
 FROM nginx:stable-alpine as production-stage
@@ -33,4 +33,4 @@ RUN chmod +x /docker-entrypoint.sh
 EXPOSE 80
 
 # Start nginx with environment variable substitution
-CMD ["/docker-entrypoint.sh"] 
+CMD ["/docker-entrypoint.sh"]

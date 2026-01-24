@@ -1,13 +1,13 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
-import monacoEditorPlugin from 'vite-plugin-monaco-editor';
+import tailwindcss from '@tailwindcss/vite';
 import { resolve } from 'path';
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
+    tailwindcss(),
     vue(),
-    (monacoEditorPlugin as any).default({})
   ],
   resolve: {
     alias: {
@@ -15,7 +15,7 @@ export default defineConfig({
     }
   },
   optimizeDeps: {
-    exclude: ['lucide-vue-next'],
+    include: ['monaco-editor'],
   },
   server: {
     host: true,
@@ -30,4 +30,13 @@ export default defineConfig({
       },
     }),
   },
-}); 
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'monaco-editor': ['monaco-editor'],
+        },
+      },
+    },
+  },
+});

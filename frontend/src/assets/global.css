@@ -1,7 +1,10 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
+@source "../../index.html";
+@source "../**/*.{vue,js,ts,jsx,tsx}";
+
+@variant dark (&:where(.dark, .dark *));
 
 #app {
   display: contents;

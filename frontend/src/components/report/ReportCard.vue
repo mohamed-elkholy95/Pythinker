@@ -139,22 +139,9 @@ import {
   ArrowRight
 } from 'lucide-vue-next';
 import type { FileInfo } from '@/api/file';
+import type { ReportData, ReportSection } from './types';
 
-export interface ReportSection {
-  title: string;
-  preview: string;
-  level?: number;
-}
-
-export interface ReportData {
-  id: string;
-  title: string;
-  content: string;
-  lastModified: number;
-  fileCount?: number;
-  sections?: ReportSection[];
-  attachments?: FileInfo[];
-}
+export type { ReportData, ReportSection };
 
 const props = defineProps<{
   report: ReportData;
@@ -206,7 +193,7 @@ const renderedPreview = computed(() => {
   }
 });
 
-const formatDate = (timestamp: number) => {
+const _formatDate = (timestamp: number) => {
   const date = new Date(timestamp);
   return date.toLocaleDateString('en-US', {
     month: 'short',
@@ -320,6 +307,8 @@ const toggleMenu = () => {
 </script>
 
 <style scoped>
+@reference "tailwindcss";
+
 .line-clamp-2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;

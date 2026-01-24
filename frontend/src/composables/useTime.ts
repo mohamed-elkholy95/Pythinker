@@ -24,7 +24,7 @@ export function useRelativeTime() {
 
   // Calculate relative time, depends on currentTime for automatic updates
   const relativeTime = computed(() => {
-    currentTime.value; // Depends on currentTime, recalculate when currentTime updates
+    void currentTime.value; // Depends on currentTime, recalculate when currentTime updates
     return (timestamp: number) => formatRelativeTime(timestamp);
   });
 
@@ -57,7 +57,7 @@ export function useCustomTime() {
 
   // Calculate custom formatted time, depends on currentTime for automatic updates
   const customTime = computed(() => {
-    currentTime.value; // Depends on currentTime, recalculate when currentTime updates
+    void currentTime.value; // Depends on currentTime, recalculate when currentTime updates
     return (timestamp: number) => formatCustomTime(timestamp, t, locale.value);
   });
 
