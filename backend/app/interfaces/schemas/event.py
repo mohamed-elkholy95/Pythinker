@@ -72,12 +72,20 @@ class MessageSSEEvent(BaseSSEEvent):
 
     @classmethod
     async def from_event_async(cls, event: MessageEvent) -> Self:
+        # Convert attachments, filtering out any that fail validation (return None)
+        attachments = None
+        if event.attachments:
+            converted = [await FileInfoResponse.from_file_info(att) for att in event.attachments]
+            # Filter out None values (invalid attachments)
+            valid_attachments = [att for att in converted if att is not None]
+            attachments = valid_attachments if valid_attachments else None
+
         return cls(
             data=MessageEventData(
                 **BaseEventData.base_event_data(event),
                 role=event.role,
                 content=event.message,
-                attachments=[await FileInfoResponse.from_file_info(attachment) for attachment in event.attachments] if event.attachments else None
+                attachments=attachments
             )
         )
 
@@ -184,13 +192,21 @@ class ReportSSEEvent(BaseSSEEvent):
 
     @classmethod
     async def from_event_async(cls, event: ReportEvent) -> Self:
+        # Convert attachments, filtering out any that fail validation (return None)
+        attachments = None
+        if event.attachments:
+            converted = [await FileInfoResponse.from_file_info(att) for att in event.attachments]
+            # Filter out None values (invalid attachments)
+            valid_attachments = [att for att in converted if att is not None]
+            attachments = valid_attachments if valid_attachments else None
+
         return cls(
             data=ReportEventData(
                 **BaseEventData.base_event_data(event),
                 id=event.id,
                 title=event.title,
                 content=event.content,
-                attachments=[await FileInfoResponse.from_file_info(attachment) for attachment in event.attachments] if event.attachments else None
+                attachments=attachments
             )
         )
 

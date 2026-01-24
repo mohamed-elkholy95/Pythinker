@@ -57,11 +57,31 @@ class PlannerAgent(BaseAgent):
         )
 
 
-    async def create_plan(self, message: Message) -> AsyncGenerator[BaseEvent, None]:
-        prompt = CREATE_PLAN_PROMPT.format(
+    async def create_plan(
+        self,
+        message: Message,
+        replan_context: Optional[str] = None
+    ) -> AsyncGenerator[BaseEvent, None]:
+        """Create an execution plan for the given message.
+
+        Args:
+            message: The user message to create a plan for
+            replan_context: Optional feedback from verification for replanning
+
+        Yields:
+            PlanEvent with the created plan
+        """
+        base_prompt = CREATE_PLAN_PROMPT.format(
             message=message.message,
             attachments="\n".join(message.attachments)
         )
+
+        # Add replan context if provided (from verification feedback)
+        if replan_context:
+            prompt = f"{base_prompt}\n\n## Replanning Guidance\nThe previous plan was flagged for revision:\n{replan_context}\n\nPlease create a revised plan that addresses these issues."
+            logger.info("Creating revised plan based on verification feedback")
+        else:
+            prompt = base_prompt
 
         # Try structured output first for type-safe response
         try:
