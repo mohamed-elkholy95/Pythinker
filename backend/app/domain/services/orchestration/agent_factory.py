@@ -14,13 +14,16 @@ from app.domain.services.orchestration.agent_types import (
 )
 from app.domain.services.orchestration.swarm import AgentFactory
 from app.domain.services.agents.base import BaseAgent
+from app.domain.models.agent import Agent
 from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.browser import Browser
 from app.domain.external.search import SearchEngine
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.utils.json_parser import JsonParser
-from app.domain.models.event import BaseEvent, MessageEvent, ErrorEvent
+from app.domain.models.event import BaseEvent, MessageEvent, ErrorEvent, StepEvent, StepStatus, ToolEvent
+from app.domain.models.plan import Plan, Step, ExecutionStatus
+from app.domain.models.message import Message
 from app.domain.services.tools.base import BaseTool
 from app.domain.services.tools.shell import ShellTool
 from app.domain.services.tools.browser import BrowserTool
@@ -90,6 +93,107 @@ class SwarmAgent(BaseAgent):
         async for event in self.execute(full_prompt):
             yield event
 
+    async def execute_step(
+        self,
+        plan: Plan,
+        step: Step,
+        message: Message
+    ) -> AsyncGenerator[BaseEvent, None]:
+        """Execute a single step from a plan.
+
+        This method provides compatibility with the multi-agent dispatch
+        in PlanActFlow which expects executors to have execute_step().
+
+        Args:
+            plan: The plan containing the step
+            step: The step to execute
+            message: The user's original message
+
+        Yields:
+            Events from step execution including StepEvent status updates
+        """
+        # Build execution prompt from step
+        execution_prompt = f"""Execute the following step:
+
+## Step Description
+{step.description}
+
+## Original Request
+{message.message}
+
+## Instructions
+- Execute the step using available tools
+- Report your findings
+- Indicate success/failure with a result summary
+
+Respond with JSON in this format:
+{{
+    "success": true/false,
+    "result": "Summary of what was accomplished"
+}}"""
+
+        # Mark step as running
+        step.status = ExecutionStatus.RUNNING
+        yield StepEvent(status=StepStatus.STARTED, step=step)
+
+        has_completed = False  # Track if we've yielded a completion event
+        try:
+            async for event in self.execute(execution_prompt):
+                if isinstance(event, ErrorEvent):
+                    step.status = ExecutionStatus.FAILED
+                    step.error = event.error
+                    yield StepEvent(status=StepStatus.FAILED, step=step)
+                    has_completed = True
+                    yield event
+                    return  # Exit early on error
+                elif isinstance(event, MessageEvent):
+                    # Try to parse result from response
+                    try:
+                        parsed = await self.json_parser.parse(event.message)
+                        step.success = parsed.get("success", False)
+                        step.result = parsed.get("result", event.message)
+                    except Exception:
+                        # If parsing fails, treat as successful with the message as result
+                        step.success = True
+                        step.result = event.message
+
+                    step.status = ExecutionStatus.COMPLETED
+                    yield StepEvent(status=StepStatus.COMPLETED, step=step)
+                    has_completed = True
+                    if step.result:
+                        yield MessageEvent(message=step.result)
+                elif isinstance(event, ToolEvent):
+                    yield event
+                else:
+                    yield event
+
+            # If we haven't yielded a completion event yet, mark as completed
+            if not has_completed:
+                step.status = ExecutionStatus.COMPLETED
+                step.success = True
+                step.result = "Step completed"
+                yield StepEvent(status=StepStatus.COMPLETED, step=step)
+
+        except ValueError as e:
+            # Handle known errors like "Agent not found" more gracefully
+            error_msg = str(e)
+            logger.error(
+                f"SwarmAgent {self._agent_id} step execution failed with ValueError: {error_msg}"
+            )
+            step.status = ExecutionStatus.FAILED
+            step.error = error_msg
+            yield StepEvent(status=StepStatus.FAILED, step=step)
+            yield ErrorEvent(error=f"Agent configuration error: {error_msg}")
+
+        except Exception as e:
+            logger.exception(
+                f"SwarmAgent {self._agent_id} step execution failed unexpectedly: {e}"
+            )
+            step.status = ExecutionStatus.FAILED
+            step.error = str(e)
+            yield StepEvent(status=StepStatus.FAILED, step=step)
+            yield ErrorEvent(error=f"Step execution failed: {str(e)}")
+
 
 class DefaultAgentFactory:
     """Default implementation of AgentFactory for the swarm.
@@ -134,7 +238,14 @@ class DefaultAgentFactory:
 
         Returns:
             A configured SwarmAgent instance
+
+        Raises:
+            RuntimeError: If agent document cannot be created in the database
         """
+        # Ensure the agent document exists in the database for memory operations
+        # This is CRITICAL: without a database record, memory operations will fail
+        await self._ensure_agent_document_exists(agent_id)
+
         # Determine tools based on capabilities
         tools = self._build_tools_for_spec(spec)
 
@@ -152,6 +263,32 @@ class DefaultAgentFactory:
         logger.info(f"Created swarm agent: {agent_type.value} ({agent_id[:8]})")
 
         return agent
+
+    async def _ensure_agent_document_exists(self, agent_id: str) -> None:
+        """Ensure an agent document exists in the database.
+
+        Creates the document if it doesn't exist. This is required for
+        memory operations to work correctly.
+
+        Args:
+            agent_id: The agent's unique identifier
+
+        Raises:
+            RuntimeError: If the document cannot be created
+        """
+        try:
+            existing = await self._repository.find_by_id(agent_id)
+            if not existing:
+                agent_model = Agent(id=agent_id)
+                await self._repository.save(agent_model)
+                logger.debug(f"Created agent document in database: {agent_id[:16]}")
+            else:
+                logger.debug(f"Agent document already exists: {agent_id[:16]}")
+        except Exception as e:
+            logger.error(f"Failed to ensure agent document exists for {agent_id}: {e}")
+            raise RuntimeError(
+                f"Cannot create agent {agent_id}: database operation failed - {e}"
+            ) from e
 
     async def execute_agent(
         self,
@@ -278,8 +415,15 @@ class SpecializedAgentFactory(DefaultAgentFactory):
 
         Returns:
             An agent instance (custom or SwarmAgent)
+
+        Raises:
+            RuntimeError: If agent document cannot be created in the database
         """
         if agent_type in self._custom_agents:
+            # Ensure the agent document exists in the database for memory operations
+            # This is CRITICAL: without a database record, memory operations will fail
+            await self._ensure_agent_document_exists(agent_id)
+
             # Use custom agent class
             agent_class = self._custom_agents[agent_type]
             tools = self._build_tools_for_spec(spec)

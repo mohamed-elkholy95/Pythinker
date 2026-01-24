@@ -6,8 +6,8 @@ use_default_settings: true
 general:
   instance_name: "Pythinker Search"
   debug: false
-  privacypolicy_url: false
-  contact_url: false
+  privacypolicy_url: ""
+  contact_url: ""
   enable_metrics: false
 
 search:
@@ -55,7 +55,7 @@ engines:
   - name: duckduckgo
     engine: duckduckgo
     shortcut: ddg
-    disabled: false
+    disabled: true
 
   # Brave
   - name: brave
@@ -73,12 +73,6 @@ engines:
   - name: github
     engine: github
     shortcut: gh
-    disabled: false
-
-  # Stack Overflow
-  - name: stackoverflow
-    engine: stackoverflow
-    shortcut: so
     disabled: false
 
   # Arxiv (for academic papers)

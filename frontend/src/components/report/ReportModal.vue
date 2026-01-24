@@ -21,33 +21,98 @@
             </p>
           </div>
         </div>
-        <div class="flex items-center gap-1">
+        <div class="flex items-center gap-2">
           <button
-            class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)]"
+            class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)] transition-colors"
             @click="handleShare"
             title="Share"
           >
             <Share2 class="w-4 h-4 text-[var(--icon-tertiary)]" />
           </button>
           <button
-            class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)]"
-            @click="handleDownload"
-            title="Download"
+            class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)] transition-colors"
+            @click="handleDownloadMarkdown"
+            title="Download as Markdown"
           >
             <Download class="w-4 h-4 text-[var(--icon-tertiary)]" />
           </button>
           <button
-            class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)]"
+            class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)] transition-colors"
             @click="toggleFullscreen"
             title="Expand"
           >
             <Maximize2 class="w-4 h-4 text-[var(--icon-tertiary)]" />
           </button>
+
+          <!-- More Options Dropdown -->
+          <Popover v-model:open="showMoreOptions">
+            <PopoverTrigger as-child>
+              <button
+                class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)] transition-colors"
+                title="More options"
+              >
+                <MoreHorizontal class="w-4 h-4 text-[var(--icon-tertiary)]" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              :side-offset="8"
+              align="end"
+              class="w-48 p-1"
+            >
+              <div class="flex flex-col">
+                <p class="px-2 py-1.5 text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wider">
+                  Download as
+                </p>
+                <button
+                  class="flex items-center gap-2 px-2 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-md transition-colors"
+                  @click="handleDownloadMarkdown"
+                >
+                  <FileText class="w-4 h-4 text-[var(--icon-secondary)]" />
+                  Markdown (.md)
+                </button>
+                <button
+                  class="flex items-center gap-2 px-2 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-md transition-colors"
+                  @click="handleDownloadPdf"
+                >
+                  <FileDown class="w-4 h-4 text-[#ea4335]" />
+                  PDF Document
+                </button>
+                <button
+                  class="flex items-center gap-2 px-2 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-md transition-colors"
+                  @click="handleDownloadDocx"
+                >
+                  <FileType class="w-4 h-4 text-[#4285f4]" />
+                  Word Document (.docx)
+                </button>
+                <div class="my-1 border-t border-[var(--border-main)]" />
+                <button
+                  class="flex items-center gap-2 px-2 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-md transition-colors"
+                  @click="handleCopyContent"
+                >
+                  <Copy class="w-4 h-4 text-[var(--icon-secondary)]" />
+                  Copy to Clipboard
+                </button>
+                <button
+                  class="flex items-center gap-2 px-2 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-md transition-colors"
+                  @click="handlePrint"
+                >
+                  <Printer class="w-4 h-4 text-[var(--icon-secondary)]" />
+                  Print
+                </button>
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          <!-- Divider -->
+          <div class="w-px h-5 bg-[var(--border-main)] mx-1" />
+
+          <!-- Close Button -->
           <button
-            class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)]"
-            title="More options"
+            class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)] transition-colors"
+            @click="isOpen = false"
+            title="Close"
           >
-            <MoreHorizontal class="w-4 h-4 text-[var(--icon-tertiary)]" />
+            <X class="w-4 h-4 text-[var(--icon-tertiary)]" />
           </button>
         </div>
       </div>
@@ -140,15 +205,24 @@
 import { ref, computed, watch, nextTick } from 'vue';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+import html2pdf from 'html2pdf.js';
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } from 'docx';
+import { saveAs } from 'file-saver';
 import {
   FileText,
   Share2,
   Download,
   Maximize2,
   MoreHorizontal,
-  Lightbulb
+  Lightbulb,
+  X,
+  FileDown,
+  FileType,
+  Copy,
+  Printer
 } from 'lucide-vue-next';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import type { ReportData } from './ReportCard.vue';
 
@@ -182,6 +256,8 @@ const isOpen = defineModel<boolean>('open', { default: false });
 const contentRef = ref<HTMLElement | null>(null);
 const activeSection = ref<string>('');
 const tableOfContents = ref<TocItem[]>([]);
+const showMoreOptions = ref(false);
+const isDownloading = ref(false);
 
 // Configure marked options using modern API
 marked.use({
@@ -284,16 +360,191 @@ const handleShare = () => {
   emit('share');
 };
 
-const handleDownload = () => {
-  emit('download');
-};
-
 const toggleFullscreen = () => {
   // Fullscreen toggle logic
 };
 
 const handleSuggestionAction = () => {
   emit('suggestionAction');
+};
+
+// Generate sanitized filename
+const getSafeFilename = (title: string) => {
+  return (title || 'document')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    .substring(0, 50);
+};
+
+// Download as Markdown
+const handleDownloadMarkdown = () => {
+  if (!props.report?.content) return;
+
+  showMoreOptions.value = false;
+  const filename = getSafeFilename(props.report.title) + '.md';
+  const blob = new Blob([props.report.content], { type: 'text/markdown;charset=utf-8' });
+  saveAs(blob, filename);
+  emit('download');
+};
+
+// Download as PDF
+const handleDownloadPdf = async () => {
+  if (!contentRef.value || !props.report) return;
+
+  showMoreOptions.value = false;
+  isDownloading.value = true;
+
+  try {
+    const element = contentRef.value.querySelector('.prose');
+    if (!element) return;
+
+    const opt = {
+      margin: [15, 15, 15, 15],
+      filename: getSafeFilename(props.report.title) + '.pdf',
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        letterRendering: true
+      },
+      jsPDF: {
+        unit: 'mm',
+        format: 'a4',
+        orientation: 'portrait'
+      },
+      pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+    };
+
+    await html2pdf().set(opt).from(element).save();
+    emit('download');
+  } catch (error) {
+    console.error('Failed to generate PDF:', error);
+  } finally {
+    isDownloading.value = false;
+  }
+};
+
+// Download as DOCX
+const handleDownloadDocx = async () => {
+  if (!props.report?.content) return;
+
+  showMoreOptions.value = false;
+  isDownloading.value = true;
+
+  try {
+    // Parse markdown content into document structure
+    const lines = props.report.content.split('\n');
+    const children: Paragraph[] = [];
+
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+
+      // Skip empty lines
+      if (!trimmedLine) {
+        children.push(new Paragraph({}));
+        continue;
+      }
+
+      // Handle headings
+      if (trimmedLine.startsWith('# ')) {
+        children.push(new Paragraph({
+          text: trimmedLine.substring(2),
+          heading: HeadingLevel.HEADING_1,
+          spacing: { before: 400, after: 200 }
+        }));
+      } else if (trimmedLine.startsWith('## ')) {
+        children.push(new Paragraph({
+          text: trimmedLine.substring(3),
+          heading: HeadingLevel.HEADING_2,
+          spacing: { before: 300, after: 150 }
+        }));
+      } else if (trimmedLine.startsWith('### ')) {
+        children.push(new Paragraph({
+          text: trimmedLine.substring(4),
+          heading: HeadingLevel.HEADING_3,
+          spacing: { before: 200, after: 100 }
+        }));
+      } else if (trimmedLine.startsWith('- ') || trimmedLine.startsWith('* ')) {
+        // Handle list items
+        children.push(new Paragraph({
+          children: [
+            new TextRun({ text: '• ' + trimmedLine.substring(2) })
+          ],
+          indent: { left: 720 }
+        }));
+      } else if (/^\d+\.\s/.test(trimmedLine)) {
+        // Handle numbered lists
+        children.push(new Paragraph({
+          text: trimmedLine,
+          indent: { left: 720 }
+        }));
+      } else {
+        // Regular paragraph - handle bold and italic
+        const runs: TextRun[] = [];
+        let remaining = trimmedLine;
+
+        // Simple parsing for **bold** and *italic*
+        const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|[^*]+)/g;
+        let match;
+
+        while ((match = regex.exec(remaining)) !== null) {
+          const text = match[0];
+          if (text.startsWith('**') && text.endsWith('**')) {
+            runs.push(new TextRun({ text: text.slice(2, -2), bold: true }));
+          } else if (text.startsWith('*') && text.endsWith('*')) {
+            runs.push(new TextRun({ text: text.slice(1, -1), italics: true }));
+          } else {
+            runs.push(new TextRun({ text }));
+          }
+        }
+
+        if (runs.length === 0) {
+          runs.push(new TextRun({ text: trimmedLine }));
+        }
+
+        children.push(new Paragraph({
+          children: runs,
+          spacing: { after: 120 }
+        }));
+      }
+    }
+
+    const doc = new Document({
+      sections: [{
+        properties: {},
+        children: children
+      }]
+    });
+
+    const blob = await Packer.toBlob(doc);
+    saveAs(blob, getSafeFilename(props.report.title) + '.docx');
+    emit('download');
+  } catch (error) {
+    console.error('Failed to generate DOCX:', error);
+  } finally {
+    isDownloading.value = false;
+  }
+};
+
+// Copy content to clipboard
+const handleCopyContent = async () => {
+  if (!props.report?.content) return;
+
+  showMoreOptions.value = false;
+
+  try {
+    await navigator.clipboard.writeText(props.report.content);
+    // Could emit a toast notification here
+  } catch (error) {
+    console.error('Failed to copy content:', error);
+  }
+};
+
+// Print document
+const handlePrint = () => {
+  showMoreOptions.value = false;
+  window.print();
 };
 
 // Watch for content changes

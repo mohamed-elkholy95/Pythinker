@@ -100,8 +100,8 @@
         </div>
         <div class="flex-1"></div>
       </div>
-      <div class="mx-auto w-full max-w-full sm:max-w-[768px] sm:min-w-[390px] flex flex-col flex-1">
-        <div class="flex flex-col w-full gap-[12px] pb-[80px] pt-[12px] flex-1 overflow-y-auto">
+      <div class="mx-auto w-full max-w-full sm:max-w-[768px] sm:min-w-[390px] flex flex-col flex-1 min-h-[calc(100vh-60px)]">
+        <div class="flex flex-col w-full gap-[12px] pb-[80px] pt-[12px] flex-1">
           <ChatMessage v-for="(message, index) in messages" :key="index" :message="message"
             :suggestions="message.type === 'report' ? suggestions : undefined"
             @toolClick="handleToolClick"
@@ -247,6 +247,7 @@ const createInitialState = () => ({
   suggestions: [] as string[], // End-of-response suggestions
   agentMode: 'discuss' as 'discuss' | 'agent', // Current agent mode
   isThinking: false, // True when agent is actively thinking/processing
+  seenEventIds: new Set<string>(), // Track seen event IDs to prevent duplicates
 });
 
 // Create reactive state
@@ -274,6 +275,7 @@ const {
   suggestions,
   agentMode,
   isThinking,
+  seenEventIds,
 } = toRefs(state);
 
 // Non-state refs that don't need reset
@@ -333,6 +335,18 @@ const handleMessageEvent = (messageData: MessageEventData) => {
   // Assistant message means agent finished thinking
   if (messageData.role === 'assistant') {
     isThinking.value = false;
+  }
+
+  // Prevent duplicate user messages (same content appearing consecutively)
+  if (messageData.role === 'user' && messages.value.length > 0) {
+    const lastMessage = messages.value[messages.value.length - 1];
+    if (lastMessage.type === 'user') {
+      const lastContent = lastMessage.content as MessageContent;
+      if (lastContent.message === messageData.message) {
+        console.debug('Skipping duplicate user message:', messageData.message?.slice(0, 50));
+        return;
+      }
+    }
   }
 
   messages.value.push({
@@ -498,6 +512,16 @@ const handleReportDownload = () => {
 
 // Main event handler function
 const handleEvent = (event: AgentSSEEvent) => {
+  // Deduplicate events based on event_id to prevent duplicate messages
+  const eventId = event.data?.event_id;
+  if (eventId && seenEventIds.value.has(eventId)) {
+    console.debug('Skipping duplicate event:', eventId);
+    return;
+  }
+  if (eventId) {
+    seenEventIds.value.add(eventId);
+  }
+
   if (event.event === 'message') {
     handleMessageEvent(event.data as MessageEventData);
     // Clear suggestions when new message arrives
@@ -530,34 +554,28 @@ const handleSubmit = () => {
   chat(inputMessage.value, attachments.value);
 }
 
+// Track last sent message to prevent duplicate submissions
+let lastSentMessage = '';
+let lastSentTime = 0;
+
 const chat = async (message: string = '', files: FileInfo[] = []) => {
   if (!sessionId.value) return;
+
+  // Prevent duplicate message submission within 2 seconds
+  const now = Date.now();
+  if (message && message === lastSentMessage && now - lastSentTime < 2000) {
+    console.debug('Preventing duplicate message submission');
+    return;
+  }
+  if (message) {
+    lastSentMessage = message;
+    lastSentTime = now;
+  }
 
   // Cancel any existing chat connection before starting a new one
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value();
     cancelCurrentChat.value = null;
-  }
-
-  if (message.trim()) {
-    // Add user message to conversation list
-    messages.value.push({
-      type: 'user',
-      content: {
-        content: message,
-        timestamp: Math.floor(Date.now() / 1000)
-      } as MessageContent,
-    });
-  }
-
-  if (files.length > 0) {
-    messages.value.push({
-      type: 'attachments',
-      content: {
-        role: 'user',
-        attachments: files
-      } as AttachmentsContent,
-    });
   }
 
   // Automatically enable follow mode when sending message

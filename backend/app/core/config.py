@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     # Logging configuration
     log_level: str = "INFO"
 
+    # Alerting configuration (optional)
+    alert_webhook_url: str | None = None
+    alert_webhook_timeout_seconds: float = 3.0
+    alert_throttle_seconds: int = 60
+
     # Multi-Agent Orchestration configuration
     enable_multi_agent: bool = False  # Enable specialized agent dispatch per step
     enable_coordinator: bool = False  # Enable full swarm coordinator mode

@@ -161,7 +161,10 @@ class AgentDomainService:
 
                 message_event.id = event_id
                 await self._session_repository.add_event(session_id, message_event)
-                
+
+                # Yield the user message event so frontend can display it immediately
+                yield message_event
+
                 await task.run()
                 logger.debug(f"Put message into Session {session_id}'s event queue: {message[:50]}...")
             

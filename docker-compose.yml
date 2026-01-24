@@ -49,8 +49,12 @@ services:
         platforms:
           - linux/amd64
           - linux/arm64
-    command: /bin/sh -c "exit 0"  # prevent sandbox from starting, ensure image is pulled
-    restart: "no"
+    hostname: sandbox
+    restart: unless-stopped
+    ports:
+      - "8080:8080"  # Sandbox API
+      - "5902:5900"  # VNC
+      - "6080:6080"  # NoVNC websocket
     networks:
       - pythinker-network
 
