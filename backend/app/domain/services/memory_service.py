@@ -13,6 +13,9 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 
+from openai import AsyncOpenAI
+from app.core.config import get_settings
+
 from app.domain.models.long_term_memory import (
     MemoryEntry,
     MemoryQuery,
@@ -26,6 +29,24 @@ from app.domain.models.long_term_memory import (
 )
 from app.domain.repositories.memory_repository import MemoryRepository
 from app.domain.external.llm import LLM
+
+# Lazy import to avoid circular dependencies
+_qdrant_repo = None
+
+
+def _get_qdrant_repo():
+    """Get QdrantMemoryRepository lazily."""
+    global _qdrant_repo
+    if _qdrant_repo is None:
+        try:
+            from app.infrastructure.repositories.qdrant_memory_repository import (
+                QdrantMemoryRepository,
+            )
+            _qdrant_repo = QdrantMemoryRepository()
+        except Exception as e:
+            logger.warning(f"Failed to initialize Qdrant repository: {e}")
+            _qdrant_repo = False  # Mark as unavailable
+    return _qdrant_repo if _qdrant_repo else None
 
 
 logger = logging.getLogger(__name__)
@@ -69,7 +90,23 @@ class MemoryService:
         """
         self._repository = repository
         self._llm = llm
-        self._embedding_model = embedding_model or "text-embedding-3-small"
+
+        # Initialize embedding client (separate from chat model)
+        # This allows using OpenAI embeddings while using any chat provider
+        settings = get_settings()
+        self._embedding_model = embedding_model or settings.embedding_model
+
+        # Create dedicated embedding client
+        embedding_api_key = settings.embedding_api_key or settings.api_key
+        if embedding_api_key and settings.embedding_api_base:
+            self._embedding_client = AsyncOpenAI(
+                api_key=embedding_api_key,
+                base_url=settings.embedding_api_base
+            )
+            logger.info(f"Embedding client initialized with {settings.embedding_api_base}")
+        else:
+            self._embedding_client = None
+            logger.warning("No embedding API configured, using fallback embeddings")
 
         # Configuration
         self._max_memories_per_user = 10000
@@ -150,7 +187,25 @@ class MemoryService:
             metadata=metadata or {},
         )
 
-        return await self._repository.create(memory)
+        created_memory = await self._repository.create(memory)
+
+        # Sync to Qdrant if embedding exists
+        if embedding:
+            qdrant_repo = _get_qdrant_repo()
+            if qdrant_repo:
+                try:
+                    await qdrant_repo.upsert_memory(
+                        memory_id=created_memory.id,
+                        user_id=created_memory.user_id,
+                        embedding=embedding,
+                        memory_type=memory_type.value,
+                        importance=importance.value,
+                        tags=tags,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to sync memory to Qdrant: {e}")
+
+        return created_memory
 
     async def store_many(
         self,
@@ -203,7 +258,9 @@ class MemoryService:
     ) -> List[MemorySearchResult]:
         """Retrieve memories relevant to a context.
 
-        Uses semantic search when embeddings available, falls back to keyword search.
+        Uses Qdrant for fast vector search when available, with MongoDB fallback.
+        This is a hybrid approach: Qdrant handles vector similarity, MongoDB stores
+        full documents.
 
         Args:
             user_id: User to retrieve for
@@ -215,7 +272,50 @@ class MemoryService:
         Returns:
             List of relevant memories with scores
         """
-        # Try semantic search first
+        # Try Qdrant-based semantic search first
+        qdrant_repo = _get_qdrant_repo()
+
+        if self._llm and qdrant_repo:
+            try:
+                embedding = await self._generate_embedding(context)
+
+                # Use Qdrant for fast vector search (replaces 500-candidate MongoDB search)
+                qdrant_results = await qdrant_repo.search_similar(
+                    user_id=user_id,
+                    query_vector=embedding,
+                    limit=limit,
+                    min_score=min_relevance,
+                    memory_types=memory_types,
+                )
+
+                if qdrant_results:
+                    # Fetch full documents from MongoDB
+                    memory_ids = [r.memory_id for r in qdrant_results]
+                    memories = await self._repository.get_by_ids(memory_ids)
+
+                    # Build lookup for fast matching
+                    memory_lookup = {m.id: m for m in memories}
+
+                    # Combine scores with full documents
+                    results = []
+                    for qdrant_result in qdrant_results:
+                        memory = memory_lookup.get(qdrant_result.memory_id)
+                        if memory:
+                            results.append(MemorySearchResult(
+                                memory=memory,
+                                relevance_score=qdrant_result.relevance_score,
+                                match_type="semantic"
+                            ))
+                            # Record access
+                            await self._repository.record_access(memory.id)
+
+                    if results:
+                        return results
+
+            except Exception as e:
+                logger.warning(f"Qdrant search failed, falling back to MongoDB: {e}")
+
+        # Fallback to MongoDB vector search (limited to 500 candidates)
         if self._llm:
             try:
                 embedding = await self._generate_embedding(context)
@@ -234,9 +334,9 @@ class MemoryService:
                     return results
 
             except Exception as e:
-                logger.warning(f"Semantic search failed, falling back to keyword: {e}")
+                logger.warning(f"MongoDB vector search failed, falling back to keyword: {e}")
 
-        # Fallback to keyword search
+        # Final fallback to keyword search
         keywords = self._extract_keywords(context)
 
         query = MemoryQuery(
@@ -554,6 +654,46 @@ class MemoryService:
         """Get memory statistics for a user."""
         return await self._repository.get_stats(user_id)
 
+    async def delete_memory(self, memory_id: str) -> bool:
+        """Delete a memory from both MongoDB and Qdrant.
+
+        Args:
+            memory_id: ID of memory to delete
+
+        Returns:
+            True if deleted successfully
+        """
+        # Delete from Qdrant first
+        qdrant_repo = _get_qdrant_repo()
+        if qdrant_repo:
+            try:
+                await qdrant_repo.delete_memory(memory_id)
+            except Exception as e:
+                logger.warning(f"Failed to delete memory from Qdrant: {e}")
+
+        # Delete from MongoDB
+        return await self._repository.delete(memory_id)
+
+    async def delete_user_memories(self, user_id: str) -> int:
+        """Delete all memories for a user from both MongoDB and Qdrant.
+
+        Args:
+            user_id: User whose memories to delete
+
+        Returns:
+            Number of memories deleted from MongoDB
+        """
+        # Delete from Qdrant first
+        qdrant_repo = _get_qdrant_repo()
+        if qdrant_repo:
+            try:
+                await qdrant_repo.delete_user_memories(user_id)
+            except Exception as e:
+                logger.warning(f"Failed to delete user memories from Qdrant: {e}")
+
+        # Delete from MongoDB
+        return await self._repository.delete_by_user(user_id)
+
     async def format_memories_for_context(
         self,
         memories: List[MemorySearchResult],
@@ -619,8 +759,11 @@ class MemoryService:
     async def _generate_embedding(self, text: str) -> List[float]:
         """Generate embedding vector for text.
 
-        Uses OpenAI-compatible embedding API if available.
+        Uses dedicated embedding client (OpenAI-compatible) if available.
         Falls back to simple TF-IDF-like vectors for basic functionality.
+
+        This is independent of the chat model provider (OpenAI/Anthropic/DeepSeek),
+        allowing embeddings to always use OpenAI's API.
 
         Args:
             text: Text to generate embedding for
@@ -628,13 +771,13 @@ class MemoryService:
         Returns:
             Embedding vector as list of floats
         """
-        # Try using OpenAI embedding API
-        if self._llm and hasattr(self._llm, 'client'):
+        # Try using dedicated embedding client
+        if self._embedding_client:
             try:
                 # Truncate text to avoid token limits
                 truncated = text[:8000]
 
-                response = await self._llm.client.embeddings.create(
+                response = await self._embedding_client.embeddings.create(
                     model=self._embedding_model,
                     input=truncated,
                     encoding_format="float"
@@ -644,11 +787,11 @@ class MemoryService:
                     return response.data[0].embedding
 
             except Exception as e:
-                logger.warning(f"OpenAI embedding failed: {e}, using fallback")
+                logger.warning(f"Embedding API failed: {e}, using fallback")
 
-        # Fallback: Simple TF-IDF-like embedding
-        # This provides basic functionality when no embedding API is available
-        return self._compute_simple_embedding(text)
+        # Fallback: Simple hash-based embedding
+        # Note: Uses 1536 dimensions to match Qdrant collection config
+        return self._compute_simple_embedding(text, dim=1536)
 
     def _compute_simple_embedding(self, text: str, dim: int = 256) -> List[float]:
         """Compute a simple hash-based embedding for fallback.

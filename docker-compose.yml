@@ -56,8 +56,23 @@ services:
       - "8080:8080"  # Sandbox API
       - "5902:5900"  # VNC
       - "6080:6080"  # NoVNC websocket
+    # Shared memory size for Chrome browser stability (prevents crashes)
+    shm_size: '2gb'
+    # Resource limits for browser sandbox
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
     networks:
       - pythinker-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   mongodb:
     image: mongo:7.0
@@ -89,7 +104,7 @@ services:
     networks:
       - pythinker-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/readyz"]
+      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/6333' || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3

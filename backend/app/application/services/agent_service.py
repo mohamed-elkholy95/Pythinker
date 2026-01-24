@@ -1,4 +1,4 @@
-from typing import AsyncGenerator, Optional, List
+from typing import AsyncGenerator, Optional, List, TYPE_CHECKING
 import logging
 from datetime import datetime
 from app.domain.models.session import Session
@@ -22,6 +22,9 @@ from app.domain.models.file import FileInfo
 from app.domain.repositories.mcp_repository import MCPRepository
 from app.domain.models.session import SessionStatus, AgentMode
 
+if TYPE_CHECKING:
+    from app.domain.services.memory_service import MemoryService
+
 # Set up logger
 logger = logging.getLogger(__name__)
 
@@ -37,6 +40,7 @@ class AgentService:
         file_storage: FileStorage,
         mcp_repository: MCPRepository,
         search_engine: Optional[SearchEngine] = None,
+        memory_service: Optional["MemoryService"] = None,
     ):
         logger.info("Initializing AgentService")
         self._agent_repository = agent_repository
@@ -52,6 +56,7 @@ class AgentService:
             file_storage,
             mcp_repository,
             search_engine,
+            memory_service,
         )
         self._llm = llm
         self._search_engine = search_engine

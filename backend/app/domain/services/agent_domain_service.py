@@ -1,4 +1,4 @@
-from typing import Optional, AsyncGenerator, List
+from typing import Optional, AsyncGenerator, List, TYPE_CHECKING
 import logging
 import time
 import asyncio
@@ -20,6 +20,9 @@ from app.domain.models.file import FileInfo
 from app.domain.repositories.mcp_repository import MCPRepository
 from app.core.config import get_settings
 
+if TYPE_CHECKING:
+    from app.domain.services.memory_service import MemoryService
+
 # Setup logging
 logger = logging.getLogger(__name__)
 
@@ -39,6 +42,7 @@ class AgentDomainService:
         file_storage: FileStorage,
         mcp_repository: MCPRepository,
         search_engine: Optional[SearchEngine] = None,
+        memory_service: Optional["MemoryService"] = None,
     ):
         self._repository = agent_repository
         self._session_repository =session_repository
@@ -49,6 +53,7 @@ class AgentDomainService:
         self._json_parser = json_parser
         self._file_storage = file_storage
         self._mcp_repository = mcp_repository
+        self._memory_service = memory_service
         logger.info("AgentDomainService initialization completed")
             
     async def shutdown(self) -> None:
@@ -94,6 +99,8 @@ class AgentDomainService:
             # Multi-agent orchestration configuration
             enable_multi_agent=settings.enable_multi_agent,
             enable_coordinator=settings.enable_coordinator,
+            # Long-term memory service (Phase 6: Qdrant integration)
+            memory_service=self._memory_service,
         )
 
         task = self._task_cls.create(task_runner)
@@ -144,29 +151,60 @@ class AgentDomainService:
             task = await self._get_task(session)
 
             if message:
-                if session.status != SessionStatus.RUNNING or task is None:
-                    task = await self._create_task(session)
-                    if not task:
-                        raise RuntimeError("Failed to create task")
+                # Deduplication check: Skip if same message was recently sent to this session
+                # This prevents duplicate messages when:
+                # - Page reloads or SSE reconnects during active task
+                # - Backend restarts and frontend retries the request
+                is_duplicate = False
+                if session.latest_message == message and session.latest_message_at:
+                    from datetime import timezone
+                    now = datetime.now(timezone.utc)
+                    # Make latest_message_at timezone-aware if it isn't
+                    latest_at = session.latest_message_at
+                    if latest_at.tzinfo is None:
+                        latest_at = latest_at.replace(tzinfo=timezone.utc)
+                    time_since_last = (now - latest_at).total_seconds()
+                    if time_since_last < 300:  # Within 5 minutes (research tasks can take a while)
+                        is_duplicate = True
+                        logger.warning(f"Skipping duplicate message for session {session_id} (same message sent {time_since_last:.1f}s ago, status={session.status})")
 
-                await self._session_repository.update_latest_message(session_id, message, timestamp or datetime.now())
+                if is_duplicate:
+                    # Don't add duplicate message
+                    if session.status == SessionStatus.RUNNING and task:
+                        # Session is still running, just reconnect to the event stream
+                        logger.info(f"Session {session_id} reconnecting to running task (duplicate message skipped)")
+                    else:
+                        # Session completed or not running - return completed event without reprocessing
+                        logger.info(f"Session {session_id} duplicate after completion - not reprocessing (status={session.status})")
+                        yield DoneEvent(
+                            title=session.title or "Task completed",
+                            summary="This request was already processed."
+                        )
+                        return
+                else:
+                    if session.status != SessionStatus.RUNNING or task is None:
+                        task = await self._create_task(session)
+                        if not task:
+                            raise RuntimeError("Failed to create task")
 
-                message_event = MessageEvent(
-                    message=message,
-                    role="user",
-                    attachments=[FileInfo(file_id=attachment["file_id"], filename=attachment["filename"]) for attachment in attachments] if attachments else None
-                )
+                    await self._session_repository.update_latest_message(session_id, message, timestamp or datetime.now())
 
-                event_id = await task.input_stream.put(message_event.model_dump_json())
+                    message_event = MessageEvent(
+                        message=message,
+                        role="user",
+                        attachments=[FileInfo(file_id=attachment["file_id"], filename=attachment["filename"]) for attachment in attachments] if attachments else None
+                    )
 
-                message_event.id = event_id
-                await self._session_repository.add_event(session_id, message_event)
+                    event_id = await task.input_stream.put(message_event.model_dump_json())
 
-                # Yield the user message event so frontend can display it immediately
-                yield message_event
+                    message_event.id = event_id
+                    await self._session_repository.add_event(session_id, message_event)
 
-                await task.run()
-                logger.debug(f"Put message into Session {session_id}'s event queue: {message[:50]}...")
+                    # Yield the user message event so frontend can display it immediately
+                    yield message_event
+
+                    await task.run()
+                    logger.debug(f"Put message into Session {session_id}'s event queue: {message[:50]}...")
             
             logger.info(f"Session {session_id} started")
             logger.debug(f"Session {session_id} task: {task}")

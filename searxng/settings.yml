@@ -14,6 +14,10 @@ search:
   safe_search: 0
   autocomplete: ""
   default_lang: "en"
+  languages:
+    - en           # Restrict to English results only
+    - en-US
+    - en-GB
   formats:
     - html
     - json  # Enable JSON API for programmatic access
@@ -37,19 +41,21 @@ ui:
   theme_args:
     simple_style: auto
 
-# Enable specific search engines
+# Enable specific search engines (English only)
 engines:
-  # Google
+  # Google (English)
   - name: google
     engine: google
     shortcut: g
     disabled: false
+    language: en
 
-  # Bing
+  # Bing (English)
   - name: bing
     engine: bing
     shortcut: b
     disabled: false
+    language: en
 
   # DuckDuckGo
   - name: duckduckgo
@@ -62,12 +68,14 @@ engines:
     engine: brave
     shortcut: br
     disabled: false
+    language: en
 
-  # Wikipedia
+  # Wikipedia (English)
   - name: wikipedia
     engine: wikipedia
     shortcut: w
     disabled: false
+    language: en
 
   # GitHub
   - name: github
@@ -80,6 +88,23 @@ engines:
     engine: arxiv
     shortcut: ar
     disabled: false
+
+  # Explicitly disable Chinese search engines
+  - name: baidu
+    engine: baidu
+    disabled: true
+
+  - name: sogou
+    engine: sogou
+    disabled: true
+
+  - name: yandex
+    engine: yandex
+    disabled: true
+
+  - name: qwant
+    engine: qwant
+    disabled: true
 
 outgoing:
   # Use default request settings

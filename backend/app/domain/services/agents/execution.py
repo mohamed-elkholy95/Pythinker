@@ -1,4 +1,4 @@
-from typing import AsyncGenerator, Optional, List
+from typing import AsyncGenerator, Optional, List, TYPE_CHECKING
 from app.domain.models.plan import Plan, Step, ExecutionStatus
 from app.domain.models.file import FileInfo
 from app.domain.models.message import Message
@@ -43,6 +43,9 @@ from app.domain.services.agents.prompt_adapter import PromptAdapter
 from app.domain.services.agents.critic import CriticAgent, CriticVerdict, CriticConfig
 import logging
 
+if TYPE_CHECKING:
+    from app.domain.services.memory_service import MemoryService
+
 logger = logging.getLogger(__name__)
 
 
@@ -63,6 +66,8 @@ class ExecutionAgent(BaseAgent):
         tools: List[BaseTool],
         json_parser: JsonParser,
         critic_config: Optional[CriticConfig] = None,
+        memory_service: Optional["MemoryService"] = None,
+        user_id: Optional[str] = None,
     ):
         super().__init__(
             agent_id=agent_id,
@@ -85,6 +90,10 @@ class ExecutionAgent(BaseAgent):
             )
         )
         self._user_request: Optional[str] = None  # Track for critic context
+
+        # Memory service for long-term context (Phase 6: Qdrant integration)
+        self._memory_service = memory_service
+        self._user_id = user_id
     
     async def execute_step(self, plan: Plan, step: Step, message: Message) -> AsyncGenerator[BaseEvent, None]:
         # Store user request for critic context
@@ -103,6 +112,24 @@ class ExecutionAgent(BaseAgent):
             pressure = self._token_manager.get_context_pressure(self.memory.get_messages())
             pressure_signal = pressure.to_context_signal()
 
+        # Retrieve relevant memories for this step (Phase 6: Qdrant integration)
+        memory_context = None
+        if self._memory_service and self._user_id:
+            try:
+                memories = await self._memory_service.retrieve_for_task(
+                    user_id=self._user_id,
+                    task_description=step.description,
+                    limit=5
+                )
+                if memories:
+                    memory_context = self._memory_service.format_memories_for_context(
+                        memories,
+                        max_tokens=500
+                    )
+                    logger.debug(f"Injected {len(memories)} memories into execution context")
+            except Exception as e:
+                logger.warning(f"Failed to retrieve memories for step: {e}")
+
         # Build execution prompt with context signals
         base_prompt = build_execution_prompt(
             step=step.description,
@@ -110,7 +137,8 @@ class ExecutionAgent(BaseAgent):
             attachments="\n".join(message.attachments),
             language=plan.language,
             pressure_signal=pressure_signal,
-            task_state=task_state_signal
+            task_state=task_state_signal,
+            memory_context=memory_context
         )
 
         # Adapt prompt with context-specific guidance if applicable

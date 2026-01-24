@@ -14,6 +14,7 @@ class SessionStatus(str, Enum):
     RUNNING = "running"
     WAITING = "waiting"
     COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class AgentMode(str, Enum):

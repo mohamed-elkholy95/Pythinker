@@ -1,4 +1,4 @@
-from typing import Dict, Any, List, AsyncGenerator, Optional
+from typing import Dict, Any, List, AsyncGenerator, Optional, TYPE_CHECKING
 import json
 import logging
 from app.domain.models.plan import Plan, Step
@@ -10,8 +10,13 @@ from app.domain.services.prompts.system import SYSTEM_PROMPT
 from app.domain.services.prompts.planner import (
     CREATE_PLAN_PROMPT,
     UPDATE_PLAN_PROMPT,
-    PLANNER_SYSTEM_PROMPT
+    PLANNER_SYSTEM_PROMPT,
+    build_create_plan_prompt,
 )
+from app.domain.models.long_term_memory import MemoryType
+
+if TYPE_CHECKING:
+    from app.domain.services.memory_service import MemoryService
 from app.domain.models.event import (
     BaseEvent,
     PlanEvent,
@@ -47,6 +52,8 @@ class PlannerAgent(BaseAgent):
         llm: LLM,
         tools: List[BaseTool],
         json_parser: JsonParser,
+        memory_service: Optional["MemoryService"] = None,
+        user_id: Optional[str] = None,
     ):
         super().__init__(
             agent_id=agent_id,
@@ -55,6 +62,9 @@ class PlannerAgent(BaseAgent):
             json_parser=json_parser,
             tools=tools,
         )
+        # Memory service for long-term context (Phase 6: Qdrant integration)
+        self._memory_service = memory_service
+        self._user_id = user_id
 
 
     async def create_plan(
@@ -71,9 +81,27 @@ class PlannerAgent(BaseAgent):
         Yields:
             PlanEvent with the created plan
         """
-        base_prompt = CREATE_PLAN_PROMPT.format(
+        # Retrieve similar past tasks and outcomes (Phase 6: Qdrant integration)
+        task_memory = None
+        if self._memory_service and self._user_id:
+            try:
+                memories = await self._memory_service.retrieve_relevant(
+                    user_id=self._user_id,
+                    context=message.message,
+                    limit=3,
+                    memory_types=[MemoryType.TASK_OUTCOME, MemoryType.ERROR_PATTERN],
+                    min_relevance=0.4
+                )
+                if memories:
+                    task_memory = self._format_task_memory(memories)
+                    logger.debug(f"Injected {len(memories)} memories into planning context")
+            except Exception as e:
+                logger.warning(f"Failed to retrieve task memories for planning: {e}")
+
+        base_prompt = build_create_plan_prompt(
             message=message.message,
-            attachments="\n".join(message.attachments)
+            attachments="\n".join(message.attachments),
+            task_memory=task_memory
         )
 
         # Add replan context if provided (from verification feedback)
@@ -199,3 +227,29 @@ class PlannerAgent(BaseAgent):
                 yield PlanEvent(status=PlanStatus.UPDATED, plan=plan)
             else:
                 yield event
+
+    def _format_task_memory(self, memories) -> str:
+        """Format task memories for planning context.
+
+        Args:
+            memories: List of MemorySearchResult from similar past tasks
+
+        Returns:
+            Formatted string with relevant task outcomes and patterns
+        """
+        if not memories:
+            return ""
+
+        lines = []
+        for result in memories[:3]:  # Limit to 3 most relevant
+            mem = result.memory
+            mem_type = mem.memory_type.value if hasattr(mem.memory_type, 'value') else str(mem.memory_type)
+
+            if mem_type == "task_outcome":
+                lines.append(f"- [Past Task] {mem.content[:200]}...")
+            elif mem_type == "error_pattern":
+                lines.append(f"- [Error Pattern] {mem.content[:200]}...")
+            else:
+                lines.append(f"- [{mem_type}] {mem.content[:150]}...")
+
+        return "\n".join(lines)

@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     model_name: str = "deepseek-chat"
     temperature: float = 0.3  # Lower temperature for deterministic JSON responses
     max_tokens: int = 8000  # Increased from 2000 to allow complete responses
+
+    # Embedding configuration (separate from chat model)
+    embedding_api_key: str | None = None  # Defaults to api_key if not set
+    embedding_api_base: str = "https://api.openai.com/v1"  # OpenAI for embeddings
+    embedding_model: str = "text-embedding-3-small"  # 1536 dimensions
     
     # MongoDB configuration
     mongodb_uri: str = "mongodb://mongodb:27017"
@@ -24,6 +29,13 @@ class Settings(BaseSettings):
     redis_port: int = 6379
     redis_db: int = 0
     redis_password: str | None = None
+
+    # Qdrant Vector Database configuration
+    qdrant_url: str = "http://qdrant:6333"
+    qdrant_grpc_port: int = 6334
+    qdrant_prefer_grpc: bool = True  # 2x faster than REST
+    qdrant_collection: str = "agent_memories"
+    qdrant_api_key: str | None = None
     
     # Sandbox configuration
     sandbox_address: str | None = None

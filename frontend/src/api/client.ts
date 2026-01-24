@@ -287,29 +287,32 @@ export const createSSEConnection = async <T = any>(
   callbacks: SSECallbacks<T> = {}
 ): Promise<() => void> => {
   const { onOpen, onMessage, onClose, onError } = callbacks;
-  const { 
-    method = 'GET', 
-    body, 
+  const {
+    method = 'GET',
+    body,
     headers = {}
   } = options;
-  
+
   // Create AbortController for cancellation
   const abortController = new AbortController();
-  
+
   const apiUrl = `${BASE_URL}${endpoint}`;
-  
+
   // Add authentication headers
   const requestHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
     ...headers,
   };
-  
+
   // Add authentication token if available
   const token = getStoredToken();
   if (token && !requestHeaders.Authorization) {
     requestHeaders.Authorization = `Bearer ${token}`;
   }
-  
+
+  // Track if the initial message has been sent to prevent duplicate submissions on retry
+  let messageSent = false;
+
   // Create SSE connection
   const createConnection = async (): Promise<void> => {
     return new Promise((_resolve, reject) => {
@@ -318,35 +321,42 @@ export const createSSEConnection = async <T = any>(
         return;
       }
 
+      // Only include body on first attempt; on retry after 401, we just reconnect to listen
+      // The message was already added to the queue on the first attempt
+      const requestBody = (!messageSent && body) ? JSON.stringify(body) : undefined;
+      if (body && !messageSent) {
+        messageSent = true;
+      }
+
       const ssePromise = fetchEventSource(apiUrl, {
         method,
         headers: requestHeaders,
         openWhenHidden: true,
-        body: body ? JSON.stringify(body) : undefined,
+        body: requestBody,
         signal: abortController.signal,
         async onopen(response) {
           // Check for authentication errors in the initial response
           if (response.status === 401) {
             const authError = new Error('Unauthorized');
             const refreshSuccess = await handleSSEAuthError(authError, endpoint, options, callbacks);
-            
+
             if (refreshSuccess) {
               // Update authorization header with new token
               const newToken = getStoredToken();
               if (newToken) {
                 requestHeaders.Authorization = `Bearer ${newToken}`;
-                // Retry connection with new token
+                // Retry connection with new token (without resending the message)
                 setTimeout(() => createConnection().catch(console.error), 1000);
               }
             }
             return;
           }
-          
+
           // Check for other error status codes
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
           }
-          
+
           if (onOpen) {
             onOpen();
           }

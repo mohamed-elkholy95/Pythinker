@@ -6,6 +6,7 @@ import socket
 import logging
 import asyncio
 import io
+import json
 from async_lru import alru_cache
 from app.core.config import get_settings
 from app.domain.models.tool_result import ToolResult
@@ -15,6 +16,10 @@ from app.domain.external.browser import Browser
 from app.domain.external.llm import LLM
 
 logger = logging.getLogger(__name__)
+
+# CDP health check timeout
+CDP_HEALTH_CHECK_TIMEOUT = 10  # seconds
+CDP_CONNECTION_RETRIES = 3
 
 class DockerSandbox(Sandbox):
     def __init__(self, ip: str = None, container_name: str = None):
@@ -124,58 +129,124 @@ class DockerSandbox(Sandbox):
         except Exception as e:
             raise Exception(f"Failed to create Docker sandbox: {str(e)}")
 
+    async def _verify_cdp_connection(self) -> bool:
+        """Verify Chrome DevTools Protocol connection is working
+
+        Checks if the browser is accessible via CDP by requesting the version endpoint.
+
+        Returns:
+            bool: True if CDP connection is healthy, False otherwise
+        """
+        try:
+            async with httpx.AsyncClient(timeout=CDP_HEALTH_CHECK_TIMEOUT) as client:
+                response = await client.get(f"{self._cdp_url}/json/version")
+                if response.status_code == 200:
+                    version_info = response.json()
+                    logger.debug(f"CDP connection verified: {version_info.get('Browser', 'Unknown browser')}")
+                    return True
+                logger.warning(f"CDP version check returned status {response.status_code}")
+                return False
+        except Exception as e:
+            logger.debug(f"CDP connection check failed: {e}")
+            return False
+
+    async def _verify_browser_responsive(self) -> bool:
+        """Verify the browser is responsive by checking for available pages
+
+        Returns:
+            bool: True if browser has pages available, False otherwise
+        """
+        try:
+            async with httpx.AsyncClient(timeout=CDP_HEALTH_CHECK_TIMEOUT) as client:
+                response = await client.get(f"{self._cdp_url}/json/list")
+                if response.status_code == 200:
+                    pages = response.json()
+                    # Browser should have at least one page (the default tab)
+                    if isinstance(pages, list) and len(pages) > 0:
+                        logger.debug(f"Browser responsive with {len(pages)} page(s)")
+                        return True
+                    logger.warning("Browser has no pages available")
+                    return False
+                return False
+        except Exception as e:
+            logger.debug(f"Browser responsiveness check failed: {e}")
+            return False
+
     async def ensure_sandbox(self) -> None:
-        """Ensure sandbox is ready by checking that all services are RUNNING"""
+        """Ensure sandbox is ready by checking all services and browser health
+
+        This method verifies:
+        1. All supervisor services are RUNNING
+        2. Chrome DevTools Protocol is accessible
+        3. Browser is responsive and has pages available
+        """
         max_retries = 30  # Maximum number of retries
         retry_interval = 2  # Seconds between retries
-        
+
         for attempt in range(max_retries):
             try:
                 response = await self.client.get(f"{self.base_url}/api/v1/supervisor/status")
                 response.raise_for_status()
-                
+
                 # Parse response as ToolResult
                 tool_result = ToolResult(**response.json())
-                
+
                 if not tool_result.success:
                     logger.warning(f"Supervisor status check failed: {tool_result.message}")
                     await asyncio.sleep(retry_interval)
                     continue
-                
+
                 services = tool_result.data or []
                 if not services:
                     logger.warning("No services found in supervisor status")
                     await asyncio.sleep(retry_interval)
                     continue
-                
+
                 # Check if all services are RUNNING
                 all_running = True
                 non_running_services = []
-                
+
                 for service in services:
                     service_name = service.get("name", "unknown")
                     state_name = service.get("statename", "")
-                    
+
                     if state_name != "RUNNING":
                         all_running = False
                         non_running_services.append(f"{service_name}({state_name})")
-                
-                if all_running:
-                    logger.info(f"All {len(services)} services are RUNNING - sandbox is ready")
-                    return  # Success - all services are running
-                else:
-                    logger.info(f"Waiting for services to start... Non-running: {', '.join(non_running_services)} (attempt {attempt + 1}/{max_retries})")
+
+                if not all_running:
+                    logger.info(f"Waiting for services... Non-running: {', '.join(non_running_services)} (attempt {attempt + 1}/{max_retries})")
                     await asyncio.sleep(retry_interval)
-                    
+                    continue
+
+                # All services running - now verify browser health
+                logger.debug("All supervisor services running, verifying browser health...")
+
+                # Check CDP connection
+                cdp_ok = await self._verify_cdp_connection()
+                if not cdp_ok:
+                    logger.info(f"CDP not ready yet (attempt {attempt + 1}/{max_retries})")
+                    await asyncio.sleep(retry_interval)
+                    continue
+
+                # Check browser responsiveness
+                browser_ok = await self._verify_browser_responsive()
+                if not browser_ok:
+                    logger.info(f"Browser not responsive yet (attempt {attempt + 1}/{max_retries})")
+                    await asyncio.sleep(retry_interval)
+                    continue
+
+                logger.info(f"Sandbox fully ready: {len(services)} services running, browser healthy")
+                return  # Success - all checks passed
+
             except Exception as e:
-                logger.warning(f"Failed to check supervisor status (attempt {attempt + 1}/{max_retries}): {str(e)}")
+                logger.warning(f"Failed to check sandbox status (attempt {attempt + 1}/{max_retries}): {str(e)}")
                 await asyncio.sleep(retry_interval)
-        
+
         # If we reach here, we've exhausted all retries
-        error_message = f"Sandbox services failed to start after {max_retries} attempts ({max_retries * retry_interval} seconds)"
+        error_message = f"Sandbox failed to become ready after {max_retries} attempts ({max_retries * retry_interval} seconds)"
         logger.error(error_message)
-        # TODO: find a way to handle this
-        #raise Exception(error_message)
+        # Don't raise - let the caller handle degraded operation if needed
 
     async def exec_command(self, session_id: str, exec_dir: str, command: str) -> ToolResult:
         response = await self.client.post(
@@ -477,17 +548,37 @@ class DockerSandbox(Sandbox):
             logger.error(f"Failed to destroy Docker sandbox: {str(e)}")
             return False
     
-    async def get_browser(self) -> Browser:
-        """Get browser instance
-        
+    async def get_browser(self, block_resources: bool = False, verify_connection: bool = True) -> Browser:
+        """Get browser instance with optional connection verification
+
         Args:
-            llm: LLM instance used for browser automation
-            
+            block_resources: Whether to enable resource blocking for faster page loads
+            verify_connection: Whether to verify CDP connection before returning (default: True)
+
         Returns:
             Browser: Returns a configured PlaywrightBrowser instance
                     connected using the sandbox's CDP URL
+
+        Raises:
+            Exception: If verify_connection is True and connection cannot be established
         """
-        return PlaywrightBrowser(self.cdp_url)
+        if verify_connection:
+            # Verify CDP is accessible before creating browser instance
+            for attempt in range(CDP_CONNECTION_RETRIES):
+                if await self._verify_cdp_connection():
+                    break
+                if attempt < CDP_CONNECTION_RETRIES - 1:
+                    logger.warning(f"CDP connection attempt {attempt + 1} failed, retrying...")
+                    await asyncio.sleep(1)
+            else:
+                raise Exception(f"Failed to verify CDP connection after {CDP_CONNECTION_RETRIES} attempts")
+
+        browser = PlaywrightBrowser(
+            cdp_url=self.cdp_url,
+            block_resources=block_resources
+        )
+
+        return browser
 
     @staticmethod
     @alru_cache(maxsize=128, typed=True)
