@@ -98,8 +98,8 @@ class PlaywrightBrowser:
         try:
             if not self.page or self.page.is_closed():
                 return False
-            # Simple evaluation to verify connection
-            await self.page.evaluate("() => true", timeout=5000)
+            # Simple evaluation to verify connection (uses page's default timeout)
+            await self.page.evaluate("() => true")
             return True
         except Exception as e:
             logger.warning(f"Connection health check failed: {e}")

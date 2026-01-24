@@ -1,5 +1,6 @@
-# SearXNG settings for Pythinker Agent integration
-# see https://docs.searxng.org/admin/settings/index.html
+# SearXNG Production Settings for Pythinker Agent
+# Optimized for reliability, performance, and English-language results
+# See: https://docs.searxng.org/admin/settings/index.html
 
 use_default_settings: true
 
@@ -8,28 +9,33 @@ general:
   debug: false
   privacypolicy_url: ""
   contact_url: ""
-  enable_metrics: false
+  enable_metrics: true  # Enable for monitoring engine health
 
 search:
   safe_search: 0
-  autocomplete: ""
+  autocomplete: "duckduckgo"  # Use DuckDuckGo for autocomplete
+  autocomplete_min: 2
   default_lang: "en"
   languages:
-    - en           # Restrict to English results only
+    - en
     - en-US
     - en-GB
   formats:
     - html
     - json  # Enable JSON API for programmatic access
+  # Ban time for misbehaving engines (in seconds)
+  ban_time_on_fail: 30
+  # Maximum ban time
+  max_ban_time_on_fail: 300
 
 server:
-  # Bind to all interfaces for Docker networking
   bind_address: "0.0.0.0"
   port: 8080
   secret_key: "pythinker-searxng-secret-key-change-in-production"
-  limiter: false  # Disable rate limiting for internal use
+  limiter: false  # Disable rate limiting for internal agent use
   image_proxy: false
   http_protocol_version: "1.1"
+  method: "GET"
 
 ui:
   static_use_hash: true
@@ -41,55 +47,101 @@ ui:
   theme_args:
     simple_style: auto
 
-# Enable specific search engines (English only)
+# Engine Configuration - Prioritize stable, reliable engines
+# Engines are selected based on reliability testing and error rates
 engines:
-  # Google (English)
-  - name: google
-    engine: google
-    shortcut: g
-    disabled: false
-    language: en
+  # === PRIMARY ENGINES (Most Reliable) ===
 
-  # Bing (English)
-  - name: bing
-    engine: bing
-    shortcut: b
-    disabled: false
-    language: en
-
-  # DuckDuckGo
+  # DuckDuckGo - Very stable, good privacy, reliable API
   - name: duckduckgo
     engine: duckduckgo
     shortcut: ddg
-    disabled: true
+    disabled: false
+    timeout: 4.0
+    weight: 1.2  # Higher weight = higher priority in results
 
-  # Brave
+  # Brave Search - Modern, reliable, good results
   - name: brave
     engine: brave
     shortcut: br
     disabled: false
-    language: en
+    timeout: 4.0
+    weight: 1.1
 
-  # Wikipedia (English)
+  # Qwant - European search, reliable API
+  - name: qwant
+    engine: qwant
+    shortcut: qw
+    disabled: false
+    timeout: 4.0
+    weight: 1.0
+
+  # Mojeek - Independent index, stable
+  - name: mojeek
+    engine: mojeek
+    shortcut: mj
+    disabled: false
+    timeout: 4.0
+    weight: 0.9
+
+  # === SECONDARY ENGINES (Specialized) ===
+
+  # Wikipedia - Essential for factual information
   - name: wikipedia
     engine: wikipedia
     shortcut: w
     disabled: false
     language: en
+    timeout: 3.0
+    weight: 1.0
 
-  # GitHub
+  # Wikidata - Structured data
+  - name: wikidata
+    engine: wikidata
+    shortcut: wd
+    disabled: false
+    timeout: 3.0
+
+  # GitHub - Code search
   - name: github
     engine: github
     shortcut: gh
     disabled: false
+    timeout: 5.0
 
-  # Arxiv (for academic papers)
+  # Arxiv - Academic papers
   - name: arxiv
     engine: arxiv
     shortcut: ar
     disabled: false
+    timeout: 5.0
 
-  # Explicitly disable Chinese search engines
+  # Stack Overflow - Not available in this SearXNG version
+  # Use stackexchange instead which covers all SE sites
+  - name: stackexchange
+    engine: stackexchange
+    shortcut: stx
+    disabled: false
+    timeout: 4.0
+    categories: it
+
+  # === PROBLEMATIC ENGINES (Disabled due to API issues) ===
+
+  # Bing - DISABLED: "Expected results to start at 1" parsing errors
+  # Known issue with Bing API response format changes
+  - name: bing
+    engine: bing
+    shortcut: b
+    disabled: true  # DISABLED - unreliable API responses
+
+  # Google - DISABLED: Aggressive rate limiting and CAPTCHAs
+  - name: google
+    engine: google
+    shortcut: g
+    disabled: true  # DISABLED - rate limiting issues
+
+  # === EXPLICITLY DISABLED (Regional/Unreliable) ===
+
   - name: baidu
     engine: baidu
     disabled: true
@@ -102,14 +154,26 @@ engines:
     engine: yandex
     disabled: true
 
-  - name: qwant
-    engine: qwant
+  # Ahmia/Torch - Tor engines, not needed
+  - name: ahmia
+    disabled: true
+
+  - name: torch
     disabled: true
 
 outgoing:
-  # Use default request settings
-  request_timeout: 6.0
+  # Robust timeout and retry settings for production
+  request_timeout: 5.0
   max_request_timeout: 15.0
-  useragent_suffix: ""
+  useragent_suffix: "Pythinker/1.0"
   pool_connections: 100
   pool_maxsize: 20
+  # Enable HTTP/2 for better performance
+  enable_http2: true
+  # Retry on specific HTTP errors
+  retries: 2
+  retry_on_http_error: true
+
+# Redis caching for improved performance (if redis available)
+# redis:
+#   url: redis://redis:6379/0
