@@ -103,10 +103,41 @@
       <div class="mx-auto w-full max-w-full sm:max-w-[768px] sm:min-w-[390px] flex flex-col flex-1">
         <div class="flex flex-col w-full gap-[12px] pb-[80px] pt-[12px] flex-1 overflow-y-auto">
           <ChatMessage v-for="(message, index) in messages" :key="index" :message="message"
-            @toolClick="handleToolClick" />
+            :suggestions="message.type === 'report' ? suggestions : undefined"
+            @toolClick="handleToolClick"
+            @reportOpen="handleReportOpen"
+            @reportFileOpen="handleReportFileOpen"
+            @showAllFiles="handleFileListShow"
+            @reportRate="handleReportRate"
+            @selectSuggestion="handleSuggestionSelect" />
 
-          <!-- Loading indicator -->
-          <LoadingIndicator v-if="isLoading" :text="$t('Thinking')" />
+          <!-- Loading/Thinking indicators -->
+          <div v-if="isLoading && isThinking" class="flex flex-col">
+            <div class="flex">
+              <div class="w-[24px] relative h-4">
+                <div class="border-l border-dashed border-[var(--border-dark)] absolute start-[8px] top-0 bottom-0"></div>
+              </div>
+              <div class="flex-1"></div>
+            </div>
+            <div class="flex items-center">
+              <div class="w-[24px] flex items-center justify-center" style="padding-left: 3px;">
+                <div class="thinking-shape-wrapper">
+                  <ThinkingIndicator :showText="false" />
+                </div>
+              </div>
+              <div class="flex-1 min-w-0">
+                <span class="text-sm font-medium text-black dark:text-white">Thinking</span>
+              </div>
+            </div>
+          </div>
+          <LoadingIndicator v-else-if="isLoading" :text="$t('Loading')" />
+
+          <!-- Suggestions - only show standalone when last message is not a report -->
+          <Suggestions
+            v-if="suggestions.length > 0 && !isLoading && !hasReportMessage"
+            :suggestions="suggestions"
+            @select="handleSuggestionSelect"
+          />
         </div>
 
         <div class="flex flex-col bg-[var(--background-gray-main)] sticky bottom-0">
@@ -120,21 +151,30 @@
         </div>
       </div>
     </div>
-    <ToolPanel ref="toolPanel" :size="toolPanelSize" :sessionId="sessionId" :realTime="realTime" 
+    <ToolPanel ref="toolPanel" :size="toolPanelSize" :sessionId="sessionId" :realTime="realTime"
       :isShare="false"
       @jumpToRealTime="jumpToRealTime" />
   </SimpleBar>
+
+  <!-- Report Modal -->
+  <ReportModal
+    v-model:open="isReportModalOpen"
+    :report="currentReport"
+    :showToc="true"
+    @close="closeReport"
+    @download="handleReportDownload"
+  />
 </template>
 
 <script setup lang="ts">
 import SimpleBar from '../components/SimpleBar.vue';
-import { ref, onMounted, watch, nextTick, onUnmounted, reactive, toRefs } from 'vue';
+import { ref, computed, onMounted, watch, nextTick, onUnmounted, reactive, toRefs } from 'vue';
 import { useRouter, onBeforeRouteUpdate } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import ChatBox from '../components/ChatBox.vue';
 import ChatMessage from '../components/ChatMessage.vue';
 import * as agentApi from '../api/agent';
-import { Message, MessageContent, ToolContent, StepContent, AttachmentsContent } from '../types/message';
+import { Message, MessageContent, ToolContent, StepContent, AttachmentsContent, ReportContent } from '../types/message';
 import {
   StepEventData,
   ToolEventData,
@@ -143,7 +183,11 @@ import {
   TitleEventData,
   PlanEventData,
   AgentSSEEvent,
+  ModeChangeEventData,
+  SuggestionEventData,
+  ReportEventData,
 } from '../types/event';
+import Suggestions from '../components/Suggestions.vue';
 import ToolPanel from '../components/ToolPanel.vue'
 import PlanPanel from '../components/PlanPanel.vue';
 import { ArrowDown, FileSearch, PanelLeft, Lock, Globe, Link, Check } from 'lucide-vue-next';
@@ -157,12 +201,17 @@ import { copyToClipboard } from '../utils/dom'
 import { SessionStatus } from '../types/response';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import LoadingIndicator from '@/components/ui/LoadingIndicator.vue';
+import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
+import { ReportModal } from '@/components/report';
+import type { ReportData } from '@/components/report';
+import { useReport, extractSectionsFromMarkdown } from '@/composables/useReport';
 
 const router = useRouter()
 const { t } = useI18n()
 const { toggleLeftPanel, isLeftPanelShow } = useLeftPanel()
 const { showSessionFileList } = useSessionFileList()
-const { hideFilePanel } = useFilePanel()
+const { hideFilePanel, showFilePanel } = useFilePanel()
+const { isReportModalOpen, currentReport, openReport, closeReport } = useReport()
 
 // Create initial state factory
 const createInitialState = () => ({
@@ -183,7 +232,10 @@ const createInitialState = () => ({
   attachments: [] as FileInfo[],
   shareMode: 'private' as 'private' | 'public', // Default to private mode
   linkCopied: false,
-  sharingLoading: false // Loading state for share operations
+  sharingLoading: false, // Loading state for share operations
+  suggestions: [] as string[], // End-of-response suggestions
+  agentMode: 'discuss' as 'discuss' | 'agent', // Current agent mode
+  isThinking: false, // True when agent is actively thinking/processing
 });
 
 // Create reactive state
@@ -207,7 +259,10 @@ const {
   attachments,
   shareMode,
   linkCopied,
-  sharingLoading
+  sharingLoading,
+  suggestions,
+  agentMode,
+  isThinking,
 } = toRefs(state);
 
 // Non-state refs that don't need reset
@@ -241,8 +296,18 @@ const getLastStep = (): StepContent | undefined => {
   return messages.value.filter(message => message.type === 'step').pop()?.content as StepContent;
 }
 
+// Check if there's a report message (suggestions should appear inside it)
+const hasReportMessage = computed(() => {
+  return messages.value.some(message => message.type === 'report');
+});
+
 // Handle message event
 const handleMessageEvent = (messageData: MessageEventData) => {
+  // Assistant message means agent finished thinking
+  if (messageData.role === 'assistant') {
+    isThinking.value = false;
+  }
+
   messages.value.push({
     type: messageData.role,
     content: {
@@ -262,6 +327,11 @@ const handleMessageEvent = (messageData: MessageEventData) => {
 
 // Handle tool event
 const handleToolEvent = (toolData: ToolEventData) => {
+  // Tool being called means agent is actively working
+  if (toolData.status === 'calling' || toolData.status === 'running') {
+    isThinking.value = true;
+  }
+
   const lastStep = getLastStep();
   let toolContent: ToolContent = {
     ...toolData
@@ -291,6 +361,7 @@ const handleToolEvent = (toolData: ToolEventData) => {
 const handleStepEvent = (stepData: StepEventData) => {
   const lastStep = getLastStep();
   if (stepData.status === 'running') {
+    isThinking.value = true;
     messages.value.push({
       type: 'step',
       content: {
@@ -299,10 +370,12 @@ const handleStepEvent = (stepData: StepEventData) => {
       } as StepContent,
     });
   } else if (stepData.status === 'completed') {
+    isThinking.value = false;
     if (lastStep) {
       lastStep.status = stepData.status;
     }
   } else if (stepData.status === 'failed') {
+    isThinking.value = false;
     isLoading.value = false;
   }
 }
@@ -329,10 +402,79 @@ const handlePlanEvent = (planData: PlanEventData) => {
   plan.value = planData;
 }
 
+// Handle mode change event
+const handleModeChangeEvent = (modeData: ModeChangeEventData) => {
+  agentMode.value = modeData.mode;
+  console.log(`Agent mode changed to: ${modeData.mode}`, modeData.reason);
+}
+
+// Handle suggestion event
+const handleSuggestionEvent = (suggestionData: SuggestionEventData) => {
+  suggestions.value = suggestionData.suggestions;
+}
+
+// Handle report event
+const handleReportEvent = (reportData: ReportEventData) => {
+  const sections = extractSectionsFromMarkdown(reportData.content);
+  messages.value.push({
+    type: 'report',
+    content: {
+      id: reportData.id,
+      title: reportData.title,
+      content: reportData.content,
+      lastModified: reportData.timestamp * 1000,
+      fileCount: reportData.attachments?.length || 0,
+      sections,
+      attachments: reportData.attachments,
+      timestamp: reportData.timestamp
+    } as ReportContent,
+  });
+}
+
+// Handle suggestion selection (user clicks a suggestion)
+const handleSuggestionSelect = (suggestion: string) => {
+  inputMessage.value = suggestion;
+  suggestions.value = []; // Clear suggestions after selection
+  handleSubmit();
+}
+
+// Handle report open (from ChatMessage)
+const handleReportOpen = (report: ReportData) => {
+  openReport(report);
+}
+
+// Handle report file open
+const handleReportFileOpen = (file: FileInfo) => {
+  showFilePanel(file);
+}
+
+// Handle report rate
+const handleReportRate = (rating: number) => {
+  console.log('Report rated:', rating);
+  // TODO: Send rating to backend
+}
+
+// Handle report download
+const handleReportDownload = () => {
+  if (!currentReport.value) return;
+
+  const blob = new Blob([currentReport.value.content], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${currentReport.value.title.replace(/[^a-zA-Z0-9]/g, '_')}.md`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 // Main event handler function
 const handleEvent = (event: AgentSSEEvent) => {
   if (event.event === 'message') {
     handleMessageEvent(event.data as MessageEventData);
+    // Clear suggestions when new message arrives
+    suggestions.value = [];
   } else if (event.event === 'tool') {
     handleToolEvent(event.data as ToolEventData);
   } else if (event.event === 'step') {
@@ -347,6 +489,12 @@ const handleEvent = (event: AgentSSEEvent) => {
     handleTitleEvent(event.data as TitleEventData);
   } else if (event.event === 'plan') {
     handlePlanEvent(event.data as PlanEventData);
+  } else if (event.event === 'mode_change') {
+    handleModeChangeEvent(event.data as ModeChangeEventData);
+  } else if (event.event === 'suggestion') {
+    handleSuggestionEvent(event.data as SuggestionEventData);
+  } else if (event.event === 'report') {
+    handleReportEvent(event.data as ReportEventData);
   }
   lastEventId.value = event.data.event_id;
 }
@@ -414,6 +562,7 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
         onClose: () => {
           console.log('Chat closed');
           isLoading.value = false;
+          isThinking.value = false;
           // Clear the cancel function when connection is closed normally
           if (cancelCurrentChat.value) {
             cancelCurrentChat.value = null;
@@ -422,6 +571,7 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
         onError: (error) => {
           console.error('Chat error:', error);
           isLoading.value = false;
+          isThinking.value = false;
           // Clear the cancel function when there's an error
           if (cancelCurrentChat.value) {
             cancelCurrentChat.value = null;

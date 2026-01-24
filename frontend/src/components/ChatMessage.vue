@@ -16,9 +16,9 @@
   </div>
   <div v-else-if="message.type === 'assistant'" class="flex flex-col gap-2 w-full group mt-3">
     <div class="flex items-center justify-between h-7 group">
-      <div class="flex items-center gap-[3px]">
-        <Bot :size="24" class="w-6 h-6" />
-        <PythinkerTextIcon />
+      <div class="flex items-center gap-[6px]">
+        <Bot :size="20" class="w-5 h-5 text-[var(--text-primary)]" :stroke-width="2.5" />
+        <PythinkerTextIcon :width="80" :height="20" />
       </div>
       <div class="flex items-center gap-[2px] invisible group-hover:visible">
         <div class="float-right transition text-[12px] text-[var(--text-tertiary)] invisible group-hover:visible">
@@ -31,51 +31,67 @@
       v-html="renderMarkdown(messageContent.content)"></div>
   </div>
   <ToolUse v-else-if="message.type === 'tool'" :tool="toolContent" @click="handleToolClick(toolContent)" />
-  <div v-else-if="message.type === 'step'" class="flex flex-col">
-    <div class="text-sm w-full clickable flex gap-2 justify-between group/header truncate text-[var(--text-primary)]"
-      data-event-id="HNtP7XOMUOhPemItd2EkK2">
-      <div class="flex flex-row gap-2 justify-center items-center truncate">
-        <div v-if="stepContent.status !== 'completed'"
-          class="w-4 h-4 flex-shrink-0 flex items-center justify-center border border-[var(--border-dark)] rounded-[15px]">
+  <div v-else-if="message.type === 'step'" class="flex flex-col mt-2">
+    <!-- Step Header -->
+    <div class="w-full flex gap-2 justify-between group/header text-[var(--text-primary)]">
+      <div class="flex flex-row gap-[10px] items-start flex-1 min-w-0 cursor-pointer" @click="isExpanded = !isExpanded">
+        <!-- Status indicator -->
+        <div v-if="stepContent.status === 'completed'"
+          class="w-[18px] h-[18px] flex-shrink-0 flex items-center justify-center rounded-full bg-[var(--text-tertiary)] mt-[2px]">
+          <CheckIcon class="text-white" :size="12" :stroke-width="3" />
+        </div>
+        <div v-else-if="stepContent.status === 'running'"
+          class="w-[18px] h-[18px] flex-shrink-0 flex items-center justify-center rounded-full border-2 border-[var(--text-tertiary)] mt-[2px] step-running">
         </div>
         <div v-else
-          class="w-4 h-4 flex-shrink-0 flex items-center justify-center border-[var(--border-dark)] rounded-[15px] bg-[var(--text-disable)] dark:bg-[var(--fill-tsp-white-dark)] border-0">
-          <CheckIcon class="text-[var(--icon-white)] dark:text-[var(--icon-white-tsp)]" :size="10" />
+          class="w-[18px] h-[18px] flex-shrink-0 flex items-center justify-center rounded-full border border-[var(--border-dark)] mt-[2px]">
         </div>
-        <div class="truncate font-medium markdown-content"
-          v-html="stepContent.description ? renderMarkdown(stepContent.description) : ''">
+        <!-- Step title and chevron -->
+        <div class="flex-1 min-w-0 flex items-start gap-1">
+          <div class="flex-1 min-w-0 text-[15px] font-medium leading-snug markdown-content"
+            v-html="stepContent.description ? renderMarkdown(stepContent.description) : ''">
+          </div>
+          <span class="flex-shrink-0 flex mt-[2px]">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+              class="transition-transform duration-200 text-[var(--text-tertiary)]"
+              :class="{ 'rotate-180': !isExpanded }">
+              <path d="m6 9 6 6 6-6"></path>
+            </svg>
+          </span>
         </div>
-        <span class="flex-shrink-0 flex" @click="isExpanded = !isExpanded;">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-            class="lucide lucide-chevron-down transition-transform duration-300 w-4 h-4"
-            :class="{ 'rotate-180': isExpanded }">
-            <path d="m6 9 6 6 6-6"></path>
-          </svg>
-        </span>
       </div>
-      <div class="float-right transition text-[12px] text-[var(--text-tertiary)] invisible group-hover/header:visible">
+      <div class="flex-shrink-0 transition text-[12px] text-[var(--text-tertiary)] invisible group-hover/header:visible">
         {{ relativeTime(message.content.timestamp) }}
       </div>
     </div>
-    <div class="flex">
-      <div class="w-[24px] relative">
-        <div class="border-l border-dashed border-[var(--border-dark)] absolute start-[8px] top-0 bottom-0"
-          style="height: calc(100% + 14px);"></div>
+    <!-- Tools list with timeline -->
+    <div class="flex" v-show="isExpanded">
+      <div class="w-[28px] relative flex-shrink-0">
+        <div class="border-l border-dashed border-[var(--border-dark)] absolute start-[8px] top-0 bottom-0"></div>
       </div>
-      <div
-        class="flex flex-col gap-3 flex-1 min-w-0 overflow-hidden pt-2 transition-[max-height,opacity] duration-150 ease-in-out"
-        :class="{ 'max-h-[100000px] opacity-100': isExpanded, 'max-h-0 opacity-0': !isExpanded }">
+      <div class="flex flex-col gap-[10px] flex-1 min-w-0 overflow-hidden pt-3 pb-1">
         <ToolUse v-for="(tool, index) in stepContent.tools" :key="index" :tool="tool" @click="handleToolClick(tool)" />
       </div>
     </div>
   </div>
   <AttachmentsMessage v-else-if="message.type === 'attachments'" :content="attachmentsContent"/>
+  <div v-else-if="message.type === 'report'" class="flex flex-col gap-2 w-full mt-3">
+    <ReportCard
+      :report="reportData"
+      :suggestions="suggestions"
+      @open="handleReportOpen"
+      @openFile="handleReportFileOpen"
+      @showAllFiles="handleShowAllFiles"
+      @rate="handleReportRate"
+      @selectSuggestion="handleSelectSuggestion"
+    />
+  </div>
 </template>
 
 <script setup lang="ts">
 import PythinkerTextIcon from './icons/PythinkerTextIcon.vue';
-import { Message, MessageContent, AttachmentsContent } from '../types/message';
+import { Message, MessageContent, AttachmentsContent, ReportContent } from '../types/message';
 import ToolUse from './ToolUse.vue';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
@@ -85,19 +101,47 @@ import { ToolContent, StepContent } from '../types/message';
 import { useRelativeTime } from '../composables/useTime';
 import { Bot } from 'lucide-vue-next';
 import AttachmentsMessage from './AttachmentsMessage.vue';
+import { ReportCard } from './report';
+import type { ReportData } from './report';
 
 
 const props = defineProps<{
   message: Message;
   sessionId?: string;
+  suggestions?: string[];
 }>();
 
 const emit = defineEmits<{
   (e: 'toolClick', tool: ToolContent): void;
+  (e: 'reportOpen', report: ReportData): void;
+  (e: 'reportFileOpen', file: any): void;
+  (e: 'showAllFiles'): void;
+  (e: 'reportRate', rating: number): void;
+  (e: 'selectSuggestion', suggestion: string): void;
 }>();
 
 const handleToolClick = (tool: ToolContent) => {
   emit('toolClick', tool);
+};
+
+const handleReportOpen = (report: ReportData) => {
+  emit('reportOpen', report);
+};
+
+const handleReportFileOpen = (file: any) => {
+  emit('reportFileOpen', file);
+};
+
+const handleShowAllFiles = () => {
+  emit('showAllFiles');
+};
+
+const handleReportRate = (rating: number) => {
+  emit('reportRate', rating);
+};
+
+const handleSelectSuggestion = (suggestion: string) => {
+  emit('selectSuggestion', suggestion);
 };
 
 // For backward compatibility, provide the original computed properties
@@ -105,6 +149,21 @@ const stepContent = computed(() => props.message.content as StepContent);
 const messageContent = computed(() => props.message.content as MessageContent);
 const toolContent = computed(() => props.message.content as ToolContent);
 const attachmentsContent = computed(() => props.message.content as AttachmentsContent);
+const reportContent = computed(() => props.message.content as ReportContent);
+
+// Convert ReportContent to ReportData for the component
+const reportData = computed<ReportData>(() => {
+  const content = reportContent.value;
+  return {
+    id: content.id,
+    title: content.title,
+    content: content.content,
+    lastModified: content.lastModified,
+    fileCount: content.fileCount,
+    sections: content.sections,
+    attachments: content.attachments
+  };
+});
 
 // Control content expand/collapse state
 const isExpanded = ref(true);
@@ -126,5 +185,21 @@ const renderMarkdown = (text: string) => {
 
 .duration-300 {
   transition-duration: .3s;
+}
+
+/* Pulse animation for running step indicator */
+.step-running {
+  animation: step-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes step-pulse {
+  0%, 100% {
+    border-color: var(--text-tertiary);
+    opacity: 0.6;
+  }
+  50% {
+    border-color: var(--text-primary);
+    opacity: 1;
+  }
 }
 </style>
