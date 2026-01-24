@@ -31,6 +31,7 @@ services:
       - sandbox
       - mongodb
       - redis
+      - qdrant
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -74,6 +75,25 @@ services:
     networks:
       - pythinker-network
 
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: pythinker-qdrant
+    ports:
+      - "6333:6333"   # REST API
+      - "6334:6334"   # gRPC (2x faster)
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
   searxng:
     image: searxng/searxng:latest
     volumes:
@@ -93,6 +113,8 @@ services:
 volumes:
   mongodb_data:
     name: pythinker-mongodb-data
+  qdrant_data:
+    name: pythinker-qdrant-data
 
 networks:
   pythinker-network:
