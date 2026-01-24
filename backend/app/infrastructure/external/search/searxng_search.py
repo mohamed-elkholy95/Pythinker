@@ -42,6 +42,7 @@ class SearXNGSearchEngine(SearchEngine):
             "q": query,
             "format": "json",
             "categories": "general",
+            "engines": "google,bing,duckduckgo",  # Priority: Google > Bing > DuckDuckGo
         }
 
         # Add time range filter
