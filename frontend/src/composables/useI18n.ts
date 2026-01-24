@@ -7,15 +7,9 @@ const STORAGE_KEY = 'pythinker-locale'
 
 // Get browser language and map to supported locale
 const getBrowserLocale = (): Locale => {
-  const browserLang = navigator.language || navigator.languages?.[0]
-  // Check if browser language starts with any supported locale
-  if (browserLang?.startsWith('zh')) {
-    return 'zh'
-  }
-  if (browserLang?.startsWith('en')) {
-    return 'en'
-  }
-  // Default to Chinese if no match
+  // Currently only English is supported
+  // When adding new locales, update the Locale type in @/locales/index.ts
+  // and add corresponding translations
   return 'en'
 }
 

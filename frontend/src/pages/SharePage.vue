@@ -207,7 +207,7 @@ const handleMessageEvent = (messageData: MessageEventData) => {
 // Handle tool event
 const handleToolEvent = (toolData: ToolEventData) => {
   const lastStep = getLastStep();
-  let toolContent: ToolContent = {
+  const toolContent: ToolContent = {
     ...toolData
   }
   if (lastTool.value && lastTool.value.tool_call_id === toolContent.tool_call_id) {

@@ -2,12 +2,16 @@ services:
   frontend-dev:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
-      target: build-stage  # Use build stage image instead of production image
-    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]  # Start in development mode and listen on all network interfaces
+      dockerfile: Dockerfile.dev
     volumes:
-      - ./frontend:/app  # Mount source code directory
-      - /app/node_modules  # Avoid overwriting container's node_modules
+      - ./frontend/src:/app/src  # Mount only source code
+      - ./frontend/public:/app/public  # Mount public assets
+      - ./frontend/index.html:/app/index.html  # Mount index.html
+      - ./frontend/vite.config.ts:/app/vite.config.ts  # Mount vite config
+      - ./frontend/tsconfig.json:/app/tsconfig.json  # Mount tsconfig
+      - ./frontend/tsconfig.app.json:/app/tsconfig.app.json  # Mount tsconfig app
+      - ./frontend/tsconfig.node.json:/app/tsconfig.node.json  # Mount tsconfig node
+      - ./frontend/env.d.ts:/app/env.d.ts  # Mount env types
     ports:
       - "5173:5173"  # Vite default development port
     environment:

@@ -183,8 +183,8 @@ const contentRef = ref<HTMLElement | null>(null);
 const activeSection = ref<string>('');
 const tableOfContents = ref<TocItem[]>([]);
 
-// Configure marked options
-marked.setOptions({
+// Configure marked options using modern API
+marked.use({
   breaks: true,
   gfm: true,
 });

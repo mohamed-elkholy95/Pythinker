@@ -19,7 +19,7 @@ export const parseISODateTime = (isoString: string): number => {
     }
     
     return Math.floor(date.getTime() / 1000);
-  } catch (error) {
+  } catch {
     throw new Error(`Failed to parse ISO datetime string: ${isoString}`);
   }
 };
