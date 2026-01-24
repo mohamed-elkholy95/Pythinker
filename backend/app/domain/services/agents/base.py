@@ -17,6 +17,7 @@ from app.domain.models.event import (
     ErrorEvent,
     MessageEvent,
     DoneEvent,
+    StreamEvent,
 )
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.utils.json_parser import JsonParser
@@ -411,3 +412,57 @@ class BaseAgent(ABC):
         await self._ensure_memory()
         self.memory.compact()
         await self._repository.save_memory(self._agent_id, self.name, self.memory)
+
+    async def ask_streaming(
+        self,
+        request: str,
+        format: Optional[str] = None
+    ) -> AsyncGenerator[BaseEvent, None]:
+        """Execute a request with streaming LLM response.
+
+        Yields StreamEvents as content chunks arrive, then MessageEvent for full response.
+        Falls back to non-streaming if LLM doesn't support streaming.
+
+        Args:
+            request: The user request
+            format: Optional response format
+
+        Yields:
+            StreamEvent for each content chunk, then MessageEvent with full content
+        """
+        # Add request to memory
+        await self._add_to_memory([{"role": "user", "content": request}])
+        await self._ensure_within_token_limit()
+
+        # Check if LLM supports streaming
+        if not hasattr(self.llm, 'ask_stream'):
+            # Fall back to non-streaming
+            response = await self.ask(request, format)
+            yield MessageEvent(message=response.get("content", ""))
+            return
+
+        response_format = {"type": format} if format else None
+        full_content = ""
+
+        try:
+            async for chunk in self.llm.ask_stream(
+                self.memory.get_messages(),
+                tools=None,  # Streaming typically used without tools
+                response_format=response_format
+            ):
+                full_content += chunk
+                yield StreamEvent(content=chunk, is_final=False)
+
+            # Yield final stream event and message
+            yield StreamEvent(content="", is_final=True)
+
+            # Save response to memory
+            await self._add_to_memory([{"role": "assistant", "content": full_content}])
+
+            yield MessageEvent(message=full_content)
+
+        except Exception as e:
+            logger.error(f"Streaming failed: {e}")
+            # Fall back to non-streaming on error
+            response = await self.ask_with_messages([], format)
+            yield MessageEvent(message=response.get("content", ""))

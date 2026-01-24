@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 class ParseStrategy(Enum):
     """JSON parsing strategy enumeration"""
     DIRECT = "direct"
+    CHANNEL_MARKERS = "channel_markers"
     MARKDOWN_BLOCK = "markdown_block"
     REGEX_EXTRACT = "regex_extract"
     CLEANUP_AND_PARSE = "cleanup_and_parse"
@@ -30,6 +31,7 @@ class LLMJsonParser(JsonParser):
         self.llm = OpenAILLM()
         self.strategies = [
             self._try_direct_parse,
+            self._try_channel_markers_parse,
             self._try_markdown_block_parse,
             #self._try_regex_extract,
             self._try_cleanup_and_parse,
@@ -40,25 +42,26 @@ class LLMJsonParser(JsonParser):
         """
         Parse LLM output string to JSON using multiple strategies.
         Falls back to LLM parsing if local strategies fail.
-        
+
         Args:
             text: The raw string output from LLM
             default_value: Default value to return if parsing fails
-            
+
         Returns:
             Parsed JSON object (dict, list, or other JSON-serializable type)
-            
+
         Raises:
             ValueError: If all parsing strategies fail and no default value provided
         """
 
-        logger.info(f"Parsing text: {text}")
+        logger.info(f"Parsing text: {text[:200]}...")
         if not text or not text.strip():
             if default_value is not None:
                 return default_value
             raise ValueError("Empty input string")
-        
-        cleaned_output = text.strip()
+
+        # Strip Qwen3 thinking tags before parsing
+        cleaned_output = self._strip_thinking_tags(text.strip())
         
         # Try each parsing strategy
         for strategy in self.strategies:
@@ -81,7 +84,57 @@ class LLMJsonParser(JsonParser):
     async def _try_direct_parse(self, text: str) -> Optional[Any]:
         """Try to parse the text directly as JSON"""
         return json.loads(text)
-    
+
+    async def _try_channel_markers_parse(self, text: str) -> Optional[Any]:
+        """Extract JSON from local LLM channel marker format.
+
+        Handles formats like:
+        <|channel|>analysis<|message|>...<|end|><|start|>assistant<|channel|>final<|message|>{json}
+        """
+        # Check if text contains channel markers
+        if '<|channel|>' not in text and '<|message|>' not in text:
+            return None
+
+        # Try to extract content after final channel marker
+        patterns = [
+            # Match content after <|channel|>final<|message|>
+            r'<\|channel\|>final<\|message\|>(.+?)(?:<\|end\|>|$)',
+            # Match content after last <|message|>
+            r'<\|message\|>([^<]+)(?:<\|end\|>|$)',
+            # Match any JSON object in the text after stripping markers
+            r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}',
+        ]
+
+        for pattern in patterns:
+            matches = re.findall(pattern, text, re.DOTALL)
+            for match in matches:
+                content = match.strip()
+                # Try to find and parse JSON in the content
+                try:
+                    # Direct parse if it looks like JSON
+                    if content.startswith('{') or content.startswith('['):
+                        return json.loads(content)
+                except json.JSONDecodeError:
+                    # Try to extract JSON object from the content
+                    json_match = re.search(r'(\{.*\}|\[.*\])', content, re.DOTALL)
+                    if json_match:
+                        try:
+                            return json.loads(json_match.group(1))
+                        except json.JSONDecodeError:
+                            continue
+
+        # Fallback: strip all channel markers and try to find JSON
+        stripped = re.sub(r'<\|[^|]+\|>[^<]*', '', text)
+        stripped = re.sub(r'<\|[^|]+\|>', '', stripped)
+        json_match = re.search(r'(\{.*\}|\[.*\])', stripped, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group(1))
+            except json.JSONDecodeError:
+                pass
+
+        return None
+
     async def _try_markdown_block_parse(self, text: str) -> Optional[Any]:
         """Extract and parse JSON from markdown code blocks"""
         # Pattern to match JSON in markdown code blocks
@@ -235,5 +288,25 @@ JSON:"""
         # Pattern to match string values in arrays: "content with potential " quotes"
         # Look for quotes that are preceded by [ or , (with optional whitespace) and followed by , or ] (with optional whitespace)
         text = re.sub(r'(?<=[\[,]\s*)(".*?)"(?=\s*[,\]])', fix_unescaped_quotes_in_array_values, text)
-        
+
         return text
+
+    def _strip_thinking_tags(self, text: str) -> str:
+        """Strip Qwen3 <think>...</think> reasoning tags from output.
+
+        Qwen3 models in "thinking mode" output their reasoning in <think> tags
+        before the actual response. This removes those tags to expose the JSON.
+        """
+        # Remove <think>...</think> blocks (including multiline)
+        stripped = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+
+        # Also handle unclosed <think> tags (model might have been cut off)
+        stripped = re.sub(r'<think>.*$', '', stripped, flags=re.DOTALL | re.IGNORECASE)
+
+        # Clean up any leading/trailing whitespace
+        stripped = stripped.strip()
+
+        if stripped != text.strip():
+            logger.info("Stripped Qwen3 thinking tags from LLM output")
+
+        return stripped if stripped else text

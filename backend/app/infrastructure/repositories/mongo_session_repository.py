@@ -1,6 +1,6 @@
 from typing import Optional, List
 from datetime import datetime, UTC
-from app.domain.models.session import Session, SessionStatus
+from app.domain.models.session import Session, SessionStatus, AgentMode
 from app.domain.models.file import FileInfo
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.models.event import BaseEvent
@@ -177,3 +177,12 @@ class MongoSessionRepository(SessionRepository):
         if not result:
             raise ValueError(f"Session {session_id} not found")
 
+    async def update_mode(self, session_id: str, mode: AgentMode) -> None:
+        """Update the agent mode of a session (discuss/agent)"""
+        result = await SessionDocument.find_one(
+            SessionDocument.session_id == session_id
+        ).update(
+            {"$set": {"mode": mode.value, "updated_at": datetime.now(UTC)}}
+        )
+        if not result:
+            raise ValueError(f"Session {session_id} not found")

@@ -16,6 +16,12 @@ class SessionStatus(str, Enum):
     COMPLETED = "completed"
 
 
+class AgentMode(str, Enum):
+    """Agent mode enum - determines which flow to use"""
+    DISCUSS = "discuss"  # Simple Q&A with search, no planning
+    AGENT = "agent"      # Full PlanAct capabilities
+
+
 class Session(BaseModel):
     """Session model"""
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:16])
@@ -33,6 +39,7 @@ class Session(BaseModel):
     files: List[FileInfo] = []
     status: SessionStatus = SessionStatus.PENDING
     is_shared: bool = False  # Whether this session is shared publicly
+    mode: AgentMode = AgentMode.AGENT  # Agent mode: agent (full PlanAct) or discuss (simple Q&A)
 
     def get_last_plan(self) -> Optional[Plan]:
         """Get the last plan from the events"""

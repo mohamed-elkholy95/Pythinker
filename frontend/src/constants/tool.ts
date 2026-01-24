@@ -1,49 +1,52 @@
 /**
- * Tool function mapping
+ * Tool function mapping - Manus-style verb labels
  */
 export const TOOL_FUNCTION_MAP: {[key: string]: string} = {
   // Shell tools
-  "shell_exec": "Executing command",
-  "shell_view": "Viewing command output",
-  "shell_wait": "Waiting for command completion",
-  "shell_write_to_process": "Writing data to process",
-  "shell_kill_process": "Terminating process",
-  
+  "shell_exec": "Running",
+  "shell_view": "Viewing output",
+  "shell_wait": "Waiting",
+  "shell_write_to_process": "Writing to process",
+  "shell_kill_process": "Terminating",
+
   // File tools
-  "file_read": "Reading file",
-  "file_write": "Writing file",
-  "file_str_replace": "Replacing file content",
-  "file_find_in_content": "Searching file content",
-  "file_find_by_name": "Finding file",
-  
+  "file_read": "Reading",
+  "file_write": "Creating file",
+  "file_str_replace": "Editing",
+  "file_find_in_content": "Searching in",
+  "file_find_by_name": "Finding",
+
   // Browser tools
-  "browser_get_content": "Fast fetching content",
-  "browser_view": "Viewing webpage",
-  "browser_navigate": "Navigating to webpage",
-  "browser_restart": "Restarting browser",
-  "browser_click": "Clicking element",
-  "browser_input": "Entering text",
+  "browser_get_content": "Fetching",
+  "browser_view": "Viewing",
+  "browser_navigate": "Browsing",
+  "browser_restart": "Restarting",
+  "browser_click": "Clicking",
+  "browser_input": "Typing",
   "browser_move_mouse": "Moving mouse",
-  "browser_press_key": "Pressing key",
-  "browser_select_option": "Selecting option",
+  "browser_press_key": "Pressing",
+  "browser_select_option": "Selecting",
   "browser_scroll_up": "Scrolling up",
   "browser_scroll_down": "Scrolling down",
-  "browser_console_exec": "Executing JS code",
-  "browser_console_view": "Viewing console output",
+  "browser_console_exec": "Executing JS",
+  "browser_console_view": "Viewing console",
 
   // Browser Agent tools
-  "browser_agent_run": "Running autonomous web task",
-  "browser_agent_extract": "Extracting web data",
-  
+  "browser_agent_run": "Running task",
+  "browser_agent_extract": "Extracting",
+
   // Search tools
-  "info_search_web": "Searching web",
-  
+  "info_search_web": "Searching",
+
   // Message tools
-  "message_notify_user": "Sending notification",
-  "message_ask_user": "Asking question",
+  "message_notify_user": "Notifying",
+  "message_ask_user": "Asking",
 
   // Idle tool
-  "idle_standby": "Entering standby mode"
+  "idle_standby": "Standing by",
+
+  // Agent mode tool
+  "agent_start_task": "Starting task"
 };
 
 /**
@@ -78,7 +81,8 @@ export const TOOL_FUNCTION_ARG_MAP: {[key: string]: string} = {
   "message_ask_user": "question",
   "browser_agent_run": "task",
   "browser_agent_extract": "extraction_goal",
-  "idle_standby": "reason"
+  "idle_standby": "reason",
+  "agent_start_task": "task"
 };
 
 /**
@@ -92,7 +96,8 @@ export const TOOL_NAME_MAP: {[key: string]: string} = {
   "info": "Information",
   "message": "Message",
   "mcp": "MCP Tool",
-  "idle": "Standby"
+  "idle": "Standby",
+  "agent_mode": "Agent Mode"
 };
 
 import SearchIcon from '../components/icons/SearchIcon.vue';
@@ -101,6 +106,7 @@ import BrowserIcon from '../components/icons/BrowserIcon.vue';
 import ShellIcon from '../components/icons/ShellIcon.vue';
 import GlobeIcon from '../components/icons/GlobeIcon.vue';
 import IdleIcon from '../components/icons/IdleIcon.vue';
+import AgentModeIcon from '../components/icons/AgentModeIcon.vue';
 
 /**
  * Tool icon mapping
@@ -111,9 +117,11 @@ export const TOOL_ICON_MAP: {[key: string]: any} = {
   "browser": BrowserIcon,
   "browser_agent": GlobeIcon,
   "search": SearchIcon,
+  "info": SearchIcon,  // Search/info tools use search icon
   "message": "",
   "mcp": SearchIcon,  // Using search icon temporarily, can create dedicated MCP icon later
-  "idle": IdleIcon
+  "idle": IdleIcon,
+  "agent_mode": AgentModeIcon
 };
 
 import ShellToolView from '@/components/toolViews/ShellToolView.vue';

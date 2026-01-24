@@ -151,6 +151,35 @@ class MCPHealthEvent(BaseEvent):
     tools_available: int = 0
 
 
+class ModeChangeEvent(BaseEvent):
+    """Mode change event when switching between discuss and agent modes"""
+    type: Literal["mode_change"] = "mode_change"
+    mode: str  # "discuss" or "agent"
+    reason: Optional[str] = None  # Reason for mode switch
+
+
+class SuggestionEvent(BaseEvent):
+    """Suggestion event for end-of-response suggestions"""
+    type: Literal["suggestion"] = "suggestion"
+    suggestions: List[str]  # List of 2-3 contextual suggestions
+
+
+class ReportEvent(BaseEvent):
+    """Report event for displaying task completion reports in Notion-like markdown view"""
+    type: Literal["report"] = "report"
+    id: str  # Unique ID for the report (named 'id' for frontend compatibility)
+    title: str  # Report title
+    content: str  # Markdown content of the report
+    attachments: Optional[List[FileInfo]] = None  # Associated files
+
+
+class StreamEvent(BaseEvent):
+    """Stream event for real-time LLM response streaming"""
+    type: Literal["stream"] = "stream"
+    content: str  # Streamed content chunk
+    is_final: bool = False  # Whether this is the final chunk
+
+
 AgentEvent = Union[
     ErrorEvent,
     PlanEvent,
@@ -164,4 +193,8 @@ AgentEvent = Union[
     DatasourceEvent,
     IdleEvent,
     MCPHealthEvent,
+    ModeChangeEvent,
+    SuggestionEvent,
+    ReportEvent,
+    StreamEvent,
 ]

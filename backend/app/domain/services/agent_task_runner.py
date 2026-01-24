@@ -19,9 +19,12 @@ from app.domain.models.event import (
     ToolStatus,
     AgentEvent,
     McpToolContent,
-    ToolStatus
+    ToolStatus,
+    ModeChangeEvent,
+    SuggestionEvent,
 )
 from app.domain.services.flows.plan_act import PlanActFlow
+from app.domain.services.flows.discuss import DiscussFlow
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.browser import Browser
 from app.domain.external.search import SearchEngine
@@ -31,7 +34,7 @@ from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.external.task import TaskRunner, Task
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.repositories.mcp_repository import MCPRepository
-from app.domain.models.session import SessionStatus
+from app.domain.models.session import SessionStatus, AgentMode
 from app.domain.models.file import FileInfo
 from app.domain.utils.json_parser import JsonParser
 from app.domain.services.tools.mcp import MCPTool
@@ -56,6 +59,7 @@ class AgentTaskRunner(TaskRunner):
         file_storage: FileStorage,
         mcp_repository: MCPRepository,
         search_engine: Optional[SearchEngine] = None,
+        mode: AgentMode = AgentMode.AGENT,
     ):
         self._session_id = session_id
         self._agent_id = agent_id
@@ -70,19 +74,62 @@ class AgentTaskRunner(TaskRunner):
         self._file_storage = file_storage
         self._mcp_repository = mcp_repository
         self._mcp_tool = MCPTool()
-        self._flow = PlanActFlow(
-            self._agent_id,
-            self._repository,
-            self._session_id,
-            self._session_repository,
-            self._llm,
-            self._sandbox,
-            self._browser,
-            self._json_parser,
-            self._mcp_tool,
-            self._search_engine,
-            cdp_url=self._sandbox.cdp_url,
-        )
+        self._mode = mode
+
+        # Initialize flows based on mode
+        self._plan_act_flow: Optional[PlanActFlow] = None
+        self._discuss_flow: Optional[DiscussFlow] = None
+
+        if mode == AgentMode.AGENT:
+            self._init_plan_act_flow()
+        else:
+            self._init_discuss_flow()
+
+    def _init_plan_act_flow(self) -> None:
+        """Initialize PlanActFlow for Agent mode"""
+        if self._plan_act_flow is None:
+            self._plan_act_flow = PlanActFlow(
+                self._agent_id,
+                self._repository,
+                self._session_id,
+                self._session_repository,
+                self._llm,
+                self._sandbox,
+                self._browser,
+                self._json_parser,
+                self._mcp_tool,
+                self._search_engine,
+                cdp_url=self._sandbox.cdp_url,
+            )
+            logger.debug(f"Initialized PlanActFlow for agent {self._agent_id}")
+
+    def _init_discuss_flow(self) -> None:
+        """Initialize DiscussFlow for Discuss mode"""
+        if self._discuss_flow is None:
+            self._discuss_flow = DiscussFlow(
+                self._agent_id,
+                self._repository,
+                self._session_id,
+                self._session_repository,
+                self._llm,
+                self._json_parser,
+                self._search_engine,
+            )
+            logger.debug(f"Initialized DiscussFlow for agent {self._agent_id}")
+
+    async def _switch_to_agent_mode(self, task_description: str) -> None:
+        """Switch from Discuss mode to Agent mode"""
+        logger.info(f"Switching to Agent mode for task: {task_description}")
+        self._mode = AgentMode.AGENT
+        self._init_plan_act_flow()
+        await self._session_repository.update_mode(self._session_id, AgentMode.AGENT)
+
+    @property
+    def _flow(self):
+        """Get the current flow based on mode"""
+        if self._mode == AgentMode.AGENT:
+            return self._plan_act_flow
+        return self._discuss_flow
 
     async def _put_and_add_event(self, task: Task, event: AgentEvent) -> None:
         event_id = await task.output_stream.put(event.model_dump_json())
@@ -256,6 +303,9 @@ class AgentTaskRunner(TaskRunner):
                             steps_taken=0,
                             screenshot=screenshot_id
                         )
+                elif event.tool_name == "agent_mode":
+                    # agent_mode is a control tool, no special content needed
+                    logger.debug(f"Processing agent_mode tool event")
                 else:
                     logger.warning(f"Agent {self._agent_id} received unknown tool event: {event.tool_name}")
         except Exception as e:
@@ -318,13 +368,39 @@ class AgentTaskRunner(TaskRunner):
             yield ErrorEvent(error="No message")
             return
 
+        mode_switch_task: Optional[str] = None
+
         async for event in self._flow.run(message):
             if isinstance(event, ToolEvent):
                 # TODO: move to tool function
                 await self._handle_tool_event(event)
             elif isinstance(event, MessageEvent):
                 await self._sync_message_attachments_to_storage(event)
+            elif isinstance(event, ModeChangeEvent):
+                # Handle mode switch from Discuss to Agent
+                if event.mode == "agent" and self._mode == AgentMode.DISCUSS:
+                    # Get the task from the discuss flow
+                    if self._discuss_flow and self._discuss_flow.mode_switch_task:
+                        mode_switch_task = self._discuss_flow.mode_switch_task
+                    yield event
+                    continue
             yield event
+
+        # If mode switch was requested, switch to Agent mode and re-run with the task
+        if mode_switch_task and self._mode == AgentMode.DISCUSS:
+            logger.info(f"Executing mode switch to Agent for task: {mode_switch_task}")
+            await self._switch_to_agent_mode(mode_switch_task)
+
+            # Create a new message with the task description
+            task_message = Message(message=mode_switch_task, attachments=message.attachments)
+
+            # Run through Agent mode flow
+            async for event in self._flow.run(task_message):
+                if isinstance(event, ToolEvent):
+                    await self._handle_tool_event(event)
+                elif isinstance(event, MessageEvent):
+                    await self._sync_message_attachments_to_storage(event)
+                yield event
 
         logger.info(f"Agent {self._agent_id} completed processing one message")
 

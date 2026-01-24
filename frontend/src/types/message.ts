@@ -1,6 +1,6 @@
 import type { FileInfo } from '../api/file';
 
-export type MessageType = "user" | "assistant" | "tool" | "step" | "attachments";
+export type MessageType = "user" | "assistant" | "tool" | "step" | "attachments" | "report";
 
 export interface Message {
   type: MessageType;
@@ -34,4 +34,20 @@ export interface StepContent extends BaseContent {
 export interface AttachmentsContent extends BaseContent {
   role: "user" | "assistant";
   attachments: FileInfo[];
+}
+
+export interface ReportSection {
+  title: string;
+  preview: string;
+  level?: number;
+}
+
+export interface ReportContent extends BaseContent {
+  id: string;
+  title: string;
+  content: string;
+  lastModified: number;
+  fileCount?: number;
+  sections?: ReportSection[];
+  attachments?: FileInfo[];
 }

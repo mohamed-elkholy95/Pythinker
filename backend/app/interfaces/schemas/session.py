@@ -1,7 +1,12 @@
 from pydantic import BaseModel
 from typing import Optional, List
 from app.interfaces.schemas.event import AgentSSEEvent
-from app.domain.models.session import SessionStatus
+from app.domain.models.session import SessionStatus, AgentMode
+
+
+class CreateSessionRequest(BaseModel):
+    """Create session request schema"""
+    mode: Optional[AgentMode] = AgentMode.AGENT
 
 
 class ChatRequest(BaseModel):
@@ -20,6 +25,7 @@ class ShellViewRequest(BaseModel):
 class CreateSessionResponse(BaseModel):
     """Create session response schema"""
     session_id: str
+    mode: AgentMode = AgentMode.AGENT
 
 
 class GetSessionResponse(BaseModel):

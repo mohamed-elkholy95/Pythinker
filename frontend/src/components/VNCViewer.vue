@@ -1,13 +1,23 @@
 <template>
-  <div
-    ref="vncContainer"
-    class="vnc-container"
-    style="display: flex; width: 100%; height: 100%; overflow: auto; background: rgb(40, 40, 40);">
+  <div class="vnc-wrapper" style="position: relative; width: 100%; height: 100%;">
+    <!-- Loading overlay -->
+    <div v-if="!isConnected" class="loading-overlay">
+      <div class="loading-content">
+        <div class="loading-shape" :class="currentShape"></div>
+        <span class="loading-text">Connecting</span>
+      </div>
+    </div>
+    <!-- VNC container -->
+    <div
+      ref="vncContainer"
+      class="vnc-container"
+      style="display: flex; width: 100%; height: 100%; overflow: auto; background: rgb(40, 40, 40);">
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onBeforeUnmount, watch } from 'vue';
+import { ref, onBeforeUnmount, onMounted, onUnmounted, watch } from 'vue';
 import { getVNCUrl } from '@/api/agent';
 // @ts-ignore
 import RFB from '@novnc/novnc/lib/rfb';
@@ -25,7 +35,28 @@ const emit = defineEmits<{
 }>();
 
 const vncContainer = ref<HTMLDivElement | null>(null);
+const isConnected = ref(false);
 let rfb: RFB | null = null;
+
+// Morphing shape animation
+const shapes = ['circle', 'diamond', 'cube'] as const;
+type Shape = typeof shapes[number];
+const currentShapeIndex = ref(0);
+const currentShape = ref<Shape>('circle');
+let shapeIntervalId: ReturnType<typeof setInterval> | null = null;
+
+onMounted(() => {
+  shapeIntervalId = setInterval(() => {
+    currentShapeIndex.value = (currentShapeIndex.value + 1) % shapes.length;
+    currentShape.value = shapes[currentShapeIndex.value];
+  }, 800);
+});
+
+onUnmounted(() => {
+  if (shapeIntervalId) {
+    clearInterval(shapeIntervalId);
+  }
+});
 
 const initVNCConnection = async () => {
   if (!vncContainer.value || !props.enabled) return;
@@ -35,6 +66,8 @@ const initVNCConnection = async () => {
     rfb.disconnect();
     rfb = null;
   }
+
+  isConnected.value = false;
 
   try {
     const wsUrl = await getVNCUrl(props.sessionId);
@@ -57,11 +90,13 @@ const initVNCConnection = async () => {
 
     rfb.addEventListener('connect', () => {
       console.log('VNC connection successful');
+      isConnected.value = true;
       emit('connected');
     });
 
     rfb.addEventListener('disconnect', (e: any) => {
       console.log('VNC connection disconnected', e);
+      isConnected.value = false;
       emit('disconnected', e);
     });
 
@@ -71,6 +106,7 @@ const initVNCConnection = async () => {
     });
   } catch (error) {
     console.error('Failed to initialize VNC connection:', error);
+    isConnected.value = false;
   }
 };
 
@@ -79,6 +115,7 @@ const disconnect = () => {
     rfb.disconnect();
     rfb = null;
   }
+  isConnected.value = false;
 };
 
 // Watch for session ID or enabled state changes
@@ -109,4 +146,59 @@ defineExpose({
 </script>
 
 <style scoped>
+.loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgb(40, 40, 40);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.loading-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.loading-shape {
+  width: 10px;
+  height: 10px;
+  background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 50%, #3b82f6 100%);
+  background-size: 200% 200%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.loading-shape.circle {
+  border-radius: 50%;
+}
+
+.loading-shape.diamond {
+  border-radius: 2px;
+  transform: rotate(45deg) scale(0.85);
+}
+
+.loading-shape.cube {
+  border-radius: 2px;
+}
+
+.loading-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: #ffffff;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
 </style>

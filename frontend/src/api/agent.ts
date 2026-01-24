@@ -7,11 +7,17 @@ import type { FileInfo } from './file';
 
 
 /**
+ * Agent mode enum - determines which flow to use
+ */
+export type AgentMode = 'discuss' | 'agent';
+
+/**
  * Create Session
+ * @param mode - Agent mode: 'discuss' (simple chat) or 'agent' (full capabilities)
  * @returns Session
  */
-export async function createSession(): Promise<CreateSessionResponse> {
-  const response = await apiClient.put<ApiResponse<CreateSessionResponse>>('/sessions');
+export async function createSession(mode: AgentMode = 'agent'): Promise<CreateSessionResponse> {
+  const response = await apiClient.put<ApiResponse<CreateSessionResponse>>('/sessions', { mode });
   return response.data.data;
 }
 
@@ -41,6 +47,10 @@ export async function deleteSession(sessionId: string): Promise<void> {
 
 export async function stopSession(sessionId: string): Promise<void> {
   await apiClient.post<ApiResponse<void>>(`/sessions/${sessionId}/stop`);
+}
+
+export async function renameSession(sessionId: string, title: string): Promise<void> {
+  await apiClient.patch<ApiResponse<void>>(`/sessions/${sessionId}/rename`, { title });
 }
 
 /**

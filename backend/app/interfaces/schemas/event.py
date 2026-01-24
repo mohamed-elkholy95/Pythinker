@@ -13,6 +13,10 @@ from app.domain.models.event import (
     TitleEvent,
     ToolEvent,
     StepEvent,
+    ReportEvent,
+    SuggestionEvent,
+    ModeChangeEvent,
+    StreamEvent,
 )
 
 class BaseEventData(BaseModel):
@@ -168,6 +172,51 @@ class PlanSSEEvent(BaseSSEEvent):
             )
         )
 
+class ReportEventData(BaseEventData):
+    id: str
+    title: str
+    content: str
+    attachments: Optional[List[FileInfoResponse]] = None
+
+class ReportSSEEvent(BaseSSEEvent):
+    event: Literal["report"] = "report"
+    data: ReportEventData
+
+    @classmethod
+    async def from_event_async(cls, event: ReportEvent) -> Self:
+        return cls(
+            data=ReportEventData(
+                **BaseEventData.base_event_data(event),
+                id=event.id,
+                title=event.title,
+                content=event.content,
+                attachments=[await FileInfoResponse.from_file_info(attachment) for attachment in event.attachments] if event.attachments else None
+            )
+        )
+
+class SuggestionEventData(BaseEventData):
+    suggestions: List[str]
+
+class SuggestionSSEEvent(BaseSSEEvent):
+    event: Literal["suggestion"] = "suggestion"
+    data: SuggestionEventData
+
+class ModeChangeEventData(BaseEventData):
+    mode: str
+    reason: Optional[str] = None
+
+class ModeChangeSSEEvent(BaseSSEEvent):
+    event: Literal["mode_change"] = "mode_change"
+    data: ModeChangeEventData
+
+class StreamEventData(BaseEventData):
+    content: str
+    is_final: bool = False
+
+class StreamSSEEvent(BaseSSEEvent):
+    event: Literal["stream"] = "stream"
+    data: StreamEventData
+
 class CommonSSEEvent(BaseSSEEvent):
     event: str
     data: CommonEventData
@@ -182,6 +231,10 @@ AgentSSEEvent = Union[
     DoneSSEEvent,
     ErrorSSEEvent,
     WaitSSEEvent,
+    ReportSSEEvent,
+    SuggestionSSEEvent,
+    ModeChangeSSEEvent,
+    StreamSSEEvent,
 ]
 
 @dataclass

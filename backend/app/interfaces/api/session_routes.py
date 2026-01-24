@@ -14,7 +14,7 @@ from app.application.errors.exceptions import NotFoundError, UnauthorizedError
 from app.interfaces.dependencies import get_agent_service, get_current_user, get_optional_current_user, get_token_service, verify_signature_websocket
 from app.interfaces.schemas.base import APIResponse
 from app.interfaces.schemas.session import (
-    ChatRequest, ShellViewRequest, CreateSessionResponse, GetSessionResponse,
+    ChatRequest, ShellViewRequest, CreateSessionRequest, CreateSessionResponse, GetSessionResponse,
     ListSessionItem, ListSessionResponse, ShellViewResponse,
     ShareSessionResponse, SharedSessionResponse
 )
@@ -31,13 +31,15 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 @router.put("", response_model=APIResponse[CreateSessionResponse])
 async def create_session(
+    request: CreateSessionRequest = CreateSessionRequest(),
     current_user: User = Depends(get_current_user),
     agent_service: AgentService = Depends(get_agent_service)
 ) -> APIResponse[CreateSessionResponse]:
-    session = await agent_service.create_session(current_user.id)
+    session = await agent_service.create_session(current_user.id, mode=request.mode)
     return APIResponse.success(
         CreateSessionResponse(
             session_id=session.id,
+            mode=session.mode,
         )
     )
 
@@ -74,6 +76,19 @@ async def stop_session(
     agent_service: AgentService = Depends(get_agent_service)
 ) -> APIResponse[None]:
     await agent_service.stop_session(session_id, current_user.id)
+    return APIResponse.success()
+
+@router.patch("/{session_id}/rename", response_model=APIResponse[None])
+async def rename_session(
+    session_id: str,
+    request: dict,
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service)
+) -> APIResponse[None]:
+    title = request.get("title", "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Title is required")
+    await agent_service.rename_session(session_id, current_user.id, title)
     return APIResponse.success()
 
 @router.post("/{session_id}/clear_unread_message_count", response_model=APIResponse[None])

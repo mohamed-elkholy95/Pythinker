@@ -39,6 +39,7 @@ from app.domain.services.tools.idle import IdleTool
 from app.domain.services.agents.error_handler import ErrorHandler, ErrorType, ErrorContext
 from app.domain.services.agents.task_state_manager import TaskStateManager
 from app.core.config import get_settings
+from app.infrastructure.observability import get_tracer, SpanKind
 
 logger = logging.getLogger(__name__)
 
@@ -197,7 +198,20 @@ class PlanActFlow(BaseFlow):
         return False
 
     async def run(self, message: Message) -> AsyncGenerator[BaseEvent, None]:
+        tracer = get_tracer()
 
+        # Create trace context for this run
+        with tracer.trace(
+            "agent-run",
+            agent_id=self._agent_id,
+            session_id=self._session_id,
+            attributes={"message.preview": message.message[:100]}
+        ) as trace_ctx:
+            async for event in self._run_with_trace(message, trace_ctx):
+                yield event
+
+    async def _run_with_trace(self, message: Message, trace_ctx) -> AsyncGenerator[BaseEvent, None]:
+        """Internal run method with tracing."""
         # TODO: move to task runner
         session = await self._session_repository.find_by_id(self._session_id)
         if not session:
@@ -238,22 +252,25 @@ class PlanActFlow(BaseFlow):
                     logger.info(f"Agent {self._agent_id} state changed from {AgentStatus.IDLE} to {AgentStatus.PLANNING}")
                     self.status = AgentStatus.PLANNING
                 elif self.status == AgentStatus.PLANNING:
-                    # Create plan
+                    # Create plan with tracing
                     logger.info(f"Agent {self._agent_id} started creating plan")
-                    async for event in self.planner.create_plan(message):
-                        if isinstance(event, PlanEvent) and event.status == PlanStatus.CREATED:
-                            self.plan = event.plan
-                            logger.info(f"Agent {self._agent_id} created plan successfully with {len(event.plan.steps)} steps")
+                    with trace_ctx.span("planning", SpanKind.PLAN_CREATE) as plan_span:
+                        async for event in self.planner.create_plan(message):
+                            if isinstance(event, PlanEvent) and event.status == PlanStatus.CREATED:
+                                self.plan = event.plan
+                                plan_span.set_attribute("plan.steps", len(event.plan.steps))
+                                plan_span.set_attribute("plan.title", event.plan.title)
+                                logger.info(f"Agent {self._agent_id} created plan successfully with {len(event.plan.steps)} steps")
 
-                            # Initialize task state for recitation
-                            self._task_state_manager.initialize_from_plan(
-                                objective=message.message,
-                                steps=[{"id": s.id, "description": s.description} for s in event.plan.steps]
-                            )
+                                # Initialize task state for recitation
+                                self._task_state_manager.initialize_from_plan(
+                                    objective=message.message,
+                                    steps=[{"id": s.id, "description": s.description} for s in event.plan.steps]
+                                )
 
-                            yield TitleEvent(title=event.plan.title)
-                            yield MessageEvent(role="assistant", message=event.plan.message)
-                        yield event
+                                yield TitleEvent(title=event.plan.title)
+                                # Skip plan.message - execute silently without explaining
+                            yield event
                     logger.info(f"Agent {self._agent_id} state changed from {AgentStatus.PLANNING} to {AgentStatus.EXECUTING}")
                     self.status = AgentStatus.EXECUTING
                     if len(event.plan.steps) == 0:
@@ -268,34 +285,43 @@ class PlanActFlow(BaseFlow):
                         logger.info(f"Agent {self._agent_id} has no more steps, state changed from {AgentStatus.EXECUTING} to {AgentStatus.COMPLETED}")
                         self.status = AgentStatus.SUMMARIZING
                         continue
-                    # Execute step
+                    # Execute step with tracing
                     logger.info(f"Agent {self._agent_id} started executing step {step.id}: {step.description[:50]}...")
 
-                    # Mark step as in progress for task state
-                    self._task_state_manager.update_step_status(str(step.id), "in_progress")
+                    with trace_ctx.span(
+                        f"step:{step.id}",
+                        SpanKind.AGENT_STEP,
+                        {"step.id": step.id, "step.description": step.description[:100]}
+                    ) as step_span:
+                        # Mark step as in progress for task state
+                        self._task_state_manager.update_step_status(str(step.id), "in_progress")
 
-                    async for event in self.executor.execute_step(self.plan, step, message):
-                        yield event
+                        async for event in self.executor.execute_step(self.plan, step, message):
+                            yield event
 
-                    # Mark step as completed in task state
-                    self._task_state_manager.update_step_status(str(step.id), "completed")
+                        # Mark step as completed in task state
+                        self._task_state_manager.update_step_status(str(step.id), "completed")
+                        step_span.set_attribute("step.success", step.success)
 
                     logger.info(f"Agent {self._agent_id} completed step {step.id}, state changed from {AgentStatus.EXECUTING} to {AgentStatus.UPDATING}")
                     # Non-blocking background memory compaction
                     self._background_compact_memory()
                     self.status = AgentStatus.UPDATING
                 elif self.status == AgentStatus.UPDATING:
-                    # Update plan
+                    # Update plan with tracing
                     logger.info(f"Agent {self._agent_id} started updating plan")
-                    async for event in self.planner.update_plan(self.plan, step):
-                        yield event
+                    with trace_ctx.span("plan-update", SpanKind.PLAN_UPDATE) as update_span:
+                        async for event in self.planner.update_plan(self.plan, step):
+                            yield event
+                        update_span.set_attribute("plan.remaining_steps", len([s for s in self.plan.steps if not s.is_done()]))
                     logger.info(f"Agent {self._agent_id} plan update completed, state changed from {AgentStatus.UPDATING} to {AgentStatus.EXECUTING}")
                     self.status = AgentStatus.EXECUTING
                 elif self.status == AgentStatus.SUMMARIZING:
-                    # Conclusion
+                    # Conclusion with tracing
                     logger.info(f"Agent {self._agent_id} started summarizing")
-                    async for event in self.executor.summarize():
-                        yield event
+                    with trace_ctx.span("summarizing", SpanKind.AGENT_STEP) as summary_span:
+                        async for event in self.executor.summarize():
+                            yield event
                     logger.info(f"Agent {self._agent_id} summarizing completed, state changed from {AgentStatus.SUMMARIZING} to {AgentStatus.COMPLETED}")
                     self.status = AgentStatus.COMPLETED
                 elif self.status == AgentStatus.COMPLETED:
@@ -306,11 +332,17 @@ class PlanActFlow(BaseFlow):
                     break
 
             except Exception as e:
-                # Classify and handle error
+                # Classify and handle error with tracing
                 self._error_context = self._error_handler.classify_error(e)
                 self._previous_status = self.status
                 self.status = AgentStatus.ERROR
                 logger.error(f"Agent {self._agent_id} encountered error: {e}")
+
+                # Add error span
+                with trace_ctx.span("error", SpanKind.ERROR_RECOVERY) as error_span:
+                    error_span.set_attribute("error.type", str(self._error_context.error_type))
+                    error_span.set_attribute("error.recoverable", self._error_context.recoverable)
+                    error_span.set_attribute("error.message", str(e)[:200])
 
                 # If not recoverable, yield error and exit
                 if not self._error_context.recoverable:
