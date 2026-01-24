@@ -7,8 +7,14 @@ export enum SessionStatus {
     COMPLETED = "completed"
 }
 
+export enum AgentMode {
+    DISCUSS = "discuss",
+    AGENT = "agent"
+}
+
 export interface CreateSessionResponse {
     session_id: string;
+    mode: AgentMode;
 }
 
 export interface GetSessionResponse {

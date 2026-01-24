@@ -1,7 +1,8 @@
 import os
 import logging
 import hashlib
-from typing import Dict, Any, List, Optional
+import time
+from typing import Dict, Any, List, Optional, Set
 from contextlib import AsyncExitStack
 from datetime import datetime
 from dataclasses import dataclass, field
@@ -15,6 +16,14 @@ from mcp.types import Tool as MCPToolType
 from app.domain.services.tools.base import BaseTool, tool
 from app.domain.models.tool_result import ToolResult
 from app.domain.models.mcp_config import MCPConfig, MCPServerConfig
+from app.domain.models.mcp_resource import (
+    MCPResource,
+    MCPResourceContent,
+    ResourceTemplate,
+    ResourceListResult,
+    ResourceReadResult,
+    ResourceType,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +51,7 @@ class ToolUsageStats:
 
 
 class MCPClientManager:
-    """MCP Client Manager with health checking and dynamic reload"""
+    """MCP Client Manager with health checking, dynamic reload, and resource support"""
 
     def __init__(self, config: Optional[MCPConfig] = None):
         self._clients: Dict[str, ClientSession] = {}
@@ -56,6 +65,11 @@ class MCPClientManager:
         self._tool_usage: Dict[str, ToolUsageStats] = {}
         self._config_hash: Optional[str] = None
         self._max_consecutive_failures = 3
+
+        # Resource management
+        self._resources_cache: Dict[str, List[MCPResource]] = {}
+        self._templates_cache: Dict[str, List[ResourceTemplate]] = {}
+        self._resource_subscriptions: Dict[str, Set[str]] = {}  # server -> set of URIs
 
     async def initialize(self):
         """Initialize MCP client manager"""
@@ -366,6 +380,9 @@ class MCPClientManager:
 
             logger.info(f"Server {server_name} provides {len(tools)} tools")
 
+            # Also cache resources if available
+            await self._cache_server_resources(server_name, session)
+
         except Exception as e:
             logger.error(f"Failed to get tool list from server {server_name}: {e}")
             self._tools_cache[server_name] = []
@@ -375,6 +392,290 @@ class MCPClientManager:
                 last_error=str(e),
                 consecutive_failures=1
             )
+
+    async def _cache_server_resources(self, server_name: str, session: ClientSession):
+        """Cache server resources and templates."""
+        try:
+            # List resources from server
+            resources_response = await session.list_resources()
+
+            resources = []
+            templates = []
+
+            if resources_response and hasattr(resources_response, 'resources'):
+                for res in resources_response.resources:
+                    resources.append(MCPResource(
+                        uri=res.uri,
+                        name=res.name,
+                        description=getattr(res, 'description', None),
+                        mime_type=getattr(res, 'mimeType', None),
+                        server_name=server_name,
+                        annotations=getattr(res, 'annotations', {}) or {}
+                    ))
+
+            # Check for resource templates
+            if hasattr(resources_response, 'resourceTemplates') and resources_response.resourceTemplates:
+                for tmpl in resources_response.resourceTemplates:
+                    templates.append(ResourceTemplate(
+                        uri_template=tmpl.uriTemplate,
+                        name=tmpl.name,
+                        description=getattr(tmpl, 'description', None),
+                        mime_type=getattr(tmpl, 'mimeType', None),
+                        server_name=server_name
+                    ))
+
+            self._resources_cache[server_name] = resources
+            self._templates_cache[server_name] = templates
+
+            logger.info(f"Server {server_name} provides {len(resources)} resources and {len(templates)} templates")
+
+        except Exception as e:
+            # Resources are optional - servers may not support them
+            logger.debug(f"Server {server_name} does not support resources or error: {e}")
+            self._resources_cache[server_name] = []
+            self._templates_cache[server_name] = []
+
+    async def list_all_resources(self) -> ResourceListResult:
+        """List all resources from all connected MCP servers.
+
+        Returns:
+            ResourceListResult with all available resources and templates
+        """
+        all_resources = []
+        all_templates = []
+        errors = {}
+
+        for server_name, session in self._clients.items():
+            # Check health before querying
+            health = self._server_health.get(server_name)
+            if health and not health.healthy:
+                errors[server_name] = f"Server unhealthy: {health.last_error}"
+                continue
+
+            try:
+                # Refresh resource cache
+                await self._cache_server_resources(server_name, session)
+
+                all_resources.extend(self._resources_cache.get(server_name, []))
+                all_templates.extend(self._templates_cache.get(server_name, []))
+
+            except Exception as e:
+                errors[server_name] = str(e)
+                logger.warning(f"Failed to list resources from {server_name}: {e}")
+
+        return ResourceListResult(
+            resources=all_resources,
+            templates=all_templates,
+            total_count=len(all_resources),
+            servers_queried=list(self._clients.keys()),
+            errors=errors
+        )
+
+    async def read_resource(self, uri: str, server_name: Optional[str] = None) -> ResourceReadResult:
+        """Read content from an MCP resource.
+
+        Args:
+            uri: The URI of the resource to read
+            server_name: Optional server name (auto-detected if not provided)
+
+        Returns:
+            ResourceReadResult with content or error
+        """
+        start_time = time.time()
+
+        # Find the server that provides this resource
+        target_server = server_name
+        if not target_server:
+            target_server = self._find_resource_server(uri)
+
+        if not target_server:
+            return ResourceReadResult(
+                success=False,
+                error=f"No server found providing resource: {uri}"
+            )
+
+        session = self._clients.get(target_server)
+        if not session:
+            return ResourceReadResult(
+                success=False,
+                error=f"Server {target_server} not connected"
+            )
+
+        try:
+            # Call MCP read_resource
+            result = await session.read_resource(uri)
+
+            if not result or not hasattr(result, 'contents') or not result.contents:
+                return ResourceReadResult(
+                    success=False,
+                    error="Resource returned no content"
+                )
+
+            # Process the first content item (MCP can return multiple)
+            content_item = result.contents[0]
+
+            # Determine content type
+            if hasattr(content_item, 'text') and content_item.text is not None:
+                resource_content = MCPResourceContent(
+                    uri=uri,
+                    resource_type=ResourceType.TEXT,
+                    text=content_item.text,
+                    mime_type=getattr(content_item, 'mimeType', None)
+                )
+            elif hasattr(content_item, 'blob') and content_item.blob is not None:
+                resource_content = MCPResourceContent(
+                    uri=uri,
+                    resource_type=ResourceType.BLOB,
+                    blob=content_item.blob,
+                    mime_type=getattr(content_item, 'mimeType', None)
+                )
+            else:
+                return ResourceReadResult(
+                    success=False,
+                    error="Resource content format not recognized"
+                )
+
+            return ResourceReadResult(
+                success=True,
+                content=resource_content,
+                read_time_ms=(time.time() - start_time) * 1000
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to read resource {uri}: {e}")
+            return ResourceReadResult(
+                success=False,
+                error=str(e),
+                read_time_ms=(time.time() - start_time) * 1000
+            )
+
+    def _find_resource_server(self, uri: str) -> Optional[str]:
+        """Find which server provides a given resource URI."""
+        for server_name, resources in self._resources_cache.items():
+            for resource in resources:
+                if resource.uri == uri:
+                    return server_name
+
+        # Try matching against templates
+        for server_name, templates in self._templates_cache.items():
+            for template in templates:
+                # Simple template matching (could be enhanced)
+                if self._matches_template(uri, template.uri_template):
+                    return server_name
+
+        return None
+
+    def _matches_template(self, uri: str, template: str) -> bool:
+        """Check if a URI matches a template pattern."""
+        # Simple matching: template uses {placeholder} syntax
+        import re
+
+        # Convert template to regex
+        pattern = template.replace('{', '(?P<').replace('}', '>[^/]+)')
+        pattern = f"^{pattern}$"
+
+        try:
+            return bool(re.match(pattern, uri))
+        except re.error:
+            return False
+
+    async def subscribe_resource(self, uri: str, server_name: Optional[str] = None) -> bool:
+        """Subscribe to updates for a resource.
+
+        Args:
+            uri: Resource URI to subscribe to
+            server_name: Optional server name
+
+        Returns:
+            True if subscription successful
+        """
+        target_server = server_name or self._find_resource_server(uri)
+        if not target_server:
+            logger.warning(f"Cannot subscribe - no server found for {uri}")
+            return False
+
+        session = self._clients.get(target_server)
+        if not session:
+            return False
+
+        try:
+            await session.subscribe_resource(uri)
+
+            if target_server not in self._resource_subscriptions:
+                self._resource_subscriptions[target_server] = set()
+            self._resource_subscriptions[target_server].add(uri)
+
+            logger.info(f"Subscribed to resource {uri} on {target_server}")
+            return True
+
+        except Exception as e:
+            logger.warning(f"Failed to subscribe to {uri}: {e}")
+            return False
+
+    async def unsubscribe_resource(self, uri: str, server_name: Optional[str] = None) -> bool:
+        """Unsubscribe from resource updates.
+
+        Args:
+            uri: Resource URI to unsubscribe from
+            server_name: Optional server name
+
+        Returns:
+            True if unsubscription successful
+        """
+        target_server = server_name or self._find_resource_server(uri)
+        if not target_server:
+            return False
+
+        session = self._clients.get(target_server)
+        if not session:
+            return False
+
+        try:
+            await session.unsubscribe_resource(uri)
+
+            if target_server in self._resource_subscriptions:
+                self._resource_subscriptions[target_server].discard(uri)
+
+            logger.info(f"Unsubscribed from resource {uri}")
+            return True
+
+        except Exception as e:
+            logger.warning(f"Failed to unsubscribe from {uri}: {e}")
+            return False
+
+    def get_cached_resources(self, server_name: Optional[str] = None) -> List[MCPResource]:
+        """Get cached resources without refreshing.
+
+        Args:
+            server_name: Optional filter by server
+
+        Returns:
+            List of cached MCPResource objects
+        """
+        if server_name:
+            return self._resources_cache.get(server_name, [])
+
+        all_resources = []
+        for resources in self._resources_cache.values():
+            all_resources.extend(resources)
+        return all_resources
+
+    def get_cached_templates(self, server_name: Optional[str] = None) -> List[ResourceTemplate]:
+        """Get cached resource templates without refreshing.
+
+        Args:
+            server_name: Optional filter by server
+
+        Returns:
+            List of cached ResourceTemplate objects
+        """
+        if server_name:
+            return self._templates_cache.get(server_name, [])
+
+        all_templates = []
+        for templates in self._templates_cache.values():
+            all_templates.extend(templates)
+        return all_templates
 
     async def get_all_tools(self) -> List[Dict[str, Any]]:
         """Get all MCP tools"""
@@ -504,14 +805,75 @@ class MCPClientManager:
 
 
 class MCPTool(BaseTool):
-    """MCP Tool class"""
+    """MCP Tool class with tool invocation and resource management.
+
+    Provides access to:
+    - MCP server tools (dynamically discovered)
+    - MCP resources (listing, reading, subscribing)
+    - Server health monitoring
+    """
 
     name = "mcp"
+
+    # Built-in resource management tools
+    RESOURCE_TOOLS = [
+        {
+            "type": "function",
+            "function": {
+                "name": "mcp_list_resources",
+                "description": "List all available MCP resources across connected servers. Returns URIs, names, and descriptions of resources that can be read.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "server_name": {
+                            "type": "string",
+                            "description": "Optional: Filter by specific MCP server name"
+                        }
+                    },
+                    "required": []
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "mcp_read_resource",
+                "description": "Read content from an MCP resource by its URI. Returns the text or binary content of the resource.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "uri": {
+                            "type": "string",
+                            "description": "The URI of the resource to read (e.g., 'file:///path/to/file', 'db://table/record')"
+                        },
+                        "server_name": {
+                            "type": "string",
+                            "description": "Optional: Specific server to read from (auto-detected if not provided)"
+                        }
+                    },
+                    "required": ["uri"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "mcp_server_status",
+                "description": "Get health status and statistics for connected MCP servers.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            }
+        }
+    ]
 
     def __init__(self):
         super().__init__()
         self._initialized = False
         self._tools = []
+        self.manager: Optional[MCPClientManager] = None
 
     async def initialized(self, config: Optional[MCPConfig] = None):
         """Ensure manager is initialized"""
@@ -522,20 +884,183 @@ class MCPTool(BaseTool):
             self._initialized = True
 
     def get_tools(self) -> List[Dict[str, Any]]:
-        """Get synchronous tool definitions (base tools)"""
-        return self._tools
+        """Get all tool definitions including resource management tools."""
+        # Combine MCP server tools with built-in resource tools
+        all_tools = list(self._tools)  # Copy server tools
+
+        # Add resource management tools if manager is initialized
+        if self._initialized and self.manager:
+            all_tools.extend(self.RESOURCE_TOOLS)
+
+        return all_tools
 
     def has_function(self, function_name: str) -> bool:
         """Check if specified function exists (including dynamic MCP tools)"""
-        # Check if it's an MCP tool
+        # Check built-in resource tools
+        resource_tool_names = {t['function']['name'] for t in self.RESOURCE_TOOLS}
+        if function_name in resource_tool_names:
+            return True
+
+        # Check MCP server tools
         for tool in self._tools:
             if tool['function']['name'] == function_name:
                 return True
+
         return False
 
     async def invoke_function(self, function_name: str, **kwargs) -> ToolResult:
-        """Call tool function"""
+        """Call tool function (MCP server tool or built-in resource tool)."""
+        # Handle built-in resource tools
+        if function_name == "mcp_list_resources":
+            return await self._list_resources(kwargs.get("server_name"))
+
+        if function_name == "mcp_read_resource":
+            uri = kwargs.get("uri")
+            if not uri:
+                return ToolResult(success=False, message="URI is required")
+            return await self._read_resource(uri, kwargs.get("server_name"))
+
+        if function_name == "mcp_server_status":
+            return await self._get_server_status()
+
+        # Handle MCP server tools
         return await self.manager.call_tool(function_name, kwargs)
+
+    async def _list_resources(self, server_name: Optional[str] = None) -> ToolResult:
+        """List available MCP resources."""
+        if not self.manager:
+            return ToolResult(success=False, message="MCP manager not initialized")
+
+        try:
+            result = await self.manager.list_all_resources()
+
+            # Filter by server if specified
+            resources = result.resources
+            templates = result.templates
+
+            if server_name:
+                resources = [r for r in resources if r.server_name == server_name]
+                templates = [t for t in templates if t.server_name == server_name]
+
+            # Format for output
+            output_parts = []
+
+            if resources:
+                output_parts.append(f"**Resources ({len(resources)}):**")
+                for res in resources:
+                    desc = f" - {res.description}" if res.description else ""
+                    mime = f" [{res.mime_type}]" if res.mime_type else ""
+                    output_parts.append(f"- `{res.uri}`{mime}: {res.name}{desc}")
+
+            if templates:
+                output_parts.append(f"\n**Resource Templates ({len(templates)}):**")
+                for tmpl in templates:
+                    desc = f" - {tmpl.description}" if tmpl.description else ""
+                    output_parts.append(f"- `{tmpl.uri_template}`: {tmpl.name}{desc}")
+
+            if result.errors:
+                output_parts.append(f"\n**Errors:**")
+                for srv, err in result.errors.items():
+                    output_parts.append(f"- {srv}: {err}")
+
+            if not resources and not templates:
+                output_parts.append("No resources available from connected MCP servers.")
+
+            return ToolResult(
+                success=True,
+                data="\n".join(output_parts)
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to list resources: {e}")
+            return ToolResult(success=False, message=f"Failed to list resources: {str(e)}")
+
+    async def _read_resource(self, uri: str, server_name: Optional[str] = None) -> ToolResult:
+        """Read content from an MCP resource."""
+        if not self.manager:
+            return ToolResult(success=False, message="MCP manager not initialized")
+
+        try:
+            result = await self.manager.read_resource(uri, server_name)
+
+            if not result.success:
+                return ToolResult(success=False, message=result.error or "Failed to read resource")
+
+            if not result.content:
+                return ToolResult(success=False, message="Resource returned no content")
+
+            # Format content based on type
+            if result.content.is_text:
+                data = result.content.text
+                # Add metadata
+                metadata = f"URI: {uri}"
+                if result.content.mime_type:
+                    metadata += f"\nMIME Type: {result.content.mime_type}"
+                metadata += f"\nRead Time: {result.read_time_ms:.1f}ms"
+
+                return ToolResult(
+                    success=True,
+                    data=f"{metadata}\n\n---\n\n{data}"
+                )
+            else:
+                # Binary content - provide info only
+                return ToolResult(
+                    success=True,
+                    data=f"Binary resource read successfully.\nURI: {uri}\nMIME Type: {result.content.mime_type or 'unknown'}\nSize: {len(result.content.blob or b'')} bytes"
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to read resource {uri}: {e}")
+            return ToolResult(success=False, message=f"Failed to read resource: {str(e)}")
+
+    async def _get_server_status(self) -> ToolResult:
+        """Get status of all MCP servers."""
+        if not self.manager:
+            return ToolResult(success=False, message="MCP manager not initialized")
+
+        try:
+            health = await self.manager.health_check()
+            tool_stats = self.manager.get_tool_stats()
+
+            output_parts = ["**MCP Server Status:**\n"]
+
+            for server_name, status in health.items():
+                status_emoji = "✅" if status.healthy else "❌"
+                output_parts.append(f"**{status_emoji} {server_name}**")
+                output_parts.append(f"  - Healthy: {status.healthy}")
+                output_parts.append(f"  - Tools: {status.tools_count}")
+                output_parts.append(f"  - Last Check: {status.last_check.strftime('%H:%M:%S')}")
+                if status.last_error:
+                    output_parts.append(f"  - Last Error: {status.last_error}")
+                output_parts.append("")
+
+            # Resource counts
+            resources = self.manager.get_cached_resources()
+            templates = self.manager.get_cached_templates()
+            output_parts.append(f"**Resources:** {len(resources)} available")
+            output_parts.append(f"**Templates:** {len(templates)} available")
+
+            # Tool usage stats
+            if tool_stats:
+                output_parts.append("\n**Tool Usage Statistics:**")
+                for name, stats in list(tool_stats.items())[:5]:  # Top 5
+                    success_rate = (stats.success_count / stats.call_count * 100) if stats.call_count > 0 else 0
+                    avg_duration = stats.total_duration_ms / stats.call_count if stats.call_count > 0 else 0
+                    output_parts.append(
+                        f"  - {name}: {stats.call_count} calls, "
+                        f"{success_rate:.0f}% success, {avg_duration:.0f}ms avg"
+                    )
+
+            return ToolResult(success=True, data="\n".join(output_parts))
+
+        except Exception as e:
+            logger.error(f"Failed to get server status: {e}")
+            return ToolResult(success=False, message=f"Failed to get status: {str(e)}")
+
+    async def refresh_resources(self) -> None:
+        """Refresh the resource cache from all servers."""
+        if self.manager:
+            await self.manager.list_all_resources()
 
     async def cleanup(self):
         """Cleanup resources"""

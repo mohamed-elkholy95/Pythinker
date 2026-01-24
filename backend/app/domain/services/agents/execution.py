@@ -28,7 +28,10 @@ from app.domain.models.event import (
     ToolEvent,
     ToolStatus,
     WaitEvent,
+    ReportEvent,
 )
+from app.domain.models.agent_response import ExecutionStepResult, SummarizeResponse
+import uuid
 from app.domain.services.tools.base import BaseTool
 from app.domain.services.tools.shell import ShellTool
 from app.domain.services.tools.browser import BrowserTool
@@ -37,6 +40,7 @@ from app.domain.services.tools.file import FileTool
 from app.domain.services.tools.message import MessageTool
 from app.domain.utils.json_parser import JsonParser
 from app.domain.services.agents.prompt_adapter import PromptAdapter
+from app.domain.services.agents.critic import CriticAgent, CriticVerdict, CriticConfig
 import logging
 
 logger = logging.getLogger(__name__)
@@ -58,6 +62,7 @@ class ExecutionAgent(BaseAgent):
         llm: LLM,
         tools: List[BaseTool],
         json_parser: JsonParser,
+        critic_config: Optional[CriticConfig] = None,
     ):
         super().__init__(
             agent_id=agent_id,
@@ -68,8 +73,23 @@ class ExecutionAgent(BaseAgent):
         )
         # Initialize prompt adapter for dynamic context injection
         self._prompt_adapter = PromptAdapter()
+
+        # Initialize critic agent for output quality assurance
+        self._critic = CriticAgent(
+            llm=llm,
+            json_parser=json_parser,
+            config=critic_config or CriticConfig(
+                enabled=True,
+                auto_approve_simple_tasks=True,
+                max_revision_attempts=2
+            )
+        )
+        self._user_request: Optional[str] = None  # Track for critic context
     
     async def execute_step(self, plan: Plan, step: Step, message: Message) -> AsyncGenerator[BaseEvent, None]:
+        # Store user request for critic context
+        self._user_request = message.message
+
         # Increment iteration counter for prompt adapter
         self._prompt_adapter.increment_iteration()
 
@@ -146,7 +166,7 @@ class ExecutionAgent(BaseAgent):
         yield StepEvent(status=StepStatus.RUNNING, step=Step(
             id="summarize",
             description="Preparing final summary...",
-            status=ExecutionStatus.IN_PROGRESS
+            status=ExecutionStatus.RUNNING
         ))
 
         # Add summarize prompt to memory and ask LLM directly (no tools)
@@ -154,21 +174,69 @@ class ExecutionAgent(BaseAgent):
         await self._ensure_within_token_limit()
 
         try:
-            # Call LLM WITHOUT tools to get a pure text summary
-            response = await self.llm.ask(
-                self.memory.get_messages(),
-                tools=None,  # No tools during summarization
-                response_format={"type": "json_object"},
-                tool_choice=None
-            )
+            summary_response = None
+            message_content = ""
+            message_title = None
+            message_attachments: List[str] = []
 
-            content = response.get("content", "")
-            logger.debug(f"Execution agent summary response: {content}")
+            # Try structured output first
+            if hasattr(self.llm, 'ask_structured'):
+                try:
+                    summary_response = await self.llm.ask_structured(
+                        self.memory.get_messages(),
+                        response_model=SummarizeResponse,
+                        tools=None,
+                        tool_choice=None
+                    )
+                    message_content = summary_response.message
+                    message_title = summary_response.title
+                    message_attachments = summary_response.attachments
+                    logger.debug(f"Summarize using structured output: {message_title}")
+                except Exception as e:
+                    logger.warning(f"Structured summarize failed, falling back: {e}")
+                    summary_response = None
 
-            # Parse and yield the summary message
-            parsed_response = await self.json_parser.parse(content)
-            message = Message.model_validate(parsed_response)
-            attachments = [FileInfo(file_path=file_path) for file_path in message.attachments]
+            # Fallback to regular JSON parsing
+            if summary_response is None:
+                response = await self.llm.ask(
+                    self.memory.get_messages(),
+                    tools=None,
+                    response_format={"type": "json_object"},
+                    tool_choice=None
+                )
+
+                content = response.get("content", "")
+                logger.debug(f"Execution agent summary response: {content}")
+
+                parsed_response = await self.json_parser.parse(content)
+                message = Message.model_validate(parsed_response)
+                message_content = message.message
+                message_title = message.title
+                message_attachments = message.attachments
+
+            attachments = [FileInfo(file_path=file_path) for file_path in message_attachments]
+
+            # Run critic review on the summary (if substantial)
+            if len(message_content) > 200 and self._user_request:
+                try:
+                    review = await self._critic.review_output(
+                        user_request=self._user_request,
+                        output=message_content,
+                        task_context="Task completion summary",
+                        files=[f.file_path for f in attachments] if attachments else None
+                    )
+
+                    if review.verdict == CriticVerdict.REVISE and review.issues:
+                        logger.info(f"Critic requested revision: {review.summary}")
+                        # Add revision context to the output
+                        revision_note = "\n\n---\n*Note: This output was reviewed for quality.*"
+                        if review.suggestions:
+                            revision_note += f"\n*Suggested improvements: {'; '.join(review.suggestions[:2])}*"
+                        message_content += revision_note
+
+                    logger.debug(f"Critic review: {review.verdict.value} ({review.confidence:.2f})")
+                except Exception as e:
+                    logger.warning(f"Critic review failed (continuing): {e}")
 
             # Mark summarize step as completed
             yield StepEvent(status=StepStatus.COMPLETED, step=Step(
@@ -177,8 +245,75 @@ class ExecutionAgent(BaseAgent):
                 status=ExecutionStatus.COMPLETED
             ))
 
-            yield MessageEvent(message=message.message, attachments=attachments)
+            # Emit ReportEvent if there are attachments or substantial content
+            # Otherwise emit a simple MessageEvent
+            has_attachments = len(attachments) > 0
+            is_substantial = len(message_content) > 500
+            has_title = bool(message_title)
+            is_report_structure = self._is_report_structure(message_content)
+
+            if has_attachments or is_substantial or has_title or is_report_structure:
+                title = message_title or self._extract_title(message_content)
+                yield ReportEvent(
+                    id=str(uuid.uuid4()),
+                    title=title,
+                    content=message_content,
+                    attachments=attachments if attachments else None
+                )
+            else:
+                yield MessageEvent(message=message_content, attachments=attachments)
 
         except Exception as e:
             logger.error(f"Error during summarization: {e}")
             yield ErrorEvent(error=f"Failed to generate summary: {str(e)}")
+
+    def _extract_title(self, content: str) -> str:
+        """Extract a title from markdown content."""
+        import re
+        lines = content.strip().split('\n')
+
+        # Try to find h1 heading
+        for line in lines[:10]:  # Check first 10 lines
+            h1_match = re.match(r'^#\s+(.+)$', line.strip())
+            if h1_match:
+                return h1_match.group(1).strip()
+
+        # Try to find h2 heading
+        for line in lines[:10]:
+            h2_match = re.match(r'^##\s+(.+)$', line.strip())
+            if h2_match:
+                return h2_match.group(1).strip()
+
+        # Fallback: use first non-empty line, truncated
+        for line in lines[:5]:
+            stripped = line.strip()
+            if stripped and not stripped.startswith('#'):
+                # Remove markdown formatting and truncate
+                clean = re.sub(r'\*\*(.+?)\*\*', r'\1', stripped)
+                clean = re.sub(r'\*(.+?)\*', r'\1', clean)
+                return clean[:80] + ('...' if len(clean) > 80 else '')
+
+        return "Task Report"
+
+    def _is_report_structure(self, content: str) -> bool:
+        """Check if content has report-like structure (headings, sections)."""
+        import re
+        if not content:
+            return False
+
+        # Check for markdown headings (##, ###, etc.)
+        heading_count = len(re.findall(r'^#{1,4}\s+.+', content, re.MULTILINE))
+        if heading_count >= 2:
+            return True
+
+        # Check for bold section headers pattern (e.g., **Section:**)
+        bold_headers = len(re.findall(r'\*\*[^*]+:\*\*', content))
+        if bold_headers >= 2:
+            return True
+
+        # Check for numbered sections (1. Section, 2. Section)
+        numbered_sections = len(re.findall(r'^\d+\.\s+[A-Z]', content, re.MULTILINE))
+        if numbered_sections >= 2:
+            return True
+
+        return False

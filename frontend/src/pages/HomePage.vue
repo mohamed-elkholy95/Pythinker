@@ -35,7 +35,7 @@
         </div>
         <div class="h-8"></div>
       </div>
-      <div class="w-full max-w-full sm:max-w-[768px] sm:min-w-[390px] mx-auto mt-[180px] mb-auto">
+      <div class="w-full max-w-full sm:max-w-[768px] sm:min-w-[390px] mx-auto mt-[120px] mb-auto">
         <div class="w-full flex pl-4 items-center justify-start pb-4">
           <span class="text-[var(--text-primary)] text-start font-serif text-[32px] leading-[40px]" :style="{
             fontFamily:
@@ -55,6 +55,55 @@
             <ChatBox :rows="2" v-model="message" @submit="handleSubmit" :isRunning="false" :attachments="attachments" />
           </div>
         </div>
+
+        <!-- Feature Buttons -->
+        <div class="flex flex-wrap items-center justify-center gap-2 mt-4 px-4">
+          <button
+            v-for="feature in visibleFeatures"
+            :key="feature.id"
+            @click="handleFeatureClick(feature)"
+            class="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[var(--border-main)] bg-[var(--fill-input-chat)] hover:bg-[var(--fill-tsp-gray-main)] transition-colors text-sm text-[var(--text-secondary)] cursor-pointer"
+          >
+            <component :is="feature.icon" :size="18" class="text-[var(--icon-secondary)]" />
+            <span>{{ $t(feature.label) }}</span>
+          </button>
+
+          <!-- More Dropdown -->
+          <div class="relative" ref="moreDropdownRef">
+            <button
+              @click="toggleMoreDropdown"
+              class="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[var(--border-main)] bg-[var(--fill-input-chat)] hover:bg-[var(--fill-tsp-gray-main)] transition-colors text-sm text-[var(--text-secondary)] cursor-pointer"
+              :class="{ 'bg-[var(--fill-tsp-gray-main)]': showMoreDropdown }"
+            >
+              <span>{{ $t('More') }}</span>
+            </button>
+
+            <!-- Dropdown Menu -->
+            <Transition
+              enter-active-class="transition duration-100 ease-out"
+              enter-from-class="transform scale-95 opacity-0"
+              enter-to-class="transform scale-100 opacity-100"
+              leave-active-class="transition duration-75 ease-in"
+              leave-from-class="transform scale-100 opacity-100"
+              leave-to-class="transform scale-95 opacity-0"
+            >
+              <div
+                v-if="showMoreDropdown"
+                class="absolute right-0 bottom-full mb-2 w-52 rounded-xl border border-[var(--border-main)] bg-[var(--fill-input-chat)] shadow-lg z-50 py-2"
+              >
+                <button
+                  v-for="item in moreFeatures"
+                  :key="item.id"
+                  @click="handleFeatureClick(item)"
+                  class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--fill-tsp-gray-main)] transition-colors text-left"
+                >
+                  <component :is="item.icon" :size="18" class="text-[var(--icon-secondary)]" />
+                  <span>{{ $t(item.label) }}</span>
+                </button>
+              </div>
+            </Transition>
+          </div>
+        </div>
       </div>
     </div>
   </SimpleBar>
@@ -62,19 +111,31 @@
 
 <script setup lang="ts">
 import SimpleBar from '../components/SimpleBar.vue';
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import ChatBox from '../components/ChatBox.vue';
-import { createSession } from '../api/agent';
+import { createSession, type AgentMode } from '../api/agent';
 import { showErrorToast } from '../utils/toast';
-import { Bot, PanelLeft } from 'lucide-vue-next';
+import {
+  Bot, PanelLeft, Search, Presentation, Palette,
+  Calendar, Table2, BarChart3, Video, AudioLines, MessageSquare, BookOpen
+} from 'lucide-vue-next';
 import PythinkerLogoTextIcon from '../components/icons/PythinkerLogoTextIcon.vue';
 import type { FileInfo } from '../api/file';
 import { useLeftPanel } from '../composables/useLeftPanel';
 import { useFilePanel } from '../composables/useFilePanel';
 import { useAuth } from '../composables/useAuth';
 import UserMenu from '../components/UserMenu.vue';
+
+// Feature type definition
+interface Feature {
+  id: string;
+  label: string;
+  icon: any;
+  mode: AgentMode;
+  prompt?: string;
+}
 
 const { t } = useI18n();
 const router = useRouter();
@@ -85,6 +146,91 @@ const { toggleLeftPanel, isLeftPanelShow } = useLeftPanel();
 const { hideFilePanel } = useFilePanel();
 const { currentUser } = useAuth();
 
+// Visible feature buttons
+const visibleFeatures: Feature[] = [
+  {
+    id: 'research',
+    label: 'Research',
+    icon: Search,
+    mode: 'agent',
+    prompt: 'Create a comprehensive research report on: '
+  },
+  {
+    id: 'slides',
+    label: 'Create slides',
+    icon: Presentation,
+    mode: 'agent',
+    prompt: 'Create a professional presentation slides about: '
+  },
+  {
+    id: 'design',
+    label: 'Design',
+    icon: Palette,
+    mode: 'agent',
+    prompt: 'Create a design for: '
+  }
+];
+
+// More dropdown features
+const moreFeatures: Feature[] = [
+  {
+    id: 'schedule',
+    label: 'Schedule task',
+    icon: Calendar,
+    mode: 'agent',
+    prompt: 'Schedule a task to: '
+  },
+  {
+    id: 'wide-research',
+    label: 'Wide Research',
+    icon: Search,
+    mode: 'agent',
+    prompt: 'Conduct a wide and in-depth research on: '
+  },
+  {
+    id: 'spreadsheet',
+    label: 'Spreadsheet',
+    icon: Table2,
+    mode: 'agent',
+    prompt: 'Create a spreadsheet for: '
+  },
+  {
+    id: 'visualization',
+    label: 'Visualization',
+    icon: BarChart3,
+    mode: 'agent',
+    prompt: 'Create a data visualization for: '
+  },
+  {
+    id: 'video',
+    label: 'Video',
+    icon: Video,
+    mode: 'agent',
+    prompt: 'Create a video about: '
+  },
+  {
+    id: 'audio',
+    label: 'Audio',
+    icon: AudioLines,
+    mode: 'agent',
+    prompt: 'Create audio content about: '
+  },
+  {
+    id: 'chat',
+    label: 'Chat mode',
+    icon: MessageSquare,
+    mode: 'discuss',
+    prompt: ''
+  },
+  {
+    id: 'playbook',
+    label: 'Playbook',
+    icon: BookOpen,
+    mode: 'agent',
+    prompt: 'Create a playbook for: '
+  }
+];
+
 // Get first letter of user's fullname for avatar display
 const avatarLetter = computed(() => {
   return currentUser.value?.fullname?.charAt(0)?.toUpperCase() || 'M';
@@ -93,6 +239,10 @@ const avatarLetter = computed(() => {
 // User menu state
 const showUserMenu = ref(false);
 const userMenuTimeout = ref<number | null>(null);
+
+// More dropdown state
+const showMoreDropdown = ref(false);
+const moreDropdownRef = ref<HTMLElement | null>(null);
 
 // Show user menu on hover
 const handleUserMenuEnter = () => {
@@ -110,17 +260,76 @@ const handleUserMenuLeave = () => {
   }, 200); // 200ms delay to allow moving to menu
 };
 
+// Toggle more dropdown
+const toggleMoreDropdown = () => {
+  showMoreDropdown.value = !showMoreDropdown.value;
+};
+
+// Close dropdown when clicking outside
+const handleClickOutside = (event: MouseEvent) => {
+  if (moreDropdownRef.value && !moreDropdownRef.value.contains(event.target as Node)) {
+    showMoreDropdown.value = false;
+  }
+};
+
 onMounted(() => {
   hideFilePanel();
-})
+  document.addEventListener('click', handleClickOutside);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside);
+});
+
+// Handle feature button click
+const handleFeatureClick = async (feature: Feature) => {
+  showMoreDropdown.value = false;
+
+  if (feature.id === 'chat') {
+    // Chat mode - create session with discuss mode directly
+    await createSessionWithMode('discuss');
+  } else if (feature.prompt) {
+    // Set the prompt in the message input
+    message.value = feature.prompt;
+  }
+};
+
+// Create session with specific mode
+const createSessionWithMode = async (mode: AgentMode, initialMessage?: string) => {
+  if (isSubmitting.value) return;
+  isSubmitting.value = true;
+
+  try {
+    const session = await createSession(mode);
+    const sessionId = session.session_id;
+
+    router.push({
+      path: `/chat/${sessionId}`,
+      state: initialMessage ? {
+        message: initialMessage,
+        files: attachments.value.map((file: FileInfo) => ({
+          file_id: file.file_id,
+          filename: file.filename,
+          content_type: file.content_type,
+          size: file.size,
+          upload_date: file.upload_date
+        }))
+      } : undefined
+    });
+  } catch (error) {
+    console.error('Failed to create session:', error);
+    showErrorToast(t('Failed to create session, please try again later'));
+    isSubmitting.value = false;
+  }
+};
 
 const handleSubmit = async () => {
   if (message.value.trim() && !isSubmitting.value) {
     isSubmitting.value = true;
 
     try {
-      // Create new Agent
-      const session = await createSession();
+      // Create new Agent with default agent mode
+      const session = await createSession('agent');
       const sessionId = session.session_id;
 
       // Navigate to new route with session_id, passing initial message via state

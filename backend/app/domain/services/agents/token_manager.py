@@ -103,6 +103,8 @@ class TokenManager:
         "o1-mini": 128000,
         "o3-mini": 128000,
         "claude-3": 200000,
+        "deepseek": 128000,  # DeepSeek V3.2 supports 128K context
+        "qwen": 32768,       # Qwen models typically support 32K
         "default": 8192
     }
 

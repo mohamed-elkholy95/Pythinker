@@ -1,8 +1,9 @@
 from typing import Optional, AsyncGenerator, List
 import logging
 import time
+import asyncio
 from datetime import datetime
-from app.domain.models.session import Session, SessionStatus
+from app.domain.models.session import Session, SessionStatus, AgentMode
 from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
@@ -85,6 +86,7 @@ class AgentDomainService:
             json_parser=self._json_parser,
             agent_repository=self._repository,
             mcp_repository=self._mcp_repository,
+            mode=session.mode,  # Pass session mode to task runner
         )
 
         task = self._task_cls.create(task_runner)
@@ -135,16 +137,16 @@ class AgentDomainService:
             task = await self._get_task(session)
 
             if message:
-                if session.status != SessionStatus.RUNNING:
+                if session.status != SessionStatus.RUNNING or task is None:
                     task = await self._create_task(session)
                     if not task:
                         raise RuntimeError("Failed to create task")
-                
+
                 await self._session_repository.update_latest_message(session_id, message, timestamp or datetime.now())
 
                 message_event = MessageEvent(
-                    message=message, 
-                    role="user", 
+                    message=message,
+                    role="user",
                     attachments=[FileInfo(file_id=attachment["file_id"], filename=attachment["filename"]) for attachment in attachments] if attachments else None
                 )
 
@@ -161,10 +163,10 @@ class AgentDomainService:
            
             while task and not task.done:
                 event_id, event_str = await task.output_stream.get(start_id=latest_event_id, block_ms=0)
-                latest_event_id = event_id
                 if event_str is None:
-                    logger.debug(f"No event found in Session {session_id}'s event queue")
+                    await asyncio.sleep(0.05)  # Yield control, prevent busy-wait
                     continue
+                latest_event_id = event_id
                 event = TypeAdapter(AgentEvent).validate_json(event_str)
                 event.id = event_id
                 logger.debug(f"Got event from Session {session_id}'s event queue: {type(event).__name__}")

@@ -1,6 +1,6 @@
 from typing import Optional, Protocol, List
 from datetime import datetime
-from app.domain.models.session import Session, SessionStatus
+from app.domain.models.session import Session, SessionStatus, AgentMode
 from app.domain.models.file import FileInfo
 from app.domain.models.event import BaseEvent
 
@@ -66,7 +66,11 @@ class SessionRepository(Protocol):
     async def update_shared_status(self, session_id: str, is_shared: bool) -> None:
         """Update the shared status of a session"""
         ...
-    
+
+    async def update_mode(self, session_id: str, mode: AgentMode) -> None:
+        """Update the agent mode of a session (discuss/agent)"""
+        ...
+
     async def delete(self, session_id: str) -> None:
         """Delete a session"""
         ...

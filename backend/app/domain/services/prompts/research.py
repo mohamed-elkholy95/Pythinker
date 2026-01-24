@@ -1,197 +1,124 @@
 # Research-specific prompts for fact-checking and verification
 
 RESEARCH_VERIFICATION_RULES = """
-<research_verification_rules>
-CRITICAL: For research and comparison tasks, you MUST follow these verification rules:
+<research_verification>
+Research standards for comparison and recommendation tasks:
 
-1. SOURCE VERIFICATION (MANDATORY):
-   - NEVER make factual claims based on search snippets alone
-   - For each product/topic, MUST visit the official product page or authoritative source
-   - Verify specific claims (dimensions, features, specs) directly from manufacturer pages
-   - If you cannot verify a claim, explicitly state "unverified" with the reason
+Source verification:
+- Visit official product pages rather than relying on search snippets
+- Verify specifications directly from manufacturer documentation
+- Mark unverifiable claims explicitly
 
-2. CROSS-VALIDATION (MINIMUM 3 SOURCES):
-   - For comparison tasks, gather information from at least 3 different sources
-   - Compare claims across sources to identify contradictions
-   - When sources disagree, note the contradiction and explain which source is more authoritative
-   - Prioritize: Official manufacturer > Verified reviews (Wirecutter, RTINGS) > User forums
+Cross-validation:
+- Gather information from at least 3 sources
+- Source priority: official manufacturer > verified reviews > user forums
+- Note contradictions between sources and cite the more authoritative
 
-3. CITATION REQUIREMENTS:
-   - Every factual claim MUST include its source URL
-   - Format: "[Claim] (Source: [URL])"
-   - If multiple sources support a claim, cite the most authoritative
-   - Claims without citations should be marked as "unverified from model knowledge"
+Citations:
+- Include source URLs for factual claims
+- Mark claims from prior knowledge as "unverified"
 
-4. QUERY EXPANSION (FOR COMPREHENSIVE COVERAGE):
-   - Search for alternative product names and variations
-   - Include competitor products in searches
-   - Search for "[product] vs [competitor]" comparisons
-   - Search for "[product] review" and "[product] specifications"
-   - Search for recent releases: "[category] 2025" or "[category] 2026"
+Coverage:
+- Search for alternatives, competitors, and recent releases
+- Include 4-5 options from different brands
+- Expand searches with comparison and review queries
 
-5. CONTRADICTION DETECTION:
-   - When you find conflicting information, DO NOT silently choose one
-   - Explicitly state: "Source A claims X, but Source B claims Y"
-   - Investigate which is correct by visiting additional sources
-   - If unresolvable, present both views with source citations
+Consistency:
+- Compare products within the same category and technology type
+- Honor user-specified technologies and requirements
+- Note price tier differences when relevant
+</research_verification>
 
-6. CATEGORY/TERMINOLOGY VERIFICATION:
-   - Verify product categories (e.g., "low-profile" vs "standard-height")
-   - Confirm technical terms mean what you think they mean
-   - For keyboards: verify switch type (mechanical vs membrane vs scissor)
-   - For specifications: verify from official spec sheets, not summaries
+<domain_awareness>
+Research approach:
+- Learn domain terminology before searching products
+- Understand terms as used in the relevant community
+- Identify distinct technology types within the category
+- Search for major brands and alternatives
 
-7. COMPARE LIKE-FOR-LIKE:
-   - Only compare products in the SAME category (mechanical vs mechanical, not mechanical vs membrane)
-   - If user asks for "tactile" or "mechanical", EXCLUDE membrane/scissor keyboards
-   - If comparing, ensure all products meet the user's stated requirements
-   - Don't compare a $50 product against a $200 product without noting the price difference
+Comparison integrity:
+- Products must share the same core technology for fair comparison
+- Include only products matching user specifications
+- Distinguish consumer and professional grades when relevant
 
-8. EXPAND COMPETITOR COVERAGE:
-   - For any product recommendation, search for its TOP 3 direct competitors
-   - Include established brands AND newer alternatives
-   - Example: For NuPhy keyboards, also search Keychron, Lofree, Epomaker
-   - Never present a binary choice when 4-5+ viable options exist
-</research_verification_rules>
+Professional use considerations:
+- Customization, programmability, reliability, and build quality
+- Software support and cross-platform compatibility
+- Note proprietary limitations
 
-<domain_terminology>
-DOMAIN RESEARCH PROTOCOL:
-Before researching ANY product category:
-1. LEARN THE DOMAIN: Search "[category] types" and "[category] terminology guide"
-2. UNDERSTAND USER TERMS: Terms often have specific meanings in enthusiast communities
-3. IDENTIFY TECHNOLOGY TYPES: Most categories have distinct technology types that shouldn't be mixed
-4. FIND ALL MAJOR BRANDS: Search "[category] best brands 2026" to identify key players
-
-COMPARISON INTEGRITY:
-- Products must share the SAME core technology to be compared fairly
-- If user specifies a technology (e.g., "mechanical", "OLED", "mirrorless"), ONLY include that type
-- Don't mix consumer-grade with professional-grade unless noting the difference
-- Include at least 4-5 options from different brands, not just 2
-
-PROFESSIONAL/CODING USE PRIORITIES:
-When user mentions coding, development, professional use:
-- Prioritize: Customization, programmability, reliability, build quality
-- Check for: Software support, API access, macro capabilities
-- Verify: Cross-platform compatibility (macOS, Windows, Linux)
-- Note: Any proprietary limitations or lock-in
-
-TERMINOLOGY RED FLAGS:
-- If a product uses a term loosely (e.g., marketing "tactile feel" for membrane), NOTE THIS
-- Distinguish between: marketing claims vs technical specifications
-- When in doubt: Check enthusiast forums/Reddit for how the community categorizes the product
-</domain_terminology>
+Terminology clarity:
+- Distinguish marketing claims from technical specifications
+- Note when terms are used loosely or inconsistently
+</domain_awareness>
 """
 
 RESEARCH_PLANNING_PROMPT = """
 <research_planning>
-When creating a plan for research/comparison tasks:
+Research task structure:
 
-1. INFORMATION GATHERING PHASE:
-   - Step 1: Broad search to identify all relevant products/options
-   - Step 2: Search for alternatives and competitors not in initial results
-   - Step 3: For each candidate, visit official product page for specifications
+Information gathering:
+- Broad search for relevant options
+- Search for alternatives and competitors
+- Visit official pages for specifications
 
-2. VERIFICATION PHASE:
-   - Step 4: Cross-reference claims across multiple sources
-   - Step 5: Identify and resolve any contradictions
-   - Step 6: Verify category classifications and terminology
+Verification:
+- Cross-reference claims across sources
+- Resolve contradictions
+- Verify terminology and classifications
 
-3. SYNTHESIS PHASE:
-   - Step 7: Compile verified information with source citations
-   - Step 8: Flag any unverified claims or remaining contradictions
-   - Step 9: Structure final report with sources section
+Synthesis:
+- Compile verified information with citations
+- Flag unverified claims
+- Structure report with sources section
 
-EXAMPLE PLAN for product research:
-{{
-    "steps": [
-        {{"id": "1", "description": "Search '[category] types' to understand domain terminology and technology distinctions"}},
-        {{"id": "2", "description": "Search 'best [category] [user requirements] 2026' - filter to matching technology type only"}},
-        {{"id": "3", "description": "Search 'top [category] brands' to identify 4-5 major competitors"}},
-        {{"id": "4", "description": "Visit official pages to verify products match user's specified technology/features"}},
-        {{"id": "5", "description": "Cross-reference reviews - compare ONLY products in the same category/technology"}},
-        {{"id": "6", "description": "Compile comparison with verified specs, sources, and any terminology clarifications"}}
-    ]
-}}
-
-4. DOMAIN-AWARE FILTERING:
-   - FIRST learn the domain's terminology before searching products
-   - Identify the TECHNOLOGY TYPE user is asking for (not just the category)
-   - Filter search results to ONLY include products with that technology
-   - If user uses enthusiast terminology, apply enthusiast definitions
-   - When in doubt, search "[term] meaning [category]" to clarify
+Domain-aware approach:
+- Learn terminology before searching products
+- Identify the technology type specified
+- Filter results to matching products
+- Apply domain-specific definitions
 </research_planning>
 """
 
 RESEARCH_EXECUTION_PROMPT = """
 <research_execution>
-When executing research tasks, before returning any results:
+Before delivering results, verify:
+- Official pages visited for recommended items
+- Category and type claims confirmed from specifications
+- Key specs cross-referenced across sources
+- Source URLs included for factual claims
+- Contradictions flagged
+- Alternatives and competitors searched
+- Products match user specifications
+- Like-for-like comparison (same category, similar tier)
 
-VERIFICATION CHECKLIST:
-[ ] Visited official product pages for all recommended items
-[ ] Verified category/type claims (e.g., "low-profile" confirmed from specs)
-[ ] Cross-referenced key specs across 2+ sources
-[ ] Included source URLs for all factual claims
-[ ] Flagged any contradictions found between sources
-[ ] Searched for alternatives/competitors to ensure completeness
-[ ] Verified products match user's terminology expectations (see domain_terminology)
-[ ] Compared LIKE-FOR-LIKE products (same category, similar price tier)
-
-If ANY checklist item is NOT complete, you MUST:
-1. Notify user: "Verifying [claim] from official source..."
-2. Visit the relevant URL to verify
-3. Update your findings based on verified information
-
-COMMON PITFALLS TO AVOID:
-- Recommending products in wrong category/technology type
-- Confusing marketing terms with technical specifications
-- Missing major competitors (always search "[category] alternatives 2026")
-- Relying on outdated information (check publication dates)
-- Comparing different technology types when user specified one
-- Presenting binary choices when 4-5+ good options exist
-- Missing key features for professional/coding use (customization, programmability)
-- Getting specs wrong (weight, dimensions, features) - always verify from official sources
-
-DOMAIN-AWARE CHECKS:
-[ ] Learned domain terminology before searching products
-[ ] Verified products use the SAME technology type user requested
-[ ] Confirmed products match user's specific requirements from official specs
-[ ] Checked professional/coding features if applicable (customization, reliability)
-[ ] Included 4-5 competitors from major brands in the category
-[ ] Noted any marketing vs reality discrepancies
+Quality considerations:
+- Verify technology type matches user request
+- Distinguish marketing from specifications
+- Include competitors from major brands
+- Confirm professional features if applicable
+- Check data freshness
 </research_execution>
 """
 
 RESEARCH_SUMMARIZE_PROMPT = """
-When delivering research results, structure your response as follows:
+Structure research results as:
 
 ## Findings
-
-[Present your findings with inline citations]
-Each factual claim should include (Source: URL)
+Present findings with inline citations (Source: URL)
 
 ## Verification Status
+- Verified: claims confirmed from official sources
+- Partial: claims from single source
+- Unverified: claims requiring additional verification
 
-- Verified claims: [list claims confirmed from official sources]
-- Partially verified: [list claims from single source only]
-- Unverified: [list any claims you could not verify, with explanation]
-
-## Contradictions Found
-
-[If any sources disagreed, explain the contradiction and your resolution]
+## Contradictions
+Note any source disagreements and resolution approach
 
 ## Sources
-
-[List all URLs visited with brief description]
-- [URL 1] - Official product page for X
-- [URL 2] - Review from authoritative source Y
-- [URL 3] - Specification comparison
+List URLs with brief descriptions
 
 ## Limitations
-
-[Acknowledge any limitations in your research]
-- Products that may exist but weren't found
-- Categories that need user clarification
-- Time-sensitive information that may have changed
+Acknowledge coverage gaps or time-sensitive information
 """
 
 # Detection patterns for research-type tasks

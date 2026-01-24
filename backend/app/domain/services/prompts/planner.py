@@ -1,52 +1,35 @@
 # Planner prompt - optimized for token efficiency
-PLANNER_SYSTEM_PROMPT = """You are a task planner. Create concise, actionable plans. Use user's language."""
+PLANNER_SYSTEM_PROMPT = """You are a task planner. Create focused, actionable plans. No explanations - just plan."""
 
-CREATE_PLAN_PROMPT = """Create a plan for: {message}
+CREATE_PLAN_PROMPT = """Plan the following request: {message}
 
-RULES:
-- Use user's language
-- MAXIMUM 3-5 steps for any task (consolidate related actions)
-- Each step should accomplish significant work, not micro-tasks
-- NO clarifying questions - use defaults and proceed
+Planning principles:
+- 3-5 substantive steps; consolidate related work
+- Proceed with sensible defaults (mid-range budget, current year, mainstream options)
+- Match the user's language throughout
+- DO NOT explain or acknowledge - just create the plan
 
-DEFAULTS (use these, don't ask):
-- Budget: $100-200 mid-range
-- Year: current year products
-- Options: popular/mainstream choices
+For research tasks:
+- Search current sources and verify from official pages
+- Compare similar products within the same category
+- ALWAYS include a final step to save the report as a .md file using file_write
+- The final step should compile all findings into a structured Markdown report with tables and citations
 
-RESEARCH TASK STEPS (3-5 steps max):
-1. Learn domain terminology, then search RECENT sources + TOP COMPETITORS (4-5 brands)
-2. Visit official pages - verify products match user's specified technology/requirements
-3. Compare LIKE-FOR-LIKE only (same technology, similar tier) - exclude mismatched types
-4. Write report with verified specs, sources, and any terminology clarifications (.md file)
-
-RESEARCH RULES:
-- RECENCY: Always search online. Never use model knowledge for facts/prices/specs
-- TERMINOLOGY: Learn domain terms first - user terms often have specific meanings
-- TECHNOLOGY MATCH: Only include products with the technology type user specified
-- COMPETITORS: Always include 4-5 alternatives from major brands in the category
-- PROFESSIONAL USE: Check customization, programmability, reliability, cross-platform support
-
-JSON FORMAT:
+Response format (JSON only, no other text):
 ```json
-{{"message": "Brief response", "goal": "Task goal", "title": "Short title", "language": "en", "steps": [{{"id": "1", "description": "..."}}]}}
+{{"goal": "objective", "title": "brief title", "language": "en", "steps": [{{"id": "1", "description": "..."}}]}}
 ```
 
 User message: {message}
 Attachments: {attachments}
 """
 
-UPDATE_PLAN_PROMPT = """Return the REMAINING uncompleted steps from the plan.
+UPDATE_PLAN_PROMPT = """Return the remaining uncompleted steps.
 
-RULE: Return ALL steps that haven't been executed yet.
-DO NOT remove steps unless the entire task goal is 100% achieved.
-
-If step 1 of 5 completed → return steps 2, 3, 4, 5
-If step 2 of 5 completed → return steps 3, 4, 5
-If final step completed → return empty steps array
+Include all steps not yet executed. Return an empty steps array only when the task is fully complete.
 
 Completed step: {step}
-Current plan with remaining steps: {plan}
+Current plan: {plan}
 
-Return remaining steps in JSON: {{"steps": [{{"id": "N", "description": "..."}}]}}
+Response format: {{"steps": [{{"id": "N", "description": "..."}}]}}
 """

@@ -20,7 +20,7 @@ from app.domain.external.task import Task
 from app.domain.utils.json_parser import JsonParser
 from app.domain.models.file import FileInfo
 from app.domain.repositories.mcp_repository import MCPRepository
-from app.domain.models.session import SessionStatus
+from app.domain.models.session import SessionStatus, AgentMode
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -57,11 +57,11 @@ class AgentService:
         self._search_engine = search_engine
         self._sandbox_cls = sandbox_cls
     
-    async def create_session(self, user_id: str) -> Session:
-        logger.info(f"Creating new session for user: {user_id}")
+    async def create_session(self, user_id: str, mode: AgentMode = AgentMode.AGENT) -> Session:
+        logger.info(f"Creating new session for user: {user_id} with mode: {mode}")
         agent = await self._create_agent()
-        session = Session(agent_id=agent.id, user_id=user_id)
-        logger.info(f"Created new Session with ID: {session.id} for user: {user_id}")
+        session = Session(agent_id=agent.id, user_id=user_id, mode=mode)
+        logger.info(f"Created new Session with ID: {session.id} for user: {user_id} with mode: {mode}")
         await self._session_repository.save(session)
         return session
 
@@ -137,6 +137,18 @@ class AgentService:
             raise RuntimeError("Session not found")
         await self._agent_domain_service.stop_session(session_id)
         logger.info(f"Session {session_id} stopped successfully")
+
+    async def rename_session(self, session_id: str, user_id: str, title: str) -> None:
+        """Rename a session, ensuring it belongs to the user"""
+        logger.info(f"Renaming session {session_id} for user {user_id} to '{title}'")
+        # First verify the session belongs to the user
+        session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
+        if not session:
+            logger.error(f"Session {session_id} not found for user {user_id}")
+            raise RuntimeError("Session not found")
+
+        await self._session_repository.update_title(session_id, title)
+        logger.info(f"Session {session_id} renamed successfully")
 
     async def clear_unread_message_count(self, session_id: str, user_id: str) -> None:
         """Clear the unread message count for a session, ensuring it belongs to the user"""

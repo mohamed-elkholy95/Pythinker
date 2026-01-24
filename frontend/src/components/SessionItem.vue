@@ -56,11 +56,12 @@ import { useRoute, useRouter } from 'vue-router';
 import { useCustomTime } from '../composables/useTime';
 import { ListSessionItem, SessionStatus } from '../types/response';
 import SpinnigIcon from './icons/SpinnigIcon.vue';
-import { useContextMenu, createDangerMenuItem } from '../composables/useContextMenu';
+import { useContextMenu, createMenuItem, createDangerMenuItem } from '../composables/useContextMenu';
 import { useDialog } from '../composables/useDialog';
-import { deleteSession } from '../api/agent';
+import { deleteSession, stopSession, shareSession, renameSession } from '../api/agent';
 import { showSuccessToast, showErrorToast } from '../utils/toast';
-import { Trash } from 'lucide-vue-next';
+import { Trash, Square, Share2, Pencil } from 'lucide-vue-next';
+import { copyToClipboard } from '../utils/dom';
 
 interface Props {
   session: ListSessionItem;
@@ -73,11 +74,13 @@ const { customTime } = useCustomTime();
 const route = useRoute();
 const router = useRouter();
 const { showContextMenu } = useContextMenu();
-const { showConfirmDialog } = useDialog();
+const { showConfirmDialog, showPromptDialog } = useDialog();
 const isContextMenuOpen = ref(false);
 
 const emit = defineEmits<{
   (e: 'deleted', sessionId: string): void
+  (e: 'stopped', sessionId: string): void
+  (e: 'renamed', sessionId: string, newTitle: string): void
 }>();
 
 const currentSessionId = computed(() => {
@@ -92,16 +95,60 @@ const handleSessionClick = () => {
   router.push(`/chat/${props.session.session_id}`);
 };
 
+const isRunning = computed(() => {
+  return props.session.status === SessionStatus.RUNNING || props.session.status === SessionStatus.PENDING;
+});
+
 const handleSessionMenuClick = (event: MouseEvent) => {
   event.stopPropagation();
 
   const target = event.currentTarget as HTMLElement;
   isContextMenuOpen.value = true;
 
-  showContextMenu(props.session.session_id, target, [
+  const menuItems = [
+    // Only show Stop if session is running
+    ...(isRunning.value ? [createMenuItem('stop', t('Stop'), { icon: Square })] : []),
+    createMenuItem('rename', t('Rename'), { icon: Pencil }),
+    createMenuItem('share', t('Share'), { icon: Share2 }),
     createDangerMenuItem('delete', t('Delete'), { icon: Trash }),
-  ], (itemKey: string, _: string) => {
-    if (itemKey === 'delete') {
+  ];
+
+  showContextMenu(props.session.session_id, target, menuItems, (itemKey: string, _: string) => {
+    if (itemKey === 'stop') {
+      stopSession(props.session.session_id).then(() => {
+        showSuccessToast(t('Session stopped'));
+        emit('stopped', props.session.session_id);
+      }).catch(() => {
+        showErrorToast(t('Failed to stop session'));
+      });
+    } else if (itemKey === 'rename') {
+      showPromptDialog({
+        title: t('Rename Session'),
+        placeholder: t('Enter new name'),
+        defaultValue: props.session.title || t('New Chat'),
+        confirmText: t('Rename'),
+        cancelText: t('Cancel'),
+        onConfirm: async (newTitle: string) => {
+          if (newTitle.trim()) {
+            try {
+              await renameSession(props.session.session_id, newTitle.trim());
+              showSuccessToast(t('Renamed successfully'));
+              emit('renamed', props.session.session_id, newTitle.trim());
+            } catch {
+              showErrorToast(t('Failed to rename session'));
+            }
+          }
+        }
+      });
+    } else if (itemKey === 'share') {
+      shareSession(props.session.session_id).then(() => {
+        const shareUrl = `${window.location.origin}/share/${props.session.session_id}`;
+        copyToClipboard(shareUrl);
+        showSuccessToast(t('Share link copied to clipboard'));
+      }).catch(() => {
+        showErrorToast(t('Failed to share session'));
+      });
+    } else if (itemKey === 'delete') {
       showConfirmDialog({
         title: t('Are you sure you want to delete this session?'),
         content: t('The chat history of this session cannot be recovered after deletion.'),
