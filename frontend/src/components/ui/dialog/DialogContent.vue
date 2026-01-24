@@ -6,17 +6,24 @@ import { X } from "lucide-vue-next"
 import {
   DialogClose,
   DialogContent,
-
+  DialogTitle,
+  DialogDescription,
   DialogPortal,
+  VisuallyHidden,
   useForwardPropsEmits,
 } from "reka-ui"
 import { cn } from "@/lib/utils"
 import DialogOverlay from "./DialogOverlay.vue"
 
-const props = defineProps<DialogContentProps & { class?: HTMLAttributes["class"] }>()
+const props = defineProps<DialogContentProps & {
+  class?: HTMLAttributes["class"];
+  hideCloseButton?: boolean;
+  title?: string;
+  description?: string;
+}>()
 const emits = defineEmits<DialogContentEmits>()
 
-const delegatedProps = reactiveOmit(props, "class")
+const delegatedProps = reactiveOmit(props, "class", "hideCloseButton", "title", "description")
 
 const forwarded = useForwardPropsEmits(delegatedProps, emits)
 </script>
@@ -33,9 +40,16 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
           props.class,
         )"
     >
+      <!-- Visually hidden title and description for accessibility -->
+      <VisuallyHidden>
+        <DialogTitle>{{ props.title || 'Dialog' }}</DialogTitle>
+        <DialogDescription>{{ props.description || 'Dialog content' }}</DialogDescription>
+      </VisuallyHidden>
+
       <slot />
 
       <DialogClose
+        v-if="!props.hideCloseButton"
         class="flex h-7 w-7 items-center justify-center cursor-pointer rounded-md hover:bg-[var(--fill-tsp-gray-main)] absolute top-[18px] ltr:right-[20px] rtl:left-[20px] !right-3 !md:right-4"
       >
         <X class="size-5 text-[var(--icon-tertiary)]" />

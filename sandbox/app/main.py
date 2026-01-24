@@ -73,4 +73,14 @@ app.add_exception_handler(Exception, general_exception_handler)
 # Register routes
 app.include_router(api_router, prefix="/api/v1")
 
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for container orchestration
+
+    Returns basic health status. Used by Docker healthcheck and load balancers.
+    """
+    return {"status": "healthy", "service": "sandbox"}
+
+
 logger.info("Sandbox API routes registered and server ready")

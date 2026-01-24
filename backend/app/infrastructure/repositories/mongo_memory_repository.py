@@ -93,12 +93,12 @@ class MongoMemoryRepository(MemoryRepository):
                 name="user_access_idx"
             )
 
-            # Expiration index for cleanup
+            # Expiration index for cleanup - TTL index only processes docs with expires_at field
             await self._collection.create_index(
                 [("expires_at", ASCENDING)],
                 name="expiration_idx",
                 expireAfterSeconds=0,  # TTL index
-                partialFilterExpression={"expires_at": {"$exists": True, "$ne": None}}
+                partialFilterExpression={"expires_at": {"$type": "date"}}
             )
 
             self._indexes_created = True
@@ -164,6 +164,29 @@ class MongoMemoryRepository(MemoryRepository):
         if doc:
             return self._from_document(doc)
         return None
+
+    async def get_by_ids(self, memory_ids: List[str]) -> List[MemoryEntry]:
+        """Get multiple memories by IDs.
+
+        Args:
+            memory_ids: List of memory IDs to fetch
+
+        Returns:
+            List of memories in same order as input IDs (None entries excluded)
+        """
+        if not memory_ids:
+            return []
+
+        # Create a map for preserving order
+        cursor = self._collection.find({"_id": {"$in": memory_ids}})
+
+        id_to_memory = {}
+        async for doc in cursor:
+            memory = self._from_document(doc)
+            id_to_memory[memory.id] = memory
+
+        # Return in original order, excluding missing
+        return [id_to_memory[mid] for mid in memory_ids if mid in id_to_memory]
 
     async def update(self, memory_id: str, update: MemoryUpdate) -> Optional[MemoryEntry]:
         """Update an existing memory."""

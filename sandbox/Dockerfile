@@ -95,8 +95,14 @@ COPY supervisord.conf /etc/supervisor/conf.d/app.conf
 # Expose ports
 EXPOSE 8080 9222 5900 5901
 
+# Environment variables for service configuration
 ENV UVI_ARGS=""
 ENV CHROME_ARGS=""
+ENV DISPLAY=:1
+
+# Increase shared memory for Chrome stability (recommended for browser automation)
+# Note: When running the container, use --shm-size=2g flag for best results
+# Default /dev/shm size in Docker is 64MB which can cause Chrome crashes
 
 # Use supervisor to start all services
 CMD ["supervisord", "-n", "-c", "/app/supervisord.conf"] 

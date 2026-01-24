@@ -81,6 +81,11 @@ from app.domain.services.agents.error_integration import (
     IterationGuidance,
 )
 
+# Import for type hints
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from app.domain.services.memory_service import MemoryService
+
 logger = logging.getLogger(__name__)
 
 
@@ -117,6 +122,8 @@ class PlanActFlow(BaseFlow):
         cdp_url: Optional[str] = None,
         enable_verification: bool = True,
         enable_multi_agent: bool = False,
+        memory_service: Optional["MemoryService"] = None,
+        user_id: Optional[str] = None,
     ):
         self._agent_id = agent_id
         self._repository = agent_repository
@@ -132,6 +139,10 @@ class PlanActFlow(BaseFlow):
         self._json_parser = json_parser
         self._mcp_tool = mcp_tool
         self._search_engine = search_engine
+
+        # Memory service for long-term context (Phase 6: Qdrant integration)
+        self._memory_service = memory_service
+        self._user_id = user_id
 
         # State management for error recovery
         self._previous_status: Optional[AgentStatus] = None
@@ -175,6 +186,8 @@ class PlanActFlow(BaseFlow):
             llm=llm,
             tools=tools,
             json_parser=json_parser,
+            memory_service=memory_service,
+            user_id=user_id,
         )
         logger.debug(f"Created planner agent for Agent {self._agent_id}")
 
@@ -184,6 +197,8 @@ class PlanActFlow(BaseFlow):
             llm=llm,
             tools=tools,
             json_parser=json_parser,
+            memory_service=memory_service,
+            user_id=user_id,
         )
         logger.debug(f"Created execution agent for Agent {self._agent_id}")
 

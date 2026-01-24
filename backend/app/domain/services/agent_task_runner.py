@@ -1,4 +1,4 @@
-from typing import Optional, AsyncGenerator, List, Union
+from typing import Optional, AsyncGenerator, List, Union, TYPE_CHECKING
 import asyncio
 import logging
 from pydantic import TypeAdapter
@@ -23,6 +23,9 @@ from app.domain.models.event import (
     SuggestionEvent,
     ReportEvent,
 )
+
+if TYPE_CHECKING:
+    from app.domain.services.memory_service import MemoryService
 
 # Type alias for events that contain attachments requiring storage sync
 # Both MessageEvent and ReportEvent have an 'attachments' field of type Optional[List[FileInfo]]
@@ -78,6 +81,7 @@ class AgentTaskRunner(TaskRunner):
         mode: AgentMode = AgentMode.AGENT,
         enable_multi_agent: bool = False,
         enable_coordinator: bool = False,
+        memory_service: Optional["MemoryService"] = None,
     ):
         self._session_id = session_id
         self._agent_id = agent_id
@@ -97,6 +101,9 @@ class AgentTaskRunner(TaskRunner):
         # Multi-agent configuration
         self._enable_multi_agent = enable_multi_agent
         self._enable_coordinator = enable_coordinator
+
+        # Memory service for long-term context (Phase 6: Qdrant integration)
+        self._memory_service = memory_service
 
         # Initialize flows based on mode
         self._plan_act_flow: Optional[PlanActFlow] = None
@@ -127,10 +134,12 @@ class AgentTaskRunner(TaskRunner):
                 self._search_engine,
                 cdp_url=self._sandbox.cdp_url,
                 enable_multi_agent=self._enable_multi_agent,
+                memory_service=self._memory_service,
+                user_id=self._user_id,
             )
             logger.debug(
                 f"Initialized PlanActFlow for agent {self._agent_id} "
-                f"(multi_agent={self._enable_multi_agent})"
+                f"(multi_agent={self._enable_multi_agent}, memory_service={'enabled' if self._memory_service else 'disabled'})"
             )
 
     def _init_coordinator_flow(self) -> None:
@@ -246,7 +255,7 @@ class AgentTaskRunner(TaskRunner):
                 )
                 return None
 
-            if len(file_data) == 0:
+            if file_data.getbuffer().nbytes == 0:
                 logger.warning(
                     f"Agent {self._agent_id}: File '{file_path}' is empty (0 bytes)"
                 )

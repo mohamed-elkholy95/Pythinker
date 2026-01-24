@@ -27,6 +27,9 @@ from app.infrastructure.repositories.mongo_agent_repository import MongoAgentRep
 from app.infrastructure.repositories.mongo_session_repository import MongoSessionRepository
 from app.infrastructure.repositories.file_mcp_repository import FileMCPRepository
 from app.infrastructure.repositories.user_repository import MongoUserRepository
+from app.infrastructure.repositories.mongo_memory_repository import MongoMemoryRepository
+from app.infrastructure.storage.mongodb import get_mongodb
+from app.domain.services.memory_service import MemoryService
 
 
 # Configure logging
@@ -36,15 +39,37 @@ logger = logging.getLogger(__name__)
 security_bearer = HTTPBearer(auto_error=False)
 
 @lru_cache()
+def get_memory_service() -> Optional[MemoryService]:
+    """
+    Get memory service instance for long-term memory retrieval.
+
+    Phase 6: Qdrant integration - this service enables semantic memory
+    search using Qdrant for fast vector similarity.
+
+    Returns None if initialization fails (graceful degradation).
+    """
+    try:
+        logger.info("Creating MemoryService instance")
+        settings = get_settings()
+        db = get_mongodb().client[settings.mongodb_database]
+        memory_repository = MongoMemoryRepository(db)
+        llm = OpenAILLM()
+        return MemoryService(repository=memory_repository, llm=llm)
+    except Exception as e:
+        logger.warning(f"Failed to create MemoryService (graceful degradation): {e}")
+        return None
+
+
+@lru_cache()
 def get_agent_service() -> AgentService:
     """
     Get agent service instance with all required dependencies
-    
+
     This function creates and returns an AgentService instance with all
     necessary dependencies. Uses lru_cache for singleton pattern.
     """
     logger.info("Creating AgentService instance")
-    
+
     # Create all dependencies
     llm = OpenAILLM()
     agent_repository = MongoAgentRepository()
@@ -55,7 +80,8 @@ def get_agent_service() -> AgentService:
     file_storage = get_file_storage()
     search_engine = get_search_engine()
     mcp_repository = FileMCPRepository()
-    
+    memory_service = get_memory_service()  # Phase 6: Qdrant integration
+
     # Create AgentService instance
     return AgentService(
         llm=llm,
@@ -67,6 +93,7 @@ def get_agent_service() -> AgentService:
         file_storage=file_storage,
         search_engine=search_engine,
         mcp_repository=mcp_repository,
+        memory_service=memory_service,
     )
 
 

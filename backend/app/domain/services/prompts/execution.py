@@ -16,6 +16,14 @@ CURRENT TASK STATE:
 ---
 """
 
+# Memory context template - for long-term memory retrieval (Phase 6: Qdrant integration)
+MEMORY_CONTEXT_SIGNAL = """
+---
+RELEVANT CONTEXT FROM MEMORY:
+{memory_context}
+---
+"""
+
 EXECUTION_SYSTEM_PROMPT = """
 You are a task execution agent. Execute silently and efficiently:
 - Take action immediately - no explanations or narration
@@ -112,7 +120,8 @@ def build_execution_prompt(
     attachments: str,
     language: str,
     pressure_signal: Optional[str] = None,
-    task_state: Optional[str] = None
+    task_state: Optional[str] = None,
+    memory_context: Optional[str] = None
 ) -> str:
     """
     Build execution prompt with optional context signals.
@@ -124,6 +133,7 @@ def build_execution_prompt(
         language: Working language
         pressure_signal: Optional context pressure warning
         task_state: Optional current task state for recitation
+        memory_context: Optional relevant memories from long-term storage
 
     Returns:
         Formatted execution prompt with injected signals
@@ -134,6 +144,12 @@ def build_execution_prompt(
         attachments=attachments,
         language=language
     )
+
+    # Inject memory context if present (Phase 6: Qdrant integration)
+    if memory_context:
+        prompt = MEMORY_CONTEXT_SIGNAL.format(
+            memory_context=memory_context
+        ) + prompt
 
     # Inject pressure signal if present
     if pressure_signal:

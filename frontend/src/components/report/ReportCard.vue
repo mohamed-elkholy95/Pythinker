@@ -1,9 +1,11 @@
 <template>
-  <div class="report-card w-full max-w-[640px] rounded-[16px] border border-[var(--border-main)] bg-[var(--background-card)] overflow-hidden shadow-sm">
+  <div
+    class="report-card w-[600px] rounded-[16px] border border-[var(--border-main)] bg-[var(--background-card)] overflow-hidden shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+    @click="openReport"
+  >
     <!-- Header -->
     <div
-      class="flex items-start gap-3 p-4 cursor-pointer hover:bg-[var(--fill-tsp-white-main)] transition-colors"
-      @click="openReport"
+      class="flex items-start gap-3 p-4 hover:bg-[var(--fill-tsp-white-main)] transition-colors"
     >
       <div class="flex-shrink-0 w-10 h-10 rounded-lg bg-[#4285f4] flex items-center justify-center">
         <FileText class="w-5 h-5 text-white" />
@@ -13,19 +15,97 @@
           {{ report.title }}
         </h3>
       </div>
-      <button
-        class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)]"
-        @click.stop="toggleMenu"
-      >
-        <MoreHorizontal class="w-4 h-4 text-[var(--icon-tertiary)]" />
-      </button>
+      <!-- More Options Dropdown -->
+      <Popover v-model:open="showMenu">
+        <PopoverTrigger as-child>
+          <button
+            class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)]"
+            @click.stop
+          >
+            <MoreHorizontal class="w-4 h-4 text-[var(--icon-tertiary)]" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          :side-offset="8"
+          align="end"
+          class="w-56 p-1.5"
+          @click.stop
+        >
+          <div class="flex flex-col">
+            <!-- Preview -->
+            <button
+              class="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-lg transition-colors"
+              @click="handlePreview"
+            >
+              <Sparkles class="w-5 h-5 text-[var(--icon-secondary)]" />
+              Preview
+            </button>
+
+            <!-- Share -->
+            <button
+              class="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-lg transition-colors"
+              @click="handleShare"
+            >
+              <Share2 class="w-5 h-5 text-[var(--icon-secondary)]" />
+              Share
+            </button>
+
+            <!-- Download with submenu -->
+            <Popover v-model:open="showDownloadMenu">
+              <PopoverTrigger as-child>
+                <button
+                  class="flex items-center justify-between gap-3 px-3 py-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-lg transition-colors w-full"
+                  @click.stop
+                  @mouseenter="showDownloadMenu = true"
+                >
+                  <div class="flex items-center gap-3">
+                    <Download class="w-5 h-5 text-[var(--icon-secondary)]" />
+                    Download
+                  </div>
+                  <ChevronRight class="w-4 h-4 text-[var(--icon-tertiary)]" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="right"
+                :side-offset="4"
+                align="start"
+                class="w-48 p-1.5"
+              >
+                <div class="flex flex-col">
+                  <button
+                    class="flex items-center gap-3 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-lg transition-colors"
+                    @click="handleDownloadMarkdown"
+                  >
+                    <FileText class="w-4 h-4 text-[var(--icon-secondary)]" />
+                    Markdown (.md)
+                  </button>
+                  <button
+                    class="flex items-center gap-3 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-lg transition-colors"
+                    @click="handleDownloadPdf"
+                  >
+                    <FileDown class="w-4 h-4 text-[#ea4335]" />
+                    PDF Document
+                  </button>
+                  <button
+                    class="flex items-center gap-3 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-lg transition-colors"
+                    @click="handleDownloadDocx"
+                  >
+                    <FileType class="w-4 h-4 text-[#4285f4]" />
+                    Word (.docx)
+                  </button>
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+        </PopoverContent>
+      </Popover>
     </div>
 
     <!-- Content Preview - Rendered Markdown -->
     <div class="px-4 pb-4" v-if="report.content">
       <!-- Preview rendered markdown content -->
       <div
-        class="report-preview text-sm text-[var(--text-secondary)] leading-relaxed max-h-[200px] overflow-hidden relative"
+        class="report-preview text-sm text-[var(--text-secondary)] leading-relaxed max-h-[320px] overflow-hidden relative"
         v-html="renderedPreview"
       ></div>
       <div class="h-8 bg-gradient-to-t from-[var(--background-card)] to-transparent -mt-8 relative pointer-events-none"></div>
@@ -72,23 +152,27 @@
 
     <!-- Footer with Task Completed -->
     <div class="flex items-center justify-between px-4 py-3 border-t border-[var(--border-main)] bg-[var(--fill-tsp-white-main)]">
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 flex-shrink-0">
         <Check class="w-4 h-4 text-[var(--function-success)]" />
-        <span class="text-sm text-[var(--function-success)] font-medium">Task completed</span>
+        <span class="text-sm text-[var(--function-success)] font-medium whitespace-nowrap">Task completed</span>
       </div>
-      <div class="flex items-center gap-1">
-        <span class="text-xs text-[var(--text-tertiary)] mr-2">How was this result?</span>
-        <button
-          v-for="i in 5"
-          :key="i"
-          class="w-6 h-6 flex items-center justify-center hover:bg-[var(--fill-tsp-gray-main)] rounded"
-          @click.stop="rate(i)"
-        >
-          <Star
-            class="w-4 h-4"
-            :class="i <= rating ? 'text-yellow-400 fill-yellow-400' : 'text-[var(--icon-tertiary)]'"
-          />
-        </button>
+      <div class="flex items-center gap-1 flex-shrink-0">
+        <span class="text-xs text-[var(--text-tertiary)] mr-2 whitespace-nowrap">How was this result?</span>
+        <div class="flex items-center">
+          <button
+            v-for="i in 5"
+            :key="i"
+            class="w-6 h-6 flex items-center justify-center group"
+            @click.stop="rate(i)"
+            @mouseenter="hoverRating = i"
+            @mouseleave="hoverRating = 0"
+          >
+            <Star
+              class="w-4 h-4 transition-colors"
+              :class="i <= (hoverRating || rating) ? 'text-yellow-400 fill-yellow-400' : 'text-[var(--icon-tertiary)] group-hover:text-yellow-300'"
+            />
+          </button>
+        </div>
       </div>
     </div>
 
@@ -125,6 +209,7 @@
 import { ref, computed } from 'vue';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+import { saveAs } from 'file-saver';
 import {
   FileText,
   MoreHorizontal,
@@ -136,8 +221,15 @@ import {
   FileImage,
   File,
   Lightbulb,
-  ArrowRight
+  ArrowRight,
+  Sparkles,
+  Share2,
+  Download,
+  ChevronRight,
+  FileDown,
+  FileType
 } from 'lucide-vue-next';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { FileInfo } from '@/api/file';
 import type { ReportData, ReportSection } from './types';
 
@@ -154,10 +246,17 @@ const emit = defineEmits<{
   (e: 'showAllFiles'): void;
   (e: 'rate', rating: number): void;
   (e: 'selectSuggestion', suggestion: string): void;
+  (e: 'share', report: ReportData): void;
+  (e: 'download', report: ReportData, format: string): void;
+  (e: 'saveToCloud', report: ReportData, service: string): void;
 }>();
 
 const rating = ref(0);
+const hoverRating = ref(0);
 const maxDisplayedFiles = 4;
+const showMenu = ref(false);
+const showDownloadMenu = ref(false);
+const showHeaderDownload = ref(false);
 
 const displayedAttachments = computed(() => {
   // Show up to maxDisplayedFiles, but leave room for "View all" button if there are more
@@ -172,7 +271,7 @@ const displayedAttachments = computed(() => {
 const renderedPreview = computed(() => {
   if (!props.report.content) return '';
 
-  // Take first ~800 chars or until we have enough content
+  // Take first ~2500 chars or until we have enough content
   const lines = props.report.content.split('\n');
   let preview = '';
   let charCount = 0;
@@ -182,7 +281,7 @@ const renderedPreview = computed(() => {
     if (line.startsWith('# ')) continue;
     preview += line + '\n';
     charCount += line.length;
-    if (charCount > 800) break;
+    if (charCount > 2500) break;
   }
 
   try {
@@ -301,8 +400,66 @@ const selectSuggestion = (suggestion: string) => {
   emit('selectSuggestion', suggestion);
 };
 
-const toggleMenu = () => {
-  // Menu toggle logic
+// Generate sanitized filename
+const getSafeFilename = (title: string) => {
+  return (title || 'document')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    .substring(0, 50);
+};
+
+// Menu action handlers
+const handlePreview = () => {
+  showMenu.value = false;
+  emit('open', props.report);
+};
+
+const handleShare = () => {
+  showMenu.value = false;
+  emit('share', props.report);
+};
+
+const handleDownloadMarkdown = () => {
+  showMenu.value = false;
+  showDownloadMenu.value = false;
+  if (!props.report.content) return;
+  const filename = getSafeFilename(props.report.title) + '.md';
+  const blob = new Blob([props.report.content], { type: 'text/markdown;charset=utf-8' });
+  saveAs(blob, filename);
+  emit('download', props.report, 'markdown');
+};
+
+const handleDownloadPdf = () => {
+  showMenu.value = false;
+  showDownloadMenu.value = false;
+  emit('download', props.report, 'pdf');
+};
+
+const handleDownloadDocx = () => {
+  showMenu.value = false;
+  showDownloadMenu.value = false;
+  emit('download', props.report, 'docx');
+};
+
+const handleConvertToGoogleDocs = () => {
+  showMenu.value = false;
+  emit('saveToCloud', props.report, 'google-docs');
+};
+
+const handleSaveToGoogleDrive = () => {
+  showMenu.value = false;
+  emit('saveToCloud', props.report, 'google-drive');
+};
+
+const handleSaveToOneDrivePersonal = () => {
+  showMenu.value = false;
+  emit('saveToCloud', props.report, 'onedrive-personal');
+};
+
+const handleSaveToOneDriveWork = () => {
+  showMenu.value = false;
+  emit('saveToCloud', props.report, 'onedrive-work');
 };
 </script>
 

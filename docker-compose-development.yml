@@ -47,6 +47,9 @@ services:
       redis:
         condition: service_started
         required: true
+      qdrant:
+        condition: service_healthy
+        required: true
       searxng:
         condition: service_started
         required: false
@@ -73,12 +76,27 @@ services:
       - "5902:5900"
       #- "5901:5901"
       - "8080:8080"
+    # Shared memory size for Chrome browser stability (prevents crashes)
+    shm_size: '2gb'
+    # Resource limits for browser sandbox
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
     environment:
       - UVI_ARGS="--reload"
       - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
     restart: unless-stopped
     networks:
       - pythinker-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   mockserver:
     build:
@@ -111,6 +129,25 @@ services:
     networks:
       - pythinker-network
 
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: pythinker-qdrant
+    ports:
+      - "6333:6333"   # REST API
+      - "6334:6334"   # gRPC (2x faster)
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
   searxng:
     image: searxng/searxng:latest
     volumes:
@@ -132,6 +169,8 @@ services:
 volumes:
   mongodb_data:
     name: pythinker-mongodb-data
+  qdrant_data:
+    name: pythinker-qdrant-data
 
 networks:
   pythinker-network:

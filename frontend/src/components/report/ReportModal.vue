@@ -1,9 +1,15 @@
 <template>
   <Dialog v-model:open="isOpen">
     <DialogContent
+      :hide-close-button="true"
+      :title="report?.title || 'Report Preview'"
+      description="View and download report content"
       :class="cn(
-        'w-[95vw] max-w-[1100px] h-[90vh] max-h-[900px] p-0 flex flex-col overflow-hidden',
-        'bg-[var(--background-white-main)]'
+        'p-0 flex flex-col overflow-hidden transition-all duration-200',
+        'bg-[var(--background-white-main)]',
+        isFullscreen
+          ? 'w-screen max-w-none h-screen max-h-none rounded-none'
+          : 'w-[95vw] max-w-[1100px] h-[90vh] max-h-[900px]'
       )"
     >
       <!-- Header -->
@@ -21,136 +27,89 @@
             </p>
           </div>
         </div>
-        <div class="flex items-center gap-2">
-          <button
-            class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)] transition-colors"
-            @click="handleShare"
-            title="Share"
-          >
-            <Share2 class="w-4 h-4 text-[var(--icon-tertiary)]" />
-          </button>
-          <button
-            class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)] transition-colors"
-            @click="handleDownloadMarkdown"
-            title="Download as Markdown"
-          >
-            <Download class="w-4 h-4 text-[var(--icon-tertiary)]" />
-          </button>
-          <button
-            class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)] transition-colors"
-            @click="toggleFullscreen"
-            title="Expand"
-          >
-            <Maximize2 class="w-4 h-4 text-[var(--icon-tertiary)]" />
-          </button>
-
-          <!-- More Options Dropdown -->
-          <Popover v-model:open="showMoreOptions">
+        <div class="flex items-center gap-1">
+          <!-- Download Dropdown -->
+          <Popover v-model:open="showDownloadOptions">
             <PopoverTrigger as-child>
               <button
-                class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)] transition-colors"
-                title="More options"
+                class="w-9 h-9 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)] transition-colors"
+                title="Download"
               >
-                <MoreHorizontal class="w-4 h-4 text-[var(--icon-tertiary)]" />
+                <Download class="w-5 h-5 text-[var(--icon-tertiary)]" />
               </button>
             </PopoverTrigger>
             <PopoverContent
               :side-offset="8"
               align="end"
-              class="w-48 p-1"
+              class="w-44 p-1.5"
             >
               <div class="flex flex-col">
-                <p class="px-2 py-1.5 text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wider">
-                  Download as
-                </p>
                 <button
-                  class="flex items-center gap-2 px-2 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-md transition-colors"
+                  class="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-lg transition-colors"
                   @click="handleDownloadMarkdown"
                 >
-                  <FileText class="w-4 h-4 text-[var(--icon-secondary)]" />
-                  Markdown (.md)
+                  <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="#4285f4"/>
+                    <path d="M14 2v6h6" fill="#a1c2fa"/>
+                    <path d="M8 13h8M8 17h6" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+                  </svg>
+                  Markdown
                 </button>
                 <button
-                  class="flex items-center gap-2 px-2 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-md transition-colors"
+                  class="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-lg transition-colors"
                   @click="handleDownloadPdf"
                 >
-                  <FileDown class="w-4 h-4 text-[#ea4335]" />
-                  PDF Document
+                  <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="#ea4335"/>
+                    <path d="M14 2v6h6" fill="#f5a9a3"/>
+                    <text x="7" y="17" fill="white" font-size="6" font-weight="bold" font-family="Arial">A</text>
+                  </svg>
+                  PDF
                 </button>
                 <button
-                  class="flex items-center gap-2 px-2 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-md transition-colors"
+                  class="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-lg transition-colors"
                   @click="handleDownloadDocx"
                 >
-                  <FileType class="w-4 h-4 text-[#4285f4]" />
-                  Word Document (.docx)
-                </button>
-                <div class="my-1 border-t border-[var(--border-main)]" />
-                <button
-                  class="flex items-center gap-2 px-2 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-md transition-colors"
-                  @click="handleCopyContent"
-                >
-                  <Copy class="w-4 h-4 text-[var(--icon-secondary)]" />
-                  Copy to Clipboard
-                </button>
-                <button
-                  class="flex items-center gap-2 px-2 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-md transition-colors"
-                  @click="handlePrint"
-                >
-                  <Printer class="w-4 h-4 text-[var(--icon-secondary)]" />
-                  Print
+                  <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="#4285f4"/>
+                    <path d="M14 2v6h6" fill="#a1c2fa"/>
+                    <text x="7" y="17" fill="white" font-size="6" font-weight="bold" font-family="Arial">W</text>
+                  </svg>
+                  Docx
                 </button>
               </div>
             </PopoverContent>
           </Popover>
 
-          <!-- Divider -->
-          <div class="w-px h-5 bg-[var(--border-main)] mx-1" />
+          <!-- Expand/Minimize Button -->
+          <button
+            class="w-9 h-9 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)] transition-colors"
+            @click="toggleFullscreen"
+            :title="isFullscreen ? 'Exit fullscreen' : 'Fullscreen'"
+          >
+            <Minimize2 v-if="isFullscreen" class="w-5 h-5 text-[var(--icon-tertiary)]" />
+            <Maximize2 v-else class="w-5 h-5 text-[var(--icon-tertiary)]" />
+          </button>
 
           <!-- Close Button -->
           <button
-            class="w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)] transition-colors"
+            class="w-9 h-9 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)] transition-colors"
             @click="isOpen = false"
             title="Close"
           >
-            <X class="w-4 h-4 text-[var(--icon-tertiary)]" />
+            <X class="w-5 h-5 text-[var(--icon-tertiary)]" />
           </button>
         </div>
       </div>
 
       <!-- Content Area -->
       <div class="flex flex-1 min-h-0 overflow-hidden">
-        <!-- Main Content -->
-        <div
-          ref="contentRef"
-          class="flex-1 overflow-y-auto p-8"
-          @scroll="handleScroll"
-        >
-          <div class="max-w-[768px] mx-auto">
-            <!-- Document Title -->
-            <h1 class="text-[32px] font-bold text-[var(--text-primary)] leading-tight mb-8">
-              {{ report?.title }}
-            </h1>
-
-            <!-- Markdown Content -->
-            <div
-              class="prose prose-gray max-w-none dark:prose-invert
-                prose-headings:text-[var(--text-primary)]
-                prose-h2:text-[24px] prose-h2:font-bold prose-h2:mt-10 prose-h2:mb-4 prose-h2:pb-2 prose-h2:border-b prose-h2:border-[var(--border-main)]
-                prose-h3:text-[20px] prose-h3:font-semibold prose-h3:mt-8 prose-h3:mb-3 prose-h3:text-[#1a73e8]
-                prose-h4:text-[16px] prose-h4:font-medium prose-h4:mt-6 prose-h4:mb-2
-                prose-p:text-[var(--text-secondary)] prose-p:leading-relaxed prose-p:my-4
-                prose-strong:text-[var(--text-primary)] prose-strong:font-semibold
-                prose-ul:my-4 prose-li:my-1
-                prose-table:border-collapse prose-table:w-full prose-table:my-6
-                prose-th:bg-[var(--fill-tsp-white-main)] prose-th:text-left prose-th:px-4 prose-th:py-3 prose-th:text-sm prose-th:font-semibold prose-th:text-[var(--text-primary)] prose-th:border prose-th:border-[var(--border-main)]
-                prose-td:px-4 prose-td:py-3 prose-td:text-sm prose-td:text-[var(--text-secondary)] prose-td:border prose-td:border-[var(--border-main)]
-                prose-code:bg-[var(--fill-tsp-white-main)] prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-code:before:content-none prose-code:after:content-none
-                prose-pre:bg-[var(--fill-tsp-white-main)] prose-pre:p-4 prose-pre:rounded-lg prose-pre:my-4
-                prose-a:text-[#1a73e8] prose-a:no-underline hover:prose-a:underline
-              "
-              v-html="renderedContent"
-            />
-          </div>
+        <!-- Main Content with Tiptap Editor -->
+        <div class="flex-1 overflow-hidden">
+          <TiptapReportEditor
+            :content="renderedContent"
+            :editable="false"
+          />
         </div>
 
         <!-- Table of Contents Sidebar -->
@@ -210,21 +169,17 @@ import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } fro
 import { saveAs } from 'file-saver';
 import {
   FileText,
-  Share2,
   Download,
   Maximize2,
-  MoreHorizontal,
+  Minimize2,
   Lightbulb,
-  X,
-  FileDown,
-  FileType,
-  Copy,
-  Printer
+  X
 } from 'lucide-vue-next';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import type { ReportData } from './ReportCard.vue';
+import TiptapReportEditor from './TiptapReportEditor.vue';
 
 interface TocItem {
   id: string;
@@ -256,8 +211,9 @@ const isOpen = defineModel<boolean>('open', { default: false });
 const contentRef = ref<HTMLElement | null>(null);
 const activeSection = ref<string>('');
 const tableOfContents = ref<TocItem[]>([]);
-const showMoreOptions = ref(false);
+const showDownloadOptions = ref(false);
 const isDownloading = ref(false);
+const isFullscreen = ref(false);
 
 // Configure marked options using modern API
 marked.use({
@@ -361,7 +317,7 @@ const handleShare = () => {
 };
 
 const toggleFullscreen = () => {
-  // Fullscreen toggle logic
+  isFullscreen.value = !isFullscreen.value;
 };
 
 const handleSuggestionAction = () => {
@@ -381,7 +337,7 @@ const getSafeFilename = (title: string) => {
 const handleDownloadMarkdown = () => {
   if (!props.report?.content) return;
 
-  showMoreOptions.value = false;
+  showDownloadOptions.value = false;
   const filename = getSafeFilename(props.report.title) + '.md';
   const blob = new Blob([props.report.content], { type: 'text/markdown;charset=utf-8' });
   saveAs(blob, filename);
@@ -392,7 +348,7 @@ const handleDownloadMarkdown = () => {
 const handleDownloadPdf = async () => {
   if (!contentRef.value || !props.report) return;
 
-  showMoreOptions.value = false;
+  showDownloadOptions.value = false;
   isDownloading.value = true;
 
   try {
@@ -429,7 +385,7 @@ const handleDownloadPdf = async () => {
 const handleDownloadDocx = async () => {
   if (!props.report?.content) return;
 
-  showMoreOptions.value = false;
+  showDownloadOptions.value = false;
   isDownloading.value = true;
 
   try {
@@ -531,7 +487,7 @@ const handleDownloadDocx = async () => {
 const handleCopyContent = async () => {
   if (!props.report?.content) return;
 
-  showMoreOptions.value = false;
+  showDownloadOptions.value = false;
 
   try {
     await navigator.clipboard.writeText(props.report.content);
@@ -543,7 +499,7 @@ const handleCopyContent = async () => {
 
 // Print document
 const handlePrint = () => {
-  showMoreOptions.value = false;
+  showDownloadOptions.value = false;
   window.print();
 };
 

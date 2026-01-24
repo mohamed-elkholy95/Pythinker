@@ -15,6 +15,9 @@ services:
     image: pythinker/pythinker-backend
     depends_on:
       - sandbox
+      - mongodb
+      - redis
+      - qdrant
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -62,6 +65,8 @@ services:
       # Docker network for sandbox containers
       - SANDBOX_NETWORK=pythinker-network
       # Chrome browser arguments for sandbox (optional)
+      # Note: For better browser stability, consider running sandbox containers with:
+      #   --shm-size=2g to increase shared memory (prevents Chrome crashes)
       #- SANDBOX_CHROME_ARGS=
       # HTTPS proxy for sandbox (optional)
       #- SANDBOX_HTTPS_PROXY=
@@ -133,9 +138,30 @@ services:
     networks:
       - pythinker-network
 
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: pythinker-qdrant
+    ports:
+      - "6333:6333"   # REST API
+      - "6334:6334"   # gRPC (2x faster)
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
 volumes:
   mongodb_data:
     name: pythinker-mongodb-data
+  qdrant_data:
+    name: pythinker-qdrant-data
 
 networks:
   pythinker-network:
