@@ -147,13 +147,12 @@
           </button>
           <!-- Task Progress Bar - shown above ChatBox when ToolPanel is closed -->
           <TaskProgressBar
-            v-if="!isToolPanelOpen"
+            v-if="!isToolPanelOpen && plan && plan.steps.length > 0"
             :plan="plan"
             :isLoading="isLoading"
             :isThinking="isThinking"
             class="mb-2"
           />
-          <PlanPanel v-if="plan && plan.steps.length > 0" :plan="plan" />
           <ChatBox v-model="inputMessage" :rows="1" @submit="handleSubmit" :isRunning="isLoading" @stop="handleStop"
             :attachments="attachments" />
         </div>
@@ -201,7 +200,6 @@ import {
 } from '../types/event';
 import Suggestions from '../components/Suggestions.vue';
 import ToolPanel from '../components/ToolPanel.vue'
-import PlanPanel from '../components/PlanPanel.vue';
 import { ArrowDown, FileSearch, PanelLeft, Lock, Globe, Link, Check } from 'lucide-vue-next';
 import ShareIcon from '@/components/icons/ShareIcon.vue';
 import { showErrorToast, showSuccessToast } from '../utils/toast';
@@ -297,6 +295,14 @@ const resetState = () => {
 
 // Watch message changes and automatically scroll to bottom
 watch(messages, async () => {
+  await nextTick();
+  if (follow.value) {
+    simpleBarRef.value?.scrollToBottom();
+  }
+}, { deep: true });
+
+// Scroll to bottom when agent starts (loading begins) or plan updates
+watch([isLoading, plan], async () => {
   await nextTick();
   if (follow.value) {
     simpleBarRef.value?.scrollToBottom();

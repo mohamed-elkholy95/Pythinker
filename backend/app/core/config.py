@@ -75,9 +75,14 @@ class Settings(BaseSettings):
     
     # MCP configuration
     mcp_config_path: str = "/etc/mcp.json"
-    
+
     # Logging configuration
     log_level: str = "INFO"
+
+    # Multi-Agent Orchestration configuration
+    enable_multi_agent: bool = False  # Enable specialized agent dispatch per step
+    enable_coordinator: bool = False  # Enable full swarm coordinator mode
+    multi_agent_max_parallel: int = 3  # Max concurrent agents in swarm mode
     
     class Config:
         env_file = ".env"

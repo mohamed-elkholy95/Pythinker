@@ -51,13 +51,14 @@ class SearchTool(BaseTool):
     _cache_ttl: int = 3600  # 1 hour cache TTL
     _cache_max_size: int = 100  # Maximum cache entries
 
-    def __init__(self, search_engine: SearchEngine):
+    def __init__(self, search_engine: SearchEngine, max_observe: Optional[int] = None):
         """Initialize search tool class
 
         Args:
             search_engine: Search engine service
+            max_observe: Optional custom observation limit (default: 8000)
         """
-        super().__init__()
+        super().__init__(max_observe=max_observe)
         self.search_engine = search_engine
 
     def _normalize_query(self, query: str) -> str:

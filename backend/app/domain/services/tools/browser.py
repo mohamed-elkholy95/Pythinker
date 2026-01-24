@@ -63,13 +63,14 @@ class BrowserTool(BaseTool):
 
     name: str = "browser"
 
-    def __init__(self, browser: Browser):
+    def __init__(self, browser: Browser, max_observe: Optional[int] = None):
         """Initialize browser tool class
 
         Args:
             browser: Browser service
+            max_observe: Optional custom observation limit (default: 10000)
         """
-        super().__init__()
+        super().__init__(max_observe=max_observe)
         self.browser = browser
     
     @tool(

@@ -24,6 +24,7 @@ from app.domain.utils.json_parser import JsonParser
 from app.domain.services.agents.stuck_detector import StuckDetector
 from app.domain.services.agents.token_manager import TokenManager
 from app.domain.services.agents.error_handler import ErrorHandler, TokenLimitExceeded, ErrorType
+from app.domain.services.tools.tool_profiler import get_tool_profiler, ToolExecutionProfiler
 
 logger = logging.getLogger(__name__)
 
@@ -89,14 +90,33 @@ class BaseAgent(ABC):
         raise ValueError(f"Unknown tool: {function_name}")
 
     async def invoke_tool(self, tool: BaseTool, function_name: str, arguments: Dict[str, Any]) -> ToolResult:
-        """Invoke specified tool, with retry mechanism and exponential backoff"""
+        """Invoke specified tool, with retry mechanism and exponential backoff.
+
+        Integrates with ToolExecutionProfiler to track execution timing and reliability.
+        """
+        import time
+        profiler = get_tool_profiler()
+        start_time = time.perf_counter()
 
         retries = 0
         current_interval = self.retry_interval
         last_error = ""
+        result: Optional[ToolResult] = None
+
         while retries <= self.max_retries:
             try:
-                return await tool.invoke_function(function_name, **arguments)
+                result = await tool.invoke_function(function_name, **arguments)
+
+                # Record successful execution with profiler
+                duration_ms = (time.perf_counter() - start_time) * 1000
+                profiler.record_execution(
+                    tool_name=function_name,
+                    duration_ms=duration_ms,
+                    success=result.success if result else False,
+                    error=result.message if result and not result.success else None
+                )
+
+                return result
             except Exception as e:
                 last_error = str(e)
                 retries += 1
@@ -106,6 +126,15 @@ class BaseAgent(ABC):
                 else:
                     logger.exception(f"Tool execution failed, {function_name}, {arguments}")
                     break
+
+        # Record failed execution with profiler
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        profiler.record_execution(
+            tool_name=function_name,
+            duration_ms=duration_ms,
+            success=False,
+            error=last_error[:200]
+        )
 
         return ToolResult(success=False, message=last_error)
 
