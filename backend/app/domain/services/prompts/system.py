@@ -359,8 +359,13 @@ def build_system_prompt(
     include_writing: bool = False,
     include_datasource: bool = False,
     include_coding: bool = True,
+    available_tools: list[str] | None = None,
+    task_context: str | None = None,
 ) -> str:
-    """Build system prompt dynamically based on task context.
+    """Build system prompt dynamically based on task context and available tools.
+
+    When available_tools is provided, only includes prompt sections relevant
+    to the available tools, saving tokens and reducing noise.
 
     Args:
         include_research: Include research verification rules
@@ -370,28 +375,154 @@ def build_system_prompt(
         include_writing: Include writing/content rules
         include_datasource: Include datasource API rules
         include_coding: Include coding/deploy rules
+        available_tools: List of available tool names for dynamic section selection
+        task_context: Optional task-specific context to append
 
     Returns:
         Assembled system prompt string
     """
     prompt = CORE_PROMPT
 
-    if include_research:
-        prompt += RESEARCH_RULES
-    if include_browser:
-        prompt += BROWSER_RULES
-    if include_shell:
-        prompt += SHELL_RULES
-    if include_file:
-        prompt += FILE_RULES
-    if include_writing:
-        prompt += WRITING_RULES
-    if include_datasource:
-        prompt += DATASOURCE_RULES
-    if include_coding:
-        prompt += CODING_RULES
+    # If available_tools is provided, use tool-based section selection
+    if available_tools is not None:
+        included_sections = _get_sections_for_tools(available_tools)
+
+        if RESEARCH_RULES in included_sections or include_research:
+            prompt += RESEARCH_RULES
+        if BROWSER_RULES in included_sections:
+            prompt += BROWSER_RULES
+        if SHELL_RULES in included_sections:
+            prompt += SHELL_RULES
+        if FILE_RULES in included_sections:
+            prompt += FILE_RULES
+        if WRITING_RULES in included_sections or include_writing:
+            prompt += WRITING_RULES
+        if DATASOURCE_RULES in included_sections or include_datasource:
+            prompt += DATASOURCE_RULES
+        if CODING_RULES in included_sections or include_coding:
+            prompt += CODING_RULES
+    else:
+        # Fallback to boolean flags
+        if include_research:
+            prompt += RESEARCH_RULES
+        if include_browser:
+            prompt += BROWSER_RULES
+        if include_shell:
+            prompt += SHELL_RULES
+        if include_file:
+            prompt += FILE_RULES
+        if include_writing:
+            prompt += WRITING_RULES
+        if include_datasource:
+            prompt += DATASOURCE_RULES
+        if include_coding:
+            prompt += CODING_RULES
+
+    # Add task-specific context if provided
+    if task_context:
+        prompt += f"\n\n---\nTask Context:\n{task_context}\n---\n"
 
     return prompt
+
+
+# Tool to prompt section mapping
+TOOL_SECTION_MAP: dict[str, str] = {
+    # Browser tools -> BROWSER_RULES
+    "browser_navigate": "browser",
+    "browser_click": "browser",
+    "browser_type": "browser",
+    "browser_view": "browser",
+    "browser_get_content": "browser",
+    "browser_scroll": "browser",
+    "browser_screenshot": "browser",
+    # Shell tools -> SHELL_RULES
+    "shell_exec": "shell",
+    "shell_execute": "shell",
+    # File tools -> FILE_RULES
+    "file_read": "file",
+    "file_write": "file",
+    "file_list": "file",
+    "file_delete": "file",
+    "file_append": "file",
+    # Search tools -> RESEARCH_RULES
+    "info_search_web": "research",
+    "search_web": "research",
+    # MCP tools -> DATASOURCE_RULES (prefix match)
+    "mcp_": "datasource",
+    # Message tools (no special rules needed)
+    "message_send": None,
+    "message_notify": None,
+}
+
+
+def _get_sections_for_tools(tools: list[str]) -> set[str]:
+    """
+    Determine which prompt sections are needed based on available tools.
+
+    Args:
+        tools: List of available tool names
+
+    Returns:
+        Set of prompt section constants to include
+    """
+    sections = set()
+
+    section_map = {
+        "browser": BROWSER_RULES,
+        "shell": SHELL_RULES,
+        "file": FILE_RULES,
+        "research": RESEARCH_RULES,
+        "datasource": DATASOURCE_RULES,
+        "coding": CODING_RULES,
+        "writing": WRITING_RULES,
+    }
+
+    for tool in tools:
+        tool_lower = tool.lower()
+
+        # Check exact match first
+        if tool_lower in TOOL_SECTION_MAP:
+            section_key = TOOL_SECTION_MAP[tool_lower]
+            if section_key and section_key in section_map:
+                sections.add(section_map[section_key])
+        else:
+            # Check prefix matches (e.g., "mcp_" for MCP tools)
+            for prefix, section_key in TOOL_SECTION_MAP.items():
+                if prefix.endswith("_") and tool_lower.startswith(prefix):
+                    if section_key and section_key in section_map:
+                        sections.add(section_map[section_key])
+                    break
+
+    # Always include CODING_RULES if shell or file tools are present
+    if SHELL_RULES in sections or FILE_RULES in sections:
+        sections.add(CODING_RULES)
+
+    return sections
+
+
+def get_minimal_prompt_for_tools(tools: list[str]) -> str:
+    """
+    Get a minimal system prompt with only sections needed for the given tools.
+
+    This is useful for specialized agents with limited tool access to
+    minimize token usage while maintaining relevant guidance.
+
+    Args:
+        tools: List of available tool names
+
+    Returns:
+        Minimal system prompt string
+    """
+    return build_system_prompt(
+        include_research=False,
+        include_browser=False,
+        include_shell=False,
+        include_file=False,
+        include_writing=False,
+        include_datasource=False,
+        include_coding=False,
+        available_tools=tools,
+    )
 
 
 # Default full prompt for backward compatibility

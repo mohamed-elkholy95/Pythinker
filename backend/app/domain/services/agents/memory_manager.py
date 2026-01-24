@@ -4,17 +4,53 @@ Coordinated memory management with smart compaction.
 Provides intelligent memory compaction that extracts key results
 before compacting, and coordinates with token management for
 efficient context usage.
+
+Phase 3 Enhancements:
+- Proactive compaction triggers based on multiple signals
+- LLM-based extraction for unknown tools
+- Archive integration for persisting compacted content
 """
 
 import hashlib
 import json
 import logging
 import re
+import uuid
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 from datetime import datetime
+from enum import Enum
+
+if TYPE_CHECKING:
+    from app.domain.external.llm import LLM
+    from app.infrastructure.storage.file_storage import FileStorage
 
 logger = logging.getLogger(__name__)
+
+
+class PressureLevel(Enum):
+    """Token pressure levels for memory management."""
+    NORMAL = "normal"
+    WARNING = "warning"
+    CRITICAL = "critical"
+    OVERFLOW = "overflow"
+
+
+@dataclass
+class PressureStatus:
+    """Current token pressure status."""
+    level: PressureLevel
+    current_tokens: int
+    max_tokens: int
+    usage_ratio: float
+
+    def to_context_signal(self) -> str:
+        """Convert pressure status to context signal for the agent."""
+        if self.level == PressureLevel.CRITICAL:
+            return f"[CONTEXT PRESSURE: CRITICAL - {self.usage_ratio:.0%} capacity used. Prioritize essential outputs only.]"
+        elif self.level == PressureLevel.WARNING:
+            return f"[CONTEXT PRESSURE: WARNING - {self.usage_ratio:.0%} capacity used. Consider concise responses.]"
+        return ""
 
 
 @dataclass
@@ -39,6 +75,8 @@ class ExtractionResult:
     data_points: Dict[str, Any]
     urls: List[str]
     error_message: Optional[str] = None
+    extraction_method: str = "heuristic"  # "heuristic", "llm", or "fallback"
+    confidence: float = 1.0  # Confidence score (0.0-1.0)
 
 
 class MemoryManager:
@@ -68,7 +106,8 @@ class MemoryManager:
     def __init__(
         self,
         sandbox_path: str = "/home/ubuntu/.context_archive",
-        enable_file_storage: bool = True
+        enable_file_storage: bool = True,
+        file_storage: Optional["FileStorage"] = None,
     ):
         """
         Initialize the memory manager.
@@ -76,10 +115,17 @@ class MemoryManager:
         Args:
             sandbox_path: Path to store archived context in sandbox
             enable_file_storage: Whether to save full content to files
+            file_storage: Optional file storage backend for archive persistence
         """
         self._sandbox_path = sandbox_path
         self._enable_file_storage = enable_file_storage
+        self._file_storage = file_storage
         self._archive_counter = 0
+        # Token history for growth rate tracking (proactive compaction)
+        self._token_history: List[int] = []
+        self._max_history_size = 20
+        # Archive index: message_id -> archive_path
+        self._archive_index: Dict[str, str] = {}
 
     def compact_message(
         self,
@@ -419,6 +465,385 @@ class MemoryManager:
         self._archive_counter += 1
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         return f"{self._sandbox_path}/{function_name}_{timestamp}_{self._archive_counter}.txt"
+
+    # =========================================================================
+    # Phase 3: Proactive Compaction Triggers
+    # =========================================================================
+
+    def track_token_usage(self, current_tokens: int) -> None:
+        """
+        Track token usage for growth rate analysis.
+
+        Args:
+            current_tokens: Current token count in context
+        """
+        self._token_history.append(current_tokens)
+        # Keep only recent history
+        if len(self._token_history) > self._max_history_size:
+            self._token_history = self._token_history[-self._max_history_size:]
+
+    def should_trigger_compaction(
+        self,
+        pressure: PressureStatus,
+        recent_tools: List[str],
+        iteration_count: int
+    ) -> Tuple[bool, str]:
+        """
+        Determine if compaction should be triggered with reason.
+
+        Evaluates multiple signals to proactively trigger compaction
+        before hitting hard limits.
+
+        Args:
+            pressure: Current token pressure status
+            recent_tools: List of recently used tool names
+            iteration_count: Current iteration number
+
+        Returns:
+            Tuple of (should_compact, reason)
+        """
+        # Rule 1: Critical pressure - immediate compaction
+        if pressure.level in [PressureLevel.CRITICAL, PressureLevel.OVERFLOW]:
+            return True, f"Token pressure at {pressure.level.value}"
+
+        # Rule 2: Verbose tool output accumulation
+        verbose_tools = {"browser_view", "shell_exec", "file_read", "browser_get_content"}
+        recent_verbose = sum(1 for t in recent_tools[-5:] if t in verbose_tools)
+        if recent_verbose >= 3 and pressure.level == PressureLevel.WARNING:
+            return True, "Multiple verbose tool outputs detected"
+
+        # Rule 3: Periodic compaction at regular intervals
+        if iteration_count > 0 and iteration_count % 20 == 0:
+            if pressure.level != PressureLevel.NORMAL:
+                return True, f"Periodic compaction at iteration {iteration_count}"
+
+        # Rule 4: High memory growth rate
+        if len(self._token_history) >= 5:
+            growth_rate = (self._token_history[-1] - self._token_history[-5]) / 5
+            if growth_rate > 1000:  # >1000 tokens per iteration average
+                return True, f"High memory growth rate: {growth_rate:.0f} tokens/iteration"
+
+        # Rule 5: Approaching warning threshold with upward trend
+        if pressure.level == PressureLevel.NORMAL and pressure.usage_ratio > 0.6:
+            if len(self._token_history) >= 3:
+                # Check if trending upward
+                recent_trend = self._token_history[-1] - self._token_history[-3]
+                if recent_trend > 2000:
+                    return True, "Approaching threshold with upward trend"
+
+        return False, ""
+
+    def get_pressure_status(
+        self,
+        current_tokens: int,
+        max_tokens: int = 128000
+    ) -> PressureStatus:
+        """
+        Calculate current token pressure status.
+
+        Args:
+            current_tokens: Current token count
+            max_tokens: Maximum token capacity
+
+        Returns:
+            PressureStatus with level and details
+        """
+        usage_ratio = current_tokens / max_tokens
+
+        if usage_ratio >= 0.95:
+            level = PressureLevel.OVERFLOW
+        elif usage_ratio >= 0.85:
+            level = PressureLevel.CRITICAL
+        elif usage_ratio >= 0.70:
+            level = PressureLevel.WARNING
+        else:
+            level = PressureLevel.NORMAL
+
+        return PressureStatus(
+            level=level,
+            current_tokens=current_tokens,
+            max_tokens=max_tokens,
+            usage_ratio=usage_ratio
+        )
+
+    # =========================================================================
+    # Phase 3: LLM-Based Extraction for Unknown Tools
+    # =========================================================================
+
+    async def extract_with_llm(
+        self,
+        function_name: str,
+        content: str,
+        llm: "LLM"
+    ) -> ExtractionResult:
+        """
+        Use LLM to extract key information from unknown tool output.
+
+        Falls back to heuristic extraction if LLM fails or for known tools.
+
+        Args:
+            function_name: Name of the tool function
+            content: Raw tool output content
+            llm: LLM instance for extraction
+
+        Returns:
+            ExtractionResult with extracted information
+        """
+        # For known tools, use existing extractors
+        if function_name in self.SUMMARIZABLE_FUNCTIONS:
+            result = self._extract_key_results(function_name, content)
+            result.extraction_method = "heuristic"
+            result.confidence = 1.0
+            return result
+
+        # LLM extraction for unknown tools
+        prompt = f"""Extract key information from this tool output.
+
+Tool: {function_name}
+Output:
+{content[:4000]}
+
+Provide a concise summary (max 200 words) that preserves:
+1. Success/failure status
+2. Key data or results
+3. Any URLs, paths, or identifiers
+4. Error messages if present
+
+Format your response as:
+STATUS: success/failure
+KEY_FACTS:
+- fact 1
+- fact 2
+URLS: (if any)
+- url 1
+ERRORS: (if any)"""
+
+        try:
+            response = await llm.ask(
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=300
+            )
+
+            # Parse LLM response
+            response_text = response.content if hasattr(response, 'content') else str(response)
+            key_facts = self._parse_llm_extraction(response_text)
+            success = "success" in response_text.lower() and "failure" not in response_text.lower()
+
+            return ExtractionResult(
+                success=success,
+                key_facts=key_facts,
+                data_points={},
+                urls=self._extract_urls_from_text(response_text),
+                extraction_method="llm",
+                confidence=0.8
+            )
+        except Exception as e:
+            logger.warning(f"LLM extraction failed for {function_name}: {e}")
+            return self._fallback_extraction(function_name, content)
+
+    def _parse_llm_extraction(self, response: str) -> List[str]:
+        """Parse LLM extraction response into key facts."""
+        facts = []
+        lines = response.strip().split('\n')
+
+        in_facts_section = False
+        for line in lines:
+            line = line.strip()
+            if line.startswith('KEY_FACTS:'):
+                in_facts_section = True
+                continue
+            if line.startswith('URLS:') or line.startswith('ERRORS:'):
+                in_facts_section = False
+            if in_facts_section and line.startswith('- '):
+                facts.append(line[2:].strip())
+
+        # Fallback: take non-empty lines if no structured facts found
+        if not facts:
+            facts = [line.strip() for line in lines if line.strip() and len(line) < 200][:5]
+
+        return facts[:5]
+
+    def _extract_urls_from_text(self, text: str) -> List[str]:
+        """Extract URLs from text."""
+        url_pattern = r'https?://[^\s<>"\']+(?:[^\s<>"\'\.,;:!?\)])'
+        return list(set(re.findall(url_pattern, text)))[:5]
+
+    def _fallback_extraction(
+        self,
+        function_name: str,
+        content: str
+    ) -> ExtractionResult:
+        """
+        Fallback extraction using heuristics when LLM fails.
+
+        Args:
+            function_name: Name of the tool function
+            content: Raw content to extract from
+
+        Returns:
+            ExtractionResult with basic extracted information
+        """
+        # Take first 500 and last 200 chars for long content
+        if len(content) > 700:
+            summary = content[:500] + "\n...\n" + content[-200:]
+        else:
+            summary = content
+
+        # Infer success from content
+        success = not any(
+            indicator in content.lower()
+            for indicator in ['error', 'failed', 'exception', 'denied']
+        )
+
+        return ExtractionResult(
+            success=success,
+            key_facts=[f"[{function_name}] {summary[:200]}..."],
+            data_points={},
+            urls=self._extract_urls_from_text(content),
+            error_message=None if success else "Possible error detected",
+            extraction_method="fallback",
+            confidence=0.5
+        )
+
+    # =========================================================================
+    # Phase 3: Archive Integration
+    # =========================================================================
+
+    async def compact_and_archive(
+        self,
+        message: Dict[str, Any],
+        session_id: str
+    ) -> Tuple[Dict[str, Any], Optional[str]]:
+        """
+        Compact message and archive full content to storage.
+
+        Args:
+            message: The message to compact
+            session_id: Current session identifier
+
+        Returns:
+            Tuple of (compacted message dict, archive path or None)
+        """
+        # Extract content for compaction
+        content = message.get("content", "")
+        function_name = message.get("function_name", "")
+
+        if not content or len(content) < 500:
+            return message, None  # Don't compact small messages
+
+        # Extract key information
+        extraction = self._extract_key_results(function_name, content)
+
+        # Generate archive path
+        message_id = message.get("id", str(uuid.uuid4()))
+        archive_path = f"/archives/{session_id}/{message_id}.json"
+
+        # Archive full content if storage is enabled and available
+        if self._enable_file_storage and self._file_storage:
+            try:
+                archive_data = json.dumps({
+                    "message_id": message_id,
+                    "function_name": function_name,
+                    "original_content": content,
+                    "archived_at": datetime.now().isoformat(),
+                    "extraction_method": extraction.extraction_method,
+                    "key_facts": extraction.key_facts,
+                    "urls": extraction.urls,
+                })
+                await self._file_storage.write(archive_path, archive_data)
+                self._archive_index[message_id] = archive_path
+                logger.debug(f"Archived message {message_id} to {archive_path}")
+            except Exception as e:
+                logger.warning(f"Failed to archive message {message_id}: {e}")
+                archive_path = None
+        else:
+            # Store in memory index only
+            self._archive_index[message_id] = f"memory://{message_id}"
+            archive_path = None
+
+        # Build summary for compacted message
+        summary_parts = [f"[{function_name}]"]
+        if extraction.success:
+            summary_parts.append("SUCCESS")
+        else:
+            summary_parts.append(f"FAILED: {extraction.error_message or 'unknown'}")
+
+        facts_text = " | ".join(extraction.key_facts[:5])
+        if len(facts_text) > 500:
+            facts_text = facts_text[:497] + "..."
+        summary_parts.append(facts_text)
+
+        if extraction.urls:
+            summary_parts.append(f"URLs: {', '.join(extraction.urls[:3])}")
+
+        summary = " - ".join(summary_parts)
+
+        # Create compacted message
+        from app.domain.models.tool_result import ToolResult
+        compacted_content = ToolResult(
+            success=extraction.success,
+            data=summary
+        ).model_dump_json()
+
+        compacted_message = dict(message)
+        compacted_message["content"] = compacted_content
+        compacted_message["_compacted"] = True
+        compacted_message["_archive_path"] = archive_path
+
+        return compacted_message, archive_path
+
+    async def retrieve_archived(self, message_id: str) -> Optional[str]:
+        """
+        Retrieve original content from archive.
+
+        Args:
+            message_id: ID of the message to retrieve
+
+        Returns:
+            Original content or None if not found
+        """
+        archive_path = self._archive_index.get(message_id)
+        if not archive_path:
+            logger.debug(f"No archive found for message {message_id}")
+            return None
+
+        # Memory-only archive (no file storage)
+        if archive_path.startswith("memory://"):
+            logger.debug(f"Message {message_id} was archived in memory only")
+            return None
+
+        if not self._file_storage:
+            logger.warning(f"File storage not configured, cannot retrieve {message_id}")
+            return None
+
+        try:
+            archived = await self._file_storage.read(archive_path)
+            data = json.loads(archived)
+            return data.get("original_content")
+        except Exception as e:
+            logger.error(f"Failed to retrieve archive for {message_id}: {e}")
+            return None
+
+    def get_archive_stats(self) -> Dict[str, Any]:
+        """
+        Get statistics about archived content.
+
+        Returns:
+            Dictionary with archive statistics
+        """
+        return {
+            "total_archived": len(self._archive_index),
+            "file_archived": sum(
+                1 for p in self._archive_index.values()
+                if not p.startswith("memory://")
+            ),
+            "memory_only": sum(
+                1 for p in self._archive_index.values()
+                if p.startswith("memory://")
+            ),
+            "token_history_size": len(self._token_history),
+            "last_token_count": self._token_history[-1] if self._token_history else 0,
+        }
 
 
 # Singleton for global access

@@ -29,6 +29,11 @@ from app.domain.models.event import (
 EventWithAttachments = Union[MessageEvent, ReportEvent]
 from app.domain.services.flows.plan_act import PlanActFlow
 from app.domain.services.flows.discuss import DiscussFlow
+from app.domain.services.orchestration.coordinator_flow import (
+    CoordinatorFlow,
+    CoordinatorMode,
+    create_coordinator_flow,
+)
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.browser import Browser
 from app.domain.external.search import SearchEngine
@@ -48,7 +53,14 @@ from app.domain.models.search import SearchResults
 logger = logging.getLogger(__name__)
 
 class AgentTaskRunner(TaskRunner):
-    """Agent task that can be cancelled"""
+    """Agent task that can be cancelled.
+
+    Supports multiple execution modes:
+    - AGENT: Plan-Act flow with optional multi-agent step dispatch
+    - DISCUSS: Simple conversational flow
+    - COORDINATOR: Full multi-agent swarm execution (when enabled)
+    """
+
     def __init__(
         self,
         session_id: str,
@@ -64,6 +76,8 @@ class AgentTaskRunner(TaskRunner):
         mcp_repository: MCPRepository,
         search_engine: Optional[SearchEngine] = None,
         mode: AgentMode = AgentMode.AGENT,
+        enable_multi_agent: bool = False,
+        enable_coordinator: bool = False,
     ):
         self._session_id = session_id
         self._agent_id = agent_id
@@ -80,12 +94,20 @@ class AgentTaskRunner(TaskRunner):
         self._mcp_tool = MCPTool()
         self._mode = mode
 
+        # Multi-agent configuration
+        self._enable_multi_agent = enable_multi_agent
+        self._enable_coordinator = enable_coordinator
+
         # Initialize flows based on mode
         self._plan_act_flow: Optional[PlanActFlow] = None
         self._discuss_flow: Optional[DiscussFlow] = None
+        self._coordinator_flow: Optional[CoordinatorFlow] = None
 
         if mode == AgentMode.AGENT:
-            self._init_plan_act_flow()
+            if enable_coordinator:
+                self._init_coordinator_flow()
+            else:
+                self._init_plan_act_flow()
         else:
             self._init_discuss_flow()
 
@@ -104,8 +126,30 @@ class AgentTaskRunner(TaskRunner):
                 self._mcp_tool,
                 self._search_engine,
                 cdp_url=self._sandbox.cdp_url,
+                enable_multi_agent=self._enable_multi_agent,
             )
-            logger.debug(f"Initialized PlanActFlow for agent {self._agent_id}")
+            logger.debug(
+                f"Initialized PlanActFlow for agent {self._agent_id} "
+                f"(multi_agent={self._enable_multi_agent})"
+            )
+
+    def _init_coordinator_flow(self) -> None:
+        """Initialize CoordinatorFlow for full multi-agent swarm execution"""
+        if self._coordinator_flow is None:
+            self._coordinator_flow = create_coordinator_flow(
+                agent_id=self._agent_id,
+                session_id=self._session_id,
+                agent_repository=self._repository,
+                session_repository=self._session_repository,
+                llm=self._llm,
+                sandbox=self._sandbox,
+                browser=self._browser,
+                json_parser=self._json_parser,
+                mcp_tool=self._mcp_tool,
+                search_engine=self._search_engine,
+                mode=CoordinatorMode.AUTO,
+            )
+            logger.info(f"Initialized CoordinatorFlow for agent {self._agent_id}")
 
     def _init_discuss_flow(self) -> None:
         """Initialize DiscussFlow for Discuss mode"""
@@ -125,13 +169,22 @@ class AgentTaskRunner(TaskRunner):
         """Switch from Discuss mode to Agent mode"""
         logger.info(f"Switching to Agent mode for task: {task_description}")
         self._mode = AgentMode.AGENT
-        self._init_plan_act_flow()
+
+        # Initialize appropriate flow based on configuration
+        if self._enable_coordinator:
+            self._init_coordinator_flow()
+        else:
+            self._init_plan_act_flow()
+
         await self._session_repository.update_mode(self._session_id, AgentMode.AGENT)
 
     @property
     def _flow(self):
-        """Get the current flow based on mode"""
+        """Get the current flow based on mode and configuration"""
         if self._mode == AgentMode.AGENT:
+            # Prefer coordinator flow if enabled
+            if self._enable_coordinator and self._coordinator_flow:
+                return self._coordinator_flow
             return self._plan_act_flow
         return self._discuss_flow
 
@@ -576,14 +629,19 @@ class AgentTaskRunner(TaskRunner):
     async def destroy(self) -> None:
         """Destroy the task and release resources"""
         logger.info(f"Starting to destroy agent task")
-        
+
+        # Shutdown coordinator flow if used
+        if self._coordinator_flow:
+            logger.debug(f"Shutting down Agent {self._agent_id}'s coordinator flow")
+            await self._coordinator_flow.shutdown()
+
         # Destroy sandbox environment
         if self._sandbox:
             logger.debug(f"Destroying Agent {self._agent_id}'s sandbox environment")
             await self._sandbox.destroy()
-        
+
         if self._mcp_tool:
             logger.debug(f"Destroying Agent {self._agent_id}'s MCP tool")
             await self._mcp_tool.cleanup()
-        
+
         logger.debug(f"Agent {self._agent_id} has been fully closed and resources cleared")

@@ -4,15 +4,21 @@ Centralized error handling for agent operations.
 Provides error classification, context tracking, and recovery strategies
 for various failure modes in the agent execution pipeline. Integrates
 with error pattern analysis for proactive guidance.
+
+Enhanced with exponential backoff retry support for recoverable errors.
 """
 
 import logging
+import asyncio
+import random
 from enum import Enum
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, Callable, Awaitable, List
+from typing import Optional, Dict, Any, Callable, Awaitable, List, Tuple, TypeVar
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar('T')
 
 
 class ErrorType(str, Enum):
@@ -30,7 +36,7 @@ class ErrorType(str, Enum):
 
 @dataclass
 class ErrorContext:
-    """Context information for error handling and recovery"""
+    """Context information for error handling and recovery with backoff support"""
     error_type: ErrorType
     message: str
     original_exception: Optional[Exception] = None
@@ -40,6 +46,11 @@ class ErrorContext:
     timestamp: datetime = field(default_factory=datetime.now)
     retry_count: int = 0
     max_retries: int = 3
+    # Backoff configuration
+    backoff_factor: float = 1.5
+    min_retry_delay: float = 0.3
+    max_retry_delay: float = 30.0
+    jitter: bool = True
 
     def can_retry(self) -> bool:
         """Check if the error can be retried"""
@@ -49,19 +60,51 @@ class ErrorContext:
         """Increment retry counter"""
         self.retry_count += 1
 
+    def get_retry_delay(self) -> float:
+        """Calculate retry delay with exponential backoff and optional jitter.
+
+        Returns:
+            Delay in seconds before next retry
+        """
+        # Exponential backoff: min_delay * (factor ^ retry_count)
+        delay = self.min_retry_delay * (self.backoff_factor ** self.retry_count)
+        delay = min(delay, self.max_retry_delay)
+
+        if self.jitter:
+            # Add random jitter ±25% to prevent thundering herd
+            jitter_range = delay * 0.25
+            delay += random.uniform(-jitter_range, jitter_range)
+
+        return max(0.1, delay)  # Minimum 100ms
+
+    def get_backoff_config(self) -> Dict[str, Any]:
+        """Get current backoff configuration for logging/debugging."""
+        return {
+            "backoff_factor": self.backoff_factor,
+            "min_retry_delay": self.min_retry_delay,
+            "max_retry_delay": self.max_retry_delay,
+            "jitter": self.jitter,
+            "current_retry": self.retry_count,
+            "next_delay": self.get_retry_delay() if self.can_retry() else None
+        }
+
 
 class ErrorHandler:
     """
     Centralized error handler with type-specific recovery strategies.
 
     Classifies errors by type and provides appropriate recovery mechanisms
-    or graceful degradation paths.
+    or graceful degradation paths. Supports exponential backoff retry.
     """
 
     def __init__(self):
         self._handlers: Dict[ErrorType, Callable[[ErrorContext], Awaitable[Optional[str]]]] = {}
         self._error_history: list[ErrorContext] = []
         self._max_history = 100
+        # Recovery tracking for metrics
+        self._recovery_stats: Dict[ErrorType, Dict[str, int]] = {}
+        self._total_retry_attempts = 0
+        self._successful_recoveries = 0
 
     def classify_error(self, exception: Exception, context: Optional[Dict[str, Any]] = None) -> ErrorContext:
         """
@@ -327,6 +370,137 @@ class ErrorHandler:
     def clear_history(self) -> None:
         """Clear error history"""
         self._error_history.clear()
+
+    async def handle_with_retry(
+        self,
+        operation: Callable[..., Awaitable[T]],
+        *args,
+        max_retries: int = 3,
+        context: Optional[Dict[str, Any]] = None,
+        on_retry: Optional[Callable[[ErrorContext, int], Awaitable[None]]] = None,
+        **kwargs
+    ) -> Tuple[bool, T | ErrorContext]:
+        """Execute operation with automatic retry and exponential backoff.
+
+        Args:
+            operation: Async callable to execute
+            *args: Arguments for the operation
+            max_retries: Maximum retry attempts (default: 3)
+            context: Optional context for error classification
+            on_retry: Optional callback before each retry (error_context, attempt_number)
+            **kwargs: Keyword arguments for the operation
+
+        Returns:
+            Tuple of (success: bool, result or error_context)
+        """
+        last_error_context: Optional[ErrorContext] = None
+
+        for attempt in range(max_retries + 1):
+            try:
+                result = await operation(*args, **kwargs)
+
+                # Record recovery success if this was a retry
+                if attempt > 0 and last_error_context:
+                    self._record_recovery_success(last_error_context)
+                    logger.info(
+                        f"Recovery successful after {attempt} retries for "
+                        f"{last_error_context.error_type.value}"
+                    )
+
+                return True, result
+
+            except Exception as e:
+                error_context = self.classify_error(e, context)
+                error_context.retry_count = attempt
+                error_context.max_retries = max_retries
+                last_error_context = error_context
+
+                self._total_retry_attempts += 1
+
+                # Check if we should retry
+                if not error_context.can_retry():
+                    self._record_recovery_failure(error_context)
+                    logger.warning(
+                        f"Error not recoverable or max retries reached: "
+                        f"{error_context.error_type.value} - {error_context.message[:100]}"
+                    )
+                    return False, error_context
+
+                # Calculate delay
+                delay = error_context.get_retry_delay()
+
+                logger.info(
+                    f"Retry {attempt + 1}/{max_retries} for {error_context.error_type.value} "
+                    f"after {delay:.2f}s delay"
+                )
+
+                # Call retry callback if provided
+                if on_retry:
+                    try:
+                        await on_retry(error_context, attempt + 1)
+                    except Exception as callback_error:
+                        logger.warning(f"Retry callback failed: {callback_error}")
+
+                # Wait before retry
+                await asyncio.sleep(delay)
+
+                error_context.increment_retry()
+
+        # Should not reach here, but handle edge case
+        if last_error_context:
+            self._record_recovery_failure(last_error_context)
+            return False, last_error_context
+
+        return False, ErrorContext(
+            error_type=ErrorType.UNKNOWN,
+            message="Unexpected retry loop exit",
+            recoverable=False
+        )
+
+    def _record_recovery_success(self, error_context: ErrorContext) -> None:
+        """Record successful recovery for metrics tracking."""
+        error_type = error_context.error_type
+        if error_type not in self._recovery_stats:
+            self._recovery_stats[error_type] = {"success": 0, "failure": 0}
+        self._recovery_stats[error_type]["success"] += 1
+        self._successful_recoveries += 1
+
+    def _record_recovery_failure(self, error_context: ErrorContext) -> None:
+        """Record failed recovery for metrics tracking."""
+        error_type = error_context.error_type
+        if error_type not in self._recovery_stats:
+            self._recovery_stats[error_type] = {"success": 0, "failure": 0}
+        self._recovery_stats[error_type]["failure"] += 1
+
+    def get_recovery_stats(self) -> Dict[str, Any]:
+        """Get recovery statistics for monitoring.
+
+        Returns:
+            Dict with recovery success rates and stats
+        """
+        total_recoveries = self._successful_recoveries + sum(
+            stats["failure"] for stats in self._recovery_stats.values()
+        )
+        success_rate = (
+            self._successful_recoveries / total_recoveries
+            if total_recoveries > 0 else 0.0
+        )
+
+        return {
+            "total_retry_attempts": self._total_retry_attempts,
+            "successful_recoveries": self._successful_recoveries,
+            "success_rate": success_rate,
+            "by_error_type": {
+                error_type.value: stats
+                for error_type, stats in self._recovery_stats.items()
+            }
+        }
+
+    def reset_stats(self) -> None:
+        """Reset recovery statistics."""
+        self._recovery_stats.clear()
+        self._total_retry_attempts = 0
+        self._successful_recoveries = 0
 
 
 class TokenLimitExceeded(Exception):

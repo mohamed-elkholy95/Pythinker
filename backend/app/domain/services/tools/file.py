@@ -7,14 +7,15 @@ class FileTool(BaseTool):
     """File tool class, providing file operation functions"""
 
     name: str = "file"
-    
-    def __init__(self, sandbox: Sandbox):
+
+    def __init__(self, sandbox: Sandbox, max_observe: Optional[int] = None):
         """Initialize file tool class
-        
+
         Args:
             sandbox: Sandbox service
+            max_observe: Optional custom observation limit (default: 8000)
         """
-        super().__init__()
+        super().__init__(max_observe=max_observe)
         self.sandbox = sandbox
         
     @tool(

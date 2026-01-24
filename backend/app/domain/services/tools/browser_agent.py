@@ -4,7 +4,15 @@ import logging
 import re
 from typing import Optional, Dict, Any
 
-from browser_use import Agent, Browser, ChatOpenAI
+# browser_use is an optional dependency
+try:
+    from browser_use import Agent, Browser, ChatOpenAI
+    BROWSER_USE_AVAILABLE = True
+except ImportError:
+    BROWSER_USE_AVAILABLE = False
+    Agent = None
+    Browser = None
+    ChatOpenAI = None
 
 from app.domain.services.tools.base import tool, BaseTool
 from app.domain.models.tool_result import ToolResult
@@ -104,55 +112,59 @@ def extract_first_json(text: str) -> str:
     return text
 
 
-class SanitizedChatOpenAI(ChatOpenAI):
-    """Custom ChatOpenAI wrapper that sanitizes LLM output to fix JSON parsing issues.
+# SanitizedChatOpenAI is only available when browser_use is installed
+if BROWSER_USE_AVAILABLE and ChatOpenAI is not None:
+    class SanitizedChatOpenAI(ChatOpenAI):
+        """Custom ChatOpenAI wrapper that sanitizes LLM output to fix JSON parsing issues.
 
-    The browser-use library expects clean JSON from the LLM, but some models return
-    malformed JSON with trailing characters, multiple JSON objects, or extra content.
-    This wrapper intercepts responses and extracts the first valid JSON object.
+        The browser-use library expects clean JSON from the LLM, but some models return
+        malformed JSON with trailing characters, multiple JSON objects, or extra content.
+        This wrapper intercepts responses and extracts the first valid JSON object.
 
-    Uses duck typing to avoid direct langchain_core imports which may not be available.
-    """
-
-    def _sanitize_response(self, response: Any) -> Any:
-        """Sanitize a response object by cleaning its content.
-
-        Works with any object that has a 'content' attribute (duck typing).
-
-        Args:
-            response: LLM response object with content attribute
-
-        Returns:
-            Response with sanitized content
+        Uses duck typing to avoid direct langchain_core imports which may not be available.
         """
-        if not hasattr(response, 'content') or not isinstance(response.content, str):
+
+        def _sanitize_response(self, response: Any) -> Any:
+            """Sanitize a response object by cleaning its content.
+
+            Works with any object that has a 'content' attribute (duck typing).
+
+            Args:
+                response: LLM response object with content attribute
+
+            Returns:
+                Response with sanitized content
+            """
+            if not hasattr(response, 'content') or not isinstance(response.content, str):
+                return response
+
+            original_content = response.content
+            sanitized_content = extract_first_json(original_content)
+
+            if sanitized_content != original_content:
+                logger.debug(
+                    f"Sanitized LLM output: removed {len(original_content) - len(sanitized_content)} "
+                    f"trailing characters"
+                )
+                # Modify content in place if possible, otherwise return as-is
+                try:
+                    response.content = sanitized_content
+                except AttributeError:
+                    pass  # Read-only, return as-is
+
             return response
 
-        original_content = response.content
-        sanitized_content = extract_first_json(original_content)
+        async def ainvoke(self, *args, **kwargs) -> Any:
+            """Override ainvoke to sanitize LLM output before returning."""
+            result = await super().ainvoke(*args, **kwargs)
+            return self._sanitize_response(result)
 
-        if sanitized_content != original_content:
-            logger.debug(
-                f"Sanitized LLM output: removed {len(original_content) - len(sanitized_content)} "
-                f"trailing characters"
-            )
-            # Modify content in place if possible, otherwise return as-is
-            try:
-                response.content = sanitized_content
-            except AttributeError:
-                pass  # Read-only, return as-is
-
-        return response
-
-    async def ainvoke(self, *args, **kwargs) -> Any:
-        """Override ainvoke to sanitize LLM output before returning."""
-        result = await super().ainvoke(*args, **kwargs)
-        return self._sanitize_response(result)
-
-    def invoke(self, *args, **kwargs) -> Any:
-        """Override invoke to sanitize LLM output before returning."""
-        result = super().invoke(*args, **kwargs)
-        return self._sanitize_response(result)
+        def invoke(self, *args, **kwargs) -> Any:
+            """Override invoke to sanitize LLM output before returning."""
+            result = super().invoke(*args, **kwargs)
+            return self._sanitize_response(result)
+else:
+    SanitizedChatOpenAI = None
 
 
 class BrowserAgentTool(BaseTool):
@@ -175,7 +187,15 @@ class BrowserAgentTool(BaseTool):
 
         Args:
             cdp_url: Chrome DevTools Protocol URL for connecting to existing browser
+
+        Raises:
+            ImportError: If browser_use package is not installed
         """
+        if not BROWSER_USE_AVAILABLE:
+            raise ImportError(
+                "browser_use package is not installed. "
+                "Install it with: pip install browser-use"
+            )
         super().__init__()
         self._cdp_url = cdp_url
         self._browser: Optional[Browser] = None

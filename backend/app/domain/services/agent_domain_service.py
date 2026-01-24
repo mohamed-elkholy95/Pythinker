@@ -18,6 +18,7 @@ from typing import Type
 from app.domain.external.file import FileStorage
 from app.domain.models.file import FileInfo
 from app.domain.repositories.mcp_repository import MCPRepository
+from app.core.config import get_settings
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -73,6 +74,9 @@ class AgentDomainService:
         
         await self._session_repository.save(session)
 
+        # Get multi-agent configuration from settings
+        settings = get_settings()
+
         task_runner = AgentTaskRunner(
             session_id=session.id,
             agent_id=session.agent_id,
@@ -87,6 +91,9 @@ class AgentDomainService:
             agent_repository=self._repository,
             mcp_repository=self._mcp_repository,
             mode=session.mode,  # Pass session mode to task runner
+            # Multi-agent orchestration configuration
+            enable_multi_agent=settings.enable_multi_agent,
+            enable_coordinator=settings.enable_coordinator,
         )
 
         task = self._task_cls.create(task_runner)
