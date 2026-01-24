@@ -1,5 +1,9 @@
-# Development Dockerfile using Bun
-FROM oven/bun:1
+# Development Dockerfile using Node.js for better Vite compatibility
+# Note: Bun has issues with Vite's WebSocket proxy (socket.destroySoon not implemented)
+FROM node:22-slim
+
+# Install bun for package management (faster installs)
+RUN npm install -g bun
 
 # Set working directory
 WORKDIR /app
@@ -7,7 +11,7 @@ WORKDIR /app
 # Copy package files first for better caching
 COPY package.json bun.lock* ./
 
-# Install dependencies
+# Install dependencies using bun (faster) but run with node (compatible)
 RUN bun install
 
 # The source code will be mounted as a volume
@@ -16,5 +20,5 @@ RUN bun install
 # Expose Vite dev server port
 EXPOSE 5173
 
-# Start development server
-CMD ["bun", "run", "dev", "--", "--host", "0.0.0.0"]
+# Start development server with Node.js for full API compatibility
+CMD ["npx", "vite", "--host", "0.0.0.0"]
