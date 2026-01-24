@@ -173,7 +173,7 @@ class CommonSSEEvent(BaseSSEEvent):
     data: CommonEventData
 
 AgentSSEEvent = Union[
-    CommonEventData,
+    CommonSSEEvent,
     PlanSSEEvent,
     MessageSSEEvent,
     TitleSSEEvent,
@@ -250,8 +250,11 @@ class EventMapper:
             else:
                 sse_event = sse_event_class.from_event(event)
             return sse_event
-        # If no matching type found, return base event
-        return CommonEventData.from_event(event)
+        # If no matching type found, return wrapped event with event type
+        return CommonSSEEvent(
+            event=event.type,
+            data=CommonEventData.from_event(event)
+        )
     
     @staticmethod
     async def events_to_sse_events(events: List[AgentEvent]) -> List[AgentSSEEvent]:
