@@ -125,6 +125,14 @@ class PlanActFlow(BaseFlow):
         self.status = AgentStatus.IDLE
         self.plan = None
 
+        # Store references for multi-agent factory initialization
+        self._llm = llm
+        self._sandbox = sandbox
+        self._browser = browser
+        self._json_parser = json_parser
+        self._mcp_tool = mcp_tool
+        self._search_engine = search_engine
+
         # State management for error recovery
         self._previous_status: Optional[AgentStatus] = None
         self._error_context: Optional[ErrorContext] = None
@@ -227,12 +235,12 @@ class PlanActFlow(BaseFlow):
         self._agent_registry = get_agent_registry()
         self._agent_factory = SpecializedAgentFactory(
             agent_repository=self._repository,
-            llm=self.executor._llm,
-            json_parser=self.executor._json_parser,
-            sandbox=self.executor._sandbox if hasattr(self.executor, '_sandbox') else None,
-            browser=self.executor._browser if hasattr(self.executor, '_browser') else None,
-            search_engine=self.executor._search_engine if hasattr(self.executor, '_search_engine') else None,
-            mcp_tool=self.executor._mcp_tool if hasattr(self.executor, '_mcp_tool') else None,
+            llm=self._llm,
+            json_parser=self._json_parser,
+            sandbox=self._sandbox,
+            browser=self._browser,
+            search_engine=self._search_engine,
+            mcp_tool=self._mcp_tool,
         )
         logger.info(f"Multi-agent dispatch enabled for Agent {self._agent_id}")
 
@@ -805,8 +813,8 @@ class PlanActFlow(BaseFlow):
 
                         async for event in step_executor.execute_step(self.plan, step, message):
                             # Phase 3: Track tool usage for proactive compaction
-                            if isinstance(event, ToolEvent) and event.tool:
-                                self._track_tool_usage(event.tool)
+                            if isinstance(event, ToolEvent) and event.tool_name:
+                                self._track_tool_usage(event.tool_name)
                             yield event
 
                         # Mark step as completed in task state

@@ -290,8 +290,27 @@ class BaseAgent(ABC):
             return await self.invoke_tool(tool, function_name, function_args)
     
     async def _ensure_memory(self):
+        """Ensure the agent has initialized memory.
+
+        Retrieves memory from the repository, creating the agent document
+        if it doesn't exist (defensive fallback).
+        """
         if not self.memory:
-            self.memory = await self._repository.get_memory(self._agent_id, self.name)
+            try:
+                self.memory = await self._repository.get_memory(self._agent_id, self.name)
+            except ValueError as e:
+                # Agent document doesn't exist - create it as fallback
+                # This should not normally happen as the factory creates the document,
+                # but we handle it defensively for robustness
+                if "not found" in str(e).lower():
+                    logger.warning(
+                        f"Agent {self._agent_id} not found in database, creating document defensively"
+                    )
+                    agent_model = Agent(id=self._agent_id)
+                    await self._repository.save(agent_model)
+                    self.memory = await self._repository.get_memory(self._agent_id, self.name)
+                else:
+                    raise
     
     async def _add_to_memory(self, messages: List[Dict[str, Any]]) -> None:
         """Update memory and save to repository"""

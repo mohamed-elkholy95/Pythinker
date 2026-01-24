@@ -22,6 +22,8 @@ class SearXNGSearchEngine(SearchEngine):
         self.headers = {
             'Accept': 'application/json',
             'User-Agent': 'Pythinker-Agent/1.0',
+            'X-Forwarded-For': '127.0.0.1',
+            'X-Real-IP': '127.0.0.1',
         }
 
     async def search(
@@ -42,7 +44,7 @@ class SearXNGSearchEngine(SearchEngine):
             "q": query,
             "format": "json",
             "categories": "general",
-            "engines": "google,bing,duckduckgo",  # Priority: Google > Bing > DuckDuckGo
+            "engines": "bing,brave",
             "language": "en",  # Force English results only
         }
 

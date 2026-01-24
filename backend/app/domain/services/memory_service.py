@@ -11,6 +11,7 @@ import logging
 import re
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
+from dataclasses import dataclass, field
 
 from app.domain.models.long_term_memory import (
     MemoryEntry,
