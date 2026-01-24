@@ -7,6 +7,7 @@ Use with OpenAI's structured output feature for type-safe responses.
 
 from typing import List, Optional, Literal
 from pydantic import BaseModel, Field
+from enum import Enum
 
 
 class StepResponse(BaseModel):
@@ -93,6 +94,135 @@ class DiscussResponse(BaseModel):
     )
 
 
+# ============================================================================
+# Plan Verification Schemas (Phase 1: Plan-Verify-Execute)
+# ============================================================================
+
+class VerificationVerdict(str, Enum):
+    """Possible verdicts from plan verification."""
+    PASS = "pass"      # Plan is solid, proceed with execution
+    REVISE = "revise"  # Plan has fixable issues, return for replanning
+    FAIL = "fail"      # Plan is fundamentally flawed, exit gracefully
+
+
+class ToolFeasibility(BaseModel):
+    """Feasibility assessment for a tool in a step."""
+    step_id: str = Field(description="ID of the step being assessed")
+    tool: str = Field(description="Tool being checked")
+    feasible: bool = Field(description="Whether the tool can accomplish the step")
+    reason: str = Field(description="Explanation of feasibility assessment")
+
+
+class PrerequisiteCheck(BaseModel):
+    """Check for a prerequisite condition."""
+    check: str = Field(description="What is being checked")
+    satisfied: bool = Field(description="Whether the prerequisite is met")
+    detail: str = Field(description="Additional details about the check")
+
+
+class DependencyIssue(BaseModel):
+    """An identified dependency issue in the plan."""
+    step_id: str = Field(description="ID of the affected step")
+    depends_on: str = Field(description="What this step depends on")
+    issue: str = Field(description="Description of the dependency problem")
+
+
+class VerificationResponse(BaseModel):
+    """Response schema for plan verification.
+
+    Used by VerifierAgent to validate plans before execution.
+    """
+    verdict: VerificationVerdict = Field(description="Verification verdict")
+    confidence: float = Field(
+        ge=0.0, le=1.0,
+        description="Confidence in the verdict (0.0-1.0)"
+    )
+    tool_feasibility: List[ToolFeasibility] = Field(
+        default_factory=list,
+        description="Tool feasibility assessments for each step"
+    )
+    prerequisite_checks: List[PrerequisiteCheck] = Field(
+        default_factory=list,
+        description="Results of prerequisite checks"
+    )
+    dependency_issues: List[DependencyIssue] = Field(
+        default_factory=list,
+        description="Identified dependency issues"
+    )
+    revision_feedback: Optional[str] = Field(
+        default=None,
+        description="Specific guidance for replanning (if verdict is 'revise')"
+    )
+    summary: str = Field(description="Brief explanation of the verification result")
+
+
+class SimpleVerificationResponse(BaseModel):
+    """Simplified verification response for quick checks."""
+    verdict: VerificationVerdict = Field(description="Verification verdict")
+    confidence: float = Field(ge=0.0, le=1.0, description="Confidence in verdict")
+    summary: str = Field(description="Brief reason for the verdict")
+
+
+# ============================================================================
+# Reflection Schemas (Phase 2: Enhanced Self-Reflection)
+# ============================================================================
+
+class ReflectionDecision(str, Enum):
+    """Possible decisions from reflection."""
+    CONTINUE = "continue"       # Proceed as planned
+    ADJUST_STRATEGY = "adjust"  # Minor tactical change
+    REPLAN = "replan"           # Major replanning needed
+    ESCALATE = "escalate"       # Need user input
+    ABORT = "abort"             # Cannot complete
+
+
+class ProgressMetrics(BaseModel):
+    """Metrics about current execution progress."""
+    steps_completed: int = Field(description="Number of completed steps")
+    steps_remaining: int = Field(description="Number of remaining steps")
+    success_rate: float = Field(
+        ge=0.0, le=1.0,
+        description="Success rate of completed steps"
+    )
+    estimated_progress: float = Field(
+        ge=0.0, le=1.0,
+        description="Estimated overall progress (0.0-1.0)"
+    )
+    error_count: int = Field(default=0, description="Number of errors encountered")
+
+
+class ReflectionResponse(BaseModel):
+    """Response schema for reflection during execution.
+
+    Used by ReflectionAgent to assess progress and determine next actions.
+    """
+    decision: ReflectionDecision = Field(description="Reflection decision")
+    confidence: float = Field(
+        ge=0.0, le=1.0,
+        description="Confidence in the decision"
+    )
+    progress_assessment: str = Field(
+        description="Assessment of current progress toward goal"
+    )
+    issues_identified: List[str] = Field(
+        default_factory=list,
+        description="Issues identified during reflection"
+    )
+    strategy_adjustment: Optional[str] = Field(
+        default=None,
+        description="Suggested strategy adjustment (if decision is 'adjust')"
+    )
+    replan_reason: Optional[str] = Field(
+        default=None,
+        description="Reason for replanning (if decision is 'replan')"
+    )
+    user_question: Optional[str] = Field(
+        default=None,
+        description="Question for user (if decision is 'escalate')"
+    )
+    summary: str = Field(description="Brief summary of reflection")
+
+
 # Schema registry for easy lookup
 RESPONSE_SCHEMAS = {
     "plan": PlanResponse,
@@ -100,6 +230,9 @@ RESPONSE_SCHEMAS = {
     "execution": ExecutionStepResult,
     "summarize": SummarizeResponse,
     "discuss": DiscussResponse,
+    "verification": VerificationResponse,
+    "simple_verification": SimpleVerificationResponse,
+    "reflection": ReflectionResponse,
 }
 
 

@@ -1,4 +1,4 @@
-from typing import Optional, AsyncGenerator, List
+from typing import Optional, AsyncGenerator, List, Union
 import asyncio
 import logging
 from pydantic import TypeAdapter
@@ -19,10 +19,14 @@ from app.domain.models.event import (
     ToolStatus,
     AgentEvent,
     McpToolContent,
-    ToolStatus,
     ModeChangeEvent,
     SuggestionEvent,
+    ReportEvent,
 )
+
+# Type alias for events that contain attachments requiring storage sync
+# Both MessageEvent and ReportEvent have an 'attachments' field of type Optional[List[FileInfo]]
+EventWithAttachments = Union[MessageEvent, ReportEvent]
 from app.domain.services.flows.plan_act import PlanActFlow
 from app.domain.services.flows.discuss import DiscussFlow
 from app.domain.external.sandbox import Sandbox
@@ -151,19 +155,110 @@ class AgentTaskRunner(TaskRunner):
         return result.file_id
 
     async def _sync_file_to_storage(self, file_path: str) -> Optional[FileInfo]:
-        """Upload or update file and return FileInfo"""
+        """
+        Download a file from the sandbox and upload it to GridFS storage.
+
+        This method:
+        1. Validates the file_path is not empty
+        2. Downloads the file content from the sandbox
+        3. Validates the content is not empty
+        4. Removes any existing file with the same path (to handle updates)
+        5. Uploads to GridFS and registers with the session
+        6. Returns a fully populated FileInfo with file_id
+
+        Args:
+            file_path: The path to the file in the sandbox (e.g., /home/ubuntu/report.md)
+
+        Returns:
+            FileInfo with valid file_id if successful, None if sync fails
+        """
+        # Validate input
+        if not file_path or not file_path.strip():
+            logger.warning(f"Agent {self._agent_id}: Cannot sync file with empty path")
+            return None
+
         try:
-            file_info = await self._session_repository.get_file_by_path(self._session_id, file_path)
+            # Check if file already exists in session
+            existing_file = await self._session_repository.get_file_by_path(
+                self._session_id, file_path
+            )
+
+            # Download file from sandbox
             file_data = await self._sandbox.file_download(file_path)
-            if file_info:
-                await self._session_repository.remove_file(self._session_id, file_info.file_id)
+
+            # Validate file content
+            if file_data is None:
+                logger.warning(
+                    f"Agent {self._agent_id}: File download returned None for '{file_path}'"
+                )
+                return None
+
+            if len(file_data) == 0:
+                logger.warning(
+                    f"Agent {self._agent_id}: File '{file_path}' is empty (0 bytes)"
+                )
+                # Still allow empty files - some use cases may need them
+
+            # Remove existing file if present (to handle file updates)
+            if existing_file and existing_file.file_id:
+                logger.debug(
+                    f"Agent {self._agent_id}: Removing existing file for path '{file_path}' "
+                    f"(file_id={existing_file.file_id})"
+                )
+                await self._session_repository.remove_file(
+                    self._session_id, existing_file.file_id
+                )
+
+            # Extract filename from path
             file_name = file_path.split("/")[-1]
-            file_info = await self._file_storage.upload_file(file_data, file_name, self._user_id)
+            if not file_name:
+                file_name = "unnamed_file"
+                logger.warning(
+                    f"Agent {self._agent_id}: Could not extract filename from '{file_path}', "
+                    f"using '{file_name}'"
+                )
+
+            # Upload to GridFS storage
+            file_info = await self._file_storage.upload_file(
+                file_data, file_name, self._user_id
+            )
+
+            # Validate upload result
+            if not file_info:
+                logger.error(
+                    f"Agent {self._agent_id}: File storage returned None for '{file_path}'"
+                )
+                return None
+
+            if not file_info.file_id:
+                logger.error(
+                    f"Agent {self._agent_id}: Uploaded file has no file_id for '{file_path}'"
+                )
+                return None
+
+            # Set the file_path for reference
             file_info.file_path = file_path
+
+            # Register file with session
             await self._session_repository.add_file(self._session_id, file_info)
+
+            logger.debug(
+                f"Agent {self._agent_id}: Successfully synced file '{file_path}' "
+                f"-> file_id={file_info.file_id}, size={len(file_data)} bytes"
+            )
+
             return file_info
+
+        except FileNotFoundError as e:
+            logger.warning(
+                f"Agent {self._agent_id}: File not found in sandbox: '{file_path}' - {e}"
+            )
+            return None
         except Exception as e:
-            logger.exception(f"Agent {self._agent_id} failed to sync file: {e}")
+            logger.exception(
+                f"Agent {self._agent_id}: Failed to sync file '{file_path}': {e}"
+            )
+            return None
     
     async def _sync_file_to_sandbox(self, file_id: str) -> Optional[FileInfo]:
         """Download file from storage to sandbox"""
@@ -177,26 +272,91 @@ class AgentTaskRunner(TaskRunner):
         except Exception as e:
             logger.exception(f"Agent {self._agent_id} failed to sync file: {e}")
 
-    async def _sync_message_attachments_to_storage(self, event: MessageEvent) -> None:
-        """Sync message attachments concurrently and update event attachments"""
-        attachments: List[FileInfo] = []
-        try:
-            if event.attachments:
-                # Sync all attachments concurrently
-                sync_tasks = [
-                    self._sync_file_to_storage(attachment.file_path)
-                    for attachment in event.attachments
-                ]
-                results = await asyncio.gather(*sync_tasks, return_exceptions=True)
+    async def _sync_event_attachments_to_storage(self, event: EventWithAttachments) -> None:
+        """
+        Sync event attachments to storage and update the event with resolved FileInfo objects.
 
-                for result in results:
-                    if isinstance(result, Exception):
-                        logger.warning(f"Attachment sync failed: {result}")
-                    elif result:
-                        attachments.append(result)
-            event.attachments = attachments
+        This method handles attachment syncing for any event type that has an attachments field
+        (MessageEvent, ReportEvent, etc.). It:
+        1. Filters out attachments with invalid/missing file_path
+        2. Syncs valid attachments to GridFS storage concurrently
+        3. Updates the event's attachments with fully resolved FileInfo objects (with file_id)
+        4. Logs warnings for failed syncs but continues processing other attachments
+
+        Args:
+            event: An event with an attachments field (MessageEvent or ReportEvent)
+        """
+        synced_attachments: List[FileInfo] = []
+        event_type = event.type
+
+        try:
+            if not event.attachments:
+                logger.debug(f"Agent {self._agent_id}: {event_type} event has no attachments to sync")
+                return
+
+            # Filter valid attachments - must have a non-empty file_path
+            valid_attachments = []
+            for attachment in event.attachments:
+                if attachment.file_path and attachment.file_path.strip():
+                    valid_attachments.append(attachment)
+                else:
+                    logger.warning(
+                        f"Agent {self._agent_id}: Skipping attachment with invalid file_path: "
+                        f"file_id={attachment.file_id}, filename={attachment.filename}"
+                    )
+
+            if not valid_attachments:
+                logger.debug(f"Agent {self._agent_id}: No valid attachments to sync for {event_type} event")
+                event.attachments = []
+                return
+
+            logger.info(
+                f"Agent {self._agent_id}: Syncing {len(valid_attachments)} attachments "
+                f"for {event_type} event to storage"
+            )
+
+            # Sync all valid attachments concurrently
+            sync_tasks = [
+                self._sync_file_to_storage(attachment.file_path)
+                for attachment in valid_attachments
+            ]
+            results = await asyncio.gather(*sync_tasks, return_exceptions=True)
+
+            # Process results, collecting successfully synced attachments
+            for i, result in enumerate(results):
+                file_path = valid_attachments[i].file_path
+                if isinstance(result, Exception):
+                    logger.warning(
+                        f"Agent {self._agent_id}: Failed to sync attachment '{file_path}': {result}"
+                    )
+                elif result is None:
+                    logger.warning(
+                        f"Agent {self._agent_id}: Sync returned None for attachment '{file_path}'"
+                    )
+                elif not result.file_id:
+                    logger.warning(
+                        f"Agent {self._agent_id}: Synced attachment '{file_path}' has no file_id"
+                    )
+                else:
+                    synced_attachments.append(result)
+                    logger.debug(
+                        f"Agent {self._agent_id}: Successfully synced attachment "
+                        f"'{file_path}' -> file_id={result.file_id}"
+                    )
+
+            logger.info(
+                f"Agent {self._agent_id}: Successfully synced {len(synced_attachments)}/{len(valid_attachments)} "
+                f"attachments for {event_type} event"
+            )
+
         except Exception as e:
-            logger.exception(f"Agent {self._agent_id} failed to sync attachments to storage: {e}")
+            logger.exception(
+                f"Agent {self._agent_id}: Unexpected error syncing attachments for {event_type} event: {e}"
+            )
+
+        # Always update event attachments - either with synced files or empty list
+        # This ensures no null file_ids remain in the event
+        event.attachments = synced_attachments
     
     async def _sync_message_attachments_to_sandbox(self, event: MessageEvent) -> None:
         """Sync message attachments concurrently and update event attachments"""
@@ -374,8 +534,10 @@ class AgentTaskRunner(TaskRunner):
             if isinstance(event, ToolEvent):
                 # TODO: move to tool function
                 await self._handle_tool_event(event)
-            elif isinstance(event, MessageEvent):
-                await self._sync_message_attachments_to_storage(event)
+            elif isinstance(event, (MessageEvent, ReportEvent)):
+                # Sync attachments to storage for events that contain file references
+                # This resolves file_path to file_id for proper frontend access
+                await self._sync_event_attachments_to_storage(event)
             elif isinstance(event, ModeChangeEvent):
                 # Handle mode switch from Discuss to Agent
                 if event.mode == "agent" and self._mode == AgentMode.DISCUSS:
@@ -398,8 +560,9 @@ class AgentTaskRunner(TaskRunner):
             async for event in self._flow.run(task_message):
                 if isinstance(event, ToolEvent):
                     await self._handle_tool_event(event)
-                elif isinstance(event, MessageEvent):
-                    await self._sync_message_attachments_to_storage(event)
+                elif isinstance(event, (MessageEvent, ReportEvent)):
+                    # Sync attachments to storage for events that contain file references
+                    await self._sync_event_attachments_to_storage(event)
                 yield event
 
         logger.info(f"Agent {self._agent_id} completed processing one message")

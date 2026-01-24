@@ -15,6 +15,8 @@ from app.domain.models.event import (
     TitleEvent,
     IdleEvent,
     ErrorEvent,
+    VerificationEvent,
+    VerificationStatus,
 )
 from app.domain.models.plan import ExecutionStatus
 from app.domain.services.agents.planner import PlannerAgent
@@ -38,6 +40,8 @@ from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.idle import IdleTool
 from app.domain.services.agents.error_handler import ErrorHandler, ErrorType, ErrorContext
 from app.domain.services.agents.task_state_manager import TaskStateManager
+from app.domain.services.agents.verifier import VerifierAgent, VerifierConfig
+from app.domain.models.agent_response import VerificationVerdict
 from app.core.config import get_settings
 from app.infrastructure.observability import get_tracer, SpanKind
 
@@ -47,10 +51,12 @@ logger = logging.getLogger(__name__)
 class AgentStatus(str, Enum):
     IDLE = "idle"
     PLANNING = "planning"
+    VERIFYING = "verifying"  # Phase 1: Plan-Verify-Execute
     EXECUTING = "executing"
     SUMMARIZING = "summarizing"
     COMPLETED = "completed"
     UPDATING = "updating"
+    REFLECTING = "reflecting"  # Phase 2: Enhanced Self-Reflection
     ERROR = "error"
 
 class PlanActFlow(BaseFlow):
@@ -67,6 +73,7 @@ class PlanActFlow(BaseFlow):
         mcp_tool: MCPTool,
         search_engine: Optional[SearchEngine] = None,
         cdp_url: Optional[str] = None,
+        enable_verification: bool = True,
     ):
         self._agent_id = agent_id
         self._repository = agent_repository
@@ -81,6 +88,12 @@ class PlanActFlow(BaseFlow):
         self._error_handler = ErrorHandler()
         self._max_error_recovery_attempts = 3
         self._error_recovery_attempts = 0
+
+        # Verification state (Phase 1: Plan-Verify-Execute)
+        self._verification_verdict: Optional[str] = None
+        self._verification_feedback: Optional[str] = None
+        self._verification_loops = 0
+        self._max_verification_loops = 2
 
         tools = [
             ShellTool(sandbox),
@@ -119,6 +132,22 @@ class PlanActFlow(BaseFlow):
             json_parser=json_parser,
         )
         logger.debug(f"Created execution agent for Agent {self._agent_id}")
+
+        # Create verifier agent (Phase 1: Plan-Verify-Execute)
+        self.verifier: Optional[VerifierAgent] = None
+        if enable_verification:
+            self.verifier = VerifierAgent(
+                llm=llm,
+                json_parser=json_parser,
+                tools=tools,
+                config=VerifierConfig(
+                    enabled=True,
+                    skip_simple_plans=True,
+                    simple_plan_max_steps=2,
+                    max_revision_loops=2,
+                )
+            )
+            logger.info(f"VerifierAgent enabled for Agent {agent_id}")
 
         # Track background tasks for cleanup
         self._background_tasks: set = set()
@@ -255,7 +284,9 @@ class PlanActFlow(BaseFlow):
                     # Create plan with tracing
                     logger.info(f"Agent {self._agent_id} started creating plan")
                     with trace_ctx.span("planning", SpanKind.PLAN_CREATE) as plan_span:
-                        async for event in self.planner.create_plan(message):
+                        # Pass replan context if we're replanning after verification
+                        replan_context = self._verification_feedback if self._verification_verdict == "revise" else None
+                        async for event in self.planner.create_plan(message, replan_context=replan_context):
                             if isinstance(event, PlanEvent) and event.status == PlanStatus.CREATED:
                                 self.plan = event.plan
                                 plan_span.set_attribute("plan.steps", len(event.plan.steps))
@@ -271,11 +302,67 @@ class PlanActFlow(BaseFlow):
                                 yield TitleEvent(title=event.plan.title)
                                 # Skip plan.message - execute silently without explaining
                             yield event
-                    logger.info(f"Agent {self._agent_id} state changed from {AgentStatus.PLANNING} to {AgentStatus.EXECUTING}")
-                    self.status = AgentStatus.EXECUTING
+
+                    # Reset verification feedback after replanning
+                    self._verification_verdict = None
+                    self._verification_feedback = None
+
                     if len(event.plan.steps) == 0:
                         logger.info(f"Agent {self._agent_id} created plan successfully with no steps")
                         self.status = AgentStatus.COMPLETED
+                    elif self.verifier:
+                        # Transition to verification if verifier is enabled
+                        logger.info(f"Agent {self._agent_id} state changed from {AgentStatus.PLANNING} to {AgentStatus.VERIFYING}")
+                        self.status = AgentStatus.VERIFYING
+                    else:
+                        logger.info(f"Agent {self._agent_id} state changed from {AgentStatus.PLANNING} to {AgentStatus.EXECUTING}")
+                        self.status = AgentStatus.EXECUTING
+
+                elif self.status == AgentStatus.VERIFYING:
+                    # Verify plan before execution (Phase 1: Plan-Verify-Execute)
+                    logger.info(f"Agent {self._agent_id} started verifying plan")
+                    with trace_ctx.span("verifying", SpanKind.AGENT_STEP) as verify_span:
+                        async for event in self.verifier.verify_plan(
+                            plan=self.plan,
+                            user_request=message.message,
+                            task_context=""
+                        ):
+                            yield event
+
+                            # Capture verification result
+                            if isinstance(event, VerificationEvent):
+                                if event.status == VerificationStatus.PASSED:
+                                    self._verification_verdict = "pass"
+                                    verify_span.set_attribute("verification.verdict", "pass")
+                                elif event.status == VerificationStatus.REVISION_NEEDED:
+                                    self._verification_verdict = "revise"
+                                    self._verification_feedback = event.revision_feedback
+                                    self._verification_loops += 1
+                                    verify_span.set_attribute("verification.verdict", "revise")
+                                elif event.status == VerificationStatus.FAILED:
+                                    self._verification_verdict = "fail"
+                                    verify_span.set_attribute("verification.verdict", "fail")
+
+                    # Route based on verification verdict
+                    if self._verification_verdict == "pass":
+                        logger.info(f"Agent {self._agent_id} plan verified, proceeding to execution")
+                        self.status = AgentStatus.EXECUTING
+                    elif self._verification_verdict == "revise":
+                        if self._verification_loops >= self._max_verification_loops:
+                            logger.warning(
+                                f"Agent {self._agent_id} max verification loops reached, "
+                                "proceeding with execution"
+                            )
+                            self.status = AgentStatus.EXECUTING
+                        else:
+                            logger.info(f"Agent {self._agent_id} plan needs revision, returning to planning")
+                            self.status = AgentStatus.PLANNING
+                    elif self._verification_verdict == "fail":
+                        logger.info(f"Agent {self._agent_id} plan verification failed, summarizing")
+                        self.status = AgentStatus.SUMMARIZING
+                    else:
+                        # Default: proceed with execution
+                        self.status = AgentStatus.EXECUTING
 
                 elif self.status == AgentStatus.EXECUTING:
                     # Execute plan

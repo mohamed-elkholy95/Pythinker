@@ -208,3 +208,66 @@ class Memory(BaseModel):
     def empty(self) -> bool:
         """Check if memory is empty"""
         return len(self.messages) == 0
+
+    def fork(self, preserve_messages: int = None) -> "Memory":
+        """Create a fork of this memory for isolated exploration.
+
+        This supports Tree-of-Thoughts pattern where multiple paths
+        need independent memory contexts.
+
+        Args:
+            preserve_messages: Number of recent messages to include (default: all)
+
+        Returns:
+            New Memory instance with copied messages
+        """
+        if preserve_messages is None:
+            # Copy all messages
+            forked_messages = [msg.copy() for msg in self.messages]
+        else:
+            # Copy only recent messages
+            forked_messages = [msg.copy() for msg in self.messages[-preserve_messages:]]
+
+        # Create new memory with copied config
+        forked_memory = Memory(messages=forked_messages)
+        forked_memory.config = MemoryConfig(
+            max_messages=self.config.max_messages,
+            auto_compact_threshold=self.config.auto_compact_threshold,
+            auto_compact_token_threshold=self.config.auto_compact_token_threshold,
+            use_token_threshold=self.config.use_token_threshold,
+            compactable_functions=self.config.compactable_functions.copy()
+            if self.config.compactable_functions else None,
+            preserve_recent=self.config.preserve_recent,
+        )
+
+        return forked_memory
+
+    def merge_from(self, other: "Memory", deduplicate: bool = True) -> int:
+        """Merge messages from another memory into this one.
+
+        This supports aggregating results from forked paths.
+
+        Args:
+            other: Memory to merge from
+            deduplicate: Whether to skip duplicate messages
+
+        Returns:
+            Number of messages added
+        """
+        added = 0
+        existing_ids = set()
+
+        if deduplicate:
+            # Build set of existing message signatures
+            for msg in self.messages:
+                sig = f"{msg.get('role')}:{msg.get('content', '')[:100]}"
+                existing_ids.add(sig)
+
+        for msg in other.messages:
+            sig = f"{msg.get('role')}:{msg.get('content', '')[:100]}"
+            if not deduplicate or sig not in existing_ids:
+                self.messages.append(msg.copy())
+                existing_ids.add(sig)
+                added += 1
+
+        return added

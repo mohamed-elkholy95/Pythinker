@@ -180,6 +180,49 @@ class StreamEvent(BaseEvent):
     is_final: bool = False  # Whether this is the final chunk
 
 
+class VerificationStatus(str, Enum):
+    """Verification status enum"""
+    STARTED = "started"
+    PASSED = "passed"
+    REVISION_NEEDED = "revision_needed"
+    FAILED = "failed"
+
+
+class VerificationEvent(BaseEvent):
+    """Verification event when verifying a plan before execution"""
+    type: Literal["verification"] = "verification"
+    status: VerificationStatus
+    verdict: Optional[str] = None  # "pass", "revise", "fail"
+    confidence: Optional[float] = None
+    summary: Optional[str] = None
+    revision_feedback: Optional[str] = None  # Feedback for replanning
+
+
+class ReflectionStatus(str, Enum):
+    """Reflection status enum"""
+    TRIGGERED = "triggered"
+    COMPLETED = "completed"
+
+
+class ReflectionEvent(BaseEvent):
+    """Reflection event during execution"""
+    type: Literal["reflection"] = "reflection"
+    status: ReflectionStatus
+    decision: Optional[str] = None  # "continue", "adjust", "replan", "escalate", "abort"
+    confidence: Optional[float] = None
+    summary: Optional[str] = None
+    trigger_reason: Optional[str] = None  # Why reflection was triggered
+
+
+class PathEvent(BaseEvent):
+    """Path event for Tree-of-Thoughts multi-path exploration"""
+    type: Literal["path"] = "path"
+    path_id: str
+    action: str  # "created", "exploring", "completed", "abandoned", "selected"
+    score: Optional[float] = None
+    description: Optional[str] = None
+
+
 AgentEvent = Union[
     ErrorEvent,
     PlanEvent,
@@ -197,4 +240,7 @@ AgentEvent = Union[
     SuggestionEvent,
     ReportEvent,
     StreamEvent,
+    VerificationEvent,
+    ReflectionEvent,
+    PathEvent,
 ]

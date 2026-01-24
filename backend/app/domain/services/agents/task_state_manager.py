@@ -1,15 +1,19 @@
 """
-Task state management for todo recitation.
+Task state management for todo recitation and progress tracking.
 
 Maintains a persistent task_state.md file in the sandbox to keep
 objectives and progress in the agent's recent attention span.
 Based on Manus's recitation approach for improved goal focus.
+
+Enhanced with ProgressMetrics integration for reflection system (Phase 2).
 """
 
 import logging
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+
+from app.domain.models.reflection import ProgressMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +165,8 @@ class TaskStateManager:
 
     Maintains task_state.md in the sandbox and provides state
     for context injection to keep objectives in attention.
+
+    Enhanced with ProgressMetrics for reflection system integration (Phase 2).
     """
 
     def __init__(self, sandbox=None):
@@ -173,6 +179,11 @@ class TaskStateManager:
         self._sandbox = sandbox
         self._state: Optional[TaskState] = None
         self._file_path = TASK_STATE_PATH
+        # Progress metrics for reflection integration
+        self._progress_metrics: Optional[ProgressMetrics] = None
+        # Track recent actions for reflection context
+        self._recent_actions: List[Dict[str, Any]] = []
+        self._max_recent_actions = 10
 
     def initialize_from_plan(
         self,
@@ -197,6 +208,17 @@ class TaskStateManager:
                 status="pending",
                 step_id=str(step.get("id", ""))
             )
+
+        # Initialize progress metrics for reflection
+        self._progress_metrics = ProgressMetrics(
+            steps_completed=0,
+            steps_remaining=len(steps),
+            total_steps=len(steps),
+            started_at=datetime.now()
+        )
+
+        # Clear recent actions
+        self._recent_actions = []
 
         logger.info(f"TaskStateManager initialized with {len(steps)} steps")
         return self._state
@@ -303,7 +325,86 @@ class TaskStateManager:
     def reset(self) -> None:
         """Reset task state"""
         self._state = None
+        self._progress_metrics = None
+        self._recent_actions = []
         logger.debug("TaskStateManager reset")
+
+    # =========================================================================
+    # Progress Metrics for Reflection (Phase 2)
+    # =========================================================================
+
+    def get_progress_metrics(self) -> Optional[ProgressMetrics]:
+        """Get current progress metrics for reflection."""
+        return self._progress_metrics
+
+    def record_action(
+        self,
+        function_name: str,
+        success: bool,
+        result: Any = None,
+        error: Optional[str] = None
+    ) -> None:
+        """Record a tool action for progress tracking and reflection context.
+
+        Args:
+            function_name: Name of the tool function called
+            success: Whether the action succeeded
+            result: The result of the action (optional)
+            error: Error message if failed (optional)
+        """
+        if not self._progress_metrics:
+            return
+
+        # Record in progress metrics
+        if success:
+            self._progress_metrics.record_success()
+        else:
+            self._progress_metrics.record_failure(error or "Unknown error")
+
+        # Track recent actions for reflection context
+        action_record = {
+            "function_name": function_name,
+            "success": success,
+            "result": str(result)[:200] if result else None,
+            "error": error,
+            "timestamp": datetime.now().isoformat()
+        }
+        self._recent_actions.append(action_record)
+
+        # Keep only recent actions
+        if len(self._recent_actions) > self._max_recent_actions:
+            self._recent_actions = self._recent_actions[-self._max_recent_actions:]
+
+    def record_step_complete(self, step_id: str, success: bool = True) -> None:
+        """Record step completion for progress tracking.
+
+        Args:
+            step_id: ID of the completed step
+            success: Whether the step was successful
+        """
+        if self._progress_metrics:
+            self._progress_metrics.record_step_completed()
+
+        # Also update task state
+        self.update_step_status(
+            step_id,
+            "completed" if success else "failed"
+        )
+
+    def record_no_progress(self) -> None:
+        """Record that an action made no meaningful progress (for stall detection)."""
+        if self._progress_metrics:
+            self._progress_metrics.record_no_progress()
+
+    def get_recent_actions(self) -> List[Dict[str, Any]]:
+        """Get recent actions for reflection context."""
+        return self._recent_actions.copy()
+
+    def get_last_error(self) -> Optional[str]:
+        """Get the most recent error message."""
+        if self._progress_metrics and self._progress_metrics.errors:
+            return self._progress_metrics.errors[-1]
+        return None
 
 
 # Singleton for global access
