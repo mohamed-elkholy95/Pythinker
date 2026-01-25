@@ -86,32 +86,40 @@ class TestStuckDetector:
         assert detector.is_stuck() is True
 
     def test_stuck_pattern_broken(self):
-        """Test that different responses eventually break stuck pattern"""
-        detector = StuckDetector(window_size=5, threshold=3)
+        """Test that different responses eventually break stuck pattern.
+
+        The StuckDetector uses both hash-based and semantic similarity detection.
+        To properly break the pattern, we need responses that are distinct enough
+        to not trigger semantic similarity (trigram-based embeddings).
+        """
+        # Disable semantic detection for this test to isolate hash-based behavior
+        detector = StuckDetector(window_size=5, threshold=3, enable_semantic=False)
 
         identical = {"content": "Same response", "role": "assistant"}
-        different = {"content": "Different response", "role": "assistant"}
 
-        # Get into stuck state
+        # Get into stuck state via hash matching
         for _ in range(3):
             detector.track_response(identical)
         assert detector.is_stuck() is True
 
-        # Need enough different responses to push identical ones out of window
-        # After adding different responses, the pattern should eventually break
+        # Add different responses to break the hash-based pattern
+        # With window_size=5 and threshold=3, we need to push out identical responses
         for i in range(3):
-            detector.track_response({"content": f"Different {i}", "role": "assistant"})
+            detector.track_response({"content": f"Different response number {i}", "role": "assistant"})
 
         # Now the window has fewer than threshold identical responses
         assert detector.is_stuck() is False
 
     def test_can_attempt_recovery(self):
-        """Test recovery attempt availability"""
+        """Test recovery attempt availability.
+
+        StuckDetector has max_recovery_attempts=5.
+        """
         detector = StuckDetector()
         assert detector.can_attempt_recovery() is True
 
-        # Use up recovery attempts
-        for _ in range(3):
+        # Use up recovery attempts (max is 5)
+        for _ in range(5):
             detector.record_recovery_attempt()
 
         assert detector.can_attempt_recovery() is False

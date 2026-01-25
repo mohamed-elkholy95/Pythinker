@@ -1,16 +1,35 @@
 """
 Integration tests for sandbox file upload and download functionality
+
+These tests require a running sandbox container. They are skipped if the sandbox
+is not accessible.
 """
 import logging
 import pytest
 import tempfile
 import os
 import io
+import httpx
 
 from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
 from app.domain.models.tool_result import ToolResult
 
 logger = logging.getLogger(__name__)
+
+# Check if sandbox is available
+def _sandbox_available():
+    """Check if sandbox HTTP endpoint is reachable"""
+    try:
+        response = httpx.get("http://127.0.0.1:8080/health", timeout=2.0)
+        return response.status_code == 200
+    except Exception:
+        return False
+
+# Skip all tests in this module if sandbox is not available
+pytestmark = pytest.mark.skipif(
+    not _sandbox_available(),
+    reason="Sandbox container not running at 127.0.0.1:8080"
+)
 
 
 @pytest.fixture
