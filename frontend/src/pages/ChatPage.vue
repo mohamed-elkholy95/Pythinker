@@ -112,7 +112,14 @@
             @selectSuggestion="handleSuggestionSelect" />
 
           <!-- Loading/Thinking indicators - only show when no tool is actively being called -->
-          <div v-if="isLoading && isThinking && lastTool?.status !== 'calling'" class="flex flex-col">
+          <!-- Streaming thinking indicator with text -->
+          <StreamingThinkingIndicator
+            v-if="isLoading && (isThinkingStreaming || thinkingText) && lastTool?.status !== 'calling'"
+            :text="thinkingText"
+            :maxLines="8"
+          />
+          <!-- Static thinking indicator (no streaming text) -->
+          <div v-else-if="isLoading && isThinking && lastTool?.status !== 'calling'" class="flex flex-col">
             <div class="flex">
               <div class="w-[24px] relative h-4">
                 <div class="border-l border-dashed border-[var(--border-dark)] absolute start-[8px] top-0 bottom-0"></div>
@@ -197,6 +204,7 @@ import {
   ModeChangeEventData,
   SuggestionEventData,
   ReportEventData,
+  StreamEventData,
 } from '../types/event';
 import Suggestions from '../components/Suggestions.vue';
 import ToolPanel from '../components/ToolPanel.vue'
@@ -212,6 +220,7 @@ import { SessionStatus } from '../types/response';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import LoadingIndicator from '@/components/ui/LoadingIndicator.vue';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
+import StreamingThinkingIndicator from '@/components/ui/StreamingThinkingIndicator.vue';
 import TaskProgressBar from '@/components/TaskProgressBar.vue';
 import { ReportModal } from '@/components/report';
 import type { ReportData } from '@/components/report';
@@ -248,6 +257,8 @@ const createInitialState = () => ({
   agentMode: 'discuss' as 'discuss' | 'agent', // Current agent mode
   isThinking: false, // True when agent is actively thinking/processing
   seenEventIds: new Set<string>(), // Track seen event IDs to prevent duplicates
+  thinkingText: '', // Accumulated streaming thinking text
+  isThinkingStreaming: false, // True when streaming thinking is in progress
 });
 
 // Create reactive state
@@ -276,6 +287,8 @@ const {
   agentMode,
   isThinking,
   seenEventIds,
+  thinkingText,
+  isThinkingStreaming,
 } = toRefs(state);
 
 // Non-state refs that don't need reset
@@ -440,7 +453,20 @@ const handleTitleEvent = (titleData: TitleEventData) => {
 
 // Handle plan event
 const handlePlanEvent = (planData: PlanEventData) => {
+  // Clear thinking text when plan arrives
+  thinkingText.value = '';
+  isThinkingStreaming.value = false;
   plan.value = planData;
+}
+
+// Handle stream event (thinking text streaming)
+const handleStreamEvent = (streamData: StreamEventData) => {
+  if (streamData.is_final) {
+    isThinkingStreaming.value = false;
+  } else {
+    isThinkingStreaming.value = true;
+    thinkingText.value += streamData.content;
+  }
 }
 
 // Handle mode change event
@@ -546,6 +572,8 @@ const handleEvent = (event: AgentSSEEvent) => {
     handleSuggestionEvent(event.data as SuggestionEventData);
   } else if (event.event === 'report') {
     handleReportEvent(event.data as ReportEventData);
+  } else if (event.event === 'stream') {
+    handleStreamEvent(event.data as StreamEventData);
   }
   lastEventId.value = event.data.event_id;
 }
@@ -608,6 +636,8 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
           console.log('Chat closed');
           isLoading.value = false;
           isThinking.value = false;
+          thinkingText.value = '';
+          isThinkingStreaming.value = false;
           // Clear the cancel function when connection is closed normally
           if (cancelCurrentChat.value) {
             cancelCurrentChat.value = null;
@@ -617,6 +647,8 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
           console.error('Chat error:', error);
           isLoading.value = false;
           isThinking.value = false;
+          thinkingText.value = '';
+          isThinkingStreaming.value = false;
           // Clear the cancel function when there's an error
           if (cancelCurrentChat.value) {
             cancelCurrentChat.value = null;

@@ -11,6 +11,7 @@ from app.domain.services.prompts.planner import (
     CREATE_PLAN_PROMPT,
     UPDATE_PLAN_PROMPT,
     PLANNER_SYSTEM_PROMPT,
+    THINKING_PROMPT,
     build_create_plan_prompt,
 )
 from app.domain.models.long_term_memory import MemoryType
@@ -24,6 +25,7 @@ from app.domain.models.event import (
     ErrorEvent,
     MessageEvent,
     DoneEvent,
+    StreamEvent,
 )
 from app.domain.models.agent_response import PlanResponse, PlanUpdateResponse
 from app.domain.external.sandbox import Sandbox
@@ -66,6 +68,47 @@ class PlannerAgent(BaseAgent):
         self._memory_service = memory_service
         self._user_id = user_id
 
+    async def _stream_thinking(
+        self,
+        message: str
+    ) -> AsyncGenerator[BaseEvent, None]:
+        """Stream thinking process before creating a plan.
+
+        Uses the LLM's streaming capability to show reasoning in real-time.
+
+        Args:
+            message: The user message to think about
+
+        Yields:
+            StreamEvent for each content chunk
+        """
+        thinking_prompt = THINKING_PROMPT.format(message=message)
+
+        # Check if LLM supports streaming
+        if not hasattr(self.llm, 'ask_stream'):
+            logger.debug("LLM does not support streaming, skipping thinking phase")
+            return
+
+        try:
+            # Use a fresh message list for thinking (don't pollute main memory)
+            thinking_messages = [
+                {"role": "system", "content": "You are a thoughtful assistant. Think through problems step by step."},
+                {"role": "user", "content": thinking_prompt}
+            ]
+
+            async for chunk in self.llm.ask_stream(
+                thinking_messages,
+                tools=None,
+                response_format=None
+            ):
+                yield StreamEvent(content=chunk, is_final=False)
+
+            # Signal end of thinking stream
+            yield StreamEvent(content="", is_final=True)
+
+        except Exception as e:
+            logger.warning(f"Thinking stream failed, continuing with plan creation: {e}")
+            # Don't yield error - just continue to plan creation
 
     async def create_plan(
         self,
@@ -79,8 +122,13 @@ class PlannerAgent(BaseAgent):
             replan_context: Optional feedback from verification for replanning
 
         Yields:
-            PlanEvent with the created plan
+            StreamEvent during thinking, then PlanEvent with the created plan
         """
+        # Stream thinking phase for initial plans (skip on replans for speed)
+        if not replan_context:
+            async for event in self._stream_thinking(message.message):
+                yield event
+
         # Retrieve similar past tasks and outcomes (Phase 6: Qdrant integration)
         task_memory = None
         if self._memory_service and self._user_id:

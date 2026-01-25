@@ -162,6 +162,13 @@ class Settings(BaseSettings):
     credential_encryption_key: str | None = None  # AES-256 master key (32 bytes base64)
     credential_ttl_hours: int = 24  # Default credential TTL in Redis
 
+    # Timeline Replay Configuration
+    enable_timeline_recording: bool = True  # Enable timeline action recording
+    timeline_snapshot_interval: int = 50  # Actions between periodic snapshots
+    timeline_retention_days: int = 30  # Days to retain detailed timeline data
+    timeline_max_snapshots_per_session: int = 1000  # Max snapshots per session
+    timeline_compress_snapshots: bool = True  # Compress snapshot data
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

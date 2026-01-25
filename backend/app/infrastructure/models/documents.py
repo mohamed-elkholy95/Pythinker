@@ -1,4 +1,4 @@
-from typing import Dict, Optional, List, Type, TypeVar, Generic, get_args, Self
+from typing import Dict, Optional, List, Type, TypeVar, Generic, get_args, Self, Any
 from datetime import datetime, timezone, UTC
 from beanie import Document
 from pydantic import BaseModel
@@ -98,9 +98,47 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
     files: List[FileInfo] = []
     is_shared: Optional[bool] = False
     mode: AgentMode = AgentMode.DISCUSS  # Agent mode: discuss or agent
+
+    # Timeline tracking
+    event_count: int = 0  # Total number of events for efficient queries
+
     class Settings:
         name = "sessions"
         indexes = [
             "session_id",
             "user_id",  # Add index for user_id for efficient queries
+        ]
+
+
+class SnapshotDocument(Document):
+    """MongoDB document for StateSnapshot"""
+    snapshot_id: str
+    session_id: str
+    action_id: Optional[str] = None
+    sequence_number: int
+
+    # Timing
+    created_at: datetime = datetime.now(timezone.utc)
+
+    # Snapshot type
+    snapshot_type: str  # SnapshotType enum value
+
+    # Resource identification
+    resource_path: Optional[str] = None
+
+    # Snapshot data stored as JSON
+    snapshot_data: Dict = {}
+
+    # Compression info
+    is_compressed: bool = False
+    compressed_size_bytes: Optional[int] = None
+
+    class Settings:
+        name = "snapshots"
+        indexes = [
+            "snapshot_id",
+            "session_id",
+            IndexModel([("session_id", ASCENDING), ("sequence_number", ASCENDING)]),
+            IndexModel([("session_id", ASCENDING), ("created_at", ASCENDING)]),
+            "action_id",
         ]

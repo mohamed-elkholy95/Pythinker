@@ -3,6 +3,17 @@ from typing import Optional
 
 PLANNER_SYSTEM_PROMPT = """You are a task planner. Create focused, actionable plans. No explanations - just plan."""
 
+THINKING_PROMPT = """Before creating a plan, think through the user's request step by step.
+
+User request: {message}
+
+Consider:
+1. What is the user actually asking for?
+2. What are the key challenges or constraints?
+3. What approach would be most effective?
+
+Think out loud briefly."""
+
 # Task memory template - for similar past tasks (Phase 6: Qdrant integration)
 TASK_MEMORY_SIGNAL = """
 ---

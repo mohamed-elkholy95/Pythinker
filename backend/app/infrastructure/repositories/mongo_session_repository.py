@@ -186,3 +186,71 @@ class MongoSessionRepository(SessionRepository):
         )
         if not result:
             raise ValueError(f"Session {session_id} not found")
+
+    # Timeline query methods
+    async def get_events_paginated(
+        self,
+        session_id: str,
+        offset: int = 0,
+        limit: int = 100
+    ) -> List[BaseEvent]:
+        """Get paginated events for a session using MongoDB aggregation."""
+        pipeline = [
+            {"$match": {"session_id": session_id}},
+            {"$project": {
+                "events": {"$slice": ["$events", offset, limit]}
+            }}
+        ]
+        results = await SessionDocument.aggregate(pipeline).to_list()
+        if not results:
+            return []
+        return results[0].get("events", [])
+
+    async def get_events_in_range(
+        self,
+        session_id: str,
+        start_time: datetime,
+        end_time: datetime
+    ) -> List[BaseEvent]:
+        """Get events within a time range using MongoDB aggregation."""
+        mongo_session = await SessionDocument.find_one(
+            SessionDocument.session_id == session_id
+        )
+        if not mongo_session:
+            return []
+
+        # Filter events by timestamp
+        filtered_events = [
+            event for event in mongo_session.events
+            if hasattr(event, 'timestamp') and
+               start_time <= event.get('timestamp', start_time) <= end_time
+        ]
+        return filtered_events
+
+    async def get_event_count(self, session_id: str) -> int:
+        """Get the total number of events for a session."""
+        pipeline = [
+            {"$match": {"session_id": session_id}},
+            {"$project": {"count": {"$size": "$events"}}}
+        ]
+        results = await SessionDocument.aggregate(pipeline).to_list()
+        if not results:
+            return 0
+        return results[0].get("count", 0)
+
+    async def get_event_by_sequence(
+        self,
+        session_id: str,
+        sequence: int
+    ) -> Optional[BaseEvent]:
+        """Get an event by its sequence number (0-indexed position)."""
+        pipeline = [
+            {"$match": {"session_id": session_id}},
+            {"$project": {
+                "event": {"$arrayElemAt": ["$events", sequence]}
+            }}
+        ]
+        results = await SessionDocument.aggregate(pipeline).to_list()
+        if not results:
+            return None
+        return results[0].get("event")
