@@ -43,12 +43,14 @@ from app.domain.utils.json_parser import JsonParser
 
 from app.domain.services.flows.plan_act import PlanActFlow
 from app.domain.services.flows.discuss import DiscussFlow
+from app.domain.services.langgraph import LangGraphPlanActFlow
 from app.domain.services.orchestration.coordinator_flow import (
     CoordinatorFlow,
     CoordinatorMode,
     create_coordinator_flow,
 )
 from app.domain.services.tools.mcp import MCPTool
+from app.core.config import get_settings
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
@@ -86,6 +88,7 @@ class AgentTaskRunner(TaskRunner):
         enable_multi_agent: bool = False,
         enable_coordinator: bool = False,
         memory_service: Optional["MemoryService"] = None,
+        use_langgraph_flow: bool = False,
     ):
         self._session_id = session_id
         self._agent_id = agent_id
@@ -106,17 +109,23 @@ class AgentTaskRunner(TaskRunner):
         self._enable_multi_agent = enable_multi_agent
         self._enable_coordinator = enable_coordinator
 
+        # LangGraph flow configuration
+        self._use_langgraph_flow = use_langgraph_flow
+
         # Memory service for long-term context (Phase 6: Qdrant integration)
         self._memory_service = memory_service
 
         # Initialize flows based on mode
         self._plan_act_flow: Optional[PlanActFlow] = None
+        self._langgraph_flow: Optional[LangGraphPlanActFlow] = None
         self._discuss_flow: Optional[DiscussFlow] = None
         self._coordinator_flow: Optional[CoordinatorFlow] = None
 
         if mode == AgentMode.AGENT:
             if enable_coordinator:
                 self._init_coordinator_flow()
+            elif use_langgraph_flow:
+                self._init_langgraph_flow()
             else:
                 self._init_plan_act_flow()
         else:
@@ -144,6 +153,32 @@ class AgentTaskRunner(TaskRunner):
             logger.debug(
                 f"Initialized PlanActFlow for agent {self._agent_id} "
                 f"(multi_agent={self._enable_multi_agent}, memory_service={'enabled' if self._memory_service else 'disabled'})"
+            )
+
+    def _init_langgraph_flow(self) -> None:
+        """Initialize LangGraphPlanActFlow for Agent mode with LangGraph"""
+        if self._langgraph_flow is None:
+            self._langgraph_flow = LangGraphPlanActFlow(
+                agent_id=self._agent_id,
+                agent_repository=self._repository,
+                session_id=self._session_id,
+                session_repository=self._session_repository,
+                llm=self._llm,
+                sandbox=self._sandbox,
+                browser=self._browser,
+                json_parser=self._json_parser,
+                mcp_tool=self._mcp_tool,
+                search_engine=self._search_engine,
+                cdp_url=self._sandbox.cdp_url,
+                enable_verification=True,
+                enable_reflection=True,
+                enable_checkpointing=False,  # Can be enabled when MongoDB db is passed
+                memory_service=self._memory_service,
+                user_id=self._user_id,
+            )
+            logger.info(
+                f"Initialized LangGraphPlanActFlow for agent {self._agent_id} "
+                f"(memory_service={'enabled' if self._memory_service else 'disabled'})"
             )
 
     def _init_coordinator_flow(self) -> None:
@@ -186,6 +221,8 @@ class AgentTaskRunner(TaskRunner):
         # Initialize appropriate flow based on configuration
         if self._enable_coordinator:
             self._init_coordinator_flow()
+        elif self._use_langgraph_flow:
+            self._init_langgraph_flow()
         else:
             self._init_plan_act_flow()
 
@@ -198,6 +235,9 @@ class AgentTaskRunner(TaskRunner):
             # Prefer coordinator flow if enabled
             if self._enable_coordinator and self._coordinator_flow:
                 return self._coordinator_flow
+            # Use LangGraph flow if enabled
+            if self._use_langgraph_flow and self._langgraph_flow:
+                return self._langgraph_flow
             return self._plan_act_flow
         return self._discuss_flow
 
