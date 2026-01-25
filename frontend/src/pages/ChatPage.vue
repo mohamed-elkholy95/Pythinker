@@ -111,8 +111,8 @@
             @reportRate="handleReportRate"
             @selectSuggestion="handleSuggestionSelect" />
 
-          <!-- Loading/Thinking indicators -->
-          <div v-if="isLoading && isThinking" class="flex flex-col">
+          <!-- Loading/Thinking indicators - only show when no tool is actively being called -->
+          <div v-if="isLoading && isThinking && lastTool?.status !== 'calling'" class="flex flex-col">
             <div class="flex">
               <div class="w-[24px] relative h-4">
                 <div class="border-l border-dashed border-[var(--border-dark)] absolute start-[8px] top-0 bottom-0"></div>

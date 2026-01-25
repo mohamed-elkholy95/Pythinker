@@ -107,15 +107,17 @@
         <!-- Main Content with Tiptap Editor -->
         <div class="flex-1 overflow-hidden">
           <TiptapReportEditor
+            ref="editorRef"
             :content="renderedContent"
             :editable="false"
+            @scroll="handleScroll"
           />
         </div>
 
-        <!-- Table of Contents Sidebar -->
+        <!-- Table of Contents Sidebar (hidden on mobile) -->
         <div
           v-if="showToc && tableOfContents.length > 0"
-          class="w-[240px] flex-shrink-0 border-l border-[var(--border-main)] overflow-y-auto py-4 px-3 bg-[var(--background-gray-main)]"
+          class="hidden lg:block w-[240px] flex-shrink-0 border-l border-[var(--border-main)] overflow-y-auto py-4 px-3 bg-[var(--background-gray-main)]"
         >
           <div class="sticky top-0">
             <nav class="space-y-1">
@@ -161,7 +163,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue';
+import { ref, computed, watch, nextTick, type ComponentPublicInstance } from 'vue';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import html2pdf from 'html2pdf.js';
@@ -208,7 +210,12 @@ const emit = defineEmits<{
 
 const isOpen = defineModel<boolean>('open', { default: false });
 
-const contentRef = ref<HTMLElement | null>(null);
+// Reference to TiptapReportEditor component instance
+const editorRef = ref<InstanceType<typeof TiptapReportEditor> | null>(null);
+
+// Computed property to access the content DOM element from the editor
+const contentRef = computed(() => editorRef.value?.contentRef || null);
+
 const activeSection = ref<string>('');
 const tableOfContents = ref<TocItem[]>([]);
 const showDownloadOptions = ref(false);
@@ -271,7 +278,10 @@ const extractToc = () => {
 
 // Scroll to section
 const scrollToSection = (id: string) => {
-  const element = contentRef.value?.querySelector(`#${id}`);
+  const container = contentRef.value;
+  if (!container) return;
+
+  const element = container.querySelector(`#${id}`);
   if (element) {
     element.scrollIntoView({ behavior: 'smooth', block: 'start' });
     activeSection.value = id;
@@ -280,14 +290,15 @@ const scrollToSection = (id: string) => {
 
 // Handle scroll to update active section
 const handleScroll = () => {
-  if (!contentRef.value) return;
+  const container = contentRef.value;
+  if (!container) return;
 
-  const headings = contentRef.value.querySelectorAll('h2, h3, h4');
+  const headings = container.querySelectorAll('h2, h3, h4');
+  const containerRect = container.getBoundingClientRect();
 
   let currentSection = '';
   headings.forEach((heading) => {
     const rect = heading.getBoundingClientRect();
-    const containerRect = contentRef.value!.getBoundingClientRect();
 
     if (rect.top <= containerRect.top + 100) {
       currentSection = heading.id;
@@ -346,13 +357,14 @@ const handleDownloadMarkdown = () => {
 
 // Download as PDF
 const handleDownloadPdf = async () => {
-  if (!contentRef.value || !props.report) return;
+  const container = contentRef.value;
+  if (!container || !props.report) return;
 
   showDownloadOptions.value = false;
   isDownloading.value = true;
 
   try {
-    const element = contentRef.value.querySelector('.prose');
+    const element = container.querySelector('.prose');
     if (!element) return;
 
     const opt = {

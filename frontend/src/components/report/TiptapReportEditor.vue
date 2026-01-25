@@ -6,7 +6,7 @@
   >
     <EditorContent
       :editor="editor"
-      class="prose prose-gray max-w-none"
+      class="prose prose-gray max-w-4xl mx-auto"
     />
   </div>
 </template>
