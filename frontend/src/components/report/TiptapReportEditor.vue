@@ -12,7 +12,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, onBeforeUnmount } from 'vue';
+import { ref, watch, onBeforeUnmount } from 'vue';
 import { useEditor, EditorContent } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
@@ -31,7 +31,7 @@ const props = defineProps<{
   editable?: boolean;
 }>();
 
-const emit = defineEmits<{
+const _emit = defineEmits<{
   (e: 'scroll', event: Event): void;
 }>();
 

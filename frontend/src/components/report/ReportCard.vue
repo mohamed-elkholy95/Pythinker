@@ -256,7 +256,7 @@ const hoverRating = ref(0);
 const maxDisplayedFiles = 4;
 const showMenu = ref(false);
 const showDownloadMenu = ref(false);
-const showHeaderDownload = ref(false);
+const _showHeaderDownload = ref(false);
 
 const displayedAttachments = computed(() => {
   // Show up to maxDisplayedFiles, but leave room for "View all" button if there are more
@@ -442,22 +442,22 @@ const handleDownloadDocx = () => {
   emit('download', props.report, 'docx');
 };
 
-const handleConvertToGoogleDocs = () => {
+const _handleConvertToGoogleDocs = () => {
   showMenu.value = false;
   emit('saveToCloud', props.report, 'google-docs');
 };
 
-const handleSaveToGoogleDrive = () => {
+const _handleSaveToGoogleDrive = () => {
   showMenu.value = false;
   emit('saveToCloud', props.report, 'google-drive');
 };
 
-const handleSaveToOneDrivePersonal = () => {
+const _handleSaveToOneDrivePersonal = () => {
   showMenu.value = false;
   emit('saveToCloud', props.report, 'onedrive-personal');
 };
 
-const handleSaveToOneDriveWork = () => {
+const _handleSaveToOneDriveWork = () => {
   showMenu.value = false;
   emit('saveToCloud', props.report, 'onedrive-work');
 };

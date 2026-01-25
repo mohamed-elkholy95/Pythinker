@@ -163,11 +163,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, type ComponentPublicInstance } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import html2pdf from 'html2pdf.js';
-import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } from 'docx';
+import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 import { saveAs } from 'file-saver';
 import {
   FileText,
@@ -323,7 +323,7 @@ const formatDate = (timestamp: number) => {
 };
 
 // Actions
-const handleShare = () => {
+const _handleShare = () => {
   emit('share');
 };
 
@@ -450,7 +450,7 @@ const handleDownloadDocx = async () => {
       } else {
         // Regular paragraph - handle bold and italic
         const runs: TextRun[] = [];
-        let remaining = trimmedLine;
+        const remaining = trimmedLine;
 
         // Simple parsing for **bold** and *italic*
         const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|[^*]+)/g;
@@ -496,7 +496,7 @@ const handleDownloadDocx = async () => {
 };
 
 // Copy content to clipboard
-const handleCopyContent = async () => {
+const _handleCopyContent = async () => {
   if (!props.report?.content) return;
 
   showDownloadOptions.value = false;
@@ -510,7 +510,7 @@ const handleCopyContent = async () => {
 };
 
 // Print document
-const handlePrint = () => {
+const _handlePrint = () => {
   showDownloadOptions.value = false;
   window.print();
 };

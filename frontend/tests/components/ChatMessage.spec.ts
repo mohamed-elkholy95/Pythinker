@@ -16,7 +16,7 @@ import {
 // Mock composables
 vi.mock('@/composables/useTime', () => ({
   useRelativeTime: () => ({
-    relativeTime: (timestamp: number) => 'just now',
+    relativeTime: (_timestamp: number) => 'just now',
   }),
 }))
 
@@ -126,7 +126,7 @@ describe('ChatMessage', () => {
       // The component should render - the exact icon depends on implementation details
       expect(wrapper.exists()).toBe(true)
       // Check for any icon-related element
-      const hasIcon = wrapper.find('svg').exists() || wrapper.findComponent({ name: 'Bot' }).exists()
+      const _hasIcon = wrapper.find('svg').exists() || wrapper.findComponent({ name: 'Bot' }).exists()
       // Just verify the message renders correctly
       expect(wrapper.text()).toContain('doing well')
     })

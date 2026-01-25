@@ -28,6 +28,12 @@ describe('useAuth', () => {
     vi.clearAllMocks()
     // Reset module state between tests
     vi.resetModules()
+    // Clear global auth state from previous tests
+    // Must mock getCachedAuthProvider before calling useAuth to prevent initAuth side effects
+    vi.mocked(authApi.getCachedAuthProvider).mockResolvedValue('password')
+    vi.mocked(authApi.getStoredToken).mockReturnValue(null)
+    const { clearAuth } = useAuth()
+    clearAuth()
   })
 
   afterEach(() => {
