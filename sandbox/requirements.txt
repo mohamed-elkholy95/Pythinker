@@ -5,3 +5,5 @@ email-validator
 python-multipart
 pydantic-settings
 defusedxml
+playwright-stealth>=1.0.6
+anticaptchaofficial>=1.0.56

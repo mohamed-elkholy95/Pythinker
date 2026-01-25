@@ -691,6 +691,248 @@ class CredentialManager:
 
         return None
 
+    async def get_totp_code(
+        self,
+        credential_id: str,
+        user_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Get the current TOTP code for a credential with TOTP secret.
+
+        The credential data must contain a 'totp_secret' field (Base32-encoded).
+        Optionally supports 'totp_digits' (default: 6) and 'totp_period' (default: 30).
+
+        Args:
+            credential_id: Credential ID
+            user_id: User requesting the code
+            session_id: Session ID
+
+        Returns:
+            Current TOTP code string, or None if not available
+
+        Example credential data structure:
+            {
+                "username": "user@example.com",
+                "password": "password",
+                "totp_secret": "JBSWY3DPEBLW64TMMQ======",
+                "totp_digits": 6,
+                "totp_period": 30,
+                "backup_codes": ["code1", "code2"]
+            }
+        """
+        from app.domain.services.security.totp_service import TOTPService
+
+        if not TOTPService.is_available():
+            logger.warning("TOTP not available: pyotp not installed")
+            return None
+
+        credential = await self.get(
+            credential_id,
+            user_id=user_id,
+            session_id=session_id,
+        )
+
+        if not credential:
+            return None
+
+        totp_secret = credential.data.get("totp_secret")
+        if not totp_secret:
+            logger.debug(f"Credential {credential_id} has no TOTP secret")
+            return None
+
+        try:
+            code = TOTPService.get_current_code(
+                totp_secret,
+                digits=credential.data.get("totp_digits", 6),
+                period=credential.data.get("totp_period", 30),
+            )
+
+            self._log_audit(
+                credential_id=credential_id,
+                action="totp_generate",
+                success=True,
+                user_id=user_id,
+                session_id=session_id,
+                details="Generated TOTP code",
+            )
+
+            return code
+        except Exception as e:
+            logger.error(f"Failed to generate TOTP code for {credential_id}: {e}")
+            self._log_audit(
+                credential_id=credential_id,
+                action="totp_generate",
+                success=False,
+                user_id=user_id,
+                session_id=session_id,
+                details=f"TOTP generation failed: {str(e)}",
+            )
+            return None
+
+    async def validate_mfa(
+        self,
+        credential_id: str,
+        code: str,
+        user_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        max_failures: int = 5,
+        lockout_minutes: int = 15,
+    ) -> bool:
+        """
+        Validate an MFA code with rate limiting and lockout.
+
+        Supports both TOTP codes and backup codes. Implements rate limiting
+        to prevent brute force attacks.
+
+        Args:
+            credential_id: Credential ID
+            code: The code to validate (TOTP or backup code)
+            user_id: User attempting validation
+            session_id: Session ID
+            max_failures: Maximum failures before lockout (default: 5)
+            lockout_minutes: Lockout duration in minutes (default: 15)
+
+        Returns:
+            True if code is valid, False otherwise
+        """
+        from app.domain.services.security.totp_service import TOTPService
+
+        credential = await self.get(
+            credential_id,
+            user_id=user_id,
+            session_id=session_id,
+        )
+
+        if not credential:
+            return False
+
+        # Check lockout status
+        mfa_metadata = credential.metadata.get("mfa", {})
+        failure_count = mfa_metadata.get("failure_count", 0)
+        lockout_until = mfa_metadata.get("lockout_until")
+
+        if lockout_until:
+            lockout_time = datetime.fromisoformat(lockout_until)
+            if datetime.now() < lockout_time:
+                remaining = (lockout_time - datetime.now()).total_seconds() / 60
+                logger.warning(
+                    f"MFA locked out for credential {credential_id}, "
+                    f"{remaining:.1f} minutes remaining"
+                )
+                self._log_audit(
+                    credential_id=credential_id,
+                    action="mfa_validate",
+                    success=False,
+                    user_id=user_id,
+                    session_id=session_id,
+                    details=f"Locked out, {remaining:.1f} minutes remaining",
+                )
+                return False
+
+        # Check for backup code first
+        backup_codes = credential.data.get("backup_codes", [])
+        if code in backup_codes:
+            # Valid backup code - remove it (one-time use)
+            backup_codes.remove(code)
+            credential.data["backup_codes"] = backup_codes
+
+            # Reset failure count
+            credential.metadata["mfa"] = {
+                "failure_count": 0,
+                "lockout_until": None,
+                "last_success": datetime.now().isoformat(),
+            }
+
+            # Save updated credential
+            encrypted = self._encrypt(credential.to_dict(include_data=True))
+            storage_key = self._get_storage_key(credential_id)
+            await self._store(storage_key, encrypted)
+
+            self._log_audit(
+                credential_id=credential_id,
+                action="mfa_validate",
+                success=True,
+                user_id=user_id,
+                session_id=session_id,
+                details="Validated with backup code",
+            )
+            return True
+
+        # Check TOTP code
+        totp_secret = credential.data.get("totp_secret")
+        if not totp_secret:
+            logger.debug(f"Credential {credential_id} has no TOTP secret")
+            return False
+
+        if not TOTPService.is_available():
+            logger.warning("TOTP not available: pyotp not installed")
+            return False
+
+        is_valid = TOTPService.verify_code(
+            totp_secret,
+            code,
+            digits=credential.data.get("totp_digits", 6),
+            period=credential.data.get("totp_period", 30),
+            window=1,  # Allow 1 period drift
+        )
+
+        if is_valid:
+            # Reset failure count on success
+            credential.metadata["mfa"] = {
+                "failure_count": 0,
+                "lockout_until": None,
+                "last_success": datetime.now().isoformat(),
+            }
+
+            # Save updated credential
+            encrypted = self._encrypt(credential.to_dict(include_data=True))
+            storage_key = self._get_storage_key(credential_id)
+            await self._store(storage_key, encrypted)
+
+            self._log_audit(
+                credential_id=credential_id,
+                action="mfa_validate",
+                success=True,
+                user_id=user_id,
+                session_id=session_id,
+            )
+            return True
+        else:
+            # Increment failure count
+            failure_count += 1
+            lockout_until_new = None
+
+            if failure_count >= max_failures:
+                lockout_until_new = (
+                    datetime.now() + timedelta(minutes=lockout_minutes)
+                ).isoformat()
+                logger.warning(
+                    f"MFA lockout triggered for credential {credential_id} "
+                    f"after {failure_count} failures"
+                )
+
+            credential.metadata["mfa"] = {
+                "failure_count": failure_count,
+                "lockout_until": lockout_until_new,
+                "last_failure": datetime.now().isoformat(),
+            }
+
+            # Save updated credential
+            encrypted = self._encrypt(credential.to_dict(include_data=True))
+            storage_key = self._get_storage_key(credential_id)
+            await self._store(storage_key, encrypted)
+
+            self._log_audit(
+                credential_id=credential_id,
+                action="mfa_validate",
+                success=False,
+                user_id=user_id,
+                session_id=session_id,
+                details=f"Invalid code, failures: {failure_count}",
+            )
+            return False
+
 
 # Singleton instance
 _credential_manager: Optional[CredentialManager] = None
