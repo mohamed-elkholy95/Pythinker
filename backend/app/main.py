@@ -7,6 +7,7 @@ import asyncio
 from app.core.config import get_settings
 from app.infrastructure.storage.mongodb import get_mongodb
 from app.infrastructure.storage.redis import get_redis
+from app.infrastructure.storage.qdrant import get_qdrant
 from app.interfaces.dependencies import get_agent_service
 from app.interfaces.api.routes import router
 from app.infrastructure.logging import setup_logging
@@ -68,7 +69,13 @@ async def lifespan(app: FastAPI):
     
     # Initialize Redis
     await get_redis().initialize()
-    
+
+    # Initialize Qdrant (optional, graceful degradation if unavailable)
+    try:
+        await get_qdrant().initialize()
+    except Exception as e:
+        logger.warning(f"Qdrant initialization failed (graceful degradation): {e}")
+
     try:
         yield
     finally:
@@ -78,6 +85,11 @@ async def lifespan(app: FastAPI):
         await get_mongodb().shutdown()
         # Disconnect from Redis
         await get_redis().shutdown()
+        # Disconnect from Qdrant
+        try:
+            await get_qdrant().shutdown()
+        except Exception:
+            pass  # Already logged or never initialized
 
 
         logger.info("Cleaning up AgentService instance")

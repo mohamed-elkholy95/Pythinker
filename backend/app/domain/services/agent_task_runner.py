@@ -310,7 +310,7 @@ class AgentTaskRunner(TaskRunner):
 
             logger.debug(
                 f"Agent {self._agent_id}: Successfully synced file '{file_path}' "
-                f"-> file_id={file_info.file_id}, size={len(file_data)} bytes"
+                f"-> file_id={file_info.file_id}, size={file_data.getbuffer().nbytes} bytes"
             )
 
             return file_info
