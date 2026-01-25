@@ -76,7 +76,16 @@ class Settings(BaseSettings):
     browser_agent_llm_timeout: int = 90  # Timeout for LLM calls in seconds
     browser_agent_step_timeout: int = 120  # Timeout per step in seconds
     browser_agent_flash_mode: bool = False  # Fast mode skips thinking (less reliable)
-    
+
+    # Anti-Bot / Stealth Configuration (Enhancement Phase 2.4)
+    browser_stealth_enabled: bool = True  # Enable stealth mode for navigation
+    browser_stealth_mode: str = "basic"  # "basic", "advanced"
+    browser_human_delays: bool = True  # Add random human-like delays
+    browser_cloudflare_bypass: bool = False  # Enable Cloudflare challenge bypass
+    browser_recaptcha_solver: str | None = None  # "anticaptcha", "2captcha"
+    browser_recaptcha_api_key: str | None = None  # API key for CAPTCHA solving service
+    browser_proxy_url: str | None = None  # HTTP/SOCKS proxy for browser connections
+
     # Auth configuration
     auth_provider: str = "password"  # "password", "none", "local"
     password_salt: str | None = None
@@ -123,6 +132,9 @@ class Settings(BaseSettings):
     # Parallel Step Execution configuration (Phase 4)
     enable_parallel_execution: bool = False  # Execute independent steps in parallel
     parallel_max_concurrency: int = 3  # Max concurrent step executions
+
+    # LangGraph Flow configuration
+    use_langgraph_flow: bool = False  # Use LangGraph-based PlanActFlow instead of custom
 
     # Autonomy Configuration (Enhancement Phase 1)
     autonomy_level: str = "guided"  # supervised, guided, autonomous, unrestricted

@@ -341,7 +341,7 @@ async with async_playwright() as p:
 
     @tool(
         name="playwright_navigate",
-        description="Navigate to a URL and wait for the page to load.",
+        description="Navigate to a URL and wait for the page to load. Supports optional stealth mode with user agent rotation and human-like delays.",
         parameters={
             "url": {
                 "type": "string",
@@ -355,6 +355,14 @@ async with async_playwright() as p:
             "timeout": {
                 "type": "integer",
                 "description": "Navigation timeout in milliseconds (default: 30000)"
+            },
+            "stealth": {
+                "type": "boolean",
+                "description": "Enable stealth mode with random user agent/viewport (default: false)"
+            },
+            "human_delay": {
+                "type": "boolean",
+                "description": "Add random human-like delays (default: true when stealth is enabled)"
             }
         },
         required=["url"]
@@ -364,6 +372,8 @@ async with async_playwright() as p:
         url: str,
         wait_until: str = "load",
         timeout: int = 30000,
+        stealth: bool = False,
+        human_delay: Optional[bool] = None,
     ) -> ToolResult:
         """
         Navigate to a URL.
@@ -372,11 +382,72 @@ async with async_playwright() as p:
             url: URL to navigate to
             wait_until: Wait condition
             timeout: Navigation timeout in ms
+            stealth: Enable stealth mode with random user agent and viewport
+            human_delay: Add random human-like delays (defaults to stealth setting)
 
         Returns:
             ToolResult with page info
         """
-        script = f'''
+        # Check config for stealth defaults
+        try:
+            from app.core.config import get_settings
+            settings = get_settings()
+            if not stealth and settings.browser_stealth_enabled:
+                stealth = True
+            if human_delay is None:
+                human_delay = stealth and settings.browser_human_delays
+        except Exception:
+            if human_delay is None:
+                human_delay = stealth
+
+        if stealth:
+            user_agent = self._get_random_user_agent()
+            viewport = self._get_random_viewport()
+            self._current_user_agent = user_agent
+            self._current_viewport = viewport
+
+            delay_code = ""
+            if human_delay:
+                delay_code = """
+    import random
+    await asyncio.sleep(random.uniform(0.1, 0.5))
+"""
+
+            script = f'''
+import asyncio
+
+async with async_playwright() as p:
+    browser = await p.chromium.launch(headless=True)
+    context = await browser.new_context(
+        viewport={viewport},
+        user_agent="{user_agent}",
+    )
+    page = await context.new_page()
+
+    # Disable webdriver detection
+    await page.add_init_script("""
+        Object.defineProperty(navigator, 'webdriver', {{get: () => undefined}});
+    """)
+    {delay_code}
+    response = await page.goto("{url}", wait_until="{wait_until}", timeout={timeout})
+
+    title = await page.title()
+    content = await page.content()
+
+    result["success"] = True
+    result["data"] = {{
+        "url": page.url,
+        "title": title,
+        "status": response.status if response else None,
+        "content_length": len(content),
+        "stealth_mode": True,
+        "user_agent": "{user_agent}",
+    }}
+
+    await browser.close()
+'''
+        else:
+            script = f'''
 async with async_playwright() as p:
     browser = await p.chromium.launch(headless=True)
     context = await browser.new_context()
@@ -1215,6 +1286,546 @@ async with async_playwright() as p:
         "url": page.url,
         "title": title,
         "blocked_requests": blocked_count,
+    }}
+
+    await browser.close()
+'''
+
+        return await self._run_playwright_script(script, timeout=90)
+
+    # ==================== Phase 2.4: Anti-Bot Features ====================
+
+    @tool(
+        name="playwright_solve_recaptcha",
+        description="Solve a reCAPTCHA challenge using an external solving service (requires API key configuration).",
+        parameters={
+            "site_key": {
+                "type": "string",
+                "description": "The reCAPTCHA site key (data-sitekey attribute)"
+            },
+            "page_url": {
+                "type": "string",
+                "description": "The URL of the page containing the CAPTCHA"
+            },
+            "captcha_type": {
+                "type": "string",
+                "description": "Type of reCAPTCHA: v2, v3, or enterprise",
+                "enum": ["v2", "v3", "enterprise"]
+            },
+            "action": {
+                "type": "string",
+                "description": "Action name for v3/enterprise (e.g., 'login', 'submit')"
+            }
+        },
+        required=["site_key", "page_url"]
+    )
+    async def playwright_solve_recaptcha(
+        self,
+        site_key: str,
+        page_url: str,
+        captcha_type: str = "v2",
+        action: str = "verify",
+    ) -> ToolResult:
+        """
+        Solve a reCAPTCHA challenge using an external service.
+
+        Requires browser_recaptcha_solver and browser_recaptcha_api_key
+        to be configured in settings.
+
+        Args:
+            site_key: reCAPTCHA site key
+            page_url: URL of the page with CAPTCHA
+            captcha_type: Type of reCAPTCHA (v2, v3, enterprise)
+            action: Action name for v3/enterprise
+
+        Returns:
+            ToolResult with solution token
+        """
+        try:
+            from app.core.config import get_settings
+            settings = get_settings()
+
+            solver = settings.browser_recaptcha_solver
+            api_key = settings.browser_recaptcha_api_key
+
+            if not solver or not api_key:
+                return ToolResult(
+                    success=False,
+                    message="CAPTCHA solver not configured. Set browser_recaptcha_solver and browser_recaptcha_api_key in settings."
+                )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                message=f"Failed to get settings: {e}"
+            )
+
+        # Generate script based on solver type
+        if solver == "anticaptcha":
+            script = f'''
+from anticaptchaofficial.recaptchav2proxyless import recaptchaV2Proxyless
+from anticaptchaofficial.recaptchav3proxyless import recaptchaV3Proxyless
+
+api_key = "{api_key}"
+site_key = "{site_key}"
+page_url = "{page_url}"
+captcha_type = "{captcha_type}"
+action = "{action}"
+
+try:
+    if captcha_type == "v2":
+        solver = recaptchaV2Proxyless()
+        solver.set_key(api_key)
+        solver.set_website_url(page_url)
+        solver.set_website_key(site_key)
+        token = solver.solve_and_return_solution()
+    elif captcha_type in ("v3", "enterprise"):
+        solver = recaptchaV3Proxyless()
+        solver.set_key(api_key)
+        solver.set_website_url(page_url)
+        solver.set_website_key(site_key)
+        solver.set_page_action(action)
+        solver.set_min_score(0.7)
+        if captcha_type == "enterprise":
+            solver.set_is_enterprise(True)
+        token = solver.solve_and_return_solution()
+    else:
+        result["error"] = f"Unsupported captcha type: {{captcha_type}}"
+        token = None
+
+    if token:
+        result["success"] = True
+        result["data"] = {{
+            "token": token,
+            "captcha_type": captcha_type,
+            "site_key": site_key,
+        }}
+    else:
+        result["error"] = solver.error_code if hasattr(solver, 'error_code') else "Failed to solve CAPTCHA"
+except Exception as e:
+    result["error"] = str(e)
+'''
+        elif solver == "2captcha":
+            script = f'''
+import requests
+import time
+
+api_key = "{api_key}"
+site_key = "{site_key}"
+page_url = "{page_url}"
+captcha_type = "{captcha_type}"
+
+try:
+    # Submit CAPTCHA
+    if captcha_type == "v2":
+        submit_url = f"http://2captcha.com/in.php?key={{api_key}}&method=userrecaptcha&googlekey={{site_key}}&pageurl={{page_url}}&json=1"
+    elif captcha_type in ("v3", "enterprise"):
+        action = "{action}"
+        submit_url = f"http://2captcha.com/in.php?key={{api_key}}&method=userrecaptcha&googlekey={{site_key}}&pageurl={{page_url}}&version=v3&action={{action}}&min_score=0.7&json=1"
+        if captcha_type == "enterprise":
+            submit_url += "&enterprise=1"
+    else:
+        result["error"] = f"Unsupported captcha type: {{captcha_type}}"
+        raise ValueError("Unsupported type")
+
+    response = requests.get(submit_url)
+    submit_result = response.json()
+
+    if submit_result.get("status") != 1:
+        result["error"] = submit_result.get("request", "Submit failed")
+        raise ValueError("Submit failed")
+
+    captcha_id = submit_result["request"]
+
+    # Poll for result
+    for _ in range(60):
+        time.sleep(3)
+        check_url = f"http://2captcha.com/res.php?key={{api_key}}&action=get&id={{captcha_id}}&json=1"
+        response = requests.get(check_url)
+        check_result = response.json()
+
+        if check_result.get("status") == 1:
+            result["success"] = True
+            result["data"] = {{
+                "token": check_result["request"],
+                "captcha_type": captcha_type,
+                "site_key": site_key,
+            }}
+            break
+        elif check_result.get("request") != "CAPCHA_NOT_READY":
+            result["error"] = check_result.get("request", "Unknown error")
+            break
+    else:
+        result["error"] = "Timeout waiting for CAPTCHA solution"
+
+except Exception as e:
+    if not result.get("error"):
+        result["error"] = str(e)
+'''
+        else:
+            return ToolResult(
+                success=False,
+                message=f"Unknown CAPTCHA solver: {solver}. Supported: anticaptcha, 2captcha"
+            )
+
+        return await self._run_playwright_script(script, timeout=180)
+
+    @tool(
+        name="playwright_cloudflare_bypass",
+        description="Navigate through a Cloudflare challenge page with extended wait times and stealth mode.",
+        parameters={
+            "url": {
+                "type": "string",
+                "description": "URL to navigate to (may be behind Cloudflare)"
+            },
+            "max_wait_seconds": {
+                "type": "integer",
+                "description": "Maximum seconds to wait for challenge to complete (default: 30)"
+            }
+        },
+        required=["url"]
+    )
+    async def playwright_cloudflare_bypass(
+        self,
+        url: str,
+        max_wait_seconds: int = 30,
+    ) -> ToolResult:
+        """
+        Navigate through a Cloudflare challenge page.
+
+        Uses stealth mode with extended wait times to handle Cloudflare's
+        "checking your browser" and similar challenge pages.
+
+        Args:
+            url: URL to navigate to
+            max_wait_seconds: Maximum time to wait for challenge
+
+        Returns:
+            ToolResult with page info after bypass
+        """
+        user_agent = self._get_random_user_agent()
+        viewport = self._get_random_viewport()
+        stealth_args = self._get_stealth_args()
+
+        self._current_user_agent = user_agent
+        self._current_viewport = viewport
+
+        script = f'''
+import asyncio
+
+try:
+    from playwright_stealth import stealth_async
+    HAS_STEALTH = True
+except ImportError:
+    HAS_STEALTH = False
+
+async with async_playwright() as p:
+    browser = await p.chromium.launch(
+        headless=True,
+        args={stealth_args}
+    )
+    context = await browser.new_context(
+        viewport={viewport},
+        user_agent="{user_agent}",
+        locale="en-US",
+        timezone_id="America/New_York",
+    )
+    page = await context.new_page()
+
+    if HAS_STEALTH:
+        await stealth_async(page)
+
+    # Disable webdriver detection
+    await page.add_init_script("""
+        Object.defineProperty(navigator, 'webdriver', {{get: () => undefined}});
+        Object.defineProperty(navigator, 'plugins', {{get: () => [1, 2, 3]}});
+        Object.defineProperty(navigator, 'languages', {{get: () => ['en-US', 'en']}});
+    """)
+
+    # Initial navigation
+    response = await page.goto("{url}", wait_until="domcontentloaded", timeout=60000)
+
+    # Wait for Cloudflare challenge to complete
+    cloudflare_detected = False
+    challenge_passed = False
+    max_wait = {max_wait_seconds}
+
+    for _ in range(max_wait):
+        content = await page.content()
+        content_lower = content.lower()
+
+        # Check for Cloudflare challenge indicators
+        if any(indicator in content_lower for indicator in [
+            "checking your browser",
+            "please wait",
+            "ddos-guard",
+            "cf-challenge",
+            "cf_chl_opt",
+            "ray id",
+        ]):
+            cloudflare_detected = True
+            await asyncio.sleep(1)
+        else:
+            if cloudflare_detected:
+                challenge_passed = True
+            break
+
+    title = await page.title()
+    final_url = page.url
+    final_content = await page.content()
+    status = response.status if response else None
+
+    result["success"] = True
+    result["data"] = {{
+        "url": final_url,
+        "title": title,
+        "status": status,
+        "cloudflare_detected": cloudflare_detected,
+        "challenge_passed": challenge_passed,
+        "content_length": len(final_content),
+        "stealth_mode": True,
+    }}
+
+    await browser.close()
+'''
+
+        return await self._run_playwright_script(script, timeout=max_wait_seconds + 90)
+
+    @tool(
+        name="playwright_fill_2fa_code",
+        description="Auto-fill a 2FA/TOTP code from a stored credential into a form field.",
+        parameters={
+            "credential_id": {
+                "type": "string",
+                "description": "ID of the credential containing the TOTP secret"
+            },
+            "selector": {
+                "type": "string",
+                "description": "CSS selector for the 2FA input field"
+            },
+            "url": {
+                "type": "string",
+                "description": "URL of the page (for context in logs)"
+            }
+        },
+        required=["credential_id", "selector"]
+    )
+    async def playwright_fill_2fa_code(
+        self,
+        credential_id: str,
+        selector: str,
+        url: Optional[str] = None,
+    ) -> ToolResult:
+        """
+        Auto-fill a 2FA/TOTP code from a stored credential.
+
+        Retrieves the current TOTP code from the credential manager
+        and fills it into the specified form field.
+
+        Args:
+            credential_id: Credential ID with TOTP secret
+            selector: CSS selector for the 2FA input field
+            url: URL context for logging
+
+        Returns:
+            ToolResult with fill status
+        """
+        try:
+            from app.domain.services.security.credential_manager import get_credential_manager
+
+            credential_manager = get_credential_manager()
+            totp_code = await credential_manager.get_totp_code(
+                credential_id,
+                session_id=self.session_id,
+            )
+
+            if not totp_code:
+                return ToolResult(
+                    success=False,
+                    message=f"Failed to get TOTP code for credential {credential_id}. "
+                           "Ensure the credential has a totp_secret field."
+                )
+
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                message=f"Failed to get TOTP code: {e}"
+            )
+
+        safe_selector = selector.replace('"', '\\"')
+        safe_code = totp_code
+
+        script = f'''
+async with async_playwright() as p:
+    browser = await p.chromium.launch(headless=True)
+    context = await browser.new_context()
+    page = await context.new_page()
+
+    # Fill the 2FA code
+    await page.fill("{safe_selector}", "{safe_code}", timeout=10000)
+
+    result["success"] = True
+    result["data"] = {{
+        "selector": "{safe_selector}",
+        "code_filled": True,
+        "code_length": len("{safe_code}"),
+    }}
+
+    await browser.close()
+'''
+
+        return await self._run_playwright_script(script)
+
+    @tool(
+        name="playwright_login_with_2fa",
+        description="Complete a full login flow including username, password, and 2FA code from stored credentials.",
+        parameters={
+            "credential_id": {
+                "type": "string",
+                "description": "ID of the credential containing login data and optional TOTP secret"
+            },
+            "url": {
+                "type": "string",
+                "description": "Login page URL"
+            },
+            "username_selector": {
+                "type": "string",
+                "description": "CSS selector for username/email field"
+            },
+            "password_selector": {
+                "type": "string",
+                "description": "CSS selector for password field"
+            },
+            "submit_selector": {
+                "type": "string",
+                "description": "CSS selector for submit/login button"
+            },
+            "totp_selector": {
+                "type": "string",
+                "description": "CSS selector for 2FA input field (optional)"
+            }
+        },
+        required=["credential_id", "url", "username_selector", "password_selector", "submit_selector"]
+    )
+    async def playwright_login_with_2fa(
+        self,
+        credential_id: str,
+        url: str,
+        username_selector: str,
+        password_selector: str,
+        submit_selector: str,
+        totp_selector: Optional[str] = None,
+    ) -> ToolResult:
+        """
+        Complete a full login flow with optional 2FA.
+
+        Args:
+            credential_id: Credential ID with login data
+            url: Login page URL
+            username_selector: Username field selector
+            password_selector: Password field selector
+            submit_selector: Submit button selector
+            totp_selector: 2FA input selector (optional)
+
+        Returns:
+            ToolResult with login status
+        """
+        try:
+            from app.domain.services.security.credential_manager import get_credential_manager
+
+            credential_manager = get_credential_manager()
+            credential = await credential_manager.get(
+                credential_id,
+                session_id=self.session_id,
+            )
+
+            if not credential:
+                return ToolResult(
+                    success=False,
+                    message=f"Credential {credential_id} not found"
+                )
+
+            username = credential.data.get("username") or credential.data.get("email")
+            password = credential.data.get("password")
+
+            if not username or not password:
+                return ToolResult(
+                    success=False,
+                    message="Credential must have username/email and password fields"
+                )
+
+            # Get TOTP code if needed
+            totp_code = None
+            if totp_selector and credential.data.get("totp_secret"):
+                totp_code = await credential_manager.get_totp_code(
+                    credential_id,
+                    session_id=self.session_id,
+                )
+
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                message=f"Failed to get credentials: {e}"
+            )
+
+        safe_username = username.replace('"', '\\"')
+        safe_password = password.replace('"', '\\"')
+        safe_username_sel = username_selector.replace('"', '\\"')
+        safe_password_sel = password_selector.replace('"', '\\"')
+        safe_submit_sel = submit_selector.replace('"', '\\"')
+
+        totp_fill_code = ""
+        if totp_code and totp_selector:
+            safe_totp_sel = totp_selector.replace('"', '\\"')
+            totp_fill_code = f'''
+    # Wait for 2FA page
+    await asyncio.sleep(1)
+    try:
+        await page.wait_for_selector("{safe_totp_sel}", state="visible", timeout=10000)
+        await page.fill("{safe_totp_sel}", "{totp_code}")
+        await page.keyboard.press("Enter")
+        await page.wait_for_load_state("networkidle", timeout=30000)
+    except Exception as totp_error:
+        pass  # 2FA might not be required
+'''
+
+        user_agent = self._get_random_user_agent()
+        viewport = self._get_random_viewport()
+
+        script = f'''
+import asyncio
+
+async with async_playwright() as p:
+    browser = await p.chromium.launch(headless=True)
+    context = await browser.new_context(
+        viewport={viewport},
+        user_agent="{user_agent}",
+    )
+    page = await context.new_page()
+
+    # Navigate to login page
+    await page.goto("{url}", wait_until="networkidle", timeout=30000)
+
+    # Fill login form
+    await page.fill("{safe_username_sel}", "{safe_username}")
+    await asyncio.sleep(0.3)
+    await page.fill("{safe_password_sel}", "{safe_password}")
+    await asyncio.sleep(0.2)
+
+    # Submit form
+    await page.click("{safe_submit_sel}")
+    await page.wait_for_load_state("networkidle", timeout=30000)
+
+    {totp_fill_code}
+
+    title = await page.title()
+    final_url = page.url
+
+    result["success"] = True
+    result["data"] = {{
+        "url": final_url,
+        "title": title,
+        "login_attempted": True,
+        "totp_used": {str(bool(totp_code)).lower()},
     }}
 
     await browser.close()
