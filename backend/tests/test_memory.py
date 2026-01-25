@@ -198,10 +198,16 @@ class TestMemory:
         assert stats["estimated_tokens"] > 0
 
     def test_auto_compact_triggered(self):
-        """Test auto-compaction is triggered at threshold"""
+        """Test auto-compaction is triggered at threshold.
+
+        Must set use_token_threshold=False to use message-count based compaction,
+        as the default behavior is token-based.
+        """
         # Set low threshold and low preserve_recent so compaction actually happens
+        # Must disable token-based threshold to use message count
         config = MemoryConfig(
             auto_compact_threshold=5,
+            use_token_threshold=False,  # Use message count, not token count
             compactable_functions=["shell_exec"],
             preserve_recent=2  # Only preserve last 2 messages
         )

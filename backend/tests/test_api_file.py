@@ -1,3 +1,13 @@
+"""
+Integration tests for file upload/download API endpoints.
+
+These tests require:
+1. A running backend API
+2. Password auth provider (for registration to create authenticated sessions)
+3. Files endpoint requires authentication
+
+Tests are skipped if these conditions aren't met.
+"""
 import pytest
 import tempfile
 import os
@@ -9,6 +19,30 @@ import requests
 
 
 logger = logging.getLogger(__name__)
+
+# Check if backend API is available and supports registration
+def _get_auth_config():
+    """Get auth configuration from the API."""
+    try:
+        response = requests.get(f"{BASE_URL}/auth/status", timeout=2.0)
+        if response.status_code == 200:
+            data = response.json().get("data", {})
+            return {
+                "api_available": True,
+                "auth_provider": data.get("auth_provider", "unknown"),
+            }
+    except Exception:
+        pass
+    return {"api_available": False, "auth_provider": None}
+
+_AUTH_CONFIG = _get_auth_config()
+
+# Files API requires authentication, which requires registration to work
+# Skip all tests if API is not available OR if registration is not supported
+pytestmark = pytest.mark.skipif(
+    not _AUTH_CONFIG["api_available"] or _AUTH_CONFIG.get("auth_provider") != "password",
+    reason=f"Backend API not running or doesn't support registration (provider: {_AUTH_CONFIG.get('auth_provider')})"
+)
 
 
 @pytest.fixture

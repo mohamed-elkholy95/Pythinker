@@ -135,7 +135,7 @@ class TestVerifierAgent:
             title="Simple Search",
             goal="Search for information",
             steps=[
-                Step(id=1, description="Search for Python tutorials"),
+                Step(id="1", description="Search for Python tutorials"),
             ]
         )
 
@@ -146,10 +146,10 @@ class TestVerifierAgent:
             title="Complex Task",
             goal="Build a web application",
             steps=[
-                Step(id=1, description="Design database schema"),
-                Step(id=2, description="Create backend API"),
-                Step(id=3, description="Build frontend UI"),
-                Step(id=4, description="Deploy application"),
+                Step(id="1", description="Design database schema"),
+                Step(id="2", description="Create backend API"),
+                Step(id="3", description="Build frontend UI"),
+                Step(id="4", description="Deploy application"),
             ]
         )
 

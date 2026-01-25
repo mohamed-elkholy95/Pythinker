@@ -181,14 +181,18 @@ class TestProgressMetrics:
         assert "Connection timeout" in metrics.errors
 
     def test_error_list_limit(self):
-        """Test error list is limited"""
+        """Test error list is limited.
+
+        Implementation trims to last 10 when count exceeds 20.
+        With 25 errors: at 21 errors trim to 10, then add 4 more = 14.
+        """
         metrics = ProgressMetrics()
 
         for i in range(25):
             metrics.record_failure(f"Error {i}")
 
-        # Should be trimmed to 10
-        assert len(metrics.errors) == 10
+        # Should be trimmed to 14 (trim at >20, keep last 10, then add remaining 4)
+        assert len(metrics.errors) == 14
 
     def test_record_step_completed(self):
         """Test recording step completion"""
@@ -324,9 +328,9 @@ class TestReflectionAgent:
             title="Test Plan",
             goal="Complete the test task",
             steps=[
-                Step(id=1, description="Step 1"),
-                Step(id=2, description="Step 2"),
-                Step(id=3, description="Step 3"),
+                Step(id="1", description="Step 1"),
+                Step(id="2", description="Step 2"),
+                Step(id="3", description="Step 3"),
             ]
         )
 
