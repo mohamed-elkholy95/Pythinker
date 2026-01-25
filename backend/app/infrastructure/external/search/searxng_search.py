@@ -13,6 +13,7 @@ import httpx
 from app.domain.models.tool_result import ToolResult
 from app.domain.models.search import SearchResults, SearchResultItem
 from app.domain.external.search import SearchEngine
+from app.infrastructure.external.search.factory import SearchProviderRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,7 @@ ACADEMIC_ENGINES = "arxiv,wikipedia,wikidata"
 CODE_ENGINES = "github,stackexchange"
 
 
+@SearchProviderRegistry.register("searxng")
 class SearXNGSearchEngine(SearchEngine):
     """SearXNG metasearch engine implementation with production-grade reliability.
 

@@ -8,6 +8,7 @@ from app.domain.services.agents.prompt_cache_manager import (
     PromptCacheManager,
     get_prompt_cache_manager
 )
+from app.infrastructure.external.llm.factory import LLMProviderRegistry
 import logging
 import asyncio
 import json
@@ -19,6 +20,8 @@ T = TypeVar('T', bound=BaseModel)
 
 logger = logging.getLogger(__name__)
 
+
+@LLMProviderRegistry.register("openai")
 class OpenAILLM(LLM):
     def __init__(self):
         settings = get_settings()

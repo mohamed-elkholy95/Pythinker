@@ -81,6 +81,13 @@ from app.domain.services.agents.error_integration import (
     IterationGuidance,
 )
 
+# Import parallel executor for Phase 4
+from app.domain.services.flows.parallel_executor import (
+    ParallelExecutor,
+    ParallelExecutionMode,
+    StepResult,
+)
+
 # Import for type hints
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -122,6 +129,8 @@ class PlanActFlow(BaseFlow):
         cdp_url: Optional[str] = None,
         enable_verification: bool = True,
         enable_multi_agent: bool = False,
+        enable_parallel_execution: bool = False,
+        parallel_max_concurrency: int = 3,
         memory_service: Optional["MemoryService"] = None,
         user_id: Optional[str] = None,
     ):
@@ -227,6 +236,16 @@ class PlanActFlow(BaseFlow):
         # Multi-agent dispatch configuration
         self._enable_multi_agent = enable_multi_agent
         self._agent_registry: Optional[AgentRegistry] = None
+
+        # Phase 4: Parallel step execution configuration
+        self._enable_parallel_execution = enable_parallel_execution
+        self._parallel_executor: Optional[ParallelExecutor] = None
+        if enable_parallel_execution:
+            self._parallel_executor = ParallelExecutor(
+                max_concurrency=parallel_max_concurrency,
+                mode=ParallelExecutionMode.PARALLEL,
+            )
+            logger.info(f"Parallel step execution enabled with max_concurrency={parallel_max_concurrency}")
         self._agent_factory: Optional[DefaultAgentFactory] = None
         self._specialized_agents: Dict[str, BaseAgent] = {}
 

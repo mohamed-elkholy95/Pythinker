@@ -1,40 +1,42 @@
+"""Search Engine Infrastructure
+
+Provides search engine implementations and factory for dynamic provider selection.
+
+Supported providers:
+- bing: Bing web search (default, no API key required)
+- google: Google Custom Search API (requires API key)
+- baidu: Baidu web search
+- searxng: SearXNG metasearch engine
+- duckduckgo: DuckDuckGo search (privacy-focused)
+- brave: Brave Search API (requires API key)
+"""
 from functools import lru_cache
 from typing import Optional
 import logging
 
 from app.domain.external.search import SearchEngine
-from app.core.config import get_settings
+from app.infrastructure.external.search.factory import (
+    SearchProviderRegistry,
+    get_search_engine_from_factory,
+)
 
 logger = logging.getLogger(__name__)
 
+
 @lru_cache()
 def get_search_engine() -> Optional[SearchEngine]:
-    """Get search engine instance based on configuration"""
-    from app.infrastructure.external.search.google_search import GoogleSearchEngine
-    from app.infrastructure.external.search.baidu_search import BaiduSearchEngine
-    from app.infrastructure.external.search.bing_search import BingSearchEngine
-    from app.infrastructure.external.search.searxng_search import SearXNGSearchEngine
+    """Get search engine instance based on configuration.
 
-    settings = get_settings()
-    if settings.search_provider == "google":
-        if settings.google_search_api_key and settings.google_search_engine_id:
-            logger.info("Initializing Google Search Engine")
-            return GoogleSearchEngine(
-                api_key=settings.google_search_api_key,
-                cx=settings.google_search_engine_id
-            )
-        else:
-            logger.warning("Google Search Engine not initialized: missing API key or engine ID")
-    elif settings.search_provider == "baidu":
-        logger.info("Initializing Baidu Search Engine")
-        return BaiduSearchEngine()
-    elif settings.search_provider == "bing":
-        logger.info("Initializing Bing Search Engine")
-        return BingSearchEngine()
-    elif settings.search_provider == "searxng":
-        logger.info("Initializing SearXNG Search Engine")
-        return SearXNGSearchEngine(base_url=settings.searxng_url)
-    else:
-        logger.warning(f"Unknown search provider: {settings.search_provider}")
+    Uses the SearchProviderRegistry to dynamically select and instantiate
+    the appropriate search engine based on SEARCH_PROVIDER setting.
 
-    return None 
+    Returns:
+        SearchEngine instance or None if configuration is invalid
+    """
+    return get_search_engine_from_factory()
+
+
+__all__ = [
+    "get_search_engine",
+    "SearchProviderRegistry",
+]

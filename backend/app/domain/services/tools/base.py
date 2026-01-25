@@ -2,6 +2,12 @@ from typing import Dict, Any, List, Callable, Optional
 import inspect
 import logging
 from app.domain.models.tool_result import ToolResult
+from app.domain.services.tools.cache_layer import (
+    _generate_cache_key,
+    _should_cache_tool,
+    _get_tool_ttl,
+    get_cache_stats,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -102,18 +108,23 @@ def tool(
     return decorator
 
 class BaseTool:
-    """Base tool class, providing common tool calling methods with observation limiting"""
+    """Base tool class, providing common tool calling methods with observation limiting and caching"""
 
     name: str = ""
     max_observe: Optional[int] = None  # Per-tool observation limit (None = use category default)
+    enable_caching: bool = False  # Enable result caching for this tool
 
-    def __init__(self, max_observe: Optional[int] = None):
+    def __init__(self, max_observe: Optional[int] = None, enable_caching: bool = False):
         """Initialize base tool class
 
         Args:
             max_observe: Optional custom observation limit for this tool instance
+            enable_caching: Enable result caching for cacheable tools
         """
         self._tools_cache = None
+        self._result_cache = None  # Redis cache instance
+        self.enable_caching = enable_caching
+
         if max_observe is not None:
             self.max_observe = max_observe
         elif self.name and self.name in TOOL_OBSERVATION_LIMITS:
@@ -179,8 +190,18 @@ class BaseTool:
         
         return filtered_kwargs
     
+    async def _get_result_cache(self):
+        """Lazy-load the result cache."""
+        if self._result_cache is None and self.enable_caching:
+            try:
+                from app.infrastructure.external.cache import get_cache
+                self._result_cache = get_cache()
+            except Exception as e:
+                logger.warning(f"Failed to initialize result cache: {e}")
+        return self._result_cache
+
     async def invoke_function(self, function_name: str, **kwargs) -> ToolResult:
-        """Invoke specified tool with observation limiting
+        """Invoke specified tool with observation limiting and optional caching
 
         Args:
             function_name: Function name
@@ -196,7 +217,53 @@ class BaseTool:
             if hasattr(method, '_function_name') and method._function_name == function_name:
                 # Filter parameters to match method signature
                 filtered_kwargs = self._filter_parameters(method, kwargs)
-                result = await method(**filtered_kwargs)
+
+                # Check cache if enabled
+                result = None
+                cache_key = None
+                stats = get_cache_stats()
+
+                if self.enable_caching and _should_cache_tool(function_name):
+                    cache = await self._get_result_cache()
+                    if cache:
+                        cache_key = _generate_cache_key(function_name, filtered_kwargs)
+                        try:
+                            cached_value = await cache.get(cache_key)
+                            if cached_value is not None:
+                                logger.debug(f"Cache hit for {function_name}")
+                                stats.record_hit()
+                                result = ToolResult(**cached_value)
+                        except Exception as e:
+                            logger.warning(f"Cache get failed: {e}")
+                            stats.record_error()
+
+                # Execute if not cached
+                if result is None:
+                    if self.enable_caching and _should_cache_tool(function_name):
+                        stats.record_miss()
+
+                    result = await method(**filtered_kwargs)
+
+                    # Store in cache if successful
+                    if self.enable_caching and cache_key and result.success:
+                        cache = await self._get_result_cache()
+                        if cache:
+                            try:
+                                ttl = _get_tool_ttl(function_name)
+                                cache_value = {
+                                    "success": result.success,
+                                    "message": result.message,
+                                    "data": (
+                                        result.data.model_dump()
+                                        if hasattr(result.data, 'model_dump')
+                                        else result.data
+                                    ) if result.data else None,
+                                }
+                                await cache.set(cache_key, cache_value, ttl=ttl)
+                                logger.debug(f"Cached {function_name} for {ttl}s")
+                            except Exception as e:
+                                logger.warning(f"Cache set failed: {e}")
+                                stats.record_error()
 
                 # Apply observation limiting to result message
                 if self.max_observe and result.message:

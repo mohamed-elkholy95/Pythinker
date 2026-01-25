@@ -357,7 +357,8 @@ def get_tracer() -> Tracer:
 def configure_tracer(
     service_name: str = "pythinker-agent",
     export_to_log: bool = True,
-    on_trace_complete: Optional[Callable[[TraceContext], None]] = None
+    on_trace_complete: Optional[Callable[[TraceContext], None]] = None,
+    export_to_otel: bool = False,
 ) -> Tracer:
     """Configure and return the global tracer.
 
@@ -365,14 +366,37 @@ def configure_tracer(
         service_name: Name of the service
         export_to_log: Whether to log traces
         on_trace_complete: Custom trace handler
+        export_to_otel: Whether to export traces to OpenTelemetry
 
     Returns:
         Configured Tracer instance
     """
     global _tracer
+
+    # Combine OTEL export with custom callback if both are enabled
+    final_callback = on_trace_complete
+
+    if export_to_otel:
+        try:
+            from app.infrastructure.observability.otel_exporter import (
+                export_trace_to_otel,
+                is_otel_enabled,
+            )
+
+            if is_otel_enabled():
+                def combined_callback(trace_ctx: TraceContext) -> None:
+                    export_trace_to_otel(trace_ctx)
+                    if on_trace_complete:
+                        on_trace_complete(trace_ctx)
+
+                final_callback = combined_callback
+                logger.info("OTEL trace export enabled")
+        except ImportError:
+            logger.debug("OTEL exporter not available")
+
     _tracer = Tracer(
         service_name=service_name,
         export_to_log=export_to_log,
-        on_trace_complete=on_trace_complete
+        on_trace_complete=final_callback
     )
     return _tracer

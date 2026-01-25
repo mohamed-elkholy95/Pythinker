@@ -104,5 +104,19 @@ ENV DISPLAY=:1
 # Note: When running the container, use --shm-size=2g flag for best results
 # Default /dev/shm size in Docker is 64MB which can cause Chrome crashes
 
+# Security: Remove unnecessary development packages and clean up
+RUN apt-get update && apt-get purge -y --auto-remove \
+    software-properties-common \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Security: Ensure ubuntu user owns home directory and restrict permissions
+RUN chown -R ubuntu:ubuntu /home/ubuntu && \
+    chmod 750 /home/ubuntu
+
+# Security: Create workspace directory for user code execution
+RUN mkdir -p /workspace && chown ubuntu:ubuntu /workspace && chmod 755 /workspace
+
 # Use supervisor to start all services
+# Note: supervisord runs as root to manage child processes, but services can drop privileges
 CMD ["supervisord", "-n", "-c", "/app/supervisord.conf"] 

@@ -19,6 +19,7 @@ from app.application.services.email_service import EmailService
 from app.infrastructure.external.cache import get_cache
 
 # Import all required dependencies for agent service
+from app.infrastructure.external.llm import get_llm
 from app.infrastructure.external.llm.openai_llm import OpenAILLM
 from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
 from app.infrastructure.external.task.redis_task import RedisStreamTask
@@ -38,6 +39,25 @@ logger = logging.getLogger(__name__)
 # Security scheme - Bearer Token only
 security_bearer = HTTPBearer(auto_error=False)
 
+def _get_llm_instance():
+    """Get LLM instance using factory pattern.
+
+    Uses the LLM provider factory to dynamically select the appropriate
+    LLM implementation based on LLM_PROVIDER configuration.
+
+    Falls back to OpenAILLM if factory fails.
+    """
+    try:
+        llm = get_llm()
+        if llm is not None:
+            return llm
+    except Exception as e:
+        logger.warning(f"LLM factory failed, falling back to OpenAILLM: {e}")
+
+    # Fallback to direct OpenAILLM instantiation
+    return OpenAILLM()
+
+
 @lru_cache()
 def get_memory_service() -> Optional[MemoryService]:
     """
@@ -53,7 +73,7 @@ def get_memory_service() -> Optional[MemoryService]:
         settings = get_settings()
         db = get_mongodb().client[settings.mongodb_database]
         memory_repository = MongoMemoryRepository(db)
-        llm = OpenAILLM()
+        llm = _get_llm_instance()
         return MemoryService(repository=memory_repository, llm=llm)
     except Exception as e:
         logger.warning(f"Failed to create MemoryService (graceful degradation): {e}")
@@ -70,8 +90,8 @@ def get_agent_service() -> AgentService:
     """
     logger.info("Creating AgentService instance")
 
-    # Create all dependencies
-    llm = OpenAILLM()
+    # Create all dependencies using factory pattern
+    llm = _get_llm_instance()
     agent_repository = MongoAgentRepository()
     session_repository = MongoSessionRepository()
     sandbox_cls = DockerSandbox

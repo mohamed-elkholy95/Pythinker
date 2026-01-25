@@ -42,6 +42,26 @@
             <ArrowDown class="text-[var(--icon-primary)]" :size="20" />
           </button>
           <PlanPanel v-if="plan && plan.steps.length > 0" :plan="plan" />
+
+          <!-- Timeline Player for replay control -->
+          <TimelinePlayer
+            v-if="showTimelinePlayer"
+            :events="timelineEvents"
+            :current-index="timeline.currentIndex.value"
+            :is-playing="timeline.isPlaying.value"
+            :playback-speed="timeline.playbackSpeed.value"
+            :current-time="timeline.currentTime.value"
+            :duration="timeline.duration.value"
+            :progress="timeline.progress.value"
+            @play="handleTimelinePlay"
+            @pause="timeline.pause"
+            @seek="handleTimelineSeek"
+            @seekByTime="handleTimelineSeekByTime"
+            @setSpeed="timeline.setSpeed"
+            @stepForward="handleTimelineStepForward"
+            @stepBackward="handleTimelineStepBackward"
+          />
+
           <div
             class="bg-[var(--background-white-main)] rounded-xl border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-XS)] backdrop-blur-3xl flex items-center justify-between py-[9px] pr-3 pl-4 sm:flex-row flex-col max-sm:gap-3 max-sm:p-2">
             <div class="flex items-center gap-0.5 w-full sm:flex-1">
@@ -91,7 +111,7 @@
 
 <script setup lang="ts">
 import SimpleBar from '../components/SimpleBar.vue';
-import { ref, onMounted, onUnmounted, watch, nextTick, reactive, toRefs } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, reactive, toRefs } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import ChatMessage from '../components/ChatMessage.vue';
@@ -116,6 +136,8 @@ import { useSessionFileList } from '../composables/useSessionFileList'
 import { useFilePanel } from '../composables/useFilePanel'
 import LoadingIndicator from '@/components/ui/LoadingIndicator.vue';
 import { copyToClipboard } from '../utils/dom'
+import TimelinePlayer from '@/components/timeline/TimelinePlayer.vue'
+import { useTimeline, formatTime } from '@/composables/useTimeline'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -170,6 +192,89 @@ const {
 const toolPanel = ref<InstanceType<typeof ToolPanel>>()
 const simpleBarRef = ref<InstanceType<typeof SimpleBar>>();
 let countdownTimer: number | null = null;
+
+// Timeline events for playback
+const timelineEvents = ref<AgentSSEEvent[]>([]);
+
+// Timeline composable for playback control
+const timeline = useTimeline(timelineEvents);
+
+// Show timeline player when we have events and replay is complete
+const showTimelinePlayer = computed(() => {
+  return timelineEvents.value.length > 0 && replayCompleted.value;
+});
+
+// Track if we're in timeline review mode (navigating via timeline player)
+const isTimelineReviewMode = ref(false);
+
+// Handle timeline seek - rebuild messages up to the current index
+const handleTimelineSeek = (index: number) => {
+  isTimelineReviewMode.value = true;
+  rebuildMessagesUpToIndex(index);
+  timeline.seek(index);
+};
+
+// Handle timeline seekByTime
+const handleTimelineSeekByTime = (time: number) => {
+  isTimelineReviewMode.value = true;
+  timeline.seekByTime(time);
+  // After seeking, rebuild messages
+  rebuildMessagesUpToIndex(timeline.currentIndex.value);
+};
+
+// Rebuild messages to show events up to the given index
+const rebuildMessagesUpToIndex = (targetIndex: number) => {
+  // Clear current messages
+  messages.value = [];
+  plan.value = undefined;
+  lastTool.value = undefined;
+  lastNoMessageTool.value = undefined;
+
+  // Re-process events up to the target index
+  realTime.value = false;
+  for (let i = 0; i <= targetIndex && i < timelineEvents.value.length; i++) {
+    handleEvent(timelineEvents.value[i]);
+  }
+  realTime.value = true;
+};
+
+// Watch timeline playing state to advance through events
+watch(() => timeline.currentIndex.value, (newIndex, oldIndex) => {
+  if (isTimelineReviewMode.value && timeline.isPlaying.value && newIndex > oldIndex) {
+    // Timeline is playing, process the new event
+    const event = timelineEvents.value[newIndex];
+    if (event) {
+      handleEvent(event);
+    }
+  }
+});
+
+// Handle timeline play - enter review mode and start playback
+const handleTimelinePlay = () => {
+  isTimelineReviewMode.value = true;
+  // Rebuild to current position before playing
+  rebuildMessagesUpToIndex(timeline.currentIndex.value);
+  timeline.play();
+};
+
+// Handle timeline step forward
+const handleTimelineStepForward = () => {
+  isTimelineReviewMode.value = true;
+  const newIndex = Math.min(timeline.currentIndex.value + 1, timelineEvents.value.length - 1);
+  const event = timelineEvents.value[newIndex];
+  if (event) {
+    handleEvent(event);
+  }
+  timeline.stepForward();
+};
+
+// Handle timeline step backward
+const handleTimelineStepBackward = () => {
+  isTimelineReviewMode.value = true;
+  const newIndex = Math.max(timeline.currentIndex.value - 1, 0);
+  rebuildMessagesUpToIndex(newIndex);
+  timeline.stepBackward();
+};
 
 // Watch message changes and automatically scroll to bottom
 watch(messages, async () => {
@@ -331,6 +436,10 @@ const restoreSession = async () => {
   const session = await agentApi.getSharedSession(sessionId.value);
   realTime.value = false;
   follow.value = false; // Prevent auto-scrolling during restoration
+
+  // Store events for timeline playback
+  timelineEvents.value = session.events;
+
   for (const event of session.events) {
     handleEvent(event);
   }
