@@ -1,0 +1,386 @@
+import logging
+import asyncio
+import uuid
+from abc import ABC
+from typing import List, Dict, Any, Optional, AsyncGenerator, Tuple
+from app.domain.external.llm import LLM
+from app.domain.models.agent import Agent
+from app.domain.models.message import Message
+from app.domain.services.tools.base import BaseTool
+from app.domain.models.tool_result import ToolResult
+from app.domain.models.event import (
+    BaseEvent,
+    ToolEvent,
+    ToolStatus,
+    ErrorEvent,
+    MessageEvent,
+    StreamEvent,
+)
+from app.domain.repositories.agent_repository import AgentRepository
+from app.domain.utils.json_parser import JsonParser
+from app.domain.services.agents.stuck_detector import StuckDetector
+from app.domain.services.agents.token_manager import TokenManager
+from app.domain.services.agents.error_handler import ErrorHandler, TokenLimitExceeded, ErrorType
+from app.domain.services.tools.tool_profiler import get_tool_profiler
+
+logger = logging.getLogger(__name__)
+
+# Tools that are safe to execute in parallel (read-only, no side effects)
+SAFE_PARALLEL_TOOLS = {
+    "info_search_web",
+    "file_read",
+    "file_search",
+    "file_list_directory",
+    "browser_get_content",  # Fast text-only fetch
+    "browser_view",
+    "browser_screenshot",
+}
+
+# Maximum number of concurrent tool executions
+MAX_CONCURRENT_TOOLS = 3
+class BaseAgent(ABC):
+    """
+    Base agent class, defining the basic behavior of the agent
+    """
+
+    name: str = ""
+    system_prompt: str = ""
+    format: Optional[str] = None
+    max_iterations: int = 100
+    max_retries: int = 3
+    retry_interval: float = 0.3  # Faster retry with exponential backoff
+    retry_backoff: float = 1.5  # Backoff multiplier (0.3s -> 0.45s -> 0.67s)
+    tool_choice: Optional[str] = None
+
+    def __init__(
+        self,
+        agent_id: str,
+        agent_repository: AgentRepository,
+        llm: LLM,
+        json_parser: JsonParser,
+        tools: List[BaseTool] = []
+    ):
+        self._agent_id = agent_id
+        self._repository = agent_repository
+        self.llm = llm
+        self.json_parser = json_parser
+        self.tools = tools
+        self.memory = None
+
+        # Initialize reliability components
+        self._stuck_detector = StuckDetector(window_size=5, threshold=3)
+        self._token_manager = TokenManager(model_name=getattr(llm, 'model_name', 'gpt-4'))
+        self._error_handler = ErrorHandler()
+    
+    def get_available_tools(self) -> Optional[List[Dict[str, Any]]]:
+        """Get all available tools list"""
+        available_tools = []
+        for tool in self.tools:
+            available_tools.extend(tool.get_tools())
+        return available_tools
+    
+    def get_tool(self, function_name: str) -> BaseTool:
+        """Get specified tool"""
+        for tool in self.tools:
+            if tool.has_function(function_name):
+                return tool
+        raise ValueError(f"Unknown tool: {function_name}")
+
+    async def invoke_tool(self, tool: BaseTool, function_name: str, arguments: Dict[str, Any]) -> ToolResult:
+        """Invoke specified tool, with retry mechanism and exponential backoff.
+
+        Integrates with ToolExecutionProfiler to track execution timing and reliability.
+        """
+        import time
+        profiler = get_tool_profiler()
+        start_time = time.perf_counter()
+
+        retries = 0
+        current_interval = self.retry_interval
+        last_error = ""
+        result: Optional[ToolResult] = None
+
+        while retries <= self.max_retries:
+            try:
+                result = await tool.invoke_function(function_name, **arguments)
+
+                # Record successful execution with profiler
+                duration_ms = (time.perf_counter() - start_time) * 1000
+                profiler.record_execution(
+                    tool_name=function_name,
+                    duration_ms=duration_ms,
+                    success=result.success if result else False,
+                    error=result.message if result and not result.success else None
+                )
+
+                return result
+            except Exception as e:
+                last_error = str(e)
+                retries += 1
+                if retries <= self.max_retries:
+                    await asyncio.sleep(current_interval)
+                    current_interval *= self.retry_backoff  # Exponential backoff
+                else:
+                    logger.exception(f"Tool execution failed, {function_name}, {arguments}")
+                    break
+
+        # Record failed execution with profiler
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        profiler.record_execution(
+            tool_name=function_name,
+            duration_ms=duration_ms,
+            success=False,
+            error=last_error[:200]
+        )
+
+        return ToolResult(success=False, message=last_error)
+
+    def _can_parallelize_tools(self, tool_calls: List[Dict]) -> bool:
+        """Check if all tool calls in the list can be executed in parallel"""
+        if len(tool_calls) <= 1:
+            return False
+        return all(
+            tc.get("function", {}).get("name") in SAFE_PARALLEL_TOOLS
+            for tc in tool_calls
+        )
+
+    async def _invoke_tool_with_semaphore(
+        self,
+        semaphore: asyncio.Semaphore,
+        tool_call: Dict,
+        function_args: Dict[str, Any]
+    ) -> Tuple[Dict, BaseTool, ToolResult]:
+        """Invoke a single tool with semaphore limiting concurrent executions"""
+        async with semaphore:
+            function_name = tool_call["function"]["name"]
+            tool = self.get_tool(function_name)
+            result = await self.invoke_tool(tool, function_name, function_args)
+            return tool_call, tool, result
+    
+    async def execute(self, request: str, format: Optional[str] = None) -> AsyncGenerator[BaseEvent, None]:
+        format = format or self.format
+        # Don't use json_object format when tools are available - causes empty responses
+        # Only enforce JSON format after tool calling is complete
+        has_tools = bool(self.get_available_tools())
+        initial_format = None if has_tools else format
+        message = await self.ask(request, initial_format)
+        for _ in range(self.max_iterations):
+            if not message.get("tool_calls"):
+                break
+
+            tool_calls = message["tool_calls"]
+            tool_responses = []
+
+            # Check if we can execute tools in parallel
+            if self._can_parallelize_tools(tool_calls):
+                # Parse all arguments first
+                parsed_calls = []
+                for tool_call in tool_calls[:MAX_CONCURRENT_TOOLS]:  # Limit parallel calls
+                    if not tool_call.get("function"):
+                        continue
+                    function_name = tool_call["function"]["name"]
+                    tool_call_id = tool_call["id"] or str(uuid.uuid4())
+                    function_args = await self.json_parser.parse(tool_call["function"]["arguments"])
+                    tool = self.get_tool(function_name)
+
+                    # Emit CALLING events for all parallel tools
+                    yield ToolEvent(
+                        status=ToolStatus.CALLING,
+                        tool_call_id=tool_call_id,
+                        tool_name=tool.name,
+                        function_name=function_name,
+                        function_args=function_args
+                    )
+                    parsed_calls.append((tool_call, tool_call_id, function_args, tool))
+
+                # Execute all tools concurrently with semaphore
+                semaphore = asyncio.Semaphore(MAX_CONCURRENT_TOOLS)
+                tasks = []
+                for tool_call, tool_call_id, function_args, tool in parsed_calls:
+                    function_name = tool_call["function"]["name"]
+                    tasks.append(
+                        self._execute_parallel_tool(
+                            semaphore, tool, function_name, function_args,
+                            tool_call_id
+                        )
+                    )
+
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # Process results and emit CALLED events
+                for (tool_call, tool_call_id, function_args, tool), result in zip(parsed_calls, results):
+                    function_name = tool_call["function"]["name"]
+                    if isinstance(result, Exception):
+                        result = ToolResult(success=False, message=str(result))
+
+                    yield ToolEvent(
+                        status=ToolStatus.CALLED,
+                        tool_call_id=tool_call_id,
+                        tool_name=tool.name,
+                        function_name=function_name,
+                        function_args=function_args,
+                        function_result=result
+                    )
+
+                    tool_responses.append({
+                        "role": "tool",
+                        "function_name": function_name,
+                        "tool_call_id": tool_call_id,
+                        "content": result.model_dump_json() if hasattr(result, 'model_dump_json') else str(result)
+                    })
+            else:
+                # Sequential execution for non-parallelizable tools (original behavior)
+                for tool_call in tool_calls:
+                    if not tool_call.get("function"):
+                        continue
+
+                    function_name = tool_call["function"]["name"]
+                    tool_call_id = tool_call["id"] or str(uuid.uuid4())
+                    function_args = await self.json_parser.parse(tool_call["function"]["arguments"])
+
+                    tool = self.get_tool(function_name)
+
+                    # Generate event before tool call
+                    yield ToolEvent(
+                        status=ToolStatus.CALLING,
+                        tool_call_id=tool_call_id,
+                        tool_name=tool.name,
+                        function_name=function_name,
+                        function_args=function_args
+                    )
+
+                    result = await self.invoke_tool(tool, function_name, function_args)
+
+                    # Generate event after tool call
+                    yield ToolEvent(
+                        status=ToolStatus.CALLED,
+                        tool_call_id=tool_call_id,
+                        tool_name=tool.name,
+                        function_name=function_name,
+                        function_args=function_args,
+                        function_result=result
+                    )
+
+                    tool_responses.append({
+                        "role": "tool",
+                        "function_name": function_name,
+                        "tool_call_id": tool_call_id,
+                        "content": result.model_dump_json()
+                    })
+
+            message = await self.ask_with_messages(tool_responses)
+        else:
+            yield ErrorEvent(error="Maximum iteration count reached, failed to complete the task")
+
+        yield MessageEvent(message=message["content"])
+
+    async def _execute_parallel_tool(
+        self,
+        semaphore: asyncio.Semaphore,
+        tool: BaseTool,
+        function_name: str,
+        function_args: Dict[str, Any],
+        tool_call_id: str
+    ) -> ToolResult:
+        """Execute a single tool with semaphore limiting concurrent executions"""
+        async with semaphore:
+            return await self.invoke_tool(tool, function_name, function_args)
+    
+    async def _ensure_memory(self):
+        """Ensure the agent has initialized memory.
+
+        Retrieves memory from the repository, creating the agent document
+        if it doesn't exist (defensive fallback).
+        """
+        if not self.memory:
+            try:
+                self.memory = await self._repository.get_memory(self._agent_id, self.name)
+            except ValueError as e:
+                # Agent document doesn't exist - create it as fallback
+                # This should not normally happen as the factory creates the document,
+                # but we handle it defensively for robustness
+                if "not found" in str(e).lower():
+                    logger.warning(
+                        f"Agent {self._agent_id} not found in database, creating document defensively"
+                    )
+                    agent_model = Agent(id=self._agent_id)
+                    await self._repository.save(agent_model)
+                    self.memory = await self._repository.get_memory(self._agent_id, self.name)
+                else:
+                    raise
+    
+    async def _add_to_memory(self, messages: List[Dict[str, Any]]) -> None:
+        """Update memory and save to repository"""
+        await self._ensure_memory()
+        if self.memory.empty:
+            self.memory.add_message({
+                "role": "system", "content": self.system_prompt,
+            })
+        self.memory.add_messages(messages)
+        await self._repository.save_memory(self._agent_id, self.name, self.memory)
+    
+    async def _roll_back_memory(self) -> None:
+        await self._ensure_memory()
+        self.memory.roll_back()
+        await self._repository.save_memory(self._agent_id, self.name, self.memory)
+
+    async def ask_with_messages(self, messages: List[Dict[str, Any]], format: Optional[str] = None) -> Dict[str, Any]:
+        await self._add_to_memory(messages)
+
+        # Check and handle token limits before making LLM call
+        await self._ensure_within_token_limit()
+
+        response_format = None
+        if format:
+            response_format = {"type": format}
+
+        for retry in range(self.max_retries):
+            try:
+                message = await self.llm.ask(self.memory.get_messages(),
+                                                tools=self.get_available_tools(),
+                                                response_format=response_format,
+                                                tool_choice=self.tool_choice)
+            except TokenLimitExceeded as e:
+                logger.warning(f"Token limit exceeded, trimming context: {e}")
+                await self._handle_token_limit_exceeded()
+                continue
+            except Exception as e:
+                error_context = self._error_handler.classify_error(e)
+                if error_context.error_type == ErrorType.TOKEN_LIMIT:
+                    await self._handle_token_limit_exceeded()
+                    continue
+                raise
+
+            filtered_message = {}
+            if message.get("role") == "assistant":
+                if not message.get("content") and not message.get("tool_calls"):
+                    logger.warning("Assistant message has no content, retry")
+                    await self._add_to_memory([
+                        {"role": "assistant", "content": ""},
+                        {"role": "user", "content": "no thinking, please continue"}
+                    ])
+                    continue
+                filtered_message = {
+                    "role": "assistant",
+                    "content": message.get("content"),
+                }
+                if message.get("tool_calls"):
+                    tool_calls = message.get("tool_calls", [])
+                    # Allow multiple tool calls for safe parallel tools
+                    if self._can_parallelize_tools(tool_calls):
+                        filtered_message["tool_calls"] = tool_calls[:MAX_CONCURRENT_TOOLS]
+                    else:
+                        filtered_message["tool_calls"] = tool_calls[:1]
+            else:
+                logger.warning(f"Unknown message role: {message.get('role')}")
+                filtered_message = message
+
+            # Track response for stuck detection
+            is_stuck = self._stuck_detector.track_response(filtered_message)
+            if is_stuck and self._stuck_detector.can_attempt_recovery():
+                self._stuck_detector.record_recovery_attempt()
+                recovery_prompt = self._stuck_detector.get_recovery_prompt()
+                logger.warning("Agent stuck detected, injecting recovery prompt")
+                await self._add_to_memory([
+                    filtered_message,
+(Content truncated due to size limit. Use line ranges to read remaining content)

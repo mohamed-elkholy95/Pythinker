@@ -1,0 +1,193 @@
+        for tool_name, tool in self.tools.items():
+            score = self.calculate_relevance(
+                tool,
+                requirements,
+                context
+            )
+            
+            if score > 0.5:
+                recommendations.append(ToolRecommendation(
+                    tool=tool,
+                    score=score,
+                    reasoning=self.generate_reasoning(tool, requirements)
+                ))
+        
+        return sorted(recommendations, key=lambda x: x.score, reverse=True)
+```
+
+---
+
+## Phase 7: System Prompts Enhancement
+
+### 7.1 Autonomous Agent System Prompt
+
+```markdown
+# PYTHINKER AUTONOMOUS AGENT
+
+You are Pythinker, an advanced AI agent with full computer use capabilities operating in an isolated Ubuntu sandbox environment.
+
+## Core Capabilities
+
+### 1. Computer Control
+- Full desktop environment (XFCE4)
+- Browser automation with Playwright
+- File system access (read/write/execute)
+- Terminal/shell execution
+- Network requests and API calls
+
+### 2. Code Execution
+- Python with full ecosystem (pandas, numpy, requests, etc.)
+- JavaScript/Node.js
+- Bash scripting
+- SQL databases
+
+### 3. Browser Automation
+- Multi-browser support (Chromium, Firefox, WebKit)
+- Stealth mode for bot protection bypass
+- Form filling and credential injection
+- Screenshot and video recording
+- Cookie and session management
+
+### 4. Problem-Solving Approach
+
+When given a task:
+
+1. **ANALYZE**: Understand the full scope
+   - What is the end goal?
+   - What resources are needed?
+   - What obstacles might arise?
+
+2. **PLAN**: Create a detailed execution plan
+   - Break into subtasks
+   - Identify tool requirements
+   - Plan for contingencies
+
+3. **EXECUTE**: Carry out the plan
+   - Use appropriate tools
+   - Monitor progress
+   - Handle errors gracefully
+
+4. **VERIFY**: Confirm success
+   - Check results match expectations
+   - Test edge cases
+   - Document outcomes
+
+5. **ITERATE**: Improve if needed
+   - Learn from failures
+   - Adjust approach
+   - Try alternatives
+
+## Behavioral Guidelines
+
+### Autonomy Principles
+- Take initiative to complete tasks fully
+- Make reasonable decisions without asking
+- Only ask for clarification when truly ambiguous
+- Recover from errors automatically when possible
+- Persist through challenges
+
+### When to Ask for Help
+- Credentials or sensitive information needed
+- Irreversible actions (delete, purchase, etc.)
+- Ambiguous requirements that could lead to wrong outcome
+- Legal or ethical concerns
+
+### Error Handling
+- First attempt automatic recovery
+- Try alternative approaches
+- Escalate only after 3 failed attempts
+- Provide detailed error context when escalating
+
+## Available Tools
+
+{TOOL_DESCRIPTIONS}
+
+## Current Context
+
+- Working Directory: /workspace
+- Browser: Available via Playwright
+- VNC Access: User can observe/takeover
+- Session ID: {SESSION_ID}
+```
+
+---
+
+## Phase 8: Implementation Checklist
+
+### Backend Enhancements
+- [ ] Implement `AutonomousAgentLoop` in `plan_act_agent.py`
+- [ ] Create `code_executor_tool.py` with multi-language support
+- [ ] Create `playwright_tool.py` with stealth features
+- [ ] Create `credential_manager.py` with encryption
+- [ ] Update `system_prompt.py` with autonomy guidelines
+- [ ] Add `TaskOrchestrator` for complex workflows
+- [ ] Implement `BotProtectionHandler` strategies
+- [ ] Add checkpoint/resume functionality
+- [ ] Create tool recommendation system
+
+### Sandbox Enhancements
+- [ ] Update Dockerfile with full desktop environment
+- [ ] Install Playwright with all browsers
+- [ ] Add stealth packages (undetected-chromedriver, etc.)
+- [ ] Configure VNC for user takeover
+- [ ] Add code execution API endpoints
+- [ ] Implement session persistence
+- [ ] Add network interception capabilities
+
+### Frontend Enhancements
+- [ ] Add credential management UI
+- [ ] Implement VNC viewer component
+- [ ] Add workflow progress visualization
+- [ ] Create tool usage dashboard
+- [ ] Add autonomy level configuration
+
+### Testing
+- [ ] Unit tests for all new tools
+- [ ] Integration tests for agent workflow
+- [ ] E2E tests for browser automation
+- [ ] Security audit for credential handling
+- [ ] Performance benchmarks
+
+---
+
+## Phase 9: Security Considerations
+
+### Sandbox Isolation
+- Network namespace isolation
+- Resource limits (CPU, memory, disk)
+- No access to host filesystem
+- Restricted syscalls
+
+### Credential Security
+- AES-256 encryption at rest
+- Memory protection
+- Automatic expiration
+- Audit logging
+
+### User Control
+- VNC takeover capability
+- Emergency stop button
+- Action confirmation for critical operations
+- Full audit trail
+
+---
+
+## Execution Command
+
+To begin implementation, scan and analyze the following directories:
+
+```bash
+# Agent workflow analysis
+find backend/app/domain/services/agents -name "*.py" -exec cat {} \;
+
+# Tools analysis  
+find backend/app/domain/services/tools -name "*.py" -exec cat {} \;
+
+# Sandbox analysis
+find sandbox -name "*.py" -o -name "Dockerfile" -o -name "*.sh" | xargs cat
+
+# Prompts analysis
+find backend/app/domain/services/prompts -name "*.py" -exec cat {} \;
+```
+
+Then implement enhancements following the architecture outlined in this document.

@@ -31,6 +31,7 @@ from app.domain.services.tools.file import FileTool
 from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.message import MessageTool
 from app.domain.services.tools.mcp import MCPTool
+from app.domain.services.tools.code_executor import CodeExecutorTool
 
 logger = logging.getLogger(__name__)
 
@@ -343,6 +344,13 @@ class DefaultAgentFactory:
         if AgentCapability.WEB_SEARCH in spec.capabilities:
             if self._search_engine:
                 tools.append(SearchTool(self._search_engine))
+
+        if AgentCapability.CODE_EXECUTION in spec.capabilities:
+            if self._sandbox:
+                tools.append(CodeExecutorTool(
+                    sandbox=self._sandbox,
+                    session_id=spec.agent_type.value
+                ))
 
         # Add MCP tool if available (provides additional capabilities)
         if self._mcp_tool:

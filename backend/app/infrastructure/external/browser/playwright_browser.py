@@ -1,6 +1,7 @@
-from typing import Dict, Any, Optional, List, Set
+from typing import Dict, Any, Optional, List, Set, Tuple
 from playwright.async_api import async_playwright, Browser, Page, BrowserContext, TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError
 import asyncio
+import random
 from markdownify import markdownify
 from app.infrastructure.external.llm.openai_llm import OpenAILLM
 from app.core.config import get_settings
@@ -16,16 +17,58 @@ DEFAULT_VIEWPORT = {"width": 1280, "height": 1029}
 DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 DEFAULT_TIMEZONE = "America/New_York"
 
+# Professional browsing: User agent rotation pool for anti-detection
+USER_AGENT_POOL = [
+    # Chrome on Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    # Chrome on macOS
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    # Firefox on Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
+    # Edge on Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+]
+
+# Viewport variations for fingerprint randomization
+VIEWPORT_POOL = [
+    {"width": 1920, "height": 1080},
+    {"width": 1536, "height": 864},
+    {"width": 1440, "height": 900},
+    {"width": 1366, "height": 768},
+    {"width": 1280, "height": 1024},
+    {"width": 1280, "height": 800},
+]
+
+# Timezone variations
+TIMEZONE_POOL = [
+    "America/New_York",
+    "America/Chicago",
+    "America/Los_Angeles",
+    "America/Denver",
+    "Europe/London",
+    "Europe/Berlin",
+]
+
 # Resource types to block for faster page loads (configurable)
 BLOCKABLE_RESOURCE_TYPES = {"image", "media", "font", "stylesheet"}
 BLOCKED_URL_PATTERNS = [
     r".*\.doubleclick\.net.*",
     r".*\.google-analytics\.com.*",
     r".*\.googlesyndication\.com.*",
+    r".*\.googletagmanager\.com.*",
     r".*\.facebook\.net.*",
+    r".*\.facebook\.com/tr.*",
     r".*\.twitter\.com/i/.*",
     r".*\.ads\..*",
     r".*tracking.*",
+    r".*analytics.*",
+    r".*hotjar\.com.*",
+    r".*mixpanel\.com.*",
+    r".*segment\.io.*",
+    r".*optimizely\.com.*",
 ]
 
 
@@ -39,13 +82,20 @@ class PlaywrightBrowser:
     - Efficient page load waiting using Playwright's native methods
     """
 
-    def __init__(self, cdp_url: str, block_resources: bool = False, blocked_types: Optional[Set[str]] = None):
+    def __init__(
+        self,
+        cdp_url: str,
+        block_resources: bool = False,
+        blocked_types: Optional[Set[str]] = None,
+        randomize_fingerprint: bool = True
+    ):
         """Initialize PlaywrightBrowser
 
         Args:
             cdp_url: Chrome DevTools Protocol URL for connection
             block_resources: Whether to block unnecessary resources (images, ads, etc.)
             blocked_types: Set of resource types to block (e.g., {"image", "font"})
+            randomize_fingerprint: Whether to randomize browser fingerprint (default: True)
         """
         self.browser: Optional[Browser] = None
         self.context: Optional[BrowserContext] = None
@@ -58,6 +108,30 @@ class PlaywrightBrowser:
         self.blocked_types = blocked_types or BLOCKABLE_RESOURCE_TYPES if block_resources else set()
         self._interactive_elements_cache: List[Dict] = []
         self._connection_healthy = False
+        self._randomize_fingerprint = randomize_fingerprint
+
+        # Current fingerprint values (randomized on each session)
+        self._current_user_agent: str = DEFAULT_USER_AGENT
+        self._current_viewport: Dict[str, int] = DEFAULT_VIEWPORT
+        self._current_timezone: str = DEFAULT_TIMEZONE
+
+    def _randomize_browser_fingerprint(self) -> Tuple[str, Dict[str, int], str]:
+        """Randomize browser fingerprint for anti-detection.
+
+        Returns:
+            Tuple of (user_agent, viewport, timezone)
+        """
+        user_agent = random.choice(USER_AGENT_POOL)
+        viewport = random.choice(VIEWPORT_POOL)
+        timezone = random.choice(TIMEZONE_POOL)
+
+        logger.debug(
+            f"Randomized fingerprint: UA={user_agent[:50]}..., "
+            f"Viewport={viewport['width']}x{viewport['height']}, "
+            f"TZ={timezone}"
+        )
+
+        return user_agent, viewport, timezone
         
     async def _setup_route_interception(self, context: BrowserContext) -> None:
         """Set up network route interception for resource blocking and optimization
@@ -89,6 +163,82 @@ class PlaywrightBrowser:
         await context.route("**/*", route_handler)
         logger.debug("Network route interception configured")
 
+    async def _inject_anti_detection_scripts(self) -> None:
+        """Inject scripts to evade bot detection.
+
+        These scripts modify browser properties that are commonly checked
+        by anti-bot systems to detect automation.
+        """
+        if not self.page:
+            return
+
+        try:
+            # Inject scripts before any page loads
+            await self.page.add_init_script("""
+                // Override webdriver property
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined,
+                });
+
+                // Override automation indicators
+                delete navigator.__proto__.webdriver;
+
+                // Mock plugins array (empty indicates headless)
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => {
+                        return [
+                            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
+                            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
+                            { name: 'Native Client', filename: 'internal-nacl-plugin' }
+                        ];
+                    },
+                });
+
+                // Mock languages
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['en-US', 'en'],
+                });
+
+                // Mock platform if needed
+                if (navigator.platform === '') {
+                    Object.defineProperty(navigator, 'platform', {
+                        get: () => 'Win32',
+                    });
+                }
+
+                // Override permissions query for notifications
+                const originalQuery = window.navigator.permissions.query;
+                window.navigator.permissions.query = (parameters) => (
+                    parameters.name === 'notifications' ?
+                        Promise.resolve({ state: Notification.permission }) :
+                        originalQuery(parameters)
+                );
+
+                // Remove Chromium automation flags from window.chrome
+                if (window.chrome) {
+                    window.chrome.runtime = {
+                        PlatformOs: { MAC: 'mac', WIN: 'win', ANDROID: 'android', CROS: 'cros', LINUX: 'linux', OPENBSD: 'openbsd' },
+                        PlatformArch: { ARM: 'arm', X86_32: 'x86-32', X86_64: 'x86-64' },
+                        PlatformNaclArch: { ARM: 'arm', X86_32: 'x86-32', X86_64: 'x86-64' },
+                        RequestUpdateCheckStatus: { THROTTLED: 'throttled', NO_UPDATE: 'no_update', UPDATE_AVAILABLE: 'update_available' },
+                        OnInstalledReason: { INSTALL: 'install', UPDATE: 'update', CHROME_UPDATE: 'chrome_update', SHARED_MODULE_UPDATE: 'shared_module_update' },
+                        OnRestartRequiredReason: { APP_UPDATE: 'app_update', OS_UPDATE: 'os_update', PERIODIC: 'periodic' }
+                    };
+                }
+
+                // Console logging cleanup (some bots are detected by console logs)
+                const originalConsoleDebug = console.debug;
+                console.debug = function(...args) {
+                    if (args[0] && typeof args[0] === 'string' && args[0].includes('puppeteer')) {
+                        return;
+                    }
+                    return originalConsoleDebug.apply(console, args);
+                };
+            """)
+            logger.debug("Anti-detection scripts injected")
+        except Exception as e:
+            logger.warning(f"Failed to inject anti-detection scripts: {e}")
+
     async def _verify_connection_health(self) -> bool:
         """Verify the browser connection is healthy
 
@@ -105,7 +255,36 @@ class PlaywrightBrowser:
             logger.warning(f"Connection health check failed: {e}")
             return False
 
-    async def initialize(self) -> bool:
+    async def clear_session(self) -> None:
+        """Clear all existing pages and tabs for a fresh session.
+
+        This should be called when starting a new agent session to prevent
+        leftover tabs from previous sessions from persisting.
+        """
+        if not self.browser:
+            return
+
+        try:
+            for context in self.browser.contexts:
+                pages = context.pages
+                logger.info(f"Clearing {len(pages)} existing pages from browser session")
+
+                for page in pages:
+                    try:
+                        if not page.is_closed():
+                            # Navigate to blank first to clear any dialogs
+                            try:
+                                await page.goto("about:blank", timeout=5000)
+                            except Exception:
+                                pass
+                            await page.close()
+                            logger.debug("Closed existing page")
+                    except Exception as e:
+                        logger.debug(f"Error closing page during session clear: {e}")
+        except Exception as e:
+            logger.warning(f"Error during session clear: {e}")
+
+    async def initialize(self, clear_existing: bool = False) -> bool:
         """Initialize browser connection with proper configuration
 
         Features:
@@ -113,6 +292,9 @@ class PlaywrightBrowser:
         - Proper browser context configuration (viewport, user agent, timezone)
         - Optional network interception for performance
         - Connection health verification
+
+        Args:
+            clear_existing: Whether to close all existing pages/tabs (default: False)
 
         Returns:
             bool: True if initialization succeeded, False otherwise
@@ -130,6 +312,10 @@ class PlaywrightBrowser:
                     timeout=30000  # 30 second connection timeout
                 )
 
+                # Clear existing pages for fresh session
+                if clear_existing:
+                    await self.clear_session()
+
                 # Get existing contexts or prepare to create new one
                 contexts = self.browser.contexts
 
@@ -137,7 +323,7 @@ class PlaywrightBrowser:
                     self.context = contexts[0]
                     pages = self.context.pages
 
-                    # Check if we can reuse an existing blank page
+                    # After clearing, check if we can reuse remaining blank page
                     reuse_page = None
                     if len(pages) == 1:
                         try:
@@ -152,15 +338,32 @@ class PlaywrightBrowser:
                     else:
                         self.page = await self.context.new_page()
                 else:
+                    # Randomize fingerprint for anti-detection
+                    if self._randomize_fingerprint:
+                        self._current_user_agent, self._current_viewport, self._current_timezone = \
+                            self._randomize_browser_fingerprint()
+                    else:
+                        self._current_user_agent = DEFAULT_USER_AGENT
+                        self._current_viewport = DEFAULT_VIEWPORT
+                        self._current_timezone = DEFAULT_TIMEZONE
+
                     # Create new context with proper configuration
                     self.context = await self.browser.new_context(
-                        viewport=DEFAULT_VIEWPORT,
-                        user_agent=DEFAULT_USER_AGENT,
-                        timezone_id=DEFAULT_TIMEZONE,
+                        viewport=self._current_viewport,
+                        user_agent=self._current_user_agent,
+                        timezone_id=self._current_timezone,
                         locale="en-US",
                         ignore_https_errors=True,  # Handle self-signed certs
+                        # Additional anti-detection settings
+                        java_script_enabled=True,
+                        has_touch=False,
+                        is_mobile=False,
+                        device_scale_factor=1,
                     )
                     self.page = await self.context.new_page()
+
+                    # Inject anti-detection scripts
+                    await self._inject_anti_detection_scripts()
 
                 # Set up network interception if enabled
                 await self._setup_route_interception(self.context)

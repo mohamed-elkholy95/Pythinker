@@ -1,92 +1,156 @@
 <template>
-  <div v-if="isVisible" class="task-progress-bar">
+  <div v-if="isVisible" class="task-progress-bar flex flex-col gap-4">
+    <!-- View Computer Button - shown when collapsed and agent is using computer tools -->
+    <button
+      v-if="!isExpanded && showThumbnail && !isAllCompleted"
+      @click.stop="emit('openPanel')"
+      class="px-5 py-2.5 bg-[var(--Button-primary-black)] text-[var(--text-onblack)] rounded-full text-sm font-medium hover:opacity-90 transition-opacity flex items-center gap-2 self-start"
+    >
+      {{ $t("View Pythinker's computer") }}
+    </button>
+
     <!-- Collapsed View -->
     <div
       v-if="!isExpanded"
+      class="flex items-center cursor-pointer"
       @click="toggleExpand"
-      class="flex items-center gap-3 px-4 py-2.5 bg-[var(--background-menu-white)] border border-black/8 dark:border-[var(--border-main)] rounded-xl shadow-[0px_0px_1px_0px_rgba(0,_0,_0,_0.05),_0px_8px_32px_0px_rgba(0,_0,_0,_0.04)] cursor-pointer hover:bg-[var(--fill-tsp-white-light)] transition-colors"
     >
-      <!-- Morphing Indicator -->
-      <div class="thinking-shape" :class="currentShape"></div>
-
-      <!-- Task Description -->
-      <div class="flex-1 min-w-0 flex items-center gap-2">
-        <span class="text-sm text-[var(--text-primary)] truncate">{{ currentTaskDescription }}</span>
+      <!-- Thumbnail -->
+      <div v-if="showThumbnail" class="flex-shrink-0 mr-3">
+        <div class="w-[120px] h-[75px] rounded-lg overflow-hidden border border-black/8 bg-[#f0f0ef]">
+          <img
+            v-if="thumbnailUrl"
+            :src="thumbnailUrl"
+            alt="Computer view"
+            class="w-full h-full object-cover"
+          />
+          <div v-else class="w-full h-full flex items-center justify-center">
+            <div class="terminal-preview">
+              <div class="terminal-line"></div>
+              <div class="terminal-line short"></div>
+              <div class="terminal-line"></div>
+              <div class="terminal-cursor"></div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <!-- Progress, Timer, and Status -->
-      <div class="flex items-center gap-3 flex-shrink-0">
-        <span class="text-xs text-[var(--text-tertiary)]">{{ progressText }}</span>
-        <ChevronUp class="w-4 h-4 text-[var(--icon-tertiary)]" />
-      </div>
-    </div>
+      <!-- Main Card (white wrapper + grey inner) -->
+      <div class="p-2 bg-white dark:bg-[var(--background-menu-white)] rounded-2xl flex-1 shadow-sm border border-black/5">
+        <div class="flex items-center gap-3 py-3 px-4 bg-[#f5f5f4] dark:bg-[var(--fill-tsp-white-main)] rounded-xl hover:bg-[#eeeeec] transition-colors">
+          <!-- Status indicator + Task description -->
+          <div class="flex items-center gap-2.5 flex-1 min-w-0">
+            <div v-if="isAllCompleted" class="flex-shrink-0">
+              <Check class="w-[16px] h-[16px] text-[#22c55e]" :stroke-width="2.5" />
+            </div>
+            <div v-else class="thinking-shape small" :class="currentShape"></div>
+            <span class="text-[15px] font-medium text-[var(--text-primary)]">{{ currentTaskDescription }}</span>
+          </div>
 
-    <!-- Bottom Status Row (always visible in collapsed) -->
-    <div v-if="!isExpanded" class="flex items-center gap-2 mt-1.5 px-1">
-      <span class="text-xs font-mono text-[var(--text-tertiary)]">{{ formattedTime }}</span>
-      <span class="text-xs text-[var(--text-tertiary)]">{{ isThinking ? 'Thinking' : 'Processing' }}</span>
+          <!-- Progress and Chevron -->
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <span class="text-sm text-[var(--text-tertiary)]">{{ progressText }}</span>
+            <ChevronUp class="w-4 h-4 text-[var(--icon-tertiary)]" />
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Expanded View -->
-    <div
-      v-else
-      class="bg-[var(--background-menu-white)] border border-black/8 dark:border-[var(--border-main)] rounded-xl shadow-[0px_0px_1px_0px_rgba(0,_0,_0,_0.05),_0px_8px_32px_0px_rgba(0,_0,_0,_0.04)] overflow-hidden"
-    >
-      <!-- Header -->
-      <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--border-light)]">
-        <div class="flex items-center gap-2">
-          <span class="text-sm font-semibold text-[var(--text-primary)]">{{ $t('Task Progress') }}</span>
-          <span class="text-xs text-[var(--text-tertiary)]">{{ progressText }}</span>
+    <template v-else>
+      <!-- Computer Preview Section (no card background, just flex layout) -->
+      <div
+        v-if="showThumbnail"
+        class="flex items-start gap-4 mb-2"
+      >
+        <!-- Thumbnail -->
+        <div class="flex-shrink-0">
+          <div class="w-[120px] h-[75px] rounded-lg overflow-hidden border border-black/8 bg-[#f0f0ef]">
+            <img
+              v-if="thumbnailUrl"
+              :src="thumbnailUrl"
+              alt="Computer view"
+              class="w-full h-full object-cover"
+            />
+            <div v-else class="w-full h-full flex items-center justify-center">
+              <div class="terminal-preview">
+                <div class="terminal-line"></div>
+                <div class="terminal-line short"></div>
+                <div class="terminal-line"></div>
+                <div class="terminal-cursor"></div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div class="flex items-center gap-3">
-          <span class="text-xs font-mono text-[var(--text-tertiary)]">{{ formattedTime }}</span>
+
+        <!-- Computer Info -->
+        <div class="flex-1 min-w-0 flex flex-col gap-1.5 pt-0.5">
+          <h3 class="text-lg font-semibold text-[var(--text-primary)] leading-tight">{{ $t("Pythinker's computer") }}</h3>
+          <div v-if="currentTool && !isAllCompleted" class="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+            <div class="w-6 h-6 rounded-md bg-[#eaeaea] flex items-center justify-center">
+              <component :is="getToolIcon(currentTool.name)" class="w-3.5 h-3.5 text-[var(--text-secondary)]" />
+            </div>
+            <span>{{ $t('Pythinker is using') }} {{ currentTool.function }}</span>
+          </div>
+        </div>
+
+        <!-- Monitor Icon + Chevron -->
+        <div class="flex items-center gap-1 flex-shrink-0">
+          <Monitor class="w-5 h-5 text-[var(--icon-tertiary)]" />
           <button
             @click.stop="toggleExpand"
-            class="w-7 h-7 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)] cursor-pointer"
+            class="p-0.5 rounded hover:bg-black/5 cursor-pointer"
           >
             <ChevronDown class="w-4 h-4 text-[var(--icon-tertiary)]" />
           </button>
         </div>
       </div>
 
-      <!-- Task List -->
-      <div class="max-h-[300px] overflow-y-auto">
-        <div v-for="(step, index) in steps" :key="step.id" class="flex items-start gap-3 px-4 py-2.5 hover:bg-[var(--fill-tsp-white-light)]">
-          <!-- Step Indicator -->
-          <div class="flex-shrink-0 w-5 h-5 flex items-center justify-center mt-0.5">
-            <div v-if="step.status === 'completed'" class="w-4 h-4 rounded-full bg-green-500 flex items-center justify-center">
-              <Check class="w-3 h-3 text-white" />
-            </div>
-            <div v-else-if="step.status === 'running'" class="thinking-shape small" :class="currentShape"></div>
-            <div v-else class="w-4 h-4 rounded-full border-2 border-[var(--border-dark)]"></div>
-          </div>
-
-          <!-- Step Content -->
-          <div class="flex-1 min-w-0">
-            <div
-              class="text-sm truncate"
-              :class="step.status === 'running' ? 'text-[var(--text-primary)] font-medium' : 'text-[var(--text-secondary)]'"
-            >
-              {{ step.description }}
-            </div>
-            <div v-if="step.status === 'running'" class="text-xs text-[var(--text-tertiary)] mt-0.5">
-              {{ isThinking ? 'Thinking' : 'Processing' }}
+      <!-- Task Progress Card (white wrapper + grey inner card) -->
+      <div class="p-2 bg-white dark:bg-[var(--background-menu-white)] rounded-2xl shadow-sm border border-black/5">
+        <div class="px-5 py-4 bg-[#f5f5f4] dark:bg-[var(--fill-tsp-white-main)] rounded-xl">
+          <!-- Header -->
+          <div
+            class="flex items-center justify-between mb-2 cursor-pointer"
+            @click="toggleExpand"
+          >
+            <h3 class="text-[15px] font-bold text-[var(--text-primary)]">{{ $t('Task progress') }}</h3>
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-[var(--text-tertiary)]">{{ progressText }}</span>
+              <ChevronDown class="w-4 h-4 text-[var(--icon-tertiary)]" />
             </div>
           </div>
 
-          <!-- Step Number -->
-          <div class="flex-shrink-0 text-xs text-[var(--text-tertiary)]">
-            {{ index + 1 }}
+          <!-- Task List -->
+          <div class="flex flex-col">
+            <div v-for="(step, index) in steps" :key="step.id" class="flex items-start gap-3 py-2.5">
+              <!-- Step Indicator -->
+              <div class="flex-shrink-0 mt-0.5">
+                <Check v-if="step.status === 'completed'" class="w-[16px] h-[16px] text-[#22c55e]" :stroke-width="2.5" />
+                <div v-else-if="step.status === 'running'" class="thinking-shape small" :class="currentShape"></div>
+                <div v-else class="w-[16px] h-[16px] rounded-full border-2 border-[var(--border-dark)]"></div>
+              </div>
+
+              <!-- Step Content -->
+              <div class="flex-1 min-w-0">
+                <span
+                  class="text-[15px] leading-snug"
+                  :class="step.status === 'running' ? 'text-[var(--text-primary)] font-medium' : 'text-[var(--text-primary)]'"
+                >
+                  {{ step.description }}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { ChevronUp, ChevronDown, Check } from 'lucide-vue-next'
+import { ChevronUp, ChevronDown, Check, Monitor, Terminal, Globe, FolderOpen } from 'lucide-vue-next'
 import type { PlanEventData } from '@/types/event'
 
 interface Props {
@@ -95,39 +159,43 @@ interface Props {
   isThinking: boolean
   showThumbnail?: boolean
   thumbnailUrl?: string
+  currentTool?: { name: string; function: string; functionArg?: string } | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
   showThumbnail: false,
-  thumbnailUrl: ''
+  thumbnailUrl: '',
+  currentTool: null
 })
+
+const emit = defineEmits<{
+  (e: 'openPanel'): void
+}>()
 
 const isExpanded = ref(false)
 
-// Morphing shape animation (same as ThinkingIndicator)
+// Morphing shape animation
 const shapes = ['circle', 'diamond', 'cube'] as const
 type Shape = typeof shapes[number]
 const currentShapeIndex = ref(0)
 const currentShape = ref<Shape>('circle')
 let shapeIntervalId: ReturnType<typeof setInterval> | null = null
 
-// Timer functionality
-const startTime = ref<number | null>(null)
-const elapsedSeconds = ref(0)
-let timerIntervalId: ReturnType<typeof setInterval> | null = null
+// Check if all steps are completed
+const isAllCompleted = computed(() => {
+  return steps.value.length > 0 && steps.value.every(s => s.status === 'completed')
+})
 
 const isVisible = computed(() => {
-  return props.isLoading && props.plan && props.plan.steps.length > 0
+  return props.plan && props.plan.steps.length > 0 && (props.isLoading || isAllCompleted.value)
 })
 
 const steps = computed(() => props.plan?.steps ?? [])
 
 const progressText = computed(() => {
   const completed = steps.value.filter(s => s.status === 'completed').length
-  const running = steps.value.find(s => s.status === 'running')
-  const currentIndex = running ? steps.value.indexOf(running) + 1 : completed + 1
   const total = steps.value.length
-  return `${Math.min(currentIndex, total)} / ${total}`
+  return `${completed} / ${total}`
 })
 
 const currentTaskDescription = computed(() => {
@@ -137,20 +205,24 @@ const currentTaskDescription = computed(() => {
   const pendingStep = steps.value.find(s => s.status === 'pending')
   if (pendingStep) return pendingStep.description
 
-  return 'Processing...'
-})
+  if (isAllCompleted.value && steps.value.length > 0) {
+    return steps.value[steps.value.length - 1].description
+  }
 
-const formattedTime = computed(() => {
-  const minutes = Math.floor(elapsedSeconds.value / 60)
-  const seconds = elapsedSeconds.value % 60
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`
+  return 'Processing...'
 })
 
 const toggleExpand = () => {
   isExpanded.value = !isExpanded.value
 }
 
-// Define functions before watchers to avoid reference errors
+// Get icon for tool type
+const getToolIcon = (toolName: string) => {
+  if (toolName.includes('browser') || toolName.includes('web')) return Globe
+  if (toolName.includes('file') || toolName.includes('folder')) return FolderOpen
+  return Terminal
+}
+
 const startShapeAnimation = () => {
   if (shapeIntervalId) return
   shapeIntervalId = setInterval(() => {
@@ -166,25 +238,6 @@ const stopShapeAnimation = () => {
   }
 }
 
-const startTimer = () => {
-  if (timerIntervalId) return
-  startTime.value = Date.now()
-  elapsedSeconds.value = 0
-  timerIntervalId = setInterval(() => {
-    if (startTime.value) {
-      elapsedSeconds.value = Math.floor((Date.now() - startTime.value) / 1000)
-    }
-  }, 1000)
-}
-
-const stopTimer = () => {
-  if (timerIntervalId) {
-    clearInterval(timerIntervalId)
-    timerIntervalId = null
-  }
-  // Keep the elapsed time visible after stopping
-}
-
 // Start/stop shape animation based on thinking state
 watch(() => props.isThinking, (thinking) => {
   if (thinking) {
@@ -194,35 +247,22 @@ watch(() => props.isThinking, (thinking) => {
   }
 }, { immediate: true })
 
-// Start/stop timer based on loading state
-watch(() => props.isLoading, (loading) => {
-  if (loading) {
-    startTimer()
-  } else {
-    stopTimer()
-  }
-}, { immediate: true })
-
 onMounted(() => {
   if (props.isThinking) {
     startShapeAnimation()
-  }
-  if (props.isLoading) {
-    startTimer()
   }
 })
 
 onUnmounted(() => {
   stopShapeAnimation()
-  stopTimer()
 })
 </script>
 
 <style scoped>
 .thinking-shape {
-  width: 12px;
-  height: 12px;
-  background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 50%, #3b82f6 100%);
+  width: 14px;
+  height: 14px;
+  background: linear-gradient(135deg, #22c55e 0%, #4ade80 50%, #22c55e 100%);
   background-size: 200% 200%;
   animation: shimmer 1.5s ease-in-out infinite;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -230,8 +270,8 @@ onUnmounted(() => {
 }
 
 .thinking-shape.small {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
 }
 
 /* Circle */
@@ -257,5 +297,46 @@ onUnmounted(() => {
   100% {
     background-position: -200% 0;
   }
+}
+
+/* Terminal preview animation */
+.terminal-preview {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  height: 100%;
+  justify-content: center;
+}
+
+.terminal-line {
+  height: 8px;
+  background: var(--fill-tsp-gray-dark);
+  border-radius: 2px;
+  width: 80%;
+  animation: terminal-type 2s ease-in-out infinite;
+}
+
+.terminal-line.short {
+  width: 50%;
+  animation-delay: 0.3s;
+}
+
+.terminal-cursor {
+  width: 10px;
+  height: 12px;
+  background: var(--text-brand);
+  border-radius: 1px;
+  animation: cursor-blink 1s step-end infinite;
+}
+
+@keyframes terminal-type {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.7; }
+}
+
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 </style>

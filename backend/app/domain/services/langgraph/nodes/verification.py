@@ -3,6 +3,7 @@
 This node verifies plans before execution using the VerifierAgent.
 """
 
+import asyncio
 import logging
 from typing import Dict, Any
 
@@ -45,6 +46,9 @@ async def verification_node(state: PlanActState) -> Dict[str, Any]:
 
     logger.info(f"Verifying plan: {plan.title} ({len(plan.steps)} steps)")
 
+    # Get event queue for real-time streaming
+    event_queue: asyncio.Queue | None = state.get("event_queue")
+
     pending_events = []
     verdict = None
     feedback = None
@@ -55,7 +59,11 @@ async def verification_node(state: PlanActState) -> Dict[str, Any]:
         user_request=user_message.message if user_message else "",
         task_context=""
     ):
-        pending_events.append(event)
+        # Stream event in real-time if queue available
+        if event_queue:
+            await event_queue.put(event)
+        else:
+            pending_events.append(event)
 
         # Capture the verification result
         if isinstance(event, VerificationEvent):

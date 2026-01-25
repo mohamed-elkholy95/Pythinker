@@ -76,16 +76,23 @@
     </div>
   </div>
   <AttachmentsMessage v-else-if="message.type === 'attachments'" :content="attachmentsContent"/>
-  <div v-else-if="message.type === 'report'" class="flex flex-col gap-2 w-full mt-3">
+  <div v-else-if="message.type === 'report'" class="flex flex-col w-full mt-3">
+    <!-- Main Report Card -->
     <ReportCard
       :report="reportData"
       :suggestions="suggestions"
       @open="handleReportOpen"
-      @openFile="handleReportFileOpen"
-      @showAllFiles="handleShowAllFiles"
-      @rate="handleReportRate"
       @selectSuggestion="handleSelectSuggestion"
     />
+    <!-- Attachments shown separately below the report card -->
+    <AttachmentsInlineGrid
+      v-if="reportData.attachments && reportData.attachments.length > 0"
+      :attachments="reportData.attachments"
+      @openFile="handleReportFileOpen"
+      @showAllFiles="handleShowAllFiles"
+    />
+    <!-- Task Completed Footer - shown below everything -->
+    <TaskCompletedFooter @rate="handleReportRate" />
   </div>
 </template>
 
@@ -101,7 +108,7 @@ import { ToolContent, StepContent } from '../types/message';
 import { useRelativeTime } from '../composables/useTime';
 import { Bot } from 'lucide-vue-next';
 import AttachmentsMessage from './AttachmentsMessage.vue';
-import { ReportCard } from './report';
+import { ReportCard, AttachmentsInlineGrid, TaskCompletedFooter } from './report';
 import type { ReportData } from './report';
 
 

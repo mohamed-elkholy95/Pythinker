@@ -111,93 +111,28 @@
       <div class="h-8 bg-gradient-to-t from-[var(--background-card)] to-transparent -mt-8 relative pointer-events-none"></div>
     </div>
 
-    <!-- Attached Files Preview -->
-    <div v-if="report.attachments && report.attachments.length > 0" class="px-4 pb-4">
-      <div class="grid grid-cols-2 gap-2">
-        <div
-          v-for="file in displayedAttachments"
-          :key="file.file_id"
-          class="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-[var(--fill-tsp-white-main)] border border-[var(--border-main)] cursor-pointer hover:bg-[var(--fill-tsp-white-dark)] transition-colors"
-          @click.stop="openFile(file)"
-        >
-          <div
-            class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center"
-            :class="getFileIconBgClass(file.filename)"
-          >
-            <component :is="getFileIcon(file.filename)" class="w-5 h-5 text-white" />
-          </div>
-          <div class="flex flex-col min-w-0 flex-1">
-            <span class="text-sm text-[var(--text-primary)] truncate font-medium">
-              {{ file.filename }}
-            </span>
-            <span class="text-xs text-[var(--text-tertiary)]">
-              {{ getFileTypeLabel(file.filename) }} · {{ formatFileSize(file.size) }}
-            </span>
-          </div>
-        </div>
-
-        <!-- View all files button - inline in grid -->
-        <button
-          v-if="report.attachments.length > maxDisplayedFiles"
-          class="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-[var(--fill-tsp-white-main)] border border-[var(--border-main)] cursor-pointer hover:bg-[var(--fill-tsp-white-dark)] transition-colors"
-          @click.stop="showAllFiles"
-        >
-          <FolderOpen class="w-4 h-4 text-[var(--icon-secondary)]" />
-          <span class="text-sm text-[var(--text-secondary)]">
-            View all files in this task
-          </span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Footer with Task Completed -->
-    <div class="flex items-center justify-between px-4 py-3 border-t border-[var(--border-main)] bg-[var(--fill-tsp-white-main)]">
-      <div class="flex items-center gap-2 flex-shrink-0">
-        <Check class="w-4 h-4 text-[var(--function-success)]" />
-        <span class="text-sm text-[var(--function-success)] font-medium whitespace-nowrap">Task completed</span>
-      </div>
-      <div class="flex items-center gap-1 flex-shrink-0">
-        <span class="text-xs text-[var(--text-tertiary)] mr-2 whitespace-nowrap">How was this result?</span>
-        <div class="flex items-center">
-          <button
-            v-for="i in 5"
-            :key="i"
-            class="w-6 h-6 flex items-center justify-center group"
-            @click.stop="rate(i)"
-            @mouseenter="hoverRating = i"
-            @mouseleave="hoverRating = 0"
-          >
-            <Star
-              class="w-4 h-4 transition-colors"
-              :class="i <= (hoverRating || rating) ? 'text-yellow-400 fill-yellow-400' : 'text-[var(--icon-tertiary)] group-hover:text-yellow-300'"
-            />
-          </button>
-        </div>
-      </div>
-    </div>
-
     <!-- Suggested Follow-ups Section -->
     <div v-if="suggestions && suggestions.length > 0" class="border-t border-[var(--border-main)]">
       <div class="px-4 pt-4 pb-2">
-        <span class="text-sm text-[var(--text-tertiary)]">Suggested follow-ups</span>
+        <span class="text-base text-[var(--text-tertiary)]">Suggested follow-ups</span>
       </div>
       <div class="flex flex-col">
         <div
           v-for="(suggestion, index) in suggestions"
           :key="index"
-          class="flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-[var(--fill-tsp-white-main)] transition-colors group"
+          class="flex items-start gap-4 px-4 py-4 cursor-pointer hover:bg-[var(--fill-tsp-white-main)] transition-colors group border-t border-[var(--border-light)]"
           @click.stop="selectSuggestion(suggestion)"
         >
-          <div class="flex-shrink-0 mt-0.5">
-            <Lightbulb class="w-5 h-5 text-[var(--icon-tertiary)]" />
+          <div class="flex-shrink-0 mt-1">
+            <MessageSquare class="w-6 h-6 text-[var(--icon-tertiary)]" />
           </div>
           <div class="flex-1 min-w-0">
-            <p class="text-sm text-[var(--text-secondary)] leading-relaxed">
+            <p class="text-base text-[var(--text-primary)] leading-relaxed font-medium">
               {{ suggestion }}
             </p>
           </div>
-          <div class="flex-shrink-0">
-            <ArrowRight class="w-5 h-5 text-[var(--icon-tertiary)] group-hover:text-[var(--icon-secondary)]" />
+          <div class="flex-shrink-0 mt-1">
+            <ArrowRight class="w-5 h-5 text-[var(--icon-tertiary)] group-hover:text-[var(--icon-primary)] transition-colors" />
           </div>
         </div>
       </div>
@@ -213,14 +148,7 @@ import { saveAs } from 'file-saver';
 import {
   FileText,
   MoreHorizontal,
-  Check,
-  Star,
-  FolderOpen,
-  FileCode,
-  FileArchive,
-  FileImage,
-  File,
-  Lightbulb,
+  MessageSquare,
   ArrowRight,
   Sparkles,
   Share2,
@@ -230,7 +158,6 @@ import {
   FileType
 } from 'lucide-vue-next';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import type { FileInfo } from '@/api/file';
 import type { ReportData, ReportSection } from './types';
 
 export type { ReportData, ReportSection };
@@ -242,30 +169,14 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'open', report: ReportData): void;
-  (e: 'openFile', file: FileInfo): void;
-  (e: 'showAllFiles'): void;
-  (e: 'rate', rating: number): void;
   (e: 'selectSuggestion', suggestion: string): void;
   (e: 'share', report: ReportData): void;
   (e: 'download', report: ReportData, format: string): void;
   (e: 'saveToCloud', report: ReportData, service: string): void;
 }>();
 
-const rating = ref(0);
-const hoverRating = ref(0);
-const maxDisplayedFiles = 4;
 const showMenu = ref(false);
 const showDownloadMenu = ref(false);
-const _showHeaderDownload = ref(false);
-
-const displayedAttachments = computed(() => {
-  // Show up to maxDisplayedFiles, but leave room for "View all" button if there are more
-  const attachments = props.report.attachments || [];
-  if (attachments.length > maxDisplayedFiles) {
-    return attachments.slice(0, maxDisplayedFiles - 1);
-  }
-  return attachments.slice(0, maxDisplayedFiles);
-});
 
 // Render preview markdown content (limited to first few sections)
 const renderedPreview = computed(() => {
@@ -303,97 +214,8 @@ const _formatDate = (timestamp: number) => {
   });
 };
 
-const formatFileSize = (bytes: number) => {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-};
-
-const getFileIcon = (filename: string) => {
-  const ext = filename.split('.').pop()?.toLowerCase() || '';
-  if (['md', 'txt', 'doc', 'docx', 'pdf'].includes(ext)) return FileText;
-  if (['js', 'ts', 'py', 'json', 'html', 'css', 'vue', 'jsx', 'tsx'].includes(ext)) return FileCode;
-  if (['zip', 'tar', 'gz', 'rar', '7z'].includes(ext)) return FileArchive;
-  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) return FileImage;
-  return File;
-};
-
-const getFileIconBgClass = (filename: string) => {
-  const ext = filename.split('.').pop()?.toLowerCase() || '';
-  // Code files - blue
-  if (['js', 'ts', 'py', 'json', 'html', 'css', 'vue', 'jsx', 'tsx', 'java', 'go', 'rs'].includes(ext)) {
-    return 'bg-[#4285f4]';
-  }
-  // Markdown/Document files - teal/blue
-  if (['md', 'txt'].includes(ext)) {
-    return 'bg-[#4285f4]';
-  }
-  // Office documents - blue
-  if (['doc', 'docx', 'pdf'].includes(ext)) {
-    return 'bg-[#4285f4]';
-  }
-  // Archive files - orange/red
-  if (['zip', 'tar', 'gz', 'rar', '7z'].includes(ext)) {
-    return 'bg-[#EA4335]';
-  }
-  // Image files - green
-  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) {
-    return 'bg-[#10B981]';
-  }
-  // Default - gray
-  return 'bg-[#6B7280]';
-};
-
-const getFileTypeLabel = (filename: string) => {
-  const ext = filename.split('.').pop()?.toLowerCase() || '';
-  const typeMap: Record<string, string> = {
-    md: 'Markdown',
-    txt: 'Text',
-    pdf: 'PDF',
-    doc: 'Document',
-    docx: 'Document',
-    js: 'Code',
-    ts: 'Code',
-    jsx: 'Code',
-    tsx: 'Code',
-    vue: 'Code',
-    py: 'Code',
-    java: 'Code',
-    go: 'Code',
-    rs: 'Code',
-    json: 'JSON',
-    html: 'HTML',
-    css: 'CSS',
-    zip: 'Archive',
-    tar: 'Archive',
-    gz: 'Archive',
-    png: 'Image',
-    jpg: 'Image',
-    jpeg: 'Image',
-    gif: 'Image',
-    svg: 'Image',
-    webp: 'Image',
-  };
-  return typeMap[ext] || ext.toUpperCase();
-};
-
 const openReport = () => {
   emit('open', props.report);
-};
-
-const openFile = (file: FileInfo) => {
-  emit('openFile', file);
-};
-
-const showAllFiles = () => {
-  emit('showAllFiles');
-};
-
-const rate = (value: number) => {
-  rating.value = value;
-  emit('rate', value);
 };
 
 const selectSuggestion = (suggestion: string) => {

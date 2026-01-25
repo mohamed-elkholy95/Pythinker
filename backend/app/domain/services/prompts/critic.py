@@ -154,3 +154,98 @@ Reviewer Summary: {summary}
 ---
 
 Please provide a revised version that addresses all the issues raised. Explain what changes you made."""
+
+
+# Pre-delivery fact checking prompt for hallucination prevention
+FACT_CHECK_PROMPT = """Perform a fact-checking analysis on the following output before delivery.
+
+## Output to Verify:
+{output}
+
+## Task Context:
+{task_context}
+
+---
+
+## Fact-Checking Process:
+
+1. **Claim Extraction**: Identify all factual claims made in the output.
+
+2. **Verification Status**: For each claim, categorize as:
+   - VERIFIED: Evidence supports this claim (cite source)
+   - UNVERIFIED: Could not find supporting evidence
+   - CONTRADICTED: Evidence contradicts this claim
+   - OPINION: This is an opinion, not a factual claim
+
+3. **Red Flags**: Check for common hallucination patterns:
+   - Specific statistics without sources
+   - Quotes without attribution
+   - Historical dates or events
+   - Technical specifications
+   - Current prices or availability
+   - Named individuals or organizations
+
+Respond with a JSON object:
+{{
+    "claims_analyzed": int,
+    "verified": int,
+    "unverified": int,
+    "contradicted": int,
+    "red_flags": ["list of specific concerns"],
+    "confidence_score": float 0.0-1.0,
+    "recommendation": "deliver" | "add_caveats" | "needs_verification" | "reject",
+    "caveats_to_add": ["list of disclaimers to add if recommendation is add_caveats"]
+}}"""
+
+
+# Structured feedback template for actionable improvements
+STRUCTURED_FEEDBACK_PROMPT = """Provide structured, actionable feedback for improving this output.
+
+## Output:
+{output}
+
+## Original Request:
+{user_request}
+
+## Review Focus Areas:
+{focus_areas}
+
+---
+
+Provide feedback in the following structured format:
+
+{{
+    "overall_quality": float 0.0-1.0,
+    "strengths": ["list of things done well"],
+    "improvements": [
+        {{
+            "category": "accuracy|completeness|clarity|security|performance",
+            "severity": "critical|major|minor|suggestion",
+            "issue": "specific issue description",
+            "fix": "how to fix it",
+            "location": "where in the output (line/section/reference)"
+        }}
+    ],
+    "missing_elements": ["list of things that should be added"],
+    "priority_order": ["ordered list of improvement IDs by importance"]
+}}"""
+
+
+# Quick validation prompt for simple checks
+QUICK_VALIDATE_PROMPT = """Perform a quick validation check on this output.
+
+## Output:
+{output}
+
+## Validation Criteria:
+- Addresses the user request: {user_request}
+- Expected format: {expected_format}
+- Must include: {required_elements}
+
+Quick check (respond with JSON):
+{{
+    "passes_validation": boolean,
+    "missing_requirements": ["list of any missing required elements"],
+    "format_issues": ["list of any format problems"],
+    "quick_fix": "single sentence describing fix needed, or null if passes"
+}}"""

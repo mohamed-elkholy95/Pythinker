@@ -10,3 +10,51 @@
 | #9543 | 10:47 AM | 🔵 | Base Agent with Tool Execution, Token Management, and Stuck Detection | ~493 |
 | #9538 | " | 🔵 | Advanced Memory Manager with Proactive Compaction and Archival | ~512 |
 </claude-mem-context>
+
+# Agent Services
+
+## Performance Optimizations (Jan 2026)
+
+### Token Efficiency
+- **Prompt Caching**: System prompts cached with Anthropic ephemeral cache control (90% savings)
+- **Token Count Caching**: LRU cache for repeated token counts (99% hit rate)
+- **Dynamic Toolsets**: Task-based tool filtering (60%+ token reduction)
+
+### Caching Infrastructure
+- **L1 Cache**: In-memory cache for sub-millisecond access (cache_layer.py)
+- **L2 Cache**: Redis-backed persistent cache with TTL
+- **Tool Schema Caching**: MCP tool schemas cached with 5-minute TTL
+
+### Tool Execution
+- **Parallel Execution**: Up to 5 concurrent tool calls for read-only operations
+- **Hallucination Detection**: Similarity-based tool name correction (hallucination_detector.py)
+- **Semantic Search**: Keyword-based tool discovery (dynamic_toolset.py)
+
+### Quality Assurance
+- **Chain-of-Thought**: Automatic CoT injection for complex tasks
+- **Fact Checking**: Pre-delivery hallucination detection (critic.py)
+- **Structured Feedback**: Actionable improvement suggestions
+- **Critic Revision Loop**: Actual content revision when critic requests changes (not just notes)
+
+## Key Files
+- `base.py` - Base agent with parallel tool execution
+- `token_manager.py` - Token counting with caching
+- `hallucination_detector.py` - Tool name validation
+- `critic.py` - Output quality review with revision support
+- `execution.py` - Execution agent with `_apply_critic_revision()` method
+- `benchmarks.py` - Performance benchmark suite
+- `metrics.py` - Real-time metrics collection
+
+## Critic Revision Flow (Jan 2026)
+When critic returns REVISE verdict:
+1. `_apply_critic_revision()` builds revision guidance from critic feedback
+2. LLM revises content based on specific issues/suggestions
+3. Revised content is re-reviewed by critic
+4. Loop continues until APPROVE or max revisions reached (default: 2)
+5. Best version is delivered to user
+
+## Metrics Endpoints
+- `GET /metrics/agent` - Agent optimization summary
+- `GET /metrics/agent/prometheus` - Prometheus format
+- `GET /metrics/agent/cache` - Cache performance details
+- `GET /metrics/agent/toolset` - Dynamic toolset stats

@@ -244,27 +244,12 @@ class ExecutionAgent(BaseAgent):
 
             attachments = [FileInfo(file_path=file_path) for file_path in message_attachments]
 
-            # Run critic review on the summary (if substantial)
+            # Run critic review on the summary with actual revision support
             if len(message_content) > 200 and self._user_request:
-                try:
-                    review = await self._critic.review_output(
-                        user_request=self._user_request,
-                        output=message_content,
-                        task_context="Task completion summary",
-                        files=[f.file_path for f in attachments] if attachments else None
-                    )
-
-                    if review.verdict == CriticVerdict.REVISE and review.issues:
-                        logger.info(f"Critic requested revision: {review.summary}")
-                        # Add revision context to the output
-                        revision_note = "\n\n---\n*Note: This output was reviewed for quality.*"
-                        if review.suggestions:
-                            revision_note += f"\n*Suggested improvements: {'; '.join(review.suggestions[:2])}*"
-                        message_content += revision_note
-
-                    logger.debug(f"Critic review: {review.verdict.value} ({review.confidence:.2f})")
-                except Exception as e:
-                    logger.warning(f"Critic review failed (continuing): {e}")
+                message_content = await self._apply_critic_revision(
+                    message_content,
+                    attachments
+                )
 
             # Mark summarize step as completed
             yield StepEvent(status=StepStatus.COMPLETED, step=Step(
@@ -322,6 +307,114 @@ class ExecutionAgent(BaseAgent):
                 return clean[:80] + ('...' if len(clean) > 80 else '')
 
         return "Task Report"
+
+    async def _apply_critic_revision(
+        self,
+        message_content: str,
+        attachments: List[FileInfo]
+    ) -> str:
+        """Apply critic review with actual revision support.
+
+        This method implements a revision loop that actually improves the output
+        based on critic feedback, rather than just appending notes.
+
+        Args:
+            message_content: The original message content
+            attachments: List of file attachments
+
+        Returns:
+            Revised content (or original if approved/revision failed)
+        """
+        max_revisions = self._critic.config.max_revision_attempts
+        current_content = message_content
+        revision_count = 0
+
+        while revision_count < max_revisions:
+            try:
+                review = await self._critic.review_output(
+                    user_request=self._user_request,
+                    output=current_content,
+                    task_context="Task completion summary",
+                    files=[f.file_path for f in attachments] if attachments else None
+                )
+
+                logger.info(
+                    f"Critic review (attempt {revision_count + 1}): "
+                    f"{review.verdict.value} ({review.confidence:.2f})"
+                )
+
+                # If approved, return the current content
+                if review.verdict == CriticVerdict.APPROVE:
+                    logger.debug("Critic approved output")
+                    return current_content
+
+                # If rejected, log and return original (can't fix fundamental issues)
+                if review.verdict == CriticVerdict.REJECT:
+                    logger.warning(f"Critic rejected output: {review.summary}")
+                    return current_content
+
+                # If revision needed, actually revise the content
+                if review.verdict == CriticVerdict.REVISE and review.issues:
+                    revision_count += 1
+                    logger.info(f"Critic requested revision {revision_count}: {review.summary}")
+
+                    # Build revision prompt
+                    revision_guidance = await self._critic.get_revision_guidance(
+                        current_content,
+                        review
+                    )
+
+                    # Ask LLM to revise the content
+                    try:
+                        revision_messages = [
+                            {
+                                "role": "system",
+                                "content": (
+                                    "You are revising your previous output based on quality feedback. "
+                                    "Make the specific improvements requested while preserving the good parts. "
+                                    "Return the complete revised output in the same format."
+                                )
+                            },
+                            {
+                                "role": "user",
+                                "content": revision_guidance
+                            }
+                        ]
+
+                        response = await self.llm.ask(
+                            revision_messages,
+                            tools=None,
+                            tool_choice=None
+                        )
+
+                        revised_content = response.get("content", "")
+                        if revised_content and len(revised_content) > 100:
+                            logger.info(
+                                f"Revision {revision_count} applied "
+                                f"(original: {len(current_content)} chars, "
+                                f"revised: {len(revised_content)} chars)"
+                            )
+                            current_content = revised_content
+                        else:
+                            logger.warning("Revision produced insufficient content, keeping original")
+                            break
+
+                    except Exception as e:
+                        logger.warning(f"Revision attempt failed: {e}")
+                        break
+                else:
+                    # No issues identified, accept current content
+                    break
+
+            except Exception as e:
+                logger.warning(f"Critic review failed (continuing with current content): {e}")
+                break
+
+        # If we exhausted revisions, add a note about best-effort improvement
+        if revision_count >= max_revisions:
+            logger.info(f"Max revisions ({max_revisions}) reached, delivering best version")
+
+        return current_content
 
     def _is_report_structure(self, content: str) -> bool:
         """Check if content has report-like structure (headings, sections)."""

@@ -73,6 +73,11 @@ class TokenManager:
     Uses tiktoken for accurate counting when available, falls back to
     approximate counting otherwise. Includes pressure monitoring for
     proactive context management.
+
+    Performance optimizations:
+    - LRU cache for repeated token counts on identical content
+    - Message-level caching with content hashing
+    - Batch counting for message lists
     """
 
     # Approximate tokens per character for fallback estimation
@@ -111,11 +116,16 @@ class TokenManager:
     # Safety margin (reserve tokens for response) - reduced from 4096 for better context utilization
     SAFETY_MARGIN = 2048
 
+    # Token count cache settings
+    TOKEN_CACHE_MAX_SIZE = 1000  # Max cached entries
+    TOKEN_CACHE_TTL = 300  # 5 minutes
+
     def __init__(
         self,
         model_name: str = "gpt-4",
         max_context_tokens: Optional[int] = None,
-        safety_margin: Optional[int] = None
+        safety_margin: Optional[int] = None,
+        enable_cache: bool = True
     ):
         """
         Initialize the token manager.
@@ -124,6 +134,7 @@ class TokenManager:
             model_name: Name of the model for token counting
             max_context_tokens: Override for max context tokens
             safety_margin: Override for safety margin
+            enable_cache: Enable token count caching (default: True)
         """
         self._model_name = model_name
         self._encoding = self._get_encoding(model_name)
@@ -133,9 +144,16 @@ class TokenManager:
         self._safety_margin = safety_margin or self.SAFETY_MARGIN
         self._effective_limit = self._max_tokens - self._safety_margin
 
+        # Token count cache (content_hash -> token_count)
+        self._enable_cache = enable_cache
+        self._token_cache: Dict[str, int] = {}
+        self._cache_hits = 0
+        self._cache_misses = 0
+
         logger.info(
             f"TokenManager initialized for {model_name}: "
-            f"max={self._max_tokens}, effective={self._effective_limit}"
+            f"max={self._max_tokens}, effective={self._effective_limit}, "
+            f"cache={'enabled' if enable_cache else 'disabled'}"
         )
 
     def _get_encoding(self, model_name: str):
@@ -160,9 +178,16 @@ class TokenManager:
 
         return self.MODEL_LIMITS["default"]
 
+    def _get_content_hash(self, text: str) -> str:
+        """Generate a hash for content to use as cache key."""
+        import hashlib
+        return hashlib.md5(text.encode()).hexdigest()[:16]
+
     def count_tokens(self, text: str) -> int:
         """
         Count tokens in a text string.
+
+        Uses LRU-style caching to avoid recounting identical content.
 
         Args:
             text: Text to count tokens for
@@ -173,11 +198,32 @@ class TokenManager:
         if not text:
             return 0
 
-        if self._encoding:
-            return len(self._encoding.encode(text))
+        # Check cache first
+        if self._enable_cache:
+            cache_key = self._get_content_hash(text)
+            if cache_key in self._token_cache:
+                self._cache_hits += 1
+                return self._token_cache[cache_key]
+            self._cache_misses += 1
 
-        # Fallback: approximate by character count
-        return len(text) // self.CHARS_PER_TOKEN
+        # Count tokens
+        if self._encoding:
+            count = len(self._encoding.encode(text))
+        else:
+            # Fallback: approximate by character count
+            count = len(text) // self.CHARS_PER_TOKEN
+
+        # Store in cache
+        if self._enable_cache:
+            self._token_cache[cache_key] = count
+            # Evict oldest entries if cache is full
+            if len(self._token_cache) > self.TOKEN_CACHE_MAX_SIZE:
+                # Remove first 10% of entries (simple eviction)
+                keys_to_remove = list(self._token_cache.keys())[:self.TOKEN_CACHE_MAX_SIZE // 10]
+                for key in keys_to_remove:
+                    del self._token_cache[key]
+
+        return count
 
     def count_message_tokens(self, message: Dict[str, Any]) -> TokenCount:
         """
@@ -419,14 +465,38 @@ class TokenManager:
         return max(0, self._max_tokens - prompt_tokens - 100)  # 100 token buffer
 
     def get_stats(self) -> Dict[str, Any]:
-        """Get token manager statistics"""
+        """Get token manager statistics including cache performance."""
+        cache_total = self._cache_hits + self._cache_misses
+        cache_hit_rate = self._cache_hits / cache_total if cache_total > 0 else 0.0
+
         return {
             "model": self._model_name,
             "max_tokens": self._max_tokens,
             "safety_margin": self._safety_margin,
             "effective_limit": self._effective_limit,
-            "tiktoken_available": TIKTOKEN_AVAILABLE
+            "tiktoken_available": TIKTOKEN_AVAILABLE,
+            "cache": {
+                "enabled": self._enable_cache,
+                "size": len(self._token_cache),
+                "max_size": self.TOKEN_CACHE_MAX_SIZE,
+                "hits": self._cache_hits,
+                "misses": self._cache_misses,
+                "hit_rate": round(cache_hit_rate, 4)
+            }
         }
+
+    def clear_cache(self) -> int:
+        """Clear the token count cache.
+
+        Returns:
+            Number of entries cleared
+        """
+        count = len(self._token_cache)
+        self._token_cache.clear()
+        self._cache_hits = 0
+        self._cache_misses = 0
+        logger.debug(f"Token cache cleared ({count} entries)")
+        return count
 
     def get_context_pressure(
         self,

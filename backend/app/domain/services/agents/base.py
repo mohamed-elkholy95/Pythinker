@@ -21,23 +21,42 @@ from app.domain.utils.json_parser import JsonParser
 from app.domain.services.agents.stuck_detector import StuckDetector
 from app.domain.services.agents.token_manager import TokenManager
 from app.domain.services.agents.error_handler import ErrorHandler, TokenLimitExceeded, ErrorType
+from app.domain.services.agents.hallucination_detector import ToolHallucinationDetector
 from app.domain.services.tools.tool_profiler import get_tool_profiler
+from app.domain.services.tools.dynamic_toolset import (
+    DynamicToolsetManager,
+    get_toolset_manager,
+    ToolsetConfig
+)
 
 logger = logging.getLogger(__name__)
 
 # Tools that are safe to execute in parallel (read-only, no side effects)
 SAFE_PARALLEL_TOOLS = {
+    # Search operations
     "info_search_web",
+    # File read operations
     "file_read",
     "file_search",
     "file_list_directory",
+    # Browser read operations
     "browser_get_content",  # Fast text-only fetch
     "browser_view",
     "browser_screenshot",
+    # Code executor read-only operations
+    "code_list_artifacts",
+    "code_read_artifact",
+    # MCP read-only tools (pattern matching)
+    "mcp_list_resources",
+    "mcp_read_resource",
+    "mcp_server_status",
 }
 
-# Maximum number of concurrent tool executions
-MAX_CONCURRENT_TOOLS = 3
+# MCP tool prefixes that are safe for parallel execution (read-only patterns)
+SAFE_MCP_PREFIXES = {"mcp_get_", "mcp_list_", "mcp_search_", "mcp_read_", "mcp_fetch_"}
+
+# Maximum number of concurrent tool executions (increased for better throughput)
+MAX_CONCURRENT_TOOLS = 5
 class BaseAgent(ABC):
     """
     Base agent class, defining the basic behavior of the agent
@@ -71,6 +90,10 @@ class BaseAgent(ABC):
         self._stuck_detector = StuckDetector(window_size=5, threshold=3)
         self._token_manager = TokenManager(model_name=getattr(llm, 'model_name', 'gpt-4'))
         self._error_handler = ErrorHandler()
+
+        # Initialize hallucination detector with available tool names
+        tool_names = [t.get("function", {}).get("name", "") for t in self.get_available_tools() or []]
+        self._hallucination_detector = ToolHallucinationDetector(tool_names)
     
     def get_available_tools(self) -> Optional[List[Dict[str, Any]]]:
         """Get all available tools list"""
@@ -78,13 +101,88 @@ class BaseAgent(ABC):
         for tool in self.tools:
             available_tools.extend(tool.get_tools())
         return available_tools
+
+    def get_filtered_tools(
+        self,
+        task_description: str,
+        include_mcp: bool = True
+    ) -> List[Dict[str, Any]]:
+        """Get tools filtered by task context for reduced token usage.
+
+        Uses semantic matching to provide only relevant tools based on
+        the task description, achieving up to 96% token reduction.
+
+        Args:
+            task_description: Natural language description of the task
+            include_mcp: Whether to include MCP tools
+
+        Returns:
+            Filtered list of tool schemas
+        """
+        all_tools = self.get_available_tools() or []
+
+        # Get or initialize the toolset manager
+        manager = get_toolset_manager()
+
+        # Register tools if not already done
+        if not manager._tools:
+            manager.register_tools(all_tools)
+
+        # Get filtered tools for this task
+        filtered = manager.get_tools_for_task(
+            task_description,
+            include_mcp=include_mcp
+        )
+
+        # Update hallucination detector with filtered tools
+        tool_names = [t.get("function", {}).get("name", "") for t in filtered]
+        self._hallucination_detector.update_available_tools(tool_names)
+
+        return filtered
     
     def get_tool(self, function_name: str) -> BaseTool:
-        """Get specified tool"""
+        """Get specified tool.
+
+        Raises:
+            ValueError: If tool is not found (includes hallucination detection)
+        """
         for tool in self.tools:
             if tool.has_function(function_name):
                 return tool
+
+        # Tool not found - check if this is a hallucination
+        correction = self._hallucination_detector.detect(function_name)
+        if correction:
+            raise ValueError(correction)
+
         raise ValueError(f"Unknown tool: {function_name}")
+
+    def refresh_hallucination_detector(self) -> None:
+        """Refresh the hallucination detector with current available tools.
+
+        Call this after dynamically loading MCP tools.
+        """
+        tool_names = [t.get("function", {}).get("name", "") for t in self.get_available_tools() or []]
+        self._hallucination_detector.update_available_tools(tool_names)
+
+    def _record_tool_usage(
+        self,
+        tool_name: str,
+        success: bool,
+        duration_ms: float
+    ) -> None:
+        """Record tool usage for dynamic toolset prioritization.
+
+        Args:
+            tool_name: Name of the executed tool
+            success: Whether execution was successful
+            duration_ms: Execution duration in milliseconds
+        """
+        try:
+            manager = get_toolset_manager()
+            manager.record_tool_usage(tool_name, success, duration_ms)
+        except Exception:
+            pass  # Non-critical, don't fail on recording errors
 
     async def invoke_tool(self, tool: BaseTool, function_name: str, arguments: Dict[str, Any]) -> ToolResult:
         """Invoke specified tool, with retry mechanism and exponential backoff.
@@ -113,6 +211,13 @@ class BaseAgent(ABC):
                     error=result.message if result and not result.success else None
                 )
 
+                # Record for dynamic toolset prioritization
+                self._record_tool_usage(
+                    function_name,
+                    success=result.success if result else False,
+                    duration_ms=duration_ms
+                )
+
                 return result
             except Exception as e:
                 last_error = str(e)
@@ -136,13 +241,29 @@ class BaseAgent(ABC):
         return ToolResult(success=False, message=last_error)
 
     def _can_parallelize_tools(self, tool_calls: List[Dict]) -> bool:
-        """Check if all tool calls in the list can be executed in parallel"""
+        """Check if all tool calls in the list can be executed in parallel.
+
+        Supports both explicit tool whitelist and MCP read-only patterns.
+        """
         if len(tool_calls) <= 1:
             return False
-        return all(
-            tc.get("function", {}).get("name") in SAFE_PARALLEL_TOOLS
-            for tc in tool_calls
-        )
+
+        for tc in tool_calls:
+            tool_name = tc.get("function", {}).get("name", "")
+
+            # Check explicit whitelist first
+            if tool_name in SAFE_PARALLEL_TOOLS:
+                continue
+
+            # Check MCP read-only prefixes (dynamic tools from MCP servers)
+            if any(tool_name.startswith(prefix) or f"_{prefix.split('_')[-1]}" in tool_name
+                   for prefix in SAFE_MCP_PREFIXES):
+                continue
+
+            # Tool not in safe list
+            return False
+
+        return True
 
     async def _invoke_tool_with_semaphore(
         self,

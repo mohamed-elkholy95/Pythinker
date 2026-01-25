@@ -19,7 +19,9 @@ from app.infrastructure.observability.prometheus_metrics import (
 )
 from app.infrastructure.observability.tracer import get_tracer
 from app.infrastructure.observability.otel_exporter import get_otel_config
-from app.domain.services.tools.cache_layer import get_cache_stats
+from app.domain.services.tools.cache_layer import get_cache_stats, get_combined_cache_stats
+from app.domain.services.agents.metrics import get_metrics_collector
+from app.domain.services.tools.dynamic_toolset import get_toolset_manager
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 
@@ -113,6 +115,108 @@ async def get_cache_metrics() -> Dict[str, Any]:
     """
     return {
         "cache": get_cache_stats().to_dict(),
+    }
+
+
+@router.get("/agent")
+async def get_agent_optimization_metrics() -> Dict[str, Any]:
+    """Get agent optimization metrics.
+
+    Returns comprehensive metrics for all agent optimizations:
+    - Token usage and cache savings
+    - L1/L2 cache hit rates
+    - Tool execution statistics
+    - Hallucination detection counts
+    - Dynamic toolset reduction rates
+    - Latency percentiles
+    """
+    collector = get_metrics_collector()
+    return collector.get_summary()
+
+
+@router.get("/agent/prometheus")
+async def get_agent_prometheus_metrics():
+    """Get agent metrics in Prometheus format.
+
+    Designed for Prometheus scraping of agent-specific metrics.
+    """
+    collector = get_metrics_collector()
+    content = collector.export_prometheus()
+
+    return Response(
+        content=content,
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
+
+
+@router.get("/agent/timeseries")
+async def get_agent_timeseries(minutes: int = 60) -> Dict[str, Any]:
+    """Get time-series metrics for the last N minutes.
+
+    Args:
+        minutes: Number of minutes of history (max 60)
+
+    Returns time-bucketed metrics for trend analysis.
+    """
+    collector = get_metrics_collector()
+    minutes = min(minutes, 60)  # Cap at 60 minutes
+
+    return {
+        "period_minutes": minutes,
+        "buckets": collector.get_time_series(minutes)
+    }
+
+
+@router.get("/agent/cache")
+async def get_agent_cache_details() -> Dict[str, Any]:
+    """Get detailed cache metrics including L1 and L2.
+
+    Returns multi-tier cache performance data.
+    """
+    combined = get_combined_cache_stats()
+    collector = get_metrics_collector()
+
+    return {
+        "l1": combined["l1"],
+        "l2": combined["l2"],
+        "combined": combined["combined"],
+        "collector": {
+            "l1_hits": collector.cache.l1_hits,
+            "l1_misses": collector.cache.l1_misses,
+            "l2_hits": collector.cache.l2_hits,
+            "l2_misses": collector.cache.l2_misses,
+        }
+    }
+
+
+@router.get("/agent/toolset")
+async def get_toolset_metrics() -> Dict[str, Any]:
+    """Get dynamic toolset filtering metrics.
+
+    Returns statistics about tool filtering effectiveness.
+    """
+    manager = get_toolset_manager()
+    collector = get_metrics_collector()
+
+    return {
+        "toolset": manager.get_stats(),
+        "avg_reduction": f"{collector.avg_toolset_reduction:.1%}",
+        "samples": len(collector._toolset_reductions),
+    }
+
+
+@router.post("/agent/reset")
+async def reset_agent_metrics() -> Dict[str, Any]:
+    """Reset all agent optimization metrics.
+
+    Returns confirmation of reset.
+    """
+    collector = get_metrics_collector()
+    collector.reset()
+
+    return {
+        "status": "reset",
+        "timestamp": time.time()
     }
 
 

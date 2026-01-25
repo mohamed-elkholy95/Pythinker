@@ -24,6 +24,7 @@ class AgentCapability(str, Enum):
     # Domain-specific capabilities
     CODE_WRITING = "code_writing"       # Can write code
     CODE_REVIEW = "code_review"         # Can review and critique code
+    CODE_EXECUTION = "code_execution"   # Can execute Python/JS/Bash/SQL code in sandbox
     WEB_BROWSING = "web_browsing"       # Can browse the web
     WEB_SEARCH = "web_search"           # Can search the web
     FILE_OPERATIONS = "file_operations" # Can read/write files
@@ -110,6 +111,7 @@ class AgentSpec:
         capability_keywords = {
             AgentCapability.CODE_WRITING: ["code", "implement", "write", "function", "class", "script"],
             AgentCapability.CODE_REVIEW: ["review", "critique", "check", "verify code", "bugs"],
+            AgentCapability.CODE_EXECUTION: ["execute", "run code", "python", "javascript", "calculate", "script", "compute"],
             AgentCapability.WEB_BROWSING: ["browse", "visit", "navigate", "website", "page"],
             AgentCapability.WEB_SEARCH: ["search", "find", "look up", "google", "query"],
             AgentCapability.RESEARCH: ["research", "investigate", "study", "analyze", "deep dive"],
@@ -205,9 +207,10 @@ Focus on depth and accuracy over speed.""",
         self.register(AgentSpec(
             agent_type=AgentType.CODER,
             name="Coder",
-            description="Specializes in writing, modifying, and debugging code",
+            description="Specializes in writing, modifying, debugging, and executing code",
             capabilities={
                 AgentCapability.CODE_WRITING,
+                AgentCapability.CODE_EXECUTION,
                 AgentCapability.FILE_OPERATIONS,
                 AgentCapability.SHELL_COMMANDS,
                 AgentCapability.ANALYSIS,
@@ -218,6 +221,11 @@ Focus on depth and accuracy over speed.""",
                 "file_search",
                 "file_list_directory",
                 "shell_run",
+                "code_execute",
+                "code_execute_python",
+                "code_execute_javascript",
+                "code_list_artifacts",
+                "code_read_artifact",
             ],
             system_prompt_template="""You are a Coding specialist agent. Your expertise includes:
 1. Writing clean, efficient, and well-documented code
@@ -336,9 +344,10 @@ Maintain consistent tone throughout.""",
         self.register(AgentSpec(
             agent_type=AgentType.ANALYST,
             name="Analyst",
-            description="Specializes in data analysis and insights",
+            description="Specializes in data analysis, computation, and insights",
             capabilities={
                 AgentCapability.ANALYSIS,
+                AgentCapability.CODE_EXECUTION,
                 AgentCapability.DATA_EXTRACTION,
                 AgentCapability.SUMMARIZATION,
             },
@@ -346,6 +355,10 @@ Maintain consistent tone throughout.""",
                 "file_read",
                 "file_write",
                 "shell_run",
+                "code_execute",
+                "code_execute_python",
+                "code_list_artifacts",
+                "code_read_artifact",
             ],
             system_prompt_template="""You are an Analysis specialist agent. Your expertise includes:
 1. Analyzing data to extract meaningful insights
