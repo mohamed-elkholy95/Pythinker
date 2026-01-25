@@ -10,7 +10,7 @@ Enhanced with exponential backoff retry support for recoverable errors.
 
 import logging
 import asyncio
-import random
+import secrets
 from enum import Enum
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, Callable, Awaitable, List, Tuple, TypeVar
@@ -71,9 +71,11 @@ class ErrorContext:
         delay = min(delay, self.max_retry_delay)
 
         if self.jitter:
-            # Add random jitter ±25% to prevent thundering herd
+            # Add cryptographically secure random jitter ±25% to prevent thundering herd
             jitter_range = delay * 0.25
-            delay += random.uniform(-jitter_range, jitter_range)
+            # Generate a random float between -1 and 1, then scale by jitter_range
+            random_factor = (secrets.randbelow(2000001) - 1000000) / 1000000.0
+            delay += jitter_range * random_factor
 
         return max(0.1, delay)  # Minimum 100ms
 

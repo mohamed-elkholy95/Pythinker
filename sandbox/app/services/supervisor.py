@@ -6,6 +6,11 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import List
 
+# Protect against XML attacks (billion laughs, external entity expansion, etc.)
+# This monkey-patches the xmlrpc module to use defusedxml's safe parser
+import defusedxml.xmlrpc
+defusedxml.xmlrpc.monkey_patch()
+
 from app.core.config import settings
 from app.core.exceptions import BadRequestException, ResourceNotFoundException
 from app.models.supervisor import (

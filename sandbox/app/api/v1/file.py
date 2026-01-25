@@ -1,6 +1,8 @@
 """
 File operation API interfaces
 """
+import os
+import tempfile
 from fastapi import APIRouter, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from app.schemas.file import (
@@ -116,13 +118,18 @@ async def upload_file(
     Upload file using streaming
     """
     if not path:
-        path = f"/tmp/{file.filename}"
-    
+        # Use secure temp directory with sanitized filename
+        # Prevent path traversal by using only the basename
+        safe_filename = os.path.basename(file.filename) if file.filename else "upload"
+        # Use tempfile.gettempdir() for platform-independent temp directory
+        temp_dir = tempfile.gettempdir()
+        path = os.path.join(temp_dir, safe_filename)
+
     result = await file_service.upload_file(
         path=path,
         file_stream=file
     )
-    
+
     return Response(
         success=True,
         message="File uploaded successfully",
