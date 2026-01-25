@@ -37,7 +37,9 @@ class TestStuckDetector:
 
     def test_track_unique_responses(self):
         """Test tracking unique responses doesn't trigger stuck detection"""
-        detector = StuckDetector(window_size=5, threshold=3)
+        # Disable semantic detection to test hash-based behavior only
+        # (semantic detection can trigger on similarly-structured responses)
+        detector = StuckDetector(window_size=5, threshold=3, enable_semantic=False)
 
         responses = [
             {"content": "Response 1", "role": "assistant"},
