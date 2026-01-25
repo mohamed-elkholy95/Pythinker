@@ -74,7 +74,38 @@ class SessionRepository(Protocol):
     async def delete(self, session_id: str) -> None:
         """Delete a session"""
         ...
-    
+
     async def get_all(self) -> List[Session]:
         """Get all sessions"""
+        ...
+
+    # Timeline query methods
+    async def get_events_paginated(
+        self,
+        session_id: str,
+        offset: int = 0,
+        limit: int = 100
+    ) -> List[BaseEvent]:
+        """Get paginated events for a session."""
+        ...
+
+    async def get_events_in_range(
+        self,
+        session_id: str,
+        start_time: datetime,
+        end_time: datetime
+    ) -> List[BaseEvent]:
+        """Get events within a time range."""
+        ...
+
+    async def get_event_count(self, session_id: str) -> int:
+        """Get the total number of events for a session."""
+        ...
+
+    async def get_event_by_sequence(
+        self,
+        session_id: str,
+        sequence: int
+    ) -> Optional[BaseEvent]:
+        """Get an event by its sequence number."""
         ...

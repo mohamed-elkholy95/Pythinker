@@ -93,6 +93,12 @@ class ToolEvent(BaseEvent):
     status: ToolStatus
     function_result: Optional[Any] = None
 
+    # Timeline tracking fields
+    sequence_number: Optional[int] = None  # Position in session timeline
+    started_at: Optional[datetime] = None  # When tool execution started
+    completed_at: Optional[datetime] = None  # When tool execution completed
+    duration_ms: Optional[int] = None  # Execution duration in milliseconds
+
 class TitleEvent(BaseEvent):
     """Title event"""
     type: Literal["title"] = "title"
