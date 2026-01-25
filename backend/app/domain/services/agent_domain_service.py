@@ -1,9 +1,8 @@
 from typing import Optional, AsyncGenerator, List, TYPE_CHECKING
 import logging
-import time
 import asyncio
 from datetime import datetime
-from app.domain.models.session import Session, SessionStatus, AgentMode
+from app.domain.models.session import Session, SessionStatus
 from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
@@ -58,7 +57,7 @@ class AgentDomainService:
             
     async def shutdown(self) -> None:
         """Clean up all Agent's resources"""
-        logger.info(f"Starting to close all Agents")
+        logger.info("Starting to close all Agents")
         await self._task_cls.destroy()
         logger.info("All agents closed successfully")
 

@@ -7,7 +7,8 @@ import glob
 import asyncio
 import subprocess
 import mimetypes
-from typing import Optional, BinaryIO
+import tempfile
+from typing import Optional
 from fastapi import UploadFile
 from app.models.file import (
     FileReadResult, FileWriteResult, FileReplaceResult,
@@ -108,31 +109,32 @@ class FileService:
             # Write with sudo
             if sudo:
                 mode = '>>' if append else '>'
-                # Create temporary file
-                temp_file = f"/tmp/file_write_{os.getpid()}.tmp"
-                
-                # Asynchronously write to temporary file
-                def write_temp_file():
-                    with open(temp_file, 'w', encoding='utf-8') as f:
-                        f.write(content)
-                    return len(content.encode('utf-8'))
-                
-                bytes_written = await asyncio.to_thread(write_temp_file)
-                
-                # Use sudo to write temporary file content to target file
-                command = f"sudo bash -c \"cat {temp_file} {mode} '{file}'\""
-                process = await asyncio.create_subprocess_shell(
-                    command,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                stdout, stderr = await process.communicate()
-                
-                if process.returncode != 0:
-                    raise BadRequestException(f"Failed to write file: {stderr.decode()}")
-                
-                # Clean up temporary file
-                os.unlink(temp_file)
+                # Create secure temporary file
+                fd, temp_file = tempfile.mkstemp(prefix='file_write_', suffix='.tmp')
+                try:
+                    # Asynchronously write to temporary file
+                    def write_temp_file():
+                        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                            f.write(content)
+                        return len(content.encode('utf-8'))
+
+                    bytes_written = await asyncio.to_thread(write_temp_file)
+
+                    # Use sudo to write temporary file content to target file
+                    command = f"sudo bash -c \"cat {temp_file} {mode} '{file}'\""
+                    process = await asyncio.create_subprocess_shell(
+                        command,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    stdout, stderr = await process.communicate()
+
+                    if process.returncode != 0:
+                        raise BadRequestException(f"Failed to write file: {stderr.decode()}")
+                finally:
+                    # Clean up temporary file
+                    if os.path.exists(temp_file):
+                        os.unlink(temp_file)
             else:
                 # Ensure directory exists
                 os.makedirs(os.path.dirname(file), exist_ok=True)

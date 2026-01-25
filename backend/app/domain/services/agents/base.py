@@ -1,12 +1,10 @@
-import json
 import logging
 import asyncio
 import uuid
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import List, Dict, Any, Optional, AsyncGenerator, Tuple
 from app.domain.external.llm import LLM
 from app.domain.models.agent import Agent
-from app.domain.models.memory import Memory
 from app.domain.models.message import Message
 from app.domain.services.tools.base import BaseTool
 from app.domain.models.tool_result import ToolResult
@@ -16,7 +14,6 @@ from app.domain.models.event import (
     ToolStatus,
     ErrorEvent,
     MessageEvent,
-    DoneEvent,
     StreamEvent,
 )
 from app.domain.repositories.agent_repository import AgentRepository
@@ -24,7 +21,7 @@ from app.domain.utils.json_parser import JsonParser
 from app.domain.services.agents.stuck_detector import StuckDetector
 from app.domain.services.agents.token_manager import TokenManager
 from app.domain.services.agents.error_handler import ErrorHandler, TokenLimitExceeded, ErrorType
-from app.domain.services.tools.tool_profiler import get_tool_profiler, ToolExecutionProfiler
+from app.domain.services.tools.tool_profiler import get_tool_profiler
 
 logger = logging.getLogger(__name__)
 
@@ -357,7 +354,7 @@ class BaseAgent(ABC):
             filtered_message = {}
             if message.get("role") == "assistant":
                 if not message.get("content") and not message.get("tool_calls"):
-                    logger.warning(f"Assistant message has no content, retry")
+                    logger.warning("Assistant message has no content, retry")
                     await self._add_to_memory([
                         {"role": "assistant", "content": ""},
                         {"role": "user", "content": "no thinking, please continue"}
@@ -383,7 +380,7 @@ class BaseAgent(ABC):
             if is_stuck and self._stuck_detector.can_attempt_recovery():
                 self._stuck_detector.record_recovery_attempt()
                 recovery_prompt = self._stuck_detector.get_recovery_prompt()
-                logger.warning(f"Agent stuck detected, injecting recovery prompt")
+                logger.warning("Agent stuck detected, injecting recovery prompt")
                 await self._add_to_memory([
                     filtered_message,
                     {"role": "user", "content": recovery_prompt}
@@ -413,7 +410,6 @@ class BaseAgent(ABC):
     async def _handle_token_limit_exceeded(self) -> None:
         """Handle token limit exceeded error by aggressively trimming context"""
         await self._ensure_memory()
-        current_messages = self.memory.get_messages()
 
         # First compact verbose tool results
         self.memory.smart_compact()

@@ -5,7 +5,7 @@ enabling native JSON schema validation instead of fallback parsing strategies.
 Use with OpenAI's structured output feature for type-safe responses.
 """
 
-from typing import List, Optional, Literal
+from typing import List, Optional
 from pydantic import BaseModel, Field
 from enum import Enum
 

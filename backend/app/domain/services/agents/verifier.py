@@ -286,8 +286,8 @@ class VerifierAgent:
                     feasible=tf.get("feasible", True),
                     reason=tf.get("reason", "")
                 ))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Skipping malformed tool_feasibility entry: {e}")
 
         # Build prerequisite checks
         prerequisite_checks = []
@@ -298,8 +298,8 @@ class VerifierAgent:
                     satisfied=pc.get("satisfied", True),
                     detail=pc.get("detail", "")
                 ))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Skipping malformed prerequisite_check entry: {e}")
 
         # Build dependency issues
         dependency_issues = []
@@ -310,8 +310,8 @@ class VerifierAgent:
                     depends_on=di.get("depends_on", ""),
                     issue=di.get("issue", "")
                 ))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Skipping malformed dependency_issue entry: {e}")
 
         return VerificationResponse(
             verdict=verdict,

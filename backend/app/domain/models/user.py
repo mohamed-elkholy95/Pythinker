@@ -1,6 +1,6 @@
 from typing import Optional
 from datetime import datetime, UTC
-from pydantic import BaseModel, field_validator, EmailStr
+from pydantic import BaseModel, field_validator
 from enum import Enum
 
 

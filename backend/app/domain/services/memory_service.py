@@ -821,7 +821,7 @@ class MemoryService:
         # Hash each word to vector positions
         for word in words:
             # Hash word to get position and value
-            h = hashlib.md5(word.encode()).hexdigest()
+            h = hashlib.md5(word.encode(), usedforsecurity=False).hexdigest()
 
             # Use first part of hash for position
             pos = int(h[:8], 16) % dim
@@ -1246,7 +1246,7 @@ class ContextEngineeringService:
         content = response.get("content", "{}")
         try:
             parsed = json.loads(content)
-        except:
+        except (json.JSONDecodeError, TypeError, ValueError):
             return self._get_recent_chunks(max_chunks)
 
         relevant_indices = parsed.get("relevant", [])

@@ -144,8 +144,8 @@ class PlaywrightBrowser:
                             page_url = await pages[0].evaluate("window.location.href")
                             if page_url in ("about:blank", "chrome://newtab/", "chrome://new-tab-page/", ""):
                                 reuse_page = pages[0]
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"Could not check page URL for reuse: {e}")
 
                     if reuse_page:
                         self.page = reuse_page

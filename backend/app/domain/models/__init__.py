@@ -1,1 +1,1 @@
-from .search import SearchResults, SearchResultItem
+from .search import SearchResults as SearchResults, SearchResultItem as SearchResultItem

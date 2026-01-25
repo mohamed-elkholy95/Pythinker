@@ -6,7 +6,6 @@ from app.domain.repositories.session_repository import SessionRepository
 
 from app.interfaces.schemas.session import ShellViewResponse
 from app.interfaces.schemas.file import FileViewResponse
-from app.domain.models.agent import Agent
 from app.domain.services.agent_domain_service import AgentDomainService
 from app.domain.models.event import AgentEvent
 from typing import Type
@@ -20,7 +19,7 @@ from app.domain.external.task import Task
 from app.domain.utils.json_parser import JsonParser
 from app.domain.models.file import FileInfo
 from app.domain.repositories.mcp_repository import MCPRepository
-from app.domain.models.session import SessionStatus, AgentMode
+from app.domain.models.session import AgentMode
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService

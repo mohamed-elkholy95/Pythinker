@@ -3,12 +3,9 @@ Scheduler Service
 Manages scheduled tasks using Redis persistence and APScheduler execution.
 """
 import logging
-import json
-from datetime import datetime, UTC
-from typing import Optional, Dict, List, Any
+from typing import Dict, List
 from app.domain.models.scheduled_task import (
     ScheduledTask,
-    ScheduleType,
     ScheduledTaskStatus,
 )
 from app.domain.models.tool_result import ToolResult

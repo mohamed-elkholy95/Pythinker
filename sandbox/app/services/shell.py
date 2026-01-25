@@ -127,9 +127,9 @@ class ShellService:
                     try:
                         old_process.terminate()
                         await asyncio.wait_for(old_process.wait(), timeout=1)
-                    except:
+                    except (asyncio.TimeoutError, ProcessLookupError, OSError) as e:
                         # If graceful termination fails, force kill
-                        logger.warning(f"Forcefully killing process in session: {session_id}")
+                        logger.warning(f"Forcefully killing process in session {session_id}: {e}")
                         old_process.kill()
                 
                 # Create a new process

@@ -86,7 +86,7 @@ class SupervisorService:
         if self.shutdown_task:
             try:
                 self.shutdown_task.cancel()
-            except:
+            except (asyncio.CancelledError, RuntimeError):
                 pass
             
         # Create scheduled task function
@@ -217,9 +217,9 @@ class SupervisorService:
             try:
                 self.shutdown_task.cancel()
                 self.shutdown_task = None
-            except:
+            except (asyncio.CancelledError, RuntimeError):
                 pass
-        
+
         # Also check thread timer (for compatibility)
         if hasattr(self, 'shutdown_timer') and self.shutdown_timer:
             self.shutdown_timer.cancel()
