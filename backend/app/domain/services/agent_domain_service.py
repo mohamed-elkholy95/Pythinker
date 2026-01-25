@@ -98,6 +98,8 @@ class AgentDomainService:
             # Multi-agent orchestration configuration
             enable_multi_agent=settings.enable_multi_agent,
             enable_coordinator=settings.enable_coordinator,
+            # LangGraph flow configuration
+            use_langgraph_flow=settings.use_langgraph_flow,
             # Long-term memory service (Phase 6: Qdrant integration)
             memory_service=self._memory_service,
         )
