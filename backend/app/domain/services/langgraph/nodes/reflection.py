@@ -3,6 +3,7 @@
 This node performs self-reflection on progress using the ReflectionAgent.
 """
 
+import asyncio
 import logging
 from typing import Dict, Any
 
@@ -67,6 +68,9 @@ async def reflection_node(state: PlanActState) -> Dict[str, Any]:
 
     logger.info(f"Reflecting on progress: trigger={trigger_type.value}")
 
+    # Get event queue for real-time streaming
+    event_queue: asyncio.Queue | None = state.get("event_queue")
+
     pending_events = []
     decision = "continue"
     feedback = None
@@ -80,7 +84,11 @@ async def reflection_node(state: PlanActState) -> Dict[str, Any]:
         recent_actions=task_state_manager.get_recent_actions(),
         last_error=task_state_manager.get_last_error()
     ):
-        pending_events.append(event)
+        # Stream event in real-time if queue available
+        if event_queue:
+            await event_queue.put(event)
+        else:
+            pending_events.append(event)
 
         # Capture reflection decision
         if isinstance(event, ReflectionEvent) and event.status == ReflectionStatus.COMPLETED:

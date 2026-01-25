@@ -52,24 +52,34 @@ const handleClick = () => {
 
 <style scoped>
 .tool-shimmer {
-  background: linear-gradient(
-    90deg,
-    var(--fill-tsp-gray-main) 0%,
-    var(--fill-tsp-gray-light, rgba(0, 0, 0, 0.04)) 25%,
-    var(--fill-tsp-gray-main) 50%,
-    var(--fill-tsp-gray-light, rgba(0, 0, 0, 0.04)) 75%,
-    var(--fill-tsp-gray-main) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
-@keyframes shimmer {
+.tool-shimmer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.4) 50%,
+    transparent 100%
+  );
+  animation: shimmer-sweep 1.2s ease-in-out infinite;
+}
+
+@keyframes shimmer-sweep {
   0% {
-    background-position: 200% 0;
+    left: -100%;
   }
   100% {
-    background-position: -200% 0;
+    left: 100%;
   }
 }
 </style>
@@ -77,14 +87,16 @@ const handleClick = () => {
 <style>
 /* Dark mode support - needs to be unscoped to work with :root selector */
 :root.dark .tool-shimmer {
+  background: rgba(96, 165, 250, 0.15);
+  border: 1px solid rgba(96, 165, 250, 0.4);
+}
+
+:root.dark .tool-shimmer::before {
   background: linear-gradient(
     90deg,
-    rgba(255, 255, 255, 0.05) 0%,
-    rgba(255, 255, 255, 0.1) 25%,
-    rgba(255, 255, 255, 0.05) 50%,
-    rgba(255, 255, 255, 0.1) 75%,
-    rgba(255, 255, 255, 0.05) 100%
+    transparent 0%,
+    rgba(255, 255, 255, 0.2) 50%,
+    transparent 100%
   );
-  background-size: 200% 100%;
 }
 </style>

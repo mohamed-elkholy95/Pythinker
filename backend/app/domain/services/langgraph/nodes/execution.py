@@ -3,6 +3,7 @@
 This node executes the next step in the plan using the ExecutionAgent.
 """
 
+import asyncio
 import logging
 from typing import Dict, Any
 
@@ -74,6 +75,9 @@ async def execution_node(state: PlanActState) -> Dict[str, Any]:
     if task_state_manager:
         task_state_manager.update_step_status(str(step.id), "in_progress")
 
+    # Get event queue for real-time streaming
+    event_queue: asyncio.Queue | None = state.get("event_queue")
+
     # Execute the step
     pending_events = []
     recent_tools = []
@@ -81,7 +85,12 @@ async def execution_node(state: PlanActState) -> Dict[str, Any]:
     last_had_error = False
 
     async for event in executor.execute_step(plan, step, user_message):
-        pending_events.append(event)
+        # Stream event in real-time if queue available
+        if event_queue:
+            await event_queue.put(event)
+        else:
+            # Fallback: batch events for later
+            pending_events.append(event)
 
         # Track tool usage
         if isinstance(event, ToolEvent) and event.tool_name:

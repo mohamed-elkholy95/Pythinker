@@ -7,6 +7,7 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
+| #9984 | 4:17 PM | 🔵 | Vite Configuration Enables HMR, API Proxy, and Code Splitting | ~423 |
 | #9531 | 10:45 AM | 🔵 | Development Frontend with Hot Module Replacement | ~280 |
 | #9530 | " | 🔵 | Frontend Multi-Stage Build with Bun and Nginx | ~340 |
 </claude-mem-context>

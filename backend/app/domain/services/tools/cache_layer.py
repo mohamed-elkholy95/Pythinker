@@ -1,22 +1,153 @@
 """Tool Result Caching Layer
 
-Provides caching for tool execution results to improve performance
+Provides multi-tier caching for tool execution results to improve performance
 by avoiding redundant API calls and computations.
 
 Features:
+- L1 (in-memory) + L2 (Redis) multi-tier caching
 - Configurable TTL per tool type
 - Hash-based cache key generation
 - Selective caching (some tools excluded)
 - Cache statistics and management
+- Automatic L1 eviction and promotion
 """
 import hashlib
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from functools import wraps
-from typing import Any, Callable, Dict, Optional, Set
+from typing import Any, Callable, Dict, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class L1CacheEntry:
+    """In-memory cache entry with metadata."""
+    value: Any
+    created_at: float
+    ttl: int
+    hits: int = 0
+
+    def is_expired(self) -> bool:
+        """Check if entry has expired."""
+        return time.time() - self.created_at > self.ttl
+
+
+class L1Cache:
+    """Fast in-memory cache (L1) for hot tool results.
+
+    Features:
+    - Sub-millisecond access times
+    - Automatic expiration
+    - LRU-style eviction when full
+    - Hit tracking for cache promotion
+    """
+
+    def __init__(self, max_size: int = 500, default_ttl: int = 300):
+        """Initialize L1 cache.
+
+        Args:
+            max_size: Maximum number of entries
+            default_ttl: Default TTL in seconds (5 minutes)
+        """
+        self._cache: Dict[str, L1CacheEntry] = {}
+        self._max_size = max_size
+        self._default_ttl = default_ttl
+        self._hits = 0
+        self._misses = 0
+
+    def get(self, key: str) -> Optional[Any]:
+        """Get value from L1 cache.
+
+        Returns:
+            Cached value or None if not found/expired
+        """
+        entry = self._cache.get(key)
+        if entry is None:
+            self._misses += 1
+            return None
+
+        if entry.is_expired():
+            del self._cache[key]
+            self._misses += 1
+            return None
+
+        entry.hits += 1
+        self._hits += 1
+        return entry.value
+
+    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
+        """Store value in L1 cache.
+
+        Args:
+            key: Cache key
+            value: Value to store
+            ttl: TTL in seconds (uses default if not specified)
+        """
+        # Evict if at capacity
+        if len(self._cache) >= self._max_size:
+            self._evict_lru()
+
+        self._cache[key] = L1CacheEntry(
+            value=value,
+            created_at=time.time(),
+            ttl=ttl or self._default_ttl
+        )
+
+    def delete(self, key: str) -> bool:
+        """Delete entry from cache."""
+        if key in self._cache:
+            del self._cache[key]
+            return True
+        return False
+
+    def _evict_lru(self) -> None:
+        """Evict least recently used entries (lowest hit count + oldest)."""
+        if not self._cache:
+            return
+
+        # Remove expired entries first
+        expired = [k for k, v in self._cache.items() if v.is_expired()]
+        for key in expired:
+            del self._cache[key]
+
+        # If still over capacity, evict by LRU score
+        if len(self._cache) >= self._max_size:
+            # Score = hits / age_seconds (lower is more evictable)
+            now = time.time()
+            scored = [
+                (k, v.hits / max(now - v.created_at, 1))
+                for k, v in self._cache.items()
+            ]
+            scored.sort(key=lambda x: x[1])
+
+            # Evict bottom 10%
+            to_evict = max(1, len(scored) // 10)
+            for key, _ in scored[:to_evict]:
+                del self._cache[key]
+
+    def clear(self) -> int:
+        """Clear all entries."""
+        count = len(self._cache)
+        self._cache.clear()
+        return count
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get cache statistics."""
+        total = self._hits + self._misses
+        return {
+            "size": len(self._cache),
+            "max_size": self._max_size,
+            "hits": self._hits,
+            "misses": self._misses,
+            "hit_rate": round(self._hits / total, 4) if total > 0 else 0.0
+        }
+
+
+# Global L1 cache instance
+_l1_cache = L1Cache()
 
 
 @dataclass
@@ -211,14 +342,27 @@ def get_cache_stats() -> ToolCacheStats:
     return _cache_stats
 
 
-def cacheable_tool(ttl: Optional[int] = None):
-    """Decorator for making tool methods cacheable.
+def get_l1_cache() -> L1Cache:
+    """Get the global L1 cache instance."""
+    return _l1_cache
+
+
+def cacheable_tool(ttl: Optional[int] = None, use_l1: bool = True):
+    """Decorator for making tool methods cacheable with multi-tier caching.
 
     This decorator wraps async tool methods to add caching behavior.
-    Cache results are stored in Redis with configurable TTL.
+    Uses L1 (in-memory) for hot data and L2 (Redis) for persistence.
+
+    Cache lookup order:
+    1. L1 (in-memory) - sub-millisecond access
+    2. L2 (Redis) - persistent storage
+    3. Execute function on miss
+
+    On cache hit from L2, the value is promoted to L1 for faster future access.
 
     Args:
         ttl: Optional custom TTL override (seconds)
+        use_l1: Whether to use L1 cache (default: True)
 
     Returns:
         Decorator function
@@ -251,22 +395,38 @@ def cacheable_tool(ttl: Optional[int] = None):
             # Generate cache key
             cache_key = _generate_cache_key(tool_name, all_kwargs)
 
-            # Try to get from cache
+            # Determine TTL
+            actual_ttl = ttl if ttl is not None else _get_tool_ttl(tool_name)
+
+            # L1 LOOKUP (fast in-memory)
+            if use_l1:
+                l1_value = _l1_cache.get(cache_key)
+                if l1_value is not None:
+                    logger.debug(f"L1 cache hit for {tool_name}: {cache_key}")
+                    _cache_stats.record_hit()
+                    from app.domain.models.tool_result import ToolResult
+                    return ToolResult(**l1_value)
+
+            # L2 LOOKUP (Redis)
             try:
                 from app.infrastructure.external.cache import get_cache
                 cache = get_cache()
 
                 cached_value = await cache.get(cache_key)
                 if cached_value is not None:
-                    logger.debug(f"Cache hit for {tool_name}: {cache_key}")
+                    logger.debug(f"L2 cache hit for {tool_name}: {cache_key}")
                     _cache_stats.record_hit()
+
+                    # Promote to L1 for faster future access
+                    if use_l1:
+                        _l1_cache.set(cache_key, cached_value, ttl=actual_ttl)
 
                     # Reconstruct ToolResult from cached dict
                     from app.domain.models.tool_result import ToolResult
                     return ToolResult(**cached_value)
 
             except Exception as e:
-                logger.warning(f"Cache get failed for {tool_name}: {e}")
+                logger.warning(f"L2 cache get failed for {tool_name}: {e}")
                 _cache_stats.record_error()
 
             # Cache miss - execute the function
@@ -276,9 +436,6 @@ def cacheable_tool(ttl: Optional[int] = None):
             # Store in cache (only if successful)
             if result.success:
                 try:
-                    # Determine TTL
-                    actual_ttl = ttl if ttl is not None else _get_tool_ttl(tool_name)
-
                     # Convert ToolResult to dict for caching
                     cache_value = {
                         "success": result.success,
@@ -286,8 +443,13 @@ def cacheable_tool(ttl: Optional[int] = None):
                         "data": result.data if not hasattr(result.data, 'model_dump') else result.data.model_dump() if result.data else None,
                     }
 
+                    # Store in L1 (fast)
+                    if use_l1:
+                        _l1_cache.set(cache_key, cache_value, ttl=actual_ttl)
+
+                    # Store in L2 (persistent)
                     await cache.set(cache_key, cache_value, ttl=actual_ttl)
-                    logger.debug(f"Cached {tool_name} result for {actual_ttl}s: {cache_key}")
+                    logger.debug(f"Cached {tool_name} result in L1+L2 for {actual_ttl}s: {cache_key}")
 
                 except Exception as e:
                     logger.warning(f"Cache set failed for {tool_name}: {e}")
@@ -299,15 +461,24 @@ def cacheable_tool(ttl: Optional[int] = None):
     return decorator
 
 
-async def clear_tool_cache(tool_name: Optional[str] = None) -> int:
-    """Clear cached tool results.
+async def clear_tool_cache(tool_name: Optional[str] = None, clear_l1: bool = True) -> Tuple[int, int]:
+    """Clear cached tool results from both L1 and L2 caches.
 
     Args:
         tool_name: Specific tool name to clear, or None for all tools
+        clear_l1: Whether to clear L1 cache (default: True)
 
     Returns:
-        Number of keys cleared
+        Tuple of (L1 keys cleared, L2 keys cleared)
     """
+    l1_cleared = 0
+    l2_cleared = 0
+
+    # Clear L1
+    if clear_l1:
+        l1_cleared = _l1_cache.clear()
+
+    # Clear L2 (Redis)
     try:
         from app.infrastructure.external.cache import get_cache
         cache = get_cache()
@@ -317,17 +488,17 @@ async def clear_tool_cache(tool_name: Optional[str] = None) -> int:
         else:
             pattern = "tool:*"
 
-        cleared = await cache.clear_pattern(pattern)
-        logger.info(f"Cleared {cleared} cached tool results matching '{pattern}'")
-        return cleared
+        l2_cleared = await cache.clear_pattern(pattern)
+        logger.info(f"Cleared cache: L1={l1_cleared}, L2={l2_cleared} matching '{pattern}'")
 
     except Exception as e:
-        logger.error(f"Failed to clear tool cache: {e}")
-        return 0
+        logger.error(f"Failed to clear L2 tool cache: {e}")
+
+    return l1_cleared, l2_cleared
 
 
 async def get_cached_keys(tool_name: Optional[str] = None) -> list[str]:
-    """Get list of cached tool result keys.
+    """Get list of cached tool result keys from L2 (Redis).
 
     Args:
         tool_name: Specific tool name filter, or None for all
@@ -349,3 +520,77 @@ async def get_cached_keys(tool_name: Optional[str] = None) -> list[str]:
     except Exception as e:
         logger.error(f"Failed to get cached keys: {e}")
         return []
+
+
+def get_combined_cache_stats() -> Dict[str, Any]:
+    """Get combined statistics for L1 and L2 caches.
+
+    Returns:
+        Dictionary with L1, L2, and combined statistics
+    """
+    l1_stats = _l1_cache.get_stats()
+    l2_stats = _cache_stats.to_dict()
+
+    total_hits = l1_stats["hits"] + l2_stats["hits"]
+    total_misses = l1_stats["misses"] + l2_stats["misses"]
+    total = total_hits + total_misses
+
+    return {
+        "l1": l1_stats,
+        "l2": l2_stats,
+        "combined": {
+            "total_hits": total_hits,
+            "total_misses": total_misses,
+            "combined_hit_rate": round(total_hits / total, 4) if total > 0 else 0.0
+        }
+    }
+
+
+async def warmup_common_tools() -> Dict[str, bool]:
+    """Warmup cache with common tool patterns.
+
+    Pre-executes common read operations to populate L1 cache
+    for faster subsequent access.
+
+    Returns:
+        Dict of warmup task names to success status
+    """
+    from app.domain.services.tools.dynamic_toolset import get_warmup_manager
+
+    warmup_manager = get_warmup_manager()
+    results = {}
+
+    # Register cache-specific warmup tasks
+    if not warmup_manager.is_warmed_up:
+        # These are lightweight tasks that help prime the cache infrastructure
+        async def prime_l1_cache():
+            """Prime L1 cache with placeholder to ensure it's initialized."""
+            _l1_cache.set("_warmup_test", {"status": "ready"}, ttl=60)
+            _l1_cache.get("_warmup_test")
+            _l1_cache.delete("_warmup_test")
+
+        warmup_manager.register_warmup_task(
+            name="l1_cache_prime",
+            coroutine_factory=prime_l1_cache,
+            priority=1
+        )
+
+        async def check_l2_connection():
+            """Verify L2 (Redis) connection is available."""
+            try:
+                from app.infrastructure.external.cache import get_cache
+                cache = get_cache()
+                await cache.set("_warmup_test", {"status": "ready"}, ttl=60)
+                await cache.get("_warmup_test")
+                await cache.delete("_warmup_test")
+                return True
+            except Exception:
+                return False
+
+        warmup_manager.register_warmup_task(
+            name="l2_cache_connection",
+            coroutine_factory=check_l2_connection,
+            priority=2
+        )
+
+    return await warmup_manager.warmup()

@@ -34,6 +34,9 @@ from app.domain.services.prompts.critic import (
     REVIEW_CODE_PROMPT,
     REVIEW_RESEARCH_PROMPT,
     REVISION_PROMPT,
+    FACT_CHECK_PROMPT,
+    STRUCTURED_FEEDBACK_PROMPT,
+    QUICK_VALIDATE_PROMPT,
 )
 from app.domain.models.event import BaseEvent, MessageEvent
 
@@ -63,6 +66,53 @@ class CriticReview(BaseModel):
     suggestions: List[str] = Field(default_factory=list, description="Improvement suggestions")
     summary: str = Field(description="Brief explanation of the verdict")
     review_type: ReviewType = Field(default=ReviewType.GENERAL, description="Type of review performed")
+
+
+class FactCheckRecommendation(str, Enum):
+    """Recommendation from fact-checking analysis."""
+    DELIVER = "deliver"  # Safe to deliver as-is
+    ADD_CAVEATS = "add_caveats"  # Add disclaimers/caveats
+    NEEDS_VERIFICATION = "needs_verification"  # Requires manual verification
+    REJECT = "reject"  # Contains likely hallucinations
+
+
+class FactCheckResult(BaseModel):
+    """Result of pre-delivery fact checking."""
+    claims_analyzed: int = Field(default=0, description="Number of claims analyzed")
+    verified: int = Field(default=0, description="Number of verified claims")
+    unverified: int = Field(default=0, description="Number of unverified claims")
+    contradicted: int = Field(default=0, description="Number of contradicted claims")
+    red_flags: List[str] = Field(default_factory=list, description="Specific concerns")
+    confidence_score: float = Field(ge=0.0, le=1.0, description="Overall confidence")
+    recommendation: FactCheckRecommendation = Field(
+        default=FactCheckRecommendation.DELIVER,
+        description="Delivery recommendation"
+    )
+    caveats_to_add: List[str] = Field(
+        default_factory=list,
+        description="Disclaimers to add if recommendation is add_caveats"
+    )
+
+
+class StructuredImprovement(BaseModel):
+    """Single structured improvement suggestion."""
+    category: str = Field(description="Category: accuracy/completeness/clarity/security/performance")
+    severity: str = Field(description="Severity: critical/major/minor/suggestion")
+    issue: str = Field(description="Specific issue description")
+    fix: str = Field(description="How to fix it")
+    location: Optional[str] = Field(default=None, description="Where in the output")
+
+
+class StructuredFeedback(BaseModel):
+    """Structured feedback with actionable improvements."""
+    overall_quality: float = Field(ge=0.0, le=1.0, description="Quality score")
+    strengths: List[str] = Field(default_factory=list, description="Things done well")
+    improvements: List[StructuredImprovement] = Field(
+        default_factory=list,
+        description="Actionable improvements"
+    )
+    missing_elements: List[str] = Field(default_factory=list, description="Missing items")
+    priority_order: List[int] = Field(default_factory=list, description="Priority ranking")
 
 
 class CriticConfig(BaseModel):
@@ -476,3 +526,232 @@ class CriticAgent:
         """Reset review statistics."""
         self._review_history = []
         self._revision_count = 0
+
+    async def fact_check(
+        self,
+        output: str,
+        task_context: str = ""
+    ) -> FactCheckResult:
+        """Perform pre-delivery fact checking to detect potential hallucinations.
+
+        This is a lightweight check focused on identifying claims that may be
+        hallucinated and providing recommendations for delivery.
+
+        Args:
+            output: The output to fact-check
+            task_context: Context about what the task was
+
+        Returns:
+            FactCheckResult with analysis and recommendations
+        """
+        if not self.config.enabled:
+            return FactCheckResult(
+                confidence_score=1.0,
+                recommendation=FactCheckRecommendation.DELIVER
+            )
+
+        # Skip for very short outputs
+        if len(output) < 100:
+            return FactCheckResult(
+                confidence_score=0.95,
+                recommendation=FactCheckRecommendation.DELIVER
+            )
+
+        try:
+            prompt = FACT_CHECK_PROMPT.format(
+                output=output,
+                task_context=task_context or "No additional context"
+            )
+
+            messages = [
+                {"role": "system", "content": CRITIC_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt}
+            ]
+
+            # Try structured output
+            if hasattr(self.llm, 'ask_structured'):
+                try:
+                    result = await self.llm.ask_structured(
+                        messages=messages,
+                        response_model=FactCheckResult
+                    )
+                    logger.info(
+                        f"Fact check: {result.claims_analyzed} claims, "
+                        f"{result.verified} verified, "
+                        f"recommendation: {result.recommendation.value}"
+                    )
+                    return result
+                except Exception as e:
+                    logger.warning(f"Structured fact check failed: {e}")
+
+            # Fallback to JSON parsing
+            response = await self.llm.ask(
+                messages=messages,
+                response_format={"type": "json_object"}
+            )
+
+            content = response.get("content", "")
+            parsed = await self.json_parser.parse(content)
+
+            # Normalize recommendation
+            rec_str = parsed.get("recommendation", "deliver").lower()
+            rec_map = {
+                "deliver": FactCheckRecommendation.DELIVER,
+                "add_caveats": FactCheckRecommendation.ADD_CAVEATS,
+                "needs_verification": FactCheckRecommendation.NEEDS_VERIFICATION,
+                "reject": FactCheckRecommendation.REJECT
+            }
+
+            return FactCheckResult(
+                claims_analyzed=int(parsed.get("claims_analyzed", 0)),
+                verified=int(parsed.get("verified", 0)),
+                unverified=int(parsed.get("unverified", 0)),
+                contradicted=int(parsed.get("contradicted", 0)),
+                red_flags=parsed.get("red_flags", []),
+                confidence_score=float(parsed.get("confidence_score", 0.8)),
+                recommendation=rec_map.get(rec_str, FactCheckRecommendation.DELIVER),
+                caveats_to_add=parsed.get("caveats_to_add", [])
+            )
+
+        except Exception as e:
+            logger.error(f"Fact check failed: {e}")
+            # Fail-open with lower confidence
+            return FactCheckResult(
+                confidence_score=0.5,
+                recommendation=FactCheckRecommendation.DELIVER,
+                red_flags=[f"Fact check error: {str(e)}"]
+            )
+
+    async def get_structured_feedback(
+        self,
+        output: str,
+        user_request: str,
+        focus_areas: Optional[List[str]] = None
+    ) -> StructuredFeedback:
+        """Get detailed structured feedback with actionable improvements.
+
+        Unlike review_output which gives a verdict, this provides granular
+        feedback that can be used for iterative improvement.
+
+        Args:
+            output: The output to analyze
+            user_request: The original user request
+            focus_areas: Specific areas to focus on (optional)
+
+        Returns:
+            StructuredFeedback with detailed improvements
+        """
+        default_focus = ["accuracy", "completeness", "clarity", "relevance"]
+        focus = focus_areas or default_focus
+
+        try:
+            prompt = STRUCTURED_FEEDBACK_PROMPT.format(
+                output=output,
+                user_request=user_request,
+                focus_areas=", ".join(focus)
+            )
+
+            messages = [
+                {"role": "system", "content": CRITIC_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt}
+            ]
+
+            # Try structured output
+            if hasattr(self.llm, 'ask_structured'):
+                try:
+                    return await self.llm.ask_structured(
+                        messages=messages,
+                        response_model=StructuredFeedback
+                    )
+                except Exception as e:
+                    logger.warning(f"Structured feedback failed: {e}")
+
+            # Fallback to JSON parsing
+            response = await self.llm.ask(
+                messages=messages,
+                response_format={"type": "json_object"}
+            )
+
+            content = response.get("content", "")
+            parsed = await self.json_parser.parse(content)
+
+            # Parse improvements
+            improvements = []
+            for imp in parsed.get("improvements", []):
+                improvements.append(StructuredImprovement(
+                    category=imp.get("category", "general"),
+                    severity=imp.get("severity", "minor"),
+                    issue=imp.get("issue", ""),
+                    fix=imp.get("fix", ""),
+                    location=imp.get("location")
+                ))
+
+            return StructuredFeedback(
+                overall_quality=float(parsed.get("overall_quality", 0.7)),
+                strengths=parsed.get("strengths", []),
+                improvements=improvements,
+                missing_elements=parsed.get("missing_elements", []),
+                priority_order=parsed.get("priority_order", [])
+            )
+
+        except Exception as e:
+            logger.error(f"Structured feedback failed: {e}")
+            return StructuredFeedback(
+                overall_quality=0.7,
+                strengths=["Unable to analyze"],
+                improvements=[]
+            )
+
+    async def quick_validate(
+        self,
+        output: str,
+        user_request: str,
+        expected_format: str = "any",
+        required_elements: Optional[List[str]] = None
+    ) -> bool:
+        """Perform a quick validation check.
+
+        This is faster than full review and checks only basic requirements.
+
+        Args:
+            output: The output to validate
+            user_request: The original request
+            expected_format: Expected format (e.g., "markdown", "json", "code")
+            required_elements: List of elements that must be present
+
+        Returns:
+            True if output passes basic validation
+        """
+        if not self.config.enabled:
+            return True
+
+        required = required_elements or []
+
+        try:
+            prompt = QUICK_VALIDATE_PROMPT.format(
+                output=output[:2000],  # Truncate for speed
+                user_request=user_request,
+                expected_format=expected_format,
+                required_elements=", ".join(required) if required else "None specified"
+            )
+
+            response = await self.llm.ask(
+                messages=[
+                    {"role": "system", "content": "You are a quick validator. Respond only with JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                response_format={"type": "json_object"}
+            )
+
+            content = response.get("content", "")
+            parsed = await self.json_parser.parse(content)
+
+            passes = parsed.get("passes_validation", True)
+            if not passes:
+                logger.debug(f"Quick validation failed: {parsed.get('quick_fix', 'Unknown issue')}")
+
+            return passes
+
+        except Exception as e:
+            logger.warning(f"Quick validation error (passing): {e}")
+            return True  # Fail-open

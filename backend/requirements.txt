@@ -6,6 +6,7 @@ pydantic-settings
 python-dotenv
 sse-starlette
 httpx
+tenacity>=8.2.0
 rich
 playwright>=1.42.0
 markdownify

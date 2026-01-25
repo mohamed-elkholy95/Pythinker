@@ -1,8 +1,8 @@
 <template>
-  <div v-if="suggestions.length > 0" class="flex flex-col w-full max-w-[640px] rounded-[16px] border border-[var(--border-main)] bg-[var(--background-card)] overflow-hidden shadow-sm">
+  <div v-if="suggestions.length > 0" class="flex flex-col w-full">
     <!-- Header -->
-    <div class="px-4 pt-4 pb-2">
-      <span class="text-sm text-[var(--text-tertiary)]">Suggested follow-ups</span>
+    <div class="pb-3">
+      <span class="text-base text-[var(--text-tertiary)]">Suggested follow-ups</span>
     </div>
 
     <!-- Suggestion Items -->
@@ -10,19 +10,19 @@
       <div
         v-for="(suggestion, index) in suggestions"
         :key="index"
-        class="flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-[var(--fill-tsp-white-main)] transition-colors group"
+        class="flex items-start gap-4 py-4 cursor-pointer hover:bg-[var(--fill-tsp-white-light)] transition-colors group border-t border-[var(--border-light)]"
         @click="$emit('select', suggestion)"
       >
-        <div class="flex-shrink-0 mt-0.5">
-          <Lightbulb class="w-5 h-5 text-[var(--icon-tertiary)]" />
+        <div class="flex-shrink-0 mt-1">
+          <component :is="getSuggestionIcon(index)" class="w-6 h-6 text-[var(--icon-tertiary)]" />
         </div>
         <div class="flex-1 min-w-0">
-          <p class="text-sm text-[var(--text-secondary)] leading-relaxed">
+          <p class="text-base text-[var(--text-primary)] leading-relaxed font-medium">
             {{ suggestion }}
           </p>
         </div>
-        <div class="flex-shrink-0">
-          <ArrowRight class="w-5 h-5 text-[var(--icon-tertiary)] group-hover:text-[var(--icon-secondary)]" />
+        <div class="flex-shrink-0 mt-1">
+          <ArrowRight class="w-5 h-5 text-[var(--icon-tertiary)] group-hover:text-[var(--icon-primary)] transition-colors" />
         </div>
       </div>
     </div>
@@ -30,7 +30,7 @@
 </template>
 
 <script setup lang="ts">
-import { Lightbulb, ArrowRight } from 'lucide-vue-next';
+import { MessageSquare, FileText, ArrowRight } from 'lucide-vue-next';
 
 defineProps<{
   suggestions: string[];
@@ -39,6 +39,12 @@ defineProps<{
 defineEmits<{
   (e: 'select', suggestion: string): void;
 }>();
+
+// Alternate icons for variety
+const getSuggestionIcon = (index: number) => {
+  const icons = [MessageSquare, MessageSquare, FileText];
+  return icons[index % icons.length];
+};
 </script>
 
 <style scoped>

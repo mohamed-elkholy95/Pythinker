@@ -3,6 +3,7 @@
 This node wraps the PlannerAgent to create or update plans.
 """
 
+import asyncio
 import logging
 from typing import Dict, Any
 
@@ -43,6 +44,9 @@ async def planning_node(state: PlanActState) -> Dict[str, Any]:
         replan_context = state.get("verification_feedback")
         logger.info("Replanning with verification feedback")
 
+    # Get event queue for real-time streaming
+    event_queue: asyncio.Queue | None = state.get("event_queue")
+
     # Collect events from the planner
     pending_events = []
     plan = None
@@ -64,9 +68,17 @@ async def planning_node(state: PlanActState) -> Dict[str, Any]:
                 )
 
             # Emit title event
-            pending_events.append(TitleEvent(title=plan.title))
+            title_event = TitleEvent(title=plan.title)
+            if event_queue:
+                await event_queue.put(title_event)
+            else:
+                pending_events.append(title_event)
 
-        pending_events.append(event)
+        # Stream event in real-time if queue available
+        if event_queue:
+            await event_queue.put(event)
+        else:
+            pending_events.append(event)
 
     # Check if plan has no steps (direct completion)
     all_steps_done = False

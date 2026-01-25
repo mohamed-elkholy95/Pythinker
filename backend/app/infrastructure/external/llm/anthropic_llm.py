@@ -229,6 +229,32 @@ class AnthropicLLM(LLM):
 
         return result
 
+    def _prepare_system_with_caching(self, system_prompt: str, enable_caching: bool) -> Any:
+        """Prepare system prompt with cache control for Anthropic.
+
+        When caching is enabled, marks the system prompt for ephemeral caching
+        which can reduce token costs by up to 90% on repeated requests.
+
+        Args:
+            system_prompt: The system prompt text
+            enable_caching: Whether to enable prompt caching
+
+        Returns:
+            System prompt with cache control markers if caching enabled
+        """
+        if not enable_caching or not system_prompt:
+            return system_prompt
+
+        # Use Anthropic's cache control format for ephemeral caching
+        # This marks the system prompt as cacheable for subsequent requests
+        return [
+            {
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"}
+            }
+        ]
+
     async def ask(
         self,
         messages: List[Dict[str, str]],
@@ -244,7 +270,7 @@ class AnthropicLLM(LLM):
             tools: Optional list of tools in OpenAI format
             response_format: Optional response format (limited support)
             tool_choice: Optional tool choice configuration
-            enable_caching: Whether to enable prompt caching
+            enable_caching: Whether to enable prompt caching (up to 90% token savings)
 
         Returns:
             Response message in OpenAI format
@@ -273,8 +299,9 @@ class AnthropicLLM(LLM):
                 if self._temperature is not None:
                     params["temperature"] = min(1.0, max(0.0, self._temperature))
 
+                # Apply cache control to system prompt for token savings
                 if system_prompt:
-                    params["system"] = system_prompt
+                    params["system"] = self._prepare_system_with_caching(system_prompt, enable_caching)
 
                 if tools:
                     params["tools"] = self._convert_openai_tools_to_anthropic(tools)

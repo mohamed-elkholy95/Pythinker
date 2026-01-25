@@ -27,7 +27,7 @@ class Language(str, Enum):
     PYTHON = "python"
     JAVASCRIPT = "javascript"
     BASH = "bash"
-    SQL = "sql"  # Phase 4
+    SQL = "sql"
 
 
 # Language configuration mapping
@@ -122,7 +122,7 @@ class CodeExecutorTool(BaseTool):
     Multi-language code execution tool.
 
     Supports Python, JavaScript, and Bash execution with:
-    - Dynamic package installation
+    - Dynamic package installation (pip for Python, npm for JavaScript)
     - Isolated workspace directories per session
     - Artifact collection
     - Configurable timeouts and resource limits
@@ -286,12 +286,12 @@ class CodeExecutorTool(BaseTool):
 
     @tool(
         name="code_execute",
-        description="Execute code in a specified programming language. Supports Python, JavaScript, and Bash. Can install packages before execution and returns any generated artifacts.",
+        description="Execute code in a specified programming language. Supports Python, JavaScript (Node.js), Bash, and SQL (SQLite). Can install packages before execution and returns any generated artifacts.",
         parameters={
             "language": {
                 "type": "string",
                 "description": "Programming language to use",
-                "enum": ["python", "javascript", "bash"]
+                "enum": ["python", "javascript", "bash", "sql"]
             },
             "code": {
                 "type": "string",
@@ -348,7 +348,7 @@ class CodeExecutorTool(BaseTool):
         except ValueError:
             return ToolResult(
                 success=False,
-                message=f"Unsupported language: {language}. Supported: python, javascript, bash"
+                message=f"Unsupported language: {language}. Supported: python, javascript, bash, sql"
             )
 
         # Get language config

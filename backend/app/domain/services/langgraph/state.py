@@ -4,8 +4,8 @@ This module defines the TypedDict state that flows through the graph,
 preserving compatibility with existing agent implementations.
 """
 
+import asyncio
 from typing import TypedDict, Annotated, Optional, List, Any
-from operator import add
 
 from app.domain.models.plan import Plan, Step
 from app.domain.models.message import Message
@@ -123,6 +123,9 @@ class PlanActState(TypedDict, total=False):
     plan_created: bool
     all_steps_done: bool
 
+    # Real-time event streaming queue (not serialized in checkpoints)
+    event_queue: Optional[asyncio.Queue]
+
 
 def create_initial_state(
     message: Message,
@@ -137,6 +140,7 @@ def create_initial_state(
     existing_plan: Optional[Plan] = None,
     max_iterations: int = 50,
     max_verification_loops: int = 2,
+    event_queue: Optional[asyncio.Queue] = None,
 ) -> PlanActState:
     """Create the initial state for a new workflow run.
 
@@ -206,4 +210,7 @@ def create_initial_state(
         # Flow control
         plan_created=False,
         all_steps_done=False,
+
+        # Real-time event streaming
+        event_queue=event_queue,
     )

@@ -1,5 +1,14 @@
 # Execution prompt
-from typing import Optional
+from typing import Optional, List
+from datetime import datetime, timezone
+
+# Current date signal template - injected to provide temporal awareness
+CURRENT_DATE_SIGNAL = """
+---
+CURRENT DATE: {current_date}
+Today is {day_of_week}, {full_date}. Use this for time-sensitive research and data verification.
+---
+"""
 
 # Context pressure signal template - injected when pressure is high
 CONTEXT_PRESSURE_SIGNAL = """
@@ -23,6 +32,94 @@ RELEVANT CONTEXT FROM MEMORY:
 {memory_context}
 ---
 """
+
+# Chain-of-Thought reasoning template - injected for complex tasks
+COT_REASONING_SIGNAL = """
+---
+STRUCTURED REASONING (use before taking action):
+
+1. ANALYZE: What exactly needs to be accomplished?
+   - Primary objective: {primary_objective}
+   - Key constraints: {constraints}
+
+2. PLAN: What's the optimal approach?
+   - Break into sub-steps if complex
+   - Identify required tools/resources
+   - Consider potential failure points
+
+3. VALIDATE: Before executing, verify:
+   - [ ] Approach addresses the core requirement
+   - [ ] No unnecessary complexity added
+   - [ ] Error handling considered
+
+Execute with this reasoning in mind, but output only the result.
+---
+"""
+
+# Keywords that indicate a complex task requiring CoT
+COMPLEX_TASK_INDICATORS = [
+    "research", "analyze", "compare", "investigate", "design",
+    "implement", "optimize", "debug", "refactor", "evaluate",
+    "multiple", "comprehensive", "detailed", "thorough", "complete",
+    "security", "performance", "architecture", "integration"
+]
+
+
+def is_complex_task(step_description: str) -> bool:
+    """Determine if a task is complex enough to warrant CoT reasoning.
+
+    Args:
+        step_description: The step description to analyze
+
+    Returns:
+        True if the task appears complex
+    """
+    step_lower = step_description.lower()
+
+    # Check for complexity indicators
+    indicator_count = sum(
+        1 for indicator in COMPLEX_TASK_INDICATORS
+        if indicator in step_lower
+    )
+
+    # Complex if 2+ indicators or description is long (likely detailed task)
+    return indicator_count >= 2 or len(step_description) > 300
+
+
+def extract_task_constraints(step_description: str) -> List[str]:
+    """Extract constraints from a task description.
+
+    Args:
+        step_description: The step description
+
+    Returns:
+        List of extracted constraints
+    """
+    constraints = []
+
+    # Look for common constraint patterns
+    constraint_patterns = [
+        ("must", "Requirement"),
+        ("should", "Recommendation"),
+        ("without", "Exclusion"),
+        ("only", "Limitation"),
+        ("within", "Boundary"),
+        ("before", "Deadline"),
+        ("after", "Dependency"),
+        ("not", "Prohibition"),
+    ]
+
+    step_lower = step_description.lower()
+    for pattern, label in constraint_patterns:
+        if pattern in step_lower:
+            # Find the sentence containing the pattern
+            sentences = step_description.split('.')
+            for sentence in sentences:
+                if pattern in sentence.lower():
+                    constraints.append(f"{label}: {sentence.strip()}")
+                    break
+
+    return constraints[:5]  # Limit to 5 constraints
 
 EXECUTION_SYSTEM_PROMPT = """
 You are a task execution agent. Execute silently and efficiently:
@@ -114,6 +211,20 @@ Response specification:
 """
 
 
+def get_current_date_signal() -> str:
+    """Generate the current date signal with formatted date information.
+
+    Returns:
+        Formatted current date signal string
+    """
+    now = datetime.now(timezone.utc)
+    return CURRENT_DATE_SIGNAL.format(
+        current_date=now.strftime("%Y-%m-%d"),
+        day_of_week=now.strftime("%A"),
+        full_date=now.strftime("%B %d, %Y")
+    )
+
+
 def build_execution_prompt(
     step: str,
     message: str,
@@ -121,10 +232,12 @@ def build_execution_prompt(
     language: str,
     pressure_signal: Optional[str] = None,
     task_state: Optional[str] = None,
-    memory_context: Optional[str] = None
+    memory_context: Optional[str] = None,
+    enable_cot: bool = True,
+    include_current_date: bool = True
 ) -> str:
     """
-    Build execution prompt with optional context signals.
+    Build execution prompt with optional context signals and CoT reasoning.
 
     Args:
         step: Current step description
@@ -134,6 +247,8 @@ def build_execution_prompt(
         pressure_signal: Optional context pressure warning
         task_state: Optional current task state for recitation
         memory_context: Optional relevant memories from long-term storage
+        enable_cot: Enable Chain-of-Thought for complex tasks (default: True)
+        include_current_date: Include current date context (default: True)
 
     Returns:
         Formatted execution prompt with injected signals
@@ -144,6 +259,19 @@ def build_execution_prompt(
         attachments=attachments,
         language=language
     )
+
+    # Inject CoT reasoning for complex tasks
+    if enable_cot and is_complex_task(step):
+        constraints = extract_task_constraints(step)
+        constraints_text = "\n   - ".join(constraints) if constraints else "None explicitly stated"
+
+        # Extract primary objective (first sentence or up to 100 chars)
+        primary_obj = step.split('.')[0][:100] if '.' in step else step[:100]
+
+        prompt = COT_REASONING_SIGNAL.format(
+            primary_objective=primary_obj,
+            constraints=constraints_text
+        ) + prompt
 
     # Inject memory context if present (Phase 6: Qdrant integration)
     if memory_context:
@@ -162,6 +290,10 @@ def build_execution_prompt(
         prompt = TASK_STATE_SIGNAL.format(
             task_state=task_state
         ) + prompt
+
+    # Inject current date context (prepended first, so it appears at the top)
+    if include_current_date:
+        prompt = get_current_date_signal() + prompt
 
     return prompt
 

@@ -8,7 +8,7 @@
     }"
     :style="{ 'width': isShow ? `${parentSize/2}px` : '0px', 'opacity': isShow ? '1' : '0', 'transition': '0.2s ease-in-out' }">
     <div class="h-full flex flex-col" :style="{ 'width': isShow ? '100%' : '0px' }">
-      <ToolPanelContent v-if="isShow && toolContent" :sessionId="sessionId" :realTime="realTime" :toolContent="toolContent" :live="live" :isShare="isShare" @hide="hideToolPanel" @jumpToRealTime="jumpToRealTime" class="flex-1 min-h-0" />
+      <ToolPanelContent v-if="isShow && toolContent" :sessionId="sessionId" :realTime="realTime" :toolContent="toolContent" :live="live" :isShare="isShare" @hide="() => hideToolPanel(true)" @jumpToRealTime="jumpToRealTime" class="flex-1 min-h-0" />
       <!-- Task Progress Bar - shown at bottom of ToolPanel when open -->
       <TaskProgressBar
         v-if="isShow && plan && plan.steps.length > 0"
@@ -45,7 +45,7 @@ const visible = ref(true)
 
 const emit = defineEmits<{
   (e: 'jumpToRealTime'): void
-  (e: 'panelStateChange', isOpen: boolean): void
+  (e: 'panelStateChange', isOpen: boolean, userAction: boolean): void
 }>()
 
 defineProps<{
@@ -57,21 +57,27 @@ defineProps<{
   isThinking?: boolean
 }>()
 
+// Track if state change was from user action
+const isUserAction = ref(false)
+
 // Watch for isShow changes and emit events
 watch(isShow, (newValue) => {
   eventBus.emit(EVENT_TOOL_PANEL_STATE_CHANGE, newValue)
-  emit('panelStateChange', newValue)
+  emit('panelStateChange', newValue, isUserAction.value)
+  isUserAction.value = false // Reset after emitting
 })
 
 const showToolPanel = (content: ToolContent, isLive: boolean = false) => {
   eventBus.emit(EVENT_SHOW_TOOL_PANEL)
   visible.value = true
   toolContent.value = content
+  isUserAction.value = false
   isShow.value = true
   live.value = isLive
 }
 
-const hideToolPanel = () => {
+const hideToolPanel = (userTriggered: boolean = false) => {
+  isUserAction.value = userTriggered
   isShow.value = false
 }
 

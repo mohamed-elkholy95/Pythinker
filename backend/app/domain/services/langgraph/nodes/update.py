@@ -3,6 +3,7 @@
 This node updates the plan after step completion using the PlannerAgent.
 """
 
+import asyncio
 import logging
 from typing import Dict, Any
 
@@ -35,10 +36,16 @@ async def update_node(state: PlanActState) -> Dict[str, Any]:
 
     logger.info(f"Updating plan after step {current_step.id}")
 
+    # Get event queue for real-time streaming
+    event_queue: asyncio.Queue | None = state.get("event_queue")
+
     pending_events = []
 
     async for event in planner.update_plan(plan, current_step):
-        pending_events.append(event)
+        if event_queue:
+            await event_queue.put(event)
+        else:
+            pending_events.append(event)
 
     return {
         "plan": plan,

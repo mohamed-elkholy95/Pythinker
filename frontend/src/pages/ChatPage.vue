@@ -158,6 +158,10 @@
             :plan="plan"
             :isLoading="isLoading"
             :isThinking="isThinking"
+            :showThumbnail="shouldShowThumbnail"
+            :thumbnailUrl="currentThumbnailUrl"
+            :currentTool="currentToolInfo"
+            @openPanel="handleOpenPanel"
             class="mb-2"
           />
           <ChatBox v-model="inputMessage" :rows="1" @submit="handleSubmit" :isRunning="isLoading" @stop="handleStop"
@@ -338,9 +342,83 @@ const hasReportMessage = computed(() => {
 // Track if ToolPanel is open (for TaskProgressBar positioning)
 const isToolPanelOpen = ref(false);
 
+// Track if user has explicitly closed the panel (don't auto-reopen)
+const userClosedPanel = ref(false);
+
 // Handle tool panel state changes
-const handlePanelStateChange = (isOpen: boolean) => {
+const handlePanelStateChange = (isOpen: boolean, userAction: boolean = false) => {
   isToolPanelOpen.value = isOpen;
+  // If user explicitly closed the panel, remember this preference
+  if (!isOpen && userAction) {
+    userClosedPanel.value = true;
+  }
+};
+
+// Computer-related tools that should show thumbnail
+const COMPUTER_TOOLS = ['browser', 'shell', 'file', 'browser_agent'];
+
+// Check if current tool is a computer tool and panel is closed
+const shouldShowThumbnail = computed(() => {
+  if (!lastNoMessageTool.value || !isLoading.value) return false;
+  // Show thumbnail when panel is closed and a computer tool is being used
+  return COMPUTER_TOOLS.includes(lastNoMessageTool.value.name) && !isToolPanelOpen.value;
+});
+
+// Get current thumbnail URL from tool content
+const currentThumbnailUrl = computed(() => {
+  const tool = lastNoMessageTool.value;
+  if (!tool?.content?.screenshot) return '';
+  return tool.content.screenshot;
+});
+
+// Get current tool info for display
+const currentToolInfo = computed(() => {
+  const tool = lastNoMessageTool.value;
+  if (!tool) return null;
+
+  // Import the mapping from tool constants
+  const TOOL_FUNCTION_MAP: Record<string, string> = {
+    'browser_get_content': 'Fetching',
+    'browser_view': 'Viewing',
+    'browser_navigate': 'Browsing',
+    'browser_click': 'Clicking',
+    'browser_input': 'Typing',
+    'shell_exec': 'Running',
+    'file_read': 'Reading',
+    'file_write': 'Creating file',
+    'info_search_web': 'Searching',
+  };
+
+  const TOOL_FUNCTION_ARG_MAP: Record<string, string> = {
+    'browser_get_content': 'url',
+    'browser_navigate': 'url',
+    'shell_exec': 'command',
+    'file_read': 'file',
+    'file_write': 'file',
+    'info_search_web': 'query',
+  };
+
+  const argKey = TOOL_FUNCTION_ARG_MAP[tool.function] || '';
+  let functionArg = argKey && tool.args ? tool.args[argKey] : '';
+
+  // Truncate long arguments
+  if (functionArg && functionArg.length > 50) {
+    functionArg = functionArg.substring(0, 47) + '...';
+  }
+
+  return {
+    name: tool.name,
+    function: TOOL_FUNCTION_MAP[tool.function] || tool.function,
+    functionArg
+  };
+});
+
+// Handle opening the panel from TaskProgressBar
+const handleOpenPanel = () => {
+  userClosedPanel.value = false;
+  if (lastNoMessageTool.value) {
+    toolPanel.value?.showToolPanel(lastNoMessageTool.value, isLiveTool(lastNoMessageTool.value));
+  }
 };
 
 // Handle message event
@@ -405,7 +483,8 @@ const handleToolEvent = (toolData: ToolEventData) => {
   }
   if (toolContent.name !== 'message') {
     lastNoMessageTool.value = toolContent;
-    if (realTime.value) {
+    // Only auto-open if user hasn't explicitly closed the panel
+    if (realTime.value && !userClosedPanel.value) {
       toolPanel.value?.showToolPanel(toolContent, true);
     }
   }
@@ -604,6 +683,11 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value();
     cancelCurrentChat.value = null;
+  }
+
+  // Reset user panel preference when starting new chat with a message
+  if (message) {
+    userClosedPanel.value = false;
   }
 
   // Automatically enable follow mode when sending message

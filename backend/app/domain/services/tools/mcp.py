@@ -24,6 +24,7 @@ from app.domain.models.mcp_resource import (
     ResourceReadResult,
     ResourceType,
 )
+from app.domain.services.tools.dynamic_toolset import get_warmup_manager
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,19 @@ class ServerHealth:
 
 
 @dataclass
+class CachedToolSchema:
+    """Tool schema with TTL-based caching"""
+    tools: List[MCPToolType]
+    cached_at: datetime = field(default_factory=datetime.now)
+    ttl_seconds: int = 300  # 5 minutes default
+
+    def is_expired(self) -> bool:
+        """Check if cache entry has expired"""
+        elapsed = (datetime.now() - self.cached_at).total_seconds()
+        return elapsed > self.ttl_seconds
+
+
+@dataclass
 class ToolUsageStats:
     """Usage statistics for a tool"""
     tool_name: str
@@ -51,12 +65,21 @@ class ToolUsageStats:
 
 
 class MCPClientManager:
-    """MCP Client Manager with health checking, dynamic reload, and resource support"""
+    """MCP Client Manager with health checking, dynamic reload, and resource support.
+
+    Features TTL-based tool schema caching for optimal performance:
+    - Tool schemas are cached with configurable TTL (default 5 minutes)
+    - Expired cache entries are automatically refreshed on next access
+    - Reduces overhead when tools don't change frequently
+    """
+
+    # Default TTL for tool schema cache (seconds)
+    TOOL_SCHEMA_TTL = 300  # 5 minutes
 
     def __init__(self, config: Optional[MCPConfig] = None):
         self._clients: Dict[str, ClientSession] = {}
         self._exit_stack = AsyncExitStack()
-        self._tools_cache: Dict[str, List[MCPToolType]] = {}
+        self._tools_cache: Dict[str, CachedToolSchema] = {}  # Now uses TTL-based caching
         self._initialized = False
         self._config = config
 
@@ -364,11 +387,17 @@ class MCPClientManager:
             raise
 
     async def _cache_server_tools(self, server_name: str, session: ClientSession):
-        """Cache server tool list and initialize health tracking"""
+        """Cache server tool list with TTL and initialize health tracking"""
         try:
             tools_response = await session.list_tools()
             tools = tools_response.tools if tools_response else []
-            self._tools_cache[server_name] = tools
+
+            # Use TTL-based caching for tool schemas
+            self._tools_cache[server_name] = CachedToolSchema(
+                tools=tools,
+                cached_at=datetime.now(),
+                ttl_seconds=self.TOOL_SCHEMA_TTL
+            )
 
             # Initialize health tracking
             self._server_health[server_name] = ServerHealth(
@@ -378,20 +407,51 @@ class MCPClientManager:
                 last_check=datetime.now()
             )
 
-            logger.info(f"Server {server_name} provides {len(tools)} tools")
+            logger.info(f"Server {server_name} provides {len(tools)} tools (cached for {self.TOOL_SCHEMA_TTL}s)")
 
             # Also cache resources if available
             await self._cache_server_resources(server_name, session)
 
         except Exception as e:
             logger.error(f"Failed to get tool list from server {server_name}: {e}")
-            self._tools_cache[server_name] = []
+            self._tools_cache[server_name] = CachedToolSchema(tools=[], ttl_seconds=60)  # Short TTL for failed cache
             self._server_health[server_name] = ServerHealth(
                 server_name=server_name,
                 healthy=False,
                 last_error=str(e),
                 consecutive_failures=1
             )
+
+    async def _refresh_tools_if_expired(self, server_name: str) -> List[MCPToolType]:
+        """Refresh tool cache if TTL expired, otherwise return cached tools"""
+        cached = self._tools_cache.get(server_name)
+
+        if cached and not cached.is_expired():
+            return cached.tools
+
+        # Cache expired or doesn't exist - refresh
+        session = self._clients.get(server_name)
+        if session:
+            logger.debug(f"Refreshing tool cache for {server_name} (TTL expired)")
+            await self._cache_server_tools(server_name, session)
+            cached = self._tools_cache.get(server_name)
+            return cached.tools if cached else []
+
+        return []
+
+    def invalidate_tool_cache(self, server_name: Optional[str] = None):
+        """Invalidate tool cache for a specific server or all servers.
+
+        Args:
+            server_name: Optional server name. If None, invalidates all caches.
+        """
+        if server_name:
+            if server_name in self._tools_cache:
+                del self._tools_cache[server_name]
+                logger.debug(f"Invalidated tool cache for {server_name}")
+        else:
+            self._tools_cache.clear()
+            logger.debug("Invalidated all tool caches")
 
     async def _cache_server_resources(self, server_name: str, session: ClientSession):
         """Cache server resources and templates."""
@@ -678,10 +738,12 @@ class MCPClientManager:
         return all_templates
 
     async def get_all_tools(self) -> List[Dict[str, Any]]:
-        """Get all MCP tools"""
+        """Get all MCP tools, refreshing expired caches as needed"""
         all_tools = []
 
-        for server_name, tools in self._tools_cache.items():
+        for server_name in list(self._tools_cache.keys()):
+            # Get tools with TTL check
+            tools = await self._refresh_tools_if_expired(server_name)
             for tool in tools:
                 # Generate tool name, avoid duplicate mcp_ prefix
                 if server_name.startswith('mcp_'):
@@ -1061,6 +1123,43 @@ class MCPTool(BaseTool):
         """Refresh the resource cache from all servers."""
         if self.manager:
             await self.manager.list_all_resources()
+
+    async def warmup_caches(self) -> Dict[str, bool]:
+        """Perform cache warmup for MCP resources.
+
+        Pre-populates caches with tool schemas and resource lists
+        to reduce cold-start latency.
+
+        Returns:
+            Dict of warmup task names to success status
+        """
+        warmup_manager = get_warmup_manager()
+
+        # Register MCP-specific warmup tasks
+        if self.manager and not warmup_manager.is_warmed_up:
+            # Warmup: Refresh all tool schemas
+            warmup_manager.register_warmup_task(
+                name="mcp_tool_schemas",
+                coroutine_factory=lambda: self.manager.get_all_tools(),
+                priority=1
+            )
+
+            # Warmup: Pre-fetch resource lists
+            warmup_manager.register_warmup_task(
+                name="mcp_resources",
+                coroutine_factory=lambda: self.manager.list_all_resources(),
+                priority=2
+            )
+
+            # Warmup: Health check all servers
+            warmup_manager.register_warmup_task(
+                name="mcp_health_check",
+                coroutine_factory=lambda: self.manager.health_check(),
+                priority=3
+            )
+
+        # Execute warmup
+        return await warmup_manager.warmup()
 
     async def cleanup(self):
         """Cleanup resources"""

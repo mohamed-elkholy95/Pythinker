@@ -4,6 +4,7 @@ This module provides the LangGraphPlanActFlow class that wraps the LangGraph
 workflow in a BaseFlow-compatible interface.
 """
 
+import asyncio
 import logging
 from typing import AsyncGenerator, Optional, List, Any
 
@@ -25,6 +26,7 @@ from app.domain.services.tools.file import FileTool
 from app.domain.services.tools.message import MessageTool
 from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.idle import IdleTool
+from app.domain.services.tools.code_executor import CodeExecutorTool
 from app.domain.services.tools.base import BaseTool
 from app.domain.services.agents.planner import PlannerAgent
 from app.domain.services.agents.execution import ExecutionAgent
@@ -112,6 +114,7 @@ class LangGraphPlanActFlow(BaseFlow):
             ShellTool(sandbox),
             BrowserTool(browser),
             FileTool(sandbox),
+            CodeExecutorTool(sandbox=sandbox, session_id=session_id),
             MessageTool(),
             IdleTool(),
             mcp_tool
@@ -204,7 +207,7 @@ class LangGraphPlanActFlow(BaseFlow):
             message: User message to process
 
         Yields:
-            Events from workflow execution
+            Events from workflow execution (streamed in real-time)
         """
         tracer = get_tracer()
 
@@ -218,7 +221,10 @@ class LangGraphPlanActFlow(BaseFlow):
             SessionStatus.RUNNING
         )
 
-        # Create initial state
+        # Create event queue for real-time streaming
+        event_queue: asyncio.Queue[BaseEvent | None] = asyncio.Queue()
+
+        # Create initial state with event queue for real-time streaming
         initial_state = create_initial_state(
             message=message,
             agent_id=self._agent_id,
@@ -230,6 +236,7 @@ class LangGraphPlanActFlow(BaseFlow):
             reflection_agent=self.reflection_agent,
             task_state_manager=self._task_state_manager,
             existing_plan=session.get_last_plan(),
+            event_queue=event_queue,
         )
 
         # Config for the graph run
@@ -239,23 +246,48 @@ class LangGraphPlanActFlow(BaseFlow):
             }
         }
 
-        # Run with tracing
-        with tracer.trace(
-            "langgraph-plan-act",
-            agent_id=self._agent_id,
-            session_id=self._session_id,
-            attributes={"message.preview": message.message[:100]}
-        ):
-            # Stream through the graph
-            async for chunk in self._graph.astream(initial_state, config):
-                # Each chunk is a dict with node_name -> state_update
-                for node_name, state_update in chunk.items():
-                    logger.debug(f"LangGraph node completed: {node_name}")
+        async def run_graph():
+            """Run the graph and signal completion via queue."""
+            try:
+                with tracer.trace(
+                    "langgraph-plan-act",
+                    agent_id=self._agent_id,
+                    session_id=self._session_id,
+                    attributes={"message.preview": message.message[:100]}
+                ):
+                    async for chunk in self._graph.astream(initial_state, config):
+                        # Each chunk is a dict with node_name -> state_update
+                        for node_name, state_update in chunk.items():
+                            logger.debug(f"LangGraph node completed: {node_name}")
 
-                    # Extract and yield pending events from the state update
-                    pending_events = state_update.get("pending_events", [])
-                    for event in pending_events:
-                        yield event
+                            # Also yield any batched pending_events (fallback)
+                            pending_events = state_update.get("pending_events", [])
+                            for event in pending_events:
+                                await event_queue.put(event)
+            except Exception as e:
+                logger.error(f"Graph execution error: {e}")
+            finally:
+                # Signal completion
+                await event_queue.put(None)
+
+        # Start graph execution in background
+        graph_task = asyncio.create_task(run_graph())
+
+        # Yield events from queue in real-time
+        try:
+            while True:
+                event = await event_queue.get()
+                if event is None:
+                    break
+                yield event
+        finally:
+            # Ensure graph task completes
+            if not graph_task.done():
+                graph_task.cancel()
+                try:
+                    await graph_task
+                except asyncio.CancelledError:
+                    pass
 
         logger.info(f"LangGraphPlanActFlow completed for Agent {self._agent_id}")
 
