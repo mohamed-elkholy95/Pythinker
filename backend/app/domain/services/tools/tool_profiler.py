@@ -261,8 +261,8 @@ class ToolExecutionProfiler:
             try:
                 args_str = ", ".join(f"{k}={str(v)[:50]}" for k, v in list(kwargs.items())[:3])
                 args_summary = args_str[:100]
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to create args summary: {e}")
 
         record = ExecutionRecord(
             tool_name=tool_name,

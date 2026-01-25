@@ -1,11 +1,10 @@
 import smtplib
 import logging
-import random
-import asyncio
+import secrets
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import Optional, Dict
+from typing import Dict
 from app.core.config import get_settings
 from app.domain.external.cache import Cache
 from app.application.errors.exceptions import BadRequestError
@@ -25,8 +24,8 @@ class EmailService:
         self.cache = cache
     
     def _generate_verification_code(self) -> str:
-        """Generate 6-digit verification code"""
-        return f"{random.randint(100000, 999999)}"
+        """Generate 6-digit verification code using cryptographically secure random"""
+        return f"{secrets.randbelow(900000) + 100000}"
     
     async def _store_verification_code(self, email: str, code: str) -> None:
         """Store verification code with expiration time in cache"""

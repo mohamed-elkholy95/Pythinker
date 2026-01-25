@@ -48,8 +48,8 @@ class DockerLogMonitor:
         for t in self._threads:
             try:
                 t.join(timeout=1.0)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Thread join failed during shutdown: {e}")
         self._threads.clear()
         logger.info("DockerLogMonitor stopped")
 
@@ -62,7 +62,8 @@ class DockerLogMonitor:
                         networks = (c.attrs.get("NetworkSettings", {}).get("Networks", {}) or {})
                         if self._project_network in networks:
                             containers.append(c)
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"Skipping container due to error: {e}")
                         continue
                 return containers
             return self._client.containers.list(all=False)
@@ -79,7 +80,8 @@ class DockerLogMonitor:
                     break
                 try:
                     line = raw.decode("utf-8", errors="replace").strip()
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Failed to decode log line: {e}")
                     continue
                 if not line:
                     continue

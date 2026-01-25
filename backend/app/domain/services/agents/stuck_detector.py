@@ -183,7 +183,7 @@ class StuckDetector:
                         args_dict = json.loads(args)
                         # Include key=value pairs, sorted for consistency
                         arg_pairs = sorted(f"{k}={v}" for k, v in args_dict.items()) if isinstance(args_dict, dict) else [args]
-                    except:
+                    except (json.JSONDecodeError, TypeError, ValueError):
                         arg_pairs = [args] if args else []
                 else:
                     arg_pairs = sorted(f"{k}={v}" for k, v in args.items()) if isinstance(args, dict) else []
@@ -191,7 +191,7 @@ class StuckDetector:
                 hash_components.append(f"{func_name}:{','.join(arg_pairs)}")
 
         combined = "|".join(hash_components)
-        return hashlib.md5(combined.encode()).hexdigest()
+        return hashlib.md5(combined.encode(), usedforsecurity=False).hexdigest()
 
     def _detect_stuck_pattern(self) -> bool:
         """
@@ -233,7 +233,7 @@ class StuckDetector:
             return []
 
         # Check cache
-        cache_key = hashlib.md5(text.encode()).hexdigest()[:16]
+        cache_key = hashlib.md5(text.encode(), usedforsecurity=False).hexdigest()[:16]
         if cache_key in self._embedding_cache:
             return self._embedding_cache[cache_key]
 

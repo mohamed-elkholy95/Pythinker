@@ -1,5 +1,4 @@
 from typing import Protocol, Optional, Any
-from datetime import timedelta
 
 class Cache(Protocol):
     """Cache storage interface for temporary data storage"""

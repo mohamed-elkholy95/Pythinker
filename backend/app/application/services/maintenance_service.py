@@ -7,7 +7,7 @@ errors when fetching session data.
 """
 
 import logging
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any
 from datetime import datetime
 from beanie import PydanticObjectId
 

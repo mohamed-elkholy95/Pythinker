@@ -97,7 +97,7 @@ class MCPClientManager:
         if not self._config:
             return ""
         config_str = str(self._config.model_dump())
-        return hashlib.md5(config_str.encode()).hexdigest()
+        return hashlib.md5(config_str.encode(), usedforsecurity=False).hexdigest()
 
     async def check_and_reload(self) -> bool:
         """

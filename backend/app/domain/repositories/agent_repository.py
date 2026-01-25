@@ -1,6 +1,5 @@
-from typing import Optional, List, Protocol
+from typing import Optional, Protocol
 from app.domain.models.agent import Agent
-from app.domain.models.plan import Plan
 from app.domain.models.memory import Memory
 
 class AgentRepository(Protocol):

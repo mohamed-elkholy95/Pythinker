@@ -9,7 +9,7 @@ memories across agent sessions, enabling:
 """
 
 from datetime import datetime
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 from enum import Enum
 import hashlib

@@ -5,18 +5,16 @@ supporting both traditional queries and vector similarity search.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from datetime import datetime
 
 from app.domain.models.long_term_memory import (
     MemoryEntry,
     MemoryQuery,
     MemorySearchResult,
-    MemoryBatch,
     MemoryStats,
     MemoryUpdate,
     MemoryType,
-    MemoryImportance,
 )
 
 

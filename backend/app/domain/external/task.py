@@ -1,4 +1,4 @@
-from typing import Protocol, Any, Awaitable, Optional, Callable
+from typing import Protocol, Optional
 from abc import ABC, abstractmethod
 from app.domain.external.message_queue import MessageQueue
 

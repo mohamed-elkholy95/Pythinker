@@ -342,8 +342,8 @@ const handleMessageEvent = (messageData: MessageEventData) => {
     const lastMessage = messages.value[messages.value.length - 1];
     if (lastMessage.type === 'user') {
       const lastContent = lastMessage.content as MessageContent;
-      if (lastContent.message === messageData.message) {
-        console.debug('Skipping duplicate user message:', messageData.message?.slice(0, 50));
+      if (lastContent.content === messageData.content) {
+        console.debug('Skipping duplicate user message:', messageData.content?.slice(0, 50));
         return;
       }
     }

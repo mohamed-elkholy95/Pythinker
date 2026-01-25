@@ -55,7 +55,7 @@ class PromptSection:
 
     @property
     def hash(self) -> str:
-        return hashlib.md5(self.content.encode()).hexdigest()[:12]
+        return hashlib.md5(self.content.encode(), usedforsecurity=False).hexdigest()[:12]
 
 
 class PromptCacheManager:
@@ -225,7 +225,7 @@ class PromptCacheManager:
 
     def _update_prefix_hash(self, content: str) -> None:
         """Update cached prefix hash and track metrics"""
-        new_hash = hashlib.md5(content.encode()).hexdigest()
+        new_hash = hashlib.md5(content.encode(), usedforsecurity=False).hexdigest()
 
         if self._cached_prefix_hash == new_hash:
             self._metrics.record_hit(tokens=len(content) // 4)  # Approximate
@@ -278,7 +278,7 @@ class PromptCacheManager:
         Returns:
             True if content changed (cache invalidated)
         """
-        content_hash = hashlib.md5(content.encode()).hexdigest()
+        content_hash = hashlib.md5(content.encode(), usedforsecurity=False).hexdigest()
         previous_hash = self._prompt_versions.get(prompt_id)
 
         self._prompt_versions[prompt_id] = content_hash

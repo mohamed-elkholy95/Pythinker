@@ -168,7 +168,7 @@ class TokenService:
         """Revoke token (placeholder for token blacklist implementation)"""
         # TODO:In a real implementation, you would add the token to a blacklist
         # stored in Redis or database with expiration time
-        logger.warning(f"Token revoked (placeholder implementation)")
+        logger.warning("Token revoked (placeholder implementation)")
         return True
 
     def create_signed_url(self, base_url: str, expire_minutes: int = 60) -> str:

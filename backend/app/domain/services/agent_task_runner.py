@@ -2,6 +2,7 @@ from typing import Optional, AsyncGenerator, List, Union, TYPE_CHECKING
 import asyncio
 import logging
 from pydantic import TypeAdapter
+
 from app.domain.models.message import Message
 from app.domain.models.event import (
     BaseEvent,
@@ -20,16 +21,26 @@ from app.domain.models.event import (
     AgentEvent,
     McpToolContent,
     ModeChangeEvent,
-    SuggestionEvent,
     ReportEvent,
 )
+from app.domain.models.session import SessionStatus, AgentMode
+from app.domain.models.file import FileInfo
+from app.domain.models.tool_result import ToolResult
+from app.domain.models.search import SearchResults
 
-if TYPE_CHECKING:
-    from app.domain.services.memory_service import MemoryService
+from app.domain.external.sandbox import Sandbox
+from app.domain.external.browser import Browser
+from app.domain.external.search import SearchEngine
+from app.domain.external.llm import LLM
+from app.domain.external.file import FileStorage
+from app.domain.external.task import TaskRunner, Task
 
-# Type alias for events that contain attachments requiring storage sync
-# Both MessageEvent and ReportEvent have an 'attachments' field of type Optional[List[FileInfo]]
-EventWithAttachments = Union[MessageEvent, ReportEvent]
+from app.domain.repositories.agent_repository import AgentRepository
+from app.domain.repositories.session_repository import SessionRepository
+from app.domain.repositories.mcp_repository import MCPRepository
+
+from app.domain.utils.json_parser import JsonParser
+
 from app.domain.services.flows.plan_act import PlanActFlow
 from app.domain.services.flows.discuss import DiscussFlow
 from app.domain.services.orchestration.coordinator_flow import (
@@ -37,23 +48,16 @@ from app.domain.services.orchestration.coordinator_flow import (
     CoordinatorMode,
     create_coordinator_flow,
 )
-from app.domain.external.sandbox import Sandbox
-from app.domain.external.browser import Browser
-from app.domain.external.search import SearchEngine
-from app.domain.external.llm import LLM
-from app.domain.external.file import FileStorage
-from app.domain.repositories.agent_repository import AgentRepository
-from app.domain.external.task import TaskRunner, Task
-from app.domain.repositories.session_repository import SessionRepository
-from app.domain.repositories.mcp_repository import MCPRepository
-from app.domain.models.session import SessionStatus, AgentMode
-from app.domain.models.file import FileInfo
-from app.domain.utils.json_parser import JsonParser
 from app.domain.services.tools.mcp import MCPTool
-from app.domain.models.tool_result import ToolResult
-from app.domain.models.search import SearchResults
+
+if TYPE_CHECKING:
+    from app.domain.services.memory_service import MemoryService
 
 logger = logging.getLogger(__name__)
+
+# Type alias for events that contain attachments requiring storage sync
+# Both MessageEvent and ReportEvent have an 'attachments' field of type Optional[List[FileInfo]]
+EventWithAttachments = Union[MessageEvent, ReportEvent]
 
 class AgentTaskRunner(TaskRunner):
     """Agent task that can be cancelled.
@@ -527,7 +531,7 @@ class AgentTaskRunner(TaskRunner):
                         )
                 elif event.tool_name == "agent_mode":
                     # agent_mode is a control tool, no special content needed
-                    logger.debug(f"Processing agent_mode tool event")
+                    logger.debug("Processing agent_mode tool event")
                 else:
                     logger.warning(f"Agent {self._agent_id} received unknown tool event: {event.tool_name}")
         except Exception as e:
@@ -637,7 +641,7 @@ class AgentTaskRunner(TaskRunner):
 
     async def destroy(self) -> None:
         """Destroy the task and release resources"""
-        logger.info(f"Starting to destroy agent task")
+        logger.info("Starting to destroy agent task")
 
         # Shutdown coordinator flow if used
         if self._coordinator_flow:
