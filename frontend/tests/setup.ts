@@ -125,7 +125,7 @@ class MockWebSocket {
     }, 0)
   }
 
-  send(data: string) {}
+  send(_data: string) {}
   close() {
     this.readyState = MockWebSocket.CLOSED
     if (this.onclose) this.onclose()

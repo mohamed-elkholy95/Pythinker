@@ -114,7 +114,7 @@ describe('ChatBox', () => {
 
     // Find the send/stop button container and check for disabled styling
     const buttons = wrapper.findAll('button')
-    const hasDisabledStyling = buttons.some(b =>
+    const _hasDisabledStyling = buttons.some(b =>
       b.classes().includes('cursor-not-allowed') ||
       b.attributes('class')?.includes('cursor-not-allowed')
     )

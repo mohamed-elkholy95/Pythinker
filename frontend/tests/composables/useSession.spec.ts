@@ -4,8 +4,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { ref, nextTick } from 'vue'
-import { mockSession, mockUser, createMockSessionAPI } from '../mocks/api'
+import { ref } from 'vue'
+import { mockSession, createMockSessionAPI } from '../mocks/api'
 
 // Mock session state
 const mockSessionState = {
@@ -25,7 +25,7 @@ function createMockUseSessionFileList() {
     files,
     isLoading,
     error,
-    fetchFiles: vi.fn().mockImplementation(async (sessionId: string) => {
+    fetchFiles: vi.fn().mockImplementation(async (_sessionId: string) => {
       isLoading.value = true
       await new Promise((r) => setTimeout(r, 10))
       files.value = [

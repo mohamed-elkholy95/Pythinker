@@ -7,11 +7,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import ToolUse from '@/components/ToolUse.vue'
-import { mockToolContent, mockMCPToolContent } from '../mocks/api'
+import { mockToolContent } from '../mocks/api'
 
 // Mock the composables
 vi.mock('@/composables/useTool', () => ({
-  useToolInfo: (toolRef: any) => ({
+  useToolInfo: (_toolRef: any) => ({
     toolInfo: ref({
       icon: 'FileIcon',
       name: 'File',
@@ -24,7 +24,7 @@ vi.mock('@/composables/useTool', () => ({
 
 vi.mock('@/composables/useTime', () => ({
   useRelativeTime: () => ({
-    relativeTime: (timestamp: number) => 'just now',
+    relativeTime: (_timestamp: number) => 'just now',
   }),
 }))
 
@@ -82,7 +82,7 @@ describe('ToolUse', () => {
       },
     })
 
-    const toolElement = wrapper.find('.tool-shimmer, [class*="shimmer"]')
+    const _toolElement = wrapper.find('.tool-shimmer, [class*="shimmer"]')
     // Note: The actual shimmer class presence depends on status
     expect(wrapper.html()).toBeDefined()
   })

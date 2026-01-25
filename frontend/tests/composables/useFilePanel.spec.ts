@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { ref, nextTick } from 'vue'
+import { ref } from 'vue'
 
 // Mock file panel state
 function createMockFilePanel() {
@@ -43,7 +43,7 @@ function createMockFilePanel() {
           content: `Content of ${path}`,
         }
         isOpen.value = true
-      } catch (e) {
+      } catch {
         error.value = 'Failed to load file'
       } finally {
         isLoading.value = false

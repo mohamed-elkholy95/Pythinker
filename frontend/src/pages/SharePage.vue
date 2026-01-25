@@ -137,7 +137,7 @@ import { useFilePanel } from '../composables/useFilePanel'
 import LoadingIndicator from '@/components/ui/LoadingIndicator.vue';
 import { copyToClipboard } from '../utils/dom'
 import TimelinePlayer from '@/components/timeline/TimelinePlayer.vue'
-import { useTimeline, formatTime } from '@/composables/useTimeline'
+import { useTimeline } from '@/composables/useTimeline'
 
 const router = useRouter()
 const { t } = useI18n()
