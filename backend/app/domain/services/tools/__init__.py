@@ -6,6 +6,9 @@ from app.domain.services.tools.message import MessageTool
 from app.domain.services.tools.file import FileTool
 from app.domain.services.tools.mcp import MCPTool
 from app.domain.services.tools.idle import IdleTool
+from app.domain.services.tools.code_executor import CodeExecutorTool
+from app.domain.services.tools.playwright_tool import PlaywrightTool
+from app.domain.services.tools.deep_scan_analyzer import DeepScanAnalyzerTool
 
 __all__ = [
     'BaseTool',
@@ -16,4 +19,7 @@ __all__ = [
     'FileTool',
     'MCPTool',
     'IdleTool',
+    'CodeExecutorTool',
+    'PlaywrightTool',
+    'DeepScanAnalyzerTool',
 ]

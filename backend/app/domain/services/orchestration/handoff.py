@@ -47,6 +47,7 @@ class HandoffContext:
     """Context to transfer during a handoff.
 
     Contains all information the receiving agent needs to continue the work.
+    Enhanced with step results, shared resources, and rollback support.
     """
     # Task information
     task_description: str
@@ -62,8 +63,67 @@ class HandoffContext:
     memory_summary: Optional[str] = None
     tool_results: List[Dict[str, Any]] = field(default_factory=list)
 
+    # Enhanced: Previous step results (Phase 3.3)
+    step_results: Dict[str, Any] = field(default_factory=dict)  # step_id -> result
+    step_history: List[Dict[str, Any]] = field(default_factory=list)  # Ordered list of completed steps
+
+    # Enhanced: Shared resources between agents (Phase 3.3)
+    shared_resources: Dict[str, Any] = field(default_factory=dict)  # Named resources
+    resource_locks: List[str] = field(default_factory=list)  # Resources locked by this handoff
+
+    # Enhanced: Rollback support (Phase 3.3)
+    checkpoint_id: Optional[str] = None  # Checkpoint to rollback to on failure
+    rollback_enabled: bool = True
+    rollback_steps: List[str] = field(default_factory=list)  # Steps to undo on rollback
+
+    # Enhanced: Progress tracking (Phase 3.3)
+    workflow_id: Optional[str] = None
+    stage_id: Optional[str] = None
+    total_steps: int = 0
+    completed_steps: int = 0
+
     # Metadata
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def get_step_result(self, step_id: str) -> Optional[Any]:
+        """Get result from a previous step."""
+        return self.step_results.get(step_id)
+
+    def add_step_result(self, step_id: str, result: Any) -> None:
+        """Add a step result to the context."""
+        self.step_results[step_id] = result
+        self.step_history.append({
+            "step_id": step_id,
+            "timestamp": datetime.utcnow().isoformat(),
+            "result_preview": str(result)[:200] if result else None,
+        })
+        self.completed_steps += 1
+
+    def get_shared_resource(self, name: str) -> Optional[Any]:
+        """Get a shared resource by name."""
+        return self.shared_resources.get(name)
+
+    def set_shared_resource(self, name: str, value: Any) -> None:
+        """Set a shared resource."""
+        self.shared_resources[name] = value
+
+    def lock_resource(self, name: str) -> bool:
+        """Lock a resource for exclusive access."""
+        if name in self.resource_locks:
+            return False
+        self.resource_locks.append(name)
+        return True
+
+    def unlock_resource(self, name: str) -> None:
+        """Unlock a resource."""
+        if name in self.resource_locks:
+            self.resource_locks.remove(name)
+
+    def get_progress_percent(self) -> float:
+        """Get progress as percentage."""
+        if self.total_steps == 0:
+            return 0.0
+        return (self.completed_steps / self.total_steps) * 100
 
     def to_prompt(self) -> str:
         """Convert context to a prompt string for the receiving agent."""
@@ -73,6 +133,13 @@ class HandoffContext:
             f"**Task:** {self.task_description}\n",
             f"**Progress:** {self.current_progress}\n",
         ]
+
+        # Progress tracking
+        if self.total_steps > 0:
+            sections.append(
+                f"**Overall Progress:** {self.completed_steps}/{self.total_steps} "
+                f"({self.get_progress_percent():.0f}%)\n"
+            )
 
         if self.relevant_files:
             sections.append(f"\n**Relevant Files:**\n")
@@ -89,10 +156,74 @@ class HandoffContext:
             for decision in self.decisions_made:
                 sections.append(f"- {decision}\n")
 
+        # Previous step results
+        if self.step_results:
+            sections.append(f"\n**Previous Step Results:**\n")
+            for step_id, result in list(self.step_results.items())[-5:]:  # Last 5
+                result_preview = str(result)[:100] if result else "None"
+                sections.append(f"- {step_id}: {result_preview}\n")
+
+        # Shared resources
+        if self.shared_resources:
+            sections.append(f"\n**Available Shared Resources:**\n")
+            for name in self.shared_resources.keys():
+                sections.append(f"- {name}\n")
+
         if self.memory_summary:
             sections.append(f"\n**Summary of Previous Work:**\n{self.memory_summary}\n")
 
         return "".join(sections)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "task_description": self.task_description,
+            "original_request": self.original_request,
+            "current_progress": self.current_progress,
+            "relevant_files": self.relevant_files,
+            "key_findings": self.key_findings,
+            "decisions_made": self.decisions_made,
+            "memory_summary": self.memory_summary,
+            "tool_results": self.tool_results,
+            "step_results": self.step_results,
+            "step_history": self.step_history,
+            "shared_resources": {k: str(v)[:500] for k, v in self.shared_resources.items()},
+            "resource_locks": self.resource_locks,
+            "checkpoint_id": self.checkpoint_id,
+            "rollback_enabled": self.rollback_enabled,
+            "rollback_steps": self.rollback_steps,
+            "workflow_id": self.workflow_id,
+            "stage_id": self.stage_id,
+            "total_steps": self.total_steps,
+            "completed_steps": self.completed_steps,
+            "metadata": self.metadata,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "HandoffContext":
+        """Create from dictionary."""
+        return cls(
+            task_description=data.get("task_description", ""),
+            original_request=data.get("original_request", ""),
+            current_progress=data.get("current_progress", ""),
+            relevant_files=data.get("relevant_files", []),
+            key_findings=data.get("key_findings", []),
+            decisions_made=data.get("decisions_made", []),
+            memory_summary=data.get("memory_summary"),
+            tool_results=data.get("tool_results", []),
+            step_results=data.get("step_results", {}),
+            step_history=data.get("step_history", []),
+            shared_resources=data.get("shared_resources", {}),
+            resource_locks=data.get("resource_locks", []),
+            checkpoint_id=data.get("checkpoint_id"),
+            rollback_enabled=data.get("rollback_enabled", True),
+            rollback_steps=data.get("rollback_steps", []),
+            workflow_id=data.get("workflow_id"),
+            stage_id=data.get("stage_id"),
+            total_steps=data.get("total_steps", 0),
+            completed_steps=data.get("completed_steps", 0),
+            metadata=data.get("metadata", {}),
+        )
 
 
 @dataclass
@@ -429,6 +560,157 @@ class HandoffProtocol:
     def on_handoff_completed(self, callback: Callable[[Handoff], Awaitable[None]]) -> None:
         """Register a callback for when handoffs complete."""
         self._on_handoff_completed.append(callback)
+
+    async def rollback_handoff(
+        self,
+        handoff_id: str,
+        rollback_func: Optional[Callable[[List[str]], Awaitable[bool]]] = None,
+    ) -> bool:
+        """Rollback a failed handoff.
+
+        If the handoff has rollback enabled and a checkpoint, attempts to
+        undo the work performed by the handoff.
+
+        Args:
+            handoff_id: ID of the handoff to rollback
+            rollback_func: Optional function to execute rollback steps
+
+        Returns:
+            True if rollback successful, False otherwise
+        """
+        handoff = self.get_handoff(handoff_id)
+        if not handoff:
+            logger.warning(f"Cannot rollback: handoff {handoff_id} not found")
+            return False
+
+        if not handoff.context:
+            logger.warning(f"Cannot rollback: handoff {handoff_id} has no context")
+            return False
+
+        if not handoff.context.rollback_enabled:
+            logger.info(f"Rollback disabled for handoff {handoff_id}")
+            return False
+
+        # If there are rollback steps and a function, execute them
+        if handoff.context.rollback_steps and rollback_func:
+            try:
+                success = await rollback_func(handoff.context.rollback_steps)
+                if success:
+                    logger.info(f"Rolled back {len(handoff.context.rollback_steps)} steps for handoff {handoff_id}")
+                    # Update handoff status
+                    handoff.metadata["rolled_back"] = True
+                    handoff.metadata["rollback_time"] = datetime.utcnow().isoformat()
+                    return True
+                else:
+                    logger.error(f"Rollback function failed for handoff {handoff_id}")
+                    return False
+            except Exception as e:
+                logger.error(f"Rollback error for handoff {handoff_id}: {e}")
+                return False
+
+        # If there's a checkpoint ID, we can restore from checkpoint
+        if handoff.context.checkpoint_id:
+            logger.info(f"Rollback checkpoint available: {handoff.context.checkpoint_id}")
+            handoff.metadata["rollback_checkpoint"] = handoff.context.checkpoint_id
+            return True
+
+        return False
+
+    def transfer_context(
+        self,
+        source_handoff_id: str,
+        target_handoff: Handoff,
+        merge: bool = True,
+    ) -> bool:
+        """Transfer context from one handoff to another.
+
+        Used for chaining handoffs where results need to flow between agents.
+
+        Args:
+            source_handoff_id: ID of the source handoff
+            target_handoff: Target handoff to receive context
+            merge: If True, merge contexts; if False, replace
+
+        Returns:
+            True if transfer successful, False otherwise
+        """
+        source = self.get_handoff(source_handoff_id)
+        if not source or not source.context:
+            logger.warning(f"Cannot transfer: source handoff {source_handoff_id} not found or has no context")
+            return False
+
+        if not target_handoff.context:
+            target_handoff.context = HandoffContext(
+                task_description="",
+                original_request="",
+                current_progress="",
+            )
+
+        source_ctx = source.context
+        target_ctx = target_handoff.context
+
+        if merge:
+            # Merge step results
+            target_ctx.step_results.update(source_ctx.step_results)
+            target_ctx.step_history.extend(source_ctx.step_history)
+
+            # Merge shared resources
+            target_ctx.shared_resources.update(source_ctx.shared_resources)
+
+            # Merge findings and decisions
+            target_ctx.key_findings.extend(source_ctx.key_findings)
+            target_ctx.decisions_made.extend(source_ctx.decisions_made)
+
+            # Update progress
+            target_ctx.completed_steps = max(target_ctx.completed_steps, source_ctx.completed_steps)
+        else:
+            # Replace with source context (preserving task info)
+            task_desc = target_ctx.task_description
+            original_req = target_ctx.original_request
+            target_handoff.context = source_ctx
+            target_handoff.context.task_description = task_desc
+            target_handoff.context.original_request = original_req
+
+        logger.info(f"Transferred context from handoff {source_handoff_id} to {target_handoff.id}")
+        return True
+
+    def get_workflow_progress(self, workflow_id: str) -> Dict[str, Any]:
+        """Get progress tracking across all handoffs in a workflow.
+
+        Args:
+            workflow_id: Workflow identifier
+
+        Returns:
+            Progress summary dictionary
+        """
+        workflow_handoffs = [
+            h for h in self._history
+            if h.context and h.context.workflow_id == workflow_id
+        ]
+
+        total_handoffs = len(workflow_handoffs)
+        completed = sum(1 for h in workflow_handoffs if h.status == HandoffStatus.COMPLETED)
+        failed = sum(1 for h in workflow_handoffs if h.status == HandoffStatus.FAILED)
+        pending = sum(1 for h in workflow_handoffs if h.status == HandoffStatus.PENDING)
+
+        # Aggregate step progress
+        total_steps = 0
+        completed_steps = 0
+        for h in workflow_handoffs:
+            if h.context:
+                total_steps = max(total_steps, h.context.total_steps)
+                completed_steps = max(completed_steps, h.context.completed_steps)
+
+        return {
+            "workflow_id": workflow_id,
+            "total_handoffs": total_handoffs,
+            "completed_handoffs": completed,
+            "failed_handoffs": failed,
+            "pending_handoffs": pending,
+            "total_steps": total_steps,
+            "completed_steps": completed_steps,
+            "progress_percent": (completed_steps / total_steps * 100) if total_steps > 0 else 0,
+        }
 
     def build_handoff_prompt(self, handoff: Handoff) -> str:
         """Build a prompt for the receiving agent based on the handoff.

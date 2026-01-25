@@ -123,7 +123,33 @@ class Settings(BaseSettings):
     # Parallel Step Execution configuration (Phase 4)
     enable_parallel_execution: bool = False  # Execute independent steps in parallel
     parallel_max_concurrency: int = 3  # Max concurrent step executions
-    
+
+    # Autonomy Configuration (Enhancement Phase 1)
+    autonomy_level: str = "guided"  # supervised, guided, autonomous, unrestricted
+    allow_credential_access: bool = True
+    allow_external_requests: bool = True
+    allow_file_system_write: bool = True
+    allow_file_system_delete: bool = False  # Disabled by default for safety
+    allow_shell_execute: bool = True
+    allow_browser_navigation: bool = True
+    allow_payment_operations: bool = False  # Disabled by default
+
+    # Safety Limits
+    max_iterations: int = 50  # Maximum loop iterations per run
+    max_tool_calls: int = 100  # Maximum tool invocations per run
+    max_execution_time_seconds: int = 1800  # 30 minutes default
+    max_tokens_per_run: int = 500000  # Token limit across all LLM calls
+    max_cost_usd: float | None = None  # Optional cost limit
+
+    # Self-Healing Configuration (Enhancement Phase 1)
+    max_recovery_attempts: int = 3  # Max recovery attempts per error
+    reflection_interval: int = 5  # Iterations between self-reflection cycles
+    enable_self_healing: bool = True  # Enable self-healing agent loop
+
+    # Credential Manager Configuration (Enhancement Phase 2)
+    credential_encryption_key: str | None = None  # AES-256 master key (32 bytes base64)
+    credential_ttl_hours: int = 24  # Default credential TTL in Redis
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

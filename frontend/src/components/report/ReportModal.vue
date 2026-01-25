@@ -81,6 +81,16 @@
             </PopoverContent>
           </Popover>
 
+          <!-- Copy Button -->
+          <button
+            class="w-9 h-9 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)] transition-colors"
+            @click="handleCopyContent"
+            :title="isCopied ? 'Copied!' : 'Copy to clipboard'"
+          >
+            <Check v-if="isCopied" class="w-5 h-5 text-green-500" />
+            <Copy v-else class="w-5 h-5 text-[var(--icon-tertiary)]" />
+          </button>
+
           <!-- Expand/Minimize Button -->
           <button
             class="w-9 h-9 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)] transition-colors"
@@ -175,7 +185,9 @@ import {
   Maximize2,
   Minimize2,
   Lightbulb,
-  X
+  X,
+  Copy,
+  Check
 } from 'lucide-vue-next';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -221,6 +233,7 @@ const tableOfContents = ref<TocItem[]>([]);
 const showDownloadOptions = ref(false);
 const isDownloading = ref(false);
 const isFullscreen = ref(false);
+const isCopied = ref(false);
 
 // Configure marked options using modern API
 marked.use({
@@ -496,14 +509,17 @@ const handleDownloadDocx = async () => {
 };
 
 // Copy content to clipboard
-const _handleCopyContent = async () => {
+const handleCopyContent = async () => {
   if (!props.report?.content) return;
-
-  showDownloadOptions.value = false;
 
   try {
     await navigator.clipboard.writeText(props.report.content);
-    // Could emit a toast notification here
+    isCopied.value = true;
+
+    // Reset after 2 seconds
+    setTimeout(() => {
+      isCopied.value = false;
+    }, 2000);
   } catch (error) {
     console.error('Failed to copy content:', error);
   }

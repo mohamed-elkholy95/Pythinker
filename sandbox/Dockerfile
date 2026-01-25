@@ -86,6 +86,10 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip3 install --no-cache-dir -r requirements.txt
 
+# Install Playwright and browsers for advanced browser automation
+RUN pip3 install --no-cache-dir playwright playwright-stealth && \
+    python3 -m playwright install --with-deps chromium firefox webkit
+
 # Copy remaining project files
 COPY . .
 
