@@ -16,27 +16,38 @@ from app.domain.models.tool_result import ToolResult
 
 logger = logging.getLogger(__name__)
 
-# Check if sandbox is available
-def _sandbox_available():
-    """Check if sandbox HTTP endpoint is reachable"""
-    try:
-        response = httpx.get("http://127.0.0.1:8080/health", timeout=2.0)
-        return response.status_code == 200
-    except Exception:
-        return False
+# Sandbox addresses to try (Docker network name first, then localhost)
+SANDBOX_ADDRESSES = [
+    ("sandbox", 8080),      # Docker Compose network
+    ("127.0.0.1", 8080),    # Local development
+    ("localhost", 8080),    # Alternative local
+]
+
+def _get_sandbox_address():
+    """Find reachable sandbox address, trying Docker network first."""
+    for host, port in SANDBOX_ADDRESSES:
+        try:
+            response = httpx.get(f"http://{host}:{port}/health", timeout=2.0)
+            if response.status_code == 200:
+                return (host, port)
+        except Exception:
+            continue
+    return None
+
+_SANDBOX_ADDRESS = _get_sandbox_address()
 
 # Skip all tests in this module if sandbox is not available
 pytestmark = pytest.mark.skipif(
-    not _sandbox_available(),
-    reason="Sandbox container not running at 127.0.0.1:8080"
+    _SANDBOX_ADDRESS is None,
+    reason="Sandbox container not reachable (tried: sandbox:8080, 127.0.0.1:8080)"
 )
 
 
 @pytest.fixture
 def sandbox_instance():
     """Create a DockerSandbox instance for testing"""
-    # Use localhost for testing (assumes sandbox is running locally)
-    return DockerSandbox(ip="127.0.0.1", container_name="test-sandbox")
+    host, _ = _SANDBOX_ADDRESS or ("127.0.0.1", 8080)
+    return DockerSandbox(ip=host, container_name="test-sandbox")
 
 
 @pytest.fixture
