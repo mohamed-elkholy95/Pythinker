@@ -11,7 +11,8 @@ from app.interfaces.schemas.settings import (
 )
 from app.core.config import get_settings
 from app.domain.models.user import User
-from app.infrastructure.storage.mongodb import get_database
+from app.infrastructure.storage.mongodb import get_mongodb
+from app.core.config import get_settings as get_app_settings
 
 logger = logging.getLogger(__name__)
 
@@ -71,11 +72,13 @@ async def get_user_settings(
     current_user: User = Depends(get_current_user)
 ) -> APIResponse[UserSettingsResponse]:
     """Get current user's settings"""
-    db = await get_database()
+    app_settings = get_app_settings()
+    mongodb = get_mongodb()
+    db = mongodb.client[app_settings.mongodb_db_name]
 
     # Try to get user settings from database
     settings_collection = db.get_collection("user_settings")
-    settings_doc = await settings_collection.find_one({"user_id": current_user.id})
+    settings_doc = await settings_collection.find_one({"user_id": str(current_user.id)})
 
     if settings_doc:
         # Return saved settings
@@ -101,16 +104,18 @@ async def update_user_settings(
     current_user: User = Depends(get_current_user)
 ) -> APIResponse[UserSettingsResponse]:
     """Update current user's settings"""
-    db = await get_database()
+    app_settings = get_app_settings()
+    mongodb = get_mongodb()
+    db = mongodb.client[app_settings.mongodb_db_name]
     settings_collection = db.get_collection("user_settings")
 
     # Get existing settings or defaults
-    settings_doc = await settings_collection.find_one({"user_id": current_user.id})
+    settings_doc = await settings_collection.find_one({"user_id": str(current_user.id)})
 
     if not settings_doc:
         # Create new settings with defaults
         settings_doc = {
-            "user_id": current_user.id,
+            "user_id": str(current_user.id),
             **get_default_settings(),
         }
 
@@ -121,7 +126,7 @@ async def update_user_settings(
 
     # Save to database
     await settings_collection.update_one(
-        {"user_id": current_user.id},
+        {"user_id": str(current_user.id)},
         {"$set": settings_doc},
         upsert=True
     )
