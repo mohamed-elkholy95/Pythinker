@@ -7,14 +7,12 @@ import asyncio
 from app.core.config import get_settings
 from app.infrastructure.storage.mongodb import get_mongodb
 from app.infrastructure.storage.redis import get_redis
-from app.infrastructure.storage.qdrant import get_qdrant
 from app.interfaces.dependencies import get_agent_service
 from app.interfaces.api.routes import router
 from app.infrastructure.logging import setup_logging
 from app.interfaces.errors.exception_handlers import register_exception_handlers
 from app.infrastructure.models.documents import AgentDocument, SessionDocument, UserDocument
 from beanie import init_beanie
-from app.infrastructure.observability.docker_log_monitor import DockerLogMonitor
 
 # Initialize logging system
 setup_logging()
@@ -22,7 +20,6 @@ logger = logging.getLogger(__name__)
 
 # Load configuration
 settings = get_settings()
-_log_monitor: DockerLogMonitor | None = None
 
 
 # Create lifespan context manager
@@ -43,16 +40,6 @@ async def lifespan(app: FastAPI):
     
     # Initialize Redis
     await get_redis().initialize()
-
-    # Initialize Qdrant
-    await get_qdrant().initialize()
-
-    try:
-        global _log_monitor
-        _log_monitor = DockerLogMonitor(project_network="pythinker-network", throttle_seconds=settings.alert_throttle_seconds)
-        _log_monitor.start()
-    except Exception as e:
-        logger.warning(f"Could not start DockerLogMonitor: {e}")
     
     try:
         yield
@@ -63,8 +50,7 @@ async def lifespan(app: FastAPI):
         await get_mongodb().shutdown()
         # Disconnect from Redis
         await get_redis().shutdown()
-        # Disconnect from Qdrant
-        await get_qdrant().shutdown()
+
 
         logger.info("Cleaning up AgentService instance")
         try:
@@ -74,12 +60,6 @@ async def lifespan(app: FastAPI):
             logger.warning("AgentService shutdown timed out after 30 seconds")
         except Exception as e:
             logger.error(f"Error during AgentService cleanup: {str(e)}")
-        
-        try:
-            if _log_monitor:
-                _log_monitor.stop()
-        except Exception:
-            pass
 
 app = FastAPI(title="Pythinker AI Agent", lifespan=lifespan)
 
