@@ -121,3 +121,7 @@ mcp.json
 
 # Frontend whitelist
 !frontend/src/lib/
+
+# Claude Code context files
+.claude/
+**/CLAUDE.md
