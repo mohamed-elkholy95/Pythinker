@@ -3,15 +3,26 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    
-    # Model provider configuration
+
+    # LLM Provider selection
+    llm_provider: str = "openai"  # "openai", "anthropic", "ollama"
+
+    # OpenAI-compatible provider configuration (default)
     api_key: str | None = None
     api_base: str = "https://api.deepseek.com/v1"
-    
+
     # Model configuration
     model_name: str = "deepseek-chat"
     temperature: float = 0.3  # Lower temperature for deterministic JSON responses
     max_tokens: int = 8000  # Increased from 2000 to allow complete responses
+
+    # Anthropic configuration
+    anthropic_api_key: str | None = None
+    anthropic_model_name: str = "claude-sonnet-4-20250514"
+
+    # Ollama configuration
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.2"
 
     # Embedding configuration (separate from chat model)
     embedding_api_key: str | None = None  # Defaults to api_key if not set
@@ -49,10 +60,12 @@ class Settings(BaseSettings):
     sandbox_no_proxy: str | None = None
     
     # Search engine configuration
-    search_provider: str | None = "bing"  # "baidu", "google", "bing", "searxng"
+    search_provider: str | None = "bing"  # "baidu", "google", "bing", "searxng", "duckduckgo", "brave", "tavily"
     google_search_api_key: str | None = None
     google_search_engine_id: str | None = None
     searxng_url: str | None = "http://searxng:8080"  # SearXNG instance URL
+    brave_search_api_key: str | None = None  # Brave Search API key
+    tavily_api_key: str | None = None  # Tavily AI Search API key
 
     # Browser Agent configuration
     browser_agent_enabled: bool = True
@@ -96,10 +109,20 @@ class Settings(BaseSettings):
     alert_webhook_timeout_seconds: float = 3.0
     alert_throttle_seconds: int = 60
 
+    # OpenTelemetry configuration (optional)
+    otel_enabled: bool = False
+    otel_endpoint: str | None = None  # e.g., "http://localhost:4317"
+    otel_service_name: str = "pythinker-agent"
+    otel_insecure: bool = True  # Use insecure connection (no TLS)
+
     # Multi-Agent Orchestration configuration
     enable_multi_agent: bool = False  # Enable specialized agent dispatch per step
     enable_coordinator: bool = False  # Enable full swarm coordinator mode
     multi_agent_max_parallel: int = 3  # Max concurrent agents in swarm mode
+
+    # Parallel Step Execution configuration (Phase 4)
+    enable_parallel_execution: bool = False  # Execute independent steps in parallel
+    parallel_max_concurrency: int = 3  # Max concurrent step executions
     
     class Config:
         env_file = ".env"

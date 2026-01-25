@@ -22,12 +22,40 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
+def _initialize_observability() -> None:
+    """Initialize observability components (OTEL, metrics, tracer)."""
+    try:
+        # Configure OTEL if enabled
+        if settings.otel_enabled and settings.otel_endpoint:
+            from app.infrastructure.observability.otel_exporter import configure_otel
+            configure_otel(
+                endpoint=settings.otel_endpoint,
+                service_name=settings.otel_service_name,
+                insecure=settings.otel_insecure,
+            )
+
+        # Configure tracer with OTEL export
+        from app.infrastructure.observability.tracer import configure_tracer
+        configure_tracer(
+            service_name=settings.otel_service_name,
+            export_to_log=True,
+            export_to_otel=settings.otel_enabled,
+        )
+
+        logger.info("Observability components initialized")
+    except Exception as e:
+        logger.warning(f"Failed to initialize observability: {e}")
+
+
 # Create lifespan context manager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Code executed on startup
     logger.info("Application startup - Pythinker AI Agent initializing")
-    
+
+    # Initialize observability (OTEL, metrics)
+    _initialize_observability()
+
     # Initialize MongoDB and Beanie
     await get_mongodb().initialize()
 

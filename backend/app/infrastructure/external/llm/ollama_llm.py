@@ -1,0 +1,498 @@
+"""Ollama Local LLM Implementation
+
+Provides integration with Ollama for running local LLMs.
+Supports all Ollama-compatible models including Llama, Mistral, Phi, etc.
+"""
+from typing import List, Dict, Any, Optional, AsyncGenerator, Type, TypeVar
+import logging
+import asyncio
+import json
+
+import httpx
+from pydantic import BaseModel
+
+from app.domain.external.llm import LLM
+from app.core.config import get_settings
+from app.infrastructure.external.llm.factory import LLMProviderRegistry
+
+T = TypeVar('T', bound=BaseModel)
+
+logger = logging.getLogger(__name__)
+
+
+class TokenLimitExceeded(Exception):
+    """Raised when the token limit is exceeded."""
+    pass
+
+
+@LLMProviderRegistry.register("ollama")
+class OllamaLLM(LLM):
+    """Ollama local LLM implementation.
+
+    Uses Ollama's REST API for local model inference.
+    Supports tool use through text-based prompting.
+    """
+
+    def __init__(
+        self,
+        base_url: Optional[str] = None,
+        model_name: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ):
+        """Initialize Ollama LLM.
+
+        Args:
+            base_url: Ollama server URL (defaults to localhost:11434)
+            model_name: Model name (defaults to llama3.2)
+            temperature: Sampling temperature (defaults to settings)
+            max_tokens: Maximum tokens in response (defaults to settings)
+        """
+        settings = get_settings()
+
+        self._base_url = (
+            base_url or
+            getattr(settings, 'ollama_base_url', None) or
+            'http://localhost:11434'
+        ).rstrip('/')
+
+        self._model_name = (
+            model_name or
+            getattr(settings, 'ollama_model', None) or
+            'llama3.2'
+        )
+
+        self._temperature = temperature if temperature is not None else settings.temperature
+        self._max_tokens = max_tokens if max_tokens is not None else settings.max_tokens
+
+        self._api_url = f"{self._base_url}/api"
+
+        logger.info(f"Initialized Ollama LLM with model: {self._model_name} at {self._base_url}")
+
+    @property
+    def model_name(self) -> str:
+        return self._model_name
+
+    @property
+    def temperature(self) -> float:
+        return self._temperature
+
+    @property
+    def max_tokens(self) -> int:
+        return self._max_tokens
+
+    def _tools_to_text(self, tools: List[Dict[str, Any]]) -> str:
+        """Convert OpenAI tools format to text description.
+
+        Args:
+            tools: List of tools in OpenAI format
+
+        Returns:
+            Text description of available tools
+        """
+        if not tools:
+            return ""
+
+        tool_descriptions = []
+        for tool in tools:
+            if tool.get("type") == "function":
+                func = tool.get("function", {})
+                name = func.get("name", "unknown")
+                desc = func.get("description", "No description")
+                params = func.get("parameters", {})
+
+                # Format parameters
+                param_str = ""
+                if params.get("properties"):
+                    param_parts = []
+                    required = params.get("required", [])
+                    for param_name, param_info in params["properties"].items():
+                        param_type = param_info.get("type", "any")
+                        param_desc = param_info.get("description", "")
+                        is_required = param_name in required
+                        req_marker = " (required)" if is_required else " (optional)"
+                        param_parts.append(f"    - {param_name}: {param_type}{req_marker} - {param_desc}")
+                    param_str = "\n" + "\n".join(param_parts)
+
+                tool_descriptions.append(f"- **{name}**: {desc}{param_str}")
+
+        return "\n".join(tool_descriptions)
+
+    def _inject_tools_into_messages(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Inject tool definitions into the system prompt.
+
+        Args:
+            messages: List of messages
+            tools: List of tools
+
+        Returns:
+            Modified messages with tool instructions
+        """
+        if not tools:
+            return messages
+
+        tools_text = self._tools_to_text(tools)
+        tool_instruction = f"""
+You have access to the following tools:
+
+{tools_text}
+
+To use a tool, respond with ONLY a JSON object in this format:
+```json
+{{"tool_call": {{"name": "TOOL_NAME", "arguments": {{"param1": "value1"}}}}}}
+```
+
+Do not include any text before or after the JSON when calling a tool.
+"""
+
+        # Make a copy and inject into system message
+        new_messages = []
+        system_found = False
+
+        for msg in messages:
+            msg_copy = dict(msg)
+            if msg_copy.get("role") == "system":
+                msg_copy["content"] = msg_copy.get("content", "") + "\n\n" + tool_instruction
+                system_found = True
+            new_messages.append(msg_copy)
+
+        if not system_found:
+            new_messages.insert(0, {"role": "system", "content": tool_instruction})
+
+        return new_messages
+
+    def _convert_messages_for_ollama(
+        self,
+        messages: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Convert messages to Ollama format.
+
+        Handles tool calls and tool responses.
+
+        Args:
+            messages: List of messages in OpenAI format
+
+        Returns:
+            List of messages in Ollama format
+        """
+        converted = []
+
+        for msg in messages:
+            msg_copy = dict(msg)
+            role = msg_copy.get("role", "")
+
+            # Convert assistant messages with tool_calls to plain text
+            if role == "assistant" and msg_copy.get("tool_calls"):
+                tool_calls = msg_copy.pop("tool_calls", [])
+                content = msg_copy.get("content") or ""
+
+                for tc in tool_calls:
+                    func = tc.get("function", {})
+                    args = func.get("arguments", "{}")
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except json.JSONDecodeError:
+                            args = {}
+
+                    tool_json = {
+                        "tool_call": {
+                            "name": func.get("name"),
+                            "arguments": args
+                        }
+                    }
+                    content += f"\n```json\n{json.dumps(tool_json, indent=2)}\n```"
+
+                msg_copy["content"] = content.strip() or "I'll use a tool."
+                msg_copy["role"] = "assistant"
+
+            # Convert tool response messages to user messages
+            elif role == "tool":
+                tool_content = msg_copy.get("content", "")
+                tool_name = msg_copy.get("name", "tool")
+                msg_copy = {
+                    "role": "user",
+                    "content": f"[Tool Result from {tool_name}]:\n{tool_content}"
+                }
+
+            # Ensure content is always a string
+            if msg_copy.get("content") is None:
+                msg_copy["content"] = ""
+
+            converted.append(msg_copy)
+
+        return converted
+
+    def _parse_tool_call_from_text(self, content: str) -> Optional[Dict[str, Any]]:
+        """Parse tool call from text response.
+
+        Args:
+            content: Response text
+
+        Returns:
+            Parsed tool call in OpenAI format or None
+        """
+        if not content:
+            return None
+
+        import re
+        import uuid
+
+        patterns = [
+            r'```json\s*(\{.*?"tool_call".*?\})\s*```',
+            r'```\s*(\{.*?"tool_call".*?\})\s*```',
+            r'(\{[^{}]*"tool_call"[^{}]*\{[^{}]*\}[^{}]*\})',
+        ]
+
+        for pattern in patterns:
+            matches = re.findall(pattern, content, re.DOTALL | re.IGNORECASE)
+            for match in matches:
+                try:
+                    data = json.loads(match)
+                    if "tool_call" in data:
+                        tc = data["tool_call"]
+                        return {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [{
+                                "id": f"call_{uuid.uuid4().hex[:8]}",
+                                "type": "function",
+                                "function": {
+                                    "name": tc.get("name"),
+                                    "arguments": json.dumps(tc.get("arguments", {}))
+                                }
+                            }]
+                        }
+                except json.JSONDecodeError:
+                    continue
+
+        return None
+
+    async def ask(
+        self,
+        messages: List[Dict[str, str]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        response_format: Optional[Dict[str, Any]] = None,
+        tool_choice: Optional[str] = None,
+        enable_caching: bool = True
+    ) -> Dict[str, Any]:
+        """Send chat request to Ollama API.
+
+        Args:
+            messages: List of messages in OpenAI format
+            tools: Optional list of tools (converted to text prompts)
+            response_format: Optional response format
+            tool_choice: Optional tool choice configuration
+            enable_caching: Whether to enable caching (not used)
+
+        Returns:
+            Response message in OpenAI format
+        """
+        max_retries = 3
+        base_delay = 1.0
+
+        # Convert messages for Ollama
+        ollama_messages = self._convert_messages_for_ollama(messages)
+
+        # Inject tools as text instructions
+        if tools:
+            ollama_messages = self._inject_tools_into_messages(ollama_messages, tools)
+
+        for attempt in range(max_retries + 1):
+            try:
+                if attempt > 0:
+                    delay = base_delay * (2 ** (attempt - 1))
+                    logger.info(f"Retrying Ollama request (attempt {attempt + 1}/{max_retries + 1})")
+                    await asyncio.sleep(delay)
+
+                async with httpx.AsyncClient(timeout=120.0) as client:
+                    response = await client.post(
+                        f"{self._api_url}/chat",
+                        json={
+                            "model": self._model_name,
+                            "messages": ollama_messages,
+                            "stream": False,
+                            "options": {
+                                "temperature": self._temperature,
+                                "num_predict": self._max_tokens,
+                            }
+                        }
+                    )
+                    response.raise_for_status()
+
+                    data = response.json()
+                    content = data.get("message", {}).get("content", "")
+
+                    # Try to parse tool call from response
+                    if tools:
+                        parsed_tool_call = self._parse_tool_call_from_text(content)
+                        if parsed_tool_call:
+                            return parsed_tool_call
+
+                    return {
+                        "role": "assistant",
+                        "content": content,
+                        "tool_calls": None
+                    }
+
+            except httpx.TimeoutException as e:
+                logger.warning(f"Ollama timeout on attempt {attempt + 1}: {e}")
+                if attempt == max_retries:
+                    raise
+
+            except httpx.HTTPStatusError as e:
+                error_msg = str(e).lower()
+                if "context" in error_msg or "token" in error_msg:
+                    raise TokenLimitExceeded(str(e))
+                logger.error(f"Ollama HTTP error on attempt {attempt + 1}: {e}")
+                if attempt == max_retries:
+                    raise
+
+            except Exception as e:
+                logger.error(f"Ollama error on attempt {attempt + 1}: {e}")
+                if attempt == max_retries:
+                    raise
+
+        raise RuntimeError("Failed to get response after all retries")
+
+    async def ask_structured(
+        self,
+        messages: List[Dict[str, str]],
+        response_model: Type[T],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[str] = None,
+        enable_caching: bool = True
+    ) -> T:
+        """Send chat request with structured output validation.
+
+        Uses JSON mode and Pydantic validation.
+
+        Args:
+            messages: List of messages
+            response_model: Pydantic model class for response validation
+            tools: Optional additional tools
+            tool_choice: Optional tool choice
+            enable_caching: Whether to use caching
+
+        Returns:
+            Validated Pydantic model instance
+        """
+        schema = response_model.model_json_schema()
+
+        # Add instruction to return JSON
+        schema_instruction = {
+            "role": "system",
+            "content": f"""You must respond with valid JSON matching this schema:
+{json.dumps(schema, indent=2)}
+
+Respond ONLY with the JSON object, no other text."""
+        }
+
+        enhanced_messages = [schema_instruction] + list(messages)
+
+        max_retries = 3
+        for attempt in range(max_retries + 1):
+            try:
+                response = await self.ask(
+                    messages=enhanced_messages,
+                    enable_caching=enable_caching
+                )
+
+                content = response.get("content", "")
+
+                # Try to extract JSON from response
+                import re
+                json_match = re.search(r'\{[\s\S]*\}', content)
+                if json_match:
+                    parsed = json.loads(json_match.group())
+                    return response_model.model_validate(parsed)
+
+                raise ValueError(f"No valid JSON found in response: {content[:100]}")
+
+            except json.JSONDecodeError as e:
+                logger.warning(f"JSON decode error on attempt {attempt + 1}: {e}")
+                if attempt == max_retries:
+                    raise ValueError(f"Failed to parse JSON response: {e}")
+
+        raise ValueError("Failed to get structured response after all retries")
+
+    async def ask_stream(
+        self,
+        messages: List[Dict[str, str]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        response_format: Optional[Dict[str, Any]] = None,
+        tool_choice: Optional[str] = None,
+        enable_caching: bool = True
+    ) -> AsyncGenerator[str, None]:
+        """Stream chat response from Ollama API.
+
+        Args:
+            messages: List of messages
+            tools: Optional tools
+            response_format: Optional response format
+            tool_choice: Optional tool choice
+            enable_caching: Whether to use caching
+
+        Yields:
+            Content chunks as strings
+        """
+        # Convert messages for Ollama
+        ollama_messages = self._convert_messages_for_ollama(messages)
+
+        if tools:
+            ollama_messages = self._inject_tools_into_messages(ollama_messages, tools)
+
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self._api_url}/chat",
+                    json={
+                        "model": self._model_name,
+                        "messages": ollama_messages,
+                        "stream": True,
+                        "options": {
+                            "temperature": self._temperature,
+                            "num_predict": self._max_tokens,
+                        }
+                    }
+                ) as response:
+                    response.raise_for_status()
+
+                    async for line in response.aiter_lines():
+                        if line:
+                            try:
+                                data = json.loads(line)
+                                if data.get("message", {}).get("content"):
+                                    yield data["message"]["content"]
+                            except json.JSONDecodeError:
+                                continue
+
+        except httpx.HTTPStatusError as e:
+            error_msg = str(e).lower()
+            if "context" in error_msg or "token" in error_msg:
+                raise TokenLimitExceeded(str(e))
+            raise
+
+
+# Test function
+if __name__ == "__main__":
+    import asyncio
+
+    async def test():
+        llm = OllamaLLM()
+
+        try:
+            response = await llm.ask([
+                {"role": "user", "content": "What is 2 + 2? Answer briefly."}
+            ])
+            print(f"Response: {response}")
+        except Exception as e:
+            print(f"Error: {e}")
+            print("Make sure Ollama is running: ollama serve")
+
+    asyncio.run(test())

@@ -4,9 +4,12 @@ import httpx
 from app.domain.models.tool_result import ToolResult
 from app.domain.models.search import SearchResults, SearchResultItem
 from app.domain.external.search import SearchEngine
+from app.infrastructure.external.search.factory import SearchProviderRegistry
 
 logger = logging.getLogger(__name__)
 
+
+@SearchProviderRegistry.register("google")
 class GoogleSearchEngine(SearchEngine):
     """Google API based search engine implementation"""
     

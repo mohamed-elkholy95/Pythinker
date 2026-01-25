@@ -3,37 +3,49 @@
     <DialogContent class="w-[380px] md:w-[95vw] md:max-w-[920px]">
       <DialogTitle></DialogTitle>
       <DialogDescription></DialogDescription>
-      
-      <SettingsTabs 
-        :tabs="tabs" 
+
+      <SettingsTabs
+        :tabs="tabs"
         :default-tab="defaultTab"
         :current-sub-page="currentSubPage"
         :sub-page-configs="subPageConfigs"
         @tab-change="onTabChange"
         @navigate-to-profile="navigateToProfile"
         @back="goBack">
-        
+
         <template #account>
           <AccountSettings @navigate-to-profile="navigateToProfile" />
         </template>
-        
+
         <template #account-profile>
           <ProfileSettings @back="goBack" />
         </template>
-        
+
         <template #settings>
           <GeneralSettings />
         </template>
-        
+
+        <template #model>
+          <ModelSettings />
+        </template>
+
+        <template #search>
+          <SearchSettings />
+        </template>
+
+        <template #agent>
+          <AgentSettings />
+        </template>
+
       </SettingsTabs>
-      
+
     </DialogContent>
   </Dialog>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { UserRound, Settings2 } from 'lucide-vue-next'
+import { UserRound, Settings2, Bot, Search, Workflow } from 'lucide-vue-next'
 import {
   Dialog,
   DialogContent,
@@ -45,6 +57,9 @@ import SettingsTabs from './SettingsTabs.vue'
 import AccountSettings from './AccountSettings.vue'
 import GeneralSettings from './GeneralSettings.vue'
 import ProfileSettings from './ProfileSettings.vue'
+import ModelSettings from './ModelSettings.vue'
+import SearchSettings from './SearchSettings.vue'
+import AgentSettings from './AgentSettings.vue'
 import type { TabItem, SubPageConfig } from './SettingsTabs.vue'
 
 // Use global settings dialog state
@@ -62,8 +77,23 @@ const tabs: TabItem[] = [
   },
   {
     id: 'settings',
-    label: 'Settings',
+    label: 'General',
     icon: Settings2
+  },
+  {
+    id: 'model',
+    label: 'AI Model',
+    icon: Bot
+  },
+  {
+    id: 'search',
+    label: 'Search',
+    icon: Search
+  },
+  {
+    id: 'agent',
+    label: 'Agent',
+    icon: Workflow
   }
 ]
 
