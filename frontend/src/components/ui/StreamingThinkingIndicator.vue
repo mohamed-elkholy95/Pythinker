@@ -14,7 +14,11 @@
       </div>
       <div class="flex-1 min-w-0">
         <span class="text-sm font-medium text-black dark:text-white">Thinking</span>
-        <div v-if="displayText" class="mt-1 text-sm text-[var(--text-secondary)] whitespace-pre-wrap thinking-text">
+        <div
+          v-if="displayText"
+          ref="thinkingTextRef"
+          class="mt-1 text-sm text-[var(--text-secondary)] whitespace-pre-wrap thinking-text"
+        >
           {{ displayText }}<span class="cursor-blink">|</span>
         </div>
       </div>
@@ -23,13 +27,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import ThinkingIndicator from './ThinkingIndicator.vue'
 
 const props = defineProps<{
   text: string
   maxLines?: number
 }>()
+
+const thinkingTextRef = ref<HTMLDivElement | null>(null)
 
 // Auto-truncate to last N lines for long thinking text
 const displayText = computed(() => {
@@ -40,6 +46,20 @@ const displayText = computed(() => {
   }
   return '...\n' + lines.slice(-maxLines).join('\n')
 })
+
+const scrollThinkingToBottom = async () => {
+  await nextTick()
+  if (!thinkingTextRef.value) return
+  thinkingTextRef.value.scrollTop = thinkingTextRef.value.scrollHeight
+}
+
+watch(
+  () => displayText.value,
+  () => {
+    scrollThinkingToBottom()
+  },
+  { immediate: true }
+)
 </script>
 
 <style scoped>
