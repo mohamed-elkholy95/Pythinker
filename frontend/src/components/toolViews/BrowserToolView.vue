@@ -10,8 +10,8 @@
   <div class="flex-1 min-h-0 w-full overflow-y-auto">
     <div class="px-0 py-0 flex flex-col relative h-full">
       <div class="w-full h-full object-cover flex items-center justify-center bg-[var(--fill-white)] relative">
-        <!-- Fetching Overlay - shown when using browser_get_content (fast fetch without visual browser) -->
-        <div v-if="isFetching" class="w-full h-full flex flex-col items-center justify-center bg-gradient-to-b from-[var(--background-gray-main)] to-[var(--fill-white)] dark:from-[#1a1a2e] dark:to-[#16213e]">
+        <!-- Working Overlay - shown when any browser function is being called -->
+        <div v-if="isWorking" class="w-full h-full flex flex-col items-center justify-center bg-gradient-to-b from-[var(--background-gray-main)] to-[var(--fill-white)] dark:from-[#1a1a2e] dark:to-[#16213e]">
           <div class="fetching-container">
             <!-- Animated orbs -->
             <div class="orbs-container">
@@ -33,7 +33,7 @@
           <!-- Status text -->
           <div class="mt-6 flex flex-col items-center gap-2">
             <div class="flex items-center gap-2 text-[var(--text-secondary)]">
-              <span class="text-base font-medium">{{ t('Fetching') }}</span>
+              <span class="text-base font-medium">{{ actionDescription }}</span>
               <span class="flex gap-1">
                 <span v-for="(_, i) in 3" :key="i" class="dot" :style="{ animationDelay: `${i * 200}ms` }"></span>
               </span>
@@ -57,7 +57,7 @@
           <img v-else-if="imageUrl" alt="Image Preview" class="cursor-pointer w-full" referrerpolicy="no-referrer" :src="imageUrl">
         </div>
         <button
-          v-if="!isShare && !isFetching"
+          v-if="!isShare && !isWorking"
           @click="takeOver"
           class="absolute right-[10px] bottom-[10px] z-10 min-w-10 h-10 flex items-center justify-center rounded-full bg-[var(--background-white-main)] text-[var(--text-primary)] border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)] backdrop-blur-3xl cursor-pointer hover:bg-[var(--text-brand)] hover:px-4 hover:text-[var(--text-white)] group transition-width duration-300">
           <TakeOverIcon />
@@ -85,12 +85,42 @@ const props = defineProps<{
 const { t } = useI18n();
 const imageUrl = ref('');
 
-// Detect if we're in "fetching" mode (browser_get_content uses fast HTTP fetch, not visual browser)
-const isFetching = computed(() => {
+// Detect if we're actively working (any browser function is being called)
+const isWorking = computed(() => {
   const func = props.toolContent?.function;
   const status = props.toolContent?.status;
-  // Show fetching overlay when browser_get_content is being called (not completed)
-  return func === 'browser_get_content' && status === 'calling';
+  // Show working overlay when any browser function is being called (not completed)
+  return func?.startsWith('browser_') && status === 'calling';
+});
+
+// Check if it's specifically a fetch operation (for display text)
+const isFetchingContent = computed(() => {
+  const func = props.toolContent?.function;
+  return func === 'browser_get_content';
+});
+
+// Get action description for display
+const actionDescription = computed(() => {
+  const func = props.toolContent?.function;
+  if (!func) return 'Working';
+
+  const actionMap: Record<string, string> = {
+    'browser_get_content': 'Fetching',
+    'browser_navigate': 'Navigating',
+    'browser_click': 'Clicking',
+    'browser_input': 'Typing',
+    'browser_view': 'Loading',
+    'browser_scroll_up': 'Scrolling',
+    'browser_scroll_down': 'Scrolling',
+    'browser_press_key': 'Pressing key',
+    'browser_select_option': 'Selecting',
+    'browser_move_mouse': 'Moving cursor',
+    'browser_restart': 'Restarting',
+    'browser_agent_run': 'Running agent',
+    'browser_agent_extract': 'Extracting',
+  };
+
+  return actionMap[func] || 'Working';
 });
 
 // Extract URL for display in fetching overlay

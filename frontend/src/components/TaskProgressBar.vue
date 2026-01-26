@@ -1,157 +1,215 @@
 <template>
-  <div v-if="isVisible" class="task-progress-bar flex flex-col gap-4">
-    <!-- View Computer Button - shown when collapsed and agent is using computer tools -->
-    <button
-      v-if="!isExpanded && showThumbnail && !isAllCompleted"
-      @click.stop="emit('openPanel')"
-      class="px-5 py-2.5 bg-[var(--Button-primary-black)] text-[var(--text-onblack)] rounded-full text-sm font-medium hover:opacity-90 transition-opacity flex items-center gap-2 self-start"
-    >
-      {{ $t("View Pythinker's computer") }}
-    </button>
-
-    <!-- Collapsed View -->
-    <div
-      v-if="!isExpanded"
-      class="flex items-center cursor-pointer"
-      @click="toggleExpand"
-    >
-      <!-- Thumbnail -->
-      <div v-if="showThumbnail" class="flex-shrink-0 mr-3">
-        <div class="w-[120px] h-[75px] rounded-lg overflow-hidden border border-black/8 bg-[#f0f0ef]">
+  <div v-if="isVisible" class="task-progress-bar">
+    <!-- Collapsed View - Task Summary Bar -->
+    <div v-if="!isExpanded" class="relative">
+      <!-- Floating Terminal Thumbnail -->
+      <div
+        v-if="showCollapsedThumbnail"
+        class="absolute -top-14 left-3 z-20 flex-shrink-0 group/thumb"
+      >
+        <!-- View Computer Badge - shows on hover -->
+        <div
+          @click.stop="emit('openPanel')"
+          class="absolute -top-10 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 px-4 py-2 bg-[var(--Button-primary-black)] text-[var(--text-onblack)] rounded-full text-sm font-medium cursor-pointer opacity-0 group-hover/thumb:opacity-100 transition-opacity duration-200 whitespace-nowrap shadow-lg z-20"
+        >
+          {{ $t("View Pythinker's computer") }}
+        </div>
+        <div
+          class="w-[150px] h-[96px] rounded-xl overflow-hidden border border-black/8 dark:border-[var(--border-main)] bg-[var(--background-menu-white)] cursor-pointer group-hover/thumb:border-[var(--text-brand)] transition-colors shadow-md"
+          @click.stop="emit('openPanel')"
+        >
+          <!-- Static Screenshot -->
           <img
             v-if="thumbnailUrl"
             :src="thumbnailUrl"
             alt="Computer view"
             class="w-full h-full object-cover"
           />
-          <div v-else class="w-full h-full flex items-center justify-center">
-            <div class="terminal-preview">
-              <div class="terminal-line"></div>
-              <div class="terminal-line short"></div>
-              <div class="terminal-line"></div>
-              <div class="terminal-cursor"></div>
+          <!-- Terminal Placeholder -->
+          <div v-else class="w-full h-full bg-[#1a1a1a] flex flex-col p-2">
+            <div class="text-[8px] text-gray-500 text-center mb-1">main</div>
+            <div class="terminal-text">
+              <div class="text-[7px] leading-tight">
+                <span class="text-green-500">ubuntu@sandbox:~$</span>
+                <span class="text-gray-300"> cd /home/ubuntu</span>
+              </div>
+              <div class="text-[7px] leading-tight text-gray-400">Executing task...</div>
+              <div class="text-[7px] leading-tight">
+                <span class="text-green-500">ubuntu@sandbox:~$</span>
+                <span class="terminal-cursor"></span>
+              </div>
             </div>
           </div>
         </div>
+        <!-- Expand Button -->
+        <button
+          @click.stop="emit('openPanel')"
+          class="absolute bottom-1.5 right-1.5 w-6 h-6 rounded-md bg-[#4a4a4a]/80 hover:bg-[#5a5a5a] flex items-center justify-center transition-colors opacity-0 group-hover/thumb:opacity-100"
+        >
+          <ArrowUpRight class="w-3.5 h-3.5 text-white" />
+        </button>
       </div>
 
-      <!-- Main Card (white wrapper + grey inner) -->
-      <div class="p-2 bg-white dark:bg-[var(--background-menu-white)] rounded-2xl flex-1 shadow-sm border border-black/5">
-        <div class="flex items-center gap-3 py-3 px-4 bg-[#f5f5f4] dark:bg-[var(--fill-tsp-white-main)] rounded-xl hover:bg-[#eeeeec] transition-colors">
-          <!-- Status indicator + Task description -->
-          <div class="flex items-center gap-2.5 flex-1 min-w-0">
-            <div v-if="isAllCompleted" class="flex-shrink-0">
-              <Check class="w-[16px] h-[16px] text-[#22c55e]" :stroke-width="2.5" />
-            </div>
-            <div v-else class="thinking-shape small" :class="currentShape"></div>
-            <span class="text-[15px] font-medium text-[var(--text-primary)]">{{ currentTaskDescription }}</span>
+      <div
+        class="bg-[var(--background-menu-white)] rounded-2xl border border-black/8 dark:border-[var(--border-main)] shadow-[0px_0px_1px_0px_rgba(0,_0,_0,_0.05),_0px_8px_32px_0px_rgba(0,_0,_0,_0.04)] p-3 sm:p-4 flex items-center gap-3"
+        :class="showCollapsedThumbnail ? 'pl-[176px] sm:pl-[188px]' : ''"
+      >
+        <!-- Status Indicator -->
+        <div class="flex items-center gap-2.5 flex-1 min-w-0">
+          <div v-if="isAllCompleted" class="flex-shrink-0">
+            <Check class="w-4 h-4 text-[#22c55e]" :stroke-width="2.5" />
           </div>
+          <div v-else class="thinking-shape small" :class="currentShape"></div>
+          <span class="text-sm text-[var(--text-primary)] truncate">{{ currentTaskDescription }}</span>
+        </div>
 
-          <!-- Progress and Chevron -->
-          <div class="flex items-center gap-2 flex-shrink-0">
-            <span class="text-sm text-[var(--text-tertiary)]">{{ progressText }}</span>
+        <!-- Progress Indicator -->
+        <div class="flex items-center gap-2 flex-shrink-0">
+          <span class="text-xs text-[var(--text-tertiary)]">{{ progressText }}</span>
+          <button @click="toggleExpand" class="p-0.5 hover:bg-[var(--fill-tsp-gray-main)] rounded cursor-pointer">
             <ChevronUp class="w-4 h-4 text-[var(--icon-tertiary)]" />
-          </div>
+          </button>
         </div>
       </div>
     </div>
 
     <!-- Expanded View -->
-    <template v-else>
-      <!-- Computer Preview Section (no card background, just flex layout) -->
-      <div
-        v-if="showThumbnail"
-        class="flex items-start gap-4 mb-2"
-      >
-        <!-- Thumbnail -->
-        <div class="flex-shrink-0">
-          <div class="w-[120px] h-[75px] rounded-lg overflow-hidden border border-black/8 bg-[#f0f0ef]">
+    <div
+      v-else
+      class="flex flex-col gap-4 rounded-3xl border border-black/8 dark:border-[var(--border-main)] bg-[var(--background-menu-white)] shadow-[0px_0px_1px_0px_rgba(0,_0,_0,_0.05),_0px_8px_32px_0px_rgba(0,_0,_0,_0.04)] p-5 sm:p-6"
+    >
+      <!-- Header Section - always show for collapse control -->
+      <div class="flex flex-col sm:flex-row sm:items-center gap-4">
+        <!-- Terminal Thumbnail Card - only when available -->
+        <div v-if="showThumbnail || thumbnailUrl || sessionId" class="flex-shrink-0 relative group/thumb">
+          <!-- View Computer Badge - shows on hover -->
+          <div
+            @click.stop="emit('openPanel')"
+            class="absolute -top-10 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 px-4 py-2 bg-[var(--Button-primary-black)] text-[var(--text-onblack)] rounded-full text-sm font-medium cursor-pointer opacity-0 group-hover/thumb:opacity-100 transition-opacity duration-200 whitespace-nowrap shadow-lg z-20"
+          >
+            {{ $t("View Pythinker's computer") }}
+          </div>
+          <div
+            class="w-[140px] h-[88px] sm:w-[150px] sm:h-[96px] rounded-xl overflow-hidden border border-black/8 dark:border-[var(--border-main)] bg-[var(--background-menu-white)] cursor-pointer group-hover/thumb:border-[var(--text-brand)] transition-colors shadow-md"
+            @click.stop="emit('openPanel')"
+          >
+            <!-- Live VNC View -->
+            <VNCViewer
+              v-if="liveVnc && sessionId"
+              :session-id="sessionId"
+              :enabled="true"
+              :view-only="true"
+              class="w-full h-full vnc-thumbnail"
+            />
+            <!-- Static Screenshot -->
             <img
-              v-if="thumbnailUrl"
+              v-else-if="thumbnailUrl"
               :src="thumbnailUrl"
               alt="Computer view"
               class="w-full h-full object-cover"
             />
-            <div v-else class="w-full h-full flex items-center justify-center">
-              <div class="terminal-preview">
-                <div class="terminal-line"></div>
-                <div class="terminal-line short"></div>
-                <div class="terminal-line"></div>
-                <div class="terminal-cursor"></div>
+            <!-- Terminal Placeholder -->
+            <div v-else class="w-full h-full bg-[#1a1a1a] flex flex-col p-3">
+              <div class="text-[9px] text-gray-500 text-center mb-1.5">main</div>
+              <div class="terminal-text flex-1">
+                <div class="text-[8px] leading-relaxed">
+                  <span class="text-green-500">ubuntu@sandbox:~$</span>
+                  <span class="text-gray-300"> cd /home/ubuntu && g</span>
+                </div>
+                <div class="text-[8px] leading-relaxed text-gray-300">h repo clone project.git</div>
+                <div class="text-[8px] leading-relaxed text-gray-400">GraphQL: Could not resolve</div>
+                <div class="text-[8px] leading-relaxed text-gray-400">ory with the name 'project'</div>
+                <div class="text-[8px] leading-relaxed">
+                  <span class="text-green-500">ubuntu@sandbox:~$</span>
+                  <span class="terminal-cursor"></span>
+                </div>
               </div>
             </div>
           </div>
+          <!-- Expand Button -->
+          <button
+            @click.stop="emit('openPanel')"
+            class="absolute bottom-2 right-2 w-7 h-7 rounded-lg bg-[#4a4a4a]/80 hover:bg-[#5a5a5a] flex items-center justify-center transition-colors"
+          >
+            <ArrowUpRight class="w-4 h-4 text-white" />
+          </button>
         </div>
 
         <!-- Computer Info -->
-        <div class="flex-1 min-w-0 flex flex-col gap-1.5 pt-0.5">
-          <h3 class="text-lg font-semibold text-[var(--text-primary)] leading-tight">{{ $t("Pythinker's computer") }}</h3>
-          <div v-if="currentTool && !isAllCompleted" class="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
-            <div class="w-6 h-6 rounded-md bg-[#eaeaea] flex items-center justify-center">
-              <component :is="getToolIcon(currentTool.name)" class="w-3.5 h-3.5 text-[var(--text-secondary)]" />
+        <div class="flex-1 min-w-0">
+          <h2 class="text-lg sm:text-xl font-bold text-[var(--text-primary)] mb-2.5">
+            {{ $t("Pythinker's computer") }}
+          </h2>
+          <div class="flex items-center gap-2.5 text-[var(--text-secondary)]">
+            <div class="w-8 h-8 rounded-lg border border-black/10 dark:border-[var(--border-main)] bg-[var(--background-white-main)] flex items-center justify-center shadow-sm">
+              <component :is="currentToolIcon" class="w-4 h-4 text-[var(--text-secondary)]" />
             </div>
-            <span>{{ $t('Pythinker is using') }} {{ currentTool.function }}</span>
+            <span class="text-sm sm:text-base">
+              {{ $t('Pythinker is using') }}
+              <span class="font-semibold text-[var(--text-primary)]">{{ currentToolName }}</span>
+            </span>
           </div>
         </div>
 
-        <!-- Monitor Icon + Chevron -->
-        <div class="flex items-center gap-1 flex-shrink-0">
-          <Monitor class="w-5 h-5 text-[var(--icon-tertiary)]" />
+        <!-- Top-right Controls -->
+        <div class="flex items-center gap-3 flex-shrink-0 self-end sm:self-auto sm:ml-auto">
+          <div class="w-8 h-8 rounded-lg border border-black/10 dark:border-[var(--border-main)] bg-[var(--background-white-main)] flex items-center justify-center shadow-sm">
+            <Monitor class="w-4 h-4 text-[var(--icon-secondary)]" />
+          </div>
           <button
-            @click.stop="toggleExpand"
-            class="p-0.5 rounded hover:bg-black/5 cursor-pointer"
+            @click="toggleExpand"
+            class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--fill-tsp-gray-main)] cursor-pointer"
           >
             <ChevronDown class="w-4 h-4 text-[var(--icon-tertiary)]" />
           </button>
         </div>
       </div>
 
-      <!-- Task Progress Card (white wrapper + grey inner card) -->
-      <div class="p-2 bg-white dark:bg-[var(--background-menu-white)] rounded-2xl shadow-sm border border-black/5">
-        <div class="px-5 py-4 bg-[#f5f5f4] dark:bg-[var(--fill-tsp-white-main)] rounded-xl">
-          <!-- Header -->
+      <!-- Task Progress Card -->
+      <div class="bg-[var(--fill-tsp-gray-main)] rounded-2xl p-5 sm:p-6 border border-black/5 dark:border-[var(--border-main)]">
+        <!-- Card Header -->
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-base font-bold text-[var(--text-primary)]">{{ $t('Task progress') }}</h3>
+          <span class="text-xs sm:text-sm text-[var(--text-tertiary)]">{{ progressText }}</span>
+        </div>
+
+        <!-- Task List -->
+        <div class="flex flex-col">
           <div
-            class="flex items-center justify-between mb-2 cursor-pointer"
-            @click="toggleExpand"
+            v-for="(step, index) in steps"
+            :key="step.id"
+            class="flex items-start gap-3 py-3"
           >
-            <h3 class="text-[15px] font-bold text-[var(--text-primary)]">{{ $t('Task progress') }}</h3>
-            <div class="flex items-center gap-2">
-              <span class="text-sm text-[var(--text-tertiary)]">{{ progressText }}</span>
-              <ChevronDown class="w-4 h-4 text-[var(--icon-tertiary)]" />
+            <!-- Checkmark -->
+            <div class="flex-shrink-0 mt-1">
+              <Check
+                v-if="step.status === 'completed'"
+                class="w-4 h-4 text-[#22c55e]"
+                :stroke-width="2.5"
+              />
+              <div v-else-if="step.status === 'running'" class="thinking-shape small" :class="currentShape"></div>
+              <div v-else class="w-4 h-4 rounded-full border-2 border-gray-300"></div>
             </div>
-          </div>
 
-          <!-- Task List -->
-          <div class="flex flex-col">
-            <div v-for="(step, index) in steps" :key="step.id" class="flex items-start gap-3 py-2.5">
-              <!-- Step Indicator -->
-              <div class="flex-shrink-0 mt-0.5">
-                <Check v-if="step.status === 'completed'" class="w-[16px] h-[16px] text-[#22c55e]" :stroke-width="2.5" />
-                <div v-else-if="step.status === 'running'" class="thinking-shape small" :class="currentShape"></div>
-                <div v-else class="w-[16px] h-[16px] rounded-full border-2 border-[var(--border-dark)]"></div>
-              </div>
-
-              <!-- Step Content -->
-              <div class="flex-1 min-w-0">
-                <span
-                  class="text-[15px] leading-snug"
-                  :class="step.status === 'running' ? 'text-[var(--text-primary)] font-medium' : 'text-[var(--text-primary)]'"
-                >
-                  {{ step.description }}
-                </span>
-              </div>
-            </div>
+            <!-- Task Text -->
+            <span
+              class="text-sm sm:text-base leading-relaxed"
+              :class="step.status === 'running' ? 'text-[var(--text-primary)] font-semibold' : 'text-[var(--text-primary)] font-medium'"
+            >
+              {{ step.description }}
+            </span>
           </div>
         </div>
       </div>
-    </template>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { ChevronUp, ChevronDown, Check, Monitor, Terminal, Globe, FolderOpen } from 'lucide-vue-next'
+import { ChevronUp, ChevronDown, Check, Monitor, Terminal, Globe, FolderOpen, ArrowUpRight } from 'lucide-vue-next'
 import type { PlanEventData } from '@/types/event'
+import VNCViewer from '@/components/VNCViewer.vue'
 
 interface Props {
   plan?: PlanEventData
@@ -160,12 +218,16 @@ interface Props {
   showThumbnail?: boolean
   thumbnailUrl?: string
   currentTool?: { name: string; function: string; functionArg?: string } | null
+  sessionId?: string
+  liveVnc?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   showThumbnail: false,
   thumbnailUrl: '',
-  currentTool: null
+  currentTool: null,
+  sessionId: '',
+  liveVnc: false
 })
 
 const emit = defineEmits<{
@@ -212,15 +274,28 @@ const currentTaskDescription = computed(() => {
   return 'Processing...'
 })
 
-const toggleExpand = () => {
-  isExpanded.value = !isExpanded.value
-}
+const showCollapsedThumbnail = computed(() => {
+  return props.showThumbnail || (isAllCompleted.value && !!props.thumbnailUrl)
+})
 
-// Get icon for tool type
-const getToolIcon = (toolName: string) => {
+// Get current tool name for display
+const currentToolName = computed(() => {
+  if (isAllCompleted.value) return 'Task completed'
+  if (props.currentTool?.function) return props.currentTool.function
+  return 'Terminal'
+})
+
+// Get icon for current tool
+const currentToolIcon = computed(() => {
+  if (isAllCompleted.value) return Check
+  const toolName = props.currentTool?.name || ''
   if (toolName.includes('browser') || toolName.includes('web')) return Globe
   if (toolName.includes('file') || toolName.includes('folder')) return FolderOpen
   return Terminal
+})
+
+const toggleExpand = () => {
+  isExpanded.value = !isExpanded.value
 }
 
 const startShapeAnimation = () => {
@@ -259,9 +334,10 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* Thinking shape animation */
 .thinking-shape {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   background: linear-gradient(135deg, #22c55e 0%, #4ade80 50%, #22c55e 100%);
   background-size: 200% 200%;
   animation: shimmer 1.5s ease-in-out infinite;
@@ -270,73 +346,48 @@ onUnmounted(() => {
 }
 
 .thinking-shape.small {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
 }
 
-/* Circle */
 .thinking-shape.circle {
   border-radius: 50%;
 }
 
-/* Diamond */
 .thinking-shape.diamond {
   border-radius: 2px;
   transform: rotate(45deg) scale(0.85);
 }
 
-/* Cube */
 .thinking-shape.cube {
-  border-radius: 2px;
+  border-radius: 3px;
 }
 
 @keyframes shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
-/* Terminal preview animation */
-.terminal-preview {
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  height: 100%;
-  justify-content: center;
-}
-
-.terminal-line {
-  height: 8px;
-  background: var(--fill-tsp-gray-dark);
-  border-radius: 2px;
-  width: 80%;
-  animation: terminal-type 2s ease-in-out infinite;
-}
-
-.terminal-line.short {
-  width: 50%;
-  animation-delay: 0.3s;
-}
-
+/* Terminal cursor blink */
 .terminal-cursor {
-  width: 10px;
-  height: 12px;
-  background: var(--text-brand);
-  border-radius: 1px;
+  display: inline-block;
+  width: 6px;
+  height: 10px;
+  background: #22c55e;
   animation: cursor-blink 1s step-end infinite;
-}
-
-@keyframes terminal-type {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 0.7; }
+  margin-left: 2px;
+  vertical-align: middle;
 }
 
 @keyframes cursor-blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
+}
+
+/* VNC Thumbnail scaling */
+.vnc-thumbnail :deep(canvas) {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover;
 }
 </style>
