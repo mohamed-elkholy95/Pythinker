@@ -14,7 +14,7 @@ yarn-error.log
 *.sw?
 
 # 构建输出
-dist
+# dist  # Keep dist for pre-built deployment
 dist-ssr
 coverage
 

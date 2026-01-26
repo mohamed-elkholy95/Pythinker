@@ -13,7 +13,7 @@
         </div>
       </div>
       <div class="flex-1 min-w-0">
-        <span class="text-sm font-medium text-black dark:text-white">Thinking</span>
+        <span class="thinking-text-shimmer text-sm font-normal">Thinking</span>
         <div
           v-if="displayText"
           ref="thinkingTextRef"
@@ -77,5 +77,48 @@ watch(
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
+}
+
+/* 120-degree diagonal shimmer text effect */
+.thinking-text-shimmer {
+  background: linear-gradient(
+    120deg,
+    #1f2937 0%,
+    #1f2937 40%,
+    #9ca3af 50%,
+    #1f2937 60%,
+    #1f2937 100%
+  );
+  background-size: 300% 300%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: text-shimmer 2s ease-in-out infinite;
+}
+
+/* Dark mode */
+:deep(.dark) .thinking-text-shimmer,
+.dark .thinking-text-shimmer {
+  background: linear-gradient(
+    120deg,
+    #e5e7eb 0%,
+    #e5e7eb 40%,
+    #6b7280 50%,
+    #e5e7eb 60%,
+    #e5e7eb 100%
+  );
+  background-size: 300% 300%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+@keyframes text-shimmer {
+  0% {
+    background-position: 100% 0%;
+  }
+  100% {
+    background-position: 0% 100%;
+  }
 }
 </style>

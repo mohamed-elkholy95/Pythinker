@@ -25,7 +25,7 @@ from app.domain.models.file import FileInfo
 from app.domain.models.user import User
 
 logger = logging.getLogger(__name__)
-SESSION_POLL_INTERVAL = 5
+SESSION_POLL_INTERVAL = 10
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 

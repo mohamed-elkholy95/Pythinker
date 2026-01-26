@@ -46,7 +46,12 @@ export const TOOL_FUNCTION_MAP: {[key: string]: string} = {
   "idle_standby": "Standing by",
 
   // Agent mode tool
-  "agent_start_task": "Starting task"
+  "agent_start_task": "Starting task",
+
+  // Code execution tools
+  "code_execute": "Executing code",
+  "code_execute_python": "Running Python",
+  "code_execute_javascript": "Running JavaScript"
 };
 
 /**
@@ -82,7 +87,10 @@ export const TOOL_FUNCTION_ARG_MAP: {[key: string]: string} = {
   "browser_agent_run": "task",
   "browser_agent_extract": "extraction_goal",
   "idle_standby": "reason",
-  "agent_start_task": "task"
+  "agent_start_task": "task",
+  "code_execute": "code",
+  "code_execute_python": "code",
+  "code_execute_javascript": "code"
 };
 
 /**
@@ -97,7 +105,8 @@ export const TOOL_NAME_MAP: {[key: string]: string} = {
   "message": "Message",
   "mcp": "MCP Tool",
   "idle": "Standby",
-  "agent_mode": "Agent Mode"
+  "agent_mode": "Agent Mode",
+  "code_executor": "Code Execution"
 };
 
 import SearchIcon from '../components/icons/SearchIcon.vue';
@@ -107,6 +116,7 @@ import ShellIcon from '../components/icons/ShellIcon.vue';
 import GlobeIcon from '../components/icons/GlobeIcon.vue';
 import IdleIcon from '../components/icons/IdleIcon.vue';
 import AgentModeIcon from '../components/icons/AgentModeIcon.vue';
+import PythonIcon from '../components/icons/PythonIcon.vue';
 
 /**
  * Tool icon mapping
@@ -121,7 +131,8 @@ export const TOOL_ICON_MAP: {[key: string]: any} = {
   "message": "",
   "mcp": SearchIcon,  // Using search icon temporarily, can create dedicated MCP icon later
   "idle": IdleIcon,
-  "agent_mode": AgentModeIcon
+  "agent_mode": AgentModeIcon,
+  "code_executor": PythonIcon
 };
 
 import ShellToolView from '@/components/toolViews/ShellToolView.vue';
@@ -139,5 +150,6 @@ export const TOOL_COMPONENT_MAP: {[key: string]: any} = {
   "search": SearchToolView,
   "browser": BrowserToolView,
   "browser_agent": BrowserToolView,  // Uses browser view to show VNC
-  "mcp": McpToolView
+  "mcp": McpToolView,
+  "code_executor": ShellToolView  // Code execution output shown in terminal view
 };

@@ -500,9 +500,35 @@ class AgentTaskRunner(TaskRunner):
     async def _handle_tool_event(self, event: ToolEvent):
         """Generate tool content"""
         try:
-            if event.status == ToolStatus.CALLED:
+            # Handle CALLING status for streaming preview (file_write shows content being generated)
+            if event.status == ToolStatus.CALLING:
+                if event.tool_name == "file" and event.function_name == "file_write":
+                    # Show the content being written for streaming preview
+                    content = event.function_args.get("content", "")
+                    if content:
+                        event.tool_content = FileToolContent(content=content)
+                        logger.debug(f"File write preview: {len(content)} chars")
+            elif event.status == ToolStatus.CALLED:
                 if event.tool_name == "browser":
-                    event.tool_content = BrowserToolContent(screenshot=await self._get_browser_screenshot())
+                    screenshot_functions = {
+                        "browser_navigate",
+                        "browser_restart",
+                        "browser_click",
+                        "browser_input",
+                        "browser_view",
+                        "browser_scroll_up",
+                        "browser_scroll_down",
+                        "browser_press_key",
+                        "browser_select_option",
+                        "browser_move_mouse",
+                        "browser_screenshot",
+                    }
+                    if event.function_name in screenshot_functions:
+                        event.tool_content = BrowserToolContent(
+                            screenshot=await self._get_browser_screenshot()
+                        )
+                    else:
+                        event.tool_content = BrowserToolContent()
                 elif event.tool_name == "search":
                     search_results: ToolResult[SearchResults] = event.function_result
                     logger.debug(f"Search tool results: {search_results}")
@@ -572,6 +598,29 @@ class AgentTaskRunner(TaskRunner):
                 elif event.tool_name == "agent_mode":
                     # agent_mode is a control tool, no special content needed
                     logger.debug("Processing agent_mode tool event")
+                elif event.tool_name == "message":
+                    # message tool events don't need tool_content
+                    logger.debug("Processing message tool event")
+                elif event.tool_name == "code_executor":
+                    # Code execution output shown in terminal-like view
+                    if event.function_result and hasattr(event.function_result, 'data'):
+                        data = event.function_result.data
+                        if isinstance(data, dict):
+                            # Extract stdout/stderr for console display
+                            console_output = []
+                            if data.get('stdout'):
+                                console_output.append(data['stdout'])
+                            if data.get('stderr'):
+                                console_output.append(f"[stderr] {data['stderr']}")
+                            if data.get('exit_code') is not None:
+                                console_output.append(f"[exit code: {data['exit_code']}]")
+                            event.tool_content = ShellToolContent(
+                                console="\n".join(console_output) if console_output else "(No output)"
+                            )
+                        else:
+                            event.tool_content = ShellToolContent(console=str(data) if data else "(No output)")
+                    else:
+                        event.tool_content = ShellToolContent(console="(No output)")
                 else:
                     logger.warning(f"Agent {self._agent_id} received unknown tool event: {event.tool_name}")
         except Exception as e:

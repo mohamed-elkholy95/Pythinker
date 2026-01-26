@@ -175,5 +175,6 @@ outgoing:
   retry_on_http_error: true
 
 # Redis caching for improved performance (if redis available)
-# redis:
-#   url: redis://redis:6379/0
+redis:
+  url: redis://redis:6379/0
+  cache_expire: 1800

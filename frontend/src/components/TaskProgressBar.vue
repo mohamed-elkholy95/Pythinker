@@ -55,7 +55,14 @@
               </div>
             </div>
             <div v-else class="text-[8px] leading-snug text-[var(--text-secondary)] text-center">
-              <div class="font-medium">Fetching text</div>
+              <div class="font-medium flex items-center justify-center gap-1.5">
+                <span>Fetching text</span>
+                <span class="fetching-dots" aria-hidden="true">
+                  <span class="fetching-dot"></span>
+                  <span class="fetching-dot"></span>
+                  <span class="fetching-dot"></span>
+                </span>
+              </div>
               <div class="mt-1 text-[7px] text-[var(--text-tertiary)]">No visual page</div>
             </div>
           </div>
@@ -180,7 +187,14 @@
                 </div>
               </div>
               <div v-else class="text-[8px] leading-snug text-[var(--text-secondary)] text-center">
-                <div class="font-medium">Fetching text</div>
+                <div class="font-medium flex items-center justify-center gap-1.5">
+                  <span>Fetching text</span>
+                  <span class="fetching-dots" aria-hidden="true">
+                    <span class="fetching-dot"></span>
+                    <span class="fetching-dot"></span>
+                    <span class="fetching-dot"></span>
+                  </span>
+                </div>
                 <div class="mt-1 text-[7px] text-[var(--text-tertiary)]">No visual page</div>
               </div>
             </div>
@@ -613,6 +627,39 @@ onUnmounted(() => {
 @keyframes cursor-blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
+}
+
+.fetching-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.fetching-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--text-tertiary);
+  animation: fetching-dot 1.1s ease-in-out infinite;
+}
+
+.fetching-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.fetching-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes fetching-dot {
+  0%, 80%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  40% {
+    transform: translateY(-2px);
+    opacity: 1;
+  }
 }
 
 /* VNC Thumbnail scaling */
