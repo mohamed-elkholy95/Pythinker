@@ -15,12 +15,20 @@
           {{ $t("View Pythinker's computer") }}
         </div>
         <div
-          class="w-[150px] h-[96px] rounded-xl overflow-hidden border border-black/8 dark:border-[var(--border-main)] bg-[var(--background-menu-white)] cursor-pointer group-hover/thumb:border-[var(--text-brand)] transition-colors shadow-md"
+          class="w-[140px] h-[88px] sm:w-[150px] sm:h-[96px] rounded-xl overflow-hidden border border-black/8 dark:border-[var(--border-main)] bg-[var(--background-menu-white)] cursor-pointer group-hover/thumb:border-[var(--text-brand)] transition-colors shadow-md"
           @click.stop="emit('openPanel')"
         >
+          <!-- Live VNC View -->
+          <VNCViewer
+            v-if="sessionId"
+            :session-id="sessionId"
+            :enabled="true"
+            :view-only="true"
+            class="w-full h-full vnc-thumbnail"
+          />
           <!-- Static Screenshot -->
           <img
-            v-if="thumbnailUrl"
+            v-else-if="thumbnailUrl"
             :src="thumbnailUrl"
             alt="Computer view"
             class="w-full h-full object-cover"
@@ -96,7 +104,7 @@
           >
             <!-- Live VNC View -->
             <VNCViewer
-              v-if="liveVnc && sessionId"
+              v-if="sessionId"
               :session-id="sessionId"
               :enabled="true"
               :view-only="true"
