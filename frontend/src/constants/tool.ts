@@ -143,13 +143,14 @@ import McpToolView from '@/components/toolViews/McpToolView.vue';
 
 /**
  * Mapping from tool names to components
+ * All computer tools use BrowserToolView to show live VNC
  */
 export const TOOL_COMPONENT_MAP: {[key: string]: any} = {
-  "shell": ShellToolView,
-  "file": FileToolView,
+  "shell": BrowserToolView,         // Shows live VNC of sandbox terminal
+  "file": BrowserToolView,          // Shows live VNC of sandbox
   "search": SearchToolView,
   "browser": BrowserToolView,
-  "browser_agent": BrowserToolView,  // Uses browser view to show VNC
+  "browser_agent": BrowserToolView,
   "mcp": McpToolView,
-  "code_executor": ShellToolView  // Code execution output shown in terminal view
+  "code_executor": BrowserToolView  // Shows live VNC of code execution
 };

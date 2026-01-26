@@ -16,7 +16,7 @@
         <div class="flex-1 flex flex-col gap-1 min-w-0">
           <div class="text-[12px] text-[var(--text-tertiary)]">{{ $t('Pythinker is using') }} <span
               class="text-[var(--text-secondary)]">{{ toolInfo.name }}</span></div>
-          <div title="{{ toolInfo.function }} {{ toolInfo.functionArg }}"
+          <div :title="`${toolInfo.function} ${toolInfo.functionArg}`"
             class="max-w-[100%] w-[max-content] truncate text-[13px] rounded-full inline-flex items-center px-[10px] py-[3px] border border-[var(--border-light)] bg-[var(--fill-tsp-gray-main)] text-[var(--text-secondary)]">
             {{ toolInfo.function }}<span
               class="flex-1 min-w-0 px-1 ml-1 text-[12px] font-mono max-w-full text-ellipsis overflow-hidden whitespace-nowrap text-[var(--text-tertiary)]"><code>{{ toolInfo.functionArg }}</code></span>

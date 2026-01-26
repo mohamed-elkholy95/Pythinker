@@ -3,7 +3,7 @@
     class="h-[36px] flex items-center px-3 w-full bg-[var(--background-gray-main)] border-b border-[var(--border-main)] rounded-t-[12px] shadow-[inset_0px_1px_0px_0px_#FFFFFF] dark:shadow-[inset_0px_1px_0px_0px_#FFFFFF30]">
     <div class="flex-1 flex items-center justify-center">
       <div class="max-w-[250px] truncate text-[var(--text-tertiary)] text-sm font-medium text-center">
-        {{ toolContent?.args?.url || 'Browser' }}
+        {{ headerText }}
       </div>
     </div>
   </div>
@@ -86,6 +86,20 @@ const { t } = useI18n();
 const imageUrl = ref('');
 
 const TEXT_ONLY_BROWSER_FUNCTIONS = new Set(['browser_get_content', 'browser_agent_extract']);
+
+// Header text based on tool type
+const headerText = computed(() => {
+  const toolName = props.toolContent?.name;
+  const url = props.toolContent?.args?.url;
+
+  if (url) return url;
+
+  if (toolName === 'shell') return 'Terminal';
+  if (toolName === 'file') return 'File System';
+  if (toolName === 'code_executor') return 'Code Execution';
+
+  return 'Sandbox';
+});
 
 // Detect if we're actively working (any browser function is being called)
 const isWorking = computed(() => {
