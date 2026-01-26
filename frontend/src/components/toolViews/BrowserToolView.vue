@@ -1,77 +1,144 @@
 <template>
+  <!-- Header with tabs -->
   <div
     class="h-[36px] flex items-center px-3 w-full bg-[var(--background-gray-main)] border-b border-[var(--border-main)] rounded-t-[12px] shadow-[inset_0px_1px_0px_0px_#FFFFFF] dark:shadow-[inset_0px_1px_0px_0px_#FFFFFF30]">
-    <div class="flex-1 flex items-center justify-center">
-      <div class="max-w-[250px] truncate text-[var(--text-tertiary)] text-sm font-medium text-center">
+    <div class="flex-1 flex items-center justify-center gap-2">
+      <!-- Activity indicator -->
+      <div v-if="isActiveOperation" class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+      <div class="max-w-[200px] truncate text-[var(--text-tertiary)] text-sm font-medium text-center">
         {{ headerText }}
       </div>
     </div>
+    <!-- View mode toggle -->
+    <div class="flex items-center gap-1 bg-[var(--fill-tsp-gray-main)] rounded-lg p-0.5">
+      <button
+        @click="viewMode = 'vnc'"
+        class="px-2 py-1 text-xs rounded-md transition-colors"
+        :class="viewMode === 'vnc' ? 'bg-[var(--background-white-main)] text-[var(--text-primary)] shadow-sm' : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'"
+      >
+        Screen
+      </button>
+      <button
+        @click="viewMode = 'output'"
+        class="px-2 py-1 text-xs rounded-md transition-colors relative"
+        :class="viewMode === 'output' ? 'bg-[var(--background-white-main)] text-[var(--text-primary)] shadow-sm' : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'"
+      >
+        Output
+        <span v-if="hasNewOutput && viewMode !== 'output'" class="absolute -top-0.5 -right-0.5 w-2 h-2 bg-blue-500 rounded-full"></span>
+      </button>
+    </div>
   </div>
-  <div class="flex-1 min-h-0 w-full overflow-y-auto">
-    <div class="px-0 py-0 flex flex-col relative h-full">
-      <div class="w-full h-full object-cover flex items-center justify-center bg-[var(--fill-white)] relative">
-        <!-- Working/Text-only overlay -->
-        <div v-if="showPlaceholder" class="w-full h-full flex flex-col items-center justify-center bg-gradient-to-b from-[var(--background-gray-main)] to-[var(--fill-white)] dark:from-[#1a1a2e] dark:to-[#16213e]">
+
+  <div class="flex-1 min-h-0 w-full overflow-hidden">
+    <div class="h-full flex flex-col relative">
+      <!-- VNC View -->
+      <div v-show="viewMode === 'vnc'" class="w-full h-full flex items-center justify-center bg-[var(--fill-white)] relative">
+        <!-- Text-only operation placeholder -->
+        <div v-if="showTextPlaceholder" class="w-full h-full flex flex-col items-center justify-center bg-gradient-to-b from-[var(--background-gray-main)] to-[var(--fill-white)] dark:from-[#1a1a2e] dark:to-[#16213e]">
           <div class="fetching-container">
-            <!-- Animated orbs -->
             <div class="orbs-container">
               <div class="orb orb-1"></div>
               <div class="orb orb-2"></div>
               <div class="orb orb-3"></div>
             </div>
-            <!-- Globe icon with pulse -->
             <div class="globe-wrapper">
               <svg class="globe-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.3"/>
                 <ellipse cx="12" cy="12" rx="4" ry="10" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.5"/>
                 <path d="M2 12h20" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.4"/>
                 <path d="M12 2v20" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.4"/>
-                <path d="M3.5 7h17M3.5 17h17" stroke="currentColor" stroke-width="1" stroke-opacity="0.3"/>
               </svg>
             </div>
           </div>
-          <!-- Status text -->
           <div class="mt-6 flex flex-col items-center gap-2">
             <div class="flex items-center gap-2 text-[var(--text-secondary)]">
               <span class="text-base font-medium">{{ actionLabel }}</span>
-              <span v-if="showWorkingDots" class="flex gap-1">
+              <span v-if="isActiveOperation" class="flex gap-1">
                 <span v-for="(_, i) in 3" :key="i" class="dot" :style="{ animationDelay: `${i * 200}ms` }"></span>
               </span>
             </div>
-            <div class="max-w-[280px] text-center text-xs text-[var(--text-tertiary)] truncate px-4">
-              {{ fetchingUrl }}
+            <div v-if="currentOperationDetail" class="max-w-[280px] text-center text-xs text-[var(--text-tertiary)] truncate px-4">
+              {{ currentOperationDetail }}
             </div>
           </div>
         </div>
-        <!-- Normal VNC/Screenshot view -->
-        <div v-else class="w-full h-full">
-          <VNCViewer
-            v-if="showLiveVnc"
-            :session-id="props.sessionId"
-            :enabled="props.live"
-            :view-only="true"
-            @connected="onVNCConnected"
-            @disconnected="onVNCDisconnected"
-            @credentials-required="onVNCCredentialsRequired"
-          />
-          <img v-else-if="showScreenshot" alt="Image Preview" class="cursor-pointer w-full" referrerpolicy="no-referrer" :src="imageUrl">
-        </div>
+
+        <!-- Live VNC -->
+        <VNCViewer
+          v-else-if="showLiveVnc"
+          :session-id="props.sessionId"
+          :enabled="props.live"
+          :view-only="true"
+          @connected="onVNCConnected"
+          @disconnected="onVNCDisconnected"
+          class="w-full h-full"
+        />
+
+        <!-- Static screenshot -->
+        <img v-else-if="imageUrl" :src="imageUrl" alt="Screenshot" class="w-full h-full object-contain" />
+
+        <!-- Take over button -->
         <button
-          v-if="!isShare && !isWorking"
+          v-if="!isShare && props.live"
           @click="takeOver"
-          class="absolute right-[10px] bottom-[10px] z-10 min-w-10 h-10 flex items-center justify-center rounded-full bg-[var(--background-white-main)] text-[var(--text-primary)] border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)] backdrop-blur-3xl cursor-pointer hover:bg-[var(--text-brand)] hover:px-4 hover:text-[var(--text-white)] group transition-width duration-300">
+          class="absolute right-3 bottom-3 z-10 min-w-10 h-10 flex items-center justify-center rounded-full bg-[var(--background-white-main)] text-[var(--text-primary)] border border-[var(--border-main)] shadow-lg cursor-pointer hover:bg-[var(--text-brand)] hover:px-4 hover:text-white group transition-all duration-300">
           <TakeOverIcon />
-          <span
-            class="text-sm max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-300 group-hover:max-w-[200px] group-hover:opacity-100 group-hover:ml-1 group-hover:text-[var(--text-white)]">{{ t('Take Over') }}</span></button>
+          <span class="text-sm max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-300 group-hover:max-w-[200px] group-hover:opacity-100 group-hover:ml-1">
+            {{ t('Take Over') }}
+          </span>
+        </button>
+      </div>
+
+      <!-- Output View - Terminal/File content -->
+      <div v-show="viewMode === 'output'" class="w-full h-full flex flex-col bg-[#1e1e1e] text-gray-100 font-mono text-sm overflow-hidden">
+        <!-- Output type indicator -->
+        <div class="flex items-center gap-2 px-3 py-2 bg-[#2d2d2d] border-b border-[#404040]">
+          <component :is="outputIcon" class="w-4 h-4 text-gray-400" />
+          <span class="text-xs text-gray-400">{{ outputTypeLabel }}</span>
+          <div v-if="isActiveOperation" class="ml-auto flex items-center gap-1.5">
+            <div class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
+            <span class="text-xs text-green-400">Live</span>
+          </div>
+        </div>
+
+        <!-- Streaming content -->
+        <div ref="outputRef" class="flex-1 overflow-y-auto p-3 whitespace-pre-wrap break-all">
+          <!-- Shell output -->
+          <template v-if="toolName === 'shell' || toolName === 'code_executor'">
+            <div v-if="shellOutput" v-html="formatShellOutput(shellOutput)"></div>
+            <div v-else class="text-gray-500 italic">Waiting for output...</div>
+          </template>
+
+          <!-- File content -->
+          <template v-else-if="toolName === 'file'">
+            <div v-if="fileContent" class="text-gray-200">{{ fileContent }}</div>
+            <div v-else class="text-gray-500 italic">
+              {{ isFileWrite ? 'Generating content...' : 'Reading file...' }}
+            </div>
+          </template>
+
+          <!-- Browser content -->
+          <template v-else-if="toolName === 'browser' || toolName === 'browser_agent'">
+            <div v-if="browserContent" class="text-gray-200">{{ browserContent }}</div>
+            <div v-else class="text-gray-500 italic">Browser activity...</div>
+          </template>
+
+          <!-- Generic output -->
+          <template v-else>
+            <div v-if="genericOutput" class="text-gray-200">{{ genericOutput }}</div>
+            <div v-else class="text-gray-500 italic">No output yet...</div>
+          </template>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ToolContent } from '@/types/message';
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { Terminal, FileText, Globe, Code } from 'lucide-vue-next';
+import { ToolContent } from '@/types/message';
 import VNCViewer from '@/components/VNCViewer.vue';
 import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';
 
@@ -83,127 +150,189 @@ const props = defineProps<{
 }>();
 
 const { t } = useI18n();
+
+// View mode state
+const viewMode = ref<'vnc' | 'output'>('vnc');
+const hasNewOutput = ref(false);
+const outputRef = ref<HTMLElement>();
 const imageUrl = ref('');
 
-const TEXT_ONLY_BROWSER_FUNCTIONS = new Set(['browser_get_content', 'browser_agent_extract']);
+// Tool detection
+const toolName = computed(() => props.toolContent?.name || '');
+const toolFunction = computed(() => props.toolContent?.function || '');
+const toolStatus = computed(() => props.toolContent?.status || '');
 
-// Header text based on tool type
+// Activity detection
+const isActiveOperation = computed(() => {
+  return toolStatus.value === 'calling' || toolStatus.value === 'running';
+});
+
+const TEXT_ONLY_FUNCTIONS = new Set(['browser_get_content', 'browser_agent_extract']);
+const isTextOnlyOperation = computed(() => TEXT_ONLY_FUNCTIONS.has(toolFunction.value));
+
+// Show states
+const showTextPlaceholder = computed(() => isTextOnlyOperation.value);
+const showLiveVnc = computed(() => props.live && !isTextOnlyOperation.value);
+
+// Header text
 const headerText = computed(() => {
-  const toolName = props.toolContent?.name;
   const url = props.toolContent?.args?.url;
-
   if (url) return url;
 
-  if (toolName === 'shell') return 'Terminal';
-  if (toolName === 'file') return 'File System';
-  if (toolName === 'code_executor') return 'Code Execution';
-
-  return 'Sandbox';
-});
-
-// Detect if we're actively working (any browser function is being called)
-const isWorking = computed(() => {
-  const func = props.toolContent?.function;
-  const status = props.toolContent?.status;
-  // Show working overlay when any browser function is running or calling
-  return func?.startsWith('browser_') && (status === 'calling' || status === 'running');
-});
-
-const isTextOnlyOperation = computed(() => {
-  const func = props.toolContent?.function;
-  return !!func && TEXT_ONLY_BROWSER_FUNCTIONS.has(func);
-});
-
-const showLiveVnc = computed(() => props.live && !isTextOnlyOperation.value);
-const showScreenshot = computed(() => !props.live && !!imageUrl.value && !isTextOnlyOperation.value);
-const showPlaceholder = computed(() => {
-  if (isTextOnlyOperation.value) {
-    return true;
-  }
-  return isWorking.value && !showLiveVnc.value && !showScreenshot.value;
-});
-const showWorkingDots = computed(() => isWorking.value);
-
-// Check if it's specifically a fetch operation (for display text)
-const isFetchingContent = computed(() => {
-  const func = props.toolContent?.function;
-  return func === 'browser_get_content';
-});
-
-// Get action description for display
-const actionDescription = computed(() => {
-  const func = props.toolContent?.function;
-  if (!func) return 'Working';
-
-  const actionMap: Record<string, string> = {
-    'browser_get_content': 'Fetching',
-    'browser_navigate': 'Navigating',
-    'browser_click': 'Clicking',
-    'browser_input': 'Typing',
-    'browser_view': 'Loading',
-    'browser_scroll_up': 'Scrolling',
-    'browser_scroll_down': 'Scrolling',
-    'browser_press_key': 'Pressing key',
-    'browser_select_option': 'Selecting',
-    'browser_move_mouse': 'Moving cursor',
-    'browser_restart': 'Restarting',
-    'browser_agent_run': 'Running agent',
-    'browser_agent_extract': 'Extracting',
+  const nameMap: Record<string, string> = {
+    'shell': 'Terminal',
+    'file': 'File System',
+    'code_executor': 'Code Execution',
+    'browser': 'Browser',
+    'browser_agent': 'Browser Agent',
   };
-
-  return actionMap[func] || 'Working';
+  return nameMap[toolName.value] || 'Sandbox';
 });
 
+// Action label for placeholder
 const actionLabel = computed(() => {
-  if (isTextOnlyOperation.value && !isWorking.value) {
-    return 'Text fetched';
-  }
-  return actionDescription.value;
+  const funcMap: Record<string, string> = {
+    'browser_get_content': 'Fetching page content',
+    'browser_agent_extract': 'Extracting data',
+    'shell_execute': 'Executing command',
+    'file_write': 'Writing file',
+    'file_read': 'Reading file',
+    'code_execute': 'Running code',
+  };
+  return funcMap[toolFunction.value] || 'Processing';
 });
 
-// Extract URL for display in fetching overlay
-const fetchingUrl = computed(() => {
-  const url = props.toolContent?.args?.url || '';
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname + parsed.pathname.substring(0, 30) + (parsed.pathname.length > 30 ? '...' : '');
-  } catch {
-    return url.substring(0, 50) + (url.length > 50 ? '...' : '');
+// Operation detail
+const currentOperationDetail = computed(() => {
+  const args = props.toolContent?.args || {};
+  if (args.url) {
+    try {
+      const u = new URL(args.url);
+      return u.hostname + u.pathname.slice(0, 30);
+    } catch { return args.url.slice(0, 50); }
+  }
+  if (args.file) return args.file.replace(/^\/home\/ubuntu\//, '');
+  if (args.command) return args.command.slice(0, 50);
+  if (args.code) return `${args.code.slice(0, 30)}...`;
+  return '';
+});
+
+// Output icon
+const outputIcon = computed(() => {
+  if (toolName.value === 'shell' || toolName.value === 'code_executor') return Terminal;
+  if (toolName.value === 'file') return FileText;
+  if (toolName.value === 'browser' || toolName.value === 'browser_agent') return Globe;
+  return Code;
+});
+
+// Output type label
+const outputTypeLabel = computed(() => {
+  const labels: Record<string, string> = {
+    'shell': 'Terminal Output',
+    'file': isFileWrite.value ? 'File Content (Writing)' : 'File Content',
+    'code_executor': 'Execution Output',
+    'browser': 'Browser Content',
+    'browser_agent': 'Browser Agent Output',
+  };
+  return labels[toolName.value] || 'Output';
+});
+
+// File operations
+const isFileWrite = computed(() => toolFunction.value === 'file_write');
+
+// Extract content from tool
+const shellOutput = computed(() => {
+  const content = props.toolContent?.content;
+  if (!content) return '';
+
+  // Shell console output (array format)
+  if (content.console && Array.isArray(content.console)) {
+    return content.console.map((entry: any) => {
+      let line = '';
+      if (entry.ps1) line += entry.ps1 + ' ';
+      if (entry.command) line += entry.command + '\n';
+      if (entry.output) line += entry.output + '\n';
+      return line;
+    }).join('');
+  }
+
+  // String console output
+  if (typeof content.console === 'string') return content.console;
+
+  // Code executor output
+  if (content.stdout) return content.stdout + (content.stderr ? '\n[stderr]\n' + content.stderr : '');
+
+  return '';
+});
+
+const fileContent = computed(() => {
+  // During writing, show the content being written from args
+  if (isFileWrite.value && toolStatus.value === 'calling') {
+    return props.toolContent?.args?.content || props.toolContent?.content?.content || '';
+  }
+  // After completion, show the content from result
+  return props.toolContent?.content?.content || '';
+});
+
+const browserContent = computed(() => {
+  return props.toolContent?.content?.content || '';
+});
+
+const genericOutput = computed(() => {
+  const content = props.toolContent?.content;
+  if (!content) return '';
+  if (typeof content === 'string') return content;
+  return JSON.stringify(content, null, 2);
+});
+
+// Format shell output with ANSI colors
+const formatShellOutput = (output: string) => {
+  // Simple formatting - highlight prompts
+  return output
+    .replace(/(\$|\>)\s/g, '<span class="text-green-400">$1</span> ')
+    .replace(/(error|Error|ERROR)/gi, '<span class="text-red-400">$1</span>')
+    .replace(/(warning|Warning|WARNING)/gi, '<span class="text-yellow-400">$1</span>')
+    .replace(/(success|Success|SUCCESS|done|Done|DONE)/gi, '<span class="text-green-400">$1</span>');
+};
+
+// Auto-scroll output
+watch([shellOutput, fileContent, browserContent], async () => {
+  hasNewOutput.value = viewMode.value !== 'output';
+  await nextTick();
+  if (outputRef.value) {
+    outputRef.value.scrollTop = outputRef.value.scrollHeight;
   }
 });
 
-// VNC event handlers
-const onVNCConnected = () => {
-  console.log('VNC connection successful');
-};
-
-const onVNCDisconnected = (reason?: any) => {
-  console.log('VNC connection disconnected', reason);
-};
-
-const onVNCCredentialsRequired = () => {
-  console.log('VNC credentials required');
-};
-
-watch(() => props.toolContent?.content?.screenshot, async () => {
-  if (!props.toolContent?.content?.screenshot) {
-    return;
+// Switch to output view when there's new content during active operation
+watch([shellOutput, fileContent], () => {
+  if (isActiveOperation.value && (shellOutput.value || fileContent.value)) {
+    // Auto-switch to output view when content starts streaming
+    if (viewMode.value === 'vnc' && !showLiveVnc.value) {
+      viewMode.value = 'output';
+    }
   }
-  imageUrl.value = props.toolContent?.content?.screenshot;
+});
+
+// VNC handlers
+const onVNCConnected = () => console.log('VNC connected');
+const onVNCDisconnected = () => console.log('VNC disconnected');
+
+// Screenshot handling
+watch(() => props.toolContent?.content?.screenshot, (screenshot) => {
+  if (screenshot) imageUrl.value = screenshot;
 }, { immediate: true });
 
+// Take over
 const takeOver = () => {
   window.dispatchEvent(new CustomEvent('takeover', {
-    detail: {
-      sessionId: props.sessionId,
-      active: true
-    }
+    detail: { sessionId: props.sessionId, active: true }
   }));
 };
 </script>
 
 <style scoped>
-/* Fetching Overlay Styles */
+/* Fetching animation styles */
 .fetching-container {
   position: relative;
   width: 120px;
@@ -213,7 +342,6 @@ const takeOver = () => {
   justify-content: center;
 }
 
-/* Animated orbs around the globe */
 .orbs-container {
   position: absolute;
   width: 100%;
@@ -229,32 +357,10 @@ const takeOver = () => {
   opacity: 0.8;
 }
 
-.orb-1 {
-  width: 10px;
-  height: 10px;
-  top: 10%;
-  left: 50%;
-  transform: translateX(-50%);
-  animation: pulse-orb 2s ease-in-out infinite;
-}
+.orb-1 { width: 10px; height: 10px; top: 10%; left: 50%; transform: translateX(-50%); animation: pulse-orb 2s ease-in-out infinite; }
+.orb-2 { width: 8px; height: 8px; bottom: 20%; left: 15%; animation: pulse-orb 2s ease-in-out infinite 0.5s; }
+.orb-3 { width: 6px; height: 6px; bottom: 25%; right: 15%; animation: pulse-orb 2s ease-in-out infinite 1s; }
 
-.orb-2 {
-  width: 8px;
-  height: 8px;
-  bottom: 20%;
-  left: 15%;
-  animation: pulse-orb 2s ease-in-out infinite 0.5s;
-}
-
-.orb-3 {
-  width: 6px;
-  height: 6px;
-  bottom: 25%;
-  right: 15%;
-  animation: pulse-orb 2s ease-in-out infinite 1s;
-}
-
-/* Globe wrapper with glow effect */
 .globe-wrapper {
   position: relative;
   width: 64px;
@@ -281,7 +387,6 @@ const takeOver = () => {
   animation: morph-globe 3s ease-in-out infinite;
 }
 
-/* Bouncing dots for "Fetching..." */
 .dot {
   display: inline-block;
   width: 4px;
@@ -291,55 +396,9 @@ const takeOver = () => {
   animation: bounce-dot 1.4s ease-in-out infinite;
 }
 
-/* Animations */
-@keyframes rotate-slow {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-@keyframes pulse-orb {
-  0%, 100% {
-    transform: scale(1);
-    opacity: 0.8;
-  }
-  50% {
-    transform: scale(1.3);
-    opacity: 1;
-  }
-}
-
-@keyframes pulse-glow {
-  0%, 100% {
-    transform: scale(1);
-    opacity: 0.5;
-  }
-  50% {
-    transform: scale(1.15);
-    opacity: 0.8;
-  }
-}
-
-@keyframes morph-globe {
-  0%, 100% {
-    transform: scale(1) rotate(0deg);
-  }
-  25% {
-    transform: scale(1.05) rotate(5deg);
-  }
-  50% {
-    transform: scale(1) rotate(0deg);
-  }
-  75% {
-    transform: scale(1.05) rotate(-5deg);
-  }
-}
-
-@keyframes bounce-dot {
-  0%, 80%, 100% {
-    transform: translateY(0);
-  }
-  40% {
-    transform: translateY(-6px);
-  }
-}
+@keyframes rotate-slow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes pulse-orb { 0%, 100% { transform: scale(1); opacity: 0.8; } 50% { transform: scale(1.3); opacity: 1; } }
+@keyframes pulse-glow { 0%, 100% { transform: scale(1); opacity: 0.5; } 50% { transform: scale(1.15); opacity: 0.8; } }
+@keyframes morph-globe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+@keyframes bounce-dot { 0%, 80%, 100% { transform: translateY(0); } 40% { transform: translateY(-6px); } }
 </style>
