@@ -15,6 +15,12 @@
         :plan="plan"
         :isLoading="isLoading"
         :isThinking="isThinking"
+        :showThumbnail="showThumbnail"
+        :thumbnailUrl="thumbnailUrl"
+        :currentTool="currentTool"
+        :toolContent="toolContent"
+        :sessionId="sessionId"
+        :liveVnc="liveVnc"
         class="mt-3"
       />
     </div>
@@ -55,6 +61,10 @@ defineProps<{
   plan?: PlanEventData
   isLoading?: boolean
   isThinking?: boolean
+  showThumbnail?: boolean
+  thumbnailUrl?: string
+  currentTool?: { name: string; function: string; functionArg?: string } | null
+  liveVnc?: boolean
 }>()
 
 // Track if state change was from user action

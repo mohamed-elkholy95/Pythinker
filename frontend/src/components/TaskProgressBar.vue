@@ -19,8 +19,22 @@
           @click.stop="emit('openPanel')"
         >
           <!-- Live VNC View -->
+          <div
+            v-if="showShellPreview"
+            class="w-full h-full bg-[var(--background-white-main)] text-[7px] leading-tight font-mono text-[var(--text-secondary)] p-2"
+          >
+            <div v-for="(line, index) in shellPreviewLines" :key="index">
+              <template v-if="line.type === 'prompt'">
+                <span class="text-green-600">{{ line.ps1 }}</span>
+                <span class="text-[var(--text-primary)]"> {{ line.command }}</span>
+              </template>
+              <template v-else>
+                <span class="text-gray-500">{{ line.text }}</span>
+              </template>
+            </div>
+          </div>
           <VNCViewer
-            v-if="sessionId"
+            v-else-if="showVncPreview"
             :session-id="sessionId"
             :enabled="true"
             :view-only="true"
@@ -103,8 +117,22 @@
             @click.stop="emit('openPanel')"
           >
             <!-- Live VNC View -->
+            <div
+              v-if="showShellPreview"
+              class="w-full h-full bg-[var(--background-white-main)] text-[8px] leading-tight font-mono text-[var(--text-secondary)] p-3"
+            >
+              <div v-for="(line, index) in shellPreviewLines" :key="index">
+                <template v-if="line.type === 'prompt'">
+                  <span class="text-green-600">{{ line.ps1 }}</span>
+                  <span class="text-[var(--text-primary)]"> {{ line.command }}</span>
+                </template>
+                <template v-else>
+                  <span class="text-gray-500">{{ line.text }}</span>
+                </template>
+              </div>
+            </div>
             <VNCViewer
-              v-if="sessionId"
+              v-else-if="showVncPreview"
               :session-id="sessionId"
               :enabled="true"
               :view-only="true"
@@ -228,6 +256,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ChevronUp, ChevronDown, Check, Monitor, Terminal, Globe, FolderOpen, ArrowUpRight } from 'lucide-vue-next'
 import type { PlanEventData } from '@/types/event'
+import type { ToolContent } from '@/types/message'
 import VNCViewer from '@/components/VNCViewer.vue'
 
 interface Props {
@@ -237,6 +266,7 @@ interface Props {
   showThumbnail?: boolean
   thumbnailUrl?: string
   currentTool?: { name: string; function: string; functionArg?: string } | null
+  toolContent?: ToolContent | null
   sessionId?: string
   liveVnc?: boolean
 }
@@ -272,6 +302,38 @@ const isVisible = computed(() => {
 })
 
 const steps = computed(() => props.plan?.steps ?? [])
+
+const thumbnailToolName = computed(() => {
+  if (props.toolContent?.name) return props.toolContent.name
+  if (props.currentTool?.name) return props.currentTool.name
+  return ''
+})
+
+const shellPreviewLines = computed(() => {
+  if (!thumbnailToolName.value.includes('shell')) return []
+  const consoleEntries = props.toolContent?.content?.console
+  if (!Array.isArray(consoleEntries)) return []
+  const lines: Array<{ type: 'prompt'; ps1: string; command: string } | { type: 'output'; text: string }> = []
+  for (const entry of consoleEntries) {
+    const ps1 = typeof entry?.ps1 === 'string' ? entry.ps1 : ''
+    const command = typeof entry?.command === 'string' ? entry.command : ''
+    if (ps1 || command) {
+      lines.push({ type: 'prompt', ps1, command })
+    }
+    const output = typeof entry?.output === 'string' ? entry.output : ''
+    if (output) {
+      output.split('\n').forEach((line: string) => {
+        if (line.trim().length > 0) {
+          lines.push({ type: 'output', text: line })
+        }
+      })
+    }
+  }
+  return lines.slice(-4)
+})
+
+const showShellPreview = computed(() => shellPreviewLines.value.length > 0)
+const showVncPreview = computed(() => !!props.sessionId && !showShellPreview.value)
 
 const progressText = computed(() => {
   const completed = steps.value.filter(s => s.status === 'completed').length
@@ -410,10 +472,22 @@ onUnmounted(() => {
   object-fit: cover;
   cursor: pointer !important;
   pointer-events: none;
+  margin: 0 !important;
+  display: block;
 }
 
 .vnc-thumbnail {
   cursor: pointer;
   pointer-events: none;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.vnc-thumbnail :deep(.vnc-container),
+.vnc-thumbnail :deep(.vnc-container > div) {
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  display: block;
 }
 </style>
