@@ -432,15 +432,18 @@ const shellPreviewLines = computed(() => {
   return [lines[lastPromptIndex], ...limitedOutputs]
 })
 
-const showShellPreview = computed(() => shellPreviewLines.value.length > 0)
 const isTextOnlyBrowserFetch = computed(() => props.toolContent?.function === 'browser_get_content')
-const showBrowserPlaceholder = computed(() => isTextOnlyBrowserFetch.value)
+
+// Prioritize VNC when liveVnc is enabled (shows live sandbox activity)
 const showVncPreview = computed(() => (
   !!props.sessionId &&
   !!props.liveVnc &&
-  !showShellPreview.value &&
   !isTextOnlyBrowserFetch.value
 ))
+
+// Shell preview only shown when VNC is not available
+const showShellPreview = computed(() => !showVncPreview.value && shellPreviewLines.value.length > 0)
+const showBrowserPlaceholder = computed(() => !showVncPreview.value && isTextOnlyBrowserFetch.value)
 
 const buildPreviewSource = (url?: string) => {
   if (!url) return 'TEXT PREVIEW'

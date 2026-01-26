@@ -406,7 +406,7 @@ const handlePanelStateChange = (isOpen: boolean, userAction: boolean = false) =>
 };
 
 // Computer-related tools that should show thumbnail
-const COMPUTER_TOOLS = ['browser', 'shell', 'file', 'browser_agent'];
+const COMPUTER_TOOLS = ['browser', 'shell', 'file', 'browser_agent', 'code_executor'];
 const isComputerTool = (tool?: ToolContent | null) => {
   if (!tool) return false;
   return COMPUTER_TOOLS.includes(tool.name);
@@ -435,7 +435,9 @@ const TEXT_ONLY_BROWSER_FUNCTIONS = new Set(['browser_get_content', 'browser_age
 const shouldEnableVnc = computed(() => {
   const tool = lastNoMessageTool.value;
   if (!tool) return false;
-  if (tool.name !== 'browser' && tool.name !== 'browser_agent') return false;
+  // Enable VNC for all computer tools (browser, shell, file, code_executor)
+  if (!COMPUTER_TOOLS.includes(tool.name)) return false;
+  // Disable VNC for text-only browser functions (show text preview instead)
   if (tool.function && TEXT_ONLY_BROWSER_FUNCTIONS.has(tool.function)) return false;
   return realTime.value && (isLoading.value || isPlanCompleted.value);
 });
