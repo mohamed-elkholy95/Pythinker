@@ -139,6 +139,20 @@
           </div>
           <LoadingIndicator v-else-if="isLoading" :text="$t('Loading')" />
 
+          <!-- Stale connection warning -->
+          <div v-if="isStale" class="flex items-center gap-2 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl mx-4 mb-2">
+            <div class="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></div>
+            <span class="text-sm text-amber-700 dark:text-amber-300">
+              {{ $t('Agent may be unresponsive. No activity for 60 seconds.') }}
+            </span>
+            <button
+              @click="handleStop"
+              class="ml-auto px-3 py-1 text-xs font-medium text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-800/50 hover:bg-amber-200 dark:hover:bg-amber-800 rounded-lg transition-colors"
+            >
+              {{ $t('Stop') }}
+            </button>
+          </div>
+
           <!-- Suggestions - only show standalone when last message is not a report -->
           <Suggestions
             v-if="suggestions.length > 0 && !isLoading && !hasReportMessage"
@@ -294,6 +308,8 @@ const createInitialState = () => ({
   seenEventIds: new Set<string>(), // Track seen event IDs to prevent duplicates
   thinkingText: '', // Accumulated streaming thinking text
   isThinkingStreaming: false, // True when streaming thinking is in progress
+  lastEventTime: 0, // Timestamp of last received event (for stale detection)
+  isStale: false, // True when agent appears unresponsive (no events for 60s)
   filePreviewOpen: false,
   filePreviewFile: null as FileInfo | null,
   toolTimeline: [] as ToolContent[],
@@ -328,6 +344,8 @@ const {
   seenEventIds,
   thinkingText,
   isThinkingStreaming,
+  lastEventTime,
+  isStale,
   filePreviewOpen,
   filePreviewFile,
   toolTimeline,
@@ -378,6 +396,55 @@ watch(thinkingText, async () => {
 watch(filePreviewOpen, (isOpen) => {
   if (!isOpen) {
     filePreviewFile.value = null;
+  }
+});
+
+// ===== Agent Connection Health Monitoring =====
+const STALE_TIMEOUT_MS = 60000; // 60 seconds without events = stale
+const STALE_CHECK_INTERVAL_MS = 5000; // Check every 5 seconds
+let staleCheckInterval: ReturnType<typeof setInterval> | null = null;
+
+// Update last event time when any event is received
+const updateLastEventTime = () => {
+  lastEventTime.value = Date.now();
+  isStale.value = false;
+};
+
+// Check if connection appears stale
+const checkStaleConnection = () => {
+  if (!isLoading.value) {
+    isStale.value = false;
+    return;
+  }
+
+  const timeSinceLastEvent = Date.now() - lastEventTime.value;
+  if (timeSinceLastEvent > STALE_TIMEOUT_MS && lastEventTime.value > 0) {
+    isStale.value = true;
+    console.warn(`Agent connection appears stale. No events for ${Math.round(timeSinceLastEvent / 1000)}s`);
+  }
+};
+
+// Start stale detection when loading starts
+watch(isLoading, (loading) => {
+  if (loading) {
+    updateLastEventTime();
+    if (!staleCheckInterval) {
+      staleCheckInterval = setInterval(checkStaleConnection, STALE_CHECK_INTERVAL_MS);
+    }
+  } else {
+    isStale.value = false;
+    if (staleCheckInterval) {
+      clearInterval(staleCheckInterval);
+      staleCheckInterval = null;
+    }
+  }
+});
+
+// Cleanup on unmount
+onUnmounted(() => {
+  if (staleCheckInterval) {
+    clearInterval(staleCheckInterval);
+    staleCheckInterval = null;
   }
 });
 
@@ -756,6 +823,9 @@ const handleEvent = (event: AgentSSEEvent) => {
     seenEventIds.value.add(eventId);
   }
 
+  // Update last event time for stale connection detection
+  updateLastEventTime();
+
   if (event.event === 'message') {
     handleMessageEvent(event.data as MessageEventData);
     // Clear suggestions when new message arrives
@@ -1010,6 +1080,12 @@ const handleStop = () => {
   if (sessionId.value) {
     agentApi.stopSession(sessionId.value);
   }
+  // Reset loading states
+  isLoading.value = false;
+  isThinking.value = false;
+  isStale.value = false;
+  thinkingText.value = '';
+  isThinkingStreaming.value = false;
 }
 
 const handleFileListShow = () => {
