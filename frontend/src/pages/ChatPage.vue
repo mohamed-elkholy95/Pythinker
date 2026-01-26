@@ -139,15 +139,20 @@
           </div>
           <LoadingIndicator v-else-if="isLoading" :text="$t('Loading')" />
 
-          <!-- Stale connection warning -->
-          <div v-if="isStale" class="flex items-center gap-2 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl mx-4 mb-2">
-            <div class="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></div>
-            <span class="text-sm text-amber-700 dark:text-amber-300">
-              {{ $t('Agent may be unresponsive. No activity for 60 seconds.') }}
-            </span>
+          <!-- Long-running task notice -->
+          <div v-if="isStale" class="flex items-center gap-2 px-4 py-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl mx-4 mb-2">
+            <div class="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+            <div class="flex-1 min-w-0">
+              <span class="text-sm text-blue-700 dark:text-blue-300">
+                {{ $t('Taking longer than usual...') }}
+              </span>
+              <span v-if="currentToolInfo" class="text-xs text-blue-500 dark:text-blue-400 ml-1">
+                ({{ currentToolInfo.name }})
+              </span>
+            </div>
             <button
               @click="handleStop"
-              class="ml-auto px-3 py-1 text-xs font-medium text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-800/50 hover:bg-amber-200 dark:hover:bg-amber-800 rounded-lg transition-colors"
+              class="flex-shrink-0 px-3 py-1 text-xs font-medium text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-800/50 hover:bg-blue-200 dark:hover:bg-blue-800 rounded-lg transition-colors"
             >
               {{ $t('Stop') }}
             </button>
@@ -400,8 +405,8 @@ watch(filePreviewOpen, (isOpen) => {
 });
 
 // ===== Agent Connection Health Monitoring =====
-const STALE_TIMEOUT_MS = 60000; // 60 seconds without events = stale
-const STALE_CHECK_INTERVAL_MS = 5000; // Check every 5 seconds
+const STALE_TIMEOUT_MS = 120000; // 2 minutes without events = taking longer than usual
+const STALE_CHECK_INTERVAL_MS = 10000; // Check every 10 seconds
 let staleCheckInterval: ReturnType<typeof setInterval> | null = null;
 
 // Update last event time when any event is received
