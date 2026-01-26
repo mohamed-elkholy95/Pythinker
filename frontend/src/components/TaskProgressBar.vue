@@ -51,8 +51,9 @@
       </div>
 
       <div
-        class="bg-[var(--background-menu-white)] rounded-2xl border border-black/8 dark:border-[var(--border-main)] shadow-[0px_0px_1px_0px_rgba(0,_0,_0,_0.05),_0px_8px_32px_0px_rgba(0,_0,_0,_0.04)] p-3 sm:p-4 flex items-center gap-3"
+        class="bg-[var(--background-menu-white)] rounded-2xl border border-black/8 dark:border-[var(--border-main)] shadow-[0px_0px_1px_0px_rgba(0,_0,_0,_0.05),_0px_8px_32px_0px_rgba(0,_0,_0,_0.04)] p-3 sm:p-4 flex items-center gap-3 clickable"
         :class="showCollapsedThumbnail ? 'pl-[176px] sm:pl-[188px]' : ''"
+        @click="toggleExpand"
       >
         <!-- Status Indicator -->
         <div class="flex items-center gap-2.5 flex-1 min-w-0">
@@ -66,7 +67,7 @@
         <!-- Progress Indicator -->
         <div class="flex items-center gap-2 flex-shrink-0">
           <span class="text-xs text-[var(--text-tertiary)]">{{ progressText }}</span>
-          <button @click="toggleExpand" class="p-0.5 hover:bg-[var(--fill-tsp-gray-main)] rounded cursor-pointer">
+          <button @click.stop="toggleExpand" class="p-0.5 hover:bg-[var(--fill-tsp-gray-main)] rounded cursor-pointer">
             <ChevronUp class="w-4 h-4 text-[var(--icon-tertiary)]" />
           </button>
         </div>
@@ -79,7 +80,7 @@
       class="flex flex-col gap-4 rounded-3xl border border-black/8 dark:border-[var(--border-main)] bg-[var(--background-menu-white)] shadow-[0px_0px_1px_0px_rgba(0,_0,_0,_0.05),_0px_8px_32px_0px_rgba(0,_0,_0,_0.04)] p-5 sm:p-6"
     >
       <!-- Header Section - always show for collapse control -->
-      <div class="flex flex-col sm:flex-row sm:items-center gap-4">
+      <div class="flex flex-col sm:flex-row sm:items-start gap-4">
         <!-- Terminal Thumbnail Card - only when available -->
         <div v-if="showThumbnail || thumbnailUrl || sessionId" class="flex-shrink-0 relative group/thumb">
           <!-- View Computer Badge - shows on hover -->
@@ -137,40 +138,50 @@
 
         <!-- Computer Info -->
         <div class="flex-1 min-w-0">
-          <h2 class="text-lg sm:text-xl font-bold text-[var(--text-primary)] mb-2.5">
-            {{ $t("Pythinker's computer") }}
-          </h2>
-          <div class="flex items-center gap-2.5 text-[var(--text-secondary)]">
-            <div class="w-8 h-8 rounded-lg border border-black/10 dark:border-[var(--border-main)] bg-[var(--background-white-main)] flex items-center justify-center shadow-sm">
-              <component :is="currentToolIcon" class="w-4 h-4 text-[var(--text-secondary)]" />
+          <div class="flex items-start justify-between gap-4">
+            <h2 class="text-lg sm:text-xl font-semibold text-[var(--text-primary)]">
+              {{ $t("Pythinker's computer") }}
+            </h2>
+            <div class="flex items-center gap-3 flex-shrink-0 pt-0.5">
+              <button
+                type="button"
+                @click.stop="emit('openPanel')"
+                class="w-9 h-9 rounded-lg border border-black/10 dark:border-[var(--border-main)] bg-[var(--background-white-main)] flex items-center justify-center shadow-sm hover:bg-[var(--fill-tsp-gray-main)] cursor-pointer"
+                aria-label="Open Pythinker's computer"
+              >
+                <Monitor class="w-5 h-5 text-[var(--icon-secondary)]" />
+              </button>
+              <button
+                @click="toggleExpand"
+                class="p-1 hover:bg-[var(--fill-tsp-gray-main)] rounded cursor-pointer"
+              >
+                <ChevronDown class="w-5 h-5 text-[var(--icon-tertiary)]" />
+              </button>
             </div>
-            <span class="text-sm sm:text-base">
-              {{ $t('Pythinker is using') }}
-              <span class="font-semibold text-[var(--text-primary)]">{{ currentToolName }}</span>
+          </div>
+          <div class="flex items-center gap-3 text-[var(--text-secondary)] mt-2">
+            <div class="w-9 h-9 rounded-lg border border-black/10 dark:border-[var(--border-main)] bg-[var(--background-white-main)] flex items-center justify-center shadow-sm">
+              <component :is="currentToolIcon" class="w-[18px] h-[18px] text-[var(--text-secondary)]" />
+            </div>
+            <span class="text-xs sm:text-sm">
+              <span v-if="isAllCompleted" class="font-medium text-[var(--text-primary)]">
+                {{ currentToolName }}
+              </span>
+              <span v-else>
+                {{ $t('Pythinker is using') }}
+                <span class="font-medium text-[var(--text-primary)]">{{ currentToolName }}</span>
+              </span>
             </span>
           </div>
-        </div>
-
-        <!-- Top-right Controls -->
-        <div class="flex items-center gap-3 flex-shrink-0 self-end sm:self-auto sm:ml-auto">
-          <div class="w-8 h-8 rounded-lg border border-black/10 dark:border-[var(--border-main)] bg-[var(--background-white-main)] flex items-center justify-center shadow-sm">
-            <Monitor class="w-4 h-4 text-[var(--icon-secondary)]" />
-          </div>
-          <button
-            @click="toggleExpand"
-            class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--fill-tsp-gray-main)] cursor-pointer"
-          >
-            <ChevronDown class="w-4 h-4 text-[var(--icon-tertiary)]" />
-          </button>
         </div>
       </div>
 
       <!-- Task Progress Card -->
       <div class="bg-[var(--fill-tsp-gray-main)] rounded-2xl p-5 sm:p-6 border border-black/5 dark:border-[var(--border-main)]">
         <!-- Card Header -->
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="text-base font-bold text-[var(--text-primary)]">{{ $t('Task progress') }}</h3>
-          <span class="text-xs sm:text-sm text-[var(--text-tertiary)]">{{ progressText }}</span>
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-sm sm:text-base font-semibold text-[var(--text-primary)]">{{ $t('Task progress') }}</h3>
+          <span class="text-xs text-[var(--text-tertiary)]">{{ progressText }}</span>
         </div>
 
         <!-- Task List -->
@@ -178,22 +189,22 @@
           <div
             v-for="(step, index) in steps"
             :key="step.id"
-            class="flex items-start gap-3 py-3"
+            class="flex items-start gap-2.5 py-2.5"
           >
             <!-- Checkmark -->
-            <div class="flex-shrink-0 mt-1">
+            <div class="flex-shrink-0 mt-0.5">
               <Check
                 v-if="step.status === 'completed'"
-                class="w-4 h-4 text-[#22c55e]"
+                class="w-3.5 h-3.5 text-[#22c55e]"
                 :stroke-width="2.5"
               />
               <div v-else-if="step.status === 'running'" class="thinking-shape small" :class="currentShape"></div>
-              <div v-else class="w-4 h-4 rounded-full border-2 border-gray-300"></div>
+              <div v-else class="w-3.5 h-3.5 rounded-full border-2 border-gray-300"></div>
             </div>
 
             <!-- Task Text -->
             <span
-              class="text-sm sm:text-base leading-relaxed"
+              class="text-xs sm:text-sm leading-relaxed"
               :class="step.status === 'running' ? 'text-[var(--text-primary)] font-semibold' : 'text-[var(--text-primary)] font-medium'"
             >
               {{ step.description }}
@@ -389,5 +400,12 @@ onUnmounted(() => {
   width: 100% !important;
   height: 100% !important;
   object-fit: cover;
+  cursor: pointer !important;
+  pointer-events: none;
+}
+
+.vnc-thumbnail {
+  cursor: pointer;
+  pointer-events: none;
 }
 </style>
