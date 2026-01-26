@@ -27,7 +27,20 @@
         class="flex flex-col rounded-[12px] overflow-hidden bg-[var(--background-gray-main)] border border-[var(--border-dark)] dark:border-black/30 shadow-[0px_4px_32px_0px_rgba(0,0,0,0.04)] flex-1 min-h-0 mt-[16px]">
         <component v-if="toolInfo" :is="toolInfo.view" :live="live" :sessionId="sessionId"
           :toolContent="toolContent" :isShare="isShare" />
-        <div class="mt-auto flex w-full items-center gap-2 px-4 h-[44px] relative" v-if="!realTime">
+        <div v-if="showTimeline" class="mt-auto">
+          <TimelineControls
+            :progress="timelineProgress ?? 0"
+            :current-timestamp="timelineTimestamp"
+            :is-live="realTime"
+            :can-step-forward="!!timelineCanStepForward"
+            :can-step-backward="!!timelineCanStepBackward"
+            @jump-to-live="jumpToRealTime"
+            @step-forward="handleStepForward"
+            @step-backward="handleStepBackward"
+            @seek-by-progress="handleSeekByProgress"
+          />
+        </div>
+        <div class="mt-auto flex w-full items-center gap-2 px-4 h-[44px] relative" v-else-if="!realTime">
           <button
             class="h-10 px-3 border border-[var(--border-main)] flex items-center gap-1 bg-[var(--background-white-main)] hover:bg-[var(--background-gray-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)] rounded-full cursor-pointer absolute left-[50%] translate-x-[-50%]"
             style="bottom: calc(100% + 10px);" @click="jumpToRealTime">
@@ -45,6 +58,7 @@ import { toRef } from 'vue';
 import { Minimize2, PlayIcon } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
 import { useToolInfo } from '@/composables/useTool';
+import TimelineControls from '@/components/timeline/TimelineControls.vue';
 
 const props = defineProps<{
   sessionId?: string;
@@ -52,6 +66,11 @@ const props = defineProps<{
   toolContent: ToolContent;
   live: boolean;
   isShare: boolean;
+  showTimeline?: boolean;
+  timelineProgress?: number;
+  timelineTimestamp?: number;
+  timelineCanStepForward?: boolean;
+  timelineCanStepBackward?: boolean;
 }>();
 
 const { toolInfo } = useToolInfo(toRef(props, 'toolContent'));
@@ -59,6 +78,9 @@ const { toolInfo } = useToolInfo(toRef(props, 'toolContent'));
 const emit = defineEmits<{
   (e: 'jumpToRealTime'): void,
   (e: 'hide'): void
+  (e: 'stepForward'): void
+  (e: 'stepBackward'): void
+  (e: 'seekByProgress', progress: number): void
 }>();
 
 const hide = () => {
@@ -68,5 +90,17 @@ const hide = () => {
 
 const jumpToRealTime = () => {
   emit('jumpToRealTime');
+};
+
+const handleStepForward = () => {
+  emit('stepForward');
+};
+
+const handleStepBackward = () => {
+  emit('stepBackward');
+};
+
+const handleSeekByProgress = (progress: number) => {
+  emit('seekByProgress', progress);
 };
 </script>

@@ -99,12 +99,13 @@
     <!-- Expanded View -->
     <div
       v-else
-      class="flex flex-col gap-4 rounded-3xl border border-black/8 dark:border-[var(--border-main)] bg-[var(--background-menu-white)] shadow-[0px_0px_1px_0px_rgba(0,_0,_0,_0.05),_0px_8px_32px_0px_rgba(0,_0,_0,_0.04)] p-5 sm:p-6"
+      class="flex flex-col rounded-3xl border border-black/8 dark:border-[var(--border-main)] bg-[var(--background-menu-white)] shadow-[0px_0px_1px_0px_rgba(0,_0,_0,_0.05),_0px_8px_32px_0px_rgba(0,_0,_0,_0.04)] p-5 sm:p-6"
+      :class="compact ? 'gap-0' : 'gap-4'"
     >
       <!-- Header Section - always show for collapse control -->
-      <div class="flex flex-col sm:flex-row sm:items-start gap-4">
+      <div v-if="showExpandedHeader" class="flex flex-col sm:flex-row sm:items-start gap-4">
         <!-- Terminal Thumbnail Card - only when available -->
-        <div v-if="showThumbnail || thumbnailUrl || sessionId" class="flex-shrink-0 relative group/thumb">
+        <div v-if="showExpandedThumbnail" class="flex-shrink-0 relative group/thumb">
           <!-- View Computer Badge - shows on hover -->
           <div
             @click.stop="emit('openPanel')"
@@ -217,7 +218,16 @@
         <!-- Card Header -->
         <div class="flex items-center justify-between mb-3">
           <h3 class="text-sm sm:text-base font-semibold text-[var(--text-primary)]">{{ $t('Task progress') }}</h3>
-          <span class="text-xs text-[var(--text-tertiary)]">{{ progressText }}</span>
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-[var(--text-tertiary)]">{{ progressText }}</span>
+            <button
+              v-if="!showExpandedHeader"
+              @click="toggleExpand"
+              class="p-0.5 hover:bg-[var(--fill-tsp-gray-main)] rounded cursor-pointer"
+            >
+              <ChevronDown class="w-4 h-4 text-[var(--icon-tertiary)]" />
+            </button>
+          </div>
         </div>
 
         <!-- Task List -->
@@ -264,6 +274,9 @@ interface Props {
   isLoading: boolean
   isThinking: boolean
   showThumbnail?: boolean
+  hideThumbnail?: boolean
+  defaultExpanded?: boolean
+  compact?: boolean
   thumbnailUrl?: string
   currentTool?: { name: string; function: string; functionArg?: string } | null
   toolContent?: ToolContent | null
@@ -273,6 +286,9 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   showThumbnail: false,
+  hideThumbnail: false,
+  defaultExpanded: false,
+  compact: false,
   thumbnailUrl: '',
   currentTool: null,
   sessionId: '',
@@ -283,7 +299,7 @@ const emit = defineEmits<{
   (e: 'openPanel'): void
 }>()
 
-const isExpanded = ref(false)
+const isExpanded = ref(props.defaultExpanded)
 
 // Morphing shape animation
 const shapes = ['circle', 'diamond', 'cube'] as const
@@ -356,8 +372,16 @@ const currentTaskDescription = computed(() => {
 })
 
 const showCollapsedThumbnail = computed(() => {
+  if (props.hideThumbnail) return false
   return props.showThumbnail || (isAllCompleted.value && !!props.thumbnailUrl)
 })
+
+const showExpandedThumbnail = computed(() => {
+  if (props.hideThumbnail) return false
+  return props.showThumbnail || !!props.thumbnailUrl || !!props.sessionId
+})
+
+const showExpandedHeader = computed(() => !props.compact)
 
 // Get current tool name for display
 const currentToolName = computed(() => {
