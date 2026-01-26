@@ -161,6 +161,8 @@
             :showThumbnail="shouldShowThumbnail"
             :thumbnailUrl="currentThumbnailUrl"
             :currentTool="currentToolInfo"
+            :sessionId="sessionId"
+            :liveVnc="shouldEnableVnc"
             @openPanel="handleOpenPanel"
             class="mb-2"
           />
@@ -328,7 +330,13 @@ watch([isLoading, plan], async () => {
   }
 }, { deep: true });
 
-
+// Scroll to bottom when streaming thinking text updates
+watch(thinkingText, async () => {
+  await nextTick();
+  if (follow.value && isThinkingStreaming.value) {
+    simpleBarRef.value?.scrollToBottom();
+  }
+});
 
 const getLastStep = (): StepContent | undefined => {
   return messages.value.filter(message => message.type === 'step').pop()?.content as StepContent;
@@ -359,9 +367,20 @@ const COMPUTER_TOOLS = ['browser', 'shell', 'file', 'browser_agent'];
 
 // Check if current tool is a computer tool and panel is closed
 const shouldShowThumbnail = computed(() => {
-  if (!lastNoMessageTool.value || !isLoading.value) return false;
-  // Show thumbnail when panel is closed and a computer tool is being used
-  return COMPUTER_TOOLS.includes(lastNoMessageTool.value.name) && !isToolPanelOpen.value;
+  if (!lastNoMessageTool.value) return false;
+  if (isToolPanelOpen.value) return false;
+  if (!COMPUTER_TOOLS.includes(lastNoMessageTool.value.name)) return false;
+  return isLoading.value || isPlanCompleted.value;
+});
+
+const isPlanCompleted = computed(() => {
+  return !!plan.value?.steps?.length && plan.value.steps.every(step => step.status === 'completed');
+});
+
+const shouldEnableVnc = computed(() => {
+  if (!lastNoMessageTool.value) return false;
+  if (!COMPUTER_TOOLS.includes(lastNoMessageTool.value.name)) return false;
+  return realTime.value && (isLoading.value || isPlanCompleted.value);
 });
 
 // Get current thumbnail URL from tool content
