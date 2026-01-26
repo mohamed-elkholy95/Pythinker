@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 @pytest.mark.file_api
 def test_upload_file_success(client):
     """Test successful file upload"""
-    temp_path = "resource/test_upload_unique.txt"  # Use unique filename
+    temp_path = "/tmp/test_upload_unique.txt"  # Use allowed temp path
     
     # Create test file content
     test_content = b"This is test upload content"
@@ -58,7 +58,7 @@ def test_download_file_success(client, temp_test_file):
 @pytest.mark.file_api
 def test_download_nonexistent_file(client):
     """Test downloading non-existent file"""
-    response = client.get(f"{BASE_URL}/api/v1/file/download", params={"path": "1nonexistent.txt"})
+    response = client.get(f"{BASE_URL}/api/v1/file/download", params={"path": "/tmp/nonexistent.txt"})
 
     logger.info(f"Download response: {response.status_code}")
     

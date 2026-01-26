@@ -44,7 +44,7 @@ The sandbox environment provides the following core features:
 
 ## System Requirements
 
-- Python 3.9+
+- Python 3.11+
 - Docker 20.10+
 
 ## Installation and Configuration
@@ -91,12 +91,25 @@ The sandbox service supports the following configuration options, which can be s
 - **ORIGINS**: List of allowed CORS origins, default is `["*"]`. Can be set as a comma-separated string or JSON array.
 - **SERVICE_TIMEOUT_MINUTES**: Service timeout in minutes, default is unlimited. When set, the service will automatically terminate after the specified time.
 - **LOG_LEVEL**: Log level, can be set to `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`, default is `INFO`.
+- **ALLOW_SUDO**: Allow privileged file operations and shell commands (default `false`).
+- **SHELL_MAX_OUTPUT_CHARS**: Max in-memory shell output buffer size (default `200000`).
 
 Example `.env` file:
 ```
 ORIGINS=http://localhost:3000,https://example.com
 SERVICE_TIMEOUT_MINUTES=60
 LOG_LEVEL=DEBUG
+ALLOW_SUDO=false
+SHELL_MAX_OUTPUT_CHARS=200000
+```
+
+## Inventory and SBOM
+
+Use the inventory scripts to capture a reproducible snapshot of the sandbox runtime.
+
+```bash
+./scripts/collect_inventory.sh /app/artifacts
+./scripts/generate_sbom.sh /app/artifacts
 ```
 
 ## API Documentation

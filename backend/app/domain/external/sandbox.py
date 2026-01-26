@@ -238,12 +238,379 @@ class Sandbox(Protocol):
         path: str
     ) -> BinaryIO:
         """Download file from sandbox
-        
+
         Args:
             path: File path in sandbox
-            
+
         Returns:
             File content as binary stream
+        """
+        ...
+
+    # Workspace management methods
+    async def workspace_init(
+        self,
+        session_id: str,
+        project_name: str = "project",
+        template: str = "none"
+    ) -> ToolResult:
+        """Initialize a workspace for a session
+
+        Args:
+            session_id: Unique session identifier
+            project_name: Name of the project
+            template: Workspace template (none, python, nodejs, web, fullstack)
+
+        Returns:
+            Initialization result
+        """
+        ...
+
+    async def workspace_info(self, session_id: str) -> ToolResult:
+        """Get workspace information
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            Workspace information
+        """
+        ...
+
+    async def workspace_tree(
+        self,
+        session_id: str,
+        depth: int = 3,
+        include_hidden: bool = False
+    ) -> ToolResult:
+        """Get workspace directory tree
+
+        Args:
+            session_id: Session ID
+            depth: Maximum depth to traverse
+            include_hidden: Whether to include hidden files
+
+        Returns:
+            Directory tree structure
+        """
+        ...
+
+    async def workspace_clean(
+        self,
+        session_id: str,
+        preserve_config: bool = True
+    ) -> ToolResult:
+        """Clean workspace contents
+
+        Args:
+            session_id: Session ID
+            preserve_config: Whether to preserve config
+
+        Returns:
+            Cleanup result
+        """
+        ...
+
+    async def workspace_exists(self, session_id: str) -> ToolResult:
+        """Check if workspace exists
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            Whether workspace exists
+        """
+        ...
+
+    # Git operations
+    async def git_clone(
+        self,
+        url: str,
+        target_dir: str,
+        branch: str = None,
+        shallow: bool = True,
+        auth_token: str = None
+    ) -> ToolResult:
+        """Clone a git repository
+
+        Args:
+            url: Repository URL
+            target_dir: Target directory path
+            branch: Branch to clone
+            shallow: Whether to do shallow clone
+            auth_token: Authentication token for private repos
+
+        Returns:
+            Clone result
+        """
+        ...
+
+    async def git_status(self, repo_path: str) -> ToolResult:
+        """Get git repository status
+
+        Args:
+            repo_path: Path to repository
+
+        Returns:
+            Repository status
+        """
+        ...
+
+    async def git_diff(
+        self,
+        repo_path: str,
+        staged: bool = False,
+        file_path: str = None
+    ) -> ToolResult:
+        """Get git diff
+
+        Args:
+            repo_path: Path to repository
+            staged: Show staged changes
+            file_path: Specific file to diff
+
+        Returns:
+            Diff result
+        """
+        ...
+
+    async def git_log(
+        self,
+        repo_path: str,
+        limit: int = 10,
+        file_path: str = None
+    ) -> ToolResult:
+        """Get git commit history
+
+        Args:
+            repo_path: Path to repository
+            limit: Maximum commits
+            file_path: Specific file
+
+        Returns:
+            Commit history
+        """
+        ...
+
+    async def git_branches(
+        self,
+        repo_path: str,
+        show_remote: bool = True
+    ) -> ToolResult:
+        """Get git branches
+
+        Args:
+            repo_path: Path to repository
+            show_remote: Include remote branches
+
+        Returns:
+            Branch information
+        """
+        ...
+
+    # Code development operations
+    async def code_format(
+        self,
+        file_path: str,
+        formatter: str = "auto",
+        check_only: bool = False
+    ) -> ToolResult:
+        """Format a code file
+
+        Args:
+            file_path: Path to file
+            formatter: Formatter to use
+            check_only: Check without modifying
+
+        Returns:
+            Format result
+        """
+        ...
+
+    async def code_lint(
+        self,
+        path: str,
+        linter: str = "auto",
+        fix: bool = False
+    ) -> ToolResult:
+        """Lint code files
+
+        Args:
+            path: Path to file or directory
+            linter: Linter to use
+            fix: Auto-fix issues
+
+        Returns:
+            Lint result
+        """
+        ...
+
+    async def code_analyze(
+        self,
+        path: str,
+        analysis_type: str = "all"
+    ) -> ToolResult:
+        """Analyze code
+
+        Args:
+            path: Path to file or directory
+            analysis_type: Type of analysis
+
+        Returns:
+            Analysis result
+        """
+        ...
+
+    async def code_search(
+        self,
+        directory: str,
+        pattern: str,
+        file_glob: str = "*",
+        context_lines: int = 2,
+        max_results: int = 100
+    ) -> ToolResult:
+        """Search code files
+
+        Args:
+            directory: Directory to search
+            pattern: Search pattern
+            file_glob: File filter
+            context_lines: Context lines
+            max_results: Max results
+
+        Returns:
+            Search result
+        """
+        ...
+
+    # Test execution operations
+    async def test_run(
+        self,
+        path: str,
+        framework: str = "auto",
+        pattern: str = None,
+        coverage: bool = False,
+        timeout: int = 300,
+        verbose: bool = False
+    ) -> ToolResult:
+        """Run tests
+
+        Args:
+            path: Path to tests
+            framework: Test framework
+            pattern: Test pattern
+            coverage: Collect coverage
+            timeout: Timeout
+            verbose: Verbose output
+
+        Returns:
+            Test result
+        """
+        ...
+
+    async def test_list(
+        self,
+        path: str,
+        framework: str = "auto"
+    ) -> ToolResult:
+        """List available tests
+
+        Args:
+            path: Path to tests
+            framework: Test framework
+
+        Returns:
+            Test list
+        """
+        ...
+
+    async def test_coverage(
+        self,
+        path: str,
+        output_format: str = "html",
+        output_dir: str = None
+    ) -> ToolResult:
+        """Generate coverage report
+
+        Args:
+            path: Path to source code
+            output_format: Report format
+            output_dir: Output directory
+
+        Returns:
+            Coverage result
+        """
+        ...
+
+    # Export operations
+    async def export_organize(
+        self,
+        session_id: str,
+        source_path: str,
+        target_category: str = "other"
+    ) -> ToolResult:
+        """Organize files
+
+        Args:
+            session_id: Session ID
+            source_path: Source path
+            target_category: Category
+
+        Returns:
+            Organization result
+        """
+        ...
+
+    async def export_archive(
+        self,
+        session_id: str,
+        name: str,
+        include_patterns: list = None,
+        exclude_patterns: list = None,
+        base_path: str = None
+    ) -> ToolResult:
+        """Create archive
+
+        Args:
+            session_id: Session ID
+            name: Archive name
+            include_patterns: Include patterns
+            exclude_patterns: Exclude patterns
+            base_path: Base path
+
+        Returns:
+            Archive result
+        """
+        ...
+
+    async def export_report(
+        self,
+        session_id: str,
+        report_type: str = "summary",
+        output_format: str = "markdown",
+        title: str = "Workspace Report"
+    ) -> ToolResult:
+        """Generate report
+
+        Args:
+            session_id: Session ID
+            report_type: Report type
+            output_format: Output format
+            title: Report title
+
+        Returns:
+            Report result
+        """
+        ...
+
+    async def export_list(self, session_id: str) -> ToolResult:
+        """List exports
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            Export list
         """
         ...
     

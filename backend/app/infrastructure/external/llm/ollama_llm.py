@@ -14,6 +14,8 @@ from pydantic import BaseModel
 from app.domain.external.llm import LLM
 from app.core.config import get_settings
 from app.infrastructure.external.llm.factory import LLMProviderRegistry
+from app.domain.services.agents.usage_context import get_usage_context
+from app.domain.services.agents.token_manager import TokenManager
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -446,6 +448,9 @@ Respond ONLY with the JSON object, no other text."""
         if tools:
             ollama_messages = self._inject_tools_into_messages(ollama_messages, tools)
 
+        completion_parts: List[str] = []
+        usage_counts: Optional[Dict[str, int]] = None
+
         try:
             async with httpx.AsyncClient(timeout=120.0) as client:
                 async with client.stream(
@@ -467,16 +472,88 @@ Respond ONLY with the JSON object, no other text."""
                         if line:
                             try:
                                 data = json.loads(line)
+                                # Ollama may include usage counts on final chunks
+                                prompt_eval = data.get("prompt_eval_count")
+                                eval_count = data.get("eval_count")
+                                if prompt_eval is not None or eval_count is not None:
+                                    usage_counts = {
+                                        "prompt_tokens": prompt_eval or 0,
+                                        "completion_tokens": eval_count or 0,
+                                    }
                                 if data.get("message", {}).get("content"):
-                                    yield data["message"]["content"]
+                                    content = data["message"]["content"]
+                                    completion_parts.append(content)
+                                    yield content
                             except json.JSONDecodeError:
                                 continue
+
+            if usage_counts:
+                await self._record_usage_counts(
+                    prompt_tokens=usage_counts["prompt_tokens"],
+                    completion_tokens=usage_counts["completion_tokens"],
+                    cached_tokens=0,
+                )
+            else:
+                await self._record_stream_usage(messages, "".join(completion_parts), tools=tools)
 
         except httpx.HTTPStatusError as e:
             error_msg = str(e).lower()
             if "context" in error_msg or "token" in error_msg:
                 raise TokenLimitExceeded(str(e))
             raise
+
+    async def _record_usage_counts(
+        self,
+        prompt_tokens: int,
+        completion_tokens: int,
+        cached_tokens: int = 0,
+        model_override: Optional[str] = None,
+    ) -> None:
+        """Record usage from explicit token counts."""
+        ctx = get_usage_context()
+        if not ctx:
+            return
+
+        try:
+            from app.application.services.usage_service import get_usage_service
+            usage_service = get_usage_service()
+            model_name = model_override or ctx.model_override or self._model_name
+            await usage_service.record_llm_usage(
+                user_id=ctx.user_id,
+                session_id=ctx.session_id,
+                model=model_name,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cached_tokens=cached_tokens,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to record usage counts: {e}")
+
+    async def _record_stream_usage(
+        self,
+        messages: List[Dict[str, Any]],
+        completion_text: str,
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
+        """Record usage for streaming responses using token estimation."""
+        ctx = get_usage_context()
+        if not ctx:
+            return
+
+        try:
+            token_manager = TokenManager(ctx.model_override or self._model_name)
+            prompt_tokens = token_manager.count_messages_tokens(messages)
+            if tools:
+                prompt_tokens += token_manager.count_tokens(json.dumps(tools))
+            completion_tokens = token_manager.count_tokens(completion_text)
+
+            await self._record_usage_counts(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cached_tokens=0,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to record streaming usage: {e}")
 
 
 # Test function

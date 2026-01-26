@@ -71,6 +71,22 @@ class AgentDomainService:
             sandbox = await self._sandbox_cls.create()
             session.sandbox_id = sandbox.id
             await self._session_repository.save(session)
+
+        # Auto-initialize workspace if enabled
+        settings = get_settings()
+        if settings.workspace_auto_init:
+            try:
+                exists_result = await sandbox.workspace_exists(session.id)
+                if not exists_result.success or not exists_result.data.get("exists", False):
+                    logger.info(f"Auto-initializing workspace for session {session.id}")
+                    await sandbox.workspace_init(
+                        session_id=session.id,
+                        project_name=settings.workspace_default_project_name,
+                        template=settings.workspace_default_template
+                    )
+            except Exception as e:
+                logger.warning(f"Workspace auto-init error (non-fatal): {e}")
+
         browser = await sandbox.get_browser()
         if not browser:
             logger.error(f"Failed to get browser for Sandbox {sandbox_id}")

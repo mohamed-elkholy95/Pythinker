@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     # Service timeout settings (minutes)
     SERVICE_TIMEOUT_MINUTES: Optional[int] = None
     
+    # Security controls
+    ALLOW_SUDO: bool = False
+    SHELL_MAX_OUTPUT_CHARS: int = 200000
+
     # Log configuration
     LOG_LEVEL: str = "INFO"
     

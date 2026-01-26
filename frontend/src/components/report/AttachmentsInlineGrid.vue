@@ -1,6 +1,6 @@
 <template>
-  <div class="attachments-inline-grid w-[600px] mt-3">
-    <div class="grid grid-cols-2 gap-2">
+  <div class="attachments-inline-grid w-full max-w-[600px] min-w-0 mt-3">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
       <div
         v-for="file in displayedAttachments"
         :key="file.file_id"

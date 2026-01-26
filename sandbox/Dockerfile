@@ -1,23 +1,22 @@
 FROM ubuntu:22.04
 
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 # Avoid interactive prompts during installation
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Set hostname to sandbox
 ENV HOSTNAME=sandbox
 
-# Configure apt source to use Aliyun mirror
-RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list && \
-    sed -i 's|http://security.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list && \
-    sed -i 's|http://ports.ubuntu.com/ubuntu-ports/|http://mirrors.aliyun.com/ubuntu-ports/|g' /etc/apt/sources.list
-
-# Update and install basic tools
-RUN apt-get update && apt-get install -y \
+# Base system tools
+RUN apt-get update && \
+    apt-get install -y \
     sudo \
     bc \
     curl \
     wget \
     gnupg \
+    ca-certificates \
     software-properties-common \
     xvfb \
     x11vnc \
@@ -32,37 +31,48 @@ RUN apt-get update && apt-get install -y \
 RUN useradd -m -d /home/ubuntu -s /bin/bash ubuntu && \
     echo "ubuntu ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ubuntu
 
-# Install Python 3.10.12
+# Install Python 3.11
 RUN add-apt-repository ppa:deadsnakes/ppa && \
     apt-get update && \
-    apt-get install -y python3.10 python3.10-venv python3.10-dev python3-pip && \
-    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 && \
+    apt-get install -y python3.11 python3.11-venv python3.11-dev python3-pip && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Configure pip to use Aliyun mirror
-RUN pip3 config set global.index-url https://mirrors.aliyun.com/pypi/simple/
+# Install Node.js 22.13.0 via NVM
+ENV NVM_DIR=/usr/local/nvm
+ENV NODE_VERSION=22.13.0
+RUN mkdir -p ${NVM_DIR} && \
+    curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash && \
+    source ${NVM_DIR}/nvm.sh && \
+    nvm install ${NODE_VERSION} && \
+    nvm alias default ${NODE_VERSION} && \
+    nvm use default && \
+    corepack enable && \
+    corepack prepare pnpm@10.28.1 --activate && \
+    corepack prepare yarn@1.22.22 --activate
 
-# Install Node.js 20.18.0
-RUN mkdir -p /etc/apt/keyrings && \
-    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
-    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list && \
+ENV PNPM_HOME=/home/ubuntu/.local/share/pnpm
+ENV PATH=${PNPM_HOME}:${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:$PATH
+
+# Install GitHub CLI
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | \
+        gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list && \
     apt-get update && \
-    apt-get install -y nodejs && \
+    apt-get install -y gh && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Configure npm to use Aliyun mirror
-RUN npm config set registry https://registry.npmmirror.com
-
-# Install Google Chrome
+# Install Chromium
 RUN add-apt-repository ppa:xtradeb/apps -y && \
     apt-get update && \
-    apt-get install -y chromium  --no-install-recommends && \
+    apt-get install -y chromium --no-install-recommends && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Chinese fonts and language support
+# Install fonts and language support
 RUN apt-get update && apt-get install -y \
     fonts-noto-cjk \
     fonts-noto-color-emoji \
@@ -72,23 +82,67 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Set default locale
-#ENV LANG=zh_CN.UTF-8 \
-#    LANGUAGE=zh_CN:zh \
-#    LC_ALL=zh_CN.UTF-8
+# Install additional development tools
+RUN apt-get update && apt-get install -y \
+    ripgrep \
+    jq \
+    git \
+    tree \
+    zip \
+    unzip \
+    ffmpeg \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
 
-# Copy project files (copy dependency files first to leverage cache)
-COPY requirements.txt .
+# Copy dependency files first to leverage cache
+COPY requirements.txt requirements.runtime.txt ./
 
-# Install Python dependencies
-RUN pip3 install --no-cache-dir -r requirements.txt
+# Install Python dependencies for sandbox service
+RUN python3 -m pip install --no-cache-dir --upgrade pip wheel setuptools && \
+    python3 -m pip install --no-cache-dir -r requirements.txt
 
 # Install Playwright and browsers for advanced browser automation
-RUN pip3 install --no-cache-dir playwright playwright-stealth && \
+RUN python3 -m pip install --no-cache-dir playwright playwright-stealth && \
     python3 -m playwright install --with-deps chromium firefox webkit
+
+# Install Python development tools (formatters, linters, testing)
+RUN python3 -m pip install --no-cache-dir \
+    black \
+    flake8 \
+    pylint \
+    mypy \
+    bandit \
+    pytest \
+    pytest-cov \
+    pytest-asyncio \
+    isort \
+    autopep8 \
+    cyclonedx-bom
+
+# Install JavaScript/TypeScript development tools
+RUN npm install -g \
+    prettier \
+    eslint \
+    typescript \
+    jest \
+    @types/node \
+    @cyclonedx/cyclonedx-npm
+
+# Install global pnpm tools under ubuntu user
+RUN mkdir -p ${PNPM_HOME} && chown -R ubuntu:ubuntu ${PNPM_HOME} && \
+    su - ubuntu -c "export NVM_DIR=/usr/local/nvm; source /usr/local/nvm/nvm.sh; corepack enable" && \
+    su - ubuntu -c "export NVM_DIR=/usr/local/nvm; source /usr/local/nvm/nvm.sh; corepack prepare pnpm@10.28.1 --activate" && \
+    su - ubuntu -c "export NVM_DIR=/usr/local/nvm; source /usr/local/nvm/nvm.sh; corepack prepare yarn@1.22.22 --activate" && \
+    su - ubuntu -c "export NVM_DIR=/usr/local/nvm; source /usr/local/nvm/nvm.sh; pnpm add -g @anthropic-ai/mcpb@2.1.2 @mermaid-js/mermaid-cli@11.12.0 yarn@1.22.22 code-server@4.104.3"
+
+# Create base Python virtual environment template for workspaces
+RUN python3 -m venv /opt/base-python-venv && \
+    /opt/base-python-venv/bin/pip install --no-cache-dir --upgrade pip wheel setuptools && \
+    /opt/base-python-venv/bin/pip install --no-cache-dir -r /app/requirements.runtime.txt && \
+    chown -R ubuntu:ubuntu /opt/base-python-venv
 
 # Copy remaining project files
 COPY . .
@@ -104,10 +158,6 @@ ENV UVI_ARGS=""
 ENV CHROME_ARGS=""
 ENV DISPLAY=:1
 
-# Increase shared memory for Chrome stability (recommended for browser automation)
-# Note: When running the container, use --shm-size=2g flag for best results
-# Default /dev/shm size in Docker is 64MB which can cause Chrome crashes
-
 # Security: Remove unnecessary development packages and clean up
 RUN apt-get update && apt-get purge -y --auto-remove \
     software-properties-common \
@@ -122,5 +172,4 @@ RUN chown -R ubuntu:ubuntu /home/ubuntu && \
 RUN mkdir -p /workspace && chown ubuntu:ubuntu /workspace && chmod 755 /workspace
 
 # Use supervisor to start all services
-# Note: supervisord runs as root to manage child processes, but services can drop privileges
-CMD ["supervisord", "-n", "-c", "/app/supervisord.conf"] 
+CMD ["supervisord", "-n", "-c", "/app/supervisord.conf"]

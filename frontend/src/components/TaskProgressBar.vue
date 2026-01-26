@@ -115,7 +115,11 @@
           <div v-if="isAllCompleted" class="flex-shrink-0">
             <Check class="w-4 h-4 text-[#22c55e]" :stroke-width="2.5" />
           </div>
-          <div v-else class="thinking-shape small" :class="currentShape"></div>
+          <div
+            v-else
+            class="status-dot"
+            :class="isIdle ? 'status-dot-idle' : 'status-dot-active'"
+          ></div>
           <span class="text-sm text-[var(--text-primary)] truncate">{{ currentTaskDescription }}</span>
         </div>
 
@@ -132,8 +136,8 @@
     <!-- Expanded View -->
     <div
       v-else
-      class="flex flex-col rounded-3xl border border-black/8 dark:border-[var(--border-main)] bg-[var(--background-menu-white)] shadow-[0px_0px_1px_0px_rgba(0,_0,_0,_0.05),_0px_8px_32px_0px_rgba(0,_0,_0,_0.04)] p-5 sm:p-6"
-      :class="compact ? 'gap-0' : 'gap-4'"
+      class="flex flex-col rounded-3xl border border-black/8 dark:border-[var(--border-main)] bg-[var(--background-menu-white)] shadow-[0px_0px_1px_0px_rgba(0,_0,_0,_0.05),_0px_8px_32px_0px_rgba(0,_0,_0,_0.04)] p-5 sm:p-6 overflow-hidden min-h-0"
+      :class="compact ? 'gap-0 max-h-[50vh]' : 'gap-4 max-h-[70vh]'"
     >
       <!-- Header Section - always show for collapse control -->
       <div v-if="showExpandedHeader" class="flex flex-col sm:flex-row sm:items-start gap-4">
@@ -297,7 +301,7 @@
         </div>
 
         <!-- Task List -->
-        <div class="flex flex-col">
+        <div class="flex flex-col max-h-[42vh] sm:max-h-[50vh] overflow-y-auto pr-1">
           <div
             v-for="(step, index) in steps"
             :key="step.id"
@@ -310,7 +314,10 @@
                 class="w-3.5 h-3.5 text-[#22c55e]"
                 :stroke-width="2.5"
               />
-              <div v-else-if="step.status === 'running'" class="thinking-shape small" :class="currentShape"></div>
+              <div
+                v-else-if="step.status === 'running'"
+                class="w-3.5 h-3.5 rounded-full border-2 border-blue-400 bg-blue-100"
+              ></div>
               <div v-else class="w-3.5 h-3.5 rounded-full border-2 border-gray-300"></div>
             </div>
 
@@ -380,7 +387,12 @@ const isAllCompleted = computed(() => {
 })
 
 const isVisible = computed(() => {
-  return props.plan && props.plan.steps.length > 0 && (props.isLoading || isAllCompleted.value)
+  return props.plan && props.plan.steps.length > 0
+})
+
+// Idle state: not loading, not completed - agent is paused between steps
+const isIdle = computed(() => {
+  return !props.isLoading && !isAllCompleted.value && steps.value.length > 0
 })
 
 const steps = computed(() => props.plan?.steps ?? [])
@@ -433,11 +445,16 @@ const shellPreviewLines = computed(() => {
 })
 
 const isTextOnlyBrowserFetch = computed(() => props.toolContent?.function === 'browser_get_content')
+const isBrowserTool = computed(() => {
+  const name = props.toolContent?.name
+  return name === 'browser' || name === 'browser_agent'
+})
 
 // Prioritize VNC when liveVnc is enabled (shows live sandbox activity)
 const showVncPreview = computed(() => (
   !!props.sessionId &&
   !!props.liveVnc &&
+  isBrowserTool.value &&
   !isTextOnlyBrowserFetch.value
 ))
 
@@ -583,37 +600,22 @@ onUnmounted(() => {
 
 <style scoped>
 /* Thinking shape animation */
-.thinking-shape {
-  width: 16px;
-  height: 16px;
-  background: linear-gradient(135deg, #22c55e 0%, #4ade80 50%, #22c55e 100%);
-  background-size: 200% 200%;
-  animation: shimmer 1.5s ease-in-out infinite;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+.status-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid var(--text-tertiary);
   flex-shrink: 0;
 }
 
-.thinking-shape.small {
-  width: 14px;
-  height: 14px;
+.status-dot-active {
+  border-color: #60a5fa;
+  background: rgba(59, 130, 246, 0.2);
 }
 
-.thinking-shape.circle {
-  border-radius: 50%;
-}
-
-.thinking-shape.diamond {
-  border-radius: 2px;
-  transform: rotate(45deg) scale(0.85);
-}
-
-.thinking-shape.cube {
-  border-radius: 3px;
-}
-
-@keyframes shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+.status-dot-idle {
+  border-color: var(--text-tertiary);
+  background: transparent;
 }
 
 /* Terminal cursor blink */

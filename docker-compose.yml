@@ -56,12 +56,13 @@ services:
     ports:
       - "8080:8080"  # Sandbox API
       - "5902:5900"  # VNC
-      - "6080:6080"  # NoVNC websocket
+      - "5901:5901"  # VNC WebSocket
     # Shared memory size for Chrome browser stability (prevents crashes)
     shm_size: '2gb'
     # Security hardening
     security_opt:
       - no-new-privileges:true
+      - seccomp:./sandbox/seccomp-sandbox.json
     cap_drop:
       - ALL
     cap_add:

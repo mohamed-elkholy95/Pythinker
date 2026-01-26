@@ -38,6 +38,11 @@ const emit = defineEmits<{
 const vncContainer = ref<HTMLDivElement | null>(null);
 const isConnected = ref(false);
 let rfb: RFB | null = null;
+const isConnecting = ref(false);
+const reconnectAttempts = ref(0);
+const suspendForTakeover = ref(false);
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let lastSessionId = '';
 
 // Morphing shape animation
 const shapes = ['circle', 'diamond', 'cube'] as const;
@@ -60,7 +65,11 @@ onUnmounted(() => {
 });
 
 const initVNCConnection = async () => {
-  if (!vncContainer.value || !props.enabled) return;
+  if (!vncContainer.value || !props.enabled || suspendForTakeover.value) return;
+
+  if (isConnecting.value) return;
+  if (rfb && isConnected.value && lastSessionId === props.sessionId) return;
+  isConnecting.value = true;
 
   // Disconnect existing connection
   if (rfb) {
@@ -72,6 +81,7 @@ const initVNCConnection = async () => {
 
   try {
     const wsUrl = await getVNCUrl(props.sessionId);
+    lastSessionId = props.sessionId;
 
     // Create NoVNC connection
     rfb = new RFB(vncContainer.value, wsUrl, {
@@ -87,18 +97,23 @@ const initVNCConnection = async () => {
     // Set viewOnly based on props, default to false (interactive)
     rfb.viewOnly = props.viewOnly ?? false;
     rfb.scaleViewport = true;
+    rfb.clipViewport = true;
     //rfb.resizeSession = true;
 
     rfb.addEventListener('connect', () => {
       console.log('VNC connection successful');
       isConnected.value = true;
+      isConnecting.value = false;
+      reconnectAttempts.value = 0;
       emit('connected');
     });
 
     rfb.addEventListener('disconnect', (e: any) => {
       console.log('VNC connection disconnected', e);
       isConnected.value = false;
+      isConnecting.value = false;
       emit('disconnected', e);
+      scheduleReconnect();
     });
 
     rfb.addEventListener('credentialsrequired', () => {
@@ -108,7 +123,21 @@ const initVNCConnection = async () => {
   } catch (error) {
     console.error('Failed to initialize VNC connection:', error);
     isConnected.value = false;
+    isConnecting.value = false;
+    scheduleReconnect();
   }
+};
+
+const scheduleReconnect = () => {
+  if (!props.enabled || suspendForTakeover.value || isConnecting.value) return;
+  if (reconnectTimer) return;
+  const attempt = reconnectAttempts.value + 1;
+  reconnectAttempts.value = attempt;
+  const delay = Math.min(1000 * attempt, 5000);
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    initVNCConnection();
+  }, delay);
 };
 
 const disconnect = () => {
@@ -116,12 +145,17 @@ const disconnect = () => {
     rfb.disconnect();
     rfb = null;
   }
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  isConnecting.value = false;
   isConnected.value = false;
 };
 
 // Watch for session ID or enabled state changes
 watch([() => props.sessionId, () => props.enabled], () => {
-  if (props.enabled && vncContainer.value) {
+  if (props.enabled && vncContainer.value && !suspendForTakeover.value) {
     initVNCConnection();
   } else {
     disconnect();
@@ -130,13 +164,41 @@ watch([() => props.sessionId, () => props.enabled], () => {
 
 // Watch for container availability
 watch(vncContainer, () => {
-  if (vncContainer.value && props.enabled) {
+  if (vncContainer.value && props.enabled && !suspendForTakeover.value) {
     initVNCConnection();
   }
 });
 
+// Update viewOnly on the fly
+watch(() => props.viewOnly, (next) => {
+  if (rfb) {
+    rfb.viewOnly = next ?? false;
+  }
+});
+
+// Suspend view-only previews during takeover for stability
+const handleTakeoverEvent = (event: Event) => {
+  if (!props.viewOnly) return;
+  const customEvent = event as CustomEvent;
+  const active = !!customEvent.detail?.active;
+  suspendForTakeover.value = active;
+  if (active) {
+    disconnect();
+  } else if (props.enabled && vncContainer.value) {
+    initVNCConnection();
+  }
+};
+
 onBeforeUnmount(() => {
   disconnect();
+});
+
+onMounted(() => {
+  window.addEventListener('takeover', handleTakeoverEvent as EventListener);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('takeover', handleTakeoverEvent as EventListener);
 });
 
 // Expose methods for parent component

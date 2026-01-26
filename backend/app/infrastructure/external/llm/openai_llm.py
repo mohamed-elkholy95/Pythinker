@@ -9,6 +9,8 @@ from app.domain.services.agents.prompt_cache_manager import (
     get_prompt_cache_manager
 )
 from app.infrastructure.external.llm.factory import LLMProviderRegistry
+from app.domain.services.agents.usage_context import get_usage_context
+from app.domain.services.agents.token_manager import TokenManager
 import logging
 import asyncio
 import json
@@ -34,6 +36,7 @@ class OpenAILLM(LLM):
         self._temperature = settings.temperature
         self._max_tokens = settings.max_tokens
         self._api_base = settings.api_base
+        self._supports_stream_usage = self._detect_stream_usage_support()
 
         # Detect if using local MLX server (doesn't support native tool calling)
         self._is_mlx_mode = self._detect_mlx_mode()
@@ -42,6 +45,11 @@ class OpenAILLM(LLM):
         self._cache_manager = get_prompt_cache_manager(self._model_name)
 
         logger.info(f"Initialized OpenAI LLM with model: {self._model_name}, MLX mode: {self._is_mlx_mode}")
+
+    def _detect_stream_usage_support(self) -> bool:
+        """Detect whether streaming usage metadata is supported by the API base."""
+        base = (self._api_base or "").lower()
+        return "openai.com" in base
 
     def _detect_mlx_mode(self) -> bool:
         """Detect if using local MLX server that needs text-based tool handling."""
@@ -54,6 +62,99 @@ class OpenAILLM(LLM):
             if any(indicator in self._api_base.lower() for indicator in local_indicators):
                 return True
         return False
+
+    async def _record_usage(self, response: Any) -> None:
+        """Record usage from OpenAI response if usage context is set.
+
+        Args:
+            response: OpenAI API response containing usage info
+        """
+        ctx = get_usage_context()
+        if not ctx:
+            return
+
+        try:
+            # Extract usage from OpenAI response
+            usage = getattr(response, 'usage', None)
+            if not usage:
+                return
+
+            prompt_tokens = getattr(usage, 'prompt_tokens', 0)
+            completion_tokens = getattr(usage, 'completion_tokens', 0)
+
+            # OpenAI uses prompt_tokens_details for cached tokens
+            prompt_details = getattr(usage, 'prompt_tokens_details', None)
+            cached_tokens = 0
+            if prompt_details:
+                cached_tokens = getattr(prompt_details, 'cached_tokens', 0)
+
+            # Lazy import to avoid circular dependency
+            from app.application.services.usage_service import get_usage_service
+            usage_service = get_usage_service()
+
+            await usage_service.record_llm_usage(
+                user_id=ctx.user_id,
+                session_id=ctx.session_id,
+                model=ctx.model_override or self._model_name,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cached_tokens=cached_tokens,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to record usage: {e}")
+
+    async def _record_usage_counts(
+        self,
+        prompt_tokens: int,
+        completion_tokens: int,
+        cached_tokens: int = 0,
+        model_override: Optional[str] = None,
+    ) -> None:
+        """Record usage from explicit token counts."""
+        ctx = get_usage_context()
+        if not ctx:
+            return
+
+        try:
+            from app.application.services.usage_service import get_usage_service
+            usage_service = get_usage_service()
+            model_name = model_override or ctx.model_override or self._model_name
+            await usage_service.record_llm_usage(
+                user_id=ctx.user_id,
+                session_id=ctx.session_id,
+                model=model_name,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cached_tokens=cached_tokens,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to record usage counts: {e}")
+
+    async def _record_stream_usage(
+        self,
+        messages: List[Dict[str, Any]],
+        completion_text: str,
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
+        """Record usage for streaming responses using token estimation."""
+        ctx = get_usage_context()
+        if not ctx:
+            return
+
+        try:
+            token_manager = TokenManager(ctx.model_override or self._model_name)
+            prompt_tokens = token_manager.count_messages_tokens(messages)
+            if tools:
+                prompt_tokens += token_manager.count_tokens(json.dumps(tools))
+            completion_tokens = token_manager.count_tokens(completion_text)
+
+            await self._record_usage_counts(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cached_tokens=0,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to record streaming usage: {e}")
 
     def _tools_to_text(self, tools: List[Dict[str, Any]]) -> str:
         """Convert OpenAI tools format to text description for MLX models."""
@@ -401,6 +502,9 @@ To extract data from a webpage:
                         raise ValueError(f"Failed after {max_retries + 1} attempts: {error_msg}")
                     continue
 
+                # Track usage if context is set
+                await self._record_usage(response)
+
                 result = response.choices[0].message.model_dump()
 
                 # MLX mode: parse tool calls from text response
@@ -615,6 +719,8 @@ To extract data from a webpage:
             'messages': messages,
             'stream': True,
         }
+        if self._supports_stream_usage:
+            params['stream_options'] = {'include_usage': True}
 
         if is_new_model:
             params['max_completion_tokens'] = self._max_tokens
@@ -630,12 +736,41 @@ To extract data from a webpage:
         if response_format and not tools:
             params['response_format'] = response_format
 
+        completion_parts: List[str] = []
+        usage_counts: Optional[Dict[str, int]] = None
+
         try:
             stream = await self.client.chat.completions.create(**params)
 
             async for chunk in stream:
+                if getattr(chunk, "usage", None):
+                    usage = chunk.usage
+                    prompt_tokens = getattr(usage, 'prompt_tokens', 0)
+                    completion_tokens = getattr(usage, 'completion_tokens', 0)
+                    prompt_details = getattr(usage, 'prompt_tokens_details', None)
+                    cached_tokens = getattr(prompt_details, 'cached_tokens', 0) if prompt_details else 0
+                    usage_counts = {
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "cached_tokens": cached_tokens,
+                    }
                 if chunk.choices and chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
+                    content = chunk.choices[0].delta.content
+                    completion_parts.append(content)
+                    yield content
+
+            if usage_counts:
+                await self._record_usage_counts(
+                    prompt_tokens=usage_counts["prompt_tokens"],
+                    completion_tokens=usage_counts["completion_tokens"],
+                    cached_tokens=usage_counts["cached_tokens"],
+                )
+            else:
+                await self._record_stream_usage(
+                    messages,
+                    "".join(completion_parts),
+                    tools=tools,
+                )
 
         except Exception as e:
             error_msg = str(e).lower()
@@ -645,4 +780,3 @@ To extract data from a webpage:
             ]):
                 raise TokenLimitExceeded(str(e))
             raise
-

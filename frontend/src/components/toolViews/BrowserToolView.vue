@@ -170,6 +170,15 @@ const isActiveOperation = computed(() => {
 const TEXT_ONLY_FUNCTIONS = new Set(['browser_get_content', 'browser_agent_extract']);
 const isTextOnlyOperation = computed(() => TEXT_ONLY_FUNCTIONS.has(toolFunction.value));
 
+// Default view mode per tool
+const defaultViewMode = computed<'vnc' | 'output'>(() => {
+  if (toolName.value === 'shell' || toolName.value === 'file' || toolName.value === 'code_executor') {
+    return 'output';
+  }
+  if (isTextOnlyOperation.value) return 'output';
+  return 'vnc';
+});
+
 // Show states
 const showTextPlaceholder = computed(() => isTextOnlyOperation.value);
 const showLiveVnc = computed(() => props.live && !isTextOnlyOperation.value);
@@ -313,6 +322,16 @@ watch([shellOutput, fileContent], () => {
     }
   }
 });
+
+// Reset view mode when a new tool starts
+watch(
+  () => props.toolContent?.tool_call_id,
+  () => {
+    viewMode.value = defaultViewMode.value;
+    hasNewOutput.value = false;
+  },
+  { immediate: true }
+);
 
 // VNC handlers
 const onVNCConnected = () => console.log('VNC connected');

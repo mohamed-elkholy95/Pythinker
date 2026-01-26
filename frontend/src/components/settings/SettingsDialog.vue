@@ -37,6 +37,10 @@
           <AgentSettings />
         </template>
 
+        <template #usage>
+          <UsageSettings />
+        </template>
+
       </SettingsTabs>
 
     </DialogContent>
@@ -45,7 +49,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { UserRound, Settings2, Bot, Search, Workflow } from 'lucide-vue-next'
+import { UserRound, Settings2, Bot, Search, Workflow, BarChart2 } from 'lucide-vue-next'
 import {
   Dialog,
   DialogContent,
@@ -60,6 +64,7 @@ import ProfileSettings from './ProfileSettings.vue'
 import ModelSettings from './ModelSettings.vue'
 import SearchSettings from './SearchSettings.vue'
 import AgentSettings from './AgentSettings.vue'
+import UsageSettings from './UsageSettings.vue'
 import type { TabItem, SubPageConfig } from './SettingsTabs.vue'
 
 // Use global settings dialog state
@@ -94,6 +99,11 @@ const tabs: TabItem[] = [
     id: 'agent',
     label: 'Agent',
     icon: Workflow
+  },
+  {
+    id: 'usage',
+    label: 'Usage',
+    icon: BarChart2
   }
 ]
 

@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, UTC
 from typing import Optional, Dict, Any
 from app.core.config import get_settings
 from app.domain.models.user import User
+from app.infrastructure.storage.redis import get_redis
 import logging
 
 import hashlib
@@ -13,8 +14,12 @@ logger = logging.getLogger(__name__)
 
 
 class TokenService:
-    """Token manager for authentication and URL signing"""
-    
+    """Token manager for authentication, token revocation, and URL signing"""
+
+    # Redis key prefixes
+    BLACKLIST_PREFIX = "token:blacklist:"
+    USER_TOKENS_PREFIX = "token:user:"
+
     def __init__(self):
         self.settings = get_settings()
     
@@ -79,16 +84,16 @@ class TokenService:
                 self.settings.jwt_secret_key,
                 algorithms=[self.settings.jwt_algorithm]
             )
-            
+
             # Check if token is not expired
             exp = payload.get("exp")
             if exp and exp < int(datetime.now(UTC).timestamp()):
                 logger.warning("Token has expired")
                 return None
-            
+
             logger.debug(f"Token verified for user: {payload.get('fullname')}")
             return payload
-            
+
         except jwt.ExpiredSignatureError:
             logger.warning("Token has expired")
             return None
@@ -98,6 +103,54 @@ class TokenService:
         except Exception as e:
             logger.error(f"Token verification failed: {e}")
             return None
+
+    async def verify_token_async(self, token: str) -> Optional[Dict[str, Any]]:
+        """Verify JWT token with blacklist check (async version)"""
+        # First do basic JWT verification
+        payload = self.verify_token(token)
+        if not payload:
+            return None
+
+        # Check if token is blacklisted
+        if self.settings.jwt_token_blacklist_enabled:
+            if await self._is_token_blacklisted(token):
+                logger.warning("Token is blacklisted")
+                return None
+
+        return payload
+
+    async def _is_token_blacklisted(self, token: str) -> bool:
+        """Check if token is in the blacklist"""
+        try:
+            redis = get_redis().client
+            token_hash = self._hash_token(token)
+            key = f"{self.BLACKLIST_PREFIX}{token_hash}"
+            return await redis.exists(key) > 0
+        except Exception as e:
+            logger.warning(f"Failed to check token blacklist: {e}")
+            # Fail open - allow token if Redis is unavailable
+            return False
+
+    def _hash_token(self, token: str) -> str:
+        """Hash token for storage (don't store raw tokens)"""
+        return hashlib.sha256(token.encode()).hexdigest()[:32]
+
+    def _get_token_ttl(self, token: str) -> int:
+        """Get remaining TTL for token in seconds"""
+        try:
+            payload = jwt.decode(
+                token,
+                self.settings.jwt_secret_key,
+                algorithms=[self.settings.jwt_algorithm],
+                options={"verify_exp": False}  # Don't verify expiry for TTL calculation
+            )
+            exp = payload.get("exp")
+            if exp:
+                remaining = exp - int(datetime.now(UTC).timestamp())
+                return max(remaining, 0)
+        except Exception:
+            pass
+        return 0
     
     def get_user_from_token(self, token: str) -> Optional[Dict[str, Any]]:
         """Extract user information from JWT token"""
@@ -165,11 +218,83 @@ class TokenService:
             raise
 
     def revoke_token(self, token: str) -> bool:
-        """Revoke token (placeholder for token blacklist implementation)"""
-        # TODO:In a real implementation, you would add the token to a blacklist
-        # stored in Redis or database with expiration time
-        logger.warning("Token revoked (placeholder implementation)")
+        """Synchronous token revocation - use revoke_token_async for proper implementation"""
+        logger.warning("Synchronous revoke_token called - token may not be properly revoked")
         return True
+
+    async def revoke_token_async(self, token: str) -> bool:
+        """
+        Revoke a token by adding it to the blacklist.
+        The blacklist entry expires when the token would have expired.
+        """
+        if not self.settings.jwt_token_blacklist_enabled:
+            logger.debug("Token blacklist disabled - skipping revocation")
+            return True
+
+        try:
+            redis = get_redis().client
+            token_hash = self._hash_token(token)
+            key = f"{self.BLACKLIST_PREFIX}{token_hash}"
+
+            # Get remaining TTL for the token
+            ttl = self._get_token_ttl(token)
+            if ttl <= 0:
+                # Token already expired, no need to blacklist
+                logger.debug("Token already expired - no need to blacklist")
+                return True
+
+            # Add to blacklist with expiry matching token expiry
+            await redis.setex(key, ttl, "revoked")
+            logger.info(f"Token revoked and blacklisted (TTL: {ttl}s)")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to revoke token: {e}")
+            return False
+
+    async def revoke_all_user_tokens(self, user_id: str) -> bool:
+        """
+        Revoke all tokens for a user by tracking a 'revoked_before' timestamp.
+        Any token issued before this timestamp is considered invalid.
+        """
+        if not self.settings.jwt_token_blacklist_enabled:
+            return True
+
+        try:
+            redis = get_redis().client
+            key = f"{self.USER_TOKENS_PREFIX}{user_id}:revoked_before"
+
+            # Set the current timestamp - all tokens issued before this are invalid
+            timestamp = int(datetime.now(UTC).timestamp())
+
+            # Keep this for the max token lifetime (refresh token duration)
+            max_ttl = self.settings.jwt_refresh_token_expire_days * 24 * 60 * 60
+            await redis.setex(key, max_ttl, str(timestamp))
+
+            logger.info(f"All tokens revoked for user: {user_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to revoke all user tokens: {e}")
+            return False
+
+    async def is_user_token_revoked(self, user_id: str, issued_at: int) -> bool:
+        """Check if a user's token was issued before the revocation timestamp"""
+        if not self.settings.jwt_token_blacklist_enabled:
+            return False
+
+        try:
+            redis = get_redis().client
+            key = f"{self.USER_TOKENS_PREFIX}{user_id}:revoked_before"
+
+            revoked_before = await redis.get(key)
+            if revoked_before:
+                return issued_at < int(revoked_before)
+            return False
+
+        except Exception as e:
+            logger.warning(f"Failed to check user token revocation: {e}")
+            return False
 
     def create_signed_url(self, base_url: str, expire_minutes: int = 60) -> str:
         """Create URL with signature for resource access

@@ -89,6 +89,9 @@ const exitTakeOver = () => {
     // Update local state
     takeOverActive.value = false;
     currentSessionId.value = '';
+    window.dispatchEvent(new CustomEvent('takeover', {
+        detail: { sessionId: sessionId.value, active: false }
+    }));
 };
 
 // Expose sessionId for parent component to use

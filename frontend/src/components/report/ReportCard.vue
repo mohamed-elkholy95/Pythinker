@@ -1,6 +1,6 @@
 <template>
   <div
-    class="report-card w-[600px] rounded-[16px] border border-[var(--border-main)] bg-[var(--background-card)] overflow-hidden shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+    class="report-card w-full max-w-[600px] min-w-0 rounded-[16px] border border-[var(--border-main)] bg-[var(--background-card)] overflow-hidden shadow-sm cursor-pointer hover:shadow-md transition-shadow"
     @click="openReport"
   >
     <!-- Header -->

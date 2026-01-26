@@ -138,8 +138,8 @@ def create_initial_state(
     reflection_agent: Optional[ReflectionAgent] = None,
     task_state_manager: Optional[TaskStateManager] = None,
     existing_plan: Optional[Plan] = None,
-    max_iterations: int = 50,
-    max_verification_loops: int = 2,
+    max_iterations: int = 200,  # Increased for complex multi-step tasks
+    max_verification_loops: int = 3,  # Allow more revision attempts
     event_queue: Optional[asyncio.Queue] = None,
 ) -> PlanActState:
     """Create the initial state for a new workflow run.

@@ -145,9 +145,9 @@ class SafetyLimits:
     These are hard limits that cannot be overridden by autonomy level.
     When any limit is exceeded, the agent pauses for user intervention.
     """
-    max_iterations: int = 50  # Maximum loop iterations per run
-    max_tool_calls: int = 100  # Maximum tool invocations per run
-    max_execution_time_seconds: int = 1800  # 30 minutes default
+    max_iterations: int = 200  # Maximum loop iterations per run (increased for complex tasks)
+    max_tool_calls: int = 300  # Maximum tool invocations per run (codebase analysis needs more)
+    max_execution_time_seconds: int = 3600  # 60 minutes for complex tasks
     max_tokens_per_run: int = 500000  # Token limit across all LLM calls
     max_cost_usd: Optional[float] = None  # Optional cost limit
 

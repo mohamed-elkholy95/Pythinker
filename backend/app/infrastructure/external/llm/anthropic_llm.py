@@ -13,6 +13,8 @@ from pydantic import BaseModel
 from app.domain.external.llm import LLM
 from app.core.config import get_settings
 from app.infrastructure.external.llm.factory import LLMProviderRegistry
+from app.domain.services.agents.usage_context import get_usage_context
+from app.domain.services.agents.token_manager import TokenManager
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -83,6 +85,77 @@ class AnthropicLLM(LLM):
     @property
     def max_tokens(self) -> int:
         return self._max_tokens
+
+    async def _record_usage(self, response: Any) -> None:
+        """Record usage from Anthropic response if usage context is set.
+
+        Args:
+            response: Anthropic API response containing usage info
+        """
+        ctx = get_usage_context()
+        if not ctx:
+            return
+
+        try:
+            # Extract usage from Anthropic response
+            usage = getattr(response, 'usage', None)
+            if not usage:
+                return
+
+            input_tokens = getattr(usage, 'input_tokens', 0)
+            output_tokens = getattr(usage, 'output_tokens', 0)
+            cache_read_tokens = getattr(usage, 'cache_read_input_tokens', 0)
+            cache_creation_tokens = getattr(usage, 'cache_creation_input_tokens', 0)
+
+            # Total cached tokens = read from cache + created for cache
+            cached_tokens = cache_read_tokens + cache_creation_tokens
+
+            # Lazy import to avoid circular dependency
+            from app.application.services.usage_service import get_usage_service
+            usage_service = get_usage_service()
+
+            await usage_service.record_llm_usage(
+                user_id=ctx.user_id,
+                session_id=ctx.session_id,
+                model=ctx.model_override or self._model_name,
+                prompt_tokens=input_tokens,
+                completion_tokens=output_tokens,
+                cached_tokens=cached_tokens,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to record usage: {e}")
+
+    async def _record_stream_usage(
+        self,
+        messages: List[Dict[str, Any]],
+        completion_text: str,
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
+        """Record usage for streaming responses using token estimation."""
+        ctx = get_usage_context()
+        if not ctx:
+            return
+
+        try:
+            token_manager = TokenManager(ctx.model_override or self._model_name)
+            prompt_tokens = token_manager.count_messages_tokens(messages)
+            if tools:
+                prompt_tokens += token_manager.count_tokens(json.dumps(tools))
+            completion_tokens = token_manager.count_tokens(completion_text)
+
+            from app.application.services.usage_service import get_usage_service
+            usage_service = get_usage_service()
+
+            await usage_service.record_llm_usage(
+                user_id=ctx.user_id,
+                session_id=ctx.session_id,
+                model=ctx.model_override or self._model_name,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cached_tokens=0,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to record streaming usage: {e}")
 
     def _convert_openai_tools_to_anthropic(
         self,
@@ -315,6 +388,9 @@ class AnthropicLLM(LLM):
 
                 response = await self.client.messages.create(**params)
 
+                # Track usage if context is set
+                await self._record_usage(response)
+
                 return self._convert_anthropic_response_to_openai(response)
 
             except anthropic.RateLimitError as e:
@@ -434,10 +510,18 @@ class AnthropicLLM(LLM):
         if tools:
             params["tools"] = self._convert_openai_tools_to_anthropic(tools)
 
+        completion_parts: List[str] = []
+
         try:
             async with self.client.messages.stream(**params) as stream:
                 async for text in stream.text_stream:
+                    completion_parts.append(text)
                     yield text
+
+            if completion_parts:
+                await self._record_stream_usage(messages, "".join(completion_parts), tools=tools)
+            else:
+                await self._record_stream_usage(messages, "", tools=tools)
 
         except anthropic.BadRequestError as e:
             error_msg = str(e).lower()

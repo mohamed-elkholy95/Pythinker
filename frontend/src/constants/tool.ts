@@ -98,7 +98,7 @@ export const TOOL_FUNCTION_ARG_MAP: {[key: string]: string} = {
  */
 export const TOOL_NAME_MAP: {[key: string]: string} = {
   "shell": "Terminal",
-  "file": "File",
+  "file": "Editor",
   "browser": "Browser",
   "browser_agent": "Browser Agent",
   "info": "Information",
@@ -135,22 +135,97 @@ export const TOOL_ICON_MAP: {[key: string]: any} = {
   "code_executor": PythonIcon
 };
 
-import ShellToolView from '@/components/toolViews/ShellToolView.vue';
-import FileToolView from '@/components/toolViews/FileToolView.vue';
-import SearchToolView from '@/components/toolViews/SearchToolView.vue';
-import BrowserToolView from '@/components/toolViews/BrowserToolView.vue';
-import McpToolView from '@/components/toolViews/McpToolView.vue';
+/**
+ * Content view types for the unified tool panel
+ */
+export type ContentViewType = 'vnc' | 'terminal' | 'editor' | 'search' | 'generic';
+export type ViewMode = 'primary' | 'secondary' | 'tertiary';
+
+export interface ContentConfig {
+  primaryView: ContentViewType;
+  secondaryView?: ContentViewType;
+  tertiaryView?: ContentViewType;
+  tabLabels: string[];  // e.g., ['Screen', 'Output'] or ['Modified', 'Original', 'Diff']
+  defaultView: ViewMode;
+  showTabs: boolean;
+}
 
 /**
- * Mapping from tool names to components
- * All computer tools use BrowserToolView to show live VNC
+ * Content configuration for each tool type
+ * Defines which views are available and how tabs are displayed
  */
-export const TOOL_COMPONENT_MAP: {[key: string]: any} = {
-  "shell": BrowserToolView,         // Shows live VNC of sandbox terminal
-  "file": BrowserToolView,          // Shows live VNC of sandbox
-  "search": SearchToolView,
-  "browser": BrowserToolView,
-  "browser_agent": BrowserToolView,
-  "mcp": McpToolView,
-  "code_executor": BrowserToolView  // Shows live VNC of code execution
+export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
+  shell: {
+    primaryView: 'vnc',
+    secondaryView: 'terminal',
+    tabLabels: ['Screen', 'Output'],
+    defaultView: 'primary',
+    showTabs: true
+  },
+  browser: {
+    primaryView: 'vnc',
+    secondaryView: 'terminal',
+    tabLabels: ['Screen', 'Output'],
+    defaultView: 'primary',
+    showTabs: true
+  },
+  browser_agent: {
+    primaryView: 'vnc',
+    secondaryView: 'terminal',
+    tabLabels: ['Screen', 'Output'],
+    defaultView: 'primary',
+    showTabs: true
+  },
+  code_executor: {
+    primaryView: 'terminal',
+    secondaryView: 'vnc',
+    tabLabels: ['Output', 'Screen'],
+    defaultView: 'primary',
+    showTabs: true
+  },
+  file: {
+    primaryView: 'editor',
+    secondaryView: 'editor',  // original
+    tertiaryView: 'editor',   // diff
+    tabLabels: ['Modified', 'Original', 'Diff'],
+    defaultView: 'primary',
+    showTabs: true
+  },
+  search: {
+    primaryView: 'search',
+    tabLabels: [],
+    defaultView: 'primary',
+    showTabs: false
+  },
+  info: {
+    primaryView: 'search',
+    tabLabels: [],
+    defaultView: 'primary',
+    showTabs: false
+  },
+  mcp: {
+    primaryView: 'generic',
+    tabLabels: [],
+    defaultView: 'primary',
+    showTabs: false
+  }
 };
+
+/**
+ * Function-specific view overrides
+ * Some functions should default to a different view than their tool's default
+ */
+export const FUNCTION_VIEW_OVERRIDES: Record<string, ViewMode> = {
+  browser_get_content: 'secondary',
+  browser_agent_extract: 'secondary'
+};
+
+/**
+ * Functions that show a text placeholder instead of VNC
+ * (operations that don't require visual output)
+ */
+export const TEXT_ONLY_FUNCTIONS = new Set([
+  'browser_get_content',
+  'browser_agent_extract'
+]);
+

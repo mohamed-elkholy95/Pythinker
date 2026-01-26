@@ -1,8 +1,18 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+import os
+import secrets
+import warnings
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
+
+    # Environment configuration
+    environment: str = "development"  # "development", "staging", "production"
+    debug: bool = False
 
     # LLM Provider selection
     llm_provider: str = "openai"  # "openai", "anthropic", "ollama"
@@ -58,9 +68,14 @@ class Settings(BaseSettings):
     sandbox_https_proxy: str | None = None
     sandbox_http_proxy: str | None = None
     sandbox_no_proxy: str | None = None
+    sandbox_seccomp_profile: str | None = None
+    sandbox_shm_size: str | None = "2g"
+    sandbox_mem_limit: str | None = "4g"
+    sandbox_cpu_limit: float | None = 2.0
+    sandbox_pids_limit: int | None = 500
     
     # Search engine configuration
-    search_provider: str | None = "bing"  # "baidu", "google", "bing", "searxng", "whoogle", "duckduckgo", "brave", "tavily"
+    search_provider: str | None = "bing"  #  "google", "bing", "searxng", "whoogle", "duckduckgo", "brave", "tavily"
     google_search_api_key: str | None = None
     google_search_engine_id: str | None = None
     searxng_url: str | None = "http://searxng:8080"  # SearXNG instance URL
@@ -90,10 +105,21 @@ class Settings(BaseSettings):
     # Auth configuration
     auth_provider: str = "password"  # "password", "none", "local"
     password_salt: str | None = None
-    password_hash_rounds: int = 10
+    password_hash_rounds: int = 600000  # OWASP recommendation for PBKDF2-SHA256
     password_hash_algorithm: str = "pbkdf2_sha256"
-    local_auth_email: str = "admin@example.com"
-    local_auth_password: str = "admin"
+    password_min_length: int = 12  # Minimum password length
+    password_require_uppercase: bool = True
+    password_require_lowercase: bool = True
+    password_require_digit: bool = True
+    password_require_special: bool = False  # Optional special character
+    local_auth_email: str | None = None  # Must be set via environment
+    local_auth_password: str | None = None  # Must be set via environment
+
+    # Account lockout configuration
+    account_lockout_enabled: bool = True
+    account_lockout_threshold: int = 5  # Failed attempts before lockout
+    account_lockout_duration_minutes: int = 15  # Lockout duration
+    account_lockout_reset_minutes: int = 60  # Reset failed attempts counter after
     
     # Email configuration
     email_host: str | None = None  # "smtp.gmail.com"
@@ -103,10 +129,23 @@ class Settings(BaseSettings):
     email_from: str | None = None
     
     # JWT configuration
-    jwt_secret_key: str = "your-secret-key-here"  # Should be set in production
+    jwt_secret_key: str | None = None  # REQUIRED - must be set via environment
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 30
     jwt_refresh_token_expire_days: int = 7
+    jwt_token_blacklist_enabled: bool = True  # Enable token revocation
+
+    # CORS configuration
+    cors_origins: str = ""  # Comma-separated list of allowed origins (e.g., "http://localhost:5173,https://app.example.com")
+    cors_allow_credentials: bool = True
+    cors_allow_methods: str = "GET,POST,PUT,DELETE,OPTIONS,PATCH"
+    cors_allow_headers: str = "Authorization,Content-Type,X-Request-ID"
+
+    # Rate limiting configuration
+    rate_limit_enabled: bool = True
+    rate_limit_requests_per_minute: int = 60  # Default rate limit
+    rate_limit_auth_requests_per_minute: int = 10  # Rate limit for auth endpoints (login, register)
+    rate_limit_burst: int = 10  # Allow burst of requests
     
     # MCP configuration
     mcp_config_path: str = "/etc/mcp.json"
@@ -148,9 +187,9 @@ class Settings(BaseSettings):
     allow_payment_operations: bool = False  # Disabled by default
 
     # Safety Limits
-    max_iterations: int = 50  # Maximum loop iterations per run
-    max_tool_calls: int = 100  # Maximum tool invocations per run
-    max_execution_time_seconds: int = 1800  # 30 minutes default
+    max_iterations: int = 200  # Maximum loop iterations per run (increased for complex tasks)
+    max_tool_calls: int = 300  # Maximum tool invocations per run (increased for codebase analysis)
+    max_execution_time_seconds: int = 3600  # 60 minutes for complex tasks
     max_tokens_per_run: int = 500000  # Token limit across all LLM calls
     max_cost_usd: float | None = None  # Optional cost limit
 
@@ -170,18 +209,169 @@ class Settings(BaseSettings):
     timeline_max_snapshots_per_session: int = 1000  # Max snapshots per session
     timeline_compress_snapshots: bool = True  # Compress snapshot data
 
+    # Workspace Auto-Initialization Configuration
+    workspace_auto_init: bool = True  # Auto-initialize workspace on first message
+    workspace_default_template: str = "python"  # Default template: none, python, nodejs, web, fullstack
+    workspace_default_project_name: str = "project"  # Default project name
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
-        
-    def validate(self):
-        """Validate configuration settings"""
-        if not self.api_key:
-            raise ValueError("API key is required")
+
+    @property
+    def is_production(self) -> bool:
+        """Check if running in production environment"""
+        return self.environment.lower() == "production"
+
+    @property
+    def is_development(self) -> bool:
+        """Check if running in development environment"""
+        return self.environment.lower() == "development"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """Get CORS origins as a list"""
+        if not self.cors_origins:
+            if self.is_development:
+                # Allow localhost in development
+                return ["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"]
+            return []
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    def _generate_jwt_secret(self) -> str:
+        """Generate a secure JWT secret for development"""
+        return secrets.token_urlsafe(32)
+
+    def _generate_password_salt(self) -> str:
+        """Generate a secure password salt"""
+        return secrets.token_urlsafe(16)
+
+    def validate(self) -> None:
+        """Validate configuration settings with comprehensive security checks"""
+        errors: list[str] = []
+        security_warnings: list[str] = []
+
+        # === CRITICAL SECURITY CHECKS ===
+
+        # JWT Secret validation
+        if not self.jwt_secret_key:
+            if self.is_production:
+                errors.append(
+                    "JWT_SECRET_KEY is required in production. "
+                    "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+                )
+            else:
+                # Auto-generate for development (will be different each restart)
+                object.__setattr__(self, 'jwt_secret_key', self._generate_jwt_secret())
+                security_warnings.append(
+                    "JWT_SECRET_KEY not set - using auto-generated key. "
+                    "Sessions will be invalidated on restart. Set JWT_SECRET_KEY for persistence."
+                )
+        elif self.jwt_secret_key in ["your-secret-key-here", "changeme", "secret"]:
+            if self.is_production:
+                errors.append("JWT_SECRET_KEY must not use default/insecure values in production")
+            else:
+                security_warnings.append("JWT_SECRET_KEY is using an insecure default value")
+
+        # Password salt validation
+        if not self.password_salt:
+            if self.is_production and self.auth_provider == "password":
+                errors.append(
+                    "PASSWORD_SALT is required for password authentication in production. "
+                    "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(16))\""
+                )
+            else:
+                object.__setattr__(self, 'password_salt', self._generate_password_salt())
+                if self.auth_provider == "password":
+                    security_warnings.append(
+                        "PASSWORD_SALT not set - using auto-generated salt. "
+                        "Existing password hashes will be invalid on restart."
+                    )
+
+        # CORS validation
+        if not self.cors_origins and self.is_production:
+            errors.append(
+                "CORS_ORIGINS must be configured in production. "
+                "Set to your frontend domain(s), e.g., CORS_ORIGINS=https://app.example.com"
+            )
+
+        # Local auth credentials validation
+        if self.auth_provider == "local":
+            if not self.local_auth_email or not self.local_auth_password:
+                errors.append(
+                    "LOCAL_AUTH_EMAIL and LOCAL_AUTH_PASSWORD are required when auth_provider is 'local'"
+                )
+            elif self.is_production:
+                if self.local_auth_email == "admin@example.com":
+                    errors.append("LOCAL_AUTH_EMAIL must not use default value in production")
+                if self.local_auth_password == "admin":
+                    errors.append("LOCAL_AUTH_PASSWORD must not use default value in production")
+                if self.local_auth_password and len(self.local_auth_password) < 12:
+                    security_warnings.append("LOCAL_AUTH_PASSWORD should be at least 12 characters")
+
+        # === HIGH PRIORITY CHECKS ===
+
+        # Password hash rounds validation
+        if self.password_hash_rounds < 100000:
+            if self.is_production:
+                security_warnings.append(
+                    f"PASSWORD_HASH_ROUNDS ({self.password_hash_rounds}) is below recommended minimum (600000). "
+                    "This weakens password security."
+                )
+
+        # API key validation
+        if self.llm_provider in ["openai", "anthropic"] and not self.api_key:
+            if self.llm_provider == "anthropic" and not self.anthropic_api_key:
+                errors.append(f"API key is required for {self.llm_provider} provider")
+            elif self.llm_provider == "openai":
+                errors.append("API_KEY is required for OpenAI provider")
+
+        # Credential encryption key
+        if self.allow_credential_access and not self.credential_encryption_key:
+            if self.is_production:
+                security_warnings.append(
+                    "CREDENTIAL_ENCRYPTION_KEY not set but credential access is enabled. "
+                    "Credentials will be stored without encryption."
+                )
+
+        # === WARNINGS ===
+
+        # Auth provider "none" warning
+        if self.auth_provider == "none":
+            security_warnings.append(
+                "AUTH_PROVIDER is set to 'none' - authentication is disabled. "
+                "This should only be used for development/testing."
+            )
+
+        # Debug mode warning
+        if self.debug and self.is_production:
+            security_warnings.append("DEBUG mode is enabled in production - this may expose sensitive information")
+
+        # Rate limiting warning
+        if not self.rate_limit_enabled and self.is_production:
+            security_warnings.append("Rate limiting is disabled in production - vulnerable to brute force attacks")
+
+        # Account lockout warning
+        if not self.account_lockout_enabled and self.is_production:
+            security_warnings.append("Account lockout is disabled in production - vulnerable to brute force attacks")
+
+        # === LOG WARNINGS ===
+        for warning in security_warnings:
+            logger.warning(f"[SECURITY] {warning}")
+            warnings.warn(warning, UserWarning)
+
+        # === RAISE ERRORS ===
+        if errors:
+            error_msg = "Configuration validation failed:\n" + "\n".join(f"  - {e}" for e in errors)
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        logger.info(f"Configuration validated successfully (environment: {self.environment})")
+
 
 @lru_cache()
 def get_settings() -> Settings:
     """Get application settings"""
     settings = Settings()
     settings.validate()
-    return settings 
+    return settings
