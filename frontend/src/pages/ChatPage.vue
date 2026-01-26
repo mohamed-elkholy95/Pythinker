@@ -407,6 +407,10 @@ const handlePanelStateChange = (isOpen: boolean, userAction: boolean = false) =>
 
 // Computer-related tools that should show thumbnail
 const COMPUTER_TOOLS = ['browser', 'shell', 'file', 'browser_agent'];
+const isComputerTool = (tool?: ToolContent | null) => {
+  if (!tool) return false;
+  return COMPUTER_TOOLS.includes(tool.name);
+};
 
 // Check if current tool is a computer tool and panel is closed
 const shouldShowThumbnail = computed(() => {
@@ -426,9 +430,13 @@ const isPlanCompleted = computed(() => {
   return !!plan.value?.steps?.length && plan.value.steps.every(step => step.status === 'completed');
 });
 
+const TEXT_ONLY_BROWSER_FUNCTIONS = new Set(['browser_get_content', 'browser_agent_extract']);
+
 const shouldEnableVnc = computed(() => {
-  if (!lastNoMessageTool.value) return false;
-  if (!COMPUTER_TOOLS.includes(lastNoMessageTool.value.name)) return false;
+  const tool = lastNoMessageTool.value;
+  if (!tool) return false;
+  if (tool.name !== 'browser' && tool.name !== 'browser_agent') return false;
+  if (tool.function && TEXT_ONLY_BROWSER_FUNCTIONS.has(tool.function)) return false;
   return realTime.value && (isLoading.value || isPlanCompleted.value);
 });
 
@@ -506,7 +514,7 @@ const toolTimelineCanStepForward = computed(() => {
 
 const toolTimelineCanStepBackward = computed(() => toolTimelineIndex.value > 0);
 
-const showTimelineControls = computed(() => toolTimeline.value.length > 0);
+const showTimelineControls = computed(() => toolTimelineIndex.value >= 0);
 
 // Handle opening the panel from TaskProgressBar
 const handleOpenPanel = () => {
@@ -518,6 +526,7 @@ const handleOpenPanel = () => {
 };
 
 const upsertToolTimeline = (toolContent: ToolContent) => {
+  if (!isComputerTool(toolContent)) return;
   const existingIndex = toolTimeline.value.findIndex(tool => tool.tool_call_id === toolContent.tool_call_id);
   if (existingIndex >= 0) {
     Object.assign(toolTimeline.value[existingIndex], toolContent);

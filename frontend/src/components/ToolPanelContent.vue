@@ -34,6 +34,7 @@
             :is-live="realTime"
             :can-step-forward="!!timelineCanStepForward"
             :can-step-backward="!!timelineCanStepBackward"
+            :show-timestamp-on-interact="true"
             @jump-to-live="jumpToRealTime"
             @step-forward="handleStepForward"
             @step-backward="handleStepBackward"

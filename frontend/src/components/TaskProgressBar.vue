@@ -21,7 +21,7 @@
           <!-- Live VNC View -->
           <div
             v-if="showShellPreview"
-            class="w-full h-full bg-[var(--background-white-main)] text-[7px] leading-tight font-mono text-[var(--text-secondary)] p-2"
+            class="w-full h-full bg-[var(--background-white-main)] text-[7px] leading-snug font-mono text-[var(--text-secondary)] px-2 py-2 whitespace-pre overflow-hidden"
           >
             <div v-for="(line, index) in shellPreviewLines" :key="index">
               <template v-if="line.type === 'prompt'">
@@ -31,6 +31,32 @@
               <template v-else>
                 <span class="text-gray-500">{{ line.text }}</span>
               </template>
+            </div>
+          </div>
+          <div
+            v-else-if="showBrowserPlaceholder"
+            class="w-full h-full bg-[var(--background-white-main)] flex items-center justify-center px-2 py-2"
+          >
+            <div
+              v-if="browserTextPreview"
+              class="w-full h-full bg-[var(--background-menu-white)] rounded-lg border border-black/5 shadow-[0px_2px_6px_rgba(0,0,0,0.08)] px-2 py-1.5 flex flex-col gap-1 text-left"
+            >
+              <div class="text-[6px] tracking-[0.12em] text-[var(--text-tertiary)] uppercase truncate">
+                {{ browserTextPreview.source }}
+              </div>
+              <div class="text-[8px] font-semibold text-[#2563eb] leading-snug line-clamp-2">
+                {{ browserTextPreview.title }}
+              </div>
+              <div v-if="browserTextPreview.subtitle" class="text-[7px] font-medium text-[var(--text-primary)] line-clamp-1">
+                {{ browserTextPreview.subtitle }}
+              </div>
+              <div v-if="browserTextPreview.body" class="text-[6px] text-[var(--text-secondary)] leading-snug line-clamp-3">
+                {{ browserTextPreview.body }}
+              </div>
+            </div>
+            <div v-else class="text-[8px] leading-snug text-[var(--text-secondary)] text-center">
+              <div class="font-medium">Fetching text</div>
+              <div class="mt-1 text-[7px] text-[var(--text-tertiary)]">No visual page</div>
             </div>
           </div>
           <VNCViewer
@@ -120,7 +146,7 @@
             <!-- Live VNC View -->
             <div
               v-if="showShellPreview"
-              class="w-full h-full bg-[var(--background-white-main)] text-[8px] leading-tight font-mono text-[var(--text-secondary)] p-3"
+              class="w-full h-full bg-[var(--background-white-main)] text-[8px] leading-snug font-mono text-[var(--text-secondary)] px-2.5 py-2.5 whitespace-pre overflow-hidden"
             >
               <div v-for="(line, index) in shellPreviewLines" :key="index">
                 <template v-if="line.type === 'prompt'">
@@ -130,6 +156,32 @@
                 <template v-else>
                   <span class="text-gray-500">{{ line.text }}</span>
                 </template>
+              </div>
+            </div>
+            <div
+              v-else-if="showBrowserPlaceholder"
+              class="w-full h-full bg-[var(--background-white-main)] flex items-center justify-center px-2 py-2"
+            >
+              <div
+                v-if="browserTextPreview"
+                class="w-full h-full bg-[var(--background-menu-white)] rounded-lg border border-black/5 shadow-[0px_2px_6px_rgba(0,0,0,0.08)] px-2 py-1.5 flex flex-col gap-1 text-left"
+              >
+                <div class="text-[6px] tracking-[0.12em] text-[var(--text-tertiary)] uppercase truncate">
+                  {{ browserTextPreview.source }}
+                </div>
+                <div class="text-[8px] font-semibold text-[#2563eb] leading-snug line-clamp-2">
+                  {{ browserTextPreview.title }}
+                </div>
+                <div v-if="browserTextPreview.subtitle" class="text-[7px] font-medium text-[var(--text-primary)] line-clamp-1">
+                  {{ browserTextPreview.subtitle }}
+                </div>
+                <div v-if="browserTextPreview.body" class="text-[6px] text-[var(--text-secondary)] leading-snug line-clamp-3">
+                  {{ browserTextPreview.body }}
+                </div>
+              </div>
+              <div v-else class="text-[8px] leading-snug text-[var(--text-secondary)] text-center">
+                <div class="font-medium">Fetching text</div>
+                <div class="mt-1 text-[7px] text-[var(--text-tertiary)]">No visual page</div>
               </div>
             </div>
             <VNCViewer
@@ -326,6 +378,7 @@ const thumbnailToolName = computed(() => {
 })
 
 const shellPreviewLines = computed(() => {
+  const maxPreviewLines = 10
   if (!thumbnailToolName.value.includes('shell')) return []
   const consoleEntries = props.toolContent?.content?.console
   if (!Array.isArray(consoleEntries)) return []
@@ -345,11 +398,84 @@ const shellPreviewLines = computed(() => {
       })
     }
   }
-  return lines.slice(-4)
+  if (lines.length <= maxPreviewLines) return lines
+
+  let lastPromptIndex = -1
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (lines[i].type === 'prompt') {
+      lastPromptIndex = i
+      break
+    }
+  }
+
+  if (lastPromptIndex === -1) {
+    return lines.slice(-maxPreviewLines)
+  }
+
+  const outputLines = lines.slice(lastPromptIndex + 1).filter(line => line.type === 'output') as Array<{ type: 'output'; text: string }>
+  const outputLimit = maxPreviewLines - 1
+  const limitedOutputs = outputLines.slice(-outputLimit)
+  return [lines[lastPromptIndex], ...limitedOutputs]
 })
 
 const showShellPreview = computed(() => shellPreviewLines.value.length > 0)
-const showVncPreview = computed(() => !!props.sessionId && !showShellPreview.value)
+const isTextOnlyBrowserFetch = computed(() => props.toolContent?.function === 'browser_get_content')
+const showBrowserPlaceholder = computed(() => isTextOnlyBrowserFetch.value)
+const showVncPreview = computed(() => (
+  !!props.sessionId &&
+  !!props.liveVnc &&
+  !showShellPreview.value &&
+  !isTextOnlyBrowserFetch.value
+))
+
+const buildPreviewSource = (url?: string) => {
+  if (!url) return 'TEXT PREVIEW'
+  try {
+    const parsed = new URL(url)
+    const pathParts = parsed.pathname.split('/').filter(Boolean)
+    const candidate = pathParts[pathParts.length - 1] || parsed.hostname
+    const cleaned = candidate.replace(/\.[a-z0-9]+$/i, '').replace(/[-_]+/g, ' ')
+    const upper = cleaned.toUpperCase()
+    return upper.length > 24 ? `${upper.slice(0, 24)}...` : upper
+  } catch {
+    return 'TEXT PREVIEW'
+  }
+}
+
+const browserTextPreview = computed(() => {
+  if (!isTextOnlyBrowserFetch.value) return null
+  const content = props.toolContent?.content?.content
+  if (typeof content !== 'string') return null
+
+  const lines = content
+    .replace(/\r/g, '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+
+  if (!lines.length) return null
+
+  const titleIndex = lines.findIndex(line => line.startsWith('#') || (line.length >= 12 && line.length <= 80))
+  const safeIndex = titleIndex >= 0 ? titleIndex : 0
+  const title = lines[safeIndex].replace(/^#+\s*/, '')
+
+  let subtitle = ''
+  let bodyStart = safeIndex + 1
+  if (lines[bodyStart] && lines[bodyStart].startsWith('##')) {
+    subtitle = lines[bodyStart].replace(/^#+\s*/, '')
+    bodyStart += 1
+  }
+
+  const body = lines.slice(bodyStart, bodyStart + 3).join(' ')
+  const source = buildPreviewSource(props.toolContent?.args?.url)
+
+  return {
+    source,
+    title,
+    subtitle,
+    body
+  }
+})
 
 const progressText = computed(() => {
   const completed = steps.value.filter(s => s.status === 'completed').length
@@ -493,7 +619,7 @@ onUnmounted(() => {
 .vnc-thumbnail :deep(canvas) {
   width: 100% !important;
   height: 100% !important;
-  object-fit: cover;
+  object-fit: contain;
   cursor: pointer !important;
   pointer-events: none;
   margin: 0 !important;
@@ -507,7 +633,17 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-.vnc-thumbnail :deep(.vnc-container),
+.vnc-thumbnail :deep(.vnc-container) {
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden !important;
+  background: #0f0f0f;
+}
+
 .vnc-thumbnail :deep(.vnc-container > div) {
   width: 100% !important;
   height: 100% !important;

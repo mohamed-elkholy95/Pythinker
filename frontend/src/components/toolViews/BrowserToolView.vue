@@ -10,8 +10,8 @@
   <div class="flex-1 min-h-0 w-full overflow-y-auto">
     <div class="px-0 py-0 flex flex-col relative h-full">
       <div class="w-full h-full object-cover flex items-center justify-center bg-[var(--fill-white)] relative">
-        <!-- Working Overlay - shown when any browser function is being called -->
-        <div v-if="isWorking" class="w-full h-full flex flex-col items-center justify-center bg-gradient-to-b from-[var(--background-gray-main)] to-[var(--fill-white)] dark:from-[#1a1a2e] dark:to-[#16213e]">
+        <!-- Working/Text-only overlay -->
+        <div v-if="showPlaceholder" class="w-full h-full flex flex-col items-center justify-center bg-gradient-to-b from-[var(--background-gray-main)] to-[var(--fill-white)] dark:from-[#1a1a2e] dark:to-[#16213e]">
           <div class="fetching-container">
             <!-- Animated orbs -->
             <div class="orbs-container">
@@ -33,8 +33,8 @@
           <!-- Status text -->
           <div class="mt-6 flex flex-col items-center gap-2">
             <div class="flex items-center gap-2 text-[var(--text-secondary)]">
-              <span class="text-base font-medium">{{ actionDescription }}</span>
-              <span class="flex gap-1">
+              <span class="text-base font-medium">{{ actionLabel }}</span>
+              <span v-if="showWorkingDots" class="flex gap-1">
                 <span v-for="(_, i) in 3" :key="i" class="dot" :style="{ animationDelay: `${i * 200}ms` }"></span>
               </span>
             </div>
@@ -46,7 +46,7 @@
         <!-- Normal VNC/Screenshot view -->
         <div v-else class="w-full h-full">
           <VNCViewer
-            v-if="props.live"
+            v-if="showLiveVnc"
             :session-id="props.sessionId"
             :enabled="props.live"
             :view-only="true"
@@ -54,7 +54,7 @@
             @disconnected="onVNCDisconnected"
             @credentials-required="onVNCCredentialsRequired"
           />
-          <img v-else-if="imageUrl" alt="Image Preview" class="cursor-pointer w-full" referrerpolicy="no-referrer" :src="imageUrl">
+          <img v-else-if="showScreenshot" alt="Image Preview" class="cursor-pointer w-full" referrerpolicy="no-referrer" :src="imageUrl">
         </div>
         <button
           v-if="!isShare && !isWorking"
@@ -85,13 +85,25 @@ const props = defineProps<{
 const { t } = useI18n();
 const imageUrl = ref('');
 
+const TEXT_ONLY_BROWSER_FUNCTIONS = new Set(['browser_get_content', 'browser_agent_extract']);
+
 // Detect if we're actively working (any browser function is being called)
 const isWorking = computed(() => {
   const func = props.toolContent?.function;
   const status = props.toolContent?.status;
-  // Show working overlay when any browser function is being called (not completed)
-  return func?.startsWith('browser_') && status === 'calling';
+  // Show working overlay when any browser function is running or calling
+  return func?.startsWith('browser_') && (status === 'calling' || status === 'running');
 });
+
+const isTextOnlyOperation = computed(() => {
+  const func = props.toolContent?.function;
+  return !!func && TEXT_ONLY_BROWSER_FUNCTIONS.has(func);
+});
+
+const showPlaceholder = computed(() => isWorking.value || isTextOnlyOperation.value);
+const showWorkingDots = computed(() => isWorking.value);
+const showLiveVnc = computed(() => props.live && !isTextOnlyOperation.value);
+const showScreenshot = computed(() => !props.live && !!imageUrl.value && !isTextOnlyOperation.value);
 
 // Check if it's specifically a fetch operation (for display text)
 const isFetchingContent = computed(() => {
@@ -121,6 +133,13 @@ const actionDescription = computed(() => {
   };
 
   return actionMap[func] || 'Working';
+});
+
+const actionLabel = computed(() => {
+  if (isTextOnlyOperation.value && !isWorking.value) {
+    return 'Text fetched';
+  }
+  return actionDescription.value;
 });
 
 // Extract URL for display in fetching overlay

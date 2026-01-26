@@ -34,7 +34,7 @@
   <div v-else-if="message.type === 'step'" class="flex flex-col mt-2">
     <!-- Step Header -->
     <div class="w-full flex gap-2 justify-between group/header text-[var(--text-primary)]">
-      <div class="flex flex-row gap-[10px] items-start flex-1 min-w-0 cursor-pointer" @click="isExpanded = !isExpanded">
+      <div class="flex flex-row gap-[10px] items-start flex-1 min-w-0 cursor-pointer" @click="handleStepToggle">
         <!-- Status indicator -->
         <div v-if="stepContent.status === 'completed'"
           class="w-[18px] h-[18px] flex-shrink-0 flex items-center justify-center rounded-full bg-[var(--text-tertiary)] mt-[2px]">
@@ -103,7 +103,7 @@ import ToolUse from './ToolUse.vue';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { CheckIcon } from 'lucide-vue-next';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { ToolContent, StepContent } from '../types/message';
 import { useRelativeTime } from '../composables/useTime';
 import { Bot } from 'lucide-vue-next';
@@ -174,8 +174,24 @@ const reportData = computed<ReportData>(() => {
 
 // Control content expand/collapse state
 const isExpanded = ref(true);
+const userToggled = ref(false);
 
 const { relativeTime } = useRelativeTime();
+
+const handleStepToggle = () => {
+  userToggled.value = true;
+  isExpanded.value = !isExpanded.value;
+};
+
+watch(
+  () => stepContent.value?.status,
+  (status) => {
+    if (status === 'completed' && !userToggled.value) {
+      isExpanded.value = false;
+    }
+  },
+  { immediate: true }
+);
 
 // Render Markdown to HTML and sanitize
 const renderMarkdown = (text: string) => {

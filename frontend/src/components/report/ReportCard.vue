@@ -114,17 +114,24 @@
     <!-- Suggested Follow-ups Section -->
     <div v-if="suggestions && suggestions.length > 0" class="border-t border-[var(--border-main)]">
       <div class="px-4 pt-4 pb-2">
-        <span class="text-base text-[var(--text-tertiary)]">Suggested follow-ups</span>
+        <span class="text-sm text-[var(--text-tertiary)]">Suggested follow-ups</span>
       </div>
       <div class="flex flex-col">
         <div
           v-for="(suggestion, index) in suggestions"
           :key="index"
-          class="flex items-start gap-4 px-4 py-4 cursor-pointer hover:bg-[var(--fill-tsp-white-main)] transition-colors group border-t border-[var(--border-light)]"
+          class="group flex items-start gap-3 px-4 py-4 cursor-pointer border-t border-[var(--border-light)] transition-colors hover:bg-[var(--fill-tsp-white-light)]"
           @click.stop="selectSuggestion(suggestion)"
         >
-          <div class="flex-shrink-0 mt-1">
-            <MessageSquare class="w-6 h-6 text-[var(--icon-tertiary)]" />
+          <div class="flex-shrink-0 mt-0.5">
+            <div
+              class="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border-light)] bg-[var(--fill-tsp-white-main)]"
+            >
+              <component
+                :is="getSuggestionIcon(index)"
+                class="h-4 w-4 text-[var(--icon-tertiary)] transition-colors group-hover:text-[var(--icon-primary)]"
+              />
+            </div>
           </div>
           <div class="flex-1 min-w-0">
             <p class="text-base text-[var(--text-primary)] leading-relaxed font-medium">
@@ -132,7 +139,7 @@
             </p>
           </div>
           <div class="flex-shrink-0 mt-1">
-            <ArrowRight class="w-5 h-5 text-[var(--icon-tertiary)] group-hover:text-[var(--icon-primary)] transition-colors" />
+            <ArrowRight class="w-5 h-5 text-[var(--icon-tertiary)] transition-colors group-hover:text-[var(--icon-primary)]" />
           </div>
         </div>
       </div>
@@ -177,6 +184,11 @@ const emit = defineEmits<{
 
 const showMenu = ref(false);
 const showDownloadMenu = ref(false);
+
+const getSuggestionIcon = (index: number) => {
+  const icons = [MessageSquare, MessageSquare, FileText];
+  return icons[index % icons.length];
+};
 
 // Render preview markdown content (limited to first few sections)
 const renderedPreview = computed(() => {
