@@ -11,6 +11,7 @@
     <div
       ref="vncContainer"
       class="vnc-container"
+      :class="{ 'vnc-viewonly': props.viewOnly }"
       style="display: flex; width: 100%; height: 100%; overflow: auto; background: rgb(40, 40, 40);">
     </div>
   </div>
@@ -200,5 +201,13 @@ defineExpose({
   100% {
     background-position: -200% 0;
   }
+}
+
+.vnc-container.vnc-viewonly {
+  cursor: default;
+}
+
+.vnc-container.vnc-viewonly :deep(canvas) {
+  cursor: default !important;
 }
 </style>

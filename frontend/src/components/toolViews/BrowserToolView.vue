@@ -100,10 +100,15 @@ const isTextOnlyOperation = computed(() => {
   return !!func && TEXT_ONLY_BROWSER_FUNCTIONS.has(func);
 });
 
-const showPlaceholder = computed(() => isWorking.value || isTextOnlyOperation.value);
-const showWorkingDots = computed(() => isWorking.value);
 const showLiveVnc = computed(() => props.live && !isTextOnlyOperation.value);
 const showScreenshot = computed(() => !props.live && !!imageUrl.value && !isTextOnlyOperation.value);
+const showPlaceholder = computed(() => {
+  if (isTextOnlyOperation.value) {
+    return true;
+  }
+  return isWorking.value && !showLiveVnc.value && !showScreenshot.value;
+});
+const showWorkingDots = computed(() => isWorking.value);
 
 // Check if it's specifically a fetch operation (for display text)
 const isFetchingContent = computed(() => {
