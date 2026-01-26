@@ -161,6 +161,7 @@
             :showThumbnail="shouldShowThumbnail"
             :thumbnailUrl="currentThumbnailUrl"
             :currentTool="currentToolInfo"
+            :toolContent="lastNoMessageTool"
             :sessionId="sessionId"
             :liveVnc="shouldEnableVnc"
             @openPanel="handleOpenPanel"
@@ -176,6 +177,10 @@
       :plan="plan"
       :isLoading="isLoading"
       :isThinking="isThinking"
+      :showThumbnail="shouldShowPanelThumbnail"
+      :thumbnailUrl="currentThumbnailUrl"
+      :currentTool="currentToolInfo"
+      :liveVnc="shouldEnableVnc"
       @jumpToRealTime="jumpToRealTime"
       @panelStateChange="handlePanelStateChange" />
   </SimpleBar>
@@ -188,6 +193,20 @@
     @close="closeReport"
     @download="handleReportDownload"
   />
+  <Dialog v-model:open="filePreviewOpen">
+    <DialogContent
+      :hideCloseButton="true"
+      :title="filePreviewFile?.filename || 'File preview'"
+      description="View file preview"
+      class="p-0 flex flex-col overflow-hidden transition-all duration-200 bg-[var(--background-white-main)] w-[95vw] max-w-[1100px] h-[85vh] max-h-[900px]"
+    >
+      <FilePanelContent
+        v-if="filePreviewFile"
+        :file="filePreviewFile"
+        @hide="closeFilePreview"
+      />
+    </DialogContent>
+  </Dialog>
 </template>
 
 <script setup lang="ts">
@@ -229,8 +248,10 @@ import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
 import StreamingThinkingIndicator from '@/components/ui/StreamingThinkingIndicator.vue';
 import TaskProgressBar from '@/components/TaskProgressBar.vue';
 import { ReportModal } from '@/components/report';
+import FilePanelContent from '@/components/FilePanelContent.vue';
 import type { ReportData } from '@/components/report';
 import { useReport, extractSectionsFromMarkdown } from '@/composables/useReport';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 
 const router = useRouter()
 const { t } = useI18n()
@@ -265,6 +286,8 @@ const createInitialState = () => ({
   seenEventIds: new Set<string>(), // Track seen event IDs to prevent duplicates
   thinkingText: '', // Accumulated streaming thinking text
   isThinkingStreaming: false, // True when streaming thinking is in progress
+  filePreviewOpen: false,
+  filePreviewFile: null as FileInfo | null,
 });
 
 // Create reactive state
@@ -295,6 +318,8 @@ const {
   seenEventIds,
   thinkingText,
   isThinkingStreaming,
+  filePreviewOpen,
+  filePreviewFile,
 } = toRefs(state);
 
 // Non-state refs that don't need reset
@@ -338,6 +363,12 @@ watch(thinkingText, async () => {
   }
 });
 
+watch(filePreviewOpen, (isOpen) => {
+  if (!isOpen) {
+    filePreviewFile.value = null;
+  }
+});
+
 const getLastStep = (): StepContent | undefined => {
   return messages.value.filter(message => message.type === 'step').pop()?.content as StepContent;
 }
@@ -369,6 +400,12 @@ const COMPUTER_TOOLS = ['browser', 'shell', 'file', 'browser_agent'];
 const shouldShowThumbnail = computed(() => {
   if (!lastNoMessageTool.value) return false;
   if (isToolPanelOpen.value) return false;
+  if (!COMPUTER_TOOLS.includes(lastNoMessageTool.value.name)) return false;
+  return isLoading.value || isPlanCompleted.value;
+});
+
+const shouldShowPanelThumbnail = computed(() => {
+  if (!lastNoMessageTool.value) return false;
   if (!COMPUTER_TOOLS.includes(lastNoMessageTool.value.name)) return false;
   return isLoading.value || isPlanCompleted.value;
 });
@@ -608,9 +645,16 @@ const handleReportOpen = (report: ReportData) => {
   openReport(report);
 }
 
+const closeFilePreview = () => {
+  filePreviewOpen.value = false;
+  filePreviewFile.value = null;
+};
+
 // Handle report file open
 const handleReportFileOpen = (file: FileInfo) => {
-  showFilePanel(file);
+  hideFilePanel();
+  filePreviewFile.value = file;
+  filePreviewOpen.value = true;
 }
 
 // Handle report rate
