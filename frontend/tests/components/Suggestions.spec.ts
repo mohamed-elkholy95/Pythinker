@@ -7,7 +7,8 @@ import Suggestions from '@/components/Suggestions.vue'
 
 // Mock lucide-vue-next icons
 vi.mock('lucide-vue-next', () => ({
-  Lightbulb: { template: '<svg data-testid="lightbulb-icon"></svg>' },
+  MessageSquare: { template: '<svg data-testid="message-square-icon"></svg>' },
+  FileText: { template: '<svg data-testid="file-text-icon"></svg>' },
   ArrowRight: { template: '<svg data-testid="arrow-right-icon"></svg>' },
 }))
 
@@ -56,11 +57,12 @@ describe('Suggestions', () => {
     it('should render icons for each suggestion', () => {
       const wrapper = mount(Suggestions, {
         props: {
-          suggestions: ['Test suggestion'],
+          suggestions: ['First', 'Second', 'Third'],
         },
       })
 
-      expect(wrapper.find('[data-testid="lightbulb-icon"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="message-square-icon"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="file-text-icon"]').exists()).toBe(true)
       expect(wrapper.find('[data-testid="arrow-right-icon"]').exists()).toBe(true)
     })
   })

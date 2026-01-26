@@ -14,9 +14,9 @@
       </button>
     </div>
 
-    <!-- Timestamp Display -->
+    <!-- Timestamp Display (static for non-hover mode) -->
     <div
-      v-if="currentTimestamp"
+      v-if="showTimestamp && !showTimestampOnInteract"
       class="flex items-center justify-center mb-3"
     >
       <div class="px-3 py-1 bg-blue-500 text-white text-xs font-medium rounded-full">
@@ -53,10 +53,20 @@
       <div class="flex-1 relative">
         <div
           ref="scrubberRef"
-          class="scrubber-track relative h-1 bg-[var(--fill-tsp-gray-main)] rounded-full cursor-pointer group"
+          class="scrubber-track relative h-1 bg-[var(--fill-tsp-gray-main)] rounded-full cursor-pointer group overflow-visible"
           @click="handleScrubberClick"
           @mousedown="startDragging"
+          @mouseenter="handleMouseEnter"
+          @mouseleave="handleMouseLeave"
         >
+          <!-- Floating Timestamp -->
+          <div
+            v-if="showTimestamp && showTimestampOnInteract"
+            class="absolute -top-7 -translate-x-1/2 rounded-full bg-blue-500 text-white text-[10px] font-medium px-2 py-0.5 shadow-sm pointer-events-none whitespace-nowrap"
+            :style="{ left: `${progress}%` }"
+          >
+            {{ formattedTimestamp }}
+          </div>
           <!-- Progress Fill -->
           <div
             class="absolute h-full bg-blue-500 rounded-full transition-[width] duration-100"
@@ -98,6 +108,7 @@ interface Props {
   isLive: boolean
   canStepForward: boolean
   canStepBackward: boolean
+  showTimestampOnInteract?: boolean
 }
 
 const props = defineProps<Props>()
@@ -111,6 +122,7 @@ const emit = defineEmits<{
 
 const scrubberRef = ref<HTMLElement | null>(null)
 const isDragging = ref(false)
+const isHovering = ref(false)
 
 // Format timestamp for display
 const formattedTimestamp = computed(() => {
@@ -127,6 +139,24 @@ const formattedTimestamp = computed(() => {
     hour12: true,
   })
 })
+
+const showTimestamp = computed(() => {
+  if (!props.currentTimestamp) return false
+  if (props.showTimestampOnInteract) return isHovering.value || isDragging.value
+  return true
+})
+
+const handleMouseEnter = () => {
+  if (props.showTimestampOnInteract) {
+    isHovering.value = true
+  }
+}
+
+const handleMouseLeave = () => {
+  if (props.showTimestampOnInteract) {
+    isHovering.value = false
+  }
+}
 
 // Handle click on scrubber
 const handleScrubberClick = (event: MouseEvent) => {
