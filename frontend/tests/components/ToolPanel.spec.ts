@@ -38,8 +38,19 @@ vi.mock('@/components/ToolPanelContent.vue', () => ({
   default: {
     name: 'ToolPanelContent',
     template: '<div class="mock-tool-panel-content"><slot /></div>',
-    props: ['sessionId', 'realTime', 'toolContent', 'live', 'isShare'],
-    emits: ['hide', 'jumpToRealTime'],
+    props: [
+      'sessionId',
+      'realTime',
+      'toolContent',
+      'live',
+      'isShare',
+      'showTimeline',
+      'timelineProgress',
+      'timelineTimestamp',
+      'timelineCanStepForward',
+      'timelineCanStepBackward',
+    ],
+    emits: ['hide', 'jumpToRealTime', 'stepForward', 'stepBackward', 'seekByProgress'],
   },
 }))
 

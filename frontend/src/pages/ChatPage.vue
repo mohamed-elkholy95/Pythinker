@@ -182,6 +182,14 @@
       :currentTool="currentToolInfo"
       :liveVnc="shouldEnableVnc"
       @jumpToRealTime="jumpToRealTime"
+      :showTimeline="showTimelineControls"
+      :timelineProgress="toolTimelineProgress"
+      :timelineTimestamp="toolTimelineTimestamp"
+      :timelineCanStepForward="toolTimelineCanStepForward"
+      :timelineCanStepBackward="toolTimelineCanStepBackward"
+      @timelineStepForward="handleTimelineStepForward"
+      @timelineStepBackward="handleTimelineStepBackward"
+      @timelineSeek="handleTimelineSeek"
       @panelStateChange="handlePanelStateChange" />
   </SimpleBar>
 
@@ -288,6 +296,8 @@ const createInitialState = () => ({
   isThinkingStreaming: false, // True when streaming thinking is in progress
   filePreviewOpen: false,
   filePreviewFile: null as FileInfo | null,
+  toolTimeline: [] as ToolContent[],
+  panelToolId: undefined as string | undefined,
 });
 
 // Create reactive state
@@ -320,6 +330,8 @@ const {
   isThinkingStreaming,
   filePreviewOpen,
   filePreviewFile,
+  toolTimeline,
+  panelToolId,
 } = toRefs(state);
 
 // Non-state refs that don't need reset
@@ -469,12 +481,49 @@ const currentToolInfo = computed(() => {
   };
 });
 
+const toolTimelineIndex = computed(() => {
+  if (!panelToolId.value) return -1;
+  return toolTimeline.value.findIndex(tool => tool.tool_call_id === panelToolId.value);
+});
+
+const toolTimelineProgress = computed(() => {
+  const total = toolTimeline.value.length;
+  if (total <= 1 || toolTimelineIndex.value < 0) return 0;
+  return (toolTimelineIndex.value / (total - 1)) * 100;
+});
+
+const toolTimelineTimestamp = computed(() => {
+  if (toolTimelineIndex.value >= 0) {
+    return toolTimeline.value[toolTimelineIndex.value].timestamp;
+  }
+  return lastNoMessageTool.value?.timestamp;
+});
+
+const toolTimelineCanStepForward = computed(() => {
+  const total = toolTimeline.value.length;
+  return toolTimelineIndex.value >= 0 && toolTimelineIndex.value < total - 1;
+});
+
+const toolTimelineCanStepBackward = computed(() => toolTimelineIndex.value > 0);
+
+const showTimelineControls = computed(() => toolTimeline.value.length > 0);
+
 // Handle opening the panel from TaskProgressBar
 const handleOpenPanel = () => {
   userClosedPanel.value = false;
   if (lastNoMessageTool.value) {
     toolPanel.value?.showToolPanel(lastNoMessageTool.value, isLiveTool(lastNoMessageTool.value));
+    panelToolId.value = lastNoMessageTool.value.tool_call_id;
   }
+};
+
+const upsertToolTimeline = (toolContent: ToolContent) => {
+  const existingIndex = toolTimeline.value.findIndex(tool => tool.tool_call_id === toolContent.tool_call_id);
+  if (existingIndex >= 0) {
+    Object.assign(toolTimeline.value[existingIndex], toolContent);
+    return;
+  }
+  toolTimeline.value.push(toolContent);
 };
 
 // Handle message event
@@ -539,6 +588,10 @@ const handleToolEvent = (toolData: ToolEventData) => {
   }
   if (toolContent.name !== 'message') {
     lastNoMessageTool.value = toolContent;
+    upsertToolTimeline(toolContent);
+    if (realTime.value) {
+      panelToolId.value = toolContent.tool_call_id;
+    }
     // Only auto-open if user hasn't explicitly closed the panel
     if (realTime.value && !userClosedPanel.value) {
       toolPanel.value?.showToolPanel(toolContent, true);
@@ -888,10 +941,38 @@ const isLiveTool = (tool: ToolContent) => {
   return false;
 }
 
+const showToolFromTimeline = (index: number) => {
+  if (toolTimeline.value.length === 0) return;
+  const clampedIndex = Math.max(0, Math.min(index, toolTimeline.value.length - 1));
+  const tool = toolTimeline.value[clampedIndex];
+  if (!tool) return;
+  realTime.value = false;
+  panelToolId.value = tool.tool_call_id;
+  toolPanel.value?.showToolPanel(tool, isLiveTool(tool));
+}
+
+const handleTimelineStepForward = () => {
+  if (!toolTimelineCanStepForward.value) return;
+  showToolFromTimeline(toolTimelineIndex.value + 1);
+}
+
+const handleTimelineStepBackward = () => {
+  if (!toolTimelineCanStepBackward.value) return;
+  showToolFromTimeline(toolTimelineIndex.value - 1);
+}
+
+const handleTimelineSeek = (progress: number) => {
+  if (toolTimeline.value.length === 0) return;
+  const maxIndex = toolTimeline.value.length - 1;
+  const targetIndex = Math.round((progress / 100) * maxIndex);
+  showToolFromTimeline(targetIndex);
+}
+
 const handleToolClick = (tool: ToolContent) => {
   realTime.value = false;
   if (sessionId.value) {
     toolPanel.value?.showToolPanel(tool, isLiveTool(tool));
+    panelToolId.value = tool.tool_call_id;
   }
 }
 
@@ -899,6 +980,7 @@ const jumpToRealTime = () => {
   realTime.value = true;
   if (lastNoMessageTool.value) {
     toolPanel.value?.showToolPanel(lastNoMessageTool.value, isLiveTool(lastNoMessageTool.value));
+    panelToolId.value = lastNoMessageTool.value.tool_call_id;
   }
 }
 

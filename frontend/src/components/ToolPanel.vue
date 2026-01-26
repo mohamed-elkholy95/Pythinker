@@ -8,7 +8,25 @@
     }"
     :style="{ 'width': isShow ? `${parentSize/2}px` : '0px', 'opacity': isShow ? '1' : '0', 'transition': '0.2s ease-in-out' }">
     <div class="h-full flex flex-col" :style="{ 'width': isShow ? '100%' : '0px' }">
-      <ToolPanelContent v-if="isShow && toolContent" :sessionId="sessionId" :realTime="realTime" :toolContent="toolContent" :live="live" :isShare="isShare" @hide="() => hideToolPanel(true)" @jumpToRealTime="jumpToRealTime" class="flex-1 min-h-0" />
+      <ToolPanelContent
+        v-if="isShow && toolContent"
+        :sessionId="sessionId"
+        :realTime="realTime"
+        :toolContent="toolContent"
+        :live="live"
+        :isShare="isShare"
+        :showTimeline="showTimeline"
+        :timelineProgress="timelineProgress"
+        :timelineTimestamp="timelineTimestamp"
+        :timelineCanStepForward="timelineCanStepForward"
+        :timelineCanStepBackward="timelineCanStepBackward"
+        @hide="() => hideToolPanel(true)"
+        @jumpToRealTime="jumpToRealTime"
+        @stepForward="handleTimelineStepForward"
+        @stepBackward="handleTimelineStepBackward"
+        @seekByProgress="handleTimelineSeek"
+        class="flex-1 min-h-0"
+      />
       <!-- Task Progress Bar - shown at bottom of ToolPanel when open -->
       <TaskProgressBar
         v-if="isShow && plan && plan.steps.length > 0"
@@ -16,6 +34,9 @@
         :isLoading="isLoading"
         :isThinking="isThinking"
         :showThumbnail="showThumbnail"
+        :hideThumbnail="true"
+        :defaultExpanded="false"
+        :compact="true"
         :thumbnailUrl="thumbnailUrl"
         :currentTool="currentTool"
         :toolContent="toolContent"
@@ -52,6 +73,9 @@ const visible = ref(true)
 const emit = defineEmits<{
   (e: 'jumpToRealTime'): void
   (e: 'panelStateChange', isOpen: boolean, userAction: boolean): void
+  (e: 'timelineStepForward'): void
+  (e: 'timelineStepBackward'): void
+  (e: 'timelineSeek', progress: number): void
 }>()
 
 defineProps<{
@@ -65,6 +89,11 @@ defineProps<{
   thumbnailUrl?: string
   currentTool?: { name: string; function: string; functionArg?: string } | null
   liveVnc?: boolean
+  showTimeline?: boolean
+  timelineProgress?: number
+  timelineTimestamp?: number
+  timelineCanStepForward?: boolean
+  timelineCanStepBackward?: boolean
 }>()
 
 // Track if state change was from user action
@@ -93,6 +122,18 @@ const hideToolPanel = (userTriggered: boolean = false) => {
 
 const jumpToRealTime = () => {
   emit('jumpToRealTime')
+}
+
+const handleTimelineStepForward = () => {
+  emit('timelineStepForward')
+}
+
+const handleTimelineStepBackward = () => {
+  emit('timelineStepBackward')
+}
+
+const handleTimelineSeek = (progress: number) => {
+  emit('timelineSeek', progress)
 }
 
 onMounted(() => {
