@@ -27,7 +27,7 @@
         </template>
         <!-- Task icon for non-running sessions -->
         <template v-else>
-          <TaskIcon :title="session.title || ''" />
+          <TaskIcon :title="session.title || ''" :session-id="session.session_id" />
         </template>
         <!-- Unread badge -->
         <div v-if="session.unread_message_count > 0 && !isCurrentSession"

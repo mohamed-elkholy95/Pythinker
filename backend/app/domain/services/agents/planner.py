@@ -37,6 +37,10 @@ from app.domain.utils.json_parser import JsonParser
 
 logger = logging.getLogger(__name__)
 
+MIN_PLAN_STEPS = 3
+MAX_PLAN_STEPS = 6
+MAX_MERGED_STEP_CHARS = 240
+
 class PlannerAgent(BaseAgent):
     """
     Planner agent class, defining the basic behavior of planning
@@ -179,8 +183,10 @@ class PlannerAgent(BaseAgent):
                         title=plan_response.title,
                         language=plan_response.language,
                         message=plan_response.message,
-                        steps=[Step(id=str(i+1), description=s.description)
-                               for i, s in enumerate(plan_response.steps)]
+                        steps=self._normalize_plan_steps([
+                            Step(id=str(i + 1), description=s.description)
+                            for i, s in enumerate(plan_response.steps)
+                        ])
                     )
                     logger.info(f"Created plan using structured output: {plan.title}")
                     await self._add_to_memory([{"role": "assistant", "content": plan.model_dump_json()}])
@@ -197,6 +203,7 @@ class PlannerAgent(BaseAgent):
                 logger.info(event.message)
                 parsed_response = await self.json_parser.parse(event.message)
                 plan = Plan.model_validate(parsed_response)
+                plan.steps = self._normalize_plan_steps(plan.steps)
                 yield PlanEvent(status=PlanStatus.CREATED, plan=plan)
             else:
                 yield event
@@ -235,7 +242,7 @@ class PlannerAgent(BaseAgent):
                 # Keep completed steps
                 updated_steps = plan.steps[:first_pending_index]
                 # Add new steps
-                updated_steps.extend(new_steps)
+                updated_steps.extend(self._normalize_plan_steps(new_steps))
                 # Update steps in plan
                 plan.steps = updated_steps
 
@@ -275,6 +282,51 @@ class PlannerAgent(BaseAgent):
                 yield PlanEvent(status=PlanStatus.UPDATED, plan=plan)
             else:
                 yield event
+
+    def _normalize_plan_steps(self, steps: List[Step]) -> List[Step]:
+        """Clamp plan length and merge overflow steps into the final step."""
+        if not steps:
+            return steps
+
+        existing_text = " ".join(s.description.lower() for s in steps if s.description)
+        if len(steps) < MIN_PLAN_STEPS:
+            fillers: List[str] = []
+            if not any(keyword in existing_text for keyword in ["verify", "validate", "test", "check"]):
+                fillers.append("Validate results and address any issues")
+            if not any(keyword in existing_text for keyword in ["deliver", "final", "hand off", "share"]):
+                fillers.append("Deliver final output to the user")
+            fallback_fillers = [
+                "Review outputs for completeness and consistency",
+                "Summarize outcomes and note any limitations",
+            ]
+            for filler in fallback_fillers:
+                if len(steps) + len(fillers) >= MIN_PLAN_STEPS:
+                    break
+                if filler.lower() not in existing_text:
+                    fillers.append(filler)
+            if fillers:
+                steps = steps + [Step(description=filler) for filler in fillers][: max(0, MIN_PLAN_STEPS - len(steps))]
+
+        if len(steps) <= MAX_PLAN_STEPS:
+            for i, s in enumerate(steps):
+                s.id = str(i + 1)
+            return steps
+
+        head = steps[: MAX_PLAN_STEPS - 1]
+        tail = steps[MAX_PLAN_STEPS - 1 :]
+        merged_desc = "Consolidate remaining items: " + "; ".join(
+            s.description for s in tail if s.description
+        )
+        if len(merged_desc) > MAX_MERGED_STEP_CHARS:
+            merged_desc = merged_desc[: MAX_MERGED_STEP_CHARS - 3].rstrip() + "..."
+
+        merged_step = Step(id=str(MAX_PLAN_STEPS), description=merged_desc)
+        normalized = head + [merged_step]
+
+        for i, s in enumerate(normalized):
+            s.id = str(i + 1)
+
+        return normalized
 
     def _format_task_memory(self, memories) -> str:
         """Format task memories for planning context.

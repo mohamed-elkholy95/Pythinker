@@ -1,39 +1,189 @@
 <template>
   <div class="bg-[var(--background-gray-main)] sm:bg-[var(--background-menu-white)] sm:rounded-[22px] shadow-[0px_0px_8px_0px_rgba(0,0,0,0.02)] border border-black/8 dark:border-[var(--border-light)] flex h-full w-full">
     <div class="flex-1 min-w-0 p-4 flex flex-col h-full">
+      <!-- Frame Header: Pythinker's Computer + window controls -->
       <div class="flex items-center gap-2 w-full">
-        <div class="text-[var(--text-primary)] text-lg font-semibold flex-1">{{ $t('Pythinker Computer') }}</div>
-        <button
-          class="w-7 h-7 relative rounded-md inline-flex items-center justify-center gap-2.5 cursor-pointer hover:bg-[var(--fill-tsp-gray-main)]">
-          <Minimize2 class="w-5 h-5 text-[var(--icon-tertiary)]" @click="hide" />
-        </button>
+        <div class="text-[var(--text-primary)] text-lg font-semibold flex-1">{{ $t("Pythinker's Computer") }}</div>
+        <div class="flex items-center gap-1">
+          <button
+            class="w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)]"
+            @click="takeOver"
+            aria-label="Open takeover"
+          >
+            <MonitorUp class="w-4 h-4 text-[var(--icon-tertiary)]" />
+          </button>
+          <button
+            class="w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)]"
+            @click="hide"
+            aria-label="Minimize"
+          >
+            <Minimize2 class="w-4 h-4 text-[var(--icon-tertiary)]" />
+          </button>
+          <button
+            class="w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)]"
+            @click="hide"
+            aria-label="Close"
+          >
+            <X class="w-4 h-4 text-[var(--icon-tertiary)]" />
+          </button>
+        </div>
       </div>
+
+      <!-- Activity Bar: Tool icon + "Pythinker is using X | Action" -->
       <div v-if="toolInfo" class="flex items-center gap-2 mt-2">
         <div
           class="w-[40px] h-[40px] bg-[var(--fill-tsp-gray-main)] rounded-lg flex items-center justify-center flex-shrink-0">
           <component :is="toolInfo.icon" :size="28" />
         </div>
         <div class="flex-1 flex flex-col gap-1 min-w-0">
-          <div class="text-[12px] text-[var(--text-tertiary)]">{{ $t('Pythinker is using') }} <span
-              class="text-[var(--text-secondary)]">{{ toolInfo.name }}</span></div>
-          <div :title="`${toolInfo.function} ${toolInfo.functionArg}`"
-            class="max-w-[100%] w-[max-content] truncate text-[13px] rounded-full inline-flex items-center px-[10px] py-[3px] border border-[var(--border-light)] bg-[var(--fill-tsp-gray-main)] text-[var(--text-secondary)]">
-            {{ toolInfo.function }}<span
-              class="flex-1 min-w-0 px-1 ml-1 text-[12px] font-mono max-w-full text-ellipsis overflow-hidden whitespace-nowrap text-[var(--text-tertiary)]"><code>{{ toolInfo.functionArg }}</code></span>
+          <div class="text-[12px] text-[var(--text-tertiary)]">
+            {{ $t('Pythinker is using') }}
+            <span class="text-[var(--text-secondary)]">{{ toolInfo.name }}</span>
+          </div>
+          <div v-if="toolSubtitle" class="text-[12px] text-[var(--text-tertiary)] truncate">
+            {{ toolSubtitle }}
           </div>
         </div>
       </div>
+
+      <!-- Content Container with rounded frame -->
       <div
         class="flex flex-col rounded-[12px] overflow-hidden bg-[var(--background-gray-main)] border border-[var(--border-dark)] dark:border-black/30 shadow-[0px_4px_32px_0px_rgba(0,0,0,0.04)] flex-1 min-h-0 mt-[16px]">
-        <component v-if="toolInfo" :is="toolInfo.view" :live="live" :sessionId="sessionId"
-          :toolContent="toolContent" :isShare="isShare" />
-        <div v-if="showTimeline" class="mt-auto">
+
+        <!-- Content Header: Resource indicator + View mode tabs -->
+        <div
+          v-if="contentConfig"
+          class="h-[36px] flex items-center px-3 w-full bg-[var(--background-gray-main)] border-b border-[var(--border-main)] rounded-t-[12px] shadow-[inset_0px_1px_0px_0px_#FFFFFF] dark:shadow-[inset_0px_1px_0px_0px_#FFFFFF30]">
+
+          <!-- Left: Activity indicator + resource name -->
+          <div class="flex-1 min-w-0 flex items-center gap-2">
+            <div v-if="isActiveOperation" class="w-2 h-2 bg-green-500 rounded-full animate-pulse flex-shrink-0"></div>
+            <div class="max-w-[200px] truncate text-[var(--text-tertiary)] text-sm font-medium">
+              {{ resourceDisplay }}
+            </div>
+            <!-- Writing indicator for file operations -->
+            <div v-if="isFileWriting" class="flex items-center gap-1.5 ml-2">
+              <div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
+              <span class="text-xs text-blue-500 font-medium">Writing</span>
+            </div>
+          </div>
+
+          <!-- Right: View mode tabs (hidden for text-only operations) -->
+          <div v-if="contentConfig.showTabs && !isTextOnlyOperation" class="flex items-center gap-1 bg-[var(--fill-tsp-gray-main)] rounded-lg p-0.5">
+            <button
+              v-for="(label, idx) in contentConfig.tabLabels"
+              :key="idx"
+              @click="setViewModeByIndex(idx)"
+              class="px-2 py-1 text-xs rounded-md transition-colors relative"
+              :class="viewModeIndex === idx ? 'bg-[var(--background-white-main)] text-[var(--text-primary)] shadow-sm' : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'"
+            >
+              {{ label }}
+              <span v-if="hasNewOutput && idx === 1 && viewModeIndex !== 1" class="absolute -top-0.5 -right-0.5 w-2 h-2 bg-blue-500 rounded-full"></span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Content Area: Dynamic content rendering -->
+        <div class="flex-1 min-h-0 w-full overflow-hidden">
+          <!-- Text-only operation: Show placeholder while active, terminal when complete -->
+          <VNCContentView
+            v-if="isTextOnlyOperation && isActiveOperation"
+            :session-id="sessionId || ''"
+            :enabled="false"
+            :view-only="true"
+            :show-placeholder="true"
+            :placeholder-label="placeholderLabel"
+            :placeholder-detail="placeholderDetail"
+            :is-active="true"
+          />
+
+          <!-- Text-only operation complete: Show terminal output -->
+          <TerminalContentView
+            v-else-if="isTextOnlyOperation && !isActiveOperation"
+            :content="terminalContent"
+            :content-type="terminalContentType"
+            :is-live="false"
+            :auto-scroll="true"
+          />
+
+          <!-- VNC View (for non-text-only operations) -->
+          <VNCContentView
+            v-else-if="currentViewType === 'vnc'"
+            :session-id="sessionId || ''"
+            :enabled="live"
+            :view-only="true"
+            :show-placeholder="false"
+            :placeholder-label="placeholderLabel"
+            :placeholder-detail="placeholderDetail"
+            :is-active="isActiveOperation"
+            :screenshot="screenshot"
+            @connected="onVNCConnected"
+            @disconnected="onVNCDisconnected"
+          >
+            <template #takeover>
+              <button
+                v-if="!isShare && live"
+                @click="takeOver"
+                class="absolute right-3 bottom-3 z-10 min-w-10 h-10 flex items-center justify-center rounded-full bg-[var(--background-white-main)] text-[var(--text-primary)] border border-[var(--border-main)] shadow-lg cursor-pointer hover:bg-[var(--text-brand)] hover:px-4 hover:text-white group transition-all duration-300">
+                <TakeOverIcon />
+                <span class="text-sm max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-300 group-hover:max-w-[200px] group-hover:opacity-100 group-hover:ml-1">
+                  {{ $t('Take Over') }}
+                </span>
+              </button>
+            </template>
+          </VNCContentView>
+
+          <!-- Terminal View -->
+          <TerminalContentView
+            v-else-if="currentViewType === 'terminal'"
+            :content="terminalContent"
+            :content-type="terminalContentType"
+            :is-live="isActiveOperation"
+            :is-writing="isFileWriting"
+            :auto-scroll="true"
+            @new-content="onNewTerminalContent"
+          />
+
+          <!-- Editor View -->
+          <EditorContentView
+            v-else-if="currentViewType === 'editor'"
+            :content="editorContent"
+            :filename="fileName"
+            :is-writing="isFileWriting"
+          />
+
+          <!-- Search View -->
+          <SearchContentView
+            v-else-if="currentViewType === 'search'"
+            :results="searchResults"
+            :is-searching="isSearching"
+            :query="searchQuery"
+          />
+
+          <!-- Generic/MCP View -->
+          <GenericContentView
+            v-else-if="currentViewType === 'generic'"
+            :function-name="toolContent?.function"
+            :args="toolContent?.args"
+            :result="toolContent?.content?.result"
+            :content="toolContent?.content"
+            :is-executing="isActiveOperation"
+          />
+
+          <!-- Fallback -->
+          <div v-else class="w-full h-full flex items-center justify-center text-[var(--text-tertiary)]">
+            No content available
+          </div>
+        </div>
+
+        <!-- Timeline Controls -->
+        <div class="mt-auto">
           <TimelineControls
-            :progress="timelineProgress ?? 0"
-            :current-timestamp="timelineTimestamp"
+            :progress="showTimeline ? (timelineProgress ?? 0) : 0"
+            :current-timestamp="showTimeline ? timelineTimestamp : undefined"
             :is-live="realTime"
-            :can-step-forward="!!timelineCanStepForward"
-            :can-step-backward="!!timelineCanStepBackward"
+            :can-step-forward="showTimeline ? !!timelineCanStepForward : false"
+            :can-step-backward="showTimeline ? !!timelineCanStepBackward : false"
             :show-timestamp-on-interact="true"
             @jump-to-live="jumpToRealTime"
             @step-forward="handleStepForward"
@@ -41,25 +191,27 @@
             @seek-by-progress="handleSeekByProgress"
           />
         </div>
-        <div class="mt-auto flex w-full items-center gap-2 px-4 h-[44px] relative" v-else-if="!realTime">
-          <button
-            class="h-10 px-3 border border-[var(--border-main)] flex items-center gap-1 bg-[var(--background-white-main)] hover:bg-[var(--background-gray-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)] rounded-full cursor-pointer absolute left-[50%] translate-x-[-50%]"
-            style="bottom: calc(100% + 10px);" @click="jumpToRealTime">
-            <PlayIcon :size="16" />
-            <span class="text-[var(--text-primary)] text-sm font-medium">{{ $t('Jump to live') }}</span>
-          </button>
-        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { toRef } from 'vue';
-import { Minimize2, PlayIcon } from 'lucide-vue-next';
+import { toRef, computed, watch, ref, onMounted, onUnmounted } from 'vue';
+import { Minimize2, MonitorUp, X } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
 import { useToolInfo } from '@/composables/useTool';
+import { useContentConfig } from '@/composables/useContentConfig';
+import { viewFile, viewShellSession } from '@/api/agent';
 import TimelineControls from '@/components/timeline/TimelineControls.vue';
+import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';
+
+// Content views
+import VNCContentView from '@/components/toolViews/VNCContentView.vue';
+import TerminalContentView from '@/components/toolViews/TerminalContentView.vue';
+import EditorContentView from '@/components/toolViews/EditorContentView.vue';
+import SearchContentView from '@/components/toolViews/SearchContentView.vue';
+import GenericContentView from '@/components/toolViews/GenericContentView.vue';
 
 const props = defineProps<{
   sessionId?: string;
@@ -74,8 +226,369 @@ const props = defineProps<{
   timelineCanStepBackward?: boolean;
 }>();
 
+// Get tool info (icon, name, etc.)
 const { toolInfo } = useToolInfo(toRef(props, 'toolContent'));
 
+// Get content config for unified tabs
+const {
+  contentConfig,
+  viewModeIndex,
+  currentViewType,
+  isTextOnlyOperation,
+  hasNewOutput,
+  setViewModeByIndex,
+  markNewOutput
+} = useContentConfig(toRef(props, 'toolContent'));
+
+// Tool state
+const toolName = computed(() => props.toolContent?.name || '');
+const toolFunction = computed(() => props.toolContent?.function || '');
+const toolStatus = computed(() => props.toolContent?.status || '');
+
+// Activity detection
+const isActiveOperation = computed(() => {
+  return toolStatus.value === 'calling' || toolStatus.value === 'running';
+});
+
+// File operations
+const isFileWriting = computed(() => {
+  return toolFunction.value === 'file_write' && toolStatus.value === 'calling';
+});
+
+const isSearching = computed(() => {
+  return (toolName.value === 'search' || toolName.value === 'info') && toolStatus.value === 'calling';
+});
+
+// Tool subtitle
+const toolSubtitle = computed(() => {
+  if (toolName.value === 'file' && props.toolContent?.args?.file) {
+    const path = String(props.toolContent.args.file || '').replace(/^\/home\/ubuntu\//, '');
+    return `Editing file ${path}`;
+  }
+  if (toolName.value === 'shell' && props.toolContent?.args?.command) {
+    return `Running ${String(props.toolContent.args.command).slice(0, 60)}`;
+  }
+  if (toolName.value === 'browser' && props.toolContent?.args?.url) {
+    return `Browsing ${String(props.toolContent.args.url).replace(/^https?:\/\//, '')}`;
+  }
+  if (toolInfo.value?.function && toolInfo.value?.functionArg) {
+    return `${toolInfo.value.function} ${toolInfo.value.functionArg}`;
+  }
+  if (toolInfo.value?.function) {
+    return toolInfo.value.function;
+  }
+  return '';
+});
+
+// Resource display for content header
+const resourceDisplay = computed(() => {
+  const url = props.toolContent?.args?.url;
+  if (url) return url;
+
+  const file = props.toolContent?.args?.file;
+  if (file) return String(file).replace(/^\/home\/ubuntu\//, '');
+
+  const nameMap: Record<string, string> = {
+    'shell': 'Terminal',
+    'file': 'File System',
+    'code_executor': 'Code Execution',
+    'browser': 'Browser',
+    'browser_agent': 'Browser Agent',
+    'search': 'Web Search',
+    'info': 'Information',
+    'mcp': 'MCP Tool'
+  };
+  return nameMap[toolName.value] || 'Sandbox';
+});
+
+// Placeholder label for text-only operations
+const placeholderLabel = computed(() => {
+  const funcMap: Record<string, string> = {
+    'browser_get_content': 'Fetching page content',
+    'browser_agent_extract': 'Extracting data',
+    'shell_execute': 'Executing command',
+    'file_write': 'Writing file',
+    'file_read': 'Reading file',
+    'code_execute': 'Running code',
+  };
+  return funcMap[toolFunction.value] || 'Processing';
+});
+
+// Placeholder detail
+const placeholderDetail = computed(() => {
+  const args = props.toolContent?.args || {};
+  if (args.url) {
+    try {
+      const u = new URL(args.url);
+      return u.hostname + u.pathname.slice(0, 30);
+    } catch { return args.url.slice(0, 50); }
+  }
+  if (args.file) return args.file.replace(/^\/home\/ubuntu\//, '');
+  if (args.command) return args.command.slice(0, 50);
+  if (args.code) return `${args.code.slice(0, 30)}...`;
+  return '';
+});
+
+// Screenshot
+const screenshot = ref('');
+watch(() => props.toolContent?.content?.screenshot, (newScreenshot) => {
+  if (newScreenshot) screenshot.value = newScreenshot;
+}, { immediate: true });
+
+// ============ Terminal Content ============
+const shellOutput = ref('');
+const refreshTimer = ref<number | null>(null);
+
+const terminalContentType = computed<'shell' | 'file' | 'browser' | 'code' | 'generic'>(() => {
+  if (toolName.value === 'shell') return 'shell';
+  if (toolName.value === 'code_executor') return 'code';
+  if (toolName.value === 'file') return 'file';
+  if (toolName.value === 'browser' || toolName.value === 'browser_agent') return 'browser';
+  return 'generic';
+});
+
+const terminalContent = computed(() => {
+  // Shell/Code executor output
+  if (toolName.value === 'shell' || toolName.value === 'code_executor') {
+    if (shellOutput.value) return shellOutput.value;
+
+    const content = props.toolContent?.content;
+    if (!content) return '';
+
+    // Shell console output (array format)
+    if (content.console && Array.isArray(content.console)) {
+      return content.console.map((entry: any) => {
+        let line = '';
+        if (entry.ps1) line += entry.ps1 + ' ';
+        if (entry.command) line += entry.command + '\n';
+        if (entry.output) line += entry.output + '\n';
+        return line;
+      }).join('');
+    }
+
+    // String console output
+    if (typeof content.console === 'string') return content.console;
+
+    // Code executor output
+    if (content.stdout) return content.stdout + (content.stderr ? '\n[stderr]\n' + content.stderr : '');
+
+    return '';
+  }
+
+  // File content
+  if (toolName.value === 'file') {
+    if (isFileWriting.value) {
+      return props.toolContent?.args?.content || props.toolContent?.content?.content || '';
+    }
+    return props.toolContent?.content?.content || '';
+  }
+
+  // Browser content
+  if (toolName.value === 'browser' || toolName.value === 'browser_agent') {
+    return props.toolContent?.content?.content || '';
+  }
+
+  // Generic
+  const content = props.toolContent?.content;
+  if (!content) return '';
+  if (typeof content === 'string') return content;
+  return JSON.stringify(content, null, 2);
+});
+
+// Load shell content via API
+const loadShellContent = async () => {
+  const shellSessionId = props.toolContent?.args?.id;
+  if (!props.live || !shellSessionId || !props.sessionId) {
+    // Use content from props
+    const content = props.toolContent?.content;
+    if (content?.console && Array.isArray(content.console)) {
+      let newOutput = '';
+      for (const e of content.console) {
+        newOutput += `${e.ps1} ${e.command}\n`;
+        newOutput += `${e.output}\n`;
+      }
+      shellOutput.value = newOutput;
+    }
+    return;
+  }
+
+  try {
+    const response = await viewShellSession(props.sessionId, shellSessionId);
+    if (response?.console) {
+      let newOutput = '';
+      for (const e of response.console) {
+        newOutput += `${e.ps1} ${e.command}\n`;
+        newOutput += `${e.output}\n`;
+      }
+      shellOutput.value = newOutput;
+    }
+  } catch (error) {
+    console.error("Failed to load shell content:", error);
+  }
+};
+
+// Start auto-refresh timer for shell
+const startAutoRefresh = () => {
+  if (refreshTimer.value) {
+    clearInterval(refreshTimer.value);
+  }
+  if (props.live && (toolName.value === 'shell' || toolName.value === 'code_executor')) {
+    refreshTimer.value = setInterval(loadShellContent, 5000);
+  }
+};
+
+const stopAutoRefresh = () => {
+  if (refreshTimer.value) {
+    clearInterval(refreshTimer.value);
+    refreshTimer.value = null;
+  }
+};
+
+// Watch for tool changes
+watch(() => props.toolContent, () => {
+  if (toolName.value === 'shell' || toolName.value === 'code_executor') {
+    loadShellContent();
+  }
+});
+
+watch(() => props.live, (live) => {
+  if (live) {
+    startAutoRefresh();
+  } else {
+    stopAutoRefresh();
+  }
+});
+
+onMounted(() => {
+  if (toolName.value === 'shell' || toolName.value === 'code_executor') {
+    loadShellContent();
+  }
+  startAutoRefresh();
+});
+
+onUnmounted(() => {
+  stopAutoRefresh();
+});
+
+// ============ Editor Content ============
+const fileContent = ref('');
+const originalContent = ref('');
+
+const fileName = computed(() => {
+  const file = props.toolContent?.args?.file;
+  if (file) return String(file).split('/').pop() || '';
+  return '';
+});
+
+const editorContent = computed(() => {
+  // For file view modes
+  if (toolName.value !== 'file') return '';
+
+  // Modified view (primary)
+  if (viewModeIndex.value === 0) {
+    if (isFileWriting.value) {
+      return props.toolContent?.args?.content || props.toolContent?.content?.content || fileContent.value;
+    }
+    return fileContent.value || props.toolContent?.content?.content || '';
+  }
+
+  // Original view (secondary)
+  if (viewModeIndex.value === 1) {
+    return originalContent.value || fileContent.value;
+  }
+
+  // Diff view (tertiary)
+  if (viewModeIndex.value === 2) {
+    return buildSimpleDiff(originalContent.value, fileContent.value);
+  }
+
+  return fileContent.value;
+});
+
+const buildSimpleDiff = (original: string, modified: string): string => {
+  if (!original && !modified) return "";
+  if (!original) return `+ ${modified}`;
+  if (!modified) return `- ${original}`;
+
+  const originalLines = original.split('\n');
+  const modifiedLines = modified.split('\n');
+  const maxLines = Math.max(originalLines.length, modifiedLines.length);
+  const out: string[] = [];
+
+  for (let i = 0; i < maxLines; i += 1) {
+    const a = originalLines[i];
+    const b = modifiedLines[i];
+    if (a === b) {
+      out.push(`  ${a ?? ''}`);
+    } else {
+      if (a !== undefined) out.push(`- ${a}`);
+      if (b !== undefined) out.push(`+ ${b}`);
+    }
+  }
+
+  return out.join('\n');
+};
+
+// Load file content
+const loadFileContent = async () => {
+  const filePath = props.toolContent?.args?.file;
+
+  // During file_write, show streaming content
+  if (isFileWriting.value) {
+    const streamingContent = props.toolContent.content?.content || props.toolContent.args?.content || '';
+    if (fileContent.value && fileContent.value !== streamingContent) {
+      originalContent.value = fileContent.value;
+    }
+    fileContent.value = streamingContent;
+    return;
+  }
+
+  if (!props.live) {
+    const nextContent = props.toolContent.content?.content || '';
+    if (fileContent.value && fileContent.value !== nextContent) {
+      originalContent.value = fileContent.value;
+    }
+    fileContent.value = nextContent;
+    return;
+  }
+
+  if (!filePath || !props.sessionId) return;
+
+  try {
+    const response = await viewFile(props.sessionId, filePath);
+    const nextContent = response.content;
+    if (fileContent.value && fileContent.value !== nextContent) {
+      originalContent.value = fileContent.value;
+    }
+    fileContent.value = nextContent;
+  } catch (error) {
+    console.error("Failed to load file content:", error);
+  }
+};
+
+// Watch file changes
+watch(() => props.toolContent?.args?.file, (newFile) => {
+  if (newFile && toolName.value === 'file') {
+    loadFileContent();
+  }
+});
+
+watch(() => props.toolContent?.status, () => {
+  if (toolName.value === 'file') {
+    loadFileContent();
+  }
+});
+
+// ============ Search Content ============
+const searchResults = computed(() => {
+  return props.toolContent?.content?.results || [];
+});
+
+const searchQuery = computed(() => {
+  return props.toolContent?.args?.query || '';
+});
+
+// ============ Event Handlers ============
 const emit = defineEmits<{
   (e: 'jumpToRealTime'): void,
   (e: 'hide'): void
@@ -88,6 +601,12 @@ const hide = () => {
   emit('hide');
 };
 
+const takeOver = () => {
+  if (!props.sessionId) return;
+  window.dispatchEvent(new CustomEvent('takeover', {
+    detail: { sessionId: props.sessionId, active: true }
+  }));
+};
 
 const jumpToRealTime = () => {
   emit('jumpToRealTime');
@@ -103,5 +622,12 @@ const handleStepBackward = () => {
 
 const handleSeekByProgress = (progress: number) => {
   emit('seekByProgress', progress);
+};
+
+const onVNCConnected = () => console.log('VNC connected');
+const onVNCDisconnected = () => console.log('VNC disconnected');
+
+const onNewTerminalContent = () => {
+  markNewOutput();
 };
 </script>

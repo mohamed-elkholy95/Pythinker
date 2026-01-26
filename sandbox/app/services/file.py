@@ -15,10 +15,18 @@ from app.models.file import (
     FileSearchResult, FileFindResult, FileUploadResult
 )
 from app.core.exceptions import AppException, ResourceNotFoundException, BadRequestException
+from app.core.config import settings
+from app.core.security import security_manager
 
 
 class FileService:
     """File Operation Service"""
+
+    def _normalize_path(self, path: str) -> str:
+        """Normalize paths to absolute paths for validation."""
+        if not os.path.isabs(path):
+            return os.path.abspath(path)
+        return path
 
     async def read_file(self, file: str, start_line: Optional[int] = None, 
                  end_line: Optional[int] = None, sudo: bool = False, max_length: Optional[int] = 10000) -> FileReadResult:
@@ -31,6 +39,11 @@ class FileService:
             end_line: Ending line (not included)
             sudo: Whether to use sudo privileges
         """
+        file = self._normalize_path(file)
+        if sudo and not settings.ALLOW_SUDO:
+            raise BadRequestException("sudo is not allowed in this sandbox")
+        if not security_manager.validate_path(file):
+            raise BadRequestException(f"Invalid file path: {file}")
         # Check if file exists
         if not os.path.exists(file) and not sudo:
             raise ResourceNotFoundException(f"File does not exist: {file}")
@@ -98,6 +111,11 @@ class FileService:
             sudo: Whether to use sudo privileges
         """
         try:
+            file = self._normalize_path(file)
+            if sudo and not settings.ALLOW_SUDO:
+                raise BadRequestException("sudo is not allowed in this sandbox")
+            if not security_manager.validate_path(file, allow_create=True):
+                raise BadRequestException(f"Invalid file path: {file}")
             # Prepare content
             if leading_newline:
                 content = '\n' + content
@@ -109,6 +127,17 @@ class FileService:
             # Write with sudo
             if sudo:
                 mode = '>>' if append else '>'
+                parent_dir = os.path.dirname(file)
+                if parent_dir and not os.path.exists(parent_dir):
+                    mkdir_cmd = f"sudo mkdir -p '{parent_dir}'"
+                    mkdir_proc = await asyncio.create_subprocess_shell(
+                        mkdir_cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    _, mkdir_err = await mkdir_proc.communicate()
+                    if mkdir_proc.returncode != 0:
+                        raise BadRequestException(f"Failed to create directory: {mkdir_err.decode()}")
                 # Create secure temporary file
                 fd, temp_file = tempfile.mkstemp(prefix='file_write_', suffix='.tmp')
                 try:
@@ -167,6 +196,11 @@ class FileService:
             new_str: New replacement string
             sudo: Whether to use sudo privileges
         """
+        file = self._normalize_path(file)
+        if sudo and not settings.ALLOW_SUDO:
+            raise BadRequestException("sudo is not allowed in this sandbox")
+        if not security_manager.validate_path(file):
+            raise BadRequestException(f"Invalid file path: {file}")
         # First read file content
         file_result = await self.read_file(file, sudo=sudo)
         content = file_result.content
@@ -200,6 +234,11 @@ class FileService:
             regex: Regular expression pattern
             sudo: Whether to use sudo privileges
         """
+        file = self._normalize_path(file)
+        if sudo and not settings.ALLOW_SUDO:
+            raise BadRequestException("sudo is not allowed in this sandbox")
+        if not security_manager.validate_path(file):
+            raise BadRequestException(f"Invalid file path: {file}")
         # Read file
         file_result = await self.read_file(file, sudo=sudo)
         content = file_result.content
@@ -239,6 +278,9 @@ class FileService:
             path: Directory path to search
             glob_pattern: File name pattern (glob syntax)
         """
+        path = self._normalize_path(path)
+        if not security_manager.validate_path(path):
+            raise BadRequestException(f"Invalid directory path: {path}")
         # Check if path exists
         if not os.path.exists(path):
             raise ResourceNotFoundException(f"Directory does not exist: {path}")
@@ -264,6 +306,9 @@ class FileService:
             file_stream: File stream from FastAPI UploadFile
         """
         try:
+            path = self._normalize_path(path)
+            if not security_manager.validate_path(path, allow_create=True):
+                raise BadRequestException(f"Invalid file path: {path}")
             chunk_size = 8192  # 8KB chunks
             total_size = 0
             
@@ -299,6 +344,9 @@ class FileService:
             path: Path of the file to check
         """
         try:
+            path = self._normalize_path(path)
+            if not security_manager.validate_path(path):
+                raise BadRequestException(f"Invalid file path: {path}")
             # Check if file exists
             if not os.path.exists(path):
                 raise ResourceNotFoundException(f"File does not exist: {path}")

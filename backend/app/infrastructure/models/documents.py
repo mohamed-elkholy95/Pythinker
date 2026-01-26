@@ -1,5 +1,5 @@
 from typing import Dict, Optional, List, Type, TypeVar, Generic, get_args, Self, Any
-from datetime import datetime, timezone, UTC
+from datetime import datetime, timezone, UTC, date
 from beanie import Document
 from pydantic import BaseModel
 from app.domain.models.agent import Agent
@@ -8,7 +8,8 @@ from app.domain.models.event import AgentEvent
 from app.domain.models.session import Session, SessionStatus, AgentMode
 from app.domain.models.file import FileInfo
 from app.domain.models.user import User, UserRole
-from pymongo import IndexModel, ASCENDING
+from app.domain.models.usage import UsageRecord, DailyUsageAggregate, UsageType
+from pymongo import IndexModel, ASCENDING, DESCENDING
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -141,4 +142,80 @@ class SnapshotDocument(Document):
             IndexModel([("session_id", ASCENDING), ("sequence_number", ASCENDING)]),
             IndexModel([("session_id", ASCENDING), ("created_at", ASCENDING)]),
             "action_id",
+        ]
+
+
+class UsageDocument(BaseDocument[UsageRecord], id_field="usage_id", domain_model_class=UsageRecord):
+    """MongoDB document for individual LLM usage records."""
+    usage_id: str
+    user_id: str
+    session_id: str
+
+    # Model info
+    model: str
+    provider: str  # "openai", "anthropic", "ollama"
+
+    # Token counts
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cached_tokens: int = 0
+
+    # Cost (in USD)
+    prompt_cost: float = 0.0
+    completion_cost: float = 0.0
+    total_cost: float = 0.0
+
+    # Metadata
+    usage_type: str = UsageType.LLM_CALL.value
+    created_at: datetime = datetime.now(timezone.utc)
+
+    class Settings:
+        name = "usage"
+        indexes = [
+            "usage_id",
+            "user_id",
+            "session_id",
+            IndexModel([("user_id", ASCENDING), ("created_at", DESCENDING)]),
+            IndexModel([("session_id", ASCENDING), ("created_at", ASCENDING)]),
+        ]
+
+
+class DailyUsageDocument(BaseDocument[DailyUsageAggregate], id_field="usage_id", domain_model_class=DailyUsageAggregate):
+    """MongoDB document for daily usage aggregates."""
+    usage_id: str  # Format: {user_id}_{date}
+    user_id: str
+    date: date
+
+    # Token totals
+    total_prompt_tokens: int = 0
+    total_completion_tokens: int = 0
+    total_cached_tokens: int = 0
+
+    # Cost totals
+    total_prompt_cost: float = 0.0
+    total_completion_cost: float = 0.0
+    total_cost: float = 0.0
+
+    # Activity counts
+    llm_call_count: int = 0
+    tool_call_count: int = 0
+    session_count: int = 0
+
+    # Model breakdown
+    tokens_by_model: Dict[str, int] = {}
+    cost_by_model: Dict[str, float] = {}
+
+    # Sessions active this day
+    active_sessions: List[str] = []
+
+    # Timestamps
+    created_at: datetime = datetime.now(timezone.utc)
+    updated_at: datetime = datetime.now(timezone.utc)
+
+    class Settings:
+        name = "daily_usage"
+        indexes = [
+            "usage_id",
+            "user_id",
+            IndexModel([("user_id", ASCENDING), ("date", DESCENDING)]),
         ]

@@ -100,6 +100,8 @@ export default {
   // File Upload
   'Upload failed': 'Upload failed',
   'Uploading...': 'Uploading...',
+  'Long text converted to file attachment ({lines} lines)': 'Long text converted to file attachment ({lines} lines)',
+  'Analyze the attached {language} content': 'Analyze the attached {language} content',
   // File Types
   'Text': 'Text',
   'Markdown': 'Markdown',

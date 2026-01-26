@@ -65,11 +65,15 @@ class BaseAgent(ABC):
     name: str = ""
     system_prompt: str = ""
     format: Optional[str] = None
-    max_iterations: int = 100
+    max_iterations: int = 200  # Increased for complex tasks
     max_retries: int = 3
     retry_interval: float = 0.3  # Faster retry with exponential backoff
     retry_backoff: float = 1.5  # Backoff multiplier (0.3s -> 0.45s -> 0.67s)
     tool_choice: Optional[str] = None
+
+    # Iteration budget management
+    iteration_warning_threshold: float = 0.8  # Warn at 80% of limit
+    read_only_iteration_weight: float = 0.5  # Read-only ops count as half
 
     def __init__(
         self,
@@ -278,6 +282,42 @@ class BaseAgent(ABC):
             result = await self.invoke_tool(tool, function_name, function_args)
             return tool_call, tool, result
     
+    def _is_read_only_tool(self, function_name: str) -> bool:
+        """Check if a tool is read-only (doesn't modify state)."""
+        read_only_patterns = {
+            # File operations
+            "file_read", "file_search", "file_list", "file_info",
+            # Shell read operations
+            "shell_exec",  # Will check command content separately
+            # Browser read operations
+            "browser_view", "browser_screenshot", "browser_get_content",
+            # Search
+            "info_search", "search",
+            # Code read operations
+            "code_list", "code_read",
+            # Git read operations
+            "git_status", "git_diff", "git_log", "git_branches",
+            # Workspace info
+            "workspace_info", "workspace_tree",
+            # Test list
+            "test_list",
+            # Export list
+            "export_list",
+        }
+        name_lower = function_name.lower()
+        return any(pattern in name_lower for pattern in read_only_patterns)
+
+    def _calculate_iteration_cost(self, tool_calls: List[Dict]) -> float:
+        """Calculate weighted iteration cost based on tool types."""
+        cost = 0.0
+        for tc in tool_calls:
+            function_name = tc.get("function", {}).get("name", "")
+            if self._is_read_only_tool(function_name):
+                cost += self.read_only_iteration_weight
+            else:
+                cost += 1.0
+        return max(1.0, cost)  # Minimum 1 iteration per cycle
+
     async def execute(self, request: str, format: Optional[str] = None) -> AsyncGenerator[BaseEvent, None]:
         format = format or self.format
         # Don't use json_object format when tools are available - causes empty responses
@@ -285,12 +325,43 @@ class BaseAgent(ABC):
         has_tools = bool(self.get_available_tools())
         initial_format = None if has_tools else format
         message = await self.ask(request, initial_format)
-        for _ in range(self.max_iterations):
+
+        # Use weighted iteration tracking for better handling of large tasks
+        iteration_budget = float(self.max_iterations)
+        iteration_spent = 0.0
+        warning_emitted = False
+        graceful_completion_requested = False
+
+        while iteration_spent < iteration_budget:
             if not message.get("tool_calls"):
                 break
 
             tool_calls = message["tool_calls"]
             tool_responses = []
+
+            # Calculate iteration cost for this cycle
+            iteration_cost = self._calculate_iteration_cost(tool_calls)
+            iteration_spent += iteration_cost
+
+            # Check if we're approaching the limit
+            remaining_budget = iteration_budget - iteration_spent
+            budget_ratio = iteration_spent / iteration_budget
+
+            # Emit warning at threshold
+            if budget_ratio >= self.iteration_warning_threshold and not warning_emitted:
+                logger.warning(
+                    f"Approaching iteration limit: {iteration_spent:.1f}/{iteration_budget} "
+                    f"({budget_ratio*100:.0f}% used)"
+                )
+                warning_emitted = True
+
+            # Request graceful completion when near limit
+            if remaining_budget < 10 and not graceful_completion_requested:
+                logger.warning(
+                    f"Low iteration budget ({remaining_budget:.1f} remaining), "
+                    "requesting completion on next cycle"
+                )
+                graceful_completion_requested = True
 
             # Check if we can execute tools in parallel
             if self._can_parallelize_tools(tool_calls):
@@ -389,9 +460,32 @@ class BaseAgent(ABC):
                         "content": result.model_dump_json()
                     })
 
+            # If graceful completion was requested, add a hint to wrap up
+            if graceful_completion_requested:
+                tool_responses.append({
+                    "role": "system",
+                    "content": (
+                        "[SYSTEM: Approaching execution limit. Please complete the current task "
+                        "and provide a summary of your findings. If the task is not complete, "
+                        "summarize what was accomplished and what remains to be done.]"
+                    )
+                })
+                graceful_completion_requested = False  # Only inject once
+
             message = await self.ask_with_messages(tool_responses)
         else:
-            yield ErrorEvent(error="Maximum iteration count reached, failed to complete the task")
+            # Budget exhausted - provide informative error with context
+            logger.error(
+                f"Iteration budget exhausted: {iteration_spent:.1f}/{iteration_budget} "
+                f"after processing tool calls"
+            )
+            yield ErrorEvent(
+                error=(
+                    f"Task execution limit reached ({int(iteration_spent)} iterations). "
+                    "The task was too complex to complete in a single run. "
+                    "Consider breaking it into smaller sub-tasks or increasing the iteration limit."
+                )
+            )
 
         yield MessageEvent(message=message["content"])
 

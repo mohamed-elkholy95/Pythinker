@@ -77,7 +77,7 @@ services:
     ports:
       #- "9222:9222"
       - "5902:5900"
-      #- "5901:5901"
+      - "5901:5901"
       - "8080:8080"
     # Shared memory size for Chrome browser stability (prevents crashes)
     shm_size: '2gb'

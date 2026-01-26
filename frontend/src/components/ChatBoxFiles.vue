@@ -102,6 +102,13 @@ const uploadFile = () => {
     fileInput.value?.click();
 };
 
+/**
+ * Upload a file programmatically (e.g., from pasted text conversion)
+ */
+const uploadFileFromBlob = async (file: File) => {
+    await processFileUpload(file);
+};
+
 const getFiles = () => {
     return files.value;
 };
@@ -257,6 +264,7 @@ const handleFileClick = (file: ExtendedFileInfo) => {
 
 defineExpose({
     uploadFile,
+    uploadFileFromBlob,
     getFiles,
     isAllUploaded
 });

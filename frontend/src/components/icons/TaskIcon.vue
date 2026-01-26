@@ -10,10 +10,13 @@ import {
   Code,
   Globe,
   MessageSquare,
+  MessageCircle,
+  MessagesSquare,
+  MessageSquareDot,
+  MessageSquareText,
+  MessageSquareMore,
   Mic,
-  Sparkles,
   Terminal,
-  FileCode,
   Database,
   Layout,
   Cpu,
@@ -24,20 +27,62 @@ import {
   Upload,
   Image,
   Video,
-  Music,
   Calculator,
-  Calendar,
   Mail,
   ShoppingCart,
   Map,
-  Zap
+  Zap,
+  Bot,
+  BrainCircuit,
+  Lightbulb,
+  Pen,
+  Blocks,
+  Puzzle,
+  Compass,
+  Rocket,
+  Target,
+  Flame,
+  Coffee
 } from 'lucide-vue-next';
 
 interface Props {
   title: string;
+  sessionId?: string;
 }
 
 const props = defineProps<Props>();
+
+// Default icon variants for variety when no keyword matches
+const defaultIcons = [
+  MessageSquare,
+  MessageCircle,
+  MessagesSquare,
+  MessageSquareDot,
+  MessageSquareText,
+  MessageSquareMore,
+  Bot,
+  BrainCircuit,
+  Lightbulb,
+  Pen,
+  Blocks,
+  Puzzle,
+  Compass,
+  Rocket,
+  Target,
+  Flame,
+  Coffee
+];
+
+// Simple hash function to get consistent index from string
+const hashString = (str: string): number => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return Math.abs(hash);
+};
 
 // Determine icon based on task title keywords
 const iconComponent = computed(() => {
@@ -47,7 +92,7 @@ const iconComponent = computed(() => {
   if (title.includes('ai ') || title.includes('ml ') || title.includes('machine learning') ||
       title.includes('neural') || title.includes('model') || title.includes('llm') ||
       title.includes('gpt') || title.includes('claude') || title.includes('gemini')) {
-    return Sparkles;
+    return BrainCircuit;
   }
 
   // Code/Programming
@@ -173,7 +218,10 @@ const iconComponent = computed(() => {
     return Zap;
   }
 
-  // Default - chat/message icon
-  return MessageSquare;
+  // Default - use hash to select from variety of icons
+  // Use sessionId if available, otherwise use title for consistency
+  const hashSource = props.sessionId || props.title || 'default';
+  const index = hashString(hashSource) % defaultIcons.length;
+  return defaultIcons[index];
 });
 </script>

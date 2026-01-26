@@ -41,36 +41,76 @@
           </div>
         </button>
       </div>
-      <div v-if="sessions.length > 0" class="flex flex-col flex-1 min-h-0 overflow-auto pt-2 pb-5 overflow-x-hidden">
-        <SessionItem v-for="session in sessions" :key="session.session_id" :session="session"
-          @deleted="handleSessionDeleted" />
+      <div class="flex flex-col flex-1 min-h-0">
+        <div v-if="sessions.length > 0" class="flex flex-col flex-1 min-h-0 overflow-auto pt-2 pb-5 overflow-x-hidden">
+          <SessionItem v-for="session in sessions" :key="session.session_id" :session="session"
+            @deleted="handleSessionDeleted" />
+        </div>
+        <div v-else class="flex flex-1 flex-col items-center justify-center gap-4">
+          <div class="flex flex-col items-center gap-2 text-[var(--text-tertiary)]">
+            <MessageSquareDashed :size="38" />
+            <span class="text-sm font-medium">{{ t('Create a task to get started') }}</span></div>
+        </div>
       </div>
-      <div v-else class="flex flex-1 flex-col items-center justify-center gap-4">
-        <div class="flex flex-col items-center gap-2 text-[var(--text-tertiary)]">
-          <MessageSquareDashed :size="38" />
-          <span class="text-sm font-medium">{{ t('Create a task to get started') }}</span></div>
+      <div class="mt-auto px-3 pb-3 pt-2">
+        <div class="flex items-center gap-2 rounded-xl border border-[var(--border-light)] bg-[var(--fill-tsp-white-main)] px-2 py-1">
+          <button
+            class="flex h-8 w-8 items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)]"
+            @click="openSettingsDialog('settings')"
+            aria-label="Open settings"
+          >
+            <Settings2 class="h-4 w-4 text-[var(--icon-secondary)]" />
+          </button>
+          <Popover>
+            <PopoverTrigger as-child>
+              <button
+                class="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-[var(--fill-tsp-gray-main)] min-w-0"
+                aria-label="Open user menu"
+              >
+                <span class="flex h-8 w-8 items-center justify-center rounded-full bg-[#3b82f6] text-white text-sm font-semibold">
+                  {{ avatarLetter }}
+                </span>
+                <span class="text-xs font-medium text-[var(--text-primary)] truncate min-w-0">
+                  {{ currentUser?.fullname || t('Account') }}
+                </span>
+              </button>
+            </PopoverTrigger>
+            <PopoverContent side="top" align="start" :side-offset="8" class="p-0 border-0 bg-transparent shadow-none">
+              <UserMenu />
+            </PopoverContent>
+          </Popover>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { PanelLeft, Plus, Command, MessageSquareDashed } from 'lucide-vue-next';
+import { PanelLeft, Plus, Command, MessageSquareDashed, Settings2 } from 'lucide-vue-next';
 import SessionItem from './SessionItem.vue';
 import { useLeftPanel } from '../composables/useLeftPanel';
-import { ref, onMounted, watch, onUnmounted } from 'vue';
+import { ref, onMounted, watch, onUnmounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { getSessionsSSE, getSessions } from '../api/agent';
 import { ListSessionItem } from '../types/response';
 import { useI18n } from 'vue-i18n';
+import { useSettingsDialog } from '@/composables/useSettingsDialog';
+import { useAuth } from '@/composables/useAuth';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import UserMenu from './UserMenu.vue';
 
 const { t } = useI18n()
 const { isLeftPanelShow, toggleLeftPanel } = useLeftPanel()
+const { openSettingsDialog } = useSettingsDialog()
+const { currentUser } = useAuth()
 const route = useRoute()
 const router = useRouter()
 
 const sessions = ref<ListSessionItem[]>([])
 const cancelGetSessionsSSE = ref<(() => void) | null>(null)
+const avatarLetter = computed(() => {
+  return currentUser.value?.fullname?.charAt(0)?.toUpperCase() || 'M';
+})
 
 // Function to fetch sessions data
 const updateSessions = async () => {

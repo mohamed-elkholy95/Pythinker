@@ -15,6 +15,8 @@ from app.models.shell import (
     ShellWriteResult, ShellKillResult, ShellTask, ConsoleRecord
 )
 from app.core.exceptions import AppException, ResourceNotFoundException, BadRequestException
+from app.core.config import settings
+from app.core.security import security_manager
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -47,6 +49,17 @@ class ShellService:
         display_dir = self._get_display_path(exec_dir)
         return f"{username}@{hostname}:{display_dir} $"
 
+    def _append_output(self, shell: Dict[str, Any], output: str) -> None:
+        """Append output while enforcing a max buffer size."""
+        if not output:
+            return
+
+        max_chars = settings.SHELL_MAX_OUTPUT_CHARS
+        shell["output"] = (shell["output"] + output)[-max_chars:]
+
+        if shell.get("console"):
+            shell["console"][-1].output = (shell["console"][-1].output + output)[-max_chars:]
+
     async def _create_process(self, command: str, exec_dir: str) -> asyncio.subprocess.Process:
         """Create a new async subprocess"""
         logger.debug(f"Creating process for command: {command} in directory: {exec_dir}")
@@ -75,10 +88,7 @@ class ShellService:
                     # Add output to shell session
                     shell = self.active_shells.get(session_id)
                     if shell:
-                        shell["output"] += output
-                        # Update the output of the latest console record
-                        if shell["console"]:
-                            shell["console"][-1].output += output
+                        self._append_output(shell, output)
                 except Exception as e:
                     logger.error(f"Error reading process output: {str(e)}", exc_info=True)
                     break
@@ -94,6 +104,19 @@ class ShellService:
         logger.info(f"Executing command in session {session_id}: {command}")
         if not exec_dir:
             exec_dir = os.path.expanduser("~")
+        if not os.path.isabs(exec_dir):
+            exec_dir = os.path.abspath(exec_dir)
+        # Validate execution directory
+        if not security_manager.validate_path(exec_dir, session_id=session_id, allow_create=False):
+            raise BadRequestException(f"Invalid execution directory: {exec_dir}")
+
+        # Sanitize and validate command
+        try:
+            if not settings.ALLOW_SUDO and re.search(r"(^|\\s)sudo\\b", command):
+                raise BadRequestException("sudo is not allowed in this sandbox")
+            security_manager.sanitize_command(command)
+        except ValueError as e:
+            raise BadRequestException(str(e))
         # Ensure directory exists
         if not os.path.exists(exec_dir):
             logger.error(f"Directory does not exist: {exec_dir}")
@@ -290,9 +313,7 @@ class ShellService:
             
             # Add input to output and console records
             input_str = input_data.decode('utf-8')
-            shell["output"] += input_str
-            if shell["console"]:
-                shell["console"][-1].output += input_str
+            self._append_output(shell, input_str)
             
             # Asynchronously write input
             process.stdin.write(input_data)

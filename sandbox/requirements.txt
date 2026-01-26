@@ -1,9 +1,9 @@
-fastapi
-uvicorn
-pydantic
-email-validator
-python-multipart
-pydantic-settings
-defusedxml
+fastapi==0.119.0
+uvicorn==0.37.0
+pydantic==2.12.1
+defusedxml==0.7.1
+email-validator>=2.0.0
+python-multipart>=0.0.9
+pydantic-settings>=2.0.0
 playwright-stealth>=1.0.6
 anticaptchaofficial>=1.0.56

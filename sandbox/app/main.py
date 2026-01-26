@@ -1,9 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 import logging
 import sys
+import asyncio
 
 from app.core.config import settings
 from app.api.router import api_router
@@ -75,12 +76,31 @@ app.include_router(api_router, prefix="/api/v1")
 
 
 @app.get("/health")
-async def health_check():
-    """Health check endpoint for container orchestration
+async def health_check(response: Response):
+    """Health check endpoint for container orchestration.
 
-    Returns basic health status. Used by Docker healthcheck and load balancers.
+    Returns health status and basic service readiness checks.
     """
-    return {"status": "healthy", "service": "sandbox"}
+    async def _check_port(host: str, port: int) -> bool:
+        try:
+            reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=1.0)
+            writer.close()
+            await writer.wait_closed()
+            return True
+        except Exception:
+            return False
+
+    checks = {
+        "api": True,
+        "cdp": await _check_port("127.0.0.1", 9222),
+        "vnc_ws": await _check_port("127.0.0.1", 5901),
+    }
+
+    if not all(checks.values()):
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return {"status": "degraded", "service": "sandbox", "checks": checks}
+
+    return {"status": "healthy", "service": "sandbox", "checks": checks}
 
 
 logger.info("Sandbox API routes registered and server ready")

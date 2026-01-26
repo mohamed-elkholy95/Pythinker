@@ -2,6 +2,7 @@ from typing import Dict, Any, Optional, List, BinaryIO
 import uuid
 import httpx
 import docker
+from docker.types import Ulimit
 import socket
 import logging
 import asyncio
@@ -106,8 +107,31 @@ class DockerSandbox(Sandbox):
                     "HTTPS_PROXY": settings.sandbox_https_proxy,
                     "HTTP_PROXY": settings.sandbox_http_proxy,
                     "NO_PROXY": settings.sandbox_no_proxy
-                }
+                },
+                # Security hardening (aligned with docker-compose defaults)
+                "security_opt": [
+                    "no-new-privileges:true"
+                ],
+                "cap_drop": ["ALL"],
+                "cap_add": ["CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE", "SYS_CHROOT"],
+                "tmpfs": {
+                    "/run": "size=100M,nosuid,nodev",
+                    "/tmp": "size=500M,nosuid,nodev",
+                    "/home/ubuntu/.cache": "size=200M,nosuid,nodev"
+                },
+                "ulimits": [
+                    Ulimit(name="nofile", soft=65536, hard=65536),
+                    Ulimit(name="nproc", soft=4096, hard=8192)
+                ],
+                "shm_size": settings.sandbox_shm_size,
+                "mem_limit": settings.sandbox_mem_limit,
+                "nano_cpus": int((settings.sandbox_cpu_limit or 2.0) * 1_000_000_000),
+                "pids_limit": settings.sandbox_pids_limit,
             }
+
+            # Optional seccomp profile (host path)
+            if settings.sandbox_seccomp_profile:
+                container_config["security_opt"].append(f"seccomp={settings.sandbox_seccomp_profile}")
             
             # Add network to container config if configured
             if settings.sandbox_network:
@@ -482,10 +506,10 @@ class DockerSandbox(Sandbox):
 
     async def file_download(self, path: str) -> BinaryIO:
         """Download file from sandbox
-        
+
         Args:
             path: File path in sandbox
-            
+
         Returns:
             File content as binary stream
         """
@@ -494,10 +518,348 @@ class DockerSandbox(Sandbox):
             params={"path": path}
         )
         response.raise_for_status()
-        
+
         # Return the response content as a BinaryIO stream
         # TODO: change to real stream
         return io.BytesIO(response.content)
+
+    # Workspace management methods
+    async def workspace_init(
+        self,
+        session_id: str,
+        project_name: str = "project",
+        template: str = "none"
+    ) -> ToolResult:
+        """Initialize a workspace for a session"""
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/workspace/init",
+            json={
+                "session_id": session_id,
+                "project_name": project_name,
+                "template": template
+            }
+        )
+        return ToolResult(**response.json())
+
+    async def workspace_info(self, session_id: str) -> ToolResult:
+        """Get workspace information"""
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/workspace/info",
+            json={"session_id": session_id}
+        )
+        return ToolResult(**response.json())
+
+    async def workspace_tree(
+        self,
+        session_id: str,
+        depth: int = 3,
+        include_hidden: bool = False
+    ) -> ToolResult:
+        """Get workspace directory tree"""
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/workspace/tree",
+            json={
+                "session_id": session_id,
+                "depth": depth,
+                "include_hidden": include_hidden
+            }
+        )
+        return ToolResult(**response.json())
+
+    async def workspace_clean(
+        self,
+        session_id: str,
+        preserve_config: bool = True
+    ) -> ToolResult:
+        """Clean workspace contents"""
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/workspace/clean",
+            json={
+                "session_id": session_id,
+                "preserve_config": preserve_config
+            }
+        )
+        return ToolResult(**response.json())
+
+    async def workspace_exists(self, session_id: str) -> ToolResult:
+        """Check if workspace exists"""
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/workspace/exists",
+            json={"session_id": session_id}
+        )
+        return ToolResult(**response.json())
+
+    # Git operations
+    async def git_clone(
+        self,
+        url: str,
+        target_dir: str,
+        branch: str = None,
+        shallow: bool = True,
+        auth_token: str = None
+    ) -> ToolResult:
+        """Clone a git repository"""
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/git/clone",
+            json={
+                "url": url,
+                "target_dir": target_dir,
+                "branch": branch,
+                "shallow": shallow,
+                "auth_token": auth_token
+            }
+        )
+        return ToolResult(**response.json())
+
+    async def git_status(self, repo_path: str) -> ToolResult:
+        """Get git repository status"""
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/git/status",
+            json={"repo_path": repo_path}
+        )
+        return ToolResult(**response.json())
+
+    async def git_diff(
+        self,
+        repo_path: str,
+        staged: bool = False,
+        file_path: str = None
+    ) -> ToolResult:
+        """Get git diff"""
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/git/diff",
+            json={
+                "repo_path": repo_path,
+                "staged": staged,
+                "file_path": file_path
+            }
+        )
+        return ToolResult(**response.json())
+
+    async def git_log(
+        self,
+        repo_path: str,
+        limit: int = 10,
+        file_path: str = None
+    ) -> ToolResult:
+        """Get git commit history"""
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/git/log",
+            json={
+                "repo_path": repo_path,
+                "limit": limit,
+                "file_path": file_path
+            }
+        )
+        return ToolResult(**response.json())
+
+    async def git_branches(
+        self,
+        repo_path: str,
+        show_remote: bool = True
+    ) -> ToolResult:
+        """Get git branches"""
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/git/branches",
+            json={
+                "repo_path": repo_path,
+                "show_remote": show_remote
+            }
+        )
+        return ToolResult(**response.json())
+
+    # Code development operations
+    async def code_format(
+        self,
+        file_path: str,
+        formatter: str = "auto",
+        check_only: bool = False
+    ) -> ToolResult:
+        """Format a code file"""
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/code/format",
+            json={
+                "file_path": file_path,
+                "formatter": formatter,
+                "check_only": check_only
+            }
+        )
+        return ToolResult(**response.json())
+
+    async def code_lint(
+        self,
+        path: str,
+        linter: str = "auto",
+        fix: bool = False
+    ) -> ToolResult:
+        """Lint code files"""
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/code/lint",
+            json={
+                "path": path,
+                "linter": linter,
+                "fix": fix
+            }
+        )
+        return ToolResult(**response.json())
+
+    async def code_analyze(
+        self,
+        path: str,
+        analysis_type: str = "all"
+    ) -> ToolResult:
+        """Analyze code"""
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/code/analyze",
+            json={
+                "path": path,
+                "analysis_type": analysis_type
+            }
+        )
+        return ToolResult(**response.json())
+
+    async def code_search(
+        self,
+        directory: str,
+        pattern: str,
+        file_glob: str = "*",
+        context_lines: int = 2,
+        max_results: int = 100
+    ) -> ToolResult:
+        """Search code files"""
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/code/search",
+            json={
+                "directory": directory,
+                "pattern": pattern,
+                "file_glob": file_glob,
+                "context_lines": context_lines,
+                "max_results": max_results
+            }
+        )
+        return ToolResult(**response.json())
+
+    # Test execution operations
+    async def test_run(
+        self,
+        path: str,
+        framework: str = "auto",
+        pattern: str = None,
+        coverage: bool = False,
+        timeout: int = 300,
+        verbose: bool = False
+    ) -> ToolResult:
+        """Run tests"""
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/test/run",
+            json={
+                "path": path,
+                "framework": framework,
+                "pattern": pattern,
+                "coverage": coverage,
+                "timeout": timeout,
+                "verbose": verbose
+            }
+        )
+        return ToolResult(**response.json())
+
+    async def test_list(
+        self,
+        path: str,
+        framework: str = "auto"
+    ) -> ToolResult:
+        """List available tests"""
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/test/list",
+            json={
+                "path": path,
+                "framework": framework
+            }
+        )
+        return ToolResult(**response.json())
+
+    async def test_coverage(
+        self,
+        path: str,
+        output_format: str = "html",
+        output_dir: str = None
+    ) -> ToolResult:
+        """Generate coverage report"""
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/test/coverage",
+            json={
+                "path": path,
+                "output_format": output_format,
+                "output_dir": output_dir
+            }
+        )
+        return ToolResult(**response.json())
+
+    # Export operations
+    async def export_organize(
+        self,
+        session_id: str,
+        source_path: str,
+        target_category: str = "other"
+    ) -> ToolResult:
+        """Organize files"""
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/export/organize",
+            json={
+                "session_id": session_id,
+                "source_path": source_path,
+                "target_category": target_category
+            }
+        )
+        return ToolResult(**response.json())
+
+    async def export_archive(
+        self,
+        session_id: str,
+        name: str,
+        include_patterns: list = None,
+        exclude_patterns: list = None,
+        base_path: str = None
+    ) -> ToolResult:
+        """Create archive"""
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/export/archive",
+            json={
+                "session_id": session_id,
+                "name": name,
+                "include_patterns": include_patterns,
+                "exclude_patterns": exclude_patterns,
+                "base_path": base_path
+            }
+        )
+        return ToolResult(**response.json())
+
+    async def export_report(
+        self,
+        session_id: str,
+        report_type: str = "summary",
+        output_format: str = "markdown",
+        title: str = "Workspace Report"
+    ) -> ToolResult:
+        """Generate report"""
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/export/report",
+            json={
+                "session_id": session_id,
+                "report_type": report_type,
+                "output_format": output_format,
+                "title": title
+            }
+        )
+        return ToolResult(**response.json())
+
+    async def export_list(self, session_id: str) -> ToolResult:
+        """List exports"""
+        response = await self.client.post(
+            f"{self.base_url}/api/v1/export/list",
+            json={"session_id": session_id}
+        )
+        return ToolResult(**response.json())
     
     @staticmethod
     @alru_cache(maxsize=128, typed=True)
@@ -579,42 +941,6 @@ class DockerSandbox(Sandbox):
         )
 
         return browser
-
-    @staticmethod
-    @alru_cache(maxsize=128, typed=True)
-    async def _resolve_hostname_to_ip(hostname: str) -> str:
-        """Resolve hostname to IP address
-        
-        Args:
-            hostname: Hostname to resolve
-            
-        Returns:
-            Resolved IP address, or None if resolution fails
-            
-        Note:
-            This method is cached using LRU cache with a maximum size of 128 entries.
-            The cache helps reduce repeated DNS lookups for the same hostname.
-        """
-        try:
-            # First check if hostname is already in IP address format
-            try:
-                socket.inet_pton(socket.AF_INET, hostname)
-                # If successfully parsed, it's an IPv4 address format, return directly
-                return hostname
-            except OSError:
-                # Not a valid IP address format, proceed with DNS resolution
-                pass
-                
-            # Use socket.getaddrinfo for DNS resolution
-            addr_info = socket.getaddrinfo(hostname, None, family=socket.AF_INET)
-            # Return the first IPv4 address found
-            if addr_info and len(addr_info) > 0:
-                return addr_info[0][4][0]  # Return sockaddr[0] from (family, type, proto, canonname, sockaddr), which is the IP address
-            return None
-        except Exception as e:
-            # Log error and return None on failure
-            logger.error(f"Failed to resolve hostname {hostname}: {str(e)}")
-            return None
 
     @classmethod
     async def create(cls) -> Sandbox:

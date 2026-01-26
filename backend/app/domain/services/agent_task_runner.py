@@ -2,6 +2,7 @@ from typing import Optional, AsyncGenerator, List, Union, TYPE_CHECKING
 import asyncio
 import logging
 from pydantic import TypeAdapter
+from contextlib import asynccontextmanager
 
 from app.domain.models.message import Message
 from app.domain.models.event import (
@@ -50,6 +51,8 @@ from app.domain.services.orchestration.coordinator_flow import (
     create_coordinator_flow,
 )
 from app.domain.services.tools.mcp import MCPTool
+from app.domain.services.agents.usage_context import UsageContextManager
+from app.application.services.usage_service import get_usage_service
 from app.core.config import get_settings
 
 if TYPE_CHECKING:
@@ -495,11 +498,38 @@ class AgentTaskRunner(TaskRunner):
         except Exception as e:
             logger.exception(f"Agent {self._agent_id} failed to sync attachments to event: {e}")
     
+    @asynccontextmanager
+    async def _usage_context(self):
+        """Ensure LLM usage is attributed to the current user/session."""
+        if self._user_id and self._session_id:
+            async with UsageContextManager(
+                user_id=self._user_id,
+                session_id=self._session_id,
+            ):
+                yield
+        else:
+            yield
+
+    async def _record_tool_call_usage(self) -> None:
+        """Record tool call usage for usage dashboard metrics."""
+        if not self._user_id:
+            return
+        try:
+            usage_service = get_usage_service()
+            await usage_service.record_tool_call(
+                user_id=self._user_id,
+                session_id=self._session_id,
+            )
+        except Exception as e:
+            logger.debug(f"Failed to record tool usage for Agent {self._agent_id}: {e}")
+
 
     # TODO: refactor this function
     async def _handle_tool_event(self, event: ToolEvent):
         """Generate tool content"""
         try:
+            if event.status == ToolStatus.CALLED and event.tool_name != "message":
+                await self._record_tool_call_usage()
             # Handle CALLING status for streaming preview (file_write shows content being generated)
             if event.status == ToolStatus.CALLING:
                 if event.tool_name == "file" and event.function_name == "file_write":
@@ -685,23 +715,24 @@ class AgentTaskRunner(TaskRunner):
 
         mode_switch_task: Optional[str] = None
 
-        async for event in self._flow.run(message):
-            if isinstance(event, ToolEvent):
-                # TODO: move to tool function
-                await self._handle_tool_event(event)
-            elif isinstance(event, (MessageEvent, ReportEvent)):
-                # Sync attachments to storage for events that contain file references
-                # This resolves file_path to file_id for proper frontend access
-                await self._sync_event_attachments_to_storage(event)
-            elif isinstance(event, ModeChangeEvent):
-                # Handle mode switch from Discuss to Agent
-                if event.mode == "agent" and self._mode == AgentMode.DISCUSS:
-                    # Get the task from the discuss flow
-                    if self._discuss_flow and self._discuss_flow.mode_switch_task:
-                        mode_switch_task = self._discuss_flow.mode_switch_task
-                    yield event
-                    continue
-            yield event
+        async with self._usage_context():
+            async for event in self._flow.run(message):
+                if isinstance(event, ToolEvent):
+                    # TODO: move to tool function
+                    await self._handle_tool_event(event)
+                elif isinstance(event, (MessageEvent, ReportEvent)):
+                    # Sync attachments to storage for events that contain file references
+                    # This resolves file_path to file_id for proper frontend access
+                    await self._sync_event_attachments_to_storage(event)
+                elif isinstance(event, ModeChangeEvent):
+                    # Handle mode switch from Discuss to Agent
+                    if event.mode == "agent" and self._mode == AgentMode.DISCUSS:
+                        # Get the task from the discuss flow
+                        if self._discuss_flow and self._discuss_flow.mode_switch_task:
+                            mode_switch_task = self._discuss_flow.mode_switch_task
+                        yield event
+                        continue
+                yield event
 
         # If mode switch was requested, switch to Agent mode and re-run with the task
         if mode_switch_task and self._mode == AgentMode.DISCUSS:
@@ -712,13 +743,14 @@ class AgentTaskRunner(TaskRunner):
             task_message = Message(message=mode_switch_task, attachments=message.attachments)
 
             # Run through Agent mode flow
-            async for event in self._flow.run(task_message):
-                if isinstance(event, ToolEvent):
-                    await self._handle_tool_event(event)
-                elif isinstance(event, (MessageEvent, ReportEvent)):
-                    # Sync attachments to storage for events that contain file references
-                    await self._sync_event_attachments_to_storage(event)
-                yield event
+            async with self._usage_context():
+                async for event in self._flow.run(task_message):
+                    if isinstance(event, ToolEvent):
+                        await self._handle_tool_event(event)
+                    elif isinstance(event, (MessageEvent, ReportEvent)):
+                        # Sync attachments to storage for events that contain file references
+                        await self._sync_event_attachments_to_storage(event)
+                    yield event
 
         logger.info(f"Agent {self._agent_id} completed processing one message")
 
