@@ -2,15 +2,20 @@
   <div
     class="h-[36px] flex items-center px-3 w-full bg-[var(--background-gray-main)] border-b border-[var(--border-main)] rounded-t-[12px] shadow-[inset_0px_1px_0px_0px_#FFFFFF] dark:shadow-[inset_0px_1px_0px_0px_#FFFFFF30]"
   >
-    <div class="flex-1 flex items-center justify-center">
+    <div class="flex-1 flex items-center justify-center gap-2">
       <div
         class="max-w-[250px] truncate text-[var(--text-tertiary)] text-sm font-medium text-center"
       >
         {{ fileName }}
       </div>
+      <!-- Writing indicator when file is being generated -->
+      <div v-if="isWriting" class="flex items-center gap-1.5">
+        <div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
+        <span class="text-xs text-blue-500 font-medium">Writing</span>
+      </div>
     </div>
   </div>
-  <div class="flex-1 min-h-0 w-full overflow-y-auto">
+  <div class="flex-1 min-h-0 w-full overflow-y-auto" :class="isWriting ? 'writing-active' : ''">
     <div
       dir="ltr"
       data-orientation="horizontal"
@@ -89,16 +94,32 @@ const fileName = computed(() => {
   return "";
 });
 
+// Check if file is currently being written (streaming preview)
+const isWriting = computed(() => {
+  return props.toolContent?.status === "calling" &&
+         props.toolContent?.function === "file_write";
+});
+
 // Load file content
 const loadFileContent = async () => {
   console.log("loadFileContent", props.live, filePath.value, props.toolContent.content);
+
+  // During file_write (status: calling), show the content being written (streaming preview)
+  if (isWriting.value) {
+    // Priority: tool_content.content (from backend) > args.content (fallback)
+    const streamingContent = props.toolContent.content?.content ||
+                             props.toolContent.args?.content || "";
+    fileContent.value = streamingContent;
+    return;
+  }
+
   if (!props.live) {
     fileContent.value = props.toolContent.content?.content || "";
     return;
   }
-  
+
   if (!filePath.value) return;
-  
+
   try {
     const response = await viewFile(props.sessionId, filePath.value);
     fileContent.value = response.content;
@@ -146,6 +167,11 @@ watch(() => props.toolContent.timestamp, () => {
   loadFileContent();
 });
 
+// Watch for status changes (calling → called transition)
+watch(() => props.toolContent.status, () => {
+  loadFileContent();
+});
+
 // Watch for live prop changes
 watch(() => props.live, (live: boolean) => {
   if (live) {
@@ -166,3 +192,29 @@ onUnmounted(() => {
   stopAutoRefresh();
 });
 </script>
+
+<style scoped>
+/* Subtle pulsing effect when file is being written */
+.writing-active {
+  position: relative;
+}
+
+.writing-active::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px solid transparent;
+  border-radius: 0 0 12px 12px;
+  pointer-events: none;
+  animation: writing-pulse 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes writing-pulse {
+  0%, 100% {
+    border-color: rgba(59, 130, 246, 0.1);
+  }
+  50% {
+    border-color: rgba(59, 130, 246, 0.3);
+  }
+}
+</style>

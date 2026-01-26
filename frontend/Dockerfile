@@ -1,26 +1,8 @@
-# Use Node.js as base image with bun
-FROM oven/bun:1 as build-stage
-
-# Set working directory
-WORKDIR /app
-
-# Copy package files
-COPY package.json bun.lock* ./
-
-# Install project dependencies
-RUN bun install --frozen-lockfile
-
-# Copy project files
-COPY . .
-
-# Build application
-RUN bun run build
-
 # Use nginx as production environment image
 FROM nginx:stable-alpine as production-stage
 
-# Copy built files to nginx
-COPY --from=build-stage /app/dist /usr/share/nginx/html
+# Copy pre-built files to nginx (build locally with: bun run build)
+COPY dist /usr/share/nginx/html
 
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/nginx.conf.template

@@ -60,10 +60,11 @@ class Settings(BaseSettings):
     sandbox_no_proxy: str | None = None
     
     # Search engine configuration
-    search_provider: str | None = "bing"  # "baidu", "google", "bing", "searxng", "duckduckgo", "brave", "tavily"
+    search_provider: str | None = "bing"  # "baidu", "google", "bing", "searxng", "whoogle", "duckduckgo", "brave", "tavily"
     google_search_api_key: str | None = None
     google_search_engine_id: str | None = None
     searxng_url: str | None = "http://searxng:8080"  # SearXNG instance URL
+    whoogle_url: str | None = "http://whoogle:5000"  # Whoogle instance URL
     brave_search_api_key: str | None = None  # Brave Search API key
     tavily_api_key: str | None = None  # Tavily AI Search API key
 

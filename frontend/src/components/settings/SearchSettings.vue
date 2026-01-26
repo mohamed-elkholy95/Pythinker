@@ -68,6 +68,7 @@ const providerDescriptions: Record<string, string> = {
   duckduckgo: 'Privacy-focused search - No API key required',
   brave: 'Brave Search API - Requires API key',
   searxng: 'Self-hosted metasearch engine - No API key required',
+  whoogle: 'Google proxy search - No API key required',
   baidu: 'Baidu Search for Chinese content - No API key required',
   tavily: 'AI-powered search API - Requires API key',
 }

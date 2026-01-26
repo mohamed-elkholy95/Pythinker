@@ -7,6 +7,7 @@ Supported providers:
 - google: Google Custom Search API (requires API key)
 - baidu: Baidu web search
 - searxng: SearXNG metasearch engine
+- whoogle: Whoogle Google proxy
 - duckduckgo: DuckDuckGo search (privacy-focused)
 - brave: Brave Search API (requires API key)
 """

@@ -196,11 +196,18 @@ class DiscussFlow(BaseFlow):
                         self._mode_switch_task = self._agent_mode_tool.task_description
                         self.status = DiscussStatus.MODE_SWITCHING
 
+                        # Yield the tool event first
+                        yield event
+
                         # Yield mode change event
                         yield ModeChangeEvent(
                             mode="agent",
                             reason=f"Task requires Agent mode: {self._mode_switch_task}"
                         )
+
+                        # Break out of the agent loop - mode switch should be handled by caller
+                        logger.info(f"Mode switch requested, breaking out of discuss flow")
+                        break
                     yield event
 
                 elif isinstance(event, MessageEvent):

@@ -1,7 +1,7 @@
 """Search Provider Factory
 
 Registry pattern for dynamically selecting search providers based on configuration.
-Supports: bing, google, baidu, searxng, duckduckgo, brave, tavily
+Supports: bing, google, baidu, searxng, whoogle, duckduckgo, brave, tavily
 """
 from typing import Dict, Type, Optional
 import logging
@@ -83,6 +83,7 @@ def get_search_engine_from_factory() -> Optional[SearchEngine]:
     from app.infrastructure.external.search.google_search import GoogleSearchEngine
     from app.infrastructure.external.search.baidu_search import BaiduSearchEngine
     from app.infrastructure.external.search.searxng_search import SearXNGSearchEngine
+    from app.infrastructure.external.search.whoogle_search import WhoogleSearchEngine
 
     # Try to import optional providers
     try:
@@ -119,6 +120,8 @@ def get_search_engine_from_factory() -> Optional[SearchEngine]:
 
     elif provider == "searxng":
         kwargs["base_url"] = settings.searxng_url
+    elif provider == "whoogle":
+        kwargs["base_url"] = settings.whoogle_url
 
     elif provider == "brave":
         if not settings.brave_search_api_key:

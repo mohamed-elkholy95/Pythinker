@@ -18,6 +18,7 @@ services:
       - mongodb
       - redis
       - qdrant
+      - whoogle
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -76,12 +77,15 @@ services:
       #- SANDBOX_NO_PROXY=
 
       # Search engine configuration
-      # Options: baidu, google, bing
+      # Options: baidu, google, bing, searxng, whoogle
       - SEARCH_PROVIDER=bing
 
       # Google search configuration, only used when SEARCH_PROVIDER=google
       #- GOOGLE_SEARCH_API_KEY=
       #- GOOGLE_SEARCH_ENGINE_ID=
+
+      # Whoogle configuration, only used when SEARCH_PROVIDER=whoogle
+      #- WHOOGLE_URL=http://whoogle:5000
 
       # Auth configuration
       # Options: password, none, local
@@ -156,6 +160,12 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+
+  whoogle:
+    image: benbusby/whoogle-search:latest
+    restart: unless-stopped
+    networks:
+      - pythinker-network
 
 volumes:
   mongodb_data:
