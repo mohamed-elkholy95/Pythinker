@@ -615,6 +615,8 @@ const handleStepEvent = (stepData: StepEventData) => {
   const lastStep = getLastStep();
   if (stepData.status === 'running') {
     isThinking.value = true;
+    // Reset userClosedPanel when a new step starts - allows panel to auto-reopen
+    userClosedPanel.value = false;
     messages.value.push({
       type: 'step',
       content: {
