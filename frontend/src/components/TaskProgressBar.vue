@@ -21,13 +21,6 @@
             :view-only="true"
             class="w-full h-full vnc-thumbnail"
           />
-          <!-- Static Screenshot -->
-          <img
-            v-else-if="thumbnailUrl"
-            :src="thumbnailUrl"
-            alt="Computer view"
-            class="w-full h-full object-cover"
-          />
         </div>
         <!-- Expand Button -->
         <button
@@ -92,13 +85,6 @@
               :enabled="true"
               :view-only="true"
               class="w-full h-full vnc-thumbnail"
-            />
-            <!-- Static Screenshot -->
-            <img
-              v-else-if="thumbnailUrl"
-              :src="thumbnailUrl"
-              alt="Computer view"
-              class="w-full h-full object-cover"
             />
           </div>
           <!-- Expand Button -->
@@ -204,7 +190,7 @@
         <div
           v-if="tooltipVisible"
           ref="tooltipRef"
-          class="tooltip-badge fixed inline-flex items-center gap-1.5 px-4 py-2 bg-[var(--Button-primary-black)] text-[var(--text-onblack)] rounded-full text-sm font-medium whitespace-nowrap shadow-lg z-[6000] pointer-events-none"
+          class="tooltip-badge fixed inline-flex items-center gap-1.5 px-4 py-2 bg-[var(--Button-primary-black)] text-[var(--text-onblack)] rounded-full text-sm font-medium whitespace-nowrap shadow-lg z-[12000] pointer-events-none"
           :style="tooltipStyle"
         >
           {{ $t("View Pythinker's computer") }}
@@ -362,17 +348,16 @@ const currentTaskDescription = computed(() => {
 
 const showCollapsedThumbnail = computed(() => {
   if (props.hideThumbnail) return false
-  if (!hasComputerActivity.value) return false
-  return props.showThumbnail || (isAllCompleted.value && !!props.thumbnailUrl)
+  if (!props.showThumbnail) return false
+  return showVncPreview.value
 })
 
 const showExpandedThumbnail = computed(() => {
   if (props.hideThumbnail) return false
-  if (!hasComputerActivity.value) return false
-  return props.showThumbnail || !!props.thumbnailUrl || !!props.sessionId
+  return showVncPreview.value
 })
 
-const showExpandedHeader = computed(() => !props.compact && hasComputerActivity.value)
+const showExpandedHeader = computed(() => !props.compact && showExpandedThumbnail.value)
 
 // Get current tool name for display
 const currentToolName = computed(() => {
