@@ -8,6 +8,10 @@ class Sandbox(Protocol):
     async def ensure_sandbox(self) -> None:
         """Ensure sandbox is ready"""
         ...
+
+    async def ensure_framework(self, session_id: str) -> None:
+        """Ensure sandbox framework is initialized for a session"""
+        ...
     
     async def exec_command(
         self,

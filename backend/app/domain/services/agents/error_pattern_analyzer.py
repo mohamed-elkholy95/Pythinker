@@ -357,6 +357,74 @@ class ErrorPatternAnalyzer:
         patterns = self.analyze_patterns()
         return [p.to_context_signal() for p in patterns]
 
+    def get_proactive_signals(
+        self,
+        likely_tools: Optional[List[str]] = None
+    ) -> Optional[str]:
+        """Get proactive warning signals for likely tool usage.
+
+        Analyzes error history to generate warnings BEFORE execution,
+        helping the agent avoid repeated failures.
+
+        Args:
+            likely_tools: List of tool names likely to be used in the next step
+
+        Returns:
+            Warning message if patterns detected, None otherwise
+        """
+        if not likely_tools:
+            return None
+
+        warnings = []
+        patterns = self.analyze_patterns()
+
+        for pattern in patterns:
+            # Check if any likely tools are affected by detected patterns
+            affected_overlap = set(likely_tools) & set(pattern.affected_tools)
+            if affected_overlap:
+                warnings.append(
+                    f"CAUTION ({pattern.pattern_type.value}): {pattern.suggestion}"
+                )
+
+        # Also check for general patterns that apply to all tools
+        for pattern in patterns:
+            if not pattern.affected_tools:  # Patterns like rate limits
+                if pattern.confidence >= 0.5:
+                    warnings.append(
+                        f"WARNING: {pattern.suggestion}"
+                    )
+
+        if warnings:
+            return "\n".join(warnings)
+        return None
+
+    def infer_tools_from_description(self, step_description: str) -> List[str]:
+        """Infer likely tools from a step description.
+
+        Args:
+            step_description: The step description text
+
+        Returns:
+            List of likely tool names
+        """
+        desc_lower = step_description.lower()
+        tools = []
+
+        # Map keywords to tool names
+        tool_keywords = {
+            "shell": ["run", "execute", "command", "terminal", "bash", "install"],
+            "browser": ["browse", "navigate", "click", "website", "page", "url"],
+            "file": ["read", "write", "save", "file", "create file", "edit"],
+            "search": ["search", "find", "lookup", "google", "query"],
+            "message": ["ask", "tell", "inform", "message", "user"],
+        }
+
+        for tool, keywords in tool_keywords.items():
+            if any(kw in desc_lower for kw in keywords):
+                tools.append(tool)
+
+        return tools
+
     def clear_history(self) -> None:
         """Clear error history"""
         self._error_history.clear()

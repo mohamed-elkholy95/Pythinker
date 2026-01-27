@@ -128,9 +128,11 @@ export function useTimelineKeyboard(
       case '4':
         // Number keys 1-4: Set playback speed
         event.preventDefault()
-        const speedIndex = parseInt(key) - 1
-        if (speedIndex >= 0 && speedIndex < speedPresets.length) {
-          timeline.setSpeed(speedPresets[speedIndex])
+        {
+          const speedIndex = parseInt(key) - 1
+          if (speedIndex >= 0 && speedIndex < speedPresets.length) {
+            timeline.setSpeed(speedPresets[speedIndex])
+          }
         }
         break
     }

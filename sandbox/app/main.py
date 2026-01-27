@@ -94,6 +94,7 @@ async def health_check(response: Response):
         "api": True,
         "cdp": await _check_port("127.0.0.1", 9222),
         "vnc_ws": await _check_port("127.0.0.1", 5901),
+        "framework": await _check_port("127.0.0.1", 8082),
     }
 
     if not all(checks.values()):

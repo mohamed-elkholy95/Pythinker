@@ -20,8 +20,6 @@
 <script setup lang="ts">
 import { ref, onBeforeUnmount, onMounted, onUnmounted, watch } from 'vue';
 import { getVNCUrl } from '@/api/agent';
-// @ts-expect-error - NoVNC doesn't have TypeScript definitions
-import RFB from '@novnc/novnc/lib/rfb';
 
 const props = defineProps<{
   sessionId: string;
@@ -37,7 +35,7 @@ const emit = defineEmits<{
 
 const vncContainer = ref<HTMLDivElement | null>(null);
 const isConnected = ref(false);
-let rfb: RFB | null = null;
+let rfb: any = null;
 const isConnecting = ref(false);
 const reconnectAttempts = ref(0);
 const suspendForTakeover = ref(false);
@@ -82,6 +80,10 @@ const initVNCConnection = async () => {
   try {
     const wsUrl = await getVNCUrl(props.sessionId);
     lastSessionId = props.sessionId;
+
+    // Dynamically import RFB to avoid top-level await issues
+    // @ts-expect-error - NoVNC doesn't have TypeScript definitions
+    const { default: RFB } = await import('@novnc/novnc/lib/rfb');
 
     // Create NoVNC connection
     rfb = new RFB(vncContainer.value, wsUrl, {
@@ -231,7 +233,7 @@ defineExpose({
 .loading-shape {
   width: 10px;
   height: 10px;
-  background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 50%, #3b82f6 100%);
+  background: linear-gradient(135deg, #9c7dff 0%, #b69eff 50%, #9c7dff 100%);
   background-size: 200% 200%;
   animation: shimmer 1.5s ease-in-out infinite;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);

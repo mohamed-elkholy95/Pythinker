@@ -14,55 +14,8 @@
           @click.stop="emit('openPanel')"
         >
           <!-- Live VNC View -->
-          <div
-            v-if="showShellPreview"
-            class="w-full h-full bg-[var(--background-white-main)] text-[7px] leading-snug font-mono text-[var(--text-secondary)] px-2 py-2 whitespace-pre overflow-hidden"
-          >
-            <div v-for="(line, index) in shellPreviewLines" :key="index">
-              <template v-if="line.type === 'prompt'">
-                <span class="text-green-600">{{ line.ps1 }}</span>
-                <span class="text-[var(--text-primary)]"> {{ line.command }}</span>
-              </template>
-              <template v-else>
-                <span class="text-gray-500">{{ line.text }}</span>
-              </template>
-            </div>
-          </div>
-          <div
-            v-else-if="showBrowserPlaceholder"
-            class="w-full h-full bg-[var(--background-white-main)] flex items-center justify-center px-2 py-2"
-          >
-            <div
-              v-if="browserTextPreview"
-              class="w-full h-full bg-[var(--background-menu-white)] rounded-lg border border-black/5 shadow-[0px_2px_6px_rgba(0,0,0,0.08)] px-2 py-1.5 flex flex-col gap-1 text-left"
-            >
-              <div class="text-[6px] tracking-[0.12em] text-[var(--text-tertiary)] uppercase truncate">
-                {{ browserTextPreview.source }}
-              </div>
-              <div class="text-[8px] font-semibold text-[#2563eb] leading-snug line-clamp-2">
-                {{ browserTextPreview.title }}
-              </div>
-              <div v-if="browserTextPreview.subtitle" class="text-[7px] font-medium text-[var(--text-primary)] line-clamp-1">
-                {{ browserTextPreview.subtitle }}
-              </div>
-              <div v-if="browserTextPreview.body" class="text-[6px] text-[var(--text-secondary)] leading-snug line-clamp-3">
-                {{ browserTextPreview.body }}
-              </div>
-            </div>
-            <div v-else class="text-[8px] leading-snug text-[var(--text-secondary)] text-center">
-              <div class="font-medium flex items-center justify-center gap-1.5">
-                <span>Fetching text</span>
-                <span class="fetching-dots" aria-hidden="true">
-                  <span class="fetching-dot"></span>
-                  <span class="fetching-dot"></span>
-                  <span class="fetching-dot"></span>
-                </span>
-              </div>
-              <div class="mt-1 text-[7px] text-[var(--text-tertiary)]">No visual page</div>
-            </div>
-          </div>
           <VNCViewer
-            v-else-if="showVncPreview"
+            v-if="showVncPreview"
             :session-id="sessionId"
             :enabled="true"
             :view-only="true"
@@ -75,21 +28,6 @@
             alt="Computer view"
             class="w-full h-full object-cover"
           />
-          <!-- Terminal Placeholder -->
-          <div v-else class="w-full h-full bg-[#1a1a1a] flex flex-col p-2">
-            <div class="text-[8px] text-gray-500 text-center mb-1">main</div>
-            <div class="terminal-text">
-              <div class="text-[7px] leading-tight">
-                <span class="text-green-500">ubuntu@sandbox:~$</span>
-                <span class="text-gray-300"> cd /home/ubuntu</span>
-              </div>
-              <div class="text-[7px] leading-tight text-gray-400">Executing task...</div>
-              <div class="text-[7px] leading-tight">
-                <span class="text-green-500">ubuntu@sandbox:~$</span>
-                <span class="terminal-cursor"></span>
-              </div>
-            </div>
-          </div>
         </div>
         <!-- Expand Button -->
         <button
@@ -148,55 +86,8 @@
             @click.stop="emit('openPanel')"
           >
             <!-- Live VNC View -->
-            <div
-              v-if="showShellPreview"
-              class="w-full h-full bg-[var(--background-white-main)] text-[8px] leading-snug font-mono text-[var(--text-secondary)] px-2.5 py-2.5 whitespace-pre overflow-hidden"
-            >
-              <div v-for="(line, index) in shellPreviewLines" :key="index">
-                <template v-if="line.type === 'prompt'">
-                  <span class="text-green-600">{{ line.ps1 }}</span>
-                  <span class="text-[var(--text-primary)]"> {{ line.command }}</span>
-                </template>
-                <template v-else>
-                  <span class="text-gray-500">{{ line.text }}</span>
-                </template>
-              </div>
-            </div>
-            <div
-              v-else-if="showBrowserPlaceholder"
-              class="w-full h-full bg-[var(--background-white-main)] flex items-center justify-center px-2 py-2"
-            >
-              <div
-                v-if="browserTextPreview"
-                class="w-full h-full bg-[var(--background-menu-white)] rounded-lg border border-black/5 shadow-[0px_2px_6px_rgba(0,0,0,0.08)] px-2 py-1.5 flex flex-col gap-1 text-left"
-              >
-                <div class="text-[6px] tracking-[0.12em] text-[var(--text-tertiary)] uppercase truncate">
-                  {{ browserTextPreview.source }}
-                </div>
-                <div class="text-[8px] font-semibold text-[#2563eb] leading-snug line-clamp-2">
-                  {{ browserTextPreview.title }}
-                </div>
-                <div v-if="browserTextPreview.subtitle" class="text-[7px] font-medium text-[var(--text-primary)] line-clamp-1">
-                  {{ browserTextPreview.subtitle }}
-                </div>
-                <div v-if="browserTextPreview.body" class="text-[6px] text-[var(--text-secondary)] leading-snug line-clamp-3">
-                  {{ browserTextPreview.body }}
-                </div>
-              </div>
-              <div v-else class="text-[8px] leading-snug text-[var(--text-secondary)] text-center">
-                <div class="font-medium flex items-center justify-center gap-1.5">
-                  <span>Fetching text</span>
-                  <span class="fetching-dots" aria-hidden="true">
-                    <span class="fetching-dot"></span>
-                    <span class="fetching-dot"></span>
-                    <span class="fetching-dot"></span>
-                  </span>
-                </div>
-                <div class="mt-1 text-[7px] text-[var(--text-tertiary)]">No visual page</div>
-              </div>
-            </div>
             <VNCViewer
-              v-else-if="showVncPreview"
+              v-if="showVncPreview"
               :session-id="sessionId"
               :enabled="true"
               :view-only="true"
@@ -209,23 +100,6 @@
               alt="Computer view"
               class="w-full h-full object-cover"
             />
-            <!-- Terminal Placeholder -->
-            <div v-else class="w-full h-full bg-[#1a1a1a] flex flex-col p-3">
-              <div class="text-[9px] text-gray-500 text-center mb-1.5">main</div>
-              <div class="terminal-text flex-1">
-                <div class="text-[8px] leading-relaxed">
-                  <span class="text-green-500">ubuntu@sandbox:~$</span>
-                  <span class="text-gray-300"> cd /home/ubuntu && g</span>
-                </div>
-                <div class="text-[8px] leading-relaxed text-gray-300">h repo clone project.git</div>
-                <div class="text-[8px] leading-relaxed text-gray-400">GraphQL: Could not resolve</div>
-                <div class="text-[8px] leading-relaxed text-gray-400">ory with the name 'project'</div>
-                <div class="text-[8px] leading-relaxed">
-                  <span class="text-green-500">ubuntu@sandbox:~$</span>
-                  <span class="terminal-cursor"></span>
-                </div>
-              </div>
-            </div>
           </div>
           <!-- Expand Button -->
           <button
@@ -296,7 +170,7 @@
         <!-- Task List -->
         <div class="flex flex-col max-h-[42vh] sm:max-h-[50vh] overflow-y-auto pr-1">
           <div
-            v-for="(step, index) in steps"
+            v-for="step in steps"
             :key="step.id"
             class="flex items-start gap-2.5 py-2.5"
           >
@@ -326,19 +200,22 @@
       </div>
     </div>
     <Teleport to="body">
-      <div
-        v-if="tooltipVisible"
-        class="fixed inline-flex items-center gap-1.5 px-4 py-2 bg-[var(--Button-primary-black)] text-[var(--text-onblack)] rounded-full text-sm font-medium whitespace-nowrap shadow-lg z-[2000] pointer-events-none"
-        :style="tooltipStyle"
-      >
-        {{ $t("View Pythinker's computer") }}
-      </div>
+      <Transition name="tooltip">
+        <div
+          v-if="tooltipVisible"
+          ref="tooltipRef"
+          class="tooltip-badge fixed inline-flex items-center gap-1.5 px-4 py-2 bg-[var(--Button-primary-black)] text-[var(--text-onblack)] rounded-full text-sm font-medium whitespace-nowrap shadow-lg z-[6000] pointer-events-none"
+          :style="tooltipStyle"
+        >
+          {{ $t("View Pythinker's computer") }}
+        </div>
+      </Transition>
     </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { ChevronUp, ChevronDown, Check, Monitor, Terminal, Globe, FolderOpen, ArrowUpRight } from 'lucide-vue-next'
 import type { PlanEventData } from '@/types/event'
 import type { ToolContent } from '@/types/message'
@@ -378,24 +255,53 @@ const isExpanded = ref(props.defaultExpanded)
 const tooltipVisible = ref(false)
 const tooltipTop = ref(0)
 const tooltipLeft = ref(0)
+const tooltipRef = ref<HTMLElement | null>(null)
+const tooltipAnchor = ref<DOMRect | null>(null)
 
 const tooltipStyle = computed(() => ({
   top: `${tooltipTop.value}px`,
-  left: `${tooltipLeft.value}px`,
-  transform: 'translate(-50%, -100%)'
+  left: `${tooltipLeft.value}px`
 }))
+
+const updateTooltipPosition = () => {
+  if (!tooltipAnchor.value) return
+  const rect = tooltipAnchor.value
+  const padding = 12
+  const tooltipRect = tooltipRef.value?.getBoundingClientRect()
+  let left = rect.left + rect.width / 2
+  if (tooltipRect) {
+    const halfWidth = tooltipRect.width / 2
+    left = Math.min(window.innerWidth - padding - halfWidth, Math.max(padding + halfWidth, left))
+    const minTop = tooltipRect.height + padding
+    const desiredTop = rect.top - 10
+    tooltipTop.value = Math.max(desiredTop, minTop)
+  } else {
+    tooltipTop.value = rect.top - 10
+  }
+  tooltipLeft.value = left
+}
 
 const showTooltip = (event: MouseEvent) => {
   const target = event.currentTarget as HTMLElement | null
   if (!target) return
   const rect = target.getBoundingClientRect()
+  tooltipAnchor.value = rect
   tooltipTop.value = rect.top - 10
   tooltipLeft.value = rect.left + rect.width / 2
   tooltipVisible.value = true
+  nextTick(updateTooltipPosition)
 }
 
 const hideTooltip = () => {
   tooltipVisible.value = false
+}
+
+const handleScroll = () => {
+  if (tooltipVisible.value) hideTooltip()
+}
+
+const handleResize = () => {
+  if (tooltipVisible.value) updateTooltipPosition()
 }
 
 // Morphing shape animation
@@ -421,59 +327,6 @@ const isIdle = computed(() => {
 
 const steps = computed(() => props.plan?.steps ?? [])
 
-const thumbnailToolName = computed(() => {
-  if (props.toolContent?.name) return props.toolContent.name
-  if (props.currentTool?.name) return props.currentTool.name
-  return ''
-})
-
-const shellPreviewLines = computed(() => {
-  const maxPreviewLines = 10
-  if (!thumbnailToolName.value.includes('shell')) return []
-  const consoleEntries = props.toolContent?.content?.console
-  if (!Array.isArray(consoleEntries)) return []
-  const lines: Array<{ type: 'prompt'; ps1: string; command: string } | { type: 'output'; text: string }> = []
-  for (const entry of consoleEntries) {
-    const ps1 = typeof entry?.ps1 === 'string' ? entry.ps1 : ''
-    const command = typeof entry?.command === 'string' ? entry.command : ''
-    if (ps1 || command) {
-      lines.push({ type: 'prompt', ps1, command })
-    }
-    const output = typeof entry?.output === 'string' ? entry.output : ''
-    if (output) {
-      output.split('\n').forEach((line: string) => {
-        if (line.trim().length > 0) {
-          lines.push({ type: 'output', text: line })
-        }
-      })
-    }
-  }
-  if (lines.length <= maxPreviewLines) return lines
-
-  let lastPromptIndex = -1
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    if (lines[i].type === 'prompt') {
-      lastPromptIndex = i
-      break
-    }
-  }
-
-  if (lastPromptIndex === -1) {
-    return lines.slice(-maxPreviewLines)
-  }
-
-  const outputLines = lines.slice(lastPromptIndex + 1).filter(line => line.type === 'output') as Array<{ type: 'output'; text: string }>
-  const outputLimit = maxPreviewLines - 1
-  const limitedOutputs = outputLines.slice(-outputLimit)
-  return [lines[lastPromptIndex], ...limitedOutputs]
-})
-
-const isTextOnlyBrowserFetch = computed(() => props.toolContent?.function === 'browser_get_content')
-const isBrowserTool = computed(() => {
-  const name = props.toolContent?.name
-  return name === 'browser' || name === 'browser_agent'
-})
-
 const COMPUTER_TOOLS = new Set(['browser', 'shell', 'file', 'browser_agent', 'code_executor'])
 const hasComputerActivity = computed(() => {
   const toolName = props.toolContent?.name || props.currentTool?.name || ''
@@ -484,62 +337,8 @@ const hasComputerActivity = computed(() => {
 const showVncPreview = computed(() => (
   !!props.sessionId &&
   !!props.liveVnc &&
-  isBrowserTool.value &&
-  !isTextOnlyBrowserFetch.value
+  hasComputerActivity.value
 ))
-
-// Shell preview only shown when VNC is not available
-const showShellPreview = computed(() => !showVncPreview.value && shellPreviewLines.value.length > 0)
-const showBrowserPlaceholder = computed(() => !showVncPreview.value && isTextOnlyBrowserFetch.value)
-
-const buildPreviewSource = (url?: string) => {
-  if (!url) return 'TEXT PREVIEW'
-  try {
-    const parsed = new URL(url)
-    const pathParts = parsed.pathname.split('/').filter(Boolean)
-    const candidate = pathParts[pathParts.length - 1] || parsed.hostname
-    const cleaned = candidate.replace(/\.[a-z0-9]+$/i, '').replace(/[-_]+/g, ' ')
-    const upper = cleaned.toUpperCase()
-    return upper.length > 24 ? `${upper.slice(0, 24)}...` : upper
-  } catch {
-    return 'TEXT PREVIEW'
-  }
-}
-
-const browserTextPreview = computed(() => {
-  if (!isTextOnlyBrowserFetch.value) return null
-  const content = props.toolContent?.content?.content
-  if (typeof content !== 'string') return null
-
-  const lines = content
-    .replace(/\r/g, '')
-    .split('\n')
-    .map(line => line.trim())
-    .filter(Boolean)
-
-  if (!lines.length) return null
-
-  const titleIndex = lines.findIndex(line => line.startsWith('#') || (line.length >= 12 && line.length <= 80))
-  const safeIndex = titleIndex >= 0 ? titleIndex : 0
-  const title = lines[safeIndex].replace(/^#+\s*/, '')
-
-  let subtitle = ''
-  let bodyStart = safeIndex + 1
-  if (lines[bodyStart] && lines[bodyStart].startsWith('##')) {
-    subtitle = lines[bodyStart].replace(/^#+\s*/, '')
-    bodyStart += 1
-  }
-
-  const body = lines.slice(bodyStart, bodyStart + 3).join(' ')
-  const source = buildPreviewSource(props.toolContent?.args?.url)
-
-  return {
-    source,
-    title,
-    subtitle,
-    body
-  }
-})
 
 const progressText = computed(() => {
   const completed = steps.value.filter(s => s.status === 'completed').length
@@ -623,10 +422,14 @@ onMounted(() => {
   if (props.isThinking) {
     startShapeAnimation()
   }
+  window.addEventListener('scroll', handleScroll, true)
+  window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {
   stopShapeAnimation()
+  window.removeEventListener('scroll', handleScroll, true)
+  window.removeEventListener('resize', handleResize)
 })
 </script>
 
@@ -641,8 +444,8 @@ onUnmounted(() => {
 }
 
 .status-dot-active {
-  border-color: #60a5fa;
-  background: rgba(59, 130, 246, 0.2);
+  border-color: #9c7dff;
+  background: rgba(156, 125, 255, 0.2);
 }
 
 .status-dot-idle {
@@ -697,6 +500,28 @@ onUnmounted(() => {
     transform: translateY(-2px);
     opacity: 1;
   }
+}
+
+.tooltip-badge {
+  transform: translate(-50%, -100%);
+  will-change: opacity, transform;
+}
+
+.tooltip-enter-active,
+.tooltip-leave-active {
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.tooltip-enter-from,
+.tooltip-leave-to {
+  opacity: 0;
+  transform: translate(-50%, calc(-100% + 6px));
+}
+
+.tooltip-enter-to,
+.tooltip-leave-from {
+  opacity: 1;
+  transform: translate(-50%, -100%);
 }
 
 /* VNC Thumbnail scaling */

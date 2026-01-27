@@ -6,7 +6,7 @@
       'width: 24px; transition: width 0.36s cubic-bezier(0.4, 0, 0.2, 1);'">
     <div
       :class="isLeftPanelShow ?
-        'flex flex-col overflow-hidden bg-[var(--background-nav)] h-full opacity-100 translate-x-0' :
+        'flex flex-col overflow-hidden bg-[var(--background-nav)] h-full opacity-100 translate-x-0 border-r border-[var(--border-main)]' :
         'flex flex-col overflow-hidden bg-[var(--background-nav)] fixed top-1 start-1 bottom-1 z-[1] border-1 dark:border-[1px] border-[var(--border-main)] dark:border-[var(--border-light)] rounded-xl shadow-[0px_8px_32px_0px_rgba(0,0,0,0.16),0px_0px_0px_1px_rgba(0,0,0,0.06)] opacity-0 pointer-events-none -translate-x-10'"
       :style="(isLeftPanelShow ? 'width: 300px;' : 'width: 0px;') + ' transition: opacity 0.2s, transform 0.2s, width 0.2s;'">
       <div class="flex">
@@ -24,18 +24,18 @@
       </div>
       <div class="px-3 mb-1 flex justify-center flex-shrink-0">
         <button @click="handleNewTaskClick"
-          class="flex min-w-[36px] w-full items-center justify-center gap-1.5 rounded-lg h-[32px] bg-[var(--Button-primary-white)] hover:bg-white/20 dark:hover:bg-black/60 cursor-pointer shadow-[0px_0.5px_3px_0px_var(--shadow-S)]">
-          <Plus class="h-4 w-4 text-[var(--icon-primary)]" />
-          <span class="text-sm font-medium text-[var(--text-primary)] whitespace-nowrap truncate">
+          class="flex min-w-[36px] w-full items-center justify-center gap-1.5 rounded-lg h-[32px] bg-[var(--bolt-elements-button-primary-background)] hover:bg-[var(--bolt-elements-button-primary-backgroundHover)] cursor-pointer border border-[var(--bolt-elements-borderColor)]">
+          <Plus class="h-4 w-4 text-[var(--bolt-elements-button-primary-text)]" />
+          <span class="text-sm font-medium text-[var(--bolt-elements-button-primary-text)] whitespace-nowrap truncate">
             {{ t('New Task') }}
           </span>
           <div class="flex items-center gap-0.5">
             <span
-              class="flex text-[var(--text-tertiary)] justify-center items-center min-w-5 h-5 px-1 rounded-[4px] bg-[var(--fill-tsp-white-light)] border border-[var(--border-light)]">
+              class="flex text-[var(--text-tertiary)] justify-center items-center min-w-5 h-5 px-1 rounded-[4px] bg-[var(--bolt-elements-bg-depth-2)] border border-[var(--border-light)]">
               <Command :size="14" />
             </span>
             <span
-              class="flex justify-center items-center w-5 h-5 px-1 rounded-[4px] bg-[var(--fill-tsp-white-light)] border border-[var(--border-light)] text-sm font-normal text-[var(--text-tertiary)] ">
+              class="flex justify-center items-center w-5 h-5 px-1 rounded-[4px] bg-[var(--bolt-elements-bg-depth-2)] border border-[var(--border-light)] text-sm font-normal text-[var(--text-tertiary)] ">
               K
             </span>
           </div>
@@ -53,7 +53,7 @@
         </div>
       </div>
       <div class="mt-auto px-3 pb-3 pt-2">
-        <div class="flex items-center gap-2 rounded-xl border border-[var(--border-light)] bg-[var(--fill-tsp-white-main)] px-2 py-1">
+        <div class="flex items-center gap-2 rounded-xl border border-[var(--border-light)] bg-[var(--bolt-elements-bg-depth-2)] px-2 py-1">
           <button
             class="flex h-8 w-8 items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)]"
             @click="openSettingsDialog('settings')"
@@ -67,7 +67,7 @@
                 class="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-[var(--fill-tsp-gray-main)] min-w-0"
                 aria-label="Open user menu"
               >
-                <span class="flex h-8 w-8 items-center justify-center rounded-full bg-[#3b82f6] text-white text-sm font-semibold">
+                <span class="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--bolt-elements-item-contentAccent)] text-white text-sm font-semibold">
                   {{ avatarLetter }}
                 </span>
                 <span class="text-xs font-medium text-[var(--text-primary)] truncate min-w-0">

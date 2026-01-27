@@ -132,6 +132,16 @@ const isWriting = computed(() => {
          props.toolContent?.function === "file_write";
 });
 
+const getToolContentText = () => {
+  const content = props.toolContent?.content;
+  if (!content) return "";
+  if (typeof content === "string") return content;
+  if (typeof (content as { content?: unknown }).content === "string") {
+    return (content as { content: string }).content;
+  }
+  return "";
+};
+
 const displayContent = computed(() => {
   if (viewMode.value === 'original') {
     return originalContent.value || fileContent.value;
@@ -149,8 +159,10 @@ const loadFileContent = async () => {
   // During file_write (status: calling), show the content being written (streaming preview)
   if (isWriting.value) {
     // Priority: tool_content.content (from backend) > args.content (fallback)
-    const streamingContent = props.toolContent.content?.content ||
-                             props.toolContent.args?.content || "";
+    const argContent = typeof props.toolContent.args?.content === "string"
+      ? props.toolContent.args?.content
+      : "";
+    const streamingContent = getToolContentText() || argContent;
     if (fileContent.value && fileContent.value !== streamingContent) {
       originalContent.value = fileContent.value;
     }
@@ -159,7 +171,7 @@ const loadFileContent = async () => {
   }
 
   if (!props.live) {
-    const nextContent = props.toolContent.content?.content || "";
+    const nextContent = getToolContentText();
     if (fileContent.value && fileContent.value !== nextContent) {
       originalContent.value = fileContent.value;
     }
@@ -288,10 +300,10 @@ onUnmounted(() => {
 
 @keyframes writing-pulse {
   0%, 100% {
-    border-color: rgba(59, 130, 246, 0.1);
+    border-color: rgba(156, 125, 255, 0.12);
   }
   50% {
-    border-color: rgba(59, 130, 246, 0.3);
+    border-color: rgba(156, 125, 255, 0.35);
   }
 }
 </style>

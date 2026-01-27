@@ -10,4 +10,11 @@
 | #12119 | 5:02 PM | 🔵 | PyThinker System Prompt with Modular Rules for Research and Browser Operations | ~925 |
 | #12106 | 4:59 PM | 🔵 | PyThinker Execution Prompt Engineering with Dynamic Signal Injection | ~828 |
 | #12095 | 4:57 PM | 🔵 | PyThinker Modular System Prompt Architecture with Cache Optimization | ~846 |
+
+### Jan 27, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #12244 | 3:14 PM | 🔵 | Planner Prompts Enforce Concise Action-Verb Steps With Temporal Awareness | ~774 |
+| #12242 | 3:13 PM | 🔵 | Verifier Prompts Define Structured Plan Validation With Three-Verdict System | ~750 |
 </claude-mem-context>

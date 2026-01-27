@@ -19,7 +19,7 @@
             />
             <path
               d="M12 2a10 10 0 0 1 10 10"
-              stroke="#3b82f6"
+              stroke="var(--bolt-elements-item-contentAccent)"
               stroke-width="2.5"
               stroke-linecap="round"
             />

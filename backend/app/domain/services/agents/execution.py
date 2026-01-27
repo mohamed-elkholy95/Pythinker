@@ -18,6 +18,7 @@ from app.domain.services.prompts.execution import (
 )
 from app.domain.services.agents.task_state_manager import get_task_state_manager
 from app.domain.services.agents.token_manager import TokenManager
+from app.domain.services.agents.error_pattern_analyzer import get_error_pattern_analyzer
 from app.domain.models.event import (
     BaseEvent,
     StepEvent,
@@ -130,6 +131,17 @@ class ExecutionAgent(BaseAgent):
             except Exception as e:
                 logger.warning(f"Failed to retrieve memories for step: {e}")
 
+        # Get proactive error pattern signals
+        error_pattern_signal = None
+        try:
+            pattern_analyzer = get_error_pattern_analyzer()
+            likely_tools = pattern_analyzer.infer_tools_from_description(step.description)
+            error_pattern_signal = pattern_analyzer.get_proactive_signals(likely_tools)
+            if error_pattern_signal:
+                logger.debug(f"Injecting proactive error warning for tools: {likely_tools}")
+        except Exception as e:
+            logger.warning(f"Failed to get error pattern signals: {e}")
+
         # Build execution prompt with context signals
         base_prompt = build_execution_prompt(
             step=step.description,
@@ -140,6 +152,10 @@ class ExecutionAgent(BaseAgent):
             task_state=task_state_signal,
             memory_context=memory_context
         )
+
+        # Add proactive error warnings if any
+        if error_pattern_signal:
+            base_prompt = f"{base_prompt}\n\n## Proactive Guidance\n{error_pattern_signal}"
 
         # Adapt prompt with context-specific guidance if applicable
         if self._prompt_adapter.should_inject_guidance():

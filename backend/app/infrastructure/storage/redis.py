@@ -15,13 +15,20 @@ class RedisClient:
             return
             
         try:
-            # Connect to Redis
+            # Connect to Redis with connection pooling and timeout settings
             self._client = Redis(
                 host=self._settings.redis_host,
                 port=self._settings.redis_port,
                 db=self._settings.redis_db,
                 password=self._settings.redis_password,
-                decode_responses=True
+                decode_responses=True,
+                # Connection pooling settings
+                max_connections=self._settings.redis_max_connections,
+                # Timeout settings
+                socket_timeout=self._settings.redis_socket_timeout,
+                socket_connect_timeout=self._settings.redis_socket_connect_timeout,
+                health_check_interval=self._settings.redis_health_check_interval,
+                retry_on_timeout=self._settings.redis_retry_on_timeout,
             )
             # Verify the connection
             await self._client.ping()

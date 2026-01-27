@@ -103,13 +103,65 @@ class RequestLoggingMiddleware:
 
 
 class RateLimitMiddleware:
-    """Middleware to implement rate limiting using Redis"""
+    """Middleware to implement rate limiting using Redis with in-memory fallback.
+
+    Security: If Redis is unavailable, falls back to in-memory rate limiting
+    to prevent authentication bypass attacks.
+    """
 
     # Auth endpoints have stricter limits
     AUTH_PATHS = {"/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/refresh"}
 
+    # In-memory fallback storage: {key: (count, window_start_time)}
+    _fallback_storage: dict = {}
+    _fallback_window_seconds: int = 60
+    _fallback_cleanup_counter: int = 0
+    _fallback_cleanup_interval: int = 100  # Cleanup every N requests
+
     def __init__(self, app: Callable):
         self.app = app
+
+    def _cleanup_fallback_storage(self) -> None:
+        """Remove expired entries from fallback storage to prevent memory growth."""
+        current_time = time.time()
+        expired_keys = [
+            key for key, (_, window_start) in self._fallback_storage.items()
+            if current_time - window_start > self._fallback_window_seconds
+        ]
+        for key in expired_keys:
+            del self._fallback_storage[key]
+
+    def _fallback_rate_limit(self, key: str, max_requests: int) -> tuple[bool, int]:
+        """In-memory rate limiting fallback when Redis is unavailable.
+
+        Returns:
+            tuple of (is_allowed, current_count)
+        """
+        current_time = time.time()
+
+        # Periodic cleanup to prevent memory growth
+        self._fallback_cleanup_counter += 1
+        if self._fallback_cleanup_counter >= self._fallback_cleanup_interval:
+            self._cleanup_fallback_storage()
+            self._fallback_cleanup_counter = 0
+
+        if key in self._fallback_storage:
+            count, window_start = self._fallback_storage[key]
+
+            # Check if window has expired
+            if current_time - window_start > self._fallback_window_seconds:
+                # Start new window
+                self._fallback_storage[key] = (1, current_time)
+                return True, 1
+            else:
+                # Increment count in current window
+                new_count = count + 1
+                self._fallback_storage[key] = (new_count, window_start)
+                return new_count <= max_requests, new_count
+        else:
+            # New key, start window
+            self._fallback_storage[key] = (1, current_time)
+            return True, 1
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or not settings.rate_limit_enabled:
@@ -127,10 +179,13 @@ class RateLimitMiddleware:
 
         # Get client identifier (IP or user ID from token)
         client_id = request.client.host if request.client else "unknown"
+        key = f"rate_limit:{client_id}:{path.split('/')[3] if len(path.split('/')) > 3 else 'default'}"
+
+        rate_limit_exceeded = False
+        using_fallback = False
 
         try:
             redis = get_redis().client
-            key = f"rate_limit:{client_id}:{path.split('/')[3] if len(path.split('/')) > 3 else 'default'}"
 
             # Increment request count
             current = await redis.incr(key)
@@ -141,24 +196,35 @@ class RateLimitMiddleware:
 
             # Check if rate limit exceeded
             if current > max_requests:
-                logger.warning(f"Rate limit exceeded for {client_id} on {path}")
-                response = JSONResponse(
-                    status_code=429,
-                    content={
-                        "success": False,
-                        "error": {
-                            "code": "RATE_LIMIT_EXCEEDED",
-                            "message": "Too many requests. Please try again later."
-                        }
-                    },
-                    headers={"Retry-After": "60"}
-                )
-                await response(scope, receive, send)
-                return
+                rate_limit_exceeded = True
 
         except Exception as e:
-            # Log but don't block requests if Redis is unavailable
-            logger.warning(f"Rate limiting error (allowing request): {e}")
+            # SECURITY FIX: Fall back to in-memory rate limiting instead of allowing all requests
+            logger.warning(f"Redis unavailable for rate limiting, using in-memory fallback: {e}")
+            using_fallback = True
+
+            is_allowed, current = self._fallback_rate_limit(key, max_requests)
+            if not is_allowed:
+                rate_limit_exceeded = True
+
+        if rate_limit_exceeded:
+            logger.warning(
+                f"Rate limit exceeded for {client_id} on {path}"
+                f"{' (fallback mode)' if using_fallback else ''}"
+            )
+            response = JSONResponse(
+                status_code=429,
+                content={
+                    "success": False,
+                    "error": {
+                        "code": "RATE_LIMIT_EXCEEDED",
+                        "message": "Too many requests. Please try again later."
+                    }
+                },
+                headers={"Retry-After": "60"}
+            )
+            await response(scope, receive, send)
+            return
 
         await self.app(scope, receive, send)
 
@@ -209,86 +275,113 @@ async def lifespan(app: FastAPI):
     logger.info("Application startup - Pythinker AI Agent initializing")
     logger.info(f"Environment: {settings.environment}")
 
-    # Initialize observability (OTEL, metrics)
-    _initialize_observability()
-
-    # Initialize MongoDB and Beanie
-    await get_mongodb().initialize()
-    _health_state["mongodb"] = True
-
-    # Initialize Beanie
-    await init_beanie(
-        database=get_mongodb().client[settings.mongodb_database],
-        document_models=[
-            AgentDocument,
-            SessionDocument,
-            UserDocument,
-            UsageDocument,
-            DailyUsageDocument,
-        ]
-    )
-    logger.info("Successfully initialized Beanie")
-
-    # Initialize Redis
-    await get_redis().initialize()
-    _health_state["redis"] = True
-
-    # Initialize Qdrant (optional, graceful degradation if unavailable)
-    try:
-        await get_qdrant().initialize()
-        _health_state["qdrant"] = True
-    except Exception as e:
-        logger.warning(f"Qdrant initialization failed (graceful degradation): {e}")
-        _health_state["qdrant"] = False
-
-    # Mark as ready
-    _health_state["ready"] = True
-    logger.info("Application startup complete - all services initialized")
+    # Initialize enhanced error handling and monitoring
+    from app.core.system_integrator import get_system_integrator
+    system_integrator = get_system_integrator()
 
     try:
-        yield
-    finally:
-        # Code executed on shutdown
-        logger.info("Application shutdown - Pythinker AI Agent terminating")
-        _health_state["ready"] = False
+        # Initialize observability (OTEL, metrics)
+        _initialize_observability()
 
-        # Disconnect from MongoDB
+        # Initialize MongoDB and Beanie
+        await get_mongodb().initialize()
+        _health_state["mongodb"] = True
+
+        # Initialize Beanie
+        await init_beanie(
+            database=get_mongodb().client[settings.mongodb_database],
+            document_models=[
+                AgentDocument,
+                SessionDocument,
+                UserDocument,
+                UsageDocument,
+                DailyUsageDocument,
+            ]
+        )
+        logger.info("Successfully initialized Beanie")
+
+        # Initialize Redis
+        await get_redis().initialize()
+        _health_state["redis"] = True
+
+        # Initialize Qdrant (optional, graceful degradation if unavailable)
         try:
-            await asyncio.wait_for(get_mongodb().shutdown(), timeout=10.0)
-            _health_state["mongodb"] = False
-        except asyncio.TimeoutError:
-            logger.warning("MongoDB shutdown timed out")
+            await get_qdrant().initialize()
+            _health_state["qdrant"] = True
         except Exception as e:
-            logger.error(f"MongoDB shutdown error: {e}")
-
-        # Disconnect from Redis
-        try:
-            await asyncio.wait_for(get_redis().shutdown(), timeout=10.0)
-            _health_state["redis"] = False
-        except asyncio.TimeoutError:
-            logger.warning("Redis shutdown timed out")
-        except Exception as e:
-            logger.error(f"Redis shutdown error: {e}")
-
-        # Disconnect from Qdrant
-        try:
-            await asyncio.wait_for(get_qdrant().shutdown(), timeout=10.0)
+            logger.warning(f"Qdrant initialization failed (graceful degradation): {e}")
             _health_state["qdrant"] = False
-        except asyncio.TimeoutError:
-            logger.warning("Qdrant shutdown timed out")
-        except Exception:
-            pass  # Already logged or never initialized
 
-        logger.info("Cleaning up AgentService instance")
+        # Initialize enhanced system components
+        await system_integrator.initialize()
+        logger.info("Enhanced system components initialized")
+
+        # Mark as ready
+        _health_state["ready"] = True
+        logger.info("Application startup complete - all services initialized")
+
         try:
-            await asyncio.wait_for(get_agent_service().shutdown(), timeout=30.0)
-            logger.info("AgentService shutdown completed successfully")
-        except asyncio.TimeoutError:
-            logger.warning("AgentService shutdown timed out after 30 seconds")
-        except Exception as e:
-            logger.error(f"Error during AgentService cleanup: {str(e)}")
+            yield
+        finally:
+            # Code executed on shutdown
+            logger.info("Application shutdown - Pythinker AI Agent terminating")
+            _health_state["ready"] = False
 
-        logger.info("Application shutdown complete")
+            # Shutdown enhanced components first
+            try:
+                await asyncio.wait_for(system_integrator.shutdown(), timeout=15.0)
+                logger.info("Enhanced components shutdown completed")
+            except asyncio.TimeoutError:
+                logger.warning("Enhanced components shutdown timed out")
+            except Exception as e:
+                logger.error(f"Enhanced components shutdown error: {e}")
+
+            # Disconnect from MongoDB
+            try:
+                await asyncio.wait_for(get_mongodb().shutdown(), timeout=10.0)
+                _health_state["mongodb"] = False
+            except asyncio.TimeoutError:
+                logger.warning("MongoDB shutdown timed out")
+            except Exception as e:
+                logger.error(f"MongoDB shutdown error: {e}")
+
+            # Disconnect from Redis
+            try:
+                await asyncio.wait_for(get_redis().shutdown(), timeout=10.0)
+                _health_state["redis"] = False
+            except asyncio.TimeoutError:
+                logger.warning("Redis shutdown timed out")
+            except Exception as e:
+                logger.error(f"Redis shutdown error: {e}")
+
+            # Disconnect from Qdrant
+            try:
+                await asyncio.wait_for(get_qdrant().shutdown(), timeout=10.0)
+                _health_state["qdrant"] = False
+            except asyncio.TimeoutError:
+                logger.warning("Qdrant shutdown timed out")
+            except Exception:
+                pass  # Already logged or never initialized
+
+            logger.info("Cleaning up AgentService instance")
+            try:
+                await asyncio.wait_for(get_agent_service().shutdown(), timeout=30.0)
+                logger.info("AgentService shutdown completed successfully")
+            except asyncio.TimeoutError:
+                logger.warning("AgentService shutdown timed out after 30 seconds")
+            except Exception as e:
+                logger.error(f"Error during AgentService cleanup: {str(e)}")
+
+            logger.info("Application shutdown complete")
+
+    except Exception as e:
+        logger.critical(f"Critical error during application startup: {e}")
+        # Attempt graceful shutdown even on startup failure
+        try:
+            await system_integrator.shutdown()
+        except Exception:
+            pass
+        raise
 
 app = FastAPI(
     title="Pythinker AI Agent",

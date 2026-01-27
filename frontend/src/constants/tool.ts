@@ -156,11 +156,11 @@ export interface ContentConfig {
  */
 export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
   shell: {
-    primaryView: 'terminal',
-    secondaryView: 'vnc',
-    tabLabels: ['Output', 'Screen'],
+    primaryView: 'vnc',
+    secondaryView: 'terminal',
+    tabLabels: ['Screen', 'Output'],
     defaultView: 'primary',
-    showTabs: false
+    showTabs: true
   },
   browser: {
     primaryView: 'vnc',
@@ -177,9 +177,9 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
     showTabs: true
   },
   code_executor: {
-    primaryView: 'terminal',
-    secondaryView: 'vnc',
-    tabLabels: ['Output', 'Screen'],
+    primaryView: 'vnc',
+    secondaryView: 'terminal',
+    tabLabels: ['Screen', 'Output'],
     defaultView: 'primary',
     showTabs: true
   },
@@ -216,13 +216,8 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
  * Some functions should default to a different view than their tool's default
  */
 export const FUNCTION_VIEW_OVERRIDES: Record<string, ViewMode> = {
-  // Browser content extraction - show output by default
-  browser_get_content: 'secondary',
+  // Browser agent extraction - show output by default
   browser_agent_extract: 'secondary',
-  // Browser navigation and viewing - show page content by default
-  browser_navigate: 'secondary',
-  browser_view: 'secondary',
-  browser_restart: 'secondary'
 };
 
 /**
@@ -233,4 +228,3 @@ export const TEXT_ONLY_FUNCTIONS = new Set([
   'browser_get_content',
   'browser_agent_extract'
 ]);
-

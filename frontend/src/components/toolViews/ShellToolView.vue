@@ -7,22 +7,28 @@
       </div>
     </div>
   </div>
-  <div class="flex-1 min-h-0 w-full overflow-y-auto">
-    <div dir="ltr" data-orientation="horizontal" class="flex flex-col flex-1 min-h-0">
-      <div data-state="active" data-orientation="horizontal" role="tabpanel"
-        id="radix-:r5m:-content-setup" tabindex="0"
-        class="py-2 focus-visible:outline-none data-[state=inactive]:hidden flex-1 font-mono text-sm leading-relaxed px-3 outline-none overflow-auto whitespace-pre-wrap break-all"
-        style="animation-duration: 0s;">
+  <ContentContainer :scrollable="false" padding="none" class="shell-view">
+    <div class="shell-surface">
+      <LoadingState
+        v-if="isLoading"
+        label="Executing command"
+        animation="terminal"
+      />
+      <div v-else-if="hasShellOutput" class="shell-output">
         <code v-html="shell"></code>
       </div>
+      <EmptyState v-else :message="emptyMessage" icon="terminal" />
     </div>
-  </div>
+  </ContentContainer>
 </template>
 
 <script setup lang="ts">
 import { onMounted, ref, computed, watch, onUnmounted } from 'vue';
 import { viewShellSession } from '@/api/agent';
 import { ToolContent } from '@/types/message';
+import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
+import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
+import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
 //import { showErrorToast } from '@/utils/toast';
 
 const props = defineProps<{
@@ -47,6 +53,10 @@ const shellSessionId = computed(() => {
   }
   return '';
 });
+
+const hasShellOutput = computed(() => shell.value.trim().length > 0);
+const isLoading = computed(() => props.live && !hasShellOutput.value);
+const emptyMessage = computed(() => (props.live ? 'Waiting for output...' : 'No output yet...'));
 
 const updateShellContent = (console: any) => {
   if (!console) return;
@@ -127,3 +137,33 @@ onUnmounted(() => {
   stopAutoRefresh();
 });
 </script>
+
+<style scoped>
+.shell-view {
+  flex: 1;
+  min-height: 0;
+}
+
+.shell-surface {
+  width: 100%;
+  height: 100%;
+  background: #1e1e1e;
+  color: #e5e7eb;
+  font-family: Menlo, Monaco, 'Courier New', monospace;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+.shell-output {
+  height: 100%;
+  padding: 8px 12px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.shell-view :deep(.empty-icon),
+.shell-view :deep(.empty-message) {
+  color: rgba(229, 231, 235, 0.65);
+}
+</style>

@@ -16,6 +16,12 @@ import { configure } from "vue-gtag";
 import SharePage from './pages/SharePage.vue';
 import ShareLayout from './pages/ShareLayout.vue';
 
+const storedTheme = localStorage.getItem('bolt_theme')
+const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches
+const resolvedTheme = storedTheme ?? (prefersDark ? 'dark' : 'light')
+document.documentElement.setAttribute('data-theme', resolvedTheme)
+document.documentElement.classList.toggle('dark', resolvedTheme === 'dark')
+
 configure({
   tagId: 'G-XCRZ3HH31S' // Replace with your own Google Analytics tag ID
 })

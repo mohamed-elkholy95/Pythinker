@@ -2,7 +2,7 @@
   <SimpleBar ref="simpleBarRef" @scroll="handleScroll">
     <div ref="chatContainerRef" class="relative flex flex-col h-full flex-1 min-w-0 px-5">
       <div ref="observerRef"
-        class="sm:min-w-[390px] flex flex-row items-center justify-between pt-3 pb-1 gap-1 sticky top-0 z-10 bg-[var(--background-gray-main)] flex-shrink-0">
+        class="sm:min-w-[390px] flex flex-row items-center justify-between pt-3 pb-2 gap-1 sticky top-0 z-10 bg-[var(--background-white-main)] border-b border-[var(--border-main)] flex-shrink-0">
         <div class="flex items-center flex-1">
           <div class="relative flex items-center">
             <div @click="toggleLeftPanel" v-if="!isLeftPanelShow"
@@ -11,7 +11,7 @@
             </div>
           </div>
         </div>
-        <div class="max-w-full sm:max-w-[768px] sm:min-w-[390px] flex w-full flex-col gap-[4px] overflow-hidden">
+        <div class="max-w-full sm:max-w-[768px] sm:min-w-[390px] flex w-full flex-col gap-[6px] overflow-hidden">
           <div
             class="text-[var(--text-primary)] text-lg font-medium w-full flex flex-row items-center justify-between flex-1 min-w-0 gap-2">
             <div class="flex flex-row items-center gap-[6px] flex-1 min-w-0">
@@ -90,7 +90,7 @@
                 </Popover>
               </span>
               <button @click="handleFileListShow"
-                class="p-[5px] flex items-center justify-center hover:bg-[var(--fill-tsp-white-dark)] rounded-lg cursor-pointer">
+                class="p-[5px] flex items-center justify-center hover:bg-[var(--bolt-elements-item-backgroundActive)] rounded-lg cursor-pointer">
                 <FileSearch class="text-[var(--icon-secondary)]" :size="18" />
               </button>
             </div>
@@ -166,7 +166,7 @@
           />
         </div>
 
-        <div class="flex flex-col bg-[var(--background-gray-main)] sticky bottom-0">
+        <div class="flex flex-col bg-[var(--background-white-main)] sticky bottom-0">
           <button @click="handleFollow" v-if="!follow"
             class="flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[var(--background-white-main)] hover:bg-[var(--background-gray-main)] clickable border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)] absolute -top-20 left-1/2 -translate-x-1/2">
             <ArrowDown class="text-[var(--icon-primary)]" :size="20" />
@@ -284,7 +284,7 @@ const router = useRouter()
 const { t } = useI18n()
 const { toggleLeftPanel, isLeftPanelShow } = useLeftPanel()
 const { showSessionFileList } = useSessionFileList()
-const { hideFilePanel, showFilePanel } = useFilePanel()
+const { hideFilePanel } = useFilePanel()
 const { isReportModalOpen, currentReport, openReport, closeReport } = useReport()
 
 // Create initial state factory
@@ -502,16 +502,12 @@ const isPlanCompleted = computed(() => {
   return !!plan.value?.steps?.length && plan.value.steps.every(step => step.status === 'completed');
 });
 
-const TEXT_ONLY_BROWSER_FUNCTIONS = new Set(['browser_get_content', 'browser_agent_extract']);
-
 const shouldEnableVnc = computed(() => {
   const tool = lastNoMessageTool.value;
   if (!tool) return false;
   // Enable VNC for all computer tools (browser, shell, file, code_executor)
   if (!COMPUTER_TOOLS.includes(tool.name)) return false;
-  // Disable VNC for text-only browser functions (show text preview instead)
-  if (tool.function && TEXT_ONLY_BROWSER_FUNCTIONS.has(tool.function)) return false;
-  return realTime.value && (isLoading.value || isPlanCompleted.value);
+  return !!sessionId.value;
 });
 
 // Get current thumbnail URL from tool content
@@ -908,8 +904,13 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
       sessionId.value,
       message,
       lastEventId.value,
-      files.map((file: FileInfo) => ({file_id : file.file_id, 
-                                        filename : file.filename})),
+      files.map((file: FileInfo) => ({
+        file_id: file.file_id,
+        filename: file.filename,
+        content_type: file.content_type,
+        size: file.size,
+        upload_date: file.upload_date
+      })),
       {
         onOpen: () => {
           console.log('Chat opened');

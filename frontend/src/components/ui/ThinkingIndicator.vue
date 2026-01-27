@@ -40,7 +40,7 @@ onUnmounted(() => {
 .thinking-shape {
   width: 10px;
   height: 10px;
-  background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 50%, #3b82f6 100%);
+  background: linear-gradient(135deg, #9c7dff 0%, #b69eff 50%, #9c7dff 100%);
   background-size: 200% 200%;
   animation: shimmer 1.5s ease-in-out infinite;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -75,11 +75,11 @@ onUnmounted(() => {
 .thinking-text-shimmer {
   background: linear-gradient(
     120deg,
-    #1f2937 0%,
-    #1f2937 40%,
-    #9ca3af 50%,
-    #1f2937 60%,
-    #1f2937 100%
+    #262626 0%,
+    #262626 40%,
+    #9c7dff 50%,
+    #262626 60%,
+    #262626 100%
   );
   background-size: 300% 300%;
   -webkit-background-clip: text;
@@ -93,11 +93,11 @@ onUnmounted(() => {
 .dark .thinking-text-shimmer {
   background: linear-gradient(
     120deg,
-    #e5e7eb 0%,
-    #e5e7eb 40%,
-    #6b7280 50%,
-    #e5e7eb 60%,
-    #e5e7eb 100%
+    #e5e5e5 0%,
+    #e5e5e5 40%,
+    #9c7dff 50%,
+    #e5e5e5 60%,
+    #e5e5e5 100%
   );
   background-size: 300% 300%;
   -webkit-background-clip: text;

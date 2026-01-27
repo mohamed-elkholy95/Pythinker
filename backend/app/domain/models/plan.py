@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
+from dataclasses import dataclass, field
 from enum import Enum
 import uuid
 
@@ -76,6 +77,8 @@ class Step(BaseModel):
     agent_type: Optional[str] = None  # Which agent should handle this
     dependencies: List[str] = Field(default_factory=list)  # Step IDs this depends on
     blocked_by: Optional[str] = None  # ID of step that caused blocking
+    # Metadata for merged steps and additional context
+    metadata: Optional[Dict[str, Any]] = None  # Stores merged_steps, original_descriptions, etc.
 
     def is_done(self) -> bool:
         """Check if step has reached a terminal state."""
@@ -253,3 +256,103 @@ class Plan(BaseModel):
 
     def dump_json(self) -> str:
         return self.model_dump_json(include={"goal", "language", "steps"})
+
+    def validate_plan(self) -> "ValidationResult":
+        """Pre-execution plan validation.
+
+        Checks:
+        - Circular dependencies
+        - Orphan steps (referencing non-existent steps)
+        - Empty/invalid steps
+
+        Returns:
+            ValidationResult with passed, errors[], warnings[]
+        """
+        errors: List[str] = []
+        warnings: List[str] = []
+
+        if not self.steps:
+            errors.append("Plan has no steps")
+            return ValidationResult(passed=False, errors=errors, warnings=warnings)
+
+        step_ids = {step.id for step in self.steps}
+
+        # Check for empty/invalid steps
+        for step in self.steps:
+            if not step.description or not step.description.strip():
+                errors.append(f"Step {step.id} has empty description")
+
+        # Check for orphan dependencies (referencing non-existent steps)
+        for step in self.steps:
+            for dep_id in step.dependencies:
+                if dep_id not in step_ids:
+                    errors.append(
+                        f"Step {step.id} depends on non-existent step {dep_id}"
+                    )
+
+        # Check for circular dependencies using DFS
+        def has_cycle(step_id: str, visited: set, rec_stack: set) -> bool:
+            visited.add(step_id)
+            rec_stack.add(step_id)
+
+            step = self.get_step_by_id(step_id)
+            if step:
+                for dep_id in step.dependencies:
+                    if dep_id not in visited:
+                        if has_cycle(dep_id, visited, rec_stack):
+                            return True
+                    elif dep_id in rec_stack:
+                        return True
+
+            rec_stack.remove(step_id)
+            return False
+
+        visited: set = set()
+        for step in self.steps:
+            if step.id not in visited:
+                if has_cycle(step.id, visited, set()):
+                    errors.append(
+                        f"Circular dependency detected involving step {step.id}"
+                    )
+                    break
+
+        # Check for self-dependencies
+        for step in self.steps:
+            if step.id in step.dependencies:
+                errors.append(f"Step {step.id} depends on itself")
+
+        # Warnings for potentially problematic plans
+        if len(self.steps) > 12:
+            warnings.append(
+                f"Plan has {len(self.steps)} steps, consider simplifying"
+            )
+
+        # Check for steps with too many dependencies
+        for step in self.steps:
+            if len(step.dependencies) > 5:
+                warnings.append(
+                    f"Step {step.id} has {len(step.dependencies)} dependencies, "
+                    "may be overly complex"
+                )
+
+        return ValidationResult(
+            passed=len(errors) == 0,
+            errors=errors,
+            warnings=warnings
+        )
+
+
+@dataclass
+class ValidationResult:
+    """Result of plan validation."""
+    passed: bool
+    errors: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "passed": self.passed,
+            "errors": self.errors,
+            "warnings": self.warnings
+        }

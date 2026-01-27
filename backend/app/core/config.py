@@ -44,12 +44,25 @@ class Settings(BaseSettings):
     mongodb_database: str = "manus"
     mongodb_username: str | None = None
     mongodb_password: str | None = None
-    
+    # MongoDB connection pooling and timeouts
+    mongodb_max_pool_size: int = 100  # Max connections in pool
+    mongodb_min_pool_size: int = 10  # Min connections to maintain
+    mongodb_max_idle_time_ms: int = 30000  # 30s idle timeout
+    mongodb_connect_timeout_ms: int = 10000  # 10s connection timeout
+    mongodb_server_selection_timeout_ms: int = 30000  # 30s server selection timeout
+    mongodb_socket_timeout_ms: int = 20000  # 20s socket timeout
+
     # Redis configuration
     redis_host: str = "redis"
     redis_port: int = 6379
     redis_db: int = 0
     redis_password: str | None = None
+    # Redis connection pooling and timeouts
+    redis_max_connections: int = 50  # Max connections in pool
+    redis_socket_timeout: float = 5.0  # 5s socket timeout
+    redis_socket_connect_timeout: float = 5.0  # 5s connection timeout
+    redis_health_check_interval: int = 30  # 30s health check interval
+    redis_retry_on_timeout: bool = True  # Retry on timeout
 
     # Qdrant Vector Database configuration
     qdrant_url: str = "http://qdrant:6333"
@@ -73,6 +86,9 @@ class Settings(BaseSettings):
     sandbox_mem_limit: str | None = "4g"
     sandbox_cpu_limit: float | None = 2.0
     sandbox_pids_limit: int | None = 500
+    sandbox_framework_port: int = 8082
+    sandbox_framework_enabled: bool = True
+    sandbox_framework_required: bool = False
 
     # code-server configuration (VS Code in browser)
     code_server_public_url: str | None = None
@@ -105,6 +121,8 @@ class Settings(BaseSettings):
     browser_recaptcha_solver: str | None = None  # "anticaptcha", "2captcha"
     browser_recaptcha_api_key: str | None = None  # API key for CAPTCHA solving service
     browser_proxy_url: str | None = None  # HTTP/SOCKS proxy for browser connections
+    browser_ignore_https_errors: bool | None = None  # None = auto (True in dev, False in prod)
+    browser_allow_dangerous_js: bool = False  # Allow dangerous JavaScript execution (SECURITY RISK)
 
     # Auth configuration
     auth_provider: str = "password"  # "password", "none", "local"
@@ -169,7 +187,7 @@ class Settings(BaseSettings):
     otel_insecure: bool = True  # Use insecure connection (no TLS)
 
     # Multi-Agent Orchestration configuration
-    enable_multi_agent: bool = False  # Enable specialized agent dispatch per step
+    enable_multi_agent: bool = True  # Enable specialized agent dispatch per step
     enable_coordinator: bool = False  # Enable full swarm coordinator mode
     multi_agent_max_parallel: int = 3  # Max concurrent agents in swarm mode
 
@@ -231,6 +249,18 @@ class Settings(BaseSettings):
     def is_development(self) -> bool:
         """Check if running in development environment"""
         return self.environment.lower() == "development"
+
+    @property
+    def should_ignore_https_errors(self) -> bool:
+        """Determine if browser should ignore HTTPS errors.
+
+        Security: Defaults to False in production to prevent MITM attacks.
+        In development, defaults to True for convenience with self-signed certs.
+        """
+        if self.browser_ignore_https_errors is not None:
+            return self.browser_ignore_https_errors
+        # Auto-detect: True in development, False in production
+        return self.is_development
 
     @property
     def cors_origins_list(self) -> list[str]:

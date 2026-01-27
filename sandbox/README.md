@@ -74,12 +74,13 @@ uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
 docker build -t manus-sandbox .
 
 # Run the container
-docker run -p 8080:8080 -p 9222:9222 -p 5900:5900 -p 5901:5901 manus-sandbox
+docker run -p 8080:8080 -p 8082:8082 -p 9222:9222 -p 5900:5900 -p 5901:5901 manus-sandbox
 ```
 
 ## Port Information
 
 - **8080**: FastAPI service port
+- **8082**: Sandbox framework API (agent DB + workflow coordination)
 - **9222**: Chrome remote debugging port
 - **5900**: VNC service port
 - **5901**: VNC WebSocket port
@@ -93,6 +94,7 @@ The sandbox service supports the following configuration options, which can be s
 - **LOG_LEVEL**: Log level, can be set to `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`, default is `INFO`.
 - **ALLOW_SUDO**: Allow privileged file operations and shell commands (default `false`).
 - **SHELL_MAX_OUTPUT_CHARS**: Max in-memory shell output buffer size (default `200000`).
+- **FRAMEWORK_DATABASE_URL**: Postgres DSN for the sandbox framework service (default `postgresql+asyncpg://postgres@127.0.0.1:5432/pythinker_sandbox`).
 
 Example `.env` file:
 ```
@@ -101,6 +103,7 @@ SERVICE_TIMEOUT_MINUTES=60
 LOG_LEVEL=DEBUG
 ALLOW_SUDO=false
 SHELL_MAX_OUTPUT_CHARS=200000
+FRAMEWORK_DATABASE_URL=postgresql+asyncpg://postgres@127.0.0.1:5432/pythinker_sandbox
 ```
 
 ## Inventory and SBOM

@@ -25,12 +25,14 @@ CDP_CONNECTION_RETRIES = 3
 class DockerSandbox(Sandbox):
     def __init__(self, ip: str = None, container_name: str = None):
         """Initialize Docker sandbox and API interaction client"""
+        settings = get_settings()
         self.client = httpx.AsyncClient(timeout=600)
-        self.ip = ip
+        self.ip = ip or settings.sandbox_address or "localhost"
         self.base_url = f"http://{self.ip}:8080"
         self._vnc_url = f"ws://{self.ip}:5901"
         self._cdp_url = f"http://{self.ip}:9222"
         self._code_server_url = f"http://{self.ip}:8081"
+        self._framework_url = f"http://{self.ip}:{settings.sandbox_framework_port}"
         self._container_name = container_name
     
     @property
@@ -52,6 +54,10 @@ class DockerSandbox(Sandbox):
     @property
     def code_server_url(self) -> str:
         return self._code_server_url
+
+    @property
+    def framework_url(self) -> str:
+        return self._framework_url
 
     @staticmethod
     def _get_container_ip(container) -> str:
@@ -279,6 +285,24 @@ class DockerSandbox(Sandbox):
         error_message = f"Sandbox failed to become ready after {max_retries} attempts ({max_retries * retry_interval} seconds)"
         logger.error(error_message)
         # Don't raise - let the caller handle degraded operation if needed
+
+    async def ensure_framework(self, session_id: str) -> None:
+        """Initialize sandbox framework state for the session."""
+        settings = get_settings()
+        if not settings.sandbox_framework_enabled:
+            return
+
+        try:
+            response = await self.client.post(
+                f"{self._framework_url}/api/v1/framework/bootstrap",
+                json={"session_id": session_id},
+            )
+            response.raise_for_status()
+        except Exception as e:
+            message = f"Sandbox framework bootstrap failed for session {session_id}: {e}"
+            if settings.sandbox_framework_required:
+                raise RuntimeError(message) from e
+            logger.warning(message)
 
     async def exec_command(self, session_id: str, exec_dir: str, command: str) -> ToolResult:
         response = await self.client.post(

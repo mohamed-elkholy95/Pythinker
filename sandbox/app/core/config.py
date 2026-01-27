@@ -8,6 +8,10 @@ class Settings(BaseSettings):
     
     # Service timeout settings (minutes)
     SERVICE_TIMEOUT_MINUTES: Optional[int] = None
+
+    # Sandbox framework database
+    FRAMEWORK_DATABASE_URL: str = "postgresql+asyncpg://postgres@127.0.0.1:5432/pythinker_sandbox"
+    FRAMEWORK_DB_ECHO: bool = False
     
     # Security controls
     ALLOW_SUDO: bool = False

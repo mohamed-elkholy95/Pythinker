@@ -29,39 +29,18 @@
     </div>
   </div>
 
-  <div class="flex-1 min-h-0 w-full overflow-hidden">
+  <ContentContainer :scrollable="false" padding="none" class="tool-view-body">
     <div class="h-full flex flex-col relative">
       <!-- VNC View -->
       <div v-show="viewMode === 'vnc'" class="w-full h-full flex items-center justify-center bg-[var(--fill-white)] relative">
         <!-- Text-only operation placeholder -->
-        <div v-if="showTextPlaceholder" class="w-full h-full flex flex-col items-center justify-center bg-gradient-to-b from-[var(--background-gray-main)] to-[var(--fill-white)] dark:from-[#1a1a2e] dark:to-[#16213e]">
-          <div class="fetching-container">
-            <div class="orbs-container">
-              <div class="orb orb-1"></div>
-              <div class="orb orb-2"></div>
-              <div class="orb orb-3"></div>
-            </div>
-            <div class="globe-wrapper">
-              <svg class="globe-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.3"/>
-                <ellipse cx="12" cy="12" rx="4" ry="10" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.5"/>
-                <path d="M2 12h20" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.4"/>
-                <path d="M12 2v20" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.4"/>
-              </svg>
-            </div>
-          </div>
-          <div class="mt-6 flex flex-col items-center gap-2">
-            <div class="flex items-center gap-2 text-[var(--text-secondary)]">
-              <span class="text-base font-medium">{{ actionLabel }}</span>
-              <span v-if="isActiveOperation" class="flex gap-1">
-                <span v-for="(_, i) in 3" :key="i" class="dot" :style="{ animationDelay: `${i * 200}ms` }"></span>
-              </span>
-            </div>
-            <div v-if="currentOperationDetail" class="max-w-[280px] text-center text-xs text-[var(--text-tertiary)] truncate px-4">
-              {{ currentOperationDetail }}
-            </div>
-          </div>
-        </div>
+        <LoadingState
+          v-if="showTextPlaceholder"
+          :label="actionLabel"
+          :detail="currentOperationDetail"
+          :is-active="isActiveOperation"
+          animation="globe"
+        />
 
         <!-- Live VNC -->
         <VNCViewer
@@ -90,9 +69,9 @@
       </div>
 
       <!-- Output View - Terminal/File content -->
-      <div v-show="viewMode === 'output'" class="w-full h-full flex flex-col bg-[#1e1e1e] text-gray-100 font-mono text-sm overflow-hidden">
+      <div v-show="viewMode === 'output'" class="output-panel">
         <!-- Output type indicator -->
-        <div class="flex items-center gap-2 px-3 py-2 bg-[#2d2d2d] border-b border-[#404040]">
+        <div class="output-header">
           <component :is="outputIcon" class="w-4 h-4 text-gray-400" />
           <span class="text-xs text-gray-400">{{ outputTypeLabel }}</span>
           <div v-if="isActiveOperation" class="ml-auto flex items-center gap-1.5">
@@ -102,36 +81,34 @@
         </div>
 
         <!-- Streaming content -->
-        <div ref="outputRef" class="flex-1 overflow-y-auto p-3 whitespace-pre-wrap break-all">
+        <div ref="outputRef" class="output-body">
           <!-- Shell output -->
           <template v-if="toolName === 'shell' || toolName === 'code_executor'">
             <div v-if="shellOutput" v-html="formatShellOutput(shellOutput)"></div>
-            <div v-else class="text-gray-500 italic">Waiting for output...</div>
+            <EmptyState v-else :message="outputEmptyMessage" :icon="outputEmptyIcon" />
           </template>
 
           <!-- File content -->
           <template v-else-if="toolName === 'file'">
             <div v-if="fileContent" class="text-gray-200">{{ fileContent }}</div>
-            <div v-else class="text-gray-500 italic">
-              {{ isFileWrite ? 'Generating content...' : 'Reading file...' }}
-            </div>
+            <EmptyState v-else :message="outputEmptyMessage" :icon="outputEmptyIcon" />
           </template>
 
           <!-- Browser content -->
           <template v-else-if="toolName === 'browser' || toolName === 'browser_agent'">
             <div v-if="browserContent" class="text-gray-200">{{ browserContent }}</div>
-            <div v-else class="text-gray-500 italic">Browser activity...</div>
+            <EmptyState v-else :message="outputEmptyMessage" :icon="outputEmptyIcon" />
           </template>
 
           <!-- Generic output -->
           <template v-else>
             <div v-if="genericOutput" class="text-gray-200">{{ genericOutput }}</div>
-            <div v-else class="text-gray-500 italic">No output yet...</div>
+            <EmptyState v-else :message="outputEmptyMessage" :icon="outputEmptyIcon" />
           </template>
         </div>
       </div>
     </div>
-  </div>
+  </ContentContainer>
 </template>
 
 <script setup lang="ts">
@@ -139,6 +116,9 @@ import { ref, watch, computed, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Terminal, FileText, Globe, Code } from 'lucide-vue-next';
 import { ToolContent } from '@/types/message';
+import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
+import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
+import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
 import VNCViewer from '@/components/VNCViewer.vue';
 import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';
 
@@ -246,6 +226,27 @@ const outputTypeLabel = computed(() => {
   return labels[toolName.value] || 'Output';
 });
 
+const outputEmptyMessage = computed(() => {
+  if (toolName.value === 'shell' || toolName.value === 'code_executor') {
+    return 'Waiting for output...';
+  }
+  if (toolName.value === 'file') {
+    return isFileWrite.value ? 'Generating content...' : 'Reading file...';
+  }
+  if (toolName.value === 'browser' || toolName.value === 'browser_agent') {
+    return 'Browser activity...';
+  }
+  return 'No output yet...';
+});
+
+const outputEmptyIcon = computed(() => {
+  if (toolName.value === 'shell') return 'terminal';
+  if (toolName.value === 'code_executor') return 'code';
+  if (toolName.value === 'file') return 'file';
+  if (toolName.value === 'browser' || toolName.value === 'browser_agent') return 'browser';
+  return 'inbox';
+});
+
 // File operations
 const isFileWrite = computed(() => toolFunction.value === 'file_write');
 
@@ -298,7 +299,7 @@ const genericOutput = computed(() => {
 const formatShellOutput = (output: string) => {
   // Simple formatting - highlight prompts
   return output
-    .replace(/(\$|\>)\s/g, '<span class="text-green-400">$1</span> ')
+    .replace(/(\$|>)\s/g, '<span class="text-green-400">$1</span> ')
     .replace(/(error|Error|ERROR)/gi, '<span class="text-red-400">$1</span>')
     .replace(/(warning|Warning|WARNING)/gi, '<span class="text-yellow-400">$1</span>')
     .replace(/(success|Success|SUCCESS|done|Done|DONE)/gi, '<span class="text-green-400">$1</span>');
@@ -351,73 +352,42 @@ const takeOver = () => {
 </script>
 
 <style scoped>
-/* Fetching animation styles */
-.fetching-container {
-  position: relative;
-  width: 120px;
-  height: 120px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.tool-view-body {
+  flex: 1;
+  min-height: 0;
 }
 
-.orbs-container {
-  position: absolute;
+.output-panel {
   width: 100%;
   height: 100%;
-  animation: rotate-slow 8s linear infinite;
+  display: flex;
+  flex-direction: column;
+  background: #1e1e1e;
+  color: #e5e7eb;
+  font-family: Menlo, Monaco, 'Courier New', monospace;
+  font-size: 13px;
+  overflow: hidden;
 }
 
-.orb {
-  position: absolute;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--text-brand), #60a5fa);
-  filter: blur(1px);
-  opacity: 0.8;
-}
-
-.orb-1 { width: 10px; height: 10px; top: 10%; left: 50%; transform: translateX(-50%); animation: pulse-orb 2s ease-in-out infinite; }
-.orb-2 { width: 8px; height: 8px; bottom: 20%; left: 15%; animation: pulse-orb 2s ease-in-out infinite 0.5s; }
-.orb-3 { width: 6px; height: 6px; bottom: 25%; right: 15%; animation: pulse-orb 2s ease-in-out infinite 1s; }
-
-.globe-wrapper {
-  position: relative;
-  width: 64px;
-  height: 64px;
+.output-header {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #2d2d2d;
+  border-bottom: 1px solid #404040;
 }
 
-.globe-wrapper::before {
-  content: '';
-  position: absolute;
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(59, 130, 246, 0.15) 0%, transparent 70%);
-  animation: pulse-glow 2s ease-in-out infinite;
+.output-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
-.globe-icon {
-  width: 48px;
-  height: 48px;
-  color: var(--text-brand);
-  animation: morph-globe 3s ease-in-out infinite;
+.output-panel :deep(.empty-icon),
+.output-panel :deep(.empty-message) {
+  color: rgba(229, 231, 235, 0.65);
 }
-
-.dot {
-  display: inline-block;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background-color: var(--text-tertiary);
-  animation: bounce-dot 1.4s ease-in-out infinite;
-}
-
-@keyframes rotate-slow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-@keyframes pulse-orb { 0%, 100% { transform: scale(1); opacity: 0.8; } 50% { transform: scale(1.3); opacity: 1; } }
-@keyframes pulse-glow { 0%, 100% { transform: scale(1); opacity: 0.5; } 50% { transform: scale(1.15); opacity: 0.8; } }
-@keyframes morph-globe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
-@keyframes bounce-dot { 0%, 80%, 100% { transform: translateY(0); } 40% { transform: translateY(-6px); } }
 </style>

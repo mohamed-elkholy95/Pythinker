@@ -103,11 +103,17 @@ class MemoryManager:
     # Maximum tokens for a compacted summary
     MAX_SUMMARY_TOKENS = 200
 
+    # Default limits for memory management
+    DEFAULT_MAX_ARCHIVE_SIZE = 1000  # Maximum entries in archive index
+    DEFAULT_ARCHIVE_CLEANUP_BATCH = 100  # Entries to remove when limit exceeded
+
     def __init__(
         self,
         sandbox_path: str = "/home/ubuntu/.context_archive",
         enable_file_storage: bool = True,
         file_storage: Optional["FileStorage"] = None,
+        max_archive_size: int = DEFAULT_MAX_ARCHIVE_SIZE,
+        archive_cleanup_batch: int = DEFAULT_ARCHIVE_CLEANUP_BATCH,
     ):
         """
         Initialize the memory manager.
@@ -116,6 +122,8 @@ class MemoryManager:
             sandbox_path: Path to store archived context in sandbox
             enable_file_storage: Whether to save full content to files
             file_storage: Optional file storage backend for archive persistence
+            max_archive_size: Maximum entries in archive index (default 1000)
+            archive_cleanup_batch: Entries to remove when limit exceeded (default 100)
         """
         self._sandbox_path = sandbox_path
         self._enable_file_storage = enable_file_storage
@@ -126,6 +134,11 @@ class MemoryManager:
         self._max_history_size = 20
         # Archive index: message_id -> archive_path
         self._archive_index: Dict[str, str] = {}
+        # Archive index insertion order for FIFO cleanup
+        self._archive_order: List[str] = []
+        # Memory limits
+        self._max_archive_size = max_archive_size
+        self._archive_cleanup_batch = archive_cleanup_batch
 
     def compact_message(
         self,
@@ -751,14 +764,14 @@ ERRORS: (if any)"""
                     "urls": extraction.urls,
                 })
                 await self._file_storage.write(archive_path, archive_data)
-                self._archive_index[message_id] = archive_path
+                self._add_to_archive_index(message_id, archive_path)
                 logger.debug(f"Archived message {message_id} to {archive_path}")
             except Exception as e:
                 logger.warning(f"Failed to archive message {message_id}: {e}")
                 archive_path = None
         else:
             # Store in memory index only
-            self._archive_index[message_id] = f"memory://{message_id}"
+            self._add_to_archive_index(message_id, f"memory://{message_id}")
             archive_path = None
 
         # Build summary for compacted message
@@ -833,6 +846,8 @@ ERRORS: (if any)"""
         """
         return {
             "total_archived": len(self._archive_index),
+            "max_archive_size": self._max_archive_size,
+            "archive_usage_ratio": len(self._archive_index) / self._max_archive_size if self._max_archive_size > 0 else 0,
             "file_archived": sum(
                 1 for p in self._archive_index.values()
                 if not p.startswith("memory://")
@@ -844,6 +859,82 @@ ERRORS: (if any)"""
             "token_history_size": len(self._token_history),
             "last_token_count": self._token_history[-1] if self._token_history else 0,
         }
+
+    def _enforce_archive_limit(self) -> int:
+        """
+        Enforce archive size limit by removing oldest entries (FIFO).
+
+        Returns:
+            Number of entries removed
+        """
+        if len(self._archive_index) <= self._max_archive_size:
+            return 0
+
+        # Calculate how many to remove
+        excess = len(self._archive_index) - self._max_archive_size
+        to_remove = max(excess, self._archive_cleanup_batch)
+
+        # Remove oldest entries (FIFO based on insertion order)
+        removed = 0
+        while self._archive_order and removed < to_remove:
+            message_id = self._archive_order.pop(0)
+            if message_id in self._archive_index:
+                del self._archive_index[message_id]
+                removed += 1
+
+        if removed > 0:
+            logger.info(f"Archive cleanup: removed {removed} oldest entries (archive size: {len(self._archive_index)})")
+
+        return removed
+
+    def cleanup_archive(self, max_entries: Optional[int] = None) -> int:
+        """
+        Manually clean up the archive index to free memory.
+
+        Args:
+            max_entries: Maximum entries to keep (uses default if None)
+
+        Returns:
+            Number of entries removed
+        """
+        if max_entries is not None:
+            original_max = self._max_archive_size
+            self._max_archive_size = max_entries
+            removed = self._enforce_archive_limit()
+            self._max_archive_size = original_max
+        else:
+            removed = self._enforce_archive_limit()
+
+        return removed
+
+    def clear_archive(self) -> int:
+        """
+        Clear all entries from the archive index.
+
+        Returns:
+            Number of entries cleared
+        """
+        count = len(self._archive_index)
+        self._archive_index.clear()
+        self._archive_order.clear()
+        logger.info(f"Archive cleared: removed {count} entries")
+        return count
+
+    def _add_to_archive_index(self, message_id: str, archive_path: str) -> None:
+        """
+        Add an entry to the archive index with automatic cleanup.
+
+        Args:
+            message_id: Unique identifier for the message
+            archive_path: Path where the message is archived
+        """
+        # Add to index and order tracking
+        if message_id not in self._archive_index:
+            self._archive_order.append(message_id)
+        self._archive_index[message_id] = archive_path
+
+        # Enforce limit
+        self._enforce_archive_limit()
 
 
 # Singleton for global access

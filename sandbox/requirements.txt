@@ -5,5 +5,7 @@ defusedxml==0.7.1
 email-validator>=2.0.0
 python-multipart>=0.0.9
 pydantic-settings>=2.0.0
+SQLAlchemy[asyncio]==2.0.41
+asyncpg==0.30.0
 playwright-stealth>=1.0.6
 anticaptchaofficial>=1.0.56

@@ -54,8 +54,8 @@ const handleClick = () => {
 .tool-shimmer {
   position: relative;
   overflow: hidden;
-  background: rgba(59, 130, 246, 0.1);
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: rgba(156, 125, 255, 0.12);
+  border: 1px solid rgba(156, 125, 255, 0.35);
 }
 
 .tool-shimmer::before {
@@ -87,8 +87,8 @@ const handleClick = () => {
 <style>
 /* Dark mode support - needs to be unscoped to work with :root selector */
 :root.dark .tool-shimmer {
-  background: rgba(96, 165, 250, 0.15);
-  border: 1px solid rgba(96, 165, 250, 0.4);
+  background: rgba(156, 125, 255, 0.18);
+  border: 1px solid rgba(156, 125, 255, 0.45);
 }
 
 :root.dark .tool-shimmer::before {

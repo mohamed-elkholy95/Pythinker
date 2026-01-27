@@ -4,8 +4,8 @@
             <div class="flex items-center gap-6 w-full p5-4 pb-8">
                 <div
                     class="flex-shrink-0 rounded-full overflow-hidden border border-[var(--border-main)]">
-                    <div class="relative flex items-center justify-center font-bold flex-shrink-0"
-                        style="width: 80px; height: 80px; font-size: 40px; color: rgba(255, 255, 255, 0.9); background-color: rgb(59, 130, 246);">
+                    <div class="relative flex items-center justify-center font-bold flex-shrink-0 bg-[var(--bolt-elements-item-contentAccent)] text-white"
+                        style="width: 80px; height: 80px; font-size: 40px;">
                         {{ avatarLetter }}</div>
                 </div>
                 <div class="flex flex-col gap-[6px]"><span

@@ -16,6 +16,10 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: ['monaco-editor'],
+    exclude: ['@novnc/novnc'],
+    esbuildOptions: {
+      target: 'esnext'
+    }
   },
   server: {
     host: true,
@@ -31,6 +35,7 @@ export default defineConfig({
     }),
   },
   build: {
+    target: 'esnext',
     rollupOptions: {
       output: {
         manualChunks: {

@@ -7,12 +7,12 @@ from app.domain.models.agent import Agent
 from app.domain.models.message import Message
 from app.domain.models.plan import Step
 from typing import AsyncGenerator, Optional, List, Dict, Any, Set
-from enum import Enum
 from app.domain.models.event import (
     BaseEvent,
     PlanEvent,
     PlanStatus,
     MessageEvent,
+    ReportEvent,
     DoneEvent,
     TitleEvent,
     IdleEvent,
@@ -22,6 +22,7 @@ from app.domain.models.event import (
     ToolEvent,
 )
 from app.domain.models.plan import ExecutionStatus
+from app.domain.models.state_model import AgentStatus, validate_transition, StateTransitionError
 from app.domain.services.agents.planner import PlannerAgent
 from app.domain.services.agents.execution import ExecutionAgent
 from app.domain.services.agents.base import BaseAgent
@@ -50,6 +51,7 @@ from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.idle import IdleTool
 from app.domain.services.agents.error_handler import ErrorHandler, ErrorType, ErrorContext
 from app.domain.services.agents.task_state_manager import TaskStateManager
+from app.domain.services.agents.compliance_gates import ComplianceReport, get_compliance_gates
 from app.domain.services.agents.verifier import VerifierAgent, VerifierConfig
 from app.domain.models.agent_response import VerificationVerdict
 from app.core.config import get_settings
@@ -95,18 +97,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-
-class AgentStatus(str, Enum):
-    IDLE = "idle"
-    PLANNING = "planning"
-    VERIFYING = "verifying"  # Phase 1: Plan-Verify-Execute
-    EXECUTING = "executing"
-    SUMMARIZING = "summarizing"
-    COMPLETED = "completed"
-    UPDATING = "updating"
-    REFLECTING = "reflecting"  # Phase 2: Enhanced Self-Reflection
-    ERROR = "error"
-
 class PlanActFlow(BaseFlow):
     """Plan-Act flow with optional multi-agent step dispatch.
 
@@ -128,7 +118,7 @@ class PlanActFlow(BaseFlow):
         search_engine: Optional[SearchEngine] = None,
         cdp_url: Optional[str] = None,
         enable_verification: bool = True,
-        enable_multi_agent: bool = False,
+        enable_multi_agent: bool = True,
         enable_parallel_execution: bool = False,
         parallel_max_concurrency: int = 3,
         memory_service: Optional["MemoryService"] = None,
@@ -232,6 +222,9 @@ class PlanActFlow(BaseFlow):
 
         # Task state manager for todo recitation
         self._task_state_manager = TaskStateManager(sandbox)
+
+        # Compliance gates for output quality checks
+        self._compliance_gates = get_compliance_gates()
 
         # Multi-agent dispatch configuration
         self._enable_multi_agent = enable_multi_agent
@@ -476,6 +469,67 @@ class PlanActFlow(BaseFlow):
         if len(self._recent_tools) > self._max_recent_tools:
             self._recent_tools = self._recent_tools[-self._max_recent_tools:]
 
+    def _transition_to(self, new_status: AgentStatus, *, force: bool = False, reason: str = "") -> None:
+        """Transition to a new status with optional validation."""
+        if self.status == new_status:
+            return
+        if not force and not validate_transition(self.status, new_status):
+            message = f"Invalid transition from {self.status.value} to {new_status.value}"
+            if reason:
+                message = f"{message} ({reason})"
+            logger.error(message)
+            raise StateTransitionError(self.status, new_status, message)
+        if force and not validate_transition(self.status, new_status):
+            logger.warning(
+                f"Forcing transition from {self.status.value} to {new_status.value}"
+                f"{' (' + reason + ')' if reason else ''}"
+            )
+        self.status = new_status
+
+    def _validate_plan_before_execution(self) -> bool:
+        """Validate plan before execution; returns True if safe to proceed."""
+        if not self.plan:
+            logger.warning("No plan available for validation")
+            return False
+
+        validation = self.plan.validate_plan()
+        if not validation.passed:
+            error_summary = "; ".join(validation.errors[:3])
+            logger.warning(f"Plan validation failed: {error_summary}")
+            self._verification_verdict = "revise"
+            self._verification_feedback = (
+                "Plan validation failed:\n- " + "\n- ".join(validation.errors[:5])
+            )
+            return False
+
+        if validation.warnings:
+            logger.info(
+                f"Plan validation warnings: {', '.join(validation.warnings[:3])}"
+            )
+        return True
+
+    def _run_compliance_gates(self, content: str, attachments: Optional[List[Any]] = None) -> ComplianceReport:
+        """Run compliance gates on final output content."""
+        artifacts: List[Dict[str, Any]] = []
+        for attachment in attachments or []:
+            path = getattr(attachment, "file_path", None) or getattr(attachment, "path", None)
+            if path:
+                artifacts.append({"path": path, "type": "file"})
+        return self._compliance_gates.check_all(content, artifacts=artifacts, sources=[])
+
+    def _background_save_task_state(self) -> None:
+        """Schedule task state save as a non-blocking background task."""
+        async def _save():
+            try:
+                await self._task_state_manager.save_to_sandbox()
+                logger.debug(f"Agent {self._agent_id} task state saved to sandbox")
+            except Exception as e:
+                logger.warning(f"Agent {self._agent_id} task state save failed: {e}")
+
+        task = asyncio.create_task(_save())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
     def _handle_step_failure(self, failed_step: Step) -> List[str]:
         """Handle step failure by marking dependent steps as blocked.
 
@@ -615,7 +669,7 @@ class PlanActFlow(BaseFlow):
                 # Auto-transitions to ERROR on exception
         """
         old_status = self.status
-        self.status = new_status
+        self._transition_to(new_status)
         logger.debug(f"Agent {self._agent_id} entering state: {new_status}")
 
         try:
@@ -623,7 +677,7 @@ class PlanActFlow(BaseFlow):
         except Exception as e:
             self._previous_status = old_status
             self._error_context = self._error_handler.classify_error(e)
-            self.status = AgentStatus.ERROR
+            self._transition_to(AgentStatus.ERROR, force=True, reason="state context error")
             logger.error(f"Agent {self._agent_id} error in state {new_status}: {e}")
             raise
 
@@ -652,7 +706,7 @@ class PlanActFlow(BaseFlow):
         if self._error_context.recoverable:
             # Restore previous status
             if self._previous_status:
-                self.status = self._previous_status
+                self._transition_to(self._previous_status, force=True, reason="error recovery")
                 self._previous_status = None
                 logger.info(f"Recovered to previous state: {self.status}")
                 return True
@@ -686,11 +740,11 @@ class PlanActFlow(BaseFlow):
 
         if session.status == SessionStatus.RUNNING:
             logger.debug(f"Session {self._session_id} is in RUNNING status")
-            self.status = AgentStatus.PLANNING
+            self._transition_to(AgentStatus.PLANNING)
 
         if session.status == SessionStatus.WAITING:
             logger.debug(f"Session {self._session_id} is in WAITING status")
-            self.status = AgentStatus.EXECUTING
+            self._transition_to(AgentStatus.EXECUTING, force=True, reason="resume waiting session")
 
         await self._session_repository.update_status(self._session_id, SessionStatus.RUNNING)
         self.plan = session.get_last_plan()
@@ -715,7 +769,7 @@ class PlanActFlow(BaseFlow):
 
                 if self.status == AgentStatus.IDLE:
                     logger.info(f"Agent {self._agent_id} state changed from {AgentStatus.IDLE} to {AgentStatus.PLANNING}")
-                    self.status = AgentStatus.PLANNING
+                    self._transition_to(AgentStatus.PLANNING)
                 elif self.status == AgentStatus.PLANNING:
                     # Create plan with tracing
                     logger.info(f"Agent {self._agent_id} started creating plan")
@@ -743,20 +797,25 @@ class PlanActFlow(BaseFlow):
                                 # Skip plan.message - execute silently without explaining
                             yield event
 
+                    # Validate plan before proceeding
+                    if not self._validate_plan_before_execution():
+                        logger.info(f"Agent {self._agent_id} replanning due to validation errors")
+                        continue
+
                     # Reset verification feedback after replanning
                     self._verification_verdict = None
                     self._verification_feedback = None
 
                     if len(event.plan.steps) == 0:
                         logger.info(f"Agent {self._agent_id} created plan successfully with no steps")
-                        self.status = AgentStatus.COMPLETED
+                        self._transition_to(AgentStatus.COMPLETED)
                     elif self.verifier:
                         # Transition to verification if verifier is enabled
                         logger.info(f"Agent {self._agent_id} state changed from {AgentStatus.PLANNING} to {AgentStatus.VERIFYING}")
-                        self.status = AgentStatus.VERIFYING
+                        self._transition_to(AgentStatus.VERIFYING)
                     else:
                         logger.info(f"Agent {self._agent_id} state changed from {AgentStatus.PLANNING} to {AgentStatus.EXECUTING}")
-                        self.status = AgentStatus.EXECUTING
+                        self._transition_to(AgentStatus.EXECUTING)
 
                 elif self.status == AgentStatus.VERIFYING:
                     # Verify plan before execution (Phase 1: Plan-Verify-Execute)
@@ -786,31 +845,47 @@ class PlanActFlow(BaseFlow):
                     # Route based on verification verdict
                     if self._verification_verdict == "pass":
                         logger.info(f"Agent {self._agent_id} plan verified, proceeding to execution")
-                        self.status = AgentStatus.EXECUTING
+                        if not self._validate_plan_before_execution():
+                            logger.info(f"Agent {self._agent_id} plan failed validation after verification")
+                            self._transition_to(AgentStatus.PLANNING)
+                        else:
+                            self._transition_to(AgentStatus.EXECUTING)
                     elif self._verification_verdict == "revise":
                         if self._verification_loops >= self._max_verification_loops:
                             logger.warning(
                                 f"Agent {self._agent_id} max verification loops reached, "
                                 "proceeding with execution"
                             )
-                            self.status = AgentStatus.EXECUTING
+                            if not self._validate_plan_before_execution():
+                                logger.info(f"Agent {self._agent_id} plan failed validation after verification")
+                                self._transition_to(AgentStatus.PLANNING)
+                            else:
+                                self._transition_to(AgentStatus.EXECUTING)
                         else:
                             logger.info(f"Agent {self._agent_id} plan needs revision, returning to planning")
-                            self.status = AgentStatus.PLANNING
+                            self._transition_to(AgentStatus.PLANNING)
                     elif self._verification_verdict == "fail":
                         logger.info(f"Agent {self._agent_id} plan verification failed, summarizing")
-                        self.status = AgentStatus.SUMMARIZING
+                        self._transition_to(AgentStatus.SUMMARIZING)
                     else:
                         # Default: proceed with execution
-                        self.status = AgentStatus.EXECUTING
+                        if not self._validate_plan_before_execution():
+                            logger.info(f"Agent {self._agent_id} plan failed validation after verification")
+                            self._transition_to(AgentStatus.PLANNING)
+                        else:
+                            self._transition_to(AgentStatus.EXECUTING)
 
                 elif self.status == AgentStatus.EXECUTING:
                     # Execute plan
+                    if not self._validate_plan_before_execution():
+                        logger.info(f"Agent {self._agent_id} plan failed validation before execution")
+                        self._transition_to(AgentStatus.PLANNING, force=True, reason="plan validation failed")
+                        continue
                     self.plan.status = ExecutionStatus.RUNNING
                     step = self.plan.get_next_step()
                     if not step:
                         logger.info(f"Agent {self._agent_id} has no more steps, state changed from {AgentStatus.EXECUTING} to {AgentStatus.COMPLETED}")
-                        self.status = AgentStatus.SUMMARIZING
+                        self._transition_to(AgentStatus.SUMMARIZING)
                         continue
 
                     # Check if step should be skipped (blocked by previous failures)
@@ -851,8 +926,11 @@ class PlanActFlow(BaseFlow):
                                 self._track_tool_usage(event.tool_name)
                             yield event
 
-                        # Mark step as completed in task state
-                        self._task_state_manager.update_step_status(str(step.id), "completed")
+                        # Mark step status based on actual success/failure
+                        if step.success:
+                            self._task_state_manager.update_step_status(str(step.id), "completed")
+                        else:
+                            self._task_state_manager.update_step_status(str(step.id), "failed")
                         step_span.set_attribute("step.success", step.success)
 
                         # Handle step failure - cascade blocking to dependent steps
@@ -868,7 +946,9 @@ class PlanActFlow(BaseFlow):
                     logger.info(f"Agent {self._agent_id} completed step {step.id}, state changed from {AgentStatus.EXECUTING} to {AgentStatus.UPDATING}")
                     # Non-blocking background memory compaction
                     self._background_compact_memory()
-                    self.status = AgentStatus.UPDATING
+                    # Non-blocking background task state save to sandbox
+                    self._background_save_task_state()
+                    self._transition_to(AgentStatus.UPDATING)
                 elif self.status == AgentStatus.UPDATING:
                     # Update plan with tracing
                     logger.info(f"Agent {self._agent_id} started updating plan")
@@ -877,27 +957,56 @@ class PlanActFlow(BaseFlow):
                             yield event
                         update_span.set_attribute("plan.remaining_steps", len([s for s in self.plan.steps if not s.is_done()]))
                     logger.info(f"Agent {self._agent_id} plan update completed, state changed from {AgentStatus.UPDATING} to {AgentStatus.EXECUTING}")
-                    self.status = AgentStatus.EXECUTING
+                    if not self._validate_plan_before_execution():
+                        logger.info(f"Agent {self._agent_id} plan update failed validation, replanning")
+                        self._transition_to(AgentStatus.PLANNING, force=True, reason="plan update validation failed")
+                        continue
+                    self._transition_to(AgentStatus.EXECUTING)
                 elif self.status == AgentStatus.SUMMARIZING:
                     # Conclusion with tracing
                     logger.info(f"Agent {self._agent_id} started summarizing")
                     with trace_ctx.span("summarizing", SpanKind.AGENT_STEP) as summary_span:
                         async for event in self.executor.summarize():
+                            if isinstance(event, (ReportEvent, MessageEvent)):
+                                content = event.content if isinstance(event, ReportEvent) else event.message
+                                content = content or ""
+                                attachments = event.attachments if hasattr(event, "attachments") else None
+                                compliance_report = self._run_compliance_gates(content, attachments)
+                                summary_span.set_attribute("compliance.passed", compliance_report.passed)
+                                if compliance_report.blocking_issues:
+                                    summary_span.set_attribute("compliance.blocking", len(compliance_report.blocking_issues))
+                                if not compliance_report.passed:
+                                    logger.warning(
+                                        "Compliance gates failed: "
+                                        + "; ".join(compliance_report.blocking_issues)
+                                    )
+                                    yield ErrorEvent(
+                                        error="Compliance gates failed: "
+                                        + "; ".join(compliance_report.blocking_issues)
+                                    )
+                                    self._transition_to(
+                                        AgentStatus.ERROR,
+                                        force=True,
+                                        reason="compliance gates failed"
+                                    )
+                                    break
                             yield event
+                    if self.status == AgentStatus.ERROR:
+                        continue
                     logger.info(f"Agent {self._agent_id} summarizing completed, state changed from {AgentStatus.SUMMARIZING} to {AgentStatus.COMPLETED}")
-                    self.status = AgentStatus.COMPLETED
+                    self._transition_to(AgentStatus.COMPLETED)
                 elif self.status == AgentStatus.COMPLETED:
                     self.plan.status = ExecutionStatus.COMPLETED
                     logger.info(f"Agent {self._agent_id} plan has been completed")
                     yield PlanEvent(status=PlanStatus.COMPLETED, plan=self.plan)
-                    self.status = AgentStatus.IDLE
+                    self._transition_to(AgentStatus.IDLE)
                     break
 
             except Exception as e:
                 # Classify and handle error with tracing
                 self._error_context = self._error_handler.classify_error(e)
                 self._previous_status = self.status
-                self.status = AgentStatus.ERROR
+                self._transition_to(AgentStatus.ERROR, force=True, reason="exception handler")
                 logger.error(f"Agent {self._agent_id} encountered error: {e}")
 
                 # Add error span with health assessment

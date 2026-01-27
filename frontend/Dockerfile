@@ -1,5 +1,5 @@
 # Use nginx as production environment image
-FROM nginx:stable-alpine as production-stage
+FROM nginx:stable-alpine AS production-stage
 
 # Copy pre-built files to nginx (build locally with: bun run build)
 COPY dist /usr/share/nginx/html

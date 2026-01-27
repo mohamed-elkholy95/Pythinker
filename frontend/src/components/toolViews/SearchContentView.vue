@@ -1,53 +1,43 @@
 <template>
-  <div class="w-full h-full overflow-y-auto">
-    <!-- Searching Animation -->
-    <div v-if="isSearching" class="flex-1 h-full flex flex-col items-center justify-center bg-gradient-to-b from-[var(--background-gray-main)] to-[var(--fill-white)] dark:from-[#1a1a2e] dark:to-[#16213e] py-12">
-      <div class="search-animation">
-        <!-- Animated search rings -->
-        <div class="search-rings">
-          <div class="ring ring-1"></div>
-          <div class="ring ring-2"></div>
-          <div class="ring ring-3"></div>
-        </div>
-        <!-- Search icon -->
-        <svg class="search-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/>
-          <path d="M16 16l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-      </div>
-      <div class="mt-6 flex flex-col items-center gap-2">
-        <div class="flex items-center gap-2 text-[var(--text-secondary)]">
-          <span class="text-base font-medium">{{ t('Searching') }}</span>
-          <span class="flex gap-1">
-            <span v-for="(_, i) in 3" :key="i" class="dot" :style="{ animationDelay: `${i * 200}ms` }"></span>
-          </span>
-        </div>
-        <div v-if="query" class="max-w-[280px] text-center text-xs text-[var(--text-tertiary)] truncate px-4">
-          "{{ query }}"
-        </div>
-      </div>
-    </div>
+  <ContentContainer
+    :centered="!!isSearching"
+    :constrained="!isSearching"
+    class="search-view"
+  >
+    <LoadingState
+      v-if="isSearching"
+      :label="t('Searching')"
+      :detail="searchDetail"
+      animation="search"
+    />
 
     <!-- Search Results -->
-    <div v-else class="flex-1 min-h-0 max-w-[640px] mx-auto">
-      <div class="flex flex-col overflow-auto h-full px-4 py-3">
-        <div v-for="(result, index) in results" :key="result.link || index" class="py-3 pt-0 border-b border-[var(--border-light)]">
-          <a :href="result.link" target="_blank"
-            class="block text-[var(--text-primary)] text-sm font-medium hover:underline line-clamp-2 cursor-pointer">
-            {{ result.title }}
-          </a>
-          <div class="text-[var(--text-tertiary)] text-xs mt-0.5 line-clamp-3">{{ result.snippet }}</div>
-        </div>
-        <div v-if="!results || results.length === 0" class="text-[var(--text-tertiary)] text-sm text-center py-8">
-          No results found
-        </div>
+    <div v-else class="search-results">
+      <div v-for="(result, index) in results" :key="result.link || index" class="search-result">
+        <a
+          :href="result.link"
+          target="_blank"
+          class="search-title"
+        >
+          {{ result.title }}
+        </a>
+        <div class="search-snippet">{{ result.snippet }}</div>
       </div>
+      <EmptyState
+        v-if="!results || results.length === 0"
+        message="No results found"
+        icon="search"
+      />
     </div>
-  </div>
+  </ContentContainer>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
+import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
+import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
+import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
 
 export interface SearchResult {
   title: string;
@@ -55,104 +45,53 @@ export interface SearchResult {
   snippet: string;
 }
 
-defineProps<{
+const props = defineProps<{
   results?: SearchResult[];
   isSearching?: boolean;
   query?: string;
 }>();
 
 const { t } = useI18n();
+const searchDetail = computed(() => (props.query ? `"${props.query}"` : ''));
 </script>
 
 <style scoped>
-/* Search Animation Styles */
-.search-animation {
-  position: relative;
-  width: 100px;
-  height: 100px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.search-rings {
-  position: absolute;
-  width: 100%;
+.search-view {
   height: 100%;
 }
 
-.ring {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  border-radius: 50%;
-  border: 2px solid var(--text-brand);
-  opacity: 0;
-  animation: pulse-ring 2s ease-out infinite;
+.search-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
 }
 
-.ring-1 {
-  width: 40px;
-  height: 40px;
-  animation-delay: 0s;
+.search-result {
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-light);
 }
 
-.ring-2 {
-  width: 60px;
-  height: 60px;
-  animation-delay: 0.4s;
+.search-result:last-child {
+  border-bottom: none;
 }
 
-.ring-3 {
-  width: 80px;
-  height: 80px;
-  animation-delay: 0.8s;
+.search-title {
+  display: block;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  text-decoration: none;
 }
 
-.search-icon {
-  width: 32px;
-  height: 32px;
-  color: var(--text-brand);
-  animation: search-bounce 1.5s ease-in-out infinite;
+.search-title:hover {
+  text-decoration: underline;
 }
 
-/* Bouncing dots */
-.dot {
-  display: inline-block;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background-color: var(--text-tertiary);
-  animation: bounce-dot 1.4s ease-in-out infinite;
-}
-
-@keyframes pulse-ring {
-  0% {
-    transform: translate(-50%, -50%) scale(0.8);
-    opacity: 0.6;
-  }
-  100% {
-    transform: translate(-50%, -50%) scale(1.5);
-    opacity: 0;
-  }
-}
-
-@keyframes search-bounce {
-  0%, 100% {
-    transform: translateY(0) scale(1);
-  }
-  50% {
-    transform: translateY(-4px) scale(1.05);
-  }
-}
-
-@keyframes bounce-dot {
-  0%, 80%, 100% {
-    transform: translateY(0);
-  }
-  40% {
-    transform: translateY(-6px);
-  }
+.search-snippet {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  margin-top: var(--space-1);
+  line-height: 1.4;
 }
 </style>

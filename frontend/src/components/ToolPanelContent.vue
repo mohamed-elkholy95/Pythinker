@@ -113,7 +113,7 @@
           </div>
 
           <!-- Right: View mode tabs (hidden for text-only operations) -->
-          <div v-if="contentConfig.showTabs && !isTextOnlyOperation" class="flex items-center gap-1 bg-[var(--fill-tsp-gray-main)] rounded-lg p-0.5">
+          <div v-if="contentConfig.showTabs && !shouldUseTextOnly" class="flex items-center gap-1 bg-[var(--fill-tsp-gray-main)] rounded-lg p-0.5">
             <button
               v-for="(label, idx) in contentConfig.tabLabels"
               :key="idx"
@@ -131,7 +131,7 @@
         <div class="flex-1 min-h-0 w-full overflow-hidden">
           <!-- Text-only operation: Show placeholder while active, terminal when complete -->
           <VNCContentView
-            v-if="isTextOnlyOperation && isActiveOperation"
+            v-if="shouldUseTextOnly && isActiveOperation"
             :session-id="sessionId || ''"
             :enabled="false"
             :view-only="true"
@@ -143,7 +143,7 @@
 
           <!-- Text-only operation complete: Show terminal output -->
           <TerminalContentView
-            v-else-if="isTextOnlyOperation && !isActiveOperation"
+            v-else-if="shouldUseTextOnly && !isActiveOperation"
             :content="terminalContent"
             :content-type="terminalContentType"
             :is-live="false"
@@ -154,11 +154,11 @@
           <VNCContentView
             v-else-if="currentViewType === 'vnc'"
             :session-id="sessionId || ''"
-            :enabled="live"
+            :enabled="vncEnabled"
             :view-only="true"
-            :show-placeholder="false"
-            :placeholder-label="placeholderLabel"
-            :placeholder-detail="placeholderDetail"
+            :show-placeholder="showVncPlaceholder"
+            :placeholder-label="vncPlaceholderLabel"
+            :placeholder-detail="vncPlaceholderDetail"
             :is-active="isActiveOperation"
             :screenshot="screenshot"
             @connected="onVNCConnected"
@@ -194,6 +194,7 @@
             :content="editorContent"
             :filename="fileName"
             :is-writing="isFileWriting"
+            :is-loading="isEditorLoading"
           />
 
           <!-- Search View -->
@@ -410,6 +411,33 @@ watch(() => props.toolContent?.content?.screenshot, (newScreenshot) => {
   if (newScreenshot) screenshot.value = newScreenshot;
 }, { immediate: true });
 
+const showVncPlaceholder = computed(() => {
+  if (!props.sessionId && !screenshot.value) return true;
+  if (vncDisconnected.value && !screenshot.value) return true;
+  return false;
+});
+
+const vncPlaceholderLabel = computed(() => {
+  if (!props.sessionId) return 'No live session';
+  if (vncDisconnected.value) return 'Reconnecting';
+  return 'Connecting';
+});
+
+const vncPlaceholderDetail = computed(() => {
+  if (!props.sessionId) return 'Open a session to view the screen.';
+  if (vncDisconnected.value) return 'Waiting for the VNC stream.';
+  return '';
+});
+
+const shouldUseTextOnly = computed(() => {
+  if (!isTextOnlyOperation.value) return false;
+  return !screenshot.value;
+});
+
+const vncEnabled = computed(() => {
+  return !!props.sessionId && !showVncPlaceholder;
+});
+
 // ============ Terminal Content ============
 const shellOutput = ref('');
 const refreshTimer = ref<number | null>(null);
@@ -569,6 +597,17 @@ onUnmounted(() => {
 // ============ Editor Content ============
 const fileContent = ref('');
 const originalContent = ref('');
+const vncDisconnected = ref(false);
+
+const getToolContentText = () => {
+  const content = props.toolContent?.content;
+  if (!content) return '';
+  if (typeof content === 'string') return content;
+  if (typeof (content as { content?: unknown }).content === 'string') {
+    return (content as { content: string }).content;
+  }
+  return '';
+};
 
 const fileName = computed(() => {
   const file = props.toolContent?.args?.file;
@@ -583,9 +622,12 @@ const editorContent = computed(() => {
   // Modified view (primary)
   if (viewModeIndex.value === 0) {
     if (isFileWriting.value) {
-      return props.toolContent?.args?.content || props.toolContent?.content?.content || fileContent.value;
+      const argContent = typeof props.toolContent?.args?.content === 'string'
+        ? props.toolContent?.args?.content
+        : '';
+      return argContent || getToolContentText() || fileContent.value;
     }
-    return fileContent.value || props.toolContent?.content?.content || '';
+    return fileContent.value || getToolContentText() || '';
   }
 
   // Original view (secondary)
@@ -602,6 +644,12 @@ const editorContent = computed(() => {
   }
 
   return fileContent.value;
+});
+
+const isEditorLoading = computed(() => {
+  if (toolName.value !== 'file') return false;
+  if (!isFileWriting.value) return false;
+  return editorContent.value.trim().length === 0;
 });
 
 const buildSimpleDiff = (original: string, modified: string): string => {
@@ -634,7 +682,10 @@ const loadFileContent = async () => {
 
   // During file_write, show streaming content
   if (isFileWriting.value) {
-    const streamingContent = props.toolContent.content?.content || props.toolContent.args?.content || '';
+    const argContent = typeof props.toolContent?.args?.content === 'string'
+      ? props.toolContent?.args?.content
+      : '';
+    const streamingContent = getToolContentText() || argContent || '';
     if (fileContent.value && fileContent.value !== streamingContent) {
       originalContent.value = fileContent.value;
     }
@@ -643,7 +694,7 @@ const loadFileContent = async () => {
   }
 
   if (!props.live) {
-    const nextContent = props.toolContent.content?.content || '';
+    const nextContent = getToolContentText() || '';
     if (fileContent.value && fileContent.value !== nextContent) {
       originalContent.value = fileContent.value;
     }
@@ -674,6 +725,12 @@ watch(() => props.toolContent?.args?.file, (newFile) => {
 
 watch(() => props.toolContent?.status, () => {
   if (toolName.value === 'file') {
+    loadFileContent();
+  }
+});
+
+watch(() => props.toolContent?.args?.content, () => {
+  if (toolName.value === 'file' && isFileWriting.value) {
     loadFileContent();
   }
 });
@@ -746,8 +803,14 @@ const handleSeekByProgress = (progress: number) => {
   emit('seekByProgress', progress);
 };
 
-const onVNCConnected = () => console.log('VNC connected');
-const onVNCDisconnected = () => console.log('VNC disconnected');
+const onVNCConnected = () => {
+  vncDisconnected.value = false;
+  console.log('VNC connected');
+};
+const onVNCDisconnected = () => {
+  vncDisconnected.value = true;
+  console.log('VNC disconnected');
+};
 
 const onNewTerminalContent = () => {
   markNewOutput();

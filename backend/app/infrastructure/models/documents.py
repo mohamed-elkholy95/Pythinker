@@ -78,6 +78,7 @@ class AgentDocument(BaseDocument[Agent], id_field="agent_id", domain_model_class
         name = "agents"
         indexes = [
             "agent_id",
+            IndexModel([("created_at", DESCENDING)]),  # Agents by creation time
         ]
 
 
@@ -122,7 +123,14 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
         name = "sessions"
         indexes = [
             "session_id",
-            "user_id",  # Add index for user_id for efficient queries
+            "user_id",  # Index for user_id queries
+            "status",  # Index for status filtering
+            "is_shared",  # Index for finding shared sessions
+            # Compound indexes for common query patterns
+            IndexModel([("user_id", ASCENDING), ("status", ASCENDING)]),  # User's sessions by status
+            IndexModel([("user_id", ASCENDING), ("created_at", DESCENDING)]),  # User's sessions chronologically
+            IndexModel([("user_id", ASCENDING), ("updated_at", DESCENDING)]),  # User's sessions by recent activity
+            IndexModel([("is_shared", ASCENDING), ("created_at", DESCENDING)]),  # Shared sessions chronologically
         ]
 
 
