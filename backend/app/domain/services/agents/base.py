@@ -15,13 +15,15 @@ from app.domain.models.event import (
     ErrorEvent,
     MessageEvent,
     StreamEvent,
+    WaitEvent,
 )
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.utils.json_parser import JsonParser
-from app.domain.services.agents.stuck_detector import StuckDetector
+from app.domain.services.agents.stuck_detector import StuckDetector, LoopType, RecoveryStrategy
 from app.domain.services.agents.token_manager import TokenManager
 from app.domain.services.agents.error_handler import ErrorHandler, TokenLimitExceeded, ErrorType
 from app.domain.services.agents.hallucination_detector import ToolHallucinationDetector
+from app.domain.services.agents.security_assessor import SecurityAssessor, ActionSecurityRisk
 from app.domain.services.tools.tool_profiler import get_tool_profiler
 from app.domain.services.tools.dynamic_toolset import (
     DynamicToolsetManager,
@@ -98,6 +100,13 @@ class BaseAgent(ABC):
         # Initialize hallucination detector with available tool names
         tool_names = [t.get("function", {}).get("name", "") for t in self.get_available_tools() or []]
         self._hallucination_detector = ToolHallucinationDetector(tool_names)
+
+        # Initialize security assessor for action risk evaluation
+        self._security_assessor = SecurityAssessor(
+            autonomy_level="autonomous",  # Default to autonomous mode
+            allow_credential_access=False,
+            allow_destructive_operations=False,
+        )
     
     def get_available_tools(self) -> Optional[List[Dict[str, Any]]]:
         """Get all available tools list"""
@@ -188,14 +197,40 @@ class BaseAgent(ABC):
         except Exception:
             pass  # Non-critical, don't fail on recording errors
 
-    async def invoke_tool(self, tool: BaseTool, function_name: str, arguments: Dict[str, Any]) -> ToolResult:
+    async def invoke_tool(
+        self,
+        tool: BaseTool,
+        function_name: str,
+        arguments: Dict[str, Any],
+        skip_security: bool = False,
+    ) -> ToolResult:
         """Invoke specified tool, with retry mechanism and exponential backoff.
 
-        Integrates with ToolExecutionProfiler to track execution timing and reliability.
+        Integrates with:
+        - ToolExecutionProfiler for timing and reliability tracking
+        - SecurityAssessor for risk evaluation
+        - StuckDetector for action pattern detection
         """
         import time
         profiler = get_tool_profiler()
         start_time = time.perf_counter()
+
+        # Security assessment before execution (skip for user-confirmed actions)
+        if not skip_security:
+            security_assessment = self._security_assessor.assess_action(function_name, arguments)
+            if security_assessment.blocked:
+                logger.warning(
+                    f"Security blocked tool '{function_name}': {security_assessment.reason}"
+                )
+                return ToolResult(
+                    success=False,
+                    message=f"Action blocked for security: {security_assessment.reason}"
+                )
+
+            if security_assessment.risk_level == ActionSecurityRisk.HIGH:
+                logger.info(
+                    f"High-risk tool call: {function_name} - {security_assessment.reason}"
+                )
 
         retries = 0
         current_interval = self.retry_interval
@@ -222,6 +257,16 @@ class BaseAgent(ABC):
                     duration_ms=duration_ms
                 )
 
+                # Track tool action for stuck detection
+                result_preview = str(result.message)[:500] if result else ""
+                self._stuck_detector.track_tool_action(
+                    tool_name=function_name,
+                    tool_args=arguments,
+                    success=result.success if result else False,
+                    result=result_preview,
+                    error=result.message if result and not result.success else None,
+                )
+
                 return result
             except Exception as e:
                 last_error = str(e)
@@ -240,6 +285,14 @@ class BaseAgent(ABC):
             duration_ms=duration_ms,
             success=False,
             error=last_error[:200]
+        )
+
+        # Track failed action for stuck detection
+        self._stuck_detector.track_tool_action(
+            tool_name=function_name,
+            tool_args=arguments,
+            success=False,
+            error=last_error[:200],
         )
 
         return ToolResult(success=False, message=last_error)
@@ -374,6 +427,29 @@ class BaseAgent(ABC):
                     tool_call_id = tool_call["id"] or str(uuid.uuid4())
                     function_args = await self.json_parser.parse(tool_call["function"]["arguments"])
                     tool = self.get_tool(function_name)
+                    security_assessment = self._security_assessor.assess_action(
+                        function_name, function_args
+                    )
+                    confirmation_state = (
+                        "awaiting_confirmation"
+                        if security_assessment.requires_confirmation
+                        else None
+                    )
+
+                    if security_assessment.requires_confirmation:
+                        yield ToolEvent(
+                            status=ToolStatus.CALLING,
+                            tool_call_id=tool_call_id,
+                            tool_name=tool.name,
+                            function_name=function_name,
+                            function_args=function_args,
+                            security_risk=security_assessment.risk_level.value,
+                            security_reason=security_assessment.reason,
+                            security_suggestions=security_assessment.suggestions,
+                            confirmation_state=confirmation_state,
+                        )
+                        yield WaitEvent()
+                        return
 
                     # Emit CALLING events for all parallel tools
                     yield ToolEvent(
@@ -381,9 +457,21 @@ class BaseAgent(ABC):
                         tool_call_id=tool_call_id,
                         tool_name=tool.name,
                         function_name=function_name,
-                        function_args=function_args
+                        function_args=function_args,
+                        security_risk=security_assessment.risk_level.value,
+                        security_reason=security_assessment.reason,
+                        security_suggestions=security_assessment.suggestions,
+                        confirmation_state=confirmation_state,
                     )
-                    parsed_calls.append((tool_call, tool_call_id, function_args, tool))
+                    parsed_calls.append(
+                        (
+                            tool_call,
+                            tool_call_id,
+                            function_args,
+                            tool,
+                            security_assessment,
+                        )
+                    )
 
                 # Execute all tools concurrently with semaphore
                 semaphore = asyncio.Semaphore(MAX_CONCURRENT_TOOLS)
@@ -400,7 +488,7 @@ class BaseAgent(ABC):
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
                 # Process results and emit CALLED events
-                for (tool_call, tool_call_id, function_args, tool), result in zip(parsed_calls, results):
+                for (tool_call, tool_call_id, function_args, tool, security_assessment), result in zip(parsed_calls, results):
                     function_name = tool_call["function"]["name"]
                     if isinstance(result, Exception):
                         result = ToolResult(success=False, message=str(result))
@@ -411,7 +499,15 @@ class BaseAgent(ABC):
                         tool_name=tool.name,
                         function_name=function_name,
                         function_args=function_args,
-                        function_result=result
+                        function_result=result,
+                        security_risk=security_assessment.risk_level.value,
+                        security_reason=security_assessment.reason,
+                        security_suggestions=security_assessment.suggestions,
+                        confirmation_state=(
+                            "awaiting_confirmation"
+                            if security_assessment.requires_confirmation
+                            else None
+                        ),
                     )
 
                     tool_responses.append({
@@ -433,15 +529,50 @@ class BaseAgent(ABC):
                     tool = self.get_tool(function_name)
 
                     # Generate event before tool call
+                    security_assessment = self._security_assessor.assess_action(
+                        function_name, function_args
+                    )
+                    confirmation_state = (
+                        "awaiting_confirmation"
+                        if security_assessment.requires_confirmation
+                        else None
+                    )
+                    if security_assessment.requires_confirmation:
+                        yield ToolEvent(
+                            status=ToolStatus.CALLING,
+                            tool_call_id=tool_call_id,
+                            tool_name=tool.name,
+                            function_name=function_name,
+                            function_args=function_args,
+                            security_risk=security_assessment.risk_level.value,
+                            security_reason=security_assessment.reason,
+                            security_suggestions=security_assessment.suggestions,
+                            confirmation_state=confirmation_state,
+                        )
+                        yield WaitEvent()
+                        return
                     yield ToolEvent(
                         status=ToolStatus.CALLING,
                         tool_call_id=tool_call_id,
                         tool_name=tool.name,
                         function_name=function_name,
-                        function_args=function_args
+                        function_args=function_args,
+                        security_risk=security_assessment.risk_level.value,
+                        security_reason=security_assessment.reason,
+                        security_suggestions=security_assessment.suggestions,
+                        confirmation_state=confirmation_state,
                     )
 
                     result = await self.invoke_tool(tool, function_name, function_args)
+
+                    security_assessment = self._security_assessor.assess_action(
+                        function_name, function_args
+                    )
+                    confirmation_state = (
+                        "awaiting_confirmation"
+                        if security_assessment.requires_confirmation
+                        else None
+                    )
 
                     # Generate event after tool call
                     yield ToolEvent(
@@ -450,7 +581,11 @@ class BaseAgent(ABC):
                         tool_name=tool.name,
                         function_name=function_name,
                         function_args=function_args,
-                        function_result=result
+                        function_result=result,
+                        security_risk=security_assessment.risk_level.value,
+                        security_reason=security_assessment.reason,
+                        security_suggestions=security_assessment.suggestions,
+                        confirmation_state=confirmation_state,
                     )
 
                     tool_responses.append({
@@ -590,12 +725,29 @@ class BaseAgent(ABC):
                 logger.warning(f"Unknown message role: {message.get('role')}")
                 filtered_message = message
 
-            # Track response for stuck detection
-            is_stuck = self._stuck_detector.track_response(filtered_message)
+            # Track response for stuck detection (response-level)
+            is_response_stuck = self._stuck_detector.track_response(filtered_message)
+
+            # Also check for action-level stuck patterns
+            action_analysis = self._stuck_detector.get_analysis()
+            is_action_stuck = action_analysis is not None
+
+            is_stuck = is_response_stuck or is_action_stuck
+
             if is_stuck and self._stuck_detector.can_attempt_recovery():
                 self._stuck_detector.record_recovery_attempt()
-                recovery_prompt = self._stuck_detector.get_recovery_prompt()
-                logger.warning("Agent stuck detected, injecting recovery prompt")
+
+                # Use enhanced guidance if we have action-level analysis
+                if action_analysis:
+                    recovery_prompt = self._stuck_detector.get_recovery_guidance()
+                    logger.warning(
+                        f"Agent stuck detected ({action_analysis.loop_type.value}), "
+                        f"recovery strategy: {action_analysis.recovery_strategy.value}"
+                    )
+                else:
+                    recovery_prompt = self._stuck_detector.get_recovery_prompt()
+                    logger.warning("Agent stuck detected (response-level), injecting recovery prompt")
+
                 await self._add_to_memory([
                     filtered_message,
                     {"role": "user", "content": recovery_prompt}
@@ -671,6 +823,54 @@ class BaseAgent(ABC):
         await self._ensure_memory()
         self.memory.compact()
         await self._repository.save_memory(self._agent_id, self.name, self.memory)
+
+    def configure_security(
+        self,
+        autonomy_level: str = "autonomous",
+        allow_credential_access: bool = False,
+        allow_destructive_operations: bool = False,
+        blocked_patterns: Optional[List[str]] = None,
+    ) -> None:
+        """Configure the security assessor for this agent.
+
+        Args:
+            autonomy_level: One of "supervised", "guided", "autonomous", "unrestricted"
+            allow_credential_access: Whether to allow credential-related operations
+            allow_destructive_operations: Whether to allow destructive operations
+            blocked_patterns: Additional regex patterns to block
+        """
+        self._security_assessor = SecurityAssessor(
+            autonomy_level=autonomy_level,
+            allow_credential_access=allow_credential_access,
+            allow_destructive_operations=allow_destructive_operations,
+            custom_blocked_patterns=blocked_patterns or [],
+        )
+        logger.info(
+            f"Security configured: level={autonomy_level}, "
+            f"credentials={allow_credential_access}, destructive={allow_destructive_operations}"
+        )
+
+    def get_reliability_stats(self) -> Dict[str, Any]:
+        """Get comprehensive reliability statistics.
+
+        Returns:
+            Dictionary with stuck detection, security, and tool stats
+        """
+        return {
+            "stuck_detector": self._stuck_detector.get_stats(),
+            "security": self._security_assessor.get_risk_summary(),
+            "hallucination_detector": {
+                "available_tools": len(self._hallucination_detector._available_tools),
+            },
+        }
+
+    def reset_reliability_state(self) -> None:
+        """Reset all reliability tracking state.
+
+        Call this when starting a new task or session.
+        """
+        self._stuck_detector.reset()
+        logger.debug("Reliability state reset")
 
     async def ask_streaming(
         self,

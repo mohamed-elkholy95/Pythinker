@@ -156,11 +156,11 @@ export interface ContentConfig {
  */
 export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
   shell: {
-    primaryView: 'vnc',
-    secondaryView: 'terminal',
-    tabLabels: ['Screen', 'Output'],
+    primaryView: 'terminal',
+    secondaryView: 'vnc',
+    tabLabels: ['Output', 'Screen'],
     defaultView: 'primary',
-    showTabs: true
+    showTabs: false
   },
   browser: {
     primaryView: 'vnc',
@@ -216,8 +216,13 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
  * Some functions should default to a different view than their tool's default
  */
 export const FUNCTION_VIEW_OVERRIDES: Record<string, ViewMode> = {
+  // Browser content extraction - show output by default
   browser_get_content: 'secondary',
-  browser_agent_extract: 'secondary'
+  browser_agent_extract: 'secondary',
+  // Browser navigation and viewing - show page content by default
+  browser_navigate: 'secondary',
+  browser_view: 'secondary',
+  browser_restart: 'secondary'
 };
 
 /**

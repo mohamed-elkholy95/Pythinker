@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Dict, Any, Literal, Optional, Union, List
 from datetime import datetime
 import uuid
@@ -50,6 +50,7 @@ class PlanEvent(BaseEvent):
 class BrowserToolContent(BaseModel):
     """Browser tool content"""
     screenshot: Optional[str] = None
+    content: Optional[str] = None  # Page content (text or HTML)
 
 class SearchToolContent(BaseModel):
     """Search tool content"""
@@ -93,11 +94,29 @@ class ToolEvent(BaseEvent):
     status: ToolStatus
     function_result: Optional[Any] = None
 
+    # Action/observation metadata (OpenHands-style)
+    action_type: Optional[str] = None
+    observation_type: Optional[str] = None
+    command: Optional[str] = None
+    cwd: Optional[str] = None
+    stdout: Optional[str] = None
+    stderr: Optional[str] = None
+    exit_code: Optional[int] = None
+    file_path: Optional[str] = None
+    diff: Optional[str] = None
+    runtime_status: Optional[str] = None
+
+    # Security/confirmation metadata
+    security_risk: Optional[str] = None
+    security_reason: Optional[str] = None
+    security_suggestions: Optional[List[str]] = None
+    confirmation_state: Optional[str] = None
+
     # Timeline tracking fields
     sequence_number: Optional[int] = None  # Position in session timeline
     started_at: Optional[datetime] = None  # When tool execution started
     completed_at: Optional[datetime] = None  # When tool execution completed
-    duration_ms: Optional[int] = None  # Execution duration in milliseconds
+    duration_ms: Optional[float] = None  # Execution duration in milliseconds (stored as float for precision)
 
 class TitleEvent(BaseEvent):
     """Title event"""

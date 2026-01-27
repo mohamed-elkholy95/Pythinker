@@ -15,9 +15,10 @@ from app.interfaces.dependencies import get_agent_service, get_current_user, get
 from app.interfaces.schemas.base import APIResponse
 from app.interfaces.schemas.session import (
     ChatRequest, ShellViewRequest, CreateSessionRequest, CreateSessionResponse, GetSessionResponse,
-    ListSessionItem, ListSessionResponse, ShellViewResponse,
-    ShareSessionResponse, SharedSessionResponse
+    ListSessionItem, ListSessionResponse, ShellViewResponse, ConfirmActionRequest,
+    ShareSessionResponse, SharedSessionResponse, CodeServerUrlResponse
 )
+from app.interfaces.schemas.workspace import WorkspaceManifest, WorkspaceManifestResponse
 from app.interfaces.schemas.file import FileViewRequest, FileViewResponse
 from app.interfaces.schemas.resource import AccessTokenRequest, SignedUrlResponse
 from app.interfaces.schemas.event import EventMapper
@@ -214,6 +215,22 @@ async def view_file(
     result = await agent_service.file_view(session_id, request.file, current_user.id)
     return APIResponse.success(result)
 
+@router.post("/{session_id}/actions/{action_id}/confirm", response_model=APIResponse[None])
+async def confirm_action(
+    session_id: str,
+    action_id: str,
+    request: ConfirmActionRequest,
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service),
+) -> APIResponse[None]:
+    await agent_service.confirm_action(
+        session_id=session_id,
+        action_id=action_id,
+        accept=request.accept,
+        user_id=current_user.id,
+    )
+    return APIResponse.success()
+
 @router.websocket("/{session_id}/vnc")
 async def vnc_websocket(
     websocket: WebSocket,
@@ -339,6 +356,33 @@ async def create_vnc_signed_url(
         signed_url=signed_url,
         expires_in=expire_minutes * 60,
     ))
+
+
+@router.get("/{session_id}/code-server", response_model=APIResponse[CodeServerUrlResponse])
+async def get_code_server_url(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service)
+) -> APIResponse[CodeServerUrlResponse]:
+    """Get code-server URL for a session."""
+    url = await agent_service.get_code_server_url(session_id, current_user.id)
+    return APIResponse.success(CodeServerUrlResponse(url=url))
+
+
+@router.post("/{session_id}/workspace/manifest", response_model=APIResponse[WorkspaceManifestResponse])
+async def init_workspace_from_manifest(
+    session_id: str,
+    request: WorkspaceManifest,
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service),
+) -> APIResponse[WorkspaceManifestResponse]:
+    """Initialize workspace from a manifest payload."""
+    result = await agent_service.init_workspace_from_manifest(
+        session_id=session_id,
+        manifest=request,
+        user_id=current_user.id,
+    )
+    return APIResponse.success(result)
 
 
 @router.post("/{session_id}/share", response_model=APIResponse[ShareSessionResponse])

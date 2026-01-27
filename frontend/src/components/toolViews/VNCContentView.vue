@@ -1,5 +1,5 @@
 <template>
-  <div class="w-full h-full flex items-center justify-center bg-[var(--fill-white)] relative">
+  <div class="w-full h-full relative" :class="showPlaceholder ? 'flex items-center justify-center' : ''">
     <!-- Text-only operation placeholder -->
     <div v-if="showPlaceholder" class="w-full h-full flex flex-col items-center justify-center bg-gradient-to-b from-[var(--background-gray-main)] to-[var(--fill-white)] dark:from-[#1a1a2e] dark:to-[#16213e]">
       <div class="fetching-container">
@@ -38,7 +38,7 @@
       :view-only="viewOnly"
       @connected="emit('connected')"
       @disconnected="emit('disconnected')"
-      class="w-full h-full"
+      class="absolute inset-0"
     />
 
     <!-- Static screenshot -->

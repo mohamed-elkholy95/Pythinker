@@ -30,6 +30,7 @@ class DockerSandbox(Sandbox):
         self.base_url = f"http://{self.ip}:8080"
         self._vnc_url = f"ws://{self.ip}:5901"
         self._cdp_url = f"http://{self.ip}:9222"
+        self._code_server_url = f"http://{self.ip}:8081"
         self._container_name = container_name
     
     @property
@@ -47,6 +48,10 @@ class DockerSandbox(Sandbox):
     @property
     def vnc_url(self) -> str:
         return self._vnc_url
+
+    @property
+    def code_server_url(self) -> str:
+        return self._code_server_url
 
     @staticmethod
     def _get_container_ip(container) -> str:
@@ -136,6 +141,9 @@ class DockerSandbox(Sandbox):
             # Add network to container config if configured
             if settings.sandbox_network:
                 container_config["network"] = settings.sandbox_network
+
+            if settings.code_server_password:
+                container_config["environment"]["PASSWORD"] = settings.code_server_password
             
             # Create container
             container = docker_client.containers.run(**container_config)

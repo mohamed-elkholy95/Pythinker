@@ -41,6 +41,21 @@ class Session(BaseModel):
     status: SessionStatus = SessionStatus.PENDING
     is_shared: bool = False  # Whether this session is shared publicly
     mode: AgentMode = AgentMode.AGENT  # Agent mode: agent (full PlanAct) or discuss (simple Q&A)
+    pending_action: Optional[dict] = None
+    pending_action_status: Optional[str] = None
+    # Workspace metadata (sanitized)
+    project_name: Optional[str] = None
+    project_path: Optional[str] = None
+    template_id: Optional[str] = None
+    template_used: Optional[str] = None
+    workspace_capabilities: Optional[List[str]] = None
+    dev_command: Optional[str] = None
+    build_command: Optional[str] = None
+    test_command: Optional[str] = None
+    port: Optional[int] = None
+    env_var_keys: Optional[List[str]] = None
+    secret_keys: Optional[List[str]] = None
+    git_remote: Optional[dict] = None
 
     def get_last_plan(self) -> Optional[Plan]:
         """Get the last plan from the events"""

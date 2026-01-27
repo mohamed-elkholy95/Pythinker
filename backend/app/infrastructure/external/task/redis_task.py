@@ -79,6 +79,11 @@ class RedisStreamTask(Task):
     def output_stream(self) -> MessageQueue:
         """Output stream."""
         return self._output_stream
+
+    @property
+    def runner(self) -> TaskRunner:
+        """Expose task runner for internal orchestration."""
+        return self._runner
     
     def _on_task_done(self) -> None:
         """Called when the task is done."""

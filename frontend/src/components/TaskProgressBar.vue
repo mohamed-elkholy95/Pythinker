@@ -5,15 +5,10 @@
       <!-- Floating Terminal Thumbnail -->
       <div
         v-if="showCollapsedThumbnail"
-        class="absolute -top-14 left-3 z-20 flex-shrink-0 group/thumb"
+        class="absolute -top-14 left-3 z-[1100] flex-shrink-0 group/thumb"
+        @mouseenter="showTooltip"
+        @mouseleave="hideTooltip"
       >
-        <!-- View Computer Badge - shows on hover -->
-        <div
-          @click.stop="emit('openPanel')"
-          class="absolute -top-10 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 px-4 py-2 bg-[var(--Button-primary-black)] text-[var(--text-onblack)] rounded-full text-sm font-medium cursor-pointer opacity-0 group-hover/thumb:opacity-100 transition-opacity duration-200 whitespace-nowrap shadow-lg z-20"
-        >
-          {{ $t("View Pythinker's computer") }}
-        </div>
         <div
           class="w-[140px] h-[88px] sm:w-[150px] sm:h-[96px] rounded-xl overflow-hidden border border-black/8 dark:border-[var(--border-main)] bg-[var(--background-menu-white)] cursor-pointer group-hover/thumb:border-[var(--text-brand)] transition-colors shadow-md"
           @click.stop="emit('openPanel')"
@@ -142,14 +137,12 @@
       <!-- Header Section - always show for collapse control -->
       <div v-if="showExpandedHeader" class="flex flex-col sm:flex-row sm:items-start gap-4">
         <!-- Terminal Thumbnail Card - only when available -->
-        <div v-if="showExpandedThumbnail" class="flex-shrink-0 relative group/thumb">
-          <!-- View Computer Badge - shows on hover -->
-          <div
-            @click.stop="emit('openPanel')"
-            class="absolute -top-10 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 px-4 py-2 bg-[var(--Button-primary-black)] text-[var(--text-onblack)] rounded-full text-sm font-medium cursor-pointer opacity-0 group-hover/thumb:opacity-100 transition-opacity duration-200 whitespace-nowrap shadow-lg z-20"
-          >
-            {{ $t("View Pythinker's computer") }}
-          </div>
+        <div
+          v-if="showExpandedThumbnail"
+          class="flex-shrink-0 relative group/thumb"
+          @mouseenter="showTooltip"
+          @mouseleave="hideTooltip"
+        >
           <div
             class="w-[140px] h-[88px] sm:w-[150px] sm:h-[96px] rounded-xl overflow-hidden border border-black/8 dark:border-[var(--border-main)] bg-[var(--background-menu-white)] cursor-pointer group-hover/thumb:border-[var(--text-brand)] transition-colors shadow-md"
             @click.stop="emit('openPanel')"
@@ -332,6 +325,15 @@
         </div>
       </div>
     </div>
+    <Teleport to="body">
+      <div
+        v-if="tooltipVisible"
+        class="fixed inline-flex items-center gap-1.5 px-4 py-2 bg-[var(--Button-primary-black)] text-[var(--text-onblack)] rounded-full text-sm font-medium whitespace-nowrap shadow-lg z-[2000] pointer-events-none"
+        :style="tooltipStyle"
+      >
+        {{ $t("View Pythinker's computer") }}
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -373,6 +375,28 @@ const emit = defineEmits<{
 }>()
 
 const isExpanded = ref(props.defaultExpanded)
+const tooltipVisible = ref(false)
+const tooltipTop = ref(0)
+const tooltipLeft = ref(0)
+
+const tooltipStyle = computed(() => ({
+  top: `${tooltipTop.value}px`,
+  left: `${tooltipLeft.value}px`,
+  transform: 'translate(-50%, -100%)'
+}))
+
+const showTooltip = (event: MouseEvent) => {
+  const target = event.currentTarget as HTMLElement | null
+  if (!target) return
+  const rect = target.getBoundingClientRect()
+  tooltipTop.value = rect.top - 10
+  tooltipLeft.value = rect.left + rect.width / 2
+  tooltipVisible.value = true
+}
+
+const hideTooltip = () => {
+  tooltipVisible.value = false
+}
 
 // Morphing shape animation
 const shapes = ['circle', 'diamond', 'cube'] as const
@@ -448,6 +472,12 @@ const isTextOnlyBrowserFetch = computed(() => props.toolContent?.function === 'b
 const isBrowserTool = computed(() => {
   const name = props.toolContent?.name
   return name === 'browser' || name === 'browser_agent'
+})
+
+const COMPUTER_TOOLS = new Set(['browser', 'shell', 'file', 'browser_agent', 'code_executor'])
+const hasComputerActivity = computed(() => {
+  const toolName = props.toolContent?.name || props.currentTool?.name || ''
+  return COMPUTER_TOOLS.has(toolName)
 })
 
 // Prioritize VNC when liveVnc is enabled (shows live sandbox activity)
@@ -533,15 +563,17 @@ const currentTaskDescription = computed(() => {
 
 const showCollapsedThumbnail = computed(() => {
   if (props.hideThumbnail) return false
+  if (!hasComputerActivity.value) return false
   return props.showThumbnail || (isAllCompleted.value && !!props.thumbnailUrl)
 })
 
 const showExpandedThumbnail = computed(() => {
   if (props.hideThumbnail) return false
+  if (!hasComputerActivity.value) return false
   return props.showThumbnail || !!props.thumbnailUrl || !!props.sessionId
 })
 
-const showExpandedHeader = computed(() => !props.compact)
+const showExpandedHeader = computed(() => !props.compact && hasComputerActivity.value)
 
 // Get current tool name for display
 const currentToolName = computed(() => {

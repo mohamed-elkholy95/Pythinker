@@ -53,8 +53,12 @@ services:
           - linux/arm64
     hostname: sandbox
     restart: unless-stopped
+    environment:
+      - PASSWORD=${CODE_SERVER_PASSWORD}
+      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome
     ports:
       - "8080:8080"  # Sandbox API
+      - "8081:8081"  # code-server (VS Code in browser)
       - "5902:5900"  # VNC
       - "5901:5901"  # VNC WebSocket
     # Shared memory size for Chrome browser stability (prevents crashes)

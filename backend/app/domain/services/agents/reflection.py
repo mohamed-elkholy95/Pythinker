@@ -53,7 +53,10 @@ from app.domain.services.prompts.reflection import (
     REFLECT_PROGRESS_PROMPT,
     REFLECT_AFTER_ERROR_PROMPT,
     REFLECT_ON_STALL_PROMPT,
+    REFLECT_ON_STUCK_PATTERN_PROMPT,
+    LOOP_TYPE_CAUSES,
 )
+from app.domain.services.agents.stuck_detector import StuckAnalysis, LoopType
 
 
 logger = logging.getLogger(__name__)
@@ -340,3 +343,151 @@ class ReflectionAgent:
             "max_reflections": self.config.max_reflections_per_task,
             "last_reflection_step": self._last_reflection_step,
         }
+
+    async def reflect_on_stuck_pattern(
+        self,
+        goal: str,
+        plan: Plan,
+        stuck_analysis: StuckAnalysis,
+        recent_actions: List[Dict[str, Any]] = None,
+    ) -> AsyncGenerator[BaseEvent, None]:
+        """Perform specialized reflection when a stuck pattern is detected.
+
+        This uses the troubleshooting protocol to analyze stuck patterns
+        and provide specific recovery guidance.
+
+        Args:
+            goal: The original goal/objective
+            plan: Current execution plan
+            stuck_analysis: Analysis from StuckDetector
+            recent_actions: Recent tool call results
+
+        Yields:
+            ReflectionEvent with assessment and recovery guidance
+        """
+        logger.info(
+            f"Stuck pattern reflection triggered: {stuck_analysis.loop_type.value} "
+            f"({stuck_analysis.repeat_count} repeats)"
+        )
+
+        # Emit triggered event
+        yield ReflectionEvent(
+            status=ReflectionStatus.TRIGGERED,
+            trigger_reason=f"stuck_pattern:{stuck_analysis.loop_type.value}"
+        )
+
+        try:
+            # Build specialized prompt
+            prompt = self._build_stuck_pattern_prompt(
+                goal=goal,
+                plan=plan,
+                stuck_analysis=stuck_analysis,
+                recent_actions=recent_actions or [],
+            )
+
+            # Call LLM
+            messages = [
+                {"role": "system", "content": REFLECTION_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt}
+            ]
+
+            response = await self.llm.ask(
+                messages=messages,
+                response_format={"type": "json_object"}
+            )
+
+            content = response.get("content", "")
+            parsed = await self.json_parser.parse(content)
+
+            # Parse decision
+            decision_str = parsed.get("decision", "adjust").lower()
+            try:
+                decision = ReflectionDecision(decision_str)
+            except ValueError:
+                decision = ReflectionDecision.ADJUST  # Default to adjust for stuck patterns
+
+            # Update tracking
+            self._reflection_count += 1
+
+            # Build enhanced summary with troubleshooting info
+            diagnosis = parsed.get("diagnosis", "")
+            most_likely_cause = parsed.get("most_likely_cause", "")
+            recommended_action = parsed.get("recommended_action", "")
+
+            summary = f"[{stuck_analysis.loop_type.value}] {diagnosis}"
+            if most_likely_cause:
+                summary += f" Most likely: {most_likely_cause}."
+            if recommended_action:
+                summary += f" Action: {recommended_action}"
+
+            # Emit completed event
+            yield ReflectionEvent(
+                status=ReflectionStatus.COMPLETED,
+                decision=decision.value,
+                confidence=float(parsed.get("confidence", 0.7)),
+                summary=summary[:500],  # Truncate if too long
+                trigger_reason=f"stuck_pattern:{stuck_analysis.loop_type.value}"
+            )
+
+        except Exception as e:
+            logger.error(f"Stuck pattern reflection failed: {e}")
+            # Fail-open with ADJUST recommendation
+            yield ReflectionEvent(
+                status=ReflectionStatus.COMPLETED,
+                decision="adjust",
+                confidence=0.5,
+                summary=f"Stuck pattern analysis error: {str(e)[:100]}. Recommend trying alternative approach.",
+                trigger_reason=f"stuck_pattern:{stuck_analysis.loop_type.value}"
+            )
+
+    def _build_stuck_pattern_prompt(
+        self,
+        goal: str,
+        plan: Plan,
+        stuck_analysis: StuckAnalysis,
+        recent_actions: List[Dict[str, Any]],
+    ) -> str:
+        """Build prompt for stuck pattern analysis."""
+        # Format recent actions
+        actions_text = ""
+        if recent_actions:
+            action_lines = []
+            for action in recent_actions[-8:]:  # More context for stuck analysis
+                name = action.get("function_name", "unknown")
+                success = action.get("success", True)
+                error = action.get("error", "")
+                result_preview = str(action.get("result", ""))[:80]
+                status = "✓" if success else "✗"
+                line = f"- {status} {name}"
+                if error:
+                    line += f" [ERROR: {error[:50]}]"
+                elif result_preview:
+                    line += f": {result_preview}"
+                action_lines.append(line)
+            actions_text = "\n".join(action_lines)
+        else:
+            actions_text = "No recent actions recorded"
+
+        # Format plan status
+        completed_steps = [s for s in plan.steps if s.is_done()]
+        pending_steps = [s for s in plan.steps if not s.is_done()]
+        plan_status = f"Completed: {len(completed_steps)}, Pending: {len(pending_steps)}"
+
+        # Get loop-type specific causes
+        loop_type_key = stuck_analysis.loop_type.value
+        possible_causes = LOOP_TYPE_CAUSES.get(
+            loop_type_key,
+            "- Unknown pattern type\n- General debugging needed"
+        )
+
+        return REFLECT_ON_STUCK_PATTERN_PROMPT.format(
+            goal=goal,
+            loop_type=stuck_analysis.loop_type.value,
+            affected_tools=", ".join(stuck_analysis.affected_tools) or "Unknown",
+            repeat_count=stuck_analysis.repeat_count,
+            recovery_strategy=stuck_analysis.recovery_strategy.value,
+            pattern_details=stuck_analysis.details,
+            recent_actions=actions_text,
+            plan_status=plan_status,
+            possible_causes=possible_causes,
+        )

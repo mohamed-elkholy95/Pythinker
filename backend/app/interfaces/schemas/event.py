@@ -96,6 +96,22 @@ class ToolEventData(BaseEventData):
     function: str
     args: Dict[str, Any]
     content: Optional[ToolContent] = None
+    # Action/observation metadata
+    action_type: Optional[str] = None
+    observation_type: Optional[str] = None
+    command: Optional[str] = None
+    cwd: Optional[str] = None
+    stdout: Optional[str] = None
+    stderr: Optional[str] = None
+    exit_code: Optional[int] = None
+    file_path: Optional[str] = None
+    diff: Optional[str] = None
+    runtime_status: Optional[str] = None
+    # Security/confirmation metadata
+    security_risk: Optional[str] = None
+    security_reason: Optional[str] = None
+    security_suggestions: Optional[List[str]] = None
+    confirmation_state: Optional[str] = None
 
 class ToolSSEEvent(BaseSSEEvent):
     event: Literal["tool"] = "tool"
@@ -108,7 +124,8 @@ class ToolSSEEvent(BaseSSEEvent):
             from app.interfaces.dependencies import get_file_service
             if content.screenshot:
                 content = BrowserToolContent(
-                    screenshot=await get_file_service().create_signed_url(content.screenshot)
+                    screenshot=await get_file_service().create_signed_url(content.screenshot),
+                    content=content.content  # Preserve page content
                 )
         return cls(
             data=ToolEventData(
@@ -118,7 +135,21 @@ class ToolSSEEvent(BaseSSEEvent):
                 status=event.status,
                 function=event.function_name,
                 args=event.function_args,
-                content=content
+                content=content,
+                action_type=event.action_type,
+                observation_type=event.observation_type,
+                command=event.command,
+                cwd=event.cwd,
+                stdout=event.stdout,
+                stderr=event.stderr,
+                exit_code=event.exit_code,
+                file_path=event.file_path,
+                diff=event.diff,
+                runtime_status=event.runtime_status,
+                security_risk=event.security_risk,
+                security_reason=event.security_reason,
+                security_suggestions=event.security_suggestions,
+                confirmation_state=event.confirmation_state,
             )
         )
 

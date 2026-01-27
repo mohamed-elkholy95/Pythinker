@@ -17,6 +17,22 @@ export interface ToolEventData extends BaseEventData {
   function: string;
   args: {[key: string]: any};
   content?: any;
+  // Action/observation metadata
+  action_type?: string;
+  observation_type?: string;
+  command?: string;
+  cwd?: string;
+  stdout?: string;
+  stderr?: string;
+  exit_code?: number;
+  file_path?: string;
+  diff?: string;
+  runtime_status?: string;
+  // Security/confirmation metadata
+  security_risk?: string;
+  security_reason?: string;
+  security_suggestions?: string[];
+  confirmation_state?: string;
 }
 
 export interface StepEventData extends BaseEventData {

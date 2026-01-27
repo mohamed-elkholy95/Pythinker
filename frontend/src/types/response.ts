@@ -61,6 +61,10 @@ export interface SignedUrlResponse {
     expires_in: number;
 }
 
+export interface CodeServerUrlResponse {
+    url: string;
+}
+
 export interface ShareSessionResponse {
     session_id: string;
     is_shared: boolean;

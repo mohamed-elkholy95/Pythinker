@@ -99,6 +99,21 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
     files: List[FileInfo] = []
     is_shared: Optional[bool] = False
     mode: AgentMode = AgentMode.DISCUSS  # Agent mode: discuss or agent
+    pending_action: Optional[Dict[str, Any]] = None
+    pending_action_status: Optional[str] = None
+    # Workspace metadata (sanitized)
+    project_name: Optional[str] = None
+    project_path: Optional[str] = None
+    template_id: Optional[str] = None
+    template_used: Optional[str] = None
+    workspace_capabilities: Optional[List[str]] = None
+    dev_command: Optional[str] = None
+    build_command: Optional[str] = None
+    test_command: Optional[str] = None
+    port: Optional[int] = None
+    env_var_keys: Optional[List[str]] = None
+    secret_keys: Optional[List[str]] = None
+    git_remote: Optional[Dict[str, Any]] = None
 
     # Timeline tracking
     event_count: int = 0  # Total number of events for efficient queries

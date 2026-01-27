@@ -1,25 +1,47 @@
 <template>
-  <div class="flex flex-col">
-    <div class="flex">
-      <div class="w-[24px] relative h-4">
-        <div class="border-l border-dashed border-[var(--border-dark)] absolute start-[8px] top-0 bottom-0"></div>
+  <div class="thinking-block">
+    <!-- Connector Line -->
+    <div class="connector">
+      <div class="connector-line">
+        <div class="connector-line-inner"></div>
       </div>
-      <div class="flex-1"></div>
+      <div class="connector-spacer"></div>
     </div>
-    <div class="flex items-start">
-      <div class="w-[24px] flex items-center justify-center flex-shrink-0" style="padding-left: 3px; padding-top: 4px;">
-        <div class="thinking-shape-wrapper">
+
+    <!-- Main Content -->
+    <div class="thinking-content">
+      <!-- Indicator -->
+      <div class="indicator-wrapper">
+        <div class="indicator-glow"></div>
+        <div class="indicator-container">
           <ThinkingIndicator :showText="false" />
         </div>
       </div>
-      <div class="flex-1 min-w-0">
-        <span class="thinking-text-shimmer text-sm font-normal">Thinking</span>
+
+      <!-- Text Content -->
+      <div class="text-wrapper">
+        <!-- Header -->
+        <div class="thinking-header">
+          <span class="thinking-label">Thinking</span>
+          <div class="thinking-dots">
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+          </div>
+        </div>
+
+        <!-- Thinking Text Container -->
         <div
           v-if="displayText"
-          ref="thinkingTextRef"
-          class="mt-1 text-sm text-[var(--text-secondary)] whitespace-pre-wrap thinking-text"
+          class="thinking-text-container"
         >
-          {{ displayText }}<span class="cursor-blink">|</span>
+          <div
+            ref="thinkingTextRef"
+            class="thinking-text"
+          >
+            <span class="text-content">{{ displayText }}</span>
+            <span class="cursor"></span>
+          </div>
         </div>
       </div>
     </div>
@@ -37,7 +59,6 @@ const props = defineProps<{
 
 const thinkingTextRef = ref<HTMLDivElement | null>(null)
 
-// Auto-truncate to last N lines for long thinking text
 const displayText = computed(() => {
   const maxLines = props.maxLines ?? 8
   const lines = props.text.split('\n')
@@ -63,62 +84,293 @@ watch(
 </script>
 
 <style scoped>
+/* Base Container */
+.thinking-block {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-sans, system-ui, -apple-system, sans-serif);
+}
+
+/* Connector Styles */
+.connector {
+  display: flex;
+  height: 20px;
+}
+
+.connector-line {
+  width: 28px;
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+.connector-line-inner {
+  width: 2px;
+  height: 100%;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--border-color, rgba(148, 163, 184, 0.3)) 20%,
+    var(--border-color, rgba(148, 163, 184, 0.3)) 80%,
+    transparent
+  );
+  border-radius: 1px;
+}
+
+.connector-spacer {
+  flex: 1;
+}
+
+/* Main Content */
+.thinking-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+/* Indicator Styles */
+.indicator-wrapper {
+  position: relative;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.indicator-glow {
+  position: absolute;
+  inset: -4px;
+  background: radial-gradient(
+    circle,
+    var(--accent-glow, rgba(99, 102, 241, 0.15)) 0%,
+    transparent 70%
+  );
+  border-radius: 50%;
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.indicator-container {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: var(--indicator-bg, rgba(99, 102, 241, 0.1));
+  border-radius: 8px;
+  border: 1px solid var(--indicator-border, rgba(99, 102, 241, 0.2));
+  box-shadow:
+    0 2px 8px rgba(99, 102, 241, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* Text Wrapper */
+.text-wrapper {
+  flex: 1;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+/* Header */
+.thinking-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.thinking-label {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  background: linear-gradient(
+    135deg,
+    var(--label-color-1, #6366f1) 0%,
+    var(--label-color-2, #8b5cf6) 50%,
+    var(--label-color-1, #6366f1) 100%
+  );
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gradient-shift 3s ease infinite;
+}
+
+/* Animated Dots */
+.thinking-dots {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--dot-color, #6366f1);
+  opacity: 0.6;
+  animation: dot-bounce 1.4s ease-in-out infinite;
+}
+
+.dot:nth-child(1) { animation-delay: 0s; }
+.dot:nth-child(2) { animation-delay: 0.2s; }
+.dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* Thinking Text Container */
+.thinking-text-container {
+  position: relative;
+  background: var(--text-container-bg, rgba(248, 250, 252, 0.6));
+  border: 1px solid var(--text-container-border, rgba(226, 232, 240, 0.8));
+  border-radius: 12px;
+  backdrop-filter: blur(8px);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    0 4px 12px rgba(0, 0, 0, 0.02);
+}
+
 .thinking-text {
-  line-height: 1.5;
-  max-height: 200px;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-color, #475569);
+  max-height: 180px;
   overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb, rgba(148, 163, 184, 0.3)) transparent;
 }
 
-.cursor-blink {
-  animation: blink 1s step-end infinite;
-  color: var(--text-primary);
+.thinking-text::-webkit-scrollbar {
+  width: 6px;
 }
 
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+.thinking-text::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-/* 120-degree diagonal shimmer text effect */
-.thinking-text-shimmer {
-  background: linear-gradient(
-    120deg,
-    #1f2937 0%,
-    #1f2937 40%,
-    #9ca3af 50%,
-    #1f2937 60%,
-    #1f2937 100%
-  );
-  background-size: 300% 300%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: text-shimmer 2s ease-in-out infinite;
+.thinking-text::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb, rgba(148, 163, 184, 0.3));
+  border-radius: 3px;
 }
 
-/* Dark mode */
-:deep(.dark) .thinking-text-shimmer,
-.dark .thinking-text-shimmer {
-  background: linear-gradient(
-    120deg,
-    #e5e7eb 0%,
-    #e5e7eb 40%,
-    #6b7280 50%,
-    #e5e7eb 60%,
-    #e5e7eb 100%
-  );
-  background-size: 300% 300%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+.thinking-text::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover, rgba(148, 163, 184, 0.5));
 }
 
-@keyframes text-shimmer {
-  0% {
-    background-position: 100% 0%;
+.text-content {
+  opacity: 0.85;
+}
+
+/* Cursor */
+.cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: var(--cursor-color, #6366f1);
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  border-radius: 1px;
+  animation: cursor-blink 1s ease-in-out infinite;
+  box-shadow: 0 0 8px var(--cursor-glow, rgba(99, 102, 241, 0.4));
+}
+
+/* Fade Overlay */
+/* Animations */
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 0.5;
+    transform: scale(1);
   }
-  100% {
-    background-position: 0% 100%;
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes gradient-shift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes dot-bounce {
+  0%, 80%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  40% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+@keyframes cursor-blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Dark Mode */
+:root.dark,
+.dark {
+  --border-color: rgba(71, 85, 105, 0.4);
+  --accent-glow: rgba(129, 140, 248, 0.2);
+  --indicator-bg: rgba(129, 140, 248, 0.15);
+  --indicator-border: rgba(129, 140, 248, 0.25);
+  --label-color-1: #a5b4fc;
+  --label-color-2: #c4b5fd;
+  --dot-color: #a5b4fc;
+  --text-container-bg: rgba(30, 41, 59, 0.6);
+  --text-container-border: rgba(71, 85, 105, 0.5);
+  --text-color: #cbd5e1;
+  --cursor-color: #a5b4fc;
+  --cursor-glow: rgba(165, 180, 252, 0.4);
+  --scrollbar-thumb: rgba(100, 116, 139, 0.4);
+  --scrollbar-thumb-hover: rgba(100, 116, 139, 0.6);
+}
+
+/* Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  .indicator-glow,
+  .thinking-label,
+  .dot,
+  .cursor {
+    animation: none;
+  }
+
+  .indicator-glow {
+    opacity: 0.7;
+  }
+
+  .dot {
+    opacity: 0.6;
+  }
+
+  .cursor {
+    opacity: 1;
+  }
+}
+
+/* Mobile Responsive */
+@media (max-width: 480px) {
+  .thinking-text {
+    font-size: 12px;
+    padding: 10px 12px;
+    max-height: 150px;
+  }
+
+  .thinking-label {
+    font-size: 12px;
   }
 }
 </style>

@@ -1,7 +1,7 @@
 // Backend API service
 import { apiClient, API_CONFIG, ApiResponse, createSSEConnection, SSECallbacks } from './client';
 import { AgentSSEEvent } from '../types/event';
-import { CreateSessionResponse, GetSessionResponse, ShellViewResponse, FileViewResponse, ListSessionResponse, SignedUrlResponse, ShareSessionResponse, SharedSessionResponse } from '../types/response';
+import { CreateSessionResponse, GetSessionResponse, ShellViewResponse, FileViewResponse, ListSessionResponse, SignedUrlResponse, ShareSessionResponse, SharedSessionResponse, CodeServerUrlResponse } from '../types/response';
 import type { FileInfo } from './file';
 
 
@@ -67,6 +67,16 @@ export async function createVncSignedUrl(sessionId: string, expireMinutes: numbe
 }
 
 /**
+ * Get code-server URL
+ * @param sessionId Session ID
+ * @returns Code-server URL response
+ */
+export async function getCodeServerUrl(sessionId: string): Promise<CodeServerUrlResponse> {
+  const response = await apiClient.get<ApiResponse<CodeServerUrlResponse>>(`/sessions/${sessionId}/code-server`);
+  return response.data.data;
+}
+
+/**
  * Get VNC WebSocket URL with signed URL
  * @param sessionId Session ID
  * @param expireMinutes URL expiration time in minutes (default: 60)
@@ -124,6 +134,19 @@ export async function viewShellSession(sessionId: string, shellSessionId: string
     { session_id: shellSessionId }
   );
   return response.data.data;
+}
+
+/**
+ * Confirm or reject a tool action
+ * @param sessionId Session ID
+ * @param actionId Tool action ID
+ * @param accept Whether to accept the action
+ */
+export async function confirmToolAction(sessionId: string, actionId: string, accept: boolean): Promise<void> {
+  await apiClient.post<ApiResponse<void>>(
+    `/sessions/${sessionId}/actions/${actionId}/confirm`,
+    { accept }
+  );
 }
 
 /**

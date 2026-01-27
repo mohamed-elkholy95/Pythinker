@@ -71,6 +71,15 @@ class SessionRepository(Protocol):
         """Update the agent mode of a session (discuss/agent)"""
         ...
 
+    async def update_pending_action(
+        self,
+        session_id: str,
+        pending_action: Optional[dict],
+        status: Optional[str],
+    ) -> None:
+        """Update pending action details for confirmation flow."""
+        ...
+
     async def delete(self, session_id: str) -> None:
         """Delete a session"""
         ...

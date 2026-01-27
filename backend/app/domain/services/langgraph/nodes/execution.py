@@ -1,23 +1,31 @@
 """Execution node for the LangGraph PlanAct workflow.
 
 This node executes the next step in the plan using the ExecutionAgent.
+Enhanced with:
+- Stuck pattern detection and recovery
+- Security assessment integration
+- Troubleshooting protocol for failures
 """
 
 import asyncio
 import logging
 import time
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from contextlib import asynccontextmanager
 
 from app.domain.services.langgraph.state import PlanActState
 from app.domain.models.plan import ExecutionStatus
 from app.domain.models.event import ToolEvent, WaitEvent, ErrorEvent
 from app.domain.services.agents.usage_context import UsageContextManager
+from app.domain.services.agents.stuck_detector import StuckAnalysis, LoopType
 
 logger = logging.getLogger(__name__)
 
 # Per-step tool call limit to prevent runaway exploration
 MAX_TOOL_CALLS_PER_STEP = 100
+
+# Stuck detection thresholds
+STUCK_CHECK_INTERVAL = 10  # Check for stuck every N tool calls
 
 
 async def execution_node(state: PlanActState) -> Dict[str, Any]:
@@ -99,10 +107,12 @@ async def execution_node(state: PlanActState) -> Dict[str, Any]:
         # Execute the step with per-step tool call tracking
         pending_events = []
         recent_tools = []
+        recent_actions = []  # For stuck pattern analysis
         needs_human_input = False
         last_had_error = False
         step_tool_calls = 0
         step_start_time = time.time()
+        stuck_analysis: Optional[StuckAnalysis] = None
 
         async for event in executor.execute_step(plan, step, user_message):
             # Stream event in real-time if queue available
@@ -116,6 +126,39 @@ async def execution_node(state: PlanActState) -> Dict[str, Any]:
             if isinstance(event, ToolEvent) and event.tool_name:
                 recent_tools.append(event.function_name)
                 step_tool_calls += 1
+
+                # Track action details for stuck analysis
+                if event.function_result:
+                    recent_actions.append({
+                        "function_name": event.function_name,
+                        "success": event.function_result.success if event.function_result else True,
+                        "result": str(event.function_result.message)[:200] if event.function_result else "",
+                        "error": event.function_result.message if event.function_result and not event.function_result.success else None,
+                    })
+
+                # Periodically check for stuck patterns
+                if step_tool_calls % STUCK_CHECK_INTERVAL == 0:
+                    # Check if executor has detected stuck pattern
+                    if hasattr(executor, '_stuck_detector'):
+                        analysis = executor._stuck_detector.get_analysis()
+                        if analysis:
+                            logger.warning(
+                                f"Stuck pattern detected at tool call {step_tool_calls}: "
+                                f"{analysis.loop_type.value}"
+                            )
+                            stuck_analysis = analysis
+
+                            # For severe stuck patterns, break early
+                            if analysis.loop_type in (
+                                LoopType.TOOL_FAILURE_CASCADE,
+                                LoopType.REPEATING_ACTION_ERROR,
+                            ) and analysis.repeat_count >= 5:
+                                logger.warning(
+                                    f"Severe stuck pattern ({analysis.loop_type.value}), "
+                                    "breaking execution for recovery"
+                                )
+                                step.notes = f"Interrupted: {analysis.details}"
+                                break
 
                 # Check per-step tool call limit
                 if step_tool_calls >= MAX_TOOL_CALLS_PER_STEP:
@@ -160,6 +203,10 @@ async def execution_node(state: PlanActState) -> Dict[str, Any]:
             if blocked_ids:
                 logger.info(f"Step {step.id} failure blocked {len(blocked_ids)} dependent steps")
 
+        # Final stuck check at end of step
+        if not stuck_analysis and hasattr(executor, '_stuck_detector'):
+            stuck_analysis = executor._stuck_detector.get_analysis()
+
         return {
             "current_step": step,
             "plan": plan,  # Plan may have been modified
@@ -167,4 +214,6 @@ async def execution_node(state: PlanActState) -> Dict[str, Any]:
             "last_had_error": last_had_error,
             "pending_events": pending_events,
             "recent_tools": recent_tools,
+            "recent_actions": recent_actions,  # For stuck pattern reflection
+            "stuck_analysis": stuck_analysis,  # For enhanced reflection
         }

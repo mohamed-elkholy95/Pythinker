@@ -22,6 +22,11 @@ class ShellViewRequest(BaseModel):
     session_id: str
 
 
+class ConfirmActionRequest(BaseModel):
+    """Tool action confirmation request"""
+    accept: bool
+
+
 class CreateSessionResponse(BaseModel):
     """Create session response schema"""
     session_id: str
@@ -65,6 +70,11 @@ class ShellViewResponse(BaseModel):
     output: str
     session_id: str
     console: Optional[List[ConsoleRecord]] = None
+
+
+class CodeServerUrlResponse(BaseModel):
+    """Code-server URL response schema"""
+    url: str
 
 
 class ShareSessionResponse(BaseModel):

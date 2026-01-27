@@ -18,6 +18,7 @@ RUN apt-get update && \
     gnupg \
     ca-certificates \
     software-properties-common \
+    python3-apt \
     xvfb \
     x11vnc \
     xterm \
@@ -35,7 +36,6 @@ RUN useradd -m -d /home/ubuntu -s /bin/bash ubuntu && \
 RUN add-apt-repository ppa:deadsnakes/ppa && \
     apt-get update && \
     apt-get install -y python3.11 python3.11-venv python3.11-dev python3-pip && \
-    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -48,9 +48,7 @@ RUN mkdir -p ${NVM_DIR} && \
     nvm install ${NODE_VERSION} && \
     nvm alias default ${NODE_VERSION} && \
     nvm use default && \
-    corepack enable && \
-    corepack prepare pnpm@10.28.1 --activate && \
-    corepack prepare yarn@1.22.22 --activate
+    npm install -g pnpm@10.28.1 yarn@1.22.22
 
 ENV PNPM_HOME=/home/ubuntu/.local/share/pnpm
 ENV PATH=${PNPM_HOME}:${NVM_DIR}/versions/node/v${NODE_VERSION}/bin:$PATH
@@ -71,6 +69,9 @@ RUN add-apt-repository ppa:xtradeb/apps -y && \
     apt-get install -y chromium --no-install-recommends && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+
+# Switch python3 to Python 3.11 after add-apt-repository usage
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 
 # Install fonts and language support
 RUN apt-get update && apt-get install -y \
@@ -133,10 +134,15 @@ RUN npm install -g \
 
 # Install global pnpm tools under ubuntu user
 RUN mkdir -p ${PNPM_HOME} && chown -R ubuntu:ubuntu ${PNPM_HOME} && \
-    su - ubuntu -c "export NVM_DIR=/usr/local/nvm; source /usr/local/nvm/nvm.sh; corepack enable" && \
-    su - ubuntu -c "export NVM_DIR=/usr/local/nvm; source /usr/local/nvm/nvm.sh; corepack prepare pnpm@10.28.1 --activate" && \
-    su - ubuntu -c "export NVM_DIR=/usr/local/nvm; source /usr/local/nvm/nvm.sh; corepack prepare yarn@1.22.22 --activate" && \
-    su - ubuntu -c "export NVM_DIR=/usr/local/nvm; source /usr/local/nvm/nvm.sh; pnpm add -g @anthropic-ai/mcpb@2.1.2 @mermaid-js/mermaid-cli@11.12.0 yarn@1.22.22 code-server@4.104.3"
+    su - ubuntu -c "export NVM_DIR=/usr/local/nvm; export PNPM_HOME=/home/ubuntu/.local/share/pnpm; source /usr/local/nvm/nvm.sh; export PATH=$PNPM_HOME:$NVM_DIR/versions/node/v${NODE_VERSION}/bin:$PATH; pnpm config set global-bin-dir $PNPM_HOME; pnpm config set ignore-scripts false; pnpm add -g @anthropic-ai/mcpb@2.1.2 @mermaid-js/mermaid-cli@11.12.0 yarn@1.22.22"
+
+# Install code-server from official release package
+RUN CODE_SERVER_VERSION=4.104.3 && \
+    ARCH="$(dpkg --print-architecture)" && \
+    curl -fsSL -o /tmp/code-server.deb "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server_${CODE_SERVER_VERSION}_${ARCH}.deb" && \
+    apt-get update && apt-get install -y /tmp/code-server.deb && \
+    rm -f /tmp/code-server.deb && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Create base Python virtual environment template for workspaces
 RUN python3 -m venv /opt/base-python-venv && \
@@ -151,7 +157,7 @@ COPY . .
 COPY supervisord.conf /etc/supervisor/conf.d/app.conf
 
 # Expose ports
-EXPOSE 8080 9222 5900 5901
+EXPOSE 8080 8081 9222 5900 5901
 
 # Environment variables for service configuration
 ENV UVI_ARGS=""
