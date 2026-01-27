@@ -348,12 +348,13 @@ class PlaywrightBrowser:
                         self._current_timezone = DEFAULT_TIMEZONE
 
                     # Create new context with proper configuration
+                    # SECURITY: Use settings-based ignore_https_errors (False in production)
                     self.context = await self.browser.new_context(
                         viewport=self._current_viewport,
                         user_agent=self._current_user_agent,
                         timezone_id=self._current_timezone,
                         locale="en-US",
-                        ignore_https_errors=True,  # Handle self-signed certs
+                        ignore_https_errors=self.settings.should_ignore_https_errors,
                         # Additional anti-detection settings
                         java_script_enabled=True,
                         has_touch=False,
@@ -1196,11 +1197,89 @@ class PlaywrightBrowser:
         # Return bytes data directly
         return await self.page.screenshot(**screenshot_options)
     
+    # SECURITY: Dangerous JavaScript patterns that should be blocked
+    # unless browser_allow_dangerous_js is explicitly enabled
+    _DANGEROUS_JS_PATTERNS = [
+        # Network exfiltration
+        (r'\bfetch\s*\(\s*["\']https?://(?!localhost|127\.0\.0\.1)', "External fetch requests"),
+        (r'\bnew\s+XMLHttpRequest\b', "XMLHttpRequest usage"),
+        (r'\bnew\s+WebSocket\b', "WebSocket connections"),
+        (r'\bnavigator\.sendBeacon\b', "Data beaconing"),
+        # Cookie/credential theft
+        (r'\bdocument\.cookie\b', "Cookie access"),
+        (r'\blocalStorage\b', "localStorage access"),
+        (r'\bsessionStorage\b', "sessionStorage access"),
+        (r'\bindexedDB\b', "IndexedDB access"),
+        # Code injection vectors
+        (r'\beval\s*\(', "eval() usage"),
+        (r'\bnew\s+Function\s*\(', "Function constructor"),
+        (r'\bsetTimeout\s*\(\s*["\']', "setTimeout with string"),
+        (r'\bsetInterval\s*\(\s*["\']', "setInterval with string"),
+        # DOM manipulation that could enable XSS
+        (r'\.innerHTML\s*=', "innerHTML assignment"),
+        (r'\.outerHTML\s*=', "outerHTML assignment"),
+        (r'\bdocument\.write\b', "document.write"),
+        (r'\bdocument\.writeln\b', "document.writeln"),
+        # Window manipulation
+        (r'\bwindow\.open\s*\(', "window.open"),
+        (r'\bwindow\.location\s*=', "window.location assignment"),
+        (r'\blocation\.href\s*=', "location.href assignment"),
+        (r'\blocation\.replace\s*\(', "location.replace"),
+        # Script injection
+        (r'createElement\s*\(\s*["\']script', "Script element creation"),
+        (r'\.src\s*=\s*["\']https?://', "External script source"),
+    ]
+
+    def _validate_javascript(self, javascript: str) -> tuple[bool, str]:
+        """Validate JavaScript code for potentially dangerous patterns.
+
+        SECURITY: This is a defense-in-depth measure. It blocks common
+        patterns that could be used for data exfiltration or XSS attacks.
+
+        Returns:
+            tuple: (is_safe, error_message)
+        """
+        if self.settings.browser_allow_dangerous_js:
+            logger.warning("Dangerous JavaScript validation bypassed via settings")
+            return True, ""
+
+        js_lower = javascript.lower()
+
+        for pattern, description in self._DANGEROUS_JS_PATTERNS:
+            if re.search(pattern, javascript, re.IGNORECASE):
+                return False, f"Blocked: {description} - Pattern matched: {pattern}"
+
+        return True, ""
+
     async def console_exec(self, javascript: str) -> ToolResult:
-        """Execute JavaScript code"""
+        """Execute JavaScript code with security validation.
+
+        SECURITY: Validates JavaScript before execution to prevent:
+        - Data exfiltration (fetch, XHR, WebSocket to external URLs)
+        - Cookie/credential theft (document.cookie, localStorage)
+        - Code injection (eval, innerHTML, document.write)
+        - Window manipulation (window.open, location changes)
+
+        Set browser_allow_dangerous_js=True in settings to bypass validation.
+        """
         await self._ensure_page()
-        result = await self.page.evaluate(javascript)
-        return ToolResult(success=True, data={"result": result})
+
+        # SECURITY: Validate JavaScript before execution
+        is_safe, error_msg = self._validate_javascript(javascript)
+        if not is_safe:
+            logger.warning(f"Blocked dangerous JavaScript execution: {error_msg}")
+            return ToolResult(
+                success=False,
+                error=f"JavaScript blocked for security reasons: {error_msg}",
+                data={"blocked": True, "reason": error_msg}
+            )
+
+        try:
+            result = await self.page.evaluate(javascript)
+            return ToolResult(success=True, data={"result": result})
+        except Exception as e:
+            logger.error(f"JavaScript execution error: {e}")
+            return ToolResult(success=False, error=str(e))
     
     async def console_view(self, max_lines: Optional[int] = None) -> ToolResult:
         """View console output"""

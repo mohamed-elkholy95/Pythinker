@@ -258,8 +258,16 @@ class AgentService:
         result = await sandbox.file_read(file_path)
         if result.success:
             return FileViewResponse(**result.data)
-        else:
-            raise RuntimeError(f"Failed to read file: {result.message}")
+
+        error_message = result.message or "Failed to read file"
+        # Gracefully handle binary or non-UTF8 content to avoid 500s in the UI.
+        if "codec can't decode" in error_message or "invalid start byte" in error_message:
+            return FileViewResponse(
+                content=f"[Binary file: {file_path}. Download to view.]",
+                file=file_path
+            )
+
+        raise RuntimeError(f"Failed to read file: {error_message}")
 
     async def init_workspace_from_manifest(
         self,

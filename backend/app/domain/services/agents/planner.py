@@ -1,7 +1,7 @@
 from typing import Dict, Any, List, AsyncGenerator, Optional, TYPE_CHECKING
 import json
 import logging
-from app.domain.models.plan import Plan, Step
+from app.domain.models.plan import Plan, Step, ExecutionStatus
 from app.domain.models.message import Message
 from app.domain.services.agents.base import BaseAgent
 from app.domain.models.memory import Memory
@@ -37,9 +37,82 @@ from app.domain.utils.json_parser import JsonParser
 
 logger = logging.getLogger(__name__)
 
-MIN_PLAN_STEPS = 3
-MAX_PLAN_STEPS = 6
+# Default step constraints (can be overridden by complexity-based limits)
+DEFAULT_MIN_PLAN_STEPS = 3
+DEFAULT_MAX_PLAN_STEPS = 6
 MAX_MERGED_STEP_CHARS = 240
+
+# Adaptive step constraints based on task complexity
+COMPLEXITY_STEP_LIMITS = {
+    "simple": (1, 3),
+    "medium": (3, 6),
+    "complex": (5, 12),
+}
+
+
+def get_task_complexity(message: str, tools: list = None) -> str:
+    """Determine task complexity based on message content.
+
+    Args:
+        message: The user's task request
+        tools: Optional list of available tools
+
+    Returns:
+        Complexity level: 'simple', 'medium', or 'complex'
+    """
+    message_lower = message.lower()
+
+    # Simple task indicators (single action, no conditionals)
+    simple_indicators = [
+        "just", "only", "simply", "quick", "single",
+        "one file", "one thing", "basic",
+    ]
+
+    # Complex task indicators (research, multi-source, conditional logic)
+    complex_indicators = [
+        "research", "investigate", "compare", "analyze",
+        "comprehensive", "detailed", "multiple sources",
+        "if possible", "depending on", "various",
+        "full report", "in-depth", "thorough",
+    ]
+
+    # Count indicators
+    simple_count = sum(1 for ind in simple_indicators if ind in message_lower)
+    complex_count = sum(1 for ind in complex_indicators if ind in message_lower)
+
+    # Message length heuristic
+    word_count = len(message.split())
+
+    # Short messages with simple indicators -> simple
+    if word_count < 15 and simple_count > 0 and complex_count == 0:
+        return "simple"
+
+    # Long messages or complex indicators -> complex
+    if word_count > 50 or complex_count >= 2:
+        return "complex"
+
+    # Check for multi-part requests (numbered items, bullets)
+    import re
+    numbered_items = len(re.findall(r'(?:^|\n)\s*\d+[\.\)]\s', message))
+    bullet_items = len(re.findall(r'(?:^|\n)\s*[-*]\s', message))
+
+    if numbered_items >= 3 or bullet_items >= 3:
+        return "complex"
+
+    # Default to medium
+    return "medium"
+
+
+def get_step_limits(complexity: str) -> tuple:
+    """Get min/max step limits for a given complexity level.
+
+    Args:
+        complexity: 'simple', 'medium', or 'complex'
+
+    Returns:
+        Tuple of (min_steps, max_steps)
+    """
+    return COMPLEXITY_STEP_LIMITS.get(complexity, (DEFAULT_MIN_PLAN_STEPS, DEFAULT_MAX_PLAN_STEPS))
 
 class PlannerAgent(BaseAgent):
     """
@@ -183,10 +256,13 @@ class PlannerAgent(BaseAgent):
                         title=plan_response.title,
                         language=plan_response.language,
                         message=plan_response.message,
-                        steps=self._normalize_plan_steps([
-                            Step(id=str(i + 1), description=s.description)
-                            for i, s in enumerate(plan_response.steps)
-                        ])
+                        steps=self._normalize_plan_steps(
+                            [
+                                Step(id=str(i + 1), description=s.description)
+                                for i, s in enumerate(plan_response.steps)
+                            ],
+                            task_message=message.message
+                        )
                     )
                     logger.info(f"Created plan using structured output: {plan.title}")
                     await self._add_to_memory([{"role": "assistant", "content": plan.model_dump_json()}])
@@ -203,48 +279,54 @@ class PlannerAgent(BaseAgent):
                 logger.info(event.message)
                 parsed_response = await self.json_parser.parse(event.message)
                 plan = Plan.model_validate(parsed_response)
-                plan.steps = self._normalize_plan_steps(plan.steps)
+                plan.steps = self._normalize_plan_steps(plan.steps, task_message=message.message)
                 yield PlanEvent(status=PlanStatus.CREATED, plan=plan)
             else:
                 yield event
 
     async def update_plan(self, plan: Plan, step: Step) -> AsyncGenerator[BaseEvent, None]:
         prompt = UPDATE_PLAN_PROMPT.format(plan=plan.dump_json(), step=step.model_dump_json())
+        max_steps_limit = DEFAULT_MAX_PLAN_STEPS
+        complexity_source = plan.message or plan.goal
+        if complexity_source:
+            complexity = get_task_complexity(complexity_source)
+            _, max_steps_limit = get_step_limits(complexity)
 
         # Helper to apply update steps to plan
         def apply_plan_update(new_steps: List[Step]) -> None:
-            # Find remaining pending steps in current plan
+            # Completed and remaining steps in current plan
             remaining_pending = [s for s in plan.steps if not s.is_done()]
 
-            # SAFEGUARD: If LLM returns empty/fewer steps but we have pending steps,
+            # SAFEGUARD: If LLM returns empty steps but we still have pending steps,
             # keep the original pending steps (prevent premature task completion)
             if len(new_steps) == 0 and len(remaining_pending) > 1:
                 logger.warning(
                     f"LLM returned empty steps but {len(remaining_pending)} steps remain. "
                     "Keeping original pending steps."
                 )
-                # Mark current step as done and keep the rest
+                # Ensure the just-completed step is marked done
                 for s in plan.steps:
-                    if s.id == step.id:
-                        s.mark_done()
+                    if s.id == step.id and not s.is_done():
+                        s.status = ExecutionStatus.COMPLETED
+                        s.success = True
                         break
-                return
+                new_steps = [s for s in plan.steps if not s.is_done()]
 
-            # Find the index of the first pending step
-            first_pending_index = None
-            for i, s in enumerate(plan.steps):
-                if not s.is_done():
-                    first_pending_index = i
-                    break
+            completed_steps = [s for s in plan.steps if s.is_done()]
 
-            # If there are pending steps, replace all pending steps
-            if first_pending_index is not None:
-                # Keep completed steps
-                updated_steps = plan.steps[:first_pending_index]
-                # Add new steps
-                updated_steps.extend(self._normalize_plan_steps(new_steps))
-                # Update steps in plan
-                plan.steps = updated_steps
+            # If we have more completed steps than our display cap and still pending work,
+            # keep the most recent completed steps to make room for remaining items.
+            if new_steps and len(completed_steps) >= max_steps_limit:
+                completed_steps = completed_steps[-(max_steps_limit - 1):]
+
+            remaining_slots = max(max_steps_limit - len(completed_steps), 0)
+            normalized_pending = self._normalize_update_steps(
+                new_steps,
+                remaining_slots,
+                id_offset=len(completed_steps)
+            )
+
+            plan.steps = completed_steps + normalized_pending
 
         # Try structured output first
         try:
@@ -283,13 +365,31 @@ class PlannerAgent(BaseAgent):
             else:
                 yield event
 
-    def _normalize_plan_steps(self, steps: List[Step]) -> List[Step]:
-        """Clamp plan length and merge overflow steps into the final step."""
+    def _normalize_plan_steps(
+        self,
+        steps: List[Step],
+        task_message: str = ""
+    ) -> List[Step]:
+        """Clamp plan length and merge overflow steps into the final step.
+
+        Uses adaptive step limits based on task complexity.
+
+        Args:
+            steps: The plan steps to normalize
+            task_message: The original task message for complexity analysis
+        """
         if not steps:
             return steps
 
+        # Determine complexity and get adaptive limits
+        complexity = get_task_complexity(task_message) if task_message else "medium"
+        min_steps, max_steps = get_step_limits(complexity)
+        logger.debug(f"Task complexity: {complexity}, limits: ({min_steps}, {max_steps})")
+
         existing_text = " ".join(s.description.lower() for s in steps if s.description)
-        if len(steps) < MIN_PLAN_STEPS:
+
+        # Only add filler steps if we're below minimum and not a simple task
+        if len(steps) < min_steps and complexity != "simple":
             fillers: List[str] = []
             if not any(keyword in existing_text for keyword in ["verify", "validate", "test", "check"]):
                 fillers.append("Validate results and address any issues")
@@ -300,31 +400,78 @@ class PlannerAgent(BaseAgent):
                 "Summarize outcomes and note any limitations",
             ]
             for filler in fallback_fillers:
-                if len(steps) + len(fillers) >= MIN_PLAN_STEPS:
+                if len(steps) + len(fillers) >= min_steps:
                     break
                 if filler.lower() not in existing_text:
                     fillers.append(filler)
             if fillers:
-                steps = steps + [Step(description=filler) for filler in fillers][: max(0, MIN_PLAN_STEPS - len(steps))]
+                steps = steps + [Step(description=filler) for filler in fillers][: max(0, min_steps - len(steps))]
 
-        if len(steps) <= MAX_PLAN_STEPS:
+        if len(steps) <= max_steps:
             for i, s in enumerate(steps):
                 s.id = str(i + 1)
             return steps
 
-        head = steps[: MAX_PLAN_STEPS - 1]
-        tail = steps[MAX_PLAN_STEPS - 1 :]
+        head = steps[: max_steps - 1]
+        tail = steps[max_steps - 1 :]
+
+        # Store original descriptions in metadata when merging
         merged_desc = "Consolidate remaining items: " + "; ".join(
             s.description for s in tail if s.description
         )
         if len(merged_desc) > MAX_MERGED_STEP_CHARS:
             merged_desc = merged_desc[: MAX_MERGED_STEP_CHARS - 3].rstrip() + "..."
 
-        merged_step = Step(id=str(MAX_PLAN_STEPS), description=merged_desc)
+        merged_step = Step(
+            id=str(max_steps),
+            description=merged_desc,
+            metadata={
+                "merged_from": len(tail),
+                "original_descriptions": [s.description for s in tail if s.description]
+            }
+        )
         normalized = head + [merged_step]
 
         for i, s in enumerate(normalized):
             s.id = str(i + 1)
+
+        return normalized
+
+    def _normalize_update_steps(
+        self,
+        steps: List[Step],
+        max_steps: int,
+        id_offset: int = 0
+    ) -> List[Step]:
+        """Normalize remaining steps during plan updates without inflating total steps."""
+        if not steps or max_steps <= 0:
+            return []
+
+        if len(steps) <= max_steps:
+            for i, s in enumerate(steps):
+                s.id = str(id_offset + i + 1)
+            return steps
+
+        head = steps[: max_steps - 1]
+        tail = steps[max_steps - 1 :]
+        merged_desc = "Consolidate remaining items: " + "; ".join(
+            s.description for s in tail if s.description
+        )
+        if len(merged_desc) > MAX_MERGED_STEP_CHARS:
+            merged_desc = merged_desc[: MAX_MERGED_STEP_CHARS - 3].rstrip() + "..."
+
+        merged_step = Step(
+            id=str(id_offset + max_steps),
+            description=merged_desc,
+            metadata={
+                "merged_from": len(tail),
+                "original_descriptions": [s.description for s in tail if s.description],
+            }
+        )
+        normalized = head + [merged_step]
+
+        for i, s in enumerate(normalized):
+            s.id = str(id_offset + i + 1)
 
         return normalized
 

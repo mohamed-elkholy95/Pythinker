@@ -90,7 +90,7 @@ class AgentTaskRunner(TaskRunner):
         mcp_repository: MCPRepository,
         search_engine: Optional[SearchEngine] = None,
         mode: AgentMode = AgentMode.AGENT,
-        enable_multi_agent: bool = False,
+        enable_multi_agent: bool = True,
         enable_coordinator: bool = False,
         memory_service: Optional["MemoryService"] = None,
         use_langgraph_flow: bool = False,

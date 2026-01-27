@@ -16,7 +16,7 @@ services:
       - "5173:5173"  # Vite default development port
     environment:
       - NODE_ENV=development
-      #- VITE_API_URL=http://127.0.0.1:8000
+      - VITE_API_URL=http://localhost:8000
       - BACKEND_URL=http://backend:8000
     depends_on:
       - backend
@@ -80,6 +80,7 @@ services:
       - "5901:5901"
       - "8080:8080"
       - "8081:8081"
+      - "8082:8082"
     # Shared memory size for Chrome browser stability (prevents crashes)
     shm_size: '2gb'
     # Resource limits for browser sandbox
@@ -91,6 +92,8 @@ services:
           memory: 1G
     environment:
       - UVI_ARGS="--reload"
+      - FRAMEWORK_UVI_ARGS="--reload"
+      - FRAMEWORK_DATABASE_URL=postgresql+asyncpg://postgres@127.0.0.1:5432/pythinker_sandbox
       - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
       - PASSWORD=${CODE_SERVER_PASSWORD}
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome

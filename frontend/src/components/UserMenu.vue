@@ -6,8 +6,8 @@
                 class="flex w-[300px] flex-col bg-[var(--background-menu-white)] rounded-[20px] border-[0.5px] border-[var(--border-dark)] shadow-[0px_8px_32px_0px_var(--shadow-XS)]">
                 <div class="flex gap-2 px-4 pt-5 pb-3 w-full">
                     <div class="relative flex items-center justify-center font-bold cursor-pointer flex-shrink-0">
-                        <div class="relative flex items-center justify-center font-bold flex-shrink-0 rounded-full overflow-hidden"
-                            style="width: 48px; height: 48px; font-size: 24px; color: rgba(255, 255, 255, 0.9); background-color: rgb(59, 130, 246);">
+                        <div class="relative flex items-center justify-center font-bold flex-shrink-0 rounded-full overflow-hidden bg-[var(--bolt-elements-item-contentAccent)] text-white"
+                            style="width: 48px; height: 48px; font-size: 24px;">
                             {{ avatarLetter }}</div>
                     </div>
                     <div class="flex overflow-hidden flex-col justify-center">

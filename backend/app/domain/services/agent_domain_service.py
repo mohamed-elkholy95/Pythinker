@@ -87,6 +87,14 @@ class AgentDomainService:
             except Exception as e:
                 logger.warning(f"Workspace auto-init error (non-fatal): {e}")
 
+        if settings.sandbox_framework_enabled:
+            try:
+                await sandbox.ensure_framework(session.id)
+            except Exception as e:
+                if settings.sandbox_framework_required:
+                    raise
+                logger.warning(f"Sandbox framework init error (non-fatal): {e}")
+
         browser = await sandbox.get_browser()
         if not browser:
             logger.error(f"Failed to get browser for Sandbox {sandbox_id}")
@@ -125,6 +133,67 @@ class AgentDomainService:
         await self._session_repository.save(session)
 
         return task
+
+    async def _resolve_user_attachments(
+        self,
+        attachments: Optional[List[dict]],
+        user_id: str
+    ) -> Optional[List[FileInfo]]:
+        """Resolve attachment metadata so UI can display accurate info (size/type)."""
+        if not attachments:
+            return None
+
+        async def resolve_attachment(attachment: dict) -> Optional[FileInfo]:
+            file_id = attachment.get("file_id")
+            filename = attachment.get("filename")
+            content_type = attachment.get("content_type")
+            size = attachment.get("size")
+            upload_date = attachment.get("upload_date")
+
+            if file_id:
+                try:
+                    file_info = await self._file_storage.get_file_info(file_id, user_id)
+                    if file_info:
+                        if not file_info.filename and filename:
+                            file_info.filename = filename
+                        if (file_info.size is None or file_info.size == 0) and size:
+                            file_info.size = size
+                        if not file_info.content_type and content_type:
+                            file_info.content_type = content_type
+                        if not file_info.upload_date and upload_date:
+                            file_info.upload_date = upload_date
+                        return file_info
+                except Exception as exc:
+                    logger.warning(
+                        f"Failed to fetch file info for attachment {file_id}: {exc}"
+                    )
+
+            if not file_id and not filename:
+                return None
+
+            return FileInfo(
+                file_id=file_id,
+                filename=filename,
+                content_type=content_type,
+                size=size,
+                upload_date=upload_date,
+                user_id=user_id
+            )
+
+        results = await asyncio.gather(
+            *[resolve_attachment(attachment) for attachment in attachments],
+            return_exceptions=True
+        )
+
+        resolved: List[FileInfo] = []
+        for result in results:
+            if isinstance(result, Exception):
+                logger.warning(f"Failed to resolve attachment: {result}")
+                continue
+            if result and (result.file_id or result.filename):
+                resolved.append(result)
+
+        return resolved if resolved else None
         
     async def _get_task(self, session: Session) -> Optional[Task]:
         """Get a task for the given session"""
@@ -233,10 +302,11 @@ class AgentDomainService:
 
                     await self._session_repository.update_latest_message(session_id, message, timestamp or datetime.now())
 
+                    resolved_attachments = await self._resolve_user_attachments(attachments, user_id)
                     message_event = MessageEvent(
                         message=message,
                         role="user",
-                        attachments=[FileInfo(file_id=attachment["file_id"], filename=attachment["filename"]) for attachment in attachments] if attachments else None
+                        attachments=resolved_attachments
                     )
 
                     event_id = await task.input_stream.put(message_event.model_dump_json())

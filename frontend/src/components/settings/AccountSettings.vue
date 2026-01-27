@@ -3,8 +3,8 @@
         <div class="flex items-center gap-4 flex-auto overflow-y-visible min-w-0">
             <div
                 class="relative flex items-center justify-center font-bold cursor-pointer flex-shrink-0 flex-shrink-0 flex-grow-0">
-                <div class="relative flex items-center justify-center font-bold flex-shrink-0 rounded-full overflow-hidden"
-                    style="width: 64px; height: 64px; font-size: 32px; color: rgba(255, 255, 255, 0.9); background-color: rgb(59, 130, 246);">
+                <div class="relative flex items-center justify-center font-bold flex-shrink-0 rounded-full overflow-hidden bg-[var(--bolt-elements-item-contentAccent)] text-white"
+                    style="width: 64px; height: 64px; font-size: 32px;">
                     {{ avatarLetter }}</div>
             </div>
             <div class="flex flex-col content-center items-start flex-auto overflow-hidden">

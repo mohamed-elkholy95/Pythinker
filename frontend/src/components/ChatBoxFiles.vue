@@ -148,12 +148,14 @@ const processFileUpload = async (file: File) => {
     try {
         // Upload the file
         const uploadedFile = await apiUploadFile(file);
+        const resolvedSize = uploadedFile.size || tempFileInfo.size;
 
         // Update the file info with successful upload
         const index = files.value.findIndex(f => f.file_id === tempFileInfo.file_id);
         if (index !== -1) {
             files.value[index] = {
                 ...uploadedFile,
+                size: resolvedSize,
                 status: 'success',
                 file: null
             };
@@ -187,12 +189,14 @@ const retryUpload = async (fileInfo: ExtendedFileInfo) => {
     try {
         // Retry upload
         const uploadedFile = await apiUploadFile(fileInfo.file);
+        const resolvedSize = uploadedFile.size || fileInfo.size || fileInfo.file.size;
 
         // Update with new file info
         const index = files.value.findIndex(f => f.file_id === fileInfo.file_id);
         if (index !== -1) {
             files.value[index] = {
                 ...uploadedFile,
+                size: resolvedSize,
                 status: 'success',
                 file: null
             };

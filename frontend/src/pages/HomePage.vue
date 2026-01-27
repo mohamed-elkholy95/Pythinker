@@ -21,8 +21,8 @@
               @mouseenter="handleUserMenuEnter" @mouseleave="handleUserMenuLeave">
               <div class="relative flex items-center justify-center font-bold cursor-pointer flex-shrink-0">
                 <div
-                  class="relative flex items-center justify-center font-bold flex-shrink-0 rounded-full overflow-hidden"
-                  style="width: 32px; height: 32px; font-size: 16px; color: rgba(255, 255, 255, 0.9); background-color: rgb(59, 130, 246);">
+                  class="relative flex items-center justify-center font-bold flex-shrink-0 rounded-full overflow-hidden bg-[var(--bolt-elements-item-contentAccent)] text-white"
+                  style="width: 32px; height: 32px; font-size: 16px;">
                   {{ avatarLetter }}</div>
               </div>
               <!-- User Menu -->
@@ -37,10 +37,7 @@
       </div>
       <div class="w-full max-w-full sm:max-w-[768px] sm:min-w-[390px] mx-auto mt-[120px] mb-auto">
         <div class="w-full flex pl-4 items-center justify-start pb-4">
-          <span class="text-[var(--text-primary)] text-start font-serif text-[32px] leading-[40px]" :style="{
-            fontFamily:
-              'ui-serif, Georgia, Cambria, &quot;Times New Roman&quot;, Times, serif',
-          }">
+          <span class="text-[var(--text-primary)] text-start font-semibold text-[32px] leading-[40px]">
             {{ $t('Hello') }}, {{ currentUser?.fullname }}
             <br />
             <span class="text-[var(--text-tertiary)]">
@@ -62,7 +59,7 @@
             v-for="feature in visibleFeatures"
             :key="feature.id"
             @click="handleFeatureClick(feature)"
-            class="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[var(--border-main)] bg-[var(--fill-input-chat)] hover:bg-[var(--fill-tsp-gray-main)] transition-colors text-sm text-[var(--text-secondary)] cursor-pointer"
+            class="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[var(--border-main)] bg-[var(--bolt-elements-bg-depth-1)] hover:bg-[var(--bolt-elements-item-backgroundActive)] transition-colors text-sm text-[var(--text-secondary)] cursor-pointer"
           >
             <component :is="feature.icon" :size="18" class="text-[var(--icon-secondary)]" />
             <span>{{ $t(feature.label) }}</span>
@@ -72,8 +69,8 @@
           <div class="relative" ref="moreDropdownRef">
             <button
               @click="toggleMoreDropdown"
-              class="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[var(--border-main)] bg-[var(--fill-input-chat)] hover:bg-[var(--fill-tsp-gray-main)] transition-colors text-sm text-[var(--text-secondary)] cursor-pointer"
-              :class="{ 'bg-[var(--fill-tsp-gray-main)]': showMoreDropdown }"
+              class="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[var(--border-main)] bg-[var(--bolt-elements-bg-depth-1)] hover:bg-[var(--bolt-elements-item-backgroundActive)] transition-colors text-sm text-[var(--text-secondary)] cursor-pointer"
+              :class="{ 'bg-[var(--bolt-elements-item-backgroundActive)]': showMoreDropdown }"
             >
               <span>{{ $t('More') }}</span>
             </button>

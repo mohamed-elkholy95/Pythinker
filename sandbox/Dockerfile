@@ -25,6 +25,8 @@ RUN apt-get update && \
     socat \
     supervisor \
     websockify \
+    postgresql \
+    postgresql-client \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -133,8 +135,9 @@ RUN npm install -g \
     @cyclonedx/cyclonedx-npm
 
 # Install global pnpm tools under ubuntu user
-RUN mkdir -p ${PNPM_HOME} && chown -R ubuntu:ubuntu ${PNPM_HOME} && \
-    su - ubuntu -c "export NVM_DIR=/usr/local/nvm; export PNPM_HOME=/home/ubuntu/.local/share/pnpm; source /usr/local/nvm/nvm.sh; export PATH=$PNPM_HOME:$NVM_DIR/versions/node/v${NODE_VERSION}/bin:$PATH; pnpm config set global-bin-dir $PNPM_HOME; pnpm config set ignore-scripts false; pnpm add -g @anthropic-ai/mcpb@2.1.2 @mermaid-js/mermaid-cli@11.12.0 yarn@1.22.22"
+RUN mkdir -p ${PNPM_HOME} /home/ubuntu/.config/pnpm /home/ubuntu/.local/share/pnpm/global/5 /home/ubuntu/.pnpm-store/v10/projects && \
+    chown -R ubuntu:ubuntu ${PNPM_HOME} /home/ubuntu/.config /home/ubuntu/.local/share/pnpm /home/ubuntu/.pnpm-store && \
+    su - ubuntu -c "export NVM_DIR=/usr/local/nvm; export PNPM_HOME=/home/ubuntu/.local/share/pnpm; export PNPM_STORE_PATH=/home/ubuntu/.pnpm-store; source /usr/local/nvm/nvm.sh; export PATH=$PNPM_HOME:$NVM_DIR/versions/node/v${NODE_VERSION}/bin:$PATH; pnpm config set store-dir /home/ubuntu/.pnpm-store; pnpm config set global-bin-dir $PNPM_HOME; pnpm config set ignore-scripts false; pnpm add -g @anthropic-ai/mcpb@2.1.2 @mermaid-js/mermaid-cli@11.12.0 yarn@1.22.22"
 
 # Install code-server from official release package
 RUN CODE_SERVER_VERSION=4.104.3 && \
@@ -153,6 +156,9 @@ RUN python3 -m venv /opt/base-python-venv && \
 # Copy remaining project files
 COPY . .
 
+# Ensure postgres entrypoint script is executable
+RUN chmod +x /app/scripts/start-postgres.sh
+
 # Configure supervisor
 COPY supervisord.conf /etc/supervisor/conf.d/app.conf
 
@@ -161,6 +167,7 @@ EXPOSE 8080 8081 9222 5900 5901
 
 # Environment variables for service configuration
 ENV UVI_ARGS=""
+ENV FRAMEWORK_UVI_ARGS=""
 ENV CHROME_ARGS=""
 ENV DISPLAY=:1
 

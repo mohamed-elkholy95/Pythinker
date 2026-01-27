@@ -9,7 +9,7 @@
     </div>
     <div class="flex max-w-[90%] relative flex-col gap-2 items-end">
       <div
-        class="relative flex items-center rounded-[12px] overflow-hidden bg-[var(--fill-white)] dark:bg-[var(--fill-tsp-white-main)] p-3 ltr:rounded-br-none rtl:rounded-bl-none border border-[var(--border-main)] dark:border-0"
+        class="relative flex items-center rounded-[12px] overflow-hidden bg-[var(--bolt-elements-bg-depth-2)] p-3 ltr:rounded-br-none rtl:rounded-bl-none border border-[var(--bolt-elements-borderColor)]"
         v-html="renderMarkdown(messageContent.content)">
       </div>
     </div>
@@ -27,7 +27,7 @@
       </div>
     </div>
     <div
-      class="max-w-none p-0 m-0 prose prose-sm sm:prose-base dark:prose-invert [&_pre:not(.shiki)]:!bg-[var(--fill-tsp-white-light)] [&_pre:not(.shiki)]:text-[var(--text-primary)] text-base text-[var(--text-primary)]"
+      class="max-w-none p-0 m-0 prose prose-sm sm:prose-base dark:prose-invert [&_pre:not(.shiki)]:!bg-[var(--bolt-elements-messages-code-background)] [&_pre:not(.shiki)]:text-[var(--bolt-elements-messages-inlineCode-text)] text-base text-[var(--text-primary)]"
       v-html="renderMarkdown(messageContent.content)"></div>
   </div>
   <ToolUse v-else-if="message.type === 'tool'" :tool="toolContent" @click="handleToolClick(toolContent)" />

@@ -283,7 +283,7 @@ class TaskStateManager:
 
         try:
             content = self._state.to_markdown()
-            await self._sandbox.write_file(self._file_path, content)
+            await self._sandbox.file_write(self._file_path, content)
             logger.debug(f"Task state saved to {self._file_path}")
             return True
         except Exception as e:
@@ -301,7 +301,8 @@ class TaskStateManager:
             return False
 
         try:
-            content = await self._sandbox.read_file(self._file_path)
+            result = await self._sandbox.file_read(self._file_path)
+            content = result.output if hasattr(result, 'output') else str(result)
             # Parse basic info from markdown (simplified)
             if "## Objective" in content:
                 # Extract objective

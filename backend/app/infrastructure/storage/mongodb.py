@@ -18,18 +18,29 @@ class MongoDB:
             return
             
         try:
-            # Connect to MongoDB
+            # Connect to MongoDB with connection pooling and timeout settings
+            connection_params = {
+                "maxPoolSize": self._settings.mongodb_max_pool_size,
+                "minPoolSize": self._settings.mongodb_min_pool_size,
+                "maxIdleTimeMS": self._settings.mongodb_max_idle_time_ms,
+                "connectTimeoutMS": self._settings.mongodb_connect_timeout_ms,
+                "serverSelectionTimeoutMS": self._settings.mongodb_server_selection_timeout_ms,
+                "socketTimeoutMS": self._settings.mongodb_socket_timeout_ms,
+            }
+
             if self._settings.mongodb_username and self._settings.mongodb_password:
                 # Use authenticated connection if username and password are configured
                 self._client = AsyncIOMotorClient(
                     self._settings.mongodb_uri,
                     username=self._settings.mongodb_username,
                     password=self._settings.mongodb_password,
+                    **connection_params,
                 )
             else:
                 # Use unauthenticated connection if no credentials are provided
                 self._client = AsyncIOMotorClient(
                     self._settings.mongodb_uri,
+                    **connection_params,
                 )
             # Verify the connection
             await self._client.admin.command('ping')
