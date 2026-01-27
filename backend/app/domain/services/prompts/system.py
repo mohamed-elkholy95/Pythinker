@@ -296,6 +296,83 @@ Data Quality:
 </datasource_module>
 """
 
+# Problem-solving workflow (OpenHands-inspired)
+PROBLEM_SOLVING_WORKFLOW = """
+<problem_solving_workflow>
+Approach complex tasks systematically:
+
+1. EXPLORATION: Understand before acting
+   - Read relevant files and documentation first
+   - Explore the codebase structure before modifying
+   - Never assume - verify current state
+
+2. ANALYSIS: Choose the right approach
+   - Consider multiple solutions
+   - Evaluate trade-offs (simplicity vs completeness)
+   - Select the most promising approach
+
+3. IMPLEMENTATION: Make focused changes
+   - Modify existing files directly - don't create new versions
+   - Make minimal changes to solve the problem
+   - Test incrementally as you go
+
+4. VERIFICATION: Confirm success
+   - Verify changes work as expected
+   - Check for side effects
+   - Clean up temporary files
+</problem_solving_workflow>
+"""
+
+# Troubleshooting rules (OpenHands-inspired)
+TROUBLESHOOTING_RULES = """
+<troubleshooting>
+When encountering repeated failures:
+
+DIAGNOSTIC PROTOCOL:
+1. Stop and reflect on 5-7 possible causes
+2. Assess the likelihood of each cause
+3. Address the most likely causes first
+4. Document your reasoning
+
+COMMON CAUSES TO CHECK:
+- Missing dependencies or packages
+- Incorrect file paths or permissions
+- Wrong parameters or arguments
+- Network/connectivity issues
+- Environment configuration problems
+
+RECOVERY STRATEGIES:
+- If a tool fails 3 times: try a fundamentally different approach
+- If blocked: explain clearly what's preventing progress
+- If environment issues: verify setup before retrying
+- If unclear requirements: ask for clarification
+</troubleshooting>
+"""
+
+# Efficiency rules (OpenHands-inspired)
+EFFICIENCY_RULES = """
+<efficiency>
+Optimize for cost and speed:
+- Combine multiple operations when possible
+- Use efficient search patterns (grep, find with filters)
+- Prefer browser_get_content over full navigation for text extraction
+- Batch file operations instead of individual calls
+- Avoid unnecessary tool calls - plan before acting
+</efficiency>
+"""
+
+# Process management rules (OpenHands-inspired)
+PROCESS_MANAGEMENT_RULES = """
+<process_management>
+When managing processes:
+- Never use generic kill patterns (pkill -f server, pkill -f python)
+- Find specific PID first with ps aux
+- Use application-specific shutdown commands when available
+- Clean up temporary files and resources after completion
+- Always redirect long-running output to files (command > output.log 2>&1 &)
+</process_management>
+"""
+
 # Coding rules
 CODING_RULES = """
 <coding_rules>
@@ -359,6 +436,10 @@ def build_system_prompt(
     include_writing: bool = False,
     include_datasource: bool = False,
     include_coding: bool = True,
+    include_problem_solving: bool = True,
+    include_troubleshooting: bool = True,
+    include_efficiency: bool = True,
+    include_process_management: bool = False,
     available_tools: list[str] | None = None,
     task_context: str | None = None,
 ) -> str:
@@ -375,6 +456,10 @@ def build_system_prompt(
         include_writing: Include writing/content rules
         include_datasource: Include datasource API rules
         include_coding: Include coding/deploy rules
+        include_problem_solving: Include problem-solving workflow (default: True)
+        include_troubleshooting: Include troubleshooting rules (default: True)
+        include_efficiency: Include efficiency optimization rules (default: True)
+        include_process_management: Include process management rules (default: False)
         available_tools: List of available tool names for dynamic section selection
         task_context: Optional task-specific context to append
 
@@ -382,6 +467,14 @@ def build_system_prompt(
         Assembled system prompt string
     """
     prompt = CORE_PROMPT
+
+    # Always include efficiency rules at the start (lightweight, ~50 tokens)
+    if include_efficiency:
+        prompt += EFFICIENCY_RULES
+
+    # Include problem-solving workflow (helps with complex tasks)
+    if include_problem_solving:
+        prompt += PROBLEM_SOLVING_WORKFLOW
 
     # If available_tools is provided, use tool-based section selection
     if available_tools is not None:
@@ -417,6 +510,14 @@ def build_system_prompt(
             prompt += DATASOURCE_RULES
         if include_coding:
             prompt += CODING_RULES
+
+    # Include troubleshooting rules (helps with error recovery)
+    if include_troubleshooting:
+        prompt += TROUBLESHOOTING_RULES
+
+    # Include process management rules when shell tools are used
+    if include_process_management or (available_tools and any("shell" in t for t in available_tools)):
+        prompt += PROCESS_MANAGEMENT_RULES
 
     # Add task-specific context if provided
     if task_context:
@@ -534,6 +635,10 @@ SYSTEM_PROMPT = build_system_prompt(
     include_writing=True,
     include_datasource=True,
     include_coding=True,
+    include_problem_solving=True,
+    include_troubleshooting=True,
+    include_efficiency=True,
+    include_process_management=True,
 )
 
 

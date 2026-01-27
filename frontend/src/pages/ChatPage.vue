@@ -114,7 +114,7 @@
           <!-- Loading/Thinking indicators - only show when no tool is actively being called -->
           <!-- Streaming thinking indicator with text -->
           <StreamingThinkingIndicator
-            v-if="isLoading && (isThinkingStreaming || thinkingText) && lastTool?.status !== 'calling'"
+            v-if="isLoading && isThinkingStreaming && lastTool?.status !== 'calling'"
             :text="thinkingText"
             :maxLines="8"
           />
@@ -736,6 +736,7 @@ const handlePlanEvent = (planData: PlanEventData) => {
 const handleStreamEvent = (streamData: StreamEventData) => {
   if (streamData.is_final) {
     isThinkingStreaming.value = false;
+    thinkingText.value = '';
   } else {
     isThinkingStreaming.value = true;
     thinkingText.value += streamData.content;

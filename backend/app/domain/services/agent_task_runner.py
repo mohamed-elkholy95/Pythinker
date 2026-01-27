@@ -1,6 +1,7 @@
 from typing import Optional, AsyncGenerator, List, Union, TYPE_CHECKING
 import asyncio
 import logging
+import time
 from pydantic import TypeAdapter
 from contextlib import asynccontextmanager
 
@@ -41,6 +42,7 @@ from app.domain.repositories.session_repository import SessionRepository
 from app.domain.repositories.mcp_repository import MCPRepository
 
 from app.domain.utils.json_parser import JsonParser
+from app.domain.utils.diff import build_unified_diff
 
 from app.domain.services.flows.plan_act import PlanActFlow
 from app.domain.services.flows.discuss import DiscussFlow
@@ -117,6 +119,11 @@ class AgentTaskRunner(TaskRunner):
 
         # Memory service for long-term context (Phase 6: Qdrant integration)
         self._memory_service = memory_service
+
+        # Tool metadata caches for enhanced UI
+        self._tool_start_times: dict[str, float] = {}
+        self._file_before_cache: dict[str, str] = {}
+        self._pending_tool_calls: dict[str, dict] = {}
 
         # Initialize flows based on mode
         self._plan_act_flow: Optional[PlanActFlow] = None
@@ -452,7 +459,6 @@ class AgentTaskRunner(TaskRunner):
                         f"Agent {self._agent_id}: Successfully synced attachment "
                         f"'{file_path}' -> file_id={result.file_id}"
                     )
-
             logger.info(
                 f"Agent {self._agent_id}: Successfully synced {len(synced_attachments)}/{len(valid_attachments)} "
                 f"attachments for {event_type} event"
@@ -466,6 +472,119 @@ class AgentTaskRunner(TaskRunner):
         # Always update event attachments - either with synced files or empty list
         # This ensures no null file_ids remain in the event
         event.attachments = synced_attachments
+
+    def _get_tool_execution_agent(self):
+        """Return an agent instance capable of invoking tools."""
+        flow = self._flow
+        if hasattr(flow, "executor") and flow.executor:
+            return flow.executor
+        if hasattr(flow, "_agent") and flow._agent:
+            return flow._agent
+        if hasattr(flow, "agent") and flow.agent:
+            return flow.agent
+        return None
+
+    async def execute_pending_action(
+        self,
+        task: Task,
+        action_id: str,
+        accept: bool,
+    ) -> None:
+        """Execute a pending tool action deterministically after confirmation."""
+        session = await self._session_repository.find_by_id(self._session_id)
+        if not session or not session.pending_action:
+            logger.warning("No pending action found for session %s", self._session_id)
+            return
+
+        pending = session.pending_action
+        if pending.get("tool_call_id") != action_id:
+            logger.warning(
+                "Pending action id mismatch for session %s: %s != %s",
+                self._session_id,
+                pending.get("tool_call_id"),
+                action_id,
+            )
+
+        if not accept:
+            await self._session_repository.update_pending_action(
+                self._session_id,
+                None,
+                "rejected",
+            )
+            reject_event = ToolEvent(
+                status=ToolStatus.CALLED,
+                tool_call_id=pending.get("tool_call_id"),
+                tool_name=pending.get("tool_name"),
+                function_name=pending.get("function_name"),
+                function_args=pending.get("function_args", {}),
+                function_result=ToolResult(success=False, message="Action rejected by user."),
+                security_risk=pending.get("security_risk"),
+                security_reason=pending.get("security_reason"),
+                security_suggestions=pending.get("security_suggestions"),
+                confirmation_state="rejected",
+            )
+            await self._put_and_add_event(task, reject_event)
+            await self._put_and_add_event(
+                task,
+                MessageEvent(message="Action rejected by user.", role="assistant"),
+            )
+            return
+
+        agent = self._get_tool_execution_agent()
+        if not agent:
+            logger.error("No tool execution agent available for session %s", self._session_id)
+            return
+
+        function_name = pending.get("function_name")
+        function_args = pending.get("function_args", {})
+        tool_call_id = pending.get("tool_call_id")
+        tool_name = pending.get("tool_name")
+
+        calling_event = ToolEvent(
+            status=ToolStatus.CALLING,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            function_name=function_name,
+            function_args=function_args,
+            security_risk=pending.get("security_risk"),
+            security_reason=pending.get("security_reason"),
+            security_suggestions=pending.get("security_suggestions"),
+            confirmation_state="confirmed",
+        )
+        await self._handle_tool_event(calling_event)
+        await self._put_and_add_event(task, calling_event)
+
+        try:
+            tool = agent.get_tool(function_name)
+            result = await agent.invoke_tool(
+                tool,
+                function_name,
+                function_args,
+                skip_security=True,
+            )
+        except Exception as exc:
+            result = ToolResult(success=False, message=str(exc))
+
+        called_event = ToolEvent(
+            status=ToolStatus.CALLED,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            function_name=function_name,
+            function_args=function_args,
+            function_result=result,
+            security_risk=pending.get("security_risk"),
+            security_reason=pending.get("security_reason"),
+            security_suggestions=pending.get("security_suggestions"),
+            confirmation_state="confirmed",
+        )
+        await self._handle_tool_event(called_event)
+        await self._put_and_add_event(task, called_event)
+
+        await self._session_repository.update_pending_action(
+            self._session_id,
+            None,
+            "confirmed",
+        )
     
     async def _sync_message_attachments_to_sandbox(self, event: MessageEvent) -> None:
         """Sync message attachments concurrently and update event attachments"""
@@ -528,10 +647,73 @@ class AgentTaskRunner(TaskRunner):
     async def _handle_tool_event(self, event: ToolEvent):
         """Generate tool content"""
         try:
+            # Common action metadata
+            if event.tool_name == "shell":
+                event.action_type = "run"
+                event.command = event.function_args.get("command")
+                event.cwd = event.function_args.get("exec_dir")
+            elif event.tool_name == "code_executor":
+                event.action_type = "run"
+                event.command = event.function_args.get("code") or event.function_args.get("command")
+            elif event.tool_name == "file":
+                event.file_path = event.function_args.get("file")
+                if event.function_name == "file_read":
+                    event.action_type = "read"
+                elif event.function_name == "file_write":
+                    event.action_type = "write"
+                elif event.function_name == "file_str_replace":
+                    event.action_type = "edit"
+                else:
+                    event.action_type = "edit"
+            elif event.tool_name == "browser":
+                event.action_type = "browse"
+            elif event.tool_name == "browser_agent":
+                event.action_type = "browse"
+            elif event.tool_name == "search":
+                event.action_type = "search"
+            elif event.tool_name == "mcp":
+                event.action_type = "call_tool"
+
             if event.status == ToolStatus.CALLED and event.tool_name != "message":
                 await self._record_tool_call_usage()
             # Handle CALLING status for streaming preview (file_write shows content being generated)
             if event.status == ToolStatus.CALLING:
+                # Track tool start time for duration measurement
+                self._tool_start_times[event.tool_call_id] = time.perf_counter()
+
+                if event.confirmation_state == "awaiting_confirmation":
+                    pending_action = {
+                        "tool_call_id": event.tool_call_id,
+                        "tool_name": event.tool_name,
+                        "function_name": event.function_name,
+                        "function_args": event.function_args,
+                        "security_risk": event.security_risk,
+                        "security_reason": event.security_reason,
+                        "security_suggestions": event.security_suggestions,
+                    }
+                    self._pending_tool_calls[event.tool_call_id] = pending_action
+                    await self._session_repository.update_pending_action(
+                        self._session_id,
+                        pending_action,
+                        "awaiting_confirmation",
+                    )
+
+                # Cache original file content for diff generation
+                if event.tool_name == "file" and event.function_name in (
+                    "file_write",
+                    "file_str_replace",
+                ):
+                    file_path = event.function_args.get("file")
+                    if file_path:
+                        try:
+                            before_result = await self._sandbox.file_read(file_path)
+                            if before_result.success:
+                                self._file_before_cache[event.tool_call_id] = before_result.data.get("content", "")
+                            else:
+                                self._file_before_cache[event.tool_call_id] = ""
+                        except Exception:
+                            self._file_before_cache[event.tool_call_id] = ""
+
                 if event.tool_name == "file" and event.function_name == "file_write":
                     # Show the content being written for streaming preview
                     content = event.function_args.get("content", "")
@@ -539,6 +721,11 @@ class AgentTaskRunner(TaskRunner):
                         event.tool_content = FileToolContent(content=content)
                         logger.debug(f"File write preview: {len(content)} chars")
             elif event.status == ToolStatus.CALLED:
+                # Duration measurement
+                start_time = self._tool_start_times.pop(event.tool_call_id, None)
+                if start_time is not None:
+                    event.duration_ms = int((time.perf_counter() - start_time) * 1000)
+
                 if event.tool_name == "browser":
                     screenshot_functions = {
                         "browser_navigate",
@@ -553,23 +740,41 @@ class AgentTaskRunner(TaskRunner):
                         "browser_move_mouse",
                         "browser_screenshot",
                     }
+                    # Extract page content from function result if available
+                    page_content = None
+                    if event.function_result and hasattr(event.function_result, "data"):
+                        result_data = event.function_result.data
+                        if isinstance(result_data, dict):
+                            # Try to get content from various possible fields
+                            page_content = result_data.get("content") or result_data.get("text") or result_data.get("data")
+                        elif isinstance(result_data, str):
+                            page_content = result_data
+
                     if event.function_name in screenshot_functions:
                         event.tool_content = BrowserToolContent(
-                            screenshot=await self._get_browser_screenshot()
+                            screenshot=await self._get_browser_screenshot(),
+                            content=page_content
                         )
                     else:
-                        event.tool_content = BrowserToolContent()
+                        event.tool_content = BrowserToolContent(content=page_content)
                 elif event.tool_name == "search":
                     search_results: ToolResult[SearchResults] = event.function_result
                     logger.debug(f"Search tool results: {search_results}")
                     event.tool_content = SearchToolContent(results=search_results.data.results)
                 elif event.tool_name == "shell":
+                    event.observation_type = "run"
+                    if event.function_result and hasattr(event.function_result, "data"):
+                        data = event.function_result.data or {}
+                        if isinstance(data, dict):
+                            event.stdout = data.get("output")
+                            event.exit_code = data.get("returncode")
                     if "id" in event.function_args:
                         shell_result = await self._sandbox.view_shell(event.function_args["id"], console=True)
                         event.tool_content = ShellToolContent(console=shell_result.data.get("console", []))
                     else:
                         event.tool_content = ShellToolContent(console="(No Console)")
                 elif event.tool_name == "file":
+                    event.observation_type = "edit"
                     if "file" in event.function_args:
                         file_path = event.function_args["file"]
                         # Read file and sync to storage concurrently
@@ -583,6 +788,11 @@ class AgentTaskRunner(TaskRunner):
                         else:
                             file_content = file_read_result.data.get("content", "")
                         event.tool_content = FileToolContent(content=file_content)
+
+                        before_content = self._file_before_cache.pop(event.tool_call_id, "")
+                        diff_text = build_unified_diff(before_content, file_content, file_path)
+                        if diff_text:
+                            event.diff = diff_text
                     else:
                         event.tool_content = FileToolContent(content="(No Content)")
                 elif event.tool_name == "mcp":
@@ -632,6 +842,7 @@ class AgentTaskRunner(TaskRunner):
                     # message tool events don't need tool_content
                     logger.debug("Processing message tool event")
                 elif event.tool_name == "code_executor":
+                    event.observation_type = "run"
                     # Code execution output shown in terminal-like view
                     if event.function_result and hasattr(event.function_result, 'data'):
                         data = event.function_result.data
@@ -644,6 +855,9 @@ class AgentTaskRunner(TaskRunner):
                                 console_output.append(f"[stderr] {data['stderr']}")
                             if data.get('exit_code') is not None:
                                 console_output.append(f"[exit code: {data['exit_code']}]")
+                            event.stdout = data.get("stdout")
+                            event.stderr = data.get("stderr")
+                            event.exit_code = data.get("exit_code")
                             event.tool_content = ShellToolContent(
                                 console="\n".join(console_output) if console_output else "(No output)"
                             )

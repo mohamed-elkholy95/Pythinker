@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     sandbox_mem_limit: str | None = "4g"
     sandbox_cpu_limit: float | None = 2.0
     sandbox_pids_limit: int | None = 500
+
+    # code-server configuration (VS Code in browser)
+    code_server_public_url: str | None = None
+    code_server_password: str | None = None
     
     # Search engine configuration
     search_provider: str | None = "bing"  #  "google", "bing", "searxng", "whoogle", "duckduckgo", "brave", "tavily"

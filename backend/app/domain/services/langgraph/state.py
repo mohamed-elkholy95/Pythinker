@@ -15,6 +15,7 @@ from app.domain.services.agents.execution import ExecutionAgent
 from app.domain.services.agents.verifier import VerifierAgent
 from app.domain.services.agents.reflection import ReflectionAgent
 from app.domain.services.agents.task_state_manager import TaskStateManager
+from app.domain.services.agents.stuck_detector import StuckAnalysis
 
 
 def merge_events(a: List[BaseEvent], b: List[BaseEvent] | None) -> List[BaseEvent]:
@@ -96,6 +97,10 @@ class PlanActState(TypedDict, total=False):
     # Reflection state (Phase 2: Enhanced Self-Reflection)
     reflection_decision: Optional[str]  # "continue", "adjust", "replan", "escalate"
     last_had_error: bool
+
+    # Stuck pattern analysis (Enhanced with OpenHands patterns)
+    stuck_analysis: Optional[StuckAnalysis]
+    recent_actions: Optional[List[dict]]  # Tool action history for stuck analysis
 
     # Error handling
     error: Optional[str]

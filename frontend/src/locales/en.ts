@@ -67,6 +67,8 @@ export default {
   // Dialog
   'Confirm': 'Confirm',
   'Cancel': 'Cancel',
+  'Reject': 'Reject',
+  'This action requires confirmation': 'This action requires confirmation',
   'Close Dialog': 'Close Dialog',
   'Are you sure you want to delete this session?': 'Are you sure you want to delete this session?',
   'The chat history of this session cannot be recovered after deletion.': 'The chat history of this session cannot be recovered after deletion.',

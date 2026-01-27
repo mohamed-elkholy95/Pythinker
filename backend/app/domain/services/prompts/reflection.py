@@ -18,6 +18,32 @@ Your job is to provide INTERMEDIATE reflection, not final review. You assess pro
 3. **Obstacle Detection**: Are there emerging blockers?
 4. **Resource Efficiency**: Is effort being spent wisely?
 
+## Troubleshooting Protocol
+
+When encountering repeated failures, apply this diagnostic process:
+
+### Step 1: Identify Possible Causes (5-7 hypotheses)
+- Missing dependencies or packages
+- Incorrect file paths or permissions
+- Wrong parameters or API endpoints
+- Network/connectivity issues
+- Environment configuration problems
+- Resource constraints (memory, disk space)
+- Timing/synchronization issues
+
+### Step 2: Assess Likelihood
+Rank causes by probability based on:
+- Error message patterns
+- Recent changes
+- System state indicators
+- Historical patterns
+
+### Step 3: Address Systematically
+- Start with most likely cause
+- Verify hypothesis before moving to next
+- Document what was tried
+- Don't repeat failed approaches
+
 ## Decision Options
 
 - **CONTINUE**: Progress is on track, proceed as planned
@@ -33,6 +59,14 @@ Your job is to provide INTERMEDIATE reflection, not final review. You assess pro
 - Use REPLAN only for significant strategy changes
 - Use ESCALATE for true ambiguity or authorization needs
 - Use ABORT very rarely (clear impossibility, not just difficulty)
+
+## Recovery Patterns
+
+When recommending ADJUST, provide specific guidance:
+- If tool fails 3x: suggest fundamentally different approach
+- If search yields no results: suggest different query strategy
+- If API errors: suggest checking authentication/endpoint
+- If environment issues: suggest verifying setup
 
 ## Response Format
 
@@ -179,3 +213,101 @@ Determine if this stall:
 4. Indicates impossible task (ABORT)
 
 Respond with your assessment as a JSON object."""
+
+
+REFLECT_ON_STUCK_PATTERN_PROMPT = """A stuck pattern has been detected. Apply the troubleshooting protocol to analyze and recommend recovery.
+
+## Original Goal:
+{goal}
+
+## Stuck Pattern Detected:
+- Type: {loop_type}
+- Affected tools: {affected_tools}
+- Repeat count: {repeat_count}
+- Current recovery strategy: {recovery_strategy}
+
+## Pattern Details:
+{pattern_details}
+
+## Recent Actions (chronological):
+{recent_actions}
+
+## Current Plan Status:
+{plan_status}
+
+---
+
+## Troubleshooting Protocol (Apply Now)
+
+### 1. Identify 5-7 Possible Causes
+Based on the pattern type "{loop_type}", consider:
+{possible_causes}
+
+### 2. Assess Likelihood
+Which causes are most likely given:
+- The specific error messages (if any)
+- The tools involved: {affected_tools}
+- The pattern behavior observed
+
+### 3. Recommended Action
+Provide ONE specific, actionable recommendation:
+- What exactly should be tried next?
+- Why is this the most promising approach?
+- What should be avoided (what was already tried)?
+
+Respond with your assessment as a JSON object. Include:
+- diagnosis: Your analysis of the root cause
+- possible_causes: List of potential causes (5-7)
+- most_likely_cause: The most probable root cause
+- recommended_action: Specific next step
+- decision: continue/adjust/replan/escalate/abort
+- confidence: Your confidence in this assessment (0-1)"""
+
+
+# Possible causes templates for different loop types
+LOOP_TYPE_CAUSES = {
+    "repeating_action_error": """
+- Tool implementation issue or bug
+- Missing prerequisite (dependency, file, permission)
+- Incorrect parameters being passed
+- External service unavailable
+- Rate limiting or quota exceeded
+- Environment misconfiguration
+- Transient network failure""",
+
+    "repeating_action_observation": """
+- Expected behavior change that won't happen
+- Caching returning stale data
+- Wrong assumption about state changes
+- Missing step before this action
+- Tool not designed for this use case
+- Data already in desired state
+- Misunderstanding of tool's purpose""",
+
+    "alternating_pattern": """
+- Conflicting approaches undoing each other
+- Missing synchronization between operations
+- Incorrect assumption about state transitions
+- Circular dependency in logic
+- Tool side effects not accounted for
+- Race condition in async operations
+- Incomplete state validation""",
+
+    "tool_failure_cascade": """
+- Environment not properly initialized
+- Missing global dependency
+- Permission/authentication issue affecting all tools
+- Network connectivity problem
+- Resource exhaustion (disk, memory)
+- Service outage affecting multiple integrations
+- Sandbox environment misconfiguration""",
+
+    "monologue": """
+- Unclear goal leading to explanation mode
+- Tool unavailability leading to verbal responses
+- Misunderstanding of task requirements
+- Waiting for input that should be self-provided
+- Over-explaining instead of executing
+- Fear of making errors leading to inaction
+- Unclear next step preventing action"""
+}

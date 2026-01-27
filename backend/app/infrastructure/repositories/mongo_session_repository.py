@@ -187,6 +187,27 @@ class MongoSessionRepository(SessionRepository):
         if not result:
             raise ValueError(f"Session {session_id} not found")
 
+    async def update_pending_action(
+        self,
+        session_id: str,
+        pending_action: Optional[dict],
+        status: Optional[str],
+    ) -> None:
+        """Update pending action details for confirmation flow."""
+        result = await SessionDocument.find_one(
+            SessionDocument.session_id == session_id
+        ).update(
+            {
+                "$set": {
+                    "pending_action": pending_action,
+                    "pending_action_status": status,
+                    "updated_at": datetime.now(UTC),
+                }
+            }
+        )
+        if not result:
+            raise ValueError(f"Session {session_id} not found")
+
     # Timeline query methods
     async def get_events_paginated(
         self,

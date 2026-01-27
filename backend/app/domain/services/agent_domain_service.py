@@ -146,6 +146,33 @@ class AgentDomainService:
             task.cancel()
         await self._session_repository.update_status(session_id, SessionStatus.COMPLETED)
 
+    async def enqueue_user_message(
+        self,
+        session_id: str,
+        user_id: str,
+        message: str,
+    ) -> None:
+        """Enqueue a user message without opening an SSE stream."""
+        session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
+        if not session:
+            logger.error(f"Attempted to enqueue message for non-existent Session {session_id}")
+            raise RuntimeError("Session not found")
+
+        task = await self._get_task(session)
+        if session.status != SessionStatus.RUNNING or task is None:
+            task = await self._create_task(session)
+            if not task:
+                raise RuntimeError("Failed to create task")
+
+        await self._session_repository.update_latest_message(session_id, message, datetime.now())
+
+        message_event = MessageEvent(message=message, role="user")
+        event_id = await task.input_stream.put(message_event.model_dump_json())
+        message_event.id = event_id
+        await self._session_repository.add_event(session_id, message_event)
+
+        await task.run()
+
     async def chat(
         self,
         session_id: str,
@@ -249,3 +276,27 @@ class AgentDomainService:
             yield event # TODO: raise api exception
         finally:
             await self._session_repository.update_unread_message_count(session_id, 0)
+
+    async def confirm_action(
+        self,
+        session_id: str,
+        user_id: str,
+        action_id: str,
+        accept: bool,
+    ) -> None:
+        """Confirm or reject a pending tool action and deterministically execute if accepted."""
+        session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
+        if not session:
+            logger.error(f"Attempted to confirm action for non-existent Session {session_id}")
+            raise RuntimeError("Session not found")
+
+        task = await self._get_task(session)
+        if not task or task.done:
+            task = await self._create_task(session)
+
+        runner = getattr(task, "runner", None) or getattr(task, "_runner", None)
+        if not runner or not hasattr(runner, "execute_pending_action"):
+            logger.warning("Task runner does not support pending action execution")
+            return
+
+        await runner.execute_pending_action(task, action_id, accept)

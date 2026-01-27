@@ -12,7 +12,7 @@
       ref="vncContainer"
       class="vnc-container"
       :class="{ 'vnc-viewonly': props.viewOnly }"
-      style="display: flex; width: 100%; height: 100%; overflow: auto; background: rgb(40, 40, 40);">
+      style="width: 100%; height: 100%; overflow: hidden; background: rgb(40, 40, 40);">
     </div>
   </div>
 </template>
