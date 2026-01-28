@@ -7,6 +7,20 @@ import './utils/toast'
 import i18n from './composables/useI18n'
 import { getStoredToken, getCachedAuthProvider } from './api/auth'
 
+// Configure Monaco Editor Web Workers
+// This prevents UI freezes by offloading syntax highlighting to web workers
+import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
+
+self.MonacoEnvironment = {
+  getWorker(_: string, label: string) {
+    if (label === 'json') {
+      return new jsonWorker()
+    }
+    return new editorWorker()
+  }
+}
+
 // Import page components
 import HomePage from './pages/HomePage.vue'
 import ChatPage from './pages/ChatPage.vue'

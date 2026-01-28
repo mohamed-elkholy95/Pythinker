@@ -118,6 +118,14 @@ class ToolEvent(BaseEvent):
     completed_at: Optional[datetime] = None  # When tool execution completed
     duration_ms: Optional[float] = None  # Execution duration in milliseconds (stored as float for precision)
 
+    # Enhanced command display (Phase 3)
+    display_command: Optional[str] = None  # "Searching 'machine learning'"
+    command_category: Optional[str] = None  # "search", "browse", "file", "shell", "code"
+    command_summary: Optional[str] = None  # Short summary for UI badges
+
+    # Screenshot association (Phase 2)
+    screenshot_id: Optional[str] = None  # Link to screenshot if captured
+
 class TitleEvent(BaseEvent):
     """Title event"""
     type: Literal["title"] = "title"
@@ -246,6 +254,52 @@ class PathEvent(BaseEvent):
     description: Optional[str] = None
 
 
+class MultiTaskEvent(BaseEvent):
+    """Multi-task challenge progress event"""
+    type: Literal["multi_task"] = "multi_task"
+    challenge_id: str
+    action: str  # "started", "task_switching", "task_completed", "challenge_completed"
+    current_task_index: int
+    total_tasks: int
+    current_task: Optional[str] = None  # Task description
+    progress_percentage: float = 0.0
+    elapsed_time_seconds: Optional[float] = None
+
+
+class WorkspaceEvent(BaseEvent):
+    """Workspace structure and organization event"""
+    type: Literal["workspace"] = "workspace"
+    action: str  # "initialized", "organized", "validated", "deliverable_added"
+    workspace_type: Optional[str] = None  # "research", "code_project", "data_analysis"
+    structure: Optional[Dict[str, str]] = None  # folder_name -> purpose
+    files_organized: int = 0
+    deliverables_count: int = 0
+    manifest_path: Optional[str] = None
+
+
+class ScreenshotEvent(BaseEvent):
+    """Screenshot capture event"""
+    type: Literal["screenshot"] = "screenshot"
+    screenshot_id: str
+    action: str  # "captured", "annotated", "thumbnail_generated"
+    capture_reason: str  # "step_start", "step_complete", "error", "verification"
+    tool_name: Optional[str] = None
+    thumbnail_url: Optional[str] = None  # GridFS URL or base64
+    full_image_url: Optional[str] = None
+
+
+class BudgetEvent(BaseEvent):
+    """Budget threshold and exhaustion events"""
+    type: Literal["budget"] = "budget"
+    action: str  # "warning", "exhausted", "resumed"
+    budget_limit: float  # USD
+    consumed: float  # USD
+    remaining: float  # USD
+    percentage_used: float
+    warning_threshold: float = 0.8
+    session_paused: bool = False
+
+
 AgentEvent = Union[
     ErrorEvent,
     PlanEvent,
@@ -266,4 +320,8 @@ AgentEvent = Union[
     VerificationEvent,
     ReflectionEvent,
     PathEvent,
+    MultiTaskEvent,
+    WorkspaceEvent,
+    ScreenshotEvent,
+    BudgetEvent,
 ]

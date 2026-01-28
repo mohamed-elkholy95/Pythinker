@@ -435,7 +435,7 @@ const shouldUseTextOnly = computed(() => {
 });
 
 const vncEnabled = computed(() => {
-  return !!props.sessionId && !showVncPlaceholder;
+  return !!props.sessionId && !showVncPlaceholder.value;
 });
 
 // ============ Terminal Content ============

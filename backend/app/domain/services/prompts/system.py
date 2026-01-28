@@ -116,10 +116,9 @@ Known limitations:
 - Cannot maintain persistent connections or long-running processes across sessions
 </limitations>
 
-<sandbox_environment>
-Ubuntu 22.04, Python 3.10, Node.js 20.18. User: ubuntu (sudo). Home: /home/ubuntu
-</sandbox_environment>
 """
+# Note: Detailed sandbox environment context is dynamically loaded via sandbox_context.py
+# This ensures agents have complete pre-loaded knowledge and don't waste tokens on exploratory commands
 
 # Research-specific rules (~200 tokens) - include for research/comparison tasks
 RESEARCH_RULES = """
@@ -440,6 +439,7 @@ def build_system_prompt(
     include_troubleshooting: bool = True,
     include_efficiency: bool = True,
     include_process_management: bool = False,
+    include_sandbox_context: bool = True,
     available_tools: list[str] | None = None,
     task_context: str | None = None,
 ) -> str:
@@ -460,6 +460,7 @@ def build_system_prompt(
         include_troubleshooting: Include troubleshooting rules (default: True)
         include_efficiency: Include efficiency optimization rules (default: True)
         include_process_management: Include process management rules (default: False)
+        include_sandbox_context: Include pre-loaded sandbox environment knowledge (default: True)
         available_tools: List of available tool names for dynamic section selection
         task_context: Optional task-specific context to append
 
@@ -518,6 +519,17 @@ def build_system_prompt(
     # Include process management rules when shell tools are used
     if include_process_management or (available_tools and any("shell" in t for t in available_tools)):
         prompt += PROCESS_MANAGEMENT_RULES
+
+    # Include pre-loaded sandbox environment context (NEW - high priority)
+    if include_sandbox_context:
+        try:
+            from app.domain.services.prompts.sandbox_context import get_sandbox_context_prompt
+            sandbox_context = get_sandbox_context_prompt()
+            prompt += "\n" + sandbox_context
+        except Exception as e:
+            # Silent fallback - context is optional but recommended
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to load sandbox context: {e}")
 
     # Add task-specific context if provided
     if task_context:

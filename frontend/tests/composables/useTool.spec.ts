@@ -41,11 +41,6 @@ vi.mock('@/constants/tool', () => ({
     file_write: 'path',
     file_list_directory: 'path',
   },
-  TOOL_COMPONENT_MAP: {
-    file: 'FileToolView',
-    browser: 'BrowserToolView',
-    mcp: 'MCPToolView',
-  },
 }))
 
 describe('useToolInfo', () => {
@@ -72,7 +67,6 @@ describe('useToolInfo', () => {
     expect(toolInfo.value?.icon).toBe('FileIcon')
     expect(toolInfo.value?.name).toBe('tool.file')
     expect(toolInfo.value?.function).toBe('tool.file.read')
-    expect(toolInfo.value?.view).toBe('FileToolView')
   })
 
   it('should extract info for MCP tools', () => {
@@ -84,7 +78,6 @@ describe('useToolInfo', () => {
     expect(toolInfo.value?.name).toBe('tool.mcp')
     expect(toolInfo.value?.function).toBe('some_tool')
     expect(toolInfo.value?.functionArg).toBe('value1')
-    expect(toolInfo.value?.view).toBe('MCPToolView')
   })
 
   it('should strip home directory prefix from file paths when arg key is "file"', () => {

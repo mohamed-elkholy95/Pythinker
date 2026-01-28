@@ -95,6 +95,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
 
+# Import complexity assessor for dynamic iteration limits (Phase 3)
+from app.domain.services.agents.complexity_assessor import ComplexityAssessor
+
 logger = logging.getLogger(__name__)
 
 class PlanActFlow(BaseFlow):
@@ -732,6 +735,36 @@ class PlanActFlow(BaseFlow):
         session = await self._session_repository.find_by_id(self._session_id)
         if not session:
             raise ValueError(f"Session {self._session_id} not found")
+
+        # Assess task complexity and set dynamic iteration limits (Phase 3)
+        if session.complexity_score is None and session.status == SessionStatus.PENDING:
+            assessor = ComplexityAssessor()
+            assessment = assessor.assess_task_complexity(
+                task_description=message.message,
+                is_multi_task=session.multi_task_challenge is not None
+            )
+
+            # Store complexity score and iteration limit in session
+            session.complexity_score = assessment.score
+            session.iteration_limit_override = assessment.recommended_iterations
+
+            # Apply iteration limit to executor
+            self.executor.max_iterations = assessment.recommended_iterations
+
+            logger.info(
+                f"Task complexity: {assessment.category} ({assessment.score:.2f}), "
+                f"setting iteration limit to {assessment.recommended_iterations}"
+            )
+
+            # Update session with complexity info
+            await self._session_repository.update_by_id(
+                self._session_id,
+                {"complexity_score": assessment.score, "iteration_limit_override": assessment.recommended_iterations}
+            )
+        elif session.iteration_limit_override:
+            # Reuse existing iteration limit override
+            self.executor.max_iterations = session.iteration_limit_override
+            logger.debug(f"Applying existing iteration limit: {session.iteration_limit_override}")
 
         if session.status != SessionStatus.PENDING:
             logger.debug(f"Session {self._session_id} is not in PENDING status, rolling back")

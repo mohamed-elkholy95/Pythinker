@@ -321,8 +321,7 @@ watch(
 }
 
 /* Dark Mode */
-:root.dark,
-.dark {
+:global(.dark) .thinking-block {
   --border-color: rgba(71, 85, 105, 0.4);
   --accent-glow: rgba(129, 140, 248, 0.2);
   --indicator-bg: rgba(129, 140, 248, 0.15);
@@ -332,7 +331,7 @@ watch(
   --dot-color: #a5b4fc;
   --text-container-bg: rgba(30, 41, 59, 0.6);
   --text-container-border: rgba(71, 85, 105, 0.5);
-  --text-color: #cbd5e1;
+  --text-color: #e2e8f0;
   --cursor-color: #a5b4fc;
   --cursor-glow: rgba(165, 180, 252, 0.4);
   --scrollbar-thumb: rgba(100, 116, 139, 0.4);

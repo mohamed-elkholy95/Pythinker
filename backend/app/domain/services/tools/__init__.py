@@ -9,6 +9,7 @@ from app.domain.services.tools.idle import IdleTool
 from app.domain.services.tools.code_executor import CodeExecutorTool
 from app.domain.services.tools.playwright_tool import PlaywrightTool
 from app.domain.services.tools.deep_scan_analyzer import DeepScanAnalyzerTool
+from app.domain.services.tools.command_formatter import CommandFormatter
 
 __all__ = [
     'BaseTool',
@@ -22,4 +23,5 @@ __all__ = [
     'CodeExecutorTool',
     'PlaywrightTool',
     'DeepScanAnalyzerTool',
+    'CommandFormatter',
 ]

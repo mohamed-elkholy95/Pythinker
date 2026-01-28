@@ -235,3 +235,82 @@ export async function getSharedSessionFiles(sessionId: string): Promise<FileInfo
   const response = await apiClient.get<ApiResponse<FileInfo[]>>(`/sessions/${sessionId}/share/files`);
   return response.data.data;
 }
+
+// ============================================================================
+// Workspace API
+// ============================================================================
+
+/**
+ * Workspace template interface
+ */
+export interface WorkspaceTemplate {
+  name: string;
+  description: string;
+  folders: Record<string, string>;
+  trigger_keywords: string[];
+}
+
+/**
+ * Workspace template list response
+ */
+export interface WorkspaceTemplateListResponse {
+  templates: WorkspaceTemplate[];
+}
+
+/**
+ * Session workspace response
+ */
+export interface SessionWorkspaceResponse {
+  session_id: string;
+  workspace_structure: Record<string, string> | null;
+  workspace_root: string | null;
+}
+
+/**
+ * Get all available workspace templates
+ * @returns List of workspace templates
+ *
+ * @example
+ * ```typescript
+ * const templates = await getWorkspaceTemplates();
+ * console.log(templates.templates); // Array of templates
+ * ```
+ */
+export async function getWorkspaceTemplates(): Promise<WorkspaceTemplateListResponse> {
+  const response = await apiClient.get<ApiResponse<WorkspaceTemplateListResponse>>('/workspace/templates');
+  return response.data.data;
+}
+
+/**
+ * Get a specific workspace template by name
+ * @param templateName - Name of the template (e.g., 'research', 'data_analysis')
+ * @returns Workspace template details
+ *
+ * @example
+ * ```typescript
+ * const template = await getWorkspaceTemplate('research');
+ * console.log(template.folders); // { inputs: "...", research: "..." }
+ * ```
+ */
+export async function getWorkspaceTemplate(templateName: string): Promise<WorkspaceTemplate> {
+  const response = await apiClient.get<ApiResponse<WorkspaceTemplate>>(`/workspace/templates/${templateName}`);
+  return response.data.data;
+}
+
+/**
+ * Get workspace structure for a session
+ * @param sessionId - Session ID
+ * @returns Session workspace structure
+ *
+ * @example
+ * ```typescript
+ * const workspace = await getSessionWorkspace('session123');
+ * if (workspace.workspace_structure) {
+ *   console.log('Workspace folders:', workspace.workspace_structure);
+ * }
+ * ```
+ */
+export async function getSessionWorkspace(sessionId: string): Promise<SessionWorkspaceResponse> {
+  const response = await apiClient.get<ApiResponse<SessionWorkspaceResponse>>(`/workspace/sessions/${sessionId}`);
+  return response.data.data;
+}

@@ -484,18 +484,18 @@ const isComputerTool = (tool?: ToolContent | null) => {
   return COMPUTER_TOOLS.includes(tool.name);
 };
 
-// Check if current tool is a computer tool and panel is closed
+// Always show thumbnail when panel is closed and there's activity
 const shouldShowThumbnail = computed(() => {
-  if (!lastNoMessageTool.value) return false;
   if (isToolPanelOpen.value) return false;
-  if (!COMPUTER_TOOLS.includes(lastNoMessageTool.value.name)) return false;
-  return isLoading.value || isPlanCompleted.value;
+  if (!sessionId.value) return false;
+  // Show thumbnail when there's an active plan or loading
+  return !!plan.value?.steps?.length || isLoading.value || isPlanCompleted.value;
 });
 
 const shouldShowPanelThumbnail = computed(() => {
-  if (!lastNoMessageTool.value) return false;
-  if (!COMPUTER_TOOLS.includes(lastNoMessageTool.value.name)) return false;
-  return isLoading.value || isPlanCompleted.value;
+  if (!sessionId.value) return false;
+  // Show thumbnail when there's an active plan or loading
+  return !!plan.value?.steps?.length || isLoading.value || isPlanCompleted.value;
 });
 
 const isPlanCompleted = computed(() => {
@@ -503,10 +503,7 @@ const isPlanCompleted = computed(() => {
 });
 
 const shouldEnableVnc = computed(() => {
-  const tool = lastNoMessageTool.value;
-  if (!tool) return false;
-  // Enable VNC for all computer tools (browser, shell, file, code_executor)
-  if (!COMPUTER_TOOLS.includes(tool.name)) return false;
+  // Always enable VNC when there's an active session to show Pythinker's PC
   return !!sessionId.value;
 });
 

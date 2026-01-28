@@ -1,11 +1,12 @@
 from pydantic import BaseModel, Field
 from datetime import datetime, UTC
-from typing import List, Optional
+from typing import List, Optional, Dict
 from enum import Enum
 import uuid
 from app.domain.models.event import PlanEvent, AgentEvent
 from app.domain.models.plan import Plan
 from app.domain.models.file import FileInfo
+from app.domain.models.multi_task import MultiTaskChallenge
 
 
 class SessionStatus(str, Enum):
@@ -56,6 +57,19 @@ class Session(BaseModel):
     env_var_keys: Optional[List[str]] = None
     secret_keys: Optional[List[str]] = None
     git_remote: Optional[dict] = None
+
+    # Multi-task challenge tracking (Phase 1)
+    multi_task_challenge: Optional[MultiTaskChallenge] = None
+    workspace_structure: Optional[Dict[str, str]] = None  # folder -> purpose
+
+    # Budget tracking (leverages existing usage system)
+    budget_limit: Optional[float] = None  # USD limit
+    budget_warning_threshold: float = 0.8  # Warn at 80%
+    budget_paused: bool = False  # Session paused due to budget
+
+    # Execution metadata
+    iteration_limit_override: Optional[int] = None  # Override default iterations
+    complexity_score: Optional[float] = None  # Assessed task complexity (0.0-1.0)
 
     def get_last_plan(self) -> Optional[Plan]:
         """Get the last plan from the events"""

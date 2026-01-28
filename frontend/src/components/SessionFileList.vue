@@ -36,7 +36,7 @@
                             'px-4 py-2 rounded-full text-sm font-medium transition-colors',
                             activeFilter === tab.id
                                 ? 'bg-[var(--Button-primary-black)] text-white'
-                                : 'bg-[var(--fill-tsp-white-main)] text-[var(--text-secondary)] hover:bg-[var(--fill-tsp-white-dark)] border border-[var(--border-main)]'
+                                : 'bg-[var(--fill-tsp-white-main)] text-[var(--text-secondary)] hover:bg-[var(--fill-tsp-white-dark)] dark:hover:text-white border border-[var(--border-main)]'
                         ]"
                     >
                         {{ tab.label }}

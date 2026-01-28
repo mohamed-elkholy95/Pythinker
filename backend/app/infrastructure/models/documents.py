@@ -9,6 +9,7 @@ from app.domain.models.session import Session, SessionStatus, AgentMode
 from app.domain.models.file import FileInfo
 from app.domain.models.user import User, UserRole
 from app.domain.models.usage import UsageRecord, DailyUsageAggregate, UsageType
+from app.domain.models.multi_task import MultiTaskChallenge
 from pymongo import IndexModel, ASCENDING, DESCENDING
 
 T = TypeVar('T', bound=BaseModel)
@@ -115,6 +116,19 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
     env_var_keys: Optional[List[str]] = None
     secret_keys: Optional[List[str]] = None
     git_remote: Optional[Dict[str, Any]] = None
+
+    # Multi-task challenge tracking (Phase 1)
+    multi_task_challenge: Optional[MultiTaskChallenge] = None
+    workspace_structure: Optional[Dict[str, str]] = None  # folder -> purpose
+
+    # Budget tracking (leverages existing usage system)
+    budget_limit: Optional[float] = None  # USD limit
+    budget_warning_threshold: float = 0.8  # Warn at 80%
+    budget_paused: bool = False  # Session paused due to budget
+
+    # Execution metadata
+    iteration_limit_override: Optional[int] = None  # Override default iterations
+    complexity_score: Optional[float] = None  # Assessed task complexity (0.0-1.0)
 
     # Timeline tracking
     event_count: int = 0  # Total number of events for efficient queries

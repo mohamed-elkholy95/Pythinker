@@ -42,6 +42,7 @@ from app.domain.services.tools.message import MessageTool
 from app.domain.utils.json_parser import JsonParser
 from app.domain.services.agents.prompt_adapter import PromptAdapter
 from app.domain.services.agents.critic import CriticAgent, CriticVerdict, CriticConfig
+from app.domain.services.agents.context_manager import ContextManager
 import logging
 
 if TYPE_CHECKING:
@@ -95,6 +96,9 @@ class ExecutionAgent(BaseAgent):
         # Memory service for long-term context (Phase 6: Qdrant integration)
         self._memory_service = memory_service
         self._user_id = user_id
+
+        # Context manager for execution continuity (Phase 1)
+        self._context_manager = ContextManager(max_context_tokens=8000)
     
     async def execute_step(self, plan: Plan, step: Step, message: Message) -> AsyncGenerator[BaseEvent, None]:
         # Store user request for critic context
@@ -142,6 +146,9 @@ class ExecutionAgent(BaseAgent):
         except Exception as e:
             logger.warning(f"Failed to get error pattern signals: {e}")
 
+        # Get working context summary for execution continuity (Phase 1)
+        context_summary = self._context_manager.get_context_summary()
+
         # Build execution prompt with context signals
         base_prompt = build_execution_prompt(
             step=step.description,
@@ -152,6 +159,11 @@ class ExecutionAgent(BaseAgent):
             task_state=task_state_signal,
             memory_context=memory_context
         )
+
+        # Add working context if available
+        if context_summary:
+            base_prompt = f"{base_prompt}\n\n## Working Context\n{context_summary}"
+            logger.debug("Injected working context into execution prompt")
 
         # Add proactive error warnings if any
         if error_pattern_signal:
@@ -190,6 +202,33 @@ class ExecutionAgent(BaseAgent):
                     success = event.function_result.success if event.function_result else True
                     error = event.function_result.message if event.function_result and not success else None
                     self._prompt_adapter.track_tool_use(event.function_name, success=success, error=error)
+
+                    # Track in context manager (Phase 1)
+                    if success and event.function_result:
+                        # Track file operations
+                        if event.function_name in ["file_write", "file_create"]:
+                            file_path = event.function_args.get("path", "")
+                            if file_path:
+                                self._context_manager.track_file_operation(
+                                    path=file_path,
+                                    operation="created",
+                                    content_summary=f"Created via {event.function_name}",
+                                )
+                        elif event.function_name == "file_read":
+                            file_path = event.function_args.get("path", "")
+                            if file_path:
+                                self._context_manager.track_file_operation(
+                                    path=file_path,
+                                    operation="read",
+                                )
+
+                        # Track tool executions for non-file operations
+                        if not event.function_name.startswith("file_"):
+                            result_summary = str(event.function_result.message)[:200] if hasattr(event.function_result, 'message') else "Success"
+                            self._context_manager.track_tool_execution(
+                                tool_name=event.tool_name,
+                                summary=result_summary,
+                            )
 
                 if event.function_name == "message_ask_user":
                     if event.status == ToolStatus.CALLING:
@@ -454,3 +493,34 @@ class ExecutionAgent(BaseAgent):
             return True
 
         return False
+
+    # Context Manager Integration (Phase 1)
+    def get_context_manager(self) -> ContextManager:
+        """Get the context manager for this execution agent.
+
+        Returns:
+            ContextManager instance tracking execution context
+        """
+        return self._context_manager
+
+    def mark_deliverable(self, file_path: str) -> None:
+        """Mark a file as a deliverable.
+
+        Args:
+            file_path: Path to the deliverable file
+        """
+        self._context_manager.mark_deliverable_complete(file_path)
+        logger.info(f"Marked deliverable: {file_path}")
+
+    def get_deliverables(self) -> List[str]:
+        """Get list of completed deliverables.
+
+        Returns:
+            List of deliverable file paths
+        """
+        return self._context_manager.get_deliverables()
+
+    def clear_context(self) -> None:
+        """Clear execution context (use between tasks)."""
+        self._context_manager.clear()
+        logger.debug("Cleared execution context")
