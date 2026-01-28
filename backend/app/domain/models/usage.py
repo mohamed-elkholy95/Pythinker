@@ -72,6 +72,51 @@ class SessionUsage(BaseModel):
     last_activity: Optional[datetime] = None
 
 
+class SessionMetrics(BaseModel):
+    """Enhanced session metrics for monitoring dashboard.
+
+    Aggregates performance and activity metrics beyond just token usage.
+    """
+    session_id: str
+    user_id: str
+
+    # Time metrics
+    duration_seconds: Optional[float] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+    # Task metrics
+    tasks_completed: int = 0
+    tasks_failed: int = 0
+    steps_executed: int = 0
+
+    # Tool usage
+    tool_usage_stats: Dict[str, int] = {}  # tool_name -> count
+    avg_step_duration_seconds: float = 0.0
+
+    # Performance metrics
+    total_tokens_used: int = 0
+    error_count: int = 0
+    warning_count: int = 0
+    reflection_count: int = 0
+    verification_count: int = 0
+
+    # Budget tracking (references UsageRecord)
+    budget_limit: Optional[float] = None
+    budget_consumed: float = 0.0
+    budget_warnings_triggered: int = 0
+
+    # Screenshot metrics
+    screenshots_captured: int = 0
+
+    # Deliverables
+    files_created: int = 0
+    files_modified: int = 0
+
+    # Updated timestamp
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class DailyUsageAggregate(BaseModel):
     """Daily usage rollup per user.
 

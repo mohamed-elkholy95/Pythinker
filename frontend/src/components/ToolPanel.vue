@@ -7,7 +7,7 @@
       'h-full overflow-hidden': !isShow
     }"
     :style="{ 'width': isShow ? `${parentSize/2}px` : '0px', 'opacity': isShow ? '1' : '0', 'transition': '0.2s ease-in-out' }">
-    <div class="h-full flex flex-col relative" :style="{ 'width': isShow ? '100%' : '0px' }">
+    <div class="h-full flex flex-col" :style="{ 'width': isShow ? '100%' : '0px' }">
       <ToolPanelContent
         v-if="isShow && toolContent"
         :sessionId="sessionId"
@@ -27,10 +27,10 @@
         @seekByProgress="handleTimelineSeek"
         class="flex-1 min-h-0"
       />
-      <!-- Task Progress Bar - overlay when ToolPanel is open -->
+      <!-- Task Progress Bar - positioned below timeline controls -->
       <div
         v-if="isShow && plan && plan.steps.length > 0"
-        class="absolute inset-x-0 bottom-[72px] px-3 pointer-events-none"
+        class="border-t border-black/8 dark:border-[var(--border-main)] bg-[var(--background-white-main)]"
       >
         <TaskProgressBar
           :plan="plan"
@@ -45,7 +45,6 @@
           :toolContent="toolContent"
           :sessionId="sessionId"
           :liveVnc="liveVnc"
-          class="pointer-events-auto"
         />
       </div>
     </div>

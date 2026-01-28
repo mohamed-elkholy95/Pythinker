@@ -27,13 +27,39 @@ class DockerSandbox(Sandbox):
         """Initialize Docker sandbox and API interaction client"""
         settings = get_settings()
         self.client = httpx.AsyncClient(timeout=600)
-        self.ip = ip or settings.sandbox_address or "localhost"
+        # Resolve hostname to IP if needed (Chrome CDP requires IP, not hostname)
+        raw_address = ip or settings.sandbox_address or "localhost"
+        self.ip = self._resolve_to_ip(raw_address)
         self.base_url = f"http://{self.ip}:8080"
         self._vnc_url = f"ws://{self.ip}:5901"
         self._cdp_url = f"http://{self.ip}:9222"
         self._code_server_url = f"http://{self.ip}:8081"
         self._framework_url = f"http://{self.ip}:{settings.sandbox_framework_port}"
         self._container_name = container_name
+
+    @staticmethod
+    def _resolve_to_ip(address: str) -> str:
+        """Resolve hostname to IP address synchronously
+
+        Args:
+            address: Hostname or IP address
+
+        Returns:
+            IP address
+        """
+        try:
+            # Check if already an IP address
+            socket.inet_pton(socket.AF_INET, address)
+            return address
+        except OSError:
+            pass
+
+        try:
+            # Resolve hostname to IP
+            return socket.gethostbyname(address)
+        except Exception as e:
+            logger.warning(f"Failed to resolve {address}, using as-is: {e}")
+            return address
     
     @property
     def id(self) -> str:

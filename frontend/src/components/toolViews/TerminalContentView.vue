@@ -34,7 +34,7 @@ const emit = defineEmits<{
 
 const terminalRef = ref<HTMLElement>();
 const terminal = ref<Terminal | null>(null);
-const fitAddon = new FitAddon();
+const fitAddon = ref<FitAddon | null>(null);
 const lastContent = ref('');
 let resizeObserver: ResizeObserver | null = null;
 
@@ -89,6 +89,10 @@ const writeContent = async (nextContent: string) => {
 
 onMounted(() => {
   if (!terminalRef.value) return;
+
+  // Initialize FitAddon
+  fitAddon.value = new FitAddon();
+
   terminal.value = new Terminal({
     disableStdin: true,
     convertEol: true,
@@ -100,21 +104,48 @@ onMounted(() => {
       foreground: '#e5e7eb',
     },
   });
-  terminal.value.loadAddon(fitAddon);
+  terminal.value.loadAddon(fitAddon.value);
   terminal.value.open(terminalRef.value);
-  fitAddon.fit();
+  fitAddon.value.fit();
   writeContent(props.content || '');
 
   resizeObserver = new ResizeObserver(() => {
-    requestAnimationFrame(() => fitAddon.fit());
+    requestAnimationFrame(() => {
+      if (fitAddon.value) {
+        fitAddon.value.fit();
+      }
+    });
   });
   resizeObserver.observe(terminalRef.value);
 });
 
 onUnmounted(() => {
-  resizeObserver?.disconnect();
-  terminal.value?.dispose();
-  terminal.value = null;
+  // Disconnect resize observer
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+    resizeObserver = null;
+  }
+
+  // Safely dispose FitAddon
+  if (fitAddon.value) {
+    try {
+      fitAddon.value.dispose();
+    } catch (e) {
+      // Addon already disposed or not properly loaded
+      console.debug('FitAddon disposal skipped:', e);
+    }
+    fitAddon.value = null;
+  }
+
+  // Dispose terminal
+  if (terminal.value) {
+    try {
+      terminal.value.dispose();
+    } catch (e) {
+      console.debug('Terminal disposal error:', e);
+    }
+    terminal.value = null;
+  }
 });
 
 watch(

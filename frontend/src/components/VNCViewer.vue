@@ -80,10 +80,22 @@ const initVNCConnection = async () => {
   try {
     const wsUrl = await getVNCUrl(props.sessionId);
     lastSessionId = props.sessionId;
+    console.log('[VNC] Attempting to connect to:', wsUrl);
 
-    // Dynamically import RFB to avoid top-level await issues
-    // @ts-expect-error - NoVNC doesn't have TypeScript definitions
-    const { default: RFB } = await import('@novnc/novnc/lib/rfb');
+    // Dynamically import RFB with proper error handling
+    let RFB;
+    try {
+      // Try default export first (ESM)
+      const module = await import('@novnc/novnc/lib/rfb.js');
+      RFB = module.default || module.RFB || module;
+    } catch (importError) {
+      console.error('Failed to import noVNC RFB module:', importError);
+      throw new Error('noVNC library not available. Please check build configuration.');
+    }
+
+    if (!RFB || typeof RFB !== 'function') {
+      throw new Error('noVNC RFB constructor not found');
+    }
 
     // Create NoVNC connection
     rfb = new RFB(vncContainer.value, wsUrl, {
@@ -133,9 +145,19 @@ const initVNCConnection = async () => {
 const scheduleReconnect = () => {
   if (!props.enabled || suspendForTakeover.value || isConnecting.value) return;
   if (reconnectTimer) return;
+
+  // Stop after 10 failed attempts to prevent infinite loop
   const attempt = reconnectAttempts.value + 1;
+  if (attempt > 10) {
+    console.warn('VNC connection failed after 10 attempts, stopping reconnection');
+    isConnecting.value = false;
+    return;
+  }
+
   reconnectAttempts.value = attempt;
   const delay = Math.min(1000 * attempt, 5000);
+  console.log(`Scheduling VNC reconnect attempt ${attempt} in ${delay}ms`);
+
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
     initVNCConnection();

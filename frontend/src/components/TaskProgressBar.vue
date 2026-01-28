@@ -5,7 +5,7 @@
       <!-- Floating Terminal Thumbnail -->
       <div
         v-if="showCollapsedThumbnail"
-        class="absolute -top-14 left-3 z-[1100] flex-shrink-0 group/thumb"
+        class="absolute -top-8 left-3 z-[1100] flex-shrink-0 group/thumb"
         @mouseenter="showTooltip"
         @mouseleave="hideTooltip"
       >
@@ -43,10 +43,16 @@
           </div>
           <div
             v-else
-            class="status-dot"
-            :class="isIdle ? 'status-dot-idle' : 'status-dot-active'"
+            class="status-morph"
+            :class="[
+              isIdle ? 'status-morph-idle' : 'status-morph-active',
+              `shape-${currentShape}`
+            ]"
           ></div>
-          <span class="text-sm text-[var(--text-primary)] truncate">{{ currentTaskDescription }}</span>
+          <div class="flex flex-col flex-1 min-w-0">
+            <span class="text-sm text-[var(--text-primary)] truncate">{{ currentTaskDescription }}</span>
+            <span v-if="!isAllCompleted" class="text-xs text-[var(--text-tertiary)] mt-0.5">{{ taskTimer }}</span>
+          </div>
         </div>
 
         <!-- Progress Indicator -->
@@ -291,11 +297,24 @@ const handleResize = () => {
 }
 
 // Morphing shape animation
-const shapes = ['circle', 'diamond', 'cube'] as const
+const shapes = ['circle', 'diamond', 'cube', 'square'] as const
 type Shape = typeof shapes[number]
 const currentShapeIndex = ref(0)
 const currentShape = ref<Shape>('circle')
 let shapeIntervalId: ReturnType<typeof setInterval> | null = null
+
+// Task timer
+const taskStartTime = ref<number | null>(null)
+const taskElapsedSeconds = ref(0)
+let timerIntervalId: ReturnType<typeof setInterval> | null = null
+
+const taskTimer = computed(() => {
+  const seconds = taskElapsedSeconds.value
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  const remainingSeconds = seconds % 60
+  return `${minutes}m ${remainingSeconds}s`
+})
 
 // Check if all steps are completed
 const isAllCompleted = computed(() => {
@@ -313,17 +332,11 @@ const isIdle = computed(() => {
 
 const steps = computed(() => props.plan?.steps ?? [])
 
-const COMPUTER_TOOLS = new Set(['browser', 'shell', 'file', 'browser_agent', 'code_executor'])
-const hasComputerActivity = computed(() => {
-  const toolName = props.toolContent?.name || props.currentTool?.name || ''
-  return COMPUTER_TOOLS.has(toolName)
-})
-
 // Prioritize VNC when liveVnc is enabled (shows live sandbox activity)
+// Show VNC for all tools since everything runs in the sandbox
 const showVncPreview = computed(() => (
   !!props.sessionId &&
-  !!props.liveVnc &&
-  hasComputerActivity.value
+  !!props.liveVnc
 ))
 
 const progressText = computed(() => {
@@ -384,7 +397,7 @@ const startShapeAnimation = () => {
   shapeIntervalId = setInterval(() => {
     currentShapeIndex.value = (currentShapeIndex.value + 1) % shapes.length
     currentShape.value = shapes[currentShapeIndex.value]
-  }, 800)
+  }, 1200)
 }
 
 const stopShapeAnimation = () => {
@@ -392,20 +405,53 @@ const stopShapeAnimation = () => {
     clearInterval(shapeIntervalId)
     shapeIntervalId = null
   }
+  currentShapeIndex.value = 0
+  currentShape.value = 'circle'
 }
 
-// Start/stop shape animation based on thinking state
-watch(() => props.isThinking, (thinking) => {
-  if (thinking) {
+const startTimer = () => {
+  if (timerIntervalId) return
+  taskStartTime.value = Date.now()
+  taskElapsedSeconds.value = 0
+  timerIntervalId = setInterval(() => {
+    if (taskStartTime.value) {
+      taskElapsedSeconds.value = Math.floor((Date.now() - taskStartTime.value) / 1000)
+    }
+  }, 1000)
+}
+
+const stopTimer = () => {
+  if (timerIntervalId) {
+    clearInterval(timerIntervalId)
+    timerIntervalId = null
+  }
+  taskStartTime.value = null
+  taskElapsedSeconds.value = 0
+}
+
+// Start/stop animations based on loading/thinking state
+watch(() => props.isLoading, (loading) => {
+  if (loading && !isAllCompleted.value) {
     startShapeAnimation()
+    startTimer()
   } else {
     stopShapeAnimation()
+    stopTimer()
   }
 }, { immediate: true })
 
+// Also watch for completion
+watch(isAllCompleted, (completed) => {
+  if (completed) {
+    stopShapeAnimation()
+    stopTimer()
+  }
+})
+
 onMounted(() => {
-  if (props.isThinking) {
+  if (props.isLoading && !isAllCompleted.value) {
     startShapeAnimation()
+    startTimer()
   }
   window.addEventListener('scroll', handleScroll, true)
   window.addEventListener('resize', handleResize)
@@ -413,29 +459,61 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopShapeAnimation()
+  stopTimer()
   window.removeEventListener('scroll', handleScroll, true)
   window.removeEventListener('resize', handleResize)
 })
 </script>
 
 <style scoped>
-/* Thinking shape animation */
-.status-dot {
+/* Morphing shape animation */
+.status-morph {
   width: 14px;
   height: 14px;
-  border-radius: 999px;
-  border: 2px solid var(--text-tertiary);
   flex-shrink: 0;
+  transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
 }
 
-.status-dot-active {
-  border-color: #9c7dff;
+.status-morph-active {
+  border: 2px solid #9c7dff;
   background: rgba(156, 125, 255, 0.2);
+  animation: pulse-glow 2s ease-in-out infinite;
 }
 
-.status-dot-idle {
-  border-color: var(--text-tertiary);
+.status-morph-idle {
+  border: 2px solid var(--text-tertiary);
   background: transparent;
+}
+
+/* Shape transformations */
+.status-morph.shape-circle {
+  border-radius: 50%;
+  transform: rotate(0deg);
+}
+
+.status-morph.shape-square {
+  border-radius: 2px;
+  transform: rotate(0deg);
+}
+
+.status-morph.shape-diamond {
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
+.status-morph.shape-cube {
+  border-radius: 3px;
+  transform: rotate(90deg) scale(1.1);
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(156, 125, 255, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(156, 125, 255, 0);
+  }
 }
 
 /* Terminal cursor blink */

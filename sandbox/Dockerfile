@@ -25,8 +25,6 @@ RUN apt-get update && \
     socat \
     supervisor \
     websockify \
-    postgresql \
-    postgresql-client \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -155,9 +153,6 @@ RUN python3 -m venv /opt/base-python-venv && \
 
 # Copy remaining project files
 COPY . .
-
-# Ensure postgres entrypoint script is executable
-RUN chmod +x /app/scripts/start-postgres.sh
 
 # Configure supervisor
 COPY supervisord.conf /etc/supervisor/conf.d/app.conf

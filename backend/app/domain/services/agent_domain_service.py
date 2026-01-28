@@ -18,6 +18,7 @@ from app.domain.external.file import FileStorage
 from app.domain.models.file import FileInfo
 from app.domain.repositories.mcp_repository import MCPRepository
 from app.core.config import get_settings
+from app.domain.services.workspace import get_session_workspace_initializer
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
@@ -299,6 +300,27 @@ class AgentDomainService:
                         task = await self._create_task(session)
                         if not task:
                             raise RuntimeError("Failed to create task")
+
+                        # Initialize workspace with template selection on first message
+                        # (Phase 1: Multi-task workspace integration)
+                        try:
+                            if not session.workspace_structure and session.sandbox_id:
+                                sandbox = await self._sandbox_cls.get(session.sandbox_id)
+                                if sandbox:
+                                    initializer = get_session_workspace_initializer(self._session_repository)
+                                    workspace_structure = await initializer.initialize_workspace_if_needed(
+                                        session=session,
+                                        sandbox=sandbox,
+                                        task_description=message
+                                    )
+                                    if workspace_structure:
+                                        logger.info(
+                                            f"Initialized workspace for session {session_id}: "
+                                            f"{len(workspace_structure)} folders created"
+                                        )
+                        except Exception as e:
+                            # Non-critical - log and continue
+                            logger.warning(f"Workspace initialization error (non-fatal): {e}")
 
                     await self._session_repository.update_latest_message(session_id, message, timestamp or datetime.now())
 

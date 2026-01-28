@@ -1,5 +1,6 @@
-from motor.motor_asyncio import AsyncIOMotorClient
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
 from pymongo.errors import ConnectionFailure
+from bson import ObjectId
 from typing import Optional
 import logging
 from app.core.config import get_settings
@@ -11,6 +12,8 @@ class MongoDB:
     def __init__(self):
         self._client: Optional[AsyncIOMotorClient] = None
         self._settings = get_settings()
+        self._screenshot_bucket: Optional[AsyncIOMotorGridFSBucket] = None
+        self._artifacts_bucket: Optional[AsyncIOMotorGridFSBucket] = None
     
     async def initialize(self) -> None:
         """Initialize MongoDB connection and Beanie ODM."""
@@ -45,6 +48,12 @@ class MongoDB:
             # Verify the connection
             await self._client.admin.command('ping')
             logger.info("Successfully connected to MongoDB")
+
+            # Initialize GridFS buckets for screenshot and artifact storage (Phase 2)
+            db = self._client[self._settings.mongodb_database]
+            self._screenshot_bucket = AsyncIOMotorGridFSBucket(db, bucket_name="screenshots")
+            self._artifacts_bucket = AsyncIOMotorGridFSBucket(db, bucket_name="artifacts")
+            logger.info("Initialized GridFS buckets for screenshots and artifacts")
         except ConnectionFailure as e:
             logger.error(f"Failed to connect to MongoDB: {str(e)}")
             raise
@@ -67,6 +76,68 @@ class MongoDB:
         if self._client is None:
             raise RuntimeError("MongoDB client not initialized. Call initialize() first.")
         return self._client
+
+    @property
+    def screenshot_bucket(self) -> AsyncIOMotorGridFSBucket:
+        """Return GridFS bucket for screenshots"""
+        if self._screenshot_bucket is None:
+            raise RuntimeError("MongoDB not initialized. Call initialize() first.")
+        return self._screenshot_bucket
+
+    @property
+    def artifacts_bucket(self) -> AsyncIOMotorGridFSBucket:
+        """Return GridFS bucket for artifacts"""
+        if self._artifacts_bucket is None:
+            raise RuntimeError("MongoDB not initialized. Call initialize() first.")
+        return self._artifacts_bucket
+
+    async def store_screenshot(
+        self,
+        image_data: bytes,
+        filename: str,
+        metadata: dict,
+    ) -> str:
+        """Store screenshot in GridFS and return file ID"""
+        file_id = await self.screenshot_bucket.upload_from_stream(
+            filename,
+            image_data,
+            metadata=metadata
+        )
+        logger.debug(f"Stored screenshot: {filename} (ID: {file_id})")
+        return str(file_id)
+
+    async def get_screenshot(self, file_id: str) -> bytes:
+        """Retrieve screenshot from GridFS"""
+        grid_out = await self.screenshot_bucket.open_download_stream(
+            ObjectId(file_id)
+        )
+        image_data = await grid_out.read()
+        logger.debug(f"Retrieved screenshot: {file_id}")
+        return image_data
+
+    async def store_artifact(
+        self,
+        file_data: bytes,
+        filename: str,
+        metadata: dict,
+    ) -> str:
+        """Store artifact in GridFS and return file ID"""
+        file_id = await self.artifacts_bucket.upload_from_stream(
+            filename,
+            file_data,
+            metadata=metadata
+        )
+        logger.debug(f"Stored artifact: {filename} (ID: {file_id})")
+        return str(file_id)
+
+    async def get_artifact(self, file_id: str) -> bytes:
+        """Retrieve artifact from GridFS"""
+        grid_out = await self.artifacts_bucket.open_download_stream(
+            ObjectId(file_id)
+        )
+        file_data = await grid_out.read()
+        logger.debug(f"Retrieved artifact: {file_id}")
+        return file_data
 
 
 @lru_cache()

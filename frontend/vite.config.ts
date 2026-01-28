@@ -18,7 +18,10 @@ export default defineConfig({
     include: ['monaco-editor'],
     exclude: ['@novnc/novnc'],
     esbuildOptions: {
-      target: 'esnext'
+      target: 'esnext',
+      supported: {
+        'top-level-await': true
+      }
     }
   },
   server: {

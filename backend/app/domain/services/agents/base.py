@@ -30,6 +30,7 @@ from app.domain.services.tools.dynamic_toolset import (
     get_toolset_manager,
     ToolsetConfig
 )
+from app.domain.services.tools.command_formatter import CommandFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +197,53 @@ class BaseAgent(ABC):
             manager.record_tool_usage(tool_name, success, duration_ms)
         except Exception:
             pass  # Non-critical, don't fail on recording errors
+
+    def _create_tool_event(
+        self,
+        tool_call_id: str,
+        tool_name: str,
+        function_name: str,
+        function_args: Dict[str, Any],
+        status: ToolStatus,
+        **kwargs
+    ) -> ToolEvent:
+        """Create ToolEvent with command formatting applied.
+
+        Args:
+            tool_call_id: Unique ID for this tool call
+            tool_name: Name of the tool
+            function_name: Function being called
+            function_args: Function arguments
+            status: Tool execution status
+            **kwargs: Additional fields for ToolEvent
+
+        Returns:
+            ToolEvent with display_command, command_category, and command_summary populated
+        """
+        # Format command for human-readable display
+        try:
+            display_command, command_category, command_summary = CommandFormatter.format_tool_call(
+                tool_name=tool_name,
+                function_name=function_name,
+                function_args=function_args,
+            )
+        except Exception as e:
+            logger.debug(f"Failed to format command: {e}")
+            display_command = f"{function_name}(...)"
+            command_category = "other"
+            command_summary = function_name
+
+        return ToolEvent(
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            function_name=function_name,
+            function_args=function_args,
+            status=status,
+            display_command=display_command,
+            command_category=command_category,
+            command_summary=command_summary,
+            **kwargs
+        )
 
     async def invoke_tool(
         self,
@@ -437,12 +485,12 @@ class BaseAgent(ABC):
                     )
 
                     if security_assessment.requires_confirmation:
-                        yield ToolEvent(
-                            status=ToolStatus.CALLING,
+                        yield self._create_tool_event(
                             tool_call_id=tool_call_id,
                             tool_name=tool.name,
                             function_name=function_name,
                             function_args=function_args,
+                            status=ToolStatus.CALLING,
                             security_risk=security_assessment.risk_level.value,
                             security_reason=security_assessment.reason,
                             security_suggestions=security_assessment.suggestions,
@@ -452,12 +500,12 @@ class BaseAgent(ABC):
                         return
 
                     # Emit CALLING events for all parallel tools
-                    yield ToolEvent(
-                        status=ToolStatus.CALLING,
+                    yield self._create_tool_event(
                         tool_call_id=tool_call_id,
                         tool_name=tool.name,
                         function_name=function_name,
                         function_args=function_args,
+                        status=ToolStatus.CALLING,
                         security_risk=security_assessment.risk_level.value,
                         security_reason=security_assessment.reason,
                         security_suggestions=security_assessment.suggestions,
@@ -493,12 +541,12 @@ class BaseAgent(ABC):
                     if isinstance(result, Exception):
                         result = ToolResult(success=False, message=str(result))
 
-                    yield ToolEvent(
-                        status=ToolStatus.CALLED,
+                    yield self._create_tool_event(
                         tool_call_id=tool_call_id,
                         tool_name=tool.name,
                         function_name=function_name,
                         function_args=function_args,
+                        status=ToolStatus.CALLED,
                         function_result=result,
                         security_risk=security_assessment.risk_level.value,
                         security_reason=security_assessment.reason,
@@ -538,12 +586,12 @@ class BaseAgent(ABC):
                         else None
                     )
                     if security_assessment.requires_confirmation:
-                        yield ToolEvent(
-                            status=ToolStatus.CALLING,
+                        yield self._create_tool_event(
                             tool_call_id=tool_call_id,
                             tool_name=tool.name,
                             function_name=function_name,
                             function_args=function_args,
+                            status=ToolStatus.CALLING,
                             security_risk=security_assessment.risk_level.value,
                             security_reason=security_assessment.reason,
                             security_suggestions=security_assessment.suggestions,
@@ -551,12 +599,12 @@ class BaseAgent(ABC):
                         )
                         yield WaitEvent()
                         return
-                    yield ToolEvent(
-                        status=ToolStatus.CALLING,
+                    yield self._create_tool_event(
                         tool_call_id=tool_call_id,
                         tool_name=tool.name,
                         function_name=function_name,
                         function_args=function_args,
+                        status=ToolStatus.CALLING,
                         security_risk=security_assessment.risk_level.value,
                         security_reason=security_assessment.reason,
                         security_suggestions=security_assessment.suggestions,
@@ -575,12 +623,12 @@ class BaseAgent(ABC):
                     )
 
                     # Generate event after tool call
-                    yield ToolEvent(
-                        status=ToolStatus.CALLED,
+                    yield self._create_tool_event(
                         tool_call_id=tool_call_id,
                         tool_name=tool.name,
                         function_name=function_name,
                         function_args=function_args,
+                        status=ToolStatus.CALLED,
                         function_result=result,
                         security_risk=security_assessment.risk_level.value,
                         security_reason=security_assessment.reason,

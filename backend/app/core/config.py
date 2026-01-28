@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     redis_password: str | None = None
     # Redis connection pooling and timeouts
     redis_max_connections: int = 50  # Max connections in pool
-    redis_socket_timeout: float = 5.0  # 5s socket timeout
+    redis_socket_timeout: float = 30.0  # 30s socket timeout for long-running operations like xread
     redis_socket_connect_timeout: float = 5.0  # 5s connection timeout
     redis_health_check_interval: int = 30  # 30s health check interval
     redis_retry_on_timeout: bool = True  # Retry on timeout
