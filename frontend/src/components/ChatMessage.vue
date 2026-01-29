@@ -75,7 +75,7 @@
       </div>
     </div>
   </div>
-  <AttachmentsMessage v-else-if="message.type === 'attachments'" :content="attachmentsContent"/>
+  <AttachmentsMessage v-else-if="message.type === 'attachments'" :content="attachmentsContent" @fileClick="handleReportFileOpen"/>
   <div v-else-if="message.type === 'report'" class="flex flex-col w-full mt-3">
     <!-- Main Report Card -->
     <ReportCard

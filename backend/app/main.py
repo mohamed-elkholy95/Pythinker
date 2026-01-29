@@ -9,6 +9,7 @@ import uuid
 from typing import Callable
 
 from app.core.config import get_settings
+from app.core.sandbox_pool import start_sandbox_pool, stop_sandbox_pool
 from app.infrastructure.storage.mongodb import get_mongodb
 from app.infrastructure.storage.redis import get_redis
 from app.infrastructure.storage.qdrant import get_qdrant
@@ -259,6 +260,7 @@ _health_state = {
     "mongodb": False,
     "redis": False,
     "qdrant": False,
+    "sandbox_pool": False,
     "ready": False,
 }
 
@@ -312,6 +314,19 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Qdrant initialization failed (graceful degradation): {e}")
             _health_state["qdrant"] = False
 
+        # Initialize Sandbox Pool (Phase 3: Pre-warming) if enabled
+        if settings.sandbox_pool_enabled:
+            try:
+                from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
+                await start_sandbox_pool(DockerSandbox)
+                _health_state["sandbox_pool"] = True
+                logger.info("Sandbox pool initialized and warming")
+            except Exception as e:
+                logger.warning(f"Sandbox pool initialization failed (graceful degradation): {e}")
+                _health_state["sandbox_pool"] = False
+        else:
+            logger.info("Sandbox pool disabled by configuration")
+
         # Initialize enhanced system components
         await system_integrator.initialize()
         logger.info("Enhanced system components initialized")
@@ -327,7 +342,18 @@ async def lifespan(app: FastAPI):
             logger.info("Application shutdown - Pythinker AI Agent terminating")
             _health_state["ready"] = False
 
-            # Shutdown enhanced components first
+            # Shutdown sandbox pool first (Phase 3)
+            if settings.sandbox_pool_enabled:
+                try:
+                    await asyncio.wait_for(stop_sandbox_pool(), timeout=30.0)
+                    _health_state["sandbox_pool"] = False
+                    logger.info("Sandbox pool shutdown completed")
+                except asyncio.TimeoutError:
+                    logger.warning("Sandbox pool shutdown timed out")
+                except Exception as e:
+                    logger.error(f"Sandbox pool shutdown error: {e}")
+
+            # Shutdown enhanced components
             try:
                 await asyncio.wait_for(system_integrator.shutdown(), timeout=15.0)
                 logger.info("Enhanced components shutdown completed")

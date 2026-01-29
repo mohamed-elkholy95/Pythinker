@@ -180,7 +180,7 @@
 
           <!-- Task Progress Bar - shown above ChatBox when ToolPanel is closed -->
           <TaskProgressBar
-            v-if="!isToolPanelOpen && (plan?.steps?.length > 0 || lastNoMessageTool)"
+            v-if="!isToolPanelOpen && (plan?.steps?.length > 0 || lastNoMessageTool || isInitializing)"
             :plan="plan"
             :isLoading="isLoading"
             :isThinking="isThinking"
@@ -188,12 +188,13 @@
             :sessionId="sessionId"
             :currentTool="currentToolInfo"
             :toolContent="lastNoMessageTool"
+            :isInitializing="isInitializing"
             @openPanel="handleOpenPanel"
             @requestRefresh="handleThumbnailRefresh"
             class="mb-2"
           />
           <ChatBox v-model="inputMessage" :rows="1" @submit="handleSubmit" :isRunning="isLoading" @stop="handleStop"
-            :attachments="attachments" />
+            :attachments="attachments" @fileClick="handleAttachmentFileClick" />
         </div>
       </div>
     </div>
@@ -281,6 +282,7 @@ import type { ReportData } from '@/components/report';
 import { useReport, extractSectionsFromMarkdown } from '@/composables/useReport';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
+import { useSessionStatus } from '@/composables/useSessionStatus';
 
 const router = useRouter()
 const { t } = useI18n()
@@ -288,6 +290,7 @@ const { toggleLeftPanel, isLeftPanelShow } = useLeftPanel()
 const { showSessionFileList } = useSessionFileList()
 const { hideFilePanel } = useFilePanel()
 const { isReportModalOpen, currentReport, openReport, closeReport } = useReport()
+const { emitStatusChange } = useSessionStatus()
 
 // Create initial state factory
 const createInitialState = () => ({
@@ -688,12 +691,17 @@ const handleStepEvent = (stepData: StepEventData) => {
   } else if (stepData.status === 'failed') {
     isThinking.value = false;
     isLoading.value = false;
+    // Notify sidebar that session is no longer running
+    if (sessionId.value) {
+      emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
+    }
   }
 }
 
 // Handle error event
 const handleErrorEvent = (errorData: ErrorEventData) => {
   isLoading.value = false;
+  isThinking.value = false;
   messages.value.push({
     type: 'assistant',
     content: {
@@ -701,6 +709,10 @@ const handleErrorEvent = (errorData: ErrorEventData) => {
       timestamp: errorData.timestamp
     } as MessageContent,
   });
+  // Notify sidebar that session is no longer running
+  if (sessionId.value) {
+    emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
+  }
 }
 
 // Handle title event
@@ -849,6 +861,13 @@ const handleReportFileOpen = (file: FileInfo) => {
   filePreviewOpen.value = true;
 }
 
+// Handle attached file click (open in modal)
+const handleAttachmentFileClick = (file: FileInfo) => {
+  hideFilePanel();
+  filePreviewFile.value = file;
+  filePreviewOpen.value = true;
+}
+
 // Handle report rate
 const handleReportRate = (rating: number) => {
   console.log('Report rated:', rating);
@@ -899,7 +918,12 @@ const handleEvent = (event: AgentSSEEvent) => {
   } else if (event.event === 'step') {
     handleStepEvent(event.data as StepEventData);
   } else if (event.event === 'done') {
-    //isLoading.value = false;
+    isLoading.value = false;
+    isThinking.value = false;
+    // Notify sidebar that session is no longer running
+    if (sessionId.value) {
+      emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
+    }
   } else if (event.event === 'wait') {
     // TODO: handle wait event
   } else if (event.event === 'error') {
@@ -1000,6 +1024,10 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
           if (cancelCurrentChat.value) {
             cancelCurrentChat.value = null;
           }
+          // Notify sidebar that session is no longer running
+          if (sessionId.value) {
+            emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
+          }
         },
         onError: (error) => {
           console.error('Chat error:', error);
@@ -1013,6 +1041,10 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
           // Clear the cancel function when there's an error
           if (cancelCurrentChat.value) {
             cancelCurrentChat.value = null;
+          }
+          // Notify sidebar that session is no longer running
+          if (sessionId.value) {
+            emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
           }
         }
       }
@@ -1157,6 +1189,8 @@ const handleScroll = (_: Event) => {
 const handleStop = () => {
   if (sessionId.value) {
     agentApi.stopSession(sessionId.value);
+    // Notify sidebar that session is no longer running
+    emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
   }
   // Reset loading states
   isLoading.value = false;

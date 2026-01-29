@@ -17,6 +17,12 @@ class ChatRequest(BaseModel):
     event_id: Optional[str] = None
 
 
+class ResumeSessionRequest(BaseModel):
+    """Resume session request schema (for user takeover exit)"""
+    context: Optional[str] = None
+    persist_login_state: Optional[bool] = None
+
+
 class ShellViewRequest(BaseModel):
     """Shell view request schema"""
     session_id: str
@@ -27,10 +33,19 @@ class ConfirmActionRequest(BaseModel):
     accept: bool
 
 
+class SandboxInfo(BaseModel):
+    """Sandbox connection info for optimistic VNC connection (Phase 4)"""
+    sandbox_id: str
+    vnc_url: Optional[str] = None
+    status: str = "initializing"
+
+
 class CreateSessionResponse(BaseModel):
     """Create session response schema"""
     session_id: str
     mode: AgentMode = AgentMode.AGENT
+    sandbox: Optional[SandboxInfo] = None  # Phase 4: Early sandbox info for optimistic VNC
+    status: SessionStatus = SessionStatus.PENDING
 
 
 class GetSessionResponse(BaseModel):

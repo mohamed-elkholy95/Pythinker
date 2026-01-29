@@ -2,7 +2,7 @@
   <!-- User messages (right-aligned) -->
   <div v-if="content.role === 'user'" class="flex flex-col flex-wrap gap-2 items-end justify-end">
     <div class="flex gap-2 flex-wrap max-w-[568px] justify-end">
-      <div v-for="attachment in content.attachments" :key="attachment.file_id || attachment.filename" @click="showFilePanel(attachment)"
+      <div v-for="attachment in content.attachments" :key="attachment.file_id || attachment.filename" @click="handleFileClick(attachment)"
         class="flex items-center gap-1.5 p-2 pr-2.5 w-[280px] group/attach relative overflow-hidden cursor-pointer rounded-[12px] border-[0.5px] border-[var(--border-dark)] bg-[var(--background-menu-white)] hover:bg-[--background-tsp-menu-white]">
         <div class="flex items-center justify-center w-8 h-8 rounded-md">
           <div class="relative flex items-center justify-center">
@@ -29,7 +29,7 @@
   <!-- Assistant messages (left-aligned) -->
   <div v-else class="flex flex-col flex-wrap gap-2 justify-start">
     <div class="flex gap-2 flex-wrap max-w-[568px]">
-      <div v-for="attachment in content.attachments" :key="attachment.file_id || attachment.filename" @click="showFilePanel(attachment)"
+      <div v-for="attachment in content.attachments" :key="attachment.file_id || attachment.filename" @click="handleFileClick(attachment)"
         class="flex items-center gap-1.5 p-2 pr-2.5 w-[280px] group/attach relative overflow-hidden cursor-pointer rounded-[12px] border-[0.5px] border-[var(--border-dark)] bg-[var(--background-menu-white)] hover:bg-[--background-tsp-menu-white]">
         <div class="flex items-center justify-center w-8 h-8 rounded-md">
           <div class="relative flex items-center justify-center">
@@ -63,18 +63,25 @@
 import { FileSearch, Eye } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import type { AttachmentsContent } from '../types/message';
+import type { FileInfo } from '../api/file';
 import { formatFileSize, getFileTypeText } from '../utils/fileType';
 import { getFileType } from '../utils/fileType';
 import { useSessionFileList } from '../composables/useSessionFileList';
-import { useFilePanel } from '../composables/useFilePanel';
 
 const { t } = useI18n();
-const { showFilePanel } = useFilePanel();
 const { showSessionFileList } = useSessionFileList();
 
 defineProps<{
   content: AttachmentsContent;
 }>();
+
+const emit = defineEmits<{
+  (e: 'fileClick', file: FileInfo): void;
+}>();
+
+const handleFileClick = (attachment: FileInfo) => {
+  emit('fileClick', attachment);
+};
 
 const showAllFiles = () => {
   showSessionFileList();

@@ -873,6 +873,9 @@ class MCPTool(BaseTool):
     - MCP server tools (dynamically discovered)
     - MCP resources (listing, reading, subscribing)
     - Server health monitoring
+
+    Phase 5 Enhancement: Supports lazy initialization via mcp_lazy_init config.
+    When enabled, MCP connections are deferred until first tool call.
     """
 
     name = "mcp"
@@ -936,22 +939,66 @@ class MCPTool(BaseTool):
         self._initialized = False
         self._tools = []
         self.manager: Optional[MCPClientManager] = None
+        self._config: Optional[MCPConfig] = None
+        self._lazy_init_pending = False  # Phase 5: Track if lazy init is pending
 
     async def initialized(self, config: Optional[MCPConfig] = None):
-        """Ensure manager is initialized"""
-        if not self._initialized:
-            self.manager = MCPClientManager(config)
-            await self.manager.initialize()
-            self._tools = await self.manager.get_all_tools()
+        """Ensure manager is initialized.
+
+        Phase 5: When mcp_lazy_init is enabled, this method stores the config
+        but defers actual initialization until first MCP tool call.
+        """
+        from app.core.config import get_settings
+        settings = get_settings()
+
+        if self._initialized:
+            return
+
+        self._config = config
+
+        if settings.mcp_lazy_init:
+            # Phase 5: Defer initialization until first tool call
+            self._lazy_init_pending = True
+            logger.info("MCP lazy initialization enabled - deferring until first use")
+        else:
+            # Immediate initialization (original behavior)
+            await self._do_initialize()
+
+    async def _do_initialize(self):
+        """Perform actual MCP initialization."""
+        if self._initialized:
+            return
+
+        if not self._config:
+            logger.warning("MCP initialization skipped - no config provided")
             self._initialized = True
+            return
+
+        self.manager = MCPClientManager(self._config)
+        await self.manager.initialize()
+        self._tools = await self.manager.get_all_tools()
+        self._initialized = True
+        self._lazy_init_pending = False
+        logger.info(f"MCP initialized with {len(self._tools)} tools")
+
+    async def _ensure_initialized(self):
+        """Ensure MCP is initialized before use (for lazy init)."""
+        if self._lazy_init_pending and not self._initialized:
+            logger.info("MCP lazy initialization triggered by first use")
+            await self._do_initialize()
 
     def get_tools(self) -> List[Dict[str, Any]]:
-        """Get all tool definitions including resource management tools."""
+        """Get all tool definitions including resource management tools.
+
+        Phase 5: When lazy init is pending, returns resource tools only.
+        Full tool list is available after first MCP call triggers initialization.
+        """
         # Combine MCP server tools with built-in resource tools
         all_tools = list(self._tools)  # Copy server tools
 
-        # Add resource management tools if manager is initialized
-        if self._initialized and self.manager:
+        # Add resource management tools if initialized or lazy init pending
+        # This allows resource tools to be available even before full init
+        if self._initialized or self._lazy_init_pending:
             all_tools.extend(self.RESOURCE_TOOLS)
 
         return all_tools
@@ -971,7 +1018,13 @@ class MCPTool(BaseTool):
         return False
 
     async def invoke_function(self, function_name: str, **kwargs) -> ToolResult:
-        """Call tool function (MCP server tool or built-in resource tool)."""
+        """Call tool function (MCP server tool or built-in resource tool).
+
+        Phase 5: Triggers lazy initialization on first call if enabled.
+        """
+        # Ensure MCP is initialized (lazy init support)
+        await self._ensure_initialized()
+
         # Handle built-in resource tools
         if function_name == "mcp_list_resources":
             return await self._list_resources(kwargs.get("server_name"))
@@ -986,6 +1039,8 @@ class MCPTool(BaseTool):
             return await self._get_server_status()
 
         # Handle MCP server tools
+        if not self.manager:
+            return ToolResult(success=False, message="MCP manager not initialized")
         return await self.manager.call_tool(function_name, kwargs)
 
     async def _list_resources(self, server_name: Optional[str] = None) -> ToolResult:

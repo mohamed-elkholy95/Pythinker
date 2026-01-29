@@ -37,7 +37,8 @@
       <div class="flex flex-col flex-1 min-h-0">
         <div v-if="sessions.length > 0" class="flex flex-col flex-1 min-h-0 overflow-auto pt-1 pb-4 px-2 overflow-x-hidden minimal-scrollbar">
           <SessionItem v-for="session in sessions" :key="session.session_id" :session="session"
-            @deleted="handleSessionDeleted" />
+            @deleted="handleSessionDeleted"
+            @stopped="handleSessionStopped" />
         </div>
         <div v-else class="flex flex-1 flex-col items-center justify-center gap-4">
           <div class="flex flex-col items-center gap-2 text-[var(--text-tertiary)]">
@@ -91,21 +92,31 @@ import { useLeftPanel } from '../composables/useLeftPanel';
 import { ref, onMounted, watch, onUnmounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { getSessionsSSE, getSessions } from '../api/agent';
-import { ListSessionItem } from '../types/response';
+import { ListSessionItem, SessionStatus } from '../types/response';
 import { useI18n } from 'vue-i18n';
 import { useSettingsDialog } from '@/composables/useSettingsDialog';
 import { useAuth } from '@/composables/useAuth';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import UserMenu from './UserMenu.vue';
+import { useSessionStatus } from '@/composables/useSessionStatus';
 
 const { t } = useI18n()
 const { isLeftPanelShow, toggleLeftPanel } = useLeftPanel()
 const { openSettingsDialog } = useSettingsDialog()
 const { currentUser } = useAuth()
+const { onStatusChange } = useSessionStatus()
 const route = useRoute()
 const router = useRouter()
 
 const sessions = ref<ListSessionItem[]>([])
+
+// Handle session status changes from other components (e.g., ChatPage)
+const handleSessionStatusChange = (sessionId: string, status: SessionStatus) => {
+  const session = sessions.value.find(s => s.session_id === sessionId);
+  if (session) {
+    session.status = status;
+  }
+};
 const cancelGetSessionsSSE = ref<(() => void) | null>(null)
 const avatarLetter = computed(() => {
   return currentUser.value?.fullname?.charAt(0)?.toUpperCase() || 'M';
@@ -156,6 +167,11 @@ const handleSessionDeleted = (sessionId: string) => {
   sessions.value = sessions.value.filter(session => session.session_id !== sessionId);
 }
 
+const handleSessionStopped = (sessionId: string) => {
+  console.log('handleSessionStopped', sessionId)
+  handleSessionStatusChange(sessionId, SessionStatus.COMPLETED);
+}
+
 // Handle keyboard shortcuts
 const handleKeydown = (event: KeyboardEvent) => {
   // Check for Command + K (Mac) or Ctrl + K (Windows/Linux)
@@ -165,12 +181,18 @@ const handleKeydown = (event: KeyboardEvent) => {
   }
 }
 
+// Unsubscribe function for session status listener
+let unsubscribeStatusChange: (() => void) | null = null;
+
 onMounted(async () => {
   // Initial fetch of sessions
   fetchSessions()
 
   // Add keyboard event listener
   window.addEventListener('keydown', handleKeydown)
+
+  // Listen for session status changes from other components
+  unsubscribeStatusChange = onStatusChange(handleSessionStatusChange)
 })
 
 onUnmounted(() => {
@@ -181,6 +203,12 @@ onUnmounted(() => {
 
   // Remove keyboard event listener
   window.removeEventListener('keydown', handleKeydown)
+
+  // Unsubscribe from session status changes
+  if (unsubscribeStatusChange) {
+    unsubscribeStatusChange()
+    unsubscribeStatusChange = null
+  }
 })
 
 // Only update sessions when navigating to/from chat pages (not on every route change)

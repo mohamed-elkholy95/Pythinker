@@ -231,15 +231,15 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
     showTabs: false
   },
   search: {
-    primaryView: 'search',  // Show search results directly
-    secondaryView: 'vnc',
+    primaryView: 'vnc',  // Show live VNC to match mini preview
+    secondaryView: 'search',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
   },
   info: {
-    primaryView: 'search',  // Show results directly
-    secondaryView: 'vnc',
+    primaryView: 'vnc',  // Show live VNC to match mini preview
+    secondaryView: 'search',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false

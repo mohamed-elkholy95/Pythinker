@@ -133,6 +133,9 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
     # Timeline tracking
     event_count: int = 0  # Total number of events for efficient queries
 
+    # Browser takeover settings
+    persist_login_state: Optional[bool] = None  # Whether to persist browser login state across tasks
+
     class Settings:
         name = "sessions"
         indexes = [

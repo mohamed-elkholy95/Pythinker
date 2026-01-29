@@ -16,6 +16,7 @@
               :is-active="isToolRunning"
               :content-preview="contentPreview"
               :file-path="filePath"
+              :is-initializing="props.isInitializing"
               size="lg"
               @click="emit('openPanel')"
             />
@@ -137,6 +138,7 @@
           :is-active="isToolRunning"
           :content-preview="contentPreview"
           :file-path="filePath"
+          :is-initializing="props.isInitializing"
           size="md"
           @click="emit('openPanel')"
         />
@@ -232,6 +234,8 @@ interface Props {
   toolContent?: ToolContent | null
   /** Hide the expanded header (when panel is already showing above) */
   hideExpandedHeader?: boolean
+  /** Whether the sandbox environment is initializing */
+  isInitializing?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -240,7 +244,8 @@ const props = withDefaults(defineProps<Props>(), {
   compact: false,
   sessionId: '',
   currentTool: null,
-  hideExpandedHeader: false
+  hideExpandedHeader: false,
+  isInitializing: false
 })
 
 const emit = defineEmits<{

@@ -2,9 +2,11 @@ import { AgentSSEEvent } from "./event";
 
 export enum SessionStatus {
     PENDING = "pending",
+    INITIALIZING = "initializing",  // Phase 2: Sandbox being prepared
     RUNNING = "running",
     WAITING = "waiting",
-    COMPLETED = "completed"
+    COMPLETED = "completed",
+    FAILED = "failed"
 }
 
 export enum AgentMode {
@@ -12,9 +14,18 @@ export enum AgentMode {
     AGENT = "agent"
 }
 
+// Phase 4: Sandbox info for optimistic VNC connection
+export interface SandboxInfo {
+    sandbox_id: string;
+    vnc_url: string | null;
+    status: string;
+}
+
 export interface CreateSessionResponse {
     session_id: string;
     mode: AgentMode;
+    sandbox: SandboxInfo | null;  // Phase 4: Early sandbox info for optimistic VNC
+    status: SessionStatus;
 }
 
 export interface GetSessionResponse {
