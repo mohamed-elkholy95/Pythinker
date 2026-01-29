@@ -59,27 +59,20 @@ Execute with this reasoning in mind, but output only the result.
 # Source Attribution Signal - injected to prevent hallucination
 SOURCE_ATTRIBUTION_SIGNAL = """
 ---
-CRITICAL - Source Attribution Requirements:
+Source Attribution:
 
-1. FACTS: Always prefix with source - "According to [source]..." or cite the URL
-2. INFERENCE: Mark explicitly - "[Inferred] Based on available data..."
-3. PARTIAL ACCESS: State clearly - "[Partial access] Only preview was available..."
-4. UNAVAILABLE: Be honest - "Engagement metrics not visible in accessible content"
+- Cite sources inline: "According to [source]..." or use numbered references [1]
+- Do not fabricate statistics, metrics, or specific numbers
+- Omit information that cannot be verified rather than adding disclaimers
+- If data is unavailable, simply don't include it in the report
 
-STRICTLY FORBIDDEN:
-- NEVER present inferred information as direct fact
-- NEVER fabricate statistics, engagement metrics, or specific numbers
-- NEVER make up clap counts, view counts, read times, or follower numbers
-- NEVER invent dates, prices, or ratings without verification
+AVOID in final output:
+- [Inferred], [Partial access], or similar inline tags
+- Verbose explanations about source limitations
+- "Not available" or "Could not verify" statements
+- Meta-commentary about the research process
 
-If data is not visible in the source, state "Not available" or "Not visible" - do not guess.
-If content is behind a paywall, acknowledge this and only report what was accessible.
-
-Example good practices:
-- "The article discusses X (full content accessible)"
-- "According to the visible preview, the topic is Y [Partial access - paywall detected]"
-- "[Inferred from context] The author appears to be an expert based on their writing style"
-- "Engagement metrics: Not available in accessible content"
+Write clean, professional prose with inline citations or numbered references.
 ---
 """
 
@@ -205,34 +198,57 @@ Task: {step}
 """
 
 SUMMARIZE_PROMPT = """
-Deliver the completed result to the user.
+Deliver the completed result as a professional research report.
 
-Requirements:
-- Present the final deliverable; all steps are complete
-- Include source citations for factual claims
-- Note any unverified claims or source contradictions
-- Present as a finished product, not work-in-progress
+REPORT STRUCTURE (follow this format exactly):
 
-IMPORTANT - Report delivery format:
-- "title" is REQUIRED - provide a clear, descriptive title (e.g., "Research Report: Best Keyboards for Mac Users 2026")
-- "message" should contain the FULL report content in Markdown format with proper structure:
-  - Use ## for main sections
-  - Use ### for subsections
-  - Include tables, lists, and formatting as appropriate
-- "attachments" should list ALL files created during the task execution
+# [Clear, Descriptive Title]
 
-The message will be displayed as a rich report card to the user, so:
-- Structure content with clear headings
-- Include an Executive Summary at the top
-- Use markdown tables for comparisons
-- End with conclusions/recommendations
+## Introduction
+Brief context and scope of the research (2-3 sentences).
+
+## [Main Section 1]
+### [Subsection if needed]
+Content with **bold** for key terms. Use tables for comparisons:
+
+| Category | Details | Notes |
+|----------|---------|-------|
+| Item 1   | Value   | Info  |
+
+## [Main Section 2]
+Continue with clear, factual content.
+
+## Conclusion
+Key takeaways and recommendations.
+
+## References
+[1] Source Name - URL
+
+WRITING GUIDELINES:
+- Be CONCISE - no filler text, disclaimers, or meta-commentary
+- NO revision notes, change logs, or "this report has been updated" sections
+- NO "Important Disclaimer" or similar notices
+- Focus on FACTS and FINDINGS only
+- Use **bold** for key terms, not for entire headings
+- Use tables for structured comparisons
+- Use bullet points for lists of items
+- Include numbered references at the end
+- Write in professional, direct tone
+
+FORBIDDEN:
+- "This report has been revised..."
+- "Changes Made:" sections
+- "IMPORTANT DISCLAIMER:"
+- Meta-commentary about the report itself
+- Work-in-progress language
+- Excessive caveats or hedging
 
 Response specification:
 ```json
 {{
-  "title": "string",       // REQUIRED: descriptive title for the report
-  "message": "string",     // FULL report in Markdown with ## headings and proper structure
-  "attachments": []        // ALL file paths created during execution
+  "title": "string",       // Clear title (e.g., "Best Practices for Coding with Claude")
+  "message": "string",     // FULL report in clean Markdown - NO meta-commentary
+  "attachments": []        // File paths created during execution
 }}
 ```
 """

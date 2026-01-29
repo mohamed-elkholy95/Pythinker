@@ -45,6 +45,23 @@
       <div v-if="isActive" class="activity-indicator"></div>
     </div>
 
+    <!-- Shell tool running without content yet -->
+    <div v-else-if="isShellTool && isActive" class="content-preview terminal-preview">
+      <div class="terminal-window">
+        <div class="terminal-header">
+          <span class="terminal-title">Terminal</span>
+        </div>
+        <div class="terminal-body">
+          <div class="terminal-accent"></div>
+          <div class="terminal-content-area terminal-running">
+            <Terminal class="running-icon" />
+            <span class="running-text">Running...</span>
+          </div>
+        </div>
+      </div>
+      <div class="activity-indicator"></div>
+    </div>
+
     <!-- Generic tool indicator (fallback) -->
     <div v-else class="tool-preview">
       <div class="tool-preview-content">
@@ -54,16 +71,17 @@
       <div v-if="isActive" class="activity-pulse"></div>
     </div>
 
-    <!-- Expand icon on hover -->
-    <button class="expand-btn" @click.stop="emit('click')">
-      <Maximize2 class="expand-icon" />
-    </button>
+    <!-- Hover overlay -->
+    <div class="hover-overlay">
+      <Monitor class="hover-icon" />
+      <span class="hover-text">View Pythinker Computer</span>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import { Maximize2, Monitor, Terminal, FileText, Globe, Search, Code, Wrench } from 'lucide-vue-next';
+import { Monitor, Terminal, FileText, Globe, Search, Code, Wrench } from 'lucide-vue-next';
 import VNCViewer from '@/components/VNCViewer.vue';
 
 const props = withDefaults(defineProps<{
@@ -307,6 +325,27 @@ const sizeClass = computed(() => {
   background: #ffffff;
 }
 
+.terminal-content-area.terminal-running {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.running-icon {
+  width: 16px;
+  height: 16px;
+  color: #f97316;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.running-text {
+  font-size: 7px;
+  font-weight: 500;
+  color: #6b7280;
+}
+
 .preview-header {
   display: flex;
   align-items: center;
@@ -414,38 +453,38 @@ const sizeClass = computed(() => {
   50% { opacity: 1; transform: scale(1.2); }
 }
 
-/* Expand button */
-.expand-btn {
+/* Hover overlay */
+.hover-overlay {
   position: absolute;
-  bottom: 4px;
-  right: 4px;
-  width: 22px;
-  height: 22px;
-  border-radius: 5px;
+  inset: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
-  color: white;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(2px);
   opacity: 0;
-  transition: opacity 0.15s ease;
-  border: none;
-  cursor: pointer;
+  transition: opacity 0.2s ease;
   z-index: 10;
 }
 
-.expand-icon {
-  width: 12px;
-  height: 12px;
-}
-
-.vnc-mini-preview:hover .expand-btn {
+.vnc-mini-preview:hover .hover-overlay {
   opacity: 1;
 }
 
-.expand-btn:hover {
-  background: rgba(0, 0, 0, 0.7);
+.hover-icon {
+  width: 20px;
+  height: 20px;
+  color: white;
+}
+
+.hover-text {
+  font-size: 9px;
+  font-weight: 500;
+  color: white;
+  text-align: center;
+  padding: 0 8px;
 }
 
 /* Dark mode */
@@ -503,6 +542,10 @@ const sizeClass = computed(() => {
 
 :global(.dark) .terminal-content-area {
   background: #1a1a1a;
+}
+
+:global(.dark) .running-text {
+  color: #9ca3af;
 }
 
 :global(.dark) .terminal-text {

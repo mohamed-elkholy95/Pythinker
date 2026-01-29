@@ -1,5 +1,7 @@
+from typing import List
 from fastapi import APIRouter, Depends, UploadFile, File
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 import logging
 
 from app.application.services.file_service import FileService
@@ -9,6 +11,11 @@ from app.domain.models.user import User
 from app.interfaces.schemas.base import APIResponse
 from app.interfaces.schemas.file import FileInfoResponse
 from app.interfaces.schemas.resource import AccessTokenRequest, SignedUrlResponse
+
+
+class BatchDownloadRequest(BaseModel):
+    """Request body for batch file download as zip"""
+    file_ids: List[str]
 
 logger = logging.getLogger(__name__)
 
@@ -146,3 +153,37 @@ async def create_file_signed_url(
         ))
     except FileNotFoundError:
         raise NotFoundError("File not found")
+
+
+@router.post("/batch/download")
+async def batch_download_files(
+    request_data: BatchDownloadRequest,
+    file_service: FileService = Depends(get_file_service),
+    current_user: User = Depends(get_current_user)
+):
+    """Download multiple files as a zip archive"""
+
+    if not request_data.file_ids:
+        raise NotFoundError("No files specified")
+
+    try:
+        zip_buffer, archive_name = await file_service.create_zip_archive(
+            file_ids=request_data.file_ids,
+            user_id=current_user.id
+        )
+
+        import urllib.parse
+        encoded_filename = urllib.parse.quote(archive_name, safe='')
+
+        headers = {
+            'Content-Disposition': f'attachment; filename*=UTF-8\'\'{encoded_filename}'
+        }
+
+        return StreamingResponse(
+            zip_buffer,
+            media_type='application/zip',
+            headers=headers
+        )
+    except Exception as e:
+        logger.error(f"Failed to create zip archive: {str(e)}")
+        raise NotFoundError("Failed to create archive")

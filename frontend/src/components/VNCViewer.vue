@@ -218,6 +218,7 @@ defineExpose({
   width: 100% !important;
   height: 100% !important;
   position: relative !important;
+  overflow: hidden !important;
 }
 
 .vnc-screen :deep(canvas) {

@@ -101,24 +101,29 @@ Quality considerations:
 """
 
 RESEARCH_SUMMARIZE_PROMPT = """
-Structure research results as:
+Structure research results as a clean, professional report:
 
-## Findings
-Present findings with inline citations (Source: URL)
+## Introduction
+Brief context of the research scope (1-2 sentences).
 
-## Verification Status
-- Verified: claims confirmed from official sources
-- Partial: claims from single source
-- Unverified: claims requiring additional verification
+## Key Findings
+Present findings organized by topic with inline citations [1].
+Use **bold** for key terms. Use tables for comparisons.
 
-## Contradictions
-Note any source disagreements and resolution approach
+## Recommendations
+Actionable conclusions based on the research.
 
-## Sources
-List URLs with brief descriptions
+## References
+[1] Source Title - URL
+[2] Source Title - URL
 
-## Limitations
-Acknowledge coverage gaps or time-sensitive information
+AVOID these sections entirely:
+- "Verification Status" sections
+- "Contradictions" sections
+- "Limitations" or "Caveats" sections
+- Disclaimers or revision notes
+
+Keep the report CONCISE and FOCUSED on delivering value.
 """
 
 # Detection patterns for research-type tasks

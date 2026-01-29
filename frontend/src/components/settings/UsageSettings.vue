@@ -1,129 +1,167 @@
 <template>
-  <div class="space-y-6">
-    <!-- Summary Cards -->
-    <div class="grid grid-cols-2 gap-4">
-      <!-- Today's Usage -->
-      <div class="rounded-lg border bg-card p-4">
-        <div class="flex items-center gap-2 mb-3">
-          <Calendar class="h-4 w-4 text-muted-foreground" />
-          <span class="text-sm font-medium">Today</span>
-        </div>
-        <div v-if="loading" class="animate-pulse space-y-2">
-          <div class="h-6 bg-muted rounded w-20" />
-          <div class="h-4 bg-muted rounded w-16" />
-        </div>
-        <div v-else>
-          <div class="text-2xl font-bold">{{ formatTokens(summary?.today.tokens || 0) }}</div>
-          <div class="text-xs text-muted-foreground">
-            {{ formatCost(summary?.today.cost || 0) }} &bull;
-            {{ summary?.today.llm_calls || 0 }} calls
+  <div class="usage-settings">
+    <!-- Hero Stats Section -->
+    <div class="hero-stats">
+      <!-- Today's Usage Card -->
+      <div class="stat-card stat-card-primary" :style="{ animationDelay: '0ms' }">
+        <div class="stat-card-glow"></div>
+        <div class="stat-card-content">
+          <div class="stat-header">
+            <div class="stat-icon-wrapper stat-icon-today">
+              <Zap class="w-5 h-5" />
+            </div>
+            <span class="stat-label">Today</span>
+          </div>
+          <div v-if="loading" class="stat-skeleton">
+            <div class="skeleton-line skeleton-lg"></div>
+            <div class="skeleton-line skeleton-sm"></div>
+          </div>
+          <div v-else class="stat-value-group">
+            <div class="stat-value">{{ formatTokens(summary?.today.tokens || 0) }}</div>
+            <div class="stat-meta">
+              <span class="stat-cost">{{ formatCost(summary?.today.cost || 0) }}</span>
+              <span class="stat-separator"></span>
+              <span class="stat-calls">{{ summary?.today.llm_calls || 0 }} calls</span>
+            </div>
           </div>
         </div>
+        <div class="stat-card-shine"></div>
       </div>
 
-      <!-- This Month's Usage -->
-      <div class="rounded-lg border bg-card p-4">
-        <div class="flex items-center gap-2 mb-3">
-          <CalendarDays class="h-4 w-4 text-muted-foreground" />
-          <span class="text-sm font-medium">This Month</span>
-        </div>
-        <div v-if="loading" class="animate-pulse space-y-2">
-          <div class="h-6 bg-muted rounded w-20" />
-          <div class="h-4 bg-muted rounded w-16" />
-        </div>
-        <div v-else>
-          <div class="text-2xl font-bold">{{ formatTokens(summary?.month.tokens || 0) }}</div>
-          <div class="text-xs text-muted-foreground">
-            {{ formatCost(summary?.month.cost || 0) }} &bull;
-            {{ summary?.month.sessions || 0 }} sessions
+      <!-- This Month's Usage Card -->
+      <div class="stat-card stat-card-secondary" :style="{ animationDelay: '100ms' }">
+        <div class="stat-card-content">
+          <div class="stat-header">
+            <div class="stat-icon-wrapper stat-icon-month">
+              <TrendingUp class="w-5 h-5" />
+            </div>
+            <span class="stat-label">This Month</span>
+          </div>
+          <div v-if="loading" class="stat-skeleton">
+            <div class="skeleton-line skeleton-lg"></div>
+            <div class="skeleton-line skeleton-sm"></div>
+          </div>
+          <div v-else class="stat-value-group">
+            <div class="stat-value">{{ formatTokens(summary?.month.tokens || 0) }}</div>
+            <div class="stat-meta">
+              <span class="stat-cost">{{ formatCost(summary?.month.cost || 0) }}</span>
+              <span class="stat-separator"></span>
+              <span class="stat-calls">{{ summary?.month.sessions || 0 }} sessions</span>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Activity Stats Row -->
-    <div class="grid grid-cols-3 gap-3">
-      <div class="rounded-lg border bg-card p-3 text-center">
-        <div class="text-lg font-semibold">{{ summary?.month.llm_calls || 0 }}</div>
-        <div class="text-xs text-muted-foreground">LLM Calls</div>
-      </div>
-      <div class="rounded-lg border bg-card p-3 text-center">
-        <div class="text-lg font-semibold">{{ summary?.month.tool_calls || 0 }}</div>
-        <div class="text-xs text-muted-foreground">Tool Calls</div>
-      </div>
-      <div class="rounded-lg border bg-card p-3 text-center">
-        <div class="text-lg font-semibold">{{ summary?.month.active_days || 0 }}</div>
-        <div class="text-xs text-muted-foreground">Active Days</div>
+    <!-- Activity Metrics -->
+    <div class="metrics-row">
+      <div
+        v-for="(metric, index) in activityMetrics"
+        :key="metric.label"
+        class="metric-card"
+        :style="{ animationDelay: `${200 + index * 50}ms` }"
+      >
+        <div class="metric-icon-wrapper" :class="metric.iconClass">
+          <component :is="metric.icon" class="w-4 h-4" />
+        </div>
+        <div class="metric-content">
+          <span class="metric-value">{{ metric.value }}</span>
+          <span class="metric-label">{{ metric.label }}</span>
+        </div>
       </div>
     </div>
 
-    <!-- Period Selector and Chart -->
-    <div class="space-y-3">
-      <div class="flex items-center justify-between">
-        <span class="text-sm font-medium">Daily Usage</span>
-        <div class="flex gap-1">
+    <!-- Chart Section -->
+    <div class="chart-section" :style="{ animationDelay: '350ms' }">
+      <div class="section-header">
+        <div class="section-title-group">
+          <BarChart3 class="w-4 h-4 text-[var(--text-tertiary)]" />
+          <span class="section-title">Daily Usage</span>
+        </div>
+        <div class="period-selector">
           <button
             v-for="period in periods"
             :key="period.days"
             @click="selectedPeriod = period.days"
-            class="px-2 py-1 text-xs rounded-md transition-colors"
-            :class="selectedPeriod === period.days
-              ? 'bg-primary text-primary-foreground'
-              : 'bg-muted hover:bg-muted/80'"
+            class="period-btn"
+            :class="{ 'period-btn-active': selectedPeriod === period.days }"
           >
             {{ period.label }}
           </button>
         </div>
       </div>
 
-      <div class="rounded-lg border bg-card p-3">
+      <div class="chart-container">
         <UsageChart
           v-if="!loadingDaily && chartData.length"
           :data="chartData"
         />
-        <div v-else-if="loadingDaily" class="h-[140px] flex items-center justify-center">
-          <Loader2 class="h-5 w-5 animate-spin text-muted-foreground" />
+        <div v-else-if="loadingDaily" class="chart-loading">
+          <div class="chart-loading-spinner">
+            <Loader2 class="w-6 h-6 animate-spin" />
+          </div>
+          <span class="chart-loading-text">Loading usage data...</span>
         </div>
-        <div v-else class="h-[140px] flex items-center justify-center text-muted-foreground text-sm">
-          No usage data yet
+        <div v-else class="chart-empty">
+          <div class="chart-empty-icon">
+            <BarChart3 class="w-8 h-8" />
+          </div>
+          <span class="chart-empty-text">No usage data yet</span>
+          <span class="chart-empty-hint">Start using the AI to see your activity here</span>
         </div>
       </div>
     </div>
 
-    <!-- Daily Breakdown Table -->
-    <div class="space-y-2">
-      <span class="text-sm font-medium">Recent Activity</span>
-      <div class="rounded-lg border overflow-hidden">
-        <table class="w-full text-sm">
-          <thead class="bg-muted/50">
+    <!-- Recent Activity Table -->
+    <div class="activity-section" :style="{ animationDelay: '450ms' }">
+      <div class="section-header">
+        <div class="section-title-group">
+          <Clock class="w-4 h-4 text-[var(--text-tertiary)]" />
+          <span class="section-title">Recent Activity</span>
+        </div>
+      </div>
+
+      <div class="activity-table-wrapper">
+        <table class="activity-table">
+          <thead>
             <tr>
-              <th class="text-left p-2 font-medium">Date</th>
-              <th class="text-right p-2 font-medium">Tokens</th>
-              <th class="text-right p-2 font-medium">Cost</th>
+              <th class="th-date">Date</th>
+              <th class="th-tokens">Tokens</th>
+              <th class="th-cost">Cost</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-if="loadingDaily">
-              <td colspan="3" class="p-4 text-center text-muted-foreground">
-                <Loader2 class="h-4 w-4 animate-spin mx-auto" />
+            <tr v-if="loadingDaily" class="loading-row">
+              <td colspan="3">
+                <div class="table-loading">
+                  <Loader2 class="w-4 h-4 animate-spin" />
+                  <span>Loading...</span>
+                </div>
               </td>
             </tr>
-            <tr v-else-if="!dailyUsage.length">
-              <td colspan="3" class="p-4 text-center text-muted-foreground">
-                No usage data
+            <tr v-else-if="!dailyUsage.length" class="empty-row">
+              <td colspan="3">
+                <span class="table-empty">No activity recorded</span>
               </td>
             </tr>
             <tr
-              v-for="day in dailyUsage.slice(0, 7)"
+              v-for="(day, index) in dailyUsage.slice(0, 7)"
               :key="day.date"
-              class="border-t hover:bg-muted/30"
+              class="activity-row"
+              :style="{ animationDelay: `${500 + index * 30}ms` }"
             >
-              <td class="p-2">{{ formatDate(day.date) }}</td>
-              <td class="p-2 text-right font-mono text-xs">
-                {{ formatTokens(day.total_prompt_tokens + day.total_completion_tokens) }}
+              <td class="td-date">
+                <span class="date-badge" :class="{ 'date-today': isToday(day.date) }">
+                  {{ formatDate(day.date) }}
+                </span>
               </td>
-              <td class="p-2 text-right font-mono text-xs">
-                {{ formatCost(day.total_cost) }}
+              <td class="td-tokens">
+                <span class="tokens-value">
+                  {{ formatTokens(day.total_prompt_tokens + day.total_completion_tokens) }}
+                </span>
+              </td>
+              <td class="td-cost">
+                <span class="cost-value">{{ formatCost(day.total_cost) }}</span>
               </td>
             </tr>
           </tbody>
@@ -135,7 +173,16 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
-import { Calendar, CalendarDays, Loader2 } from 'lucide-vue-next'
+import {
+  Zap,
+  TrendingUp,
+  Cpu,
+  Wrench,
+  CalendarCheck,
+  BarChart3,
+  Clock,
+  Loader2
+} from 'lucide-vue-next'
 import UsageChart from './UsageChart.vue'
 import {
   getUsageSummary,
@@ -157,6 +204,28 @@ const periods = [
   { label: '30d', days: 30 },
   { label: '90d', days: 90 }
 ]
+
+// Activity metrics computed
+const activityMetrics = computed(() => [
+  {
+    label: 'LLM Calls',
+    value: summary.value?.month.llm_calls || 0,
+    icon: Cpu,
+    iconClass: 'metric-icon-llm'
+  },
+  {
+    label: 'Tool Calls',
+    value: summary.value?.month.tool_calls || 0,
+    icon: Wrench,
+    iconClass: 'metric-icon-tool'
+  },
+  {
+    label: 'Active Days',
+    value: summary.value?.month.active_days || 0,
+    icon: CalendarCheck,
+    iconClass: 'metric-icon-days'
+  }
+])
 
 // Chart data transformation
 const chartData = computed(() => {
@@ -184,6 +253,13 @@ function formatCost(cost: number): string {
     return `<$0.01`
   }
   return `$${cost.toFixed(2)}`
+}
+
+// Check if date is today
+function isToday(dateStr: string): boolean {
+  const date = new Date(dateStr)
+  const today = new Date()
+  return date.toDateString() === today.toDateString()
 }
 
 // Format date for table
@@ -239,3 +315,493 @@ onMounted(() => {
   fetchDailyUsage()
 })
 </script>
+
+<style scoped>
+.usage-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+}
+
+/* Hero Stats */
+.hero-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.stat-card {
+  position: relative;
+  border-radius: 16px;
+  padding: 20px;
+  overflow: hidden;
+  animation: fadeSlideUp 0.4s ease-out forwards;
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+@keyframes fadeSlideUp {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.stat-card-primary {
+  background: linear-gradient(
+    135deg,
+    var(--fill-blue) 0%,
+    rgba(59, 130, 246, 0.05) 100%
+  );
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.stat-card-glow {
+  position: absolute;
+  top: -50%;
+  right: -30%;
+  width: 80%;
+  height: 150%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(59, 130, 246, 0.15) 0%,
+    transparent 70%
+  );
+  pointer-events: none;
+}
+
+.stat-card-shine {
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.1) 50%,
+    transparent 100%
+  );
+  animation: shine 3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes shine {
+  0%, 100% {
+    left: -100%;
+  }
+  50% {
+    left: 150%;
+  }
+}
+
+.stat-card-secondary {
+  background: var(--fill-tsp-white-main);
+  border: 1px solid var(--border-main);
+}
+
+.stat-card-content {
+  position: relative;
+  z-index: 1;
+}
+
+.stat-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.stat-icon-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+}
+
+.stat-icon-today {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--text-brand);
+}
+
+.stat-icon-month {
+  background: var(--fill-tsp-white-dark);
+  color: var(--icon-secondary);
+}
+
+.stat-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.stat-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skeleton-line {
+  background: linear-gradient(
+    90deg,
+    var(--fill-tsp-white-main) 0%,
+    var(--fill-tsp-white-dark) 50%,
+    var(--fill-tsp-white-main) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+.skeleton-lg {
+  height: 32px;
+  width: 80px;
+}
+
+.skeleton-sm {
+  height: 16px;
+  width: 120px;
+}
+
+@keyframes skeleton-pulse {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.stat-value-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.stat-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.stat-cost {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.stat-separator {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+}
+
+/* Metrics Row */
+.metrics-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.metric-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: var(--fill-tsp-white-main);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  animation: fadeSlideUp 0.4s ease-out forwards;
+  opacity: 0;
+  transform: translateY(12px);
+  transition: all 0.2s ease;
+}
+
+.metric-card:hover {
+  background: var(--fill-tsp-white-dark);
+  border-color: var(--border-main);
+}
+
+.metric-icon-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.metric-icon-llm {
+  background: rgba(168, 85, 247, 0.1);
+  color: #a855f7;
+}
+
+.metric-icon-tool {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+}
+
+.metric-icon-days {
+  background: rgba(251, 146, 60, 0.1);
+  color: #fb923c;
+}
+
+.metric-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.metric-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.metric-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Chart Section */
+.chart-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: fadeSlideUp 0.4s ease-out forwards;
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.section-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.period-selector {
+  display: flex;
+  background: var(--fill-tsp-white-main);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.period-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.period-btn:hover {
+  color: var(--text-secondary);
+}
+
+.period-btn-active {
+  background: var(--background-white-main);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px var(--shadow-XS);
+}
+
+.chart-container {
+  background: var(--fill-tsp-white-main);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  padding: 16px;
+  min-height: 180px;
+}
+
+.chart-loading,
+.chart-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 160px;
+  gap: 12px;
+}
+
+.chart-loading-spinner {
+  color: var(--text-tertiary);
+}
+
+.chart-loading-text {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+.chart-empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  background: var(--fill-tsp-white-dark);
+  border-radius: 12px;
+  color: var(--icon-tertiary);
+}
+
+.chart-empty-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.chart-empty-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* Activity Section */
+.activity-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: fadeSlideUp 0.4s ease-out forwards;
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+.activity-table-wrapper {
+  background: var(--fill-tsp-white-main);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.activity-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.activity-table th {
+  padding: 12px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--fill-tsp-white-light);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.th-date {
+  text-align: left;
+}
+
+.th-tokens,
+.th-cost {
+  text-align: right;
+}
+
+.activity-row {
+  animation: fadeSlideUp 0.3s ease-out forwards;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: background 0.15s ease;
+}
+
+.activity-row:hover {
+  background: var(--fill-tsp-white-light);
+}
+
+.activity-row:not(:last-child) {
+  border-bottom: 1px solid var(--border-light);
+}
+
+.activity-table td {
+  padding: 14px 16px;
+}
+
+.td-date {
+  text-align: left;
+}
+
+.td-tokens,
+.td-cost {
+  text-align: right;
+}
+
+.date-badge {
+  display: inline-flex;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--fill-tsp-white-dark);
+  border-radius: 6px;
+}
+
+.date-today {
+  background: var(--fill-blue);
+  color: var(--text-brand);
+}
+
+.tokens-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.cost-value {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.loading-row td,
+.empty-row td {
+  padding: 32px 16px;
+  text-align: center;
+}
+
+.table-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.table-empty {
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+</style>

@@ -109,3 +109,36 @@ export async function getFileDownloadUrl(
   const signedUrlResponse = await createFileSignedUrl(fileInfo.file_id);
   return `${API_CONFIG.host}${signedUrlResponse.signed_url}`;
 }
+
+/**
+ * Download multiple files as a zip archive
+ * @param fileIds Array of file IDs to download
+ * @returns Promise that triggers file download
+ */
+export async function downloadFilesAsZip(fileIds: string[]): Promise<void> {
+  const response = await apiClient.post('/files/batch/download', {
+    file_ids: fileIds
+  }, {
+    responseType: 'blob'
+  });
+
+  // Extract filename from Content-Disposition header or use default
+  const contentDisposition = response.headers['content-disposition'];
+  let filename = 'files.zip';
+  if (contentDisposition) {
+    const filenameMatch = contentDisposition.match(/filename\*?=(?:UTF-8'')?([^;\n]+)/i);
+    if (filenameMatch) {
+      filename = decodeURIComponent(filenameMatch[1].replace(/['"]/g, ''));
+    }
+  }
+
+  // Create download link and trigger download
+  const url = window.URL.createObjectURL(new Blob([response.data]));
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}

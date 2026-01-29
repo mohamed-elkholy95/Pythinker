@@ -10,9 +10,10 @@
                 <h1 class="text-[var(--text-primary)] text-lg font-semibold">{{ $t('All files in this task') }}</h1>
                 <div class="flex items-center gap-2">
                     <button
-                        class="flex h-8 w-8 items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)] rounded-lg"
+                        class="flex h-8 w-8 items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)] rounded-lg disabled:opacity-50"
                         @click="downloadAllFiles"
-                        :title="$t('Download all')"
+                        :disabled="isDownloadingZip || filteredFiles.length === 0"
+                        :title="$t('Download all as ZIP')"
                     >
                         <FolderDown class="size-5 text-[var(--icon-tertiary)]" />
                     </button>
@@ -138,17 +139,18 @@ import { ref, watch, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import type { FileInfo } from '../api/file';
-import { getFileDownloadUrl } from '../api/file';
+import { getFileDownloadUrl, downloadFilesAsZip } from '../api/file';
 import { getSessionFiles, getSharedSessionFiles } from '../api/agent';
 import { useSessionFileList } from '../composables/useSessionFileList';
 import { useFilePanel } from '../composables/useFilePanel';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { showSuccessToast } from '../utils/toast';
+import { showSuccessToast, showErrorToast } from '../utils/toast';
 
 const { t } = useI18n();
 const route = useRoute();
 const files = ref<FileInfo[]>([]);
 const activeFilter = ref<string>('all');
+const isDownloadingZip = ref(false);
 
 const { showFilePanel } = useFilePanel();
 const { visible, hideSessionFileList, shared } = useSessionFileList();
@@ -335,8 +337,18 @@ const downloadFile = async (fileInfo: FileInfo) => {
 };
 
 const downloadAllFiles = async () => {
-    for (const file of filteredFiles.value) {
-        await downloadFile(file);
+    if (filteredFiles.value.length === 0) return;
+
+    isDownloadingZip.value = true;
+    try {
+        const fileIds = filteredFiles.value.map(f => f.file_id);
+        await downloadFilesAsZip(fileIds);
+        showSuccessToast(t('Files downloaded'));
+    } catch (error) {
+        console.error('Failed to download files as zip:', error);
+        showErrorToast(t('Failed to download files'));
+    } finally {
+        isDownloadingZip.value = false;
     }
 };
 
