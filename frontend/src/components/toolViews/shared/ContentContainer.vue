@@ -118,22 +118,67 @@ const innerClasses = computed(() => {
   padding: var(--space-6) var(--space-8);
 }
 
-/* Scrollbar styling */
+/* ===== Enhanced Scrollbar ===== */
+.content-container.scrollable {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.3s ease;
+}
+
+.content-container.scrollable:hover {
+  scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
+}
+
 .content-container.scrollable::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 .content-container.scrollable::-webkit-scrollbar-track {
   background: transparent;
+  margin: 4px;
 }
 
 .content-container.scrollable::-webkit-scrollbar-thumb {
-  background: var(--border-main);
-  border-radius: 4px;
+  background: transparent;
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 0.2s ease, border-width 0.15s ease;
+}
+
+.content-container.scrollable:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.12);
 }
 
 .content-container.scrollable::-webkit-scrollbar-thumb:hover {
-  background: var(--border-dark);
+  background-color: rgba(0, 0, 0, 0.22);
+  border-width: 1px;
+}
+
+.content-container.scrollable::-webkit-scrollbar-thumb:active {
+  background-color: rgba(0, 0, 0, 0.32);
+}
+
+/* Corner piece */
+.content-container.scrollable::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Dark theme */
+:global(.dark) .content-container.scrollable:hover {
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+}
+
+:global(.dark) .content-container.scrollable:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+:global(.dark) .content-container.scrollable::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.22);
+}
+
+:global(.dark) .content-container.scrollable::-webkit-scrollbar-thumb:active {
+  background-color: rgba(255, 255, 255, 0.35);
 }
 </style>
