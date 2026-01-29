@@ -9,7 +9,8 @@ import logging
 from app.domain.external.sandbox import Sandbox
 from app.domain.models.session import Session
 from app.domain.repositories.session_repository import SessionRepository
-from app.domain.services.workspace import WorkspaceOrganizer, WorkspaceSelector
+from app.domain.services.workspace.workspace_organizer import WorkspaceOrganizer
+from app.domain.services.workspace.workspace_selector import WorkspaceSelector
 
 logger = logging.getLogger(__name__)
 
