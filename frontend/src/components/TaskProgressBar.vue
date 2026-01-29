@@ -6,11 +6,16 @@
         <!-- Header (hidden when panel is open above) -->
         <div v-if="!hideExpandedHeader" class="expanded-header">
           <div class="flex items-start gap-4">
-            <!-- Live VNC Mini Preview -->
+            <!-- Tool/VNC Mini Preview -->
             <VncMiniPreview
               v-if="showExpandedThumbnail && sessionId"
               :session-id="sessionId"
               :enabled="true"
+              :tool-name="props.currentTool?.name"
+              :tool-function="props.currentTool?.function"
+              :is-active="isToolRunning"
+              :content-preview="contentPreview"
+              :file-path="filePath"
               size="lg"
               @click="emit('openPanel')"
             />
@@ -127,6 +132,11 @@
         <VncMiniPreview
           :session-id="sessionId"
           :enabled="true"
+          :tool-name="props.currentTool?.name"
+          :tool-function="props.currentTool?.function"
+          :is-active="isToolRunning"
+          :content-preview="contentPreview"
+          :file-path="filePath"
           size="md"
           @click="emit('openPanel')"
         />
@@ -366,6 +376,39 @@ const currentToolIcon = computed(() => {
   return Terminal
 })
 
+// Extract content preview from toolContent (for mini preview)
+const contentPreview = computed(() => {
+  if (!props.toolContent) return ''
+
+  // File content
+  if (props.toolContent.args?.content) {
+    return String(props.toolContent.args.content).slice(0, 500)
+  }
+  if (props.toolContent.content?.content) {
+    return String(props.toolContent.content.content).slice(0, 500)
+  }
+
+  // Shell output
+  if (props.toolContent.stdout) {
+    return String(props.toolContent.stdout).slice(0, 500)
+  }
+  if (props.toolContent.content?.console) {
+    const console = props.toolContent.content.console
+    if (Array.isArray(console)) {
+      return console.map((e: any) => `${e.command || ''}\n${e.output || ''}`).join('\n').slice(0, 500)
+    }
+    return String(console).slice(0, 500)
+  }
+
+  return ''
+})
+
+// Extract file path from toolContent
+const filePath = computed(() => {
+  if (!props.toolContent) return ''
+  return props.toolContent.args?.file || props.toolContent.file_path || ''
+})
+
 const toggleExpand = () => {
   isExpanded.value = !isExpanded.value
 }
@@ -458,7 +501,7 @@ onUnmounted(() => {
 }
 
 .collapsed-wrapper.has-thumbnail {
-  margin-top: 50px;
+  margin-top: 100px; /* Space for floating VNC preview (144px width @ 16:10 = 90px height + gap) */
 }
 
 .progress-bar-collapsed {
@@ -588,7 +631,7 @@ onUnmounted(() => {
 }
 
 .progress-bar-collapsed.has-thumbnail {
-  padding-left: 155px;
+  padding-left: 160px; /* Space for 144px wide VNC preview + gap */
 }
 
 .vnc-thumbnail-expanded {
