@@ -166,14 +166,14 @@
           <!-- Planning Progress Indicator - shows instant feedback before plan is ready -->
           <div
             v-if="!isToolPanelOpen && planningProgress && (!plan || plan.steps.length === 0)"
-            class="mb-2 bg-white dark:bg-[#2a2a2a] rounded-lg border border-gray-200 dark:border-[#3a3a3a] px-4 py-2.5 flex items-center gap-3 shadow-sm"
+            class="planning-progress-indicator mb-2 bg-white dark:bg-[#2a2a2a] rounded-lg border border-gray-200 dark:border-[#3a3a3a] px-4 py-2.5 flex items-center gap-3 shadow-sm"
           >
             <div class="flex-shrink-0">
               <ThinkingIndicator :showText="false" />
             </div>
             <div class="flex-1 min-w-0">
-              <span class="text-[15px] font-normal text-gray-900 dark:text-[#e5e5e5]">
-                {{ planningProgress.message }}
+              <span class="planning-text-shimmer text-[15px] font-medium">
+                {{ currentPlanningMessage }}
               </span>
             </div>
           </div>
@@ -777,6 +777,7 @@ const handlePlanEvent = (planData: PlanEventData) => {
   thinkingText.value = '';
   isThinkingStreaming.value = false;
   planningProgress.value = null;  // Clear progress - plan is ready
+  stopPlanningMessageCycle();
   plan.value = planData;
 }
 
@@ -791,8 +792,54 @@ const handleStreamEvent = (streamData: StreamEventData) => {
   }
 }
 
+// ===== Planning Messages - Interesting rotating phrases =====
+const PLANNING_MESSAGES = [
+  "Analyzing task complexity...",
+  "Mapping out the approach...",
+  "Crafting the perfect strategy...",
+  "Connecting the dots...",
+  "Architecting the solution...",
+  "Weighing the options...",
+  "Charting the course...",
+  "Piecing together the puzzle...",
+  "Calibrating the plan...",
+  "Orchestrating the steps...",
+  "Fine-tuning the approach...",
+  "Exploring possibilities...",
+  "Building the roadmap...",
+  "Designing the workflow...",
+  "Structuring the execution...",
+];
+
+const planningMessageIndex = ref(0);
+let planningMessageInterval: ReturnType<typeof setInterval> | null = null;
+
+// Cycle through planning messages for visual interest
+const startPlanningMessageCycle = () => {
+  if (planningMessageInterval) return;
+  planningMessageIndex.value = Math.floor(Math.random() * PLANNING_MESSAGES.length);
+  planningMessageInterval = setInterval(() => {
+    planningMessageIndex.value = (planningMessageIndex.value + 1) % PLANNING_MESSAGES.length;
+  }, 2500);
+};
+
+const stopPlanningMessageCycle = () => {
+  if (planningMessageInterval) {
+    clearInterval(planningMessageInterval);
+    planningMessageInterval = null;
+  }
+};
+
+// Computed: current planning message (cycles through interesting phrases)
+const currentPlanningMessage = computed(() => {
+  return PLANNING_MESSAGES[planningMessageIndex.value];
+});
+
 // Handle progress event (instant feedback during planning)
 const handleProgressEvent = (progressData: ProgressEventData) => {
+  // Start message cycling if not already running
+  startPlanningMessageCycle();
+
   // Update planning progress for UI
   planningProgress.value = {
     phase: progressData.phase,
@@ -1010,6 +1057,7 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
           isThinkingStreaming.value = false;
           isInitializing.value = false;
           planningProgress.value = null;
+          stopPlanningMessageCycle();
           // Clear the cancel function when connection is closed normally
           if (cancelCurrentChat.value) {
             cancelCurrentChat.value = null;
@@ -1023,6 +1071,7 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
           isThinkingStreaming.value = false;
           isInitializing.value = false;
           planningProgress.value = null;
+          stopPlanningMessageCycle();
           // Clear the cancel function when there's an error
           if (cancelCurrentChat.value) {
             cancelCurrentChat.value = null;
