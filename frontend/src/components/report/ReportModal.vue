@@ -187,17 +187,14 @@
                   {{ truncateText(report?.title || '', 20) }}
                 </button>
 
-                <!-- TOC Items -->
+                <!-- TOC Items (h2-h4 only, h1 is shown as toc-title) -->
                 <button
                   v-for="(item, index) in tableOfContents"
                   :key="index"
                   class="toc-item"
                   :class="[
                     activeSection === item.id ? 'toc-item-active' : '',
-                    item.level === 1 ? 'toc-level-1' : '',
-                    item.level === 2 ? 'toc-level-2' : '',
-                    item.level === 3 ? 'toc-level-3' : '',
-                    item.level === 4 ? 'toc-level-4' : ''
+                    `toc-level-${item.level}`
                   ]"
                   @click="scrollToSection(item.id)"
                 >
@@ -334,7 +331,8 @@ const extractToc = () => {
     return;
   }
 
-  const headingRegex = /^(#{1,4})\s+(.+)$/gm;
+  // Match headings h2-h4 only (skip h1 since it's the title, shown separately)
+  const headingRegex = /^(#{2,4})\s+(.+)$/gm;
   const toc: TocItem[] = [];
   let match;
 
@@ -344,9 +342,7 @@ const extractToc = () => {
     const title = rawTitle.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1');
     const id = title.toLowerCase().replace(/[^\w]+/g, '-');
 
-    if (level >= 1 && level <= 4) {
-      toc.push({ id, title, level });
-    }
+    toc.push({ id, title, level });
   }
 
   tableOfContents.value = toc;
@@ -1074,11 +1070,6 @@ watch(isOpen, (newVal) => {
 
 .toc-item-active {
   color: #1a73e8;
-}
-
-.toc-level-1 {
-  font-weight: 400;
-  color: var(--text-secondary);
 }
 
 .toc-level-2 {
