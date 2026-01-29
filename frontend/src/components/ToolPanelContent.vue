@@ -30,11 +30,11 @@
       </div>
 
       <!-- Activity Bar: Icon + "Pythinker is using X" | Action -->
-      <div v-if="toolInfo" class="flex items-center gap-2 mt-2 text-[13px] text-[var(--text-tertiary)]">
-        <component :is="toolInfo.icon" :size="18" class="flex-shrink-0 text-[var(--icon-secondary)]" />
-        <span>{{ $t('Pythinker is using') }} <span class="text-[var(--text-secondary)] font-medium">{{ toolInfo.name }}</span></span>
-        <span v-if="toolSubtitle" class="text-[var(--text-quaternary)]">|</span>
-        <span v-if="toolSubtitle" class="truncate">{{ toolSubtitle }}</span>
+      <div v-if="toolInfo" class="flex items-center gap-2 mt-2 text-[13px] text-[var(--text-tertiary)] overflow-hidden">
+        <component :is="toolInfo.icon" :size="18" class="flex-shrink-0 text-[var(--icon-secondary)]" style="min-width: 18px; min-height: 18px;" />
+        <span class="flex-shrink-0 whitespace-nowrap">{{ $t('Pythinker is using') }} <span class="text-[var(--text-secondary)] font-medium">{{ toolInfo.name }}</span></span>
+        <span v-if="toolSubtitle" class="text-[var(--text-quaternary)] flex-shrink-0">|</span>
+        <span v-if="toolSubtitle" class="truncate min-w-0">{{ toolSubtitle }}</span>
       </div>
 
       <!-- Confirmation banner removed -->
@@ -280,7 +280,7 @@ const toolSubtitle = computed(() => {
     return `Running ${String(cmd).slice(0, 60)}`;
   }
   if (toolName.value === 'browser' && props.toolContent?.args?.url) {
-    return `Browsing ${String(props.toolContent.args.url).replace(/^https?:\/\//, '')}`;
+    return `Browsing ${String(props.toolContent.args.url)}`;
   }
   if (toolInfo.value?.function && toolInfo.value?.functionArg) {
     return `${toolInfo.value.function} ${toolInfo.value.functionArg}`;

@@ -74,7 +74,6 @@
     <!-- Hover overlay -->
     <div class="hover-overlay">
       <Monitor class="hover-icon" />
-      <span class="hover-text">View Pythinker Computer</span>
     </div>
   </div>
 </template>
@@ -477,14 +476,6 @@ const sizeClass = computed(() => {
   width: 20px;
   height: 20px;
   color: white;
-}
-
-.hover-text {
-  font-size: 9px;
-  font-weight: 500;
-  color: white;
-  text-align: center;
-  padding: 0 8px;
 }
 
 /* Dark mode */

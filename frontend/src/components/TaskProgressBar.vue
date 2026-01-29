@@ -282,15 +282,23 @@ const updateTooltipPosition = () => {
   const padding = 12
   const tooltipRect = tooltipRef.value?.getBoundingClientRect()
   let left = rect.left + rect.width / 2
+
+  // Always position above the element with consistent spacing
+  const tooltipHeight = tooltipRect?.height || 36
+  const spacing = 8
+  let top = rect.top - tooltipHeight - spacing
+
+  // Ensure tooltip stays within viewport
   if (tooltipRect) {
     const halfWidth = tooltipRect.width / 2
     left = Math.min(window.innerWidth - padding - halfWidth, Math.max(padding + halfWidth, left))
-    const minTop = tooltipRect.height + padding
-    const desiredTop = rect.top - 10
-    tooltipTop.value = Math.max(desiredTop, minTop)
-  } else {
-    tooltipTop.value = rect.top - 10
+    // If tooltip would go above viewport, position below element instead
+    if (top < padding) {
+      top = rect.bottom + spacing
+    }
   }
+
+  tooltipTop.value = top
   tooltipLeft.value = left
 }
 
@@ -300,7 +308,8 @@ const showTooltip = (event: MouseEvent) => {
   if (!target) return
   const rect = target.getBoundingClientRect()
   tooltipAnchor.value = rect
-  tooltipTop.value = rect.top - 10
+  // Initial position - will be refined by updateTooltipPosition
+  tooltipTop.value = rect.top - 44
   tooltipLeft.value = rect.left + rect.width / 2
   tooltipVisible.value = true
   nextTick(updateTooltipPosition)
@@ -935,8 +944,18 @@ onUnmounted(() => {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
   z-index: 12000;
   pointer-events: none;
-  transform: translate(-50%, -100%);
+  transform: translateX(-50%);
   will-change: opacity, transform;
+}
+
+.tooltip-badge.tooltip-clickable {
+  pointer-events: auto;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.tooltip-badge.tooltip-clickable:hover {
+  background: var(--Tooltips-hover, #333);
 }
 
 .tooltip-enter-active,
@@ -947,13 +966,13 @@ onUnmounted(() => {
 .tooltip-enter-from,
 .tooltip-leave-to {
   opacity: 0;
-  transform: translate(-50%, calc(-100% + 6px));
+  transform: translateX(-50%) translateY(6px);
 }
 
 .tooltip-enter-to,
 .tooltip-leave-from {
   opacity: 1;
-  transform: translate(-50%, -100%);
+  transform: translateX(-50%);
 }
 
 /* ===== CUSTOM SCROLLBAR ===== */
