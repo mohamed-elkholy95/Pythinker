@@ -1,7 +1,7 @@
 """
 Shell business model definitions
 """
-from typing import Optional, List
+
 from pydantic import BaseModel, Field
 
 
@@ -18,7 +18,7 @@ class ShellTask(BaseModel):
     command: str = Field(..., description="Executed command")
     status: str = Field(..., description="Task status")
     created_at: str = Field(..., description="Task creation time")
-    output: Optional[str] = Field(None, description="Task output")
+    output: str | None = Field(None, description="Task output")
 
 
 class ShellExecResult(BaseModel):
@@ -26,15 +26,15 @@ class ShellExecResult(BaseModel):
     session_id: str = Field(..., description="Shell session ID")
     command: str = Field(..., description="Executed command")
     status: str = Field(..., description="Command execution status")
-    returncode: Optional[int] = Field(None, description="Process return code, only has value when status is completed")
-    output: Optional[str] = Field(None, description="Command execution output, only has value when status is completed")
+    returncode: int | None = Field(None, description="Process return code, only has value when status is completed")
+    output: str | None = Field(None, description="Command execution output, only has value when status is completed")
 
 
 class ShellViewResult(BaseModel):
     """Shell session content view result model"""
     output: str = Field(..., description="Shell session output content")
     session_id: str = Field(..., description="Shell session ID")
-    console: Optional[List[ConsoleRecord]] = Field(None, description="Console command records")
+    console: list[ConsoleRecord] | None = Field(None, description="Console command records")
 
 
 class ShellWaitResult(BaseModel):
@@ -50,4 +50,4 @@ class ShellWriteResult(BaseModel):
 class ShellKillResult(BaseModel):
     """Process termination result model"""
     status: str = Field(..., description="Process status")
-    returncode: int = Field(..., description="Process return code") 
+    returncode: int = Field(..., description="Process return code")

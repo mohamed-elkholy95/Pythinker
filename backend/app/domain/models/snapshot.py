@@ -1,10 +1,11 @@
 """State snapshot models for timeline reconstruction."""
 
-from pydantic import BaseModel, Field
-from typing import Dict, Any, Optional, List
+import uuid
 from datetime import datetime
 from enum import Enum
-import uuid
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class SnapshotType(str, Enum):
@@ -29,7 +30,7 @@ class FileSnapshot(BaseModel):
 
 class FileSystemSnapshot(BaseModel):
     """Snapshot of file system state."""
-    files: List[FileSnapshot] = []
+    files: list[FileSnapshot] = []
     working_directory: str
     total_files: int = 0
 
@@ -37,11 +38,11 @@ class FileSystemSnapshot(BaseModel):
 class BrowserSnapshot(BaseModel):
     """Snapshot of browser state."""
     url: str
-    title: Optional[str] = None
-    screenshot: Optional[str] = None  # Base64 encoded
-    dom_snapshot: Optional[str] = None  # Compressed DOM
-    viewport_width: Optional[int] = None
-    viewport_height: Optional[int] = None
+    title: str | None = None
+    screenshot: str | None = None  # Base64 encoded
+    dom_snapshot: str | None = None  # Compressed DOM
+    viewport_width: int | None = None
+    viewport_height: int | None = None
     scroll_x: int = 0
     scroll_y: int = 0
 
@@ -50,8 +51,8 @@ class TerminalSnapshot(BaseModel):
     """Snapshot of terminal state."""
     buffer: str  # Terminal output buffer
     working_directory: str
-    environment: Optional[Dict[str, str]] = None
-    cursor_position: Optional[int] = None
+    environment: dict[str, str] | None = None
+    cursor_position: int | None = None
 
 
 class EditorSnapshot(BaseModel):
@@ -60,8 +61,8 @@ class EditorSnapshot(BaseModel):
     content: str
     cursor_line: int = 0
     cursor_column: int = 0
-    selection_start: Optional[int] = None
-    selection_end: Optional[int] = None
+    selection_start: int | None = None
+    selection_end: int | None = None
     scroll_top: int = 0
 
 
@@ -69,7 +70,7 @@ class PlanSnapshot(BaseModel):
     """Snapshot of plan execution state."""
     plan_id: str
     current_step_index: int
-    completed_steps: List[str]  # Step IDs
+    completed_steps: list[str]  # Step IDs
     status: str
 
 
@@ -80,7 +81,7 @@ class StateSnapshot(BaseModel):
     """
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     session_id: str
-    action_id: Optional[str] = None  # Action that triggered this snapshot
+    action_id: str | None = None  # Action that triggered this snapshot
     sequence_number: int  # Position in timeline
 
     # Timing
@@ -90,22 +91,22 @@ class StateSnapshot(BaseModel):
     snapshot_type: SnapshotType
 
     # Resource identification
-    resource_path: Optional[str] = None  # File path, URL, etc.
+    resource_path: str | None = None  # File path, URL, etc.
 
     # Snapshot data (one of these will be populated based on type)
-    file_system: Optional[FileSystemSnapshot] = None
-    file_content: Optional[FileSnapshot] = None
-    browser: Optional[BrowserSnapshot] = None
-    terminal: Optional[TerminalSnapshot] = None
-    editor: Optional[EditorSnapshot] = None
-    plan: Optional[PlanSnapshot] = None
+    file_system: FileSystemSnapshot | None = None
+    file_content: FileSnapshot | None = None
+    browser: BrowserSnapshot | None = None
+    terminal: TerminalSnapshot | None = None
+    editor: EditorSnapshot | None = None
+    plan: PlanSnapshot | None = None
 
     # For full state snapshots, we might have all of these
-    full_state: Optional[Dict[str, Any]] = None
+    full_state: dict[str, Any] | None = None
 
     # Compression info
     is_compressed: bool = False
-    compressed_size_bytes: Optional[int] = None
+    compressed_size_bytes: int | None = None
 
     @classmethod
     def create_file_snapshot(
@@ -114,7 +115,7 @@ class StateSnapshot(BaseModel):
         sequence_number: int,
         file_path: str,
         content: str,
-        action_id: Optional[str] = None
+        action_id: str | None = None
     ) -> "StateSnapshot":
         """Create a file content snapshot."""
         return cls(
@@ -137,9 +138,9 @@ class StateSnapshot(BaseModel):
         session_id: str,
         sequence_number: int,
         url: str,
-        screenshot: Optional[str] = None,
-        title: Optional[str] = None,
-        action_id: Optional[str] = None
+        screenshot: str | None = None,
+        title: str | None = None,
+        action_id: str | None = None
     ) -> "StateSnapshot":
         """Create a browser state snapshot."""
         return cls(
@@ -162,7 +163,7 @@ class StateSnapshot(BaseModel):
         sequence_number: int,
         buffer: str,
         working_directory: str,
-        action_id: Optional[str] = None
+        action_id: str | None = None
     ) -> "StateSnapshot":
         """Create a terminal state snapshot."""
         return cls(

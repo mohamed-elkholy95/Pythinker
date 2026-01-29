@@ -1,10 +1,12 @@
-from pydantic import BaseModel, Field, field_validator
-from typing import Dict, Any, Literal, Optional, Union, List
-from datetime import datetime
 import uuid
+from datetime import datetime
 from enum import Enum
-from app.domain.models.plan import Plan, Step
+from typing import Any, Literal, Union
+
+from pydantic import BaseModel, Field
+
 from app.domain.models.file import FileInfo
+from app.domain.models.plan import Plan, Step
 from app.domain.models.search import SearchResultItem
 from app.domain.models.source_citation import SourceCitation
 
@@ -46,15 +48,15 @@ class PlanEvent(BaseEvent):
     type: Literal["plan"] = "plan"
     plan: Plan
     status: PlanStatus
-    step: Optional[Step] = None
+    step: Step | None = None
 
 class BrowserToolContent(BaseModel):
     """Browser tool content"""
-    content: Optional[str] = None  # Page content (text or HTML)
+    content: str | None = None  # Page content (text or HTML)
 
 class SearchToolContent(BaseModel):
     """Search tool content"""
-    results: List[SearchResultItem]
+    results: list[SearchResultItem]
 
 class ShellToolContent(BaseModel):
     """Shell tool content"""
@@ -87,40 +89,40 @@ class ToolEvent(BaseEvent):
     type: Literal["tool"] = "tool"
     tool_call_id: str
     tool_name: str
-    tool_content: Optional[ToolContent] = None
+    tool_content: ToolContent | None = None
     function_name: str
-    function_args: Dict[str, Any]
+    function_args: dict[str, Any]
     status: ToolStatus
-    function_result: Optional[Any] = None
+    function_result: Any | None = None
 
     # Action/observation metadata (OpenHands-style)
-    action_type: Optional[str] = None
-    observation_type: Optional[str] = None
-    command: Optional[str] = None
-    cwd: Optional[str] = None
-    stdout: Optional[str] = None
-    stderr: Optional[str] = None
-    exit_code: Optional[int] = None
-    file_path: Optional[str] = None
-    diff: Optional[str] = None
-    runtime_status: Optional[str] = None
+    action_type: str | None = None
+    observation_type: str | None = None
+    command: str | None = None
+    cwd: str | None = None
+    stdout: str | None = None
+    stderr: str | None = None
+    exit_code: int | None = None
+    file_path: str | None = None
+    diff: str | None = None
+    runtime_status: str | None = None
 
     # Security/confirmation metadata
-    security_risk: Optional[str] = None
-    security_reason: Optional[str] = None
-    security_suggestions: Optional[List[str]] = None
-    confirmation_state: Optional[str] = None
+    security_risk: str | None = None
+    security_reason: str | None = None
+    security_suggestions: list[str] | None = None
+    confirmation_state: str | None = None
 
     # Timeline tracking fields
-    sequence_number: Optional[int] = None  # Position in session timeline
-    started_at: Optional[datetime] = None  # When tool execution started
-    completed_at: Optional[datetime] = None  # When tool execution completed
-    duration_ms: Optional[float] = None  # Execution duration in milliseconds (stored as float for precision)
+    sequence_number: int | None = None  # Position in session timeline
+    started_at: datetime | None = None  # When tool execution started
+    completed_at: datetime | None = None  # When tool execution completed
+    duration_ms: float | None = None  # Execution duration in milliseconds (stored as float for precision)
 
     # Enhanced command display (Phase 3)
-    display_command: Optional[str] = None  # "Searching 'machine learning'"
-    command_category: Optional[str] = None  # "search", "browse", "file", "shell", "code"
-    command_summary: Optional[str] = None  # Short summary for UI badges
+    display_command: str | None = None  # "Searching 'machine learning'"
+    command_category: str | None = None  # "search", "browse", "file", "shell", "code"
+    command_summary: str | None = None  # Short summary for UI badges
 
 class TitleEvent(BaseEvent):
     """Title event"""
@@ -138,7 +140,7 @@ class MessageEvent(BaseEvent):
     type: Literal["message"] = "message"
     role: Literal["user", "assistant"] = "assistant"
     message: str
-    attachments: Optional[List[FileInfo]] = None
+    attachments: list[FileInfo] | None = None
 
 class DoneEvent(BaseEvent):
     """Done event"""
@@ -166,7 +168,7 @@ class DatasourceEvent(BaseEvent):
 class IdleEvent(BaseEvent):
     """Idle event when agent enters standby state"""
     type: Literal["idle"] = "idle"
-    reason: Optional[str] = None
+    reason: str | None = None
 
 
 class MCPHealthEvent(BaseEvent):
@@ -174,7 +176,7 @@ class MCPHealthEvent(BaseEvent):
     type: Literal["mcp_health"] = "mcp_health"
     server_name: str
     healthy: bool
-    error: Optional[str] = None
+    error: str | None = None
     tools_available: int = 0
 
 
@@ -182,13 +184,13 @@ class ModeChangeEvent(BaseEvent):
     """Mode change event when switching between discuss and agent modes"""
     type: Literal["mode_change"] = "mode_change"
     mode: str  # "discuss" or "agent"
-    reason: Optional[str] = None  # Reason for mode switch
+    reason: str | None = None  # Reason for mode switch
 
 
 class SuggestionEvent(BaseEvent):
     """Suggestion event for end-of-response suggestions"""
     type: Literal["suggestion"] = "suggestion"
-    suggestions: List[str]  # List of 2-3 contextual suggestions
+    suggestions: list[str]  # List of 2-3 contextual suggestions
 
 
 class PlanningPhase(str, Enum):
@@ -208,8 +210,8 @@ class ProgressEvent(BaseEvent):
     type: Literal["progress"] = "progress"
     phase: PlanningPhase
     message: str                           # User-friendly status message
-    estimated_steps: Optional[int] = None  # Estimated number of steps (if known)
-    progress_percent: Optional[int] = None # 0-100 progress indicator
+    estimated_steps: int | None = None  # Estimated number of steps (if known)
+    progress_percent: int | None = None # 0-100 progress indicator
 
 
 class ReportEvent(BaseEvent):
@@ -218,8 +220,8 @@ class ReportEvent(BaseEvent):
     id: str  # Unique ID for the report (named 'id' for frontend compatibility)
     title: str  # Report title
     content: str  # Markdown content of the report
-    attachments: Optional[List[FileInfo]] = None  # Associated files
-    sources: Optional[List[SourceCitation]] = None  # Bibliography/references
+    attachments: list[FileInfo] | None = None  # Associated files
+    sources: list[SourceCitation] | None = None  # Bibliography/references
 
 
 class StreamEvent(BaseEvent):
@@ -241,10 +243,10 @@ class VerificationEvent(BaseEvent):
     """Verification event when verifying a plan before execution"""
     type: Literal["verification"] = "verification"
     status: VerificationStatus
-    verdict: Optional[str] = None  # "pass", "revise", "fail"
-    confidence: Optional[float] = None
-    summary: Optional[str] = None
-    revision_feedback: Optional[str] = None  # Feedback for replanning
+    verdict: str | None = None  # "pass", "revise", "fail"
+    confidence: float | None = None
+    summary: str | None = None
+    revision_feedback: str | None = None  # Feedback for replanning
 
 
 class ReflectionStatus(str, Enum):
@@ -257,10 +259,10 @@ class ReflectionEvent(BaseEvent):
     """Reflection event during execution"""
     type: Literal["reflection"] = "reflection"
     status: ReflectionStatus
-    decision: Optional[str] = None  # "continue", "adjust", "replan", "escalate", "abort"
-    confidence: Optional[float] = None
-    summary: Optional[str] = None
-    trigger_reason: Optional[str] = None  # Why reflection was triggered
+    decision: str | None = None  # "continue", "adjust", "replan", "escalate", "abort"
+    confidence: float | None = None
+    summary: str | None = None
+    trigger_reason: str | None = None  # Why reflection was triggered
 
 
 class PathEvent(BaseEvent):
@@ -268,8 +270,8 @@ class PathEvent(BaseEvent):
     type: Literal["path"] = "path"
     path_id: str
     action: str  # "created", "exploring", "completed", "abandoned", "selected"
-    score: Optional[float] = None
-    description: Optional[str] = None
+    score: float | None = None
+    description: str | None = None
 
 
 class MultiTaskEvent(BaseEvent):
@@ -279,20 +281,20 @@ class MultiTaskEvent(BaseEvent):
     action: str  # "started", "task_switching", "task_completed", "challenge_completed"
     current_task_index: int
     total_tasks: int
-    current_task: Optional[str] = None  # Task description
+    current_task: str | None = None  # Task description
     progress_percentage: float = 0.0
-    elapsed_time_seconds: Optional[float] = None
+    elapsed_time_seconds: float | None = None
 
 
 class WorkspaceEvent(BaseEvent):
     """Workspace structure and organization event"""
     type: Literal["workspace"] = "workspace"
     action: str  # "initialized", "organized", "validated", "deliverable_added"
-    workspace_type: Optional[str] = None  # "research", "code_project", "data_analysis"
-    structure: Optional[Dict[str, str]] = None  # folder_name -> purpose
+    workspace_type: str | None = None  # "research", "code_project", "data_analysis"
+    structure: dict[str, str] | None = None  # folder_name -> purpose
     files_organized: int = 0
     deliverables_count: int = 0
-    manifest_path: Optional[str] = None
+    manifest_path: str | None = None
 
 
 class BudgetEvent(BaseEvent):
@@ -305,6 +307,48 @@ class BudgetEvent(BaseEvent):
     percentage_used: float
     warning_threshold: float = 0.8
     session_paused: bool = False
+
+
+class DeepResearchStatus(str, Enum):
+    """Deep research status enum"""
+    PENDING = "pending"
+    AWAITING_APPROVAL = "awaiting_approval"
+    STARTED = "started"
+    QUERY_STARTED = "query_started"
+    QUERY_COMPLETED = "query_completed"
+    QUERY_SKIPPED = "query_skipped"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
+class DeepResearchQueryStatus(str, Enum):
+    """Individual query status enum"""
+    PENDING = "pending"
+    SEARCHING = "searching"
+    COMPLETED = "completed"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+
+
+class DeepResearchQueryData(BaseModel):
+    """Individual research query data"""
+    id: str
+    query: str
+    status: DeepResearchQueryStatus = DeepResearchQueryStatus.PENDING
+    result: list[SearchResultItem] | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
+class DeepResearchEvent(BaseEvent):
+    """Deep research progress event for parallel search execution"""
+    type: Literal["deep_research"] = "deep_research"
+    research_id: str  # Unique research session ID
+    status: DeepResearchStatus
+    total_queries: int
+    completed_queries: int = 0
+    queries: list[DeepResearchQueryData] = Field(default_factory=list)
+    auto_run: bool = False
 
 
 AgentEvent = Union[
@@ -331,4 +375,5 @@ AgentEvent = Union[
     WorkspaceEvent,
     BudgetEvent,
     ProgressEvent,
+    DeepResearchEvent,
 ]

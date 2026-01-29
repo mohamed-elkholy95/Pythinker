@@ -4,12 +4,12 @@ Provides integration point for workspace template selection and initialization
 when a new task is started.
 """
 
-from typing import Optional, Dict
 import logging
-from app.domain.models.session import Session
+
 from app.domain.external.sandbox import Sandbox
-from app.domain.services.workspace import WorkspaceSelector, WorkspaceOrganizer
+from app.domain.models.session import Session
 from app.domain.repositories.session_repository import SessionRepository
+from app.domain.services.workspace import WorkspaceOrganizer, WorkspaceSelector
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ class SessionWorkspaceInitializer:
         session: Session,
         sandbox: Sandbox,
         task_description: str
-    ) -> Optional[Dict[str, str]]:
+    ) -> dict[str, str] | None:
         """Initialize workspace for session if not already initialized.
 
         Args:
@@ -99,7 +99,7 @@ class SessionWorkspaceInitializer:
 
 
 # Singleton instance
-_initializer: Optional[SessionWorkspaceInitializer] = None
+_initializer: SessionWorkspaceInitializer | None = None
 
 
 def get_session_workspace_initializer(

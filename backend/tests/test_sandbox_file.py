@@ -4,15 +4,15 @@ Integration tests for sandbox file upload and download functionality
 These tests require a running sandbox container. They are skipped if the sandbox
 is not accessible.
 """
-import logging
-import pytest
-import tempfile
-import os
 import io
-import httpx
+import logging
+import os
 
-from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
+import httpx
+import pytest
+
 from app.domain.models.tool_result import ToolResult
+from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
 
 logger = logging.getLogger(__name__)
 
@@ -243,13 +243,13 @@ async def test_multiple_file_operations(sandbox_instance, temp_file_path):
     for i, (content, filename) in enumerate(files_data):
         file_path = f"{temp_file_path}_{i}"
         stream = io.BytesIO(content)
-        
+
         upload_result = await sandbox_instance.file_upload(
             file_data=stream,
             path=file_path,
             filename=filename
         )
-        
+
         assert upload_result.success is True
         uploaded_paths.append((file_path, content))
 
@@ -265,7 +265,7 @@ async def test_file_overwrite(sandbox_instance, temp_file_path):
     # Upload initial file
     initial_content = b"Initial content"
     initial_stream = io.BytesIO(initial_content)
-    
+
     upload_result1 = await sandbox_instance.file_upload(
         file_data=initial_stream,
         path=temp_file_path,
@@ -276,7 +276,7 @@ async def test_file_overwrite(sandbox_instance, temp_file_path):
     # Upload new content to same path
     new_content = b"New content that overwrites the old one"
     new_stream = io.BytesIO(new_content)
-    
+
     upload_result2 = await sandbox_instance.file_upload(
         file_data=new_stream,
         path=temp_file_path,
@@ -288,4 +288,4 @@ async def test_file_overwrite(sandbox_instance, temp_file_path):
     download_result = await sandbox_instance.file_download(temp_file_path)
     downloaded_content = download_result.read()
     assert downloaded_content == new_content
-    assert downloaded_content != initial_content 
+    assert downloaded_content != initial_content

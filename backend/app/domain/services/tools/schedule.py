@@ -3,15 +3,15 @@ Schedule Tool
 Provides functionality to schedule tasks for deferred or recurring execution.
 """
 import logging
-from datetime import datetime, timedelta, UTC
-from typing import Optional, Callable, Awaitable
-from app.domain.services.tools.base import tool, BaseTool
-from app.domain.models.tool_result import ToolResult
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, timedelta
+
 from app.domain.models.scheduled_task import (
     ScheduledTask,
     ScheduleType,
-    ScheduledTaskStatus,
 )
+from app.domain.models.tool_result import ToolResult
+from app.domain.services.tools.base import BaseTool, tool
 
 logger = logging.getLogger(__name__)
 
@@ -28,16 +28,16 @@ class ScheduleTool(BaseTool):
     name: str = "schedule"
 
     # Callback for scheduling service integration
-    _schedule_callback: Optional[Callable[[ScheduledTask], Awaitable[ToolResult]]] = None
-    _cancel_callback: Optional[Callable[[str], Awaitable[ToolResult]]] = None
-    _list_callback: Optional[Callable[[str], Awaitable[ToolResult]]] = None
+    _schedule_callback: Callable[[ScheduledTask], Awaitable[ToolResult]] | None = None
+    _cancel_callback: Callable[[str], Awaitable[ToolResult]] | None = None
+    _list_callback: Callable[[str], Awaitable[ToolResult]] | None = None
 
     def __init__(
         self,
         user_id: str,
-        schedule_callback: Optional[Callable[[ScheduledTask], Awaitable[ToolResult]]] = None,
-        cancel_callback: Optional[Callable[[str], Awaitable[ToolResult]]] = None,
-        list_callback: Optional[Callable[[str], Awaitable[ToolResult]]] = None,
+        schedule_callback: Callable[[ScheduledTask], Awaitable[ToolResult]] | None = None,
+        cancel_callback: Callable[[str], Awaitable[ToolResult]] | None = None,
+        list_callback: Callable[[str], Awaitable[ToolResult]] | None = None,
     ):
         """
         Initialize schedule tool.
@@ -96,8 +96,8 @@ Constraints:
         task: str,
         scheduled_at: str,
         recurring: bool = False,
-        interval_minutes: Optional[int] = None,
-        max_executions: Optional[int] = None,
+        interval_minutes: int | None = None,
+        max_executions: int | None = None,
     ) -> ToolResult:
         """
         Schedule a task for later or recurring execution.

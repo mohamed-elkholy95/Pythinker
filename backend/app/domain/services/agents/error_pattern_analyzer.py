@@ -8,9 +8,9 @@ proactive guidance to help the agent avoid repeated failures.
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Callable, Tuple
 from datetime import datetime, timedelta
 from enum import Enum
+from typing import Any
 
 from app.domain.services.agents.error_handler import ErrorContext, ErrorType
 
@@ -34,9 +34,9 @@ class DetectedPattern:
     confidence: float  # 0-1 confidence score
     occurrences: int
     time_window: timedelta
-    affected_tools: List[str]
+    affected_tools: list[str]
     suggestion: str
-    details: Dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
 
     def to_context_signal(self) -> str:
         """Generate context signal for prompt injection"""
@@ -54,7 +54,7 @@ class ToolErrorRecord:
     error_type: ErrorType
     error_message: str
     timestamp: datetime
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class ErrorPatternAnalyzer:
@@ -87,16 +87,16 @@ class ErrorPatternAnalyzer:
             max_history: Maximum error records to keep
         """
         self._max_history = max_history
-        self._error_history: List[ToolErrorRecord] = []
-        self._tool_error_counts: Dict[str, int] = defaultdict(int)
-        self._consecutive_failures: Dict[str, int] = defaultdict(int)
-        self._last_success_time: Dict[str, datetime] = {}
+        self._error_history: list[ToolErrorRecord] = []
+        self._tool_error_counts: dict[str, int] = defaultdict(int)
+        self._consecutive_failures: dict[str, int] = defaultdict(int)
+        self._last_success_time: dict[str, datetime] = {}
 
     def record_error(
         self,
         tool_name: str,
         error_context: ErrorContext,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: dict[str, Any] | None = None
     ) -> None:
         """
         Record a tool execution error.
@@ -129,7 +129,7 @@ class ErrorPatternAnalyzer:
         self._consecutive_failures[tool_name] = 0
         self._last_success_time[tool_name] = datetime.now()
 
-    def analyze_patterns(self) -> List[DetectedPattern]:
+    def analyze_patterns(self) -> list[DetectedPattern]:
         """
         Analyze error history for patterns.
 
@@ -181,8 +181,8 @@ class ErrorPatternAnalyzer:
 
     def _check_timeout_pattern(
         self,
-        recent_errors: List[ToolErrorRecord]
-    ) -> Optional[DetectedPattern]:
+        recent_errors: list[ToolErrorRecord]
+    ) -> DetectedPattern | None:
         """Check for repeated timeout pattern"""
         timeout_errors = [
             e for e in recent_errors
@@ -216,8 +216,8 @@ class ErrorPatternAnalyzer:
 
     def _check_json_parse_pattern(
         self,
-        recent_errors: List[ToolErrorRecord]
-    ) -> Optional[DetectedPattern]:
+        recent_errors: list[ToolErrorRecord]
+    ) -> DetectedPattern | None:
         """Check for JSON parsing failure loop"""
         json_errors = [
             e for e in recent_errors
@@ -245,8 +245,8 @@ class ErrorPatternAnalyzer:
 
     def _check_failure_streak_pattern(
         self,
-        recent_errors: List[ToolErrorRecord]
-    ) -> Optional[DetectedPattern]:
+        recent_errors: list[ToolErrorRecord]
+    ) -> DetectedPattern | None:
         """Check for consecutive tool failure streak"""
         for tool_name, count in self._consecutive_failures.items():
             if count >= self.TOOL_FAILURE_THRESHOLD:
@@ -277,8 +277,8 @@ class ErrorPatternAnalyzer:
 
     def _check_rate_limit_pattern(
         self,
-        recent_errors: List[ToolErrorRecord]
-    ) -> Optional[DetectedPattern]:
+        recent_errors: list[ToolErrorRecord]
+    ) -> DetectedPattern | None:
         """Check for rate limit burst"""
         rate_errors = [
             e for e in recent_errors
@@ -304,11 +304,11 @@ class ErrorPatternAnalyzer:
 
     def _check_same_error_pattern(
         self,
-        recent_errors: List[ToolErrorRecord]
-    ) -> Optional[DetectedPattern]:
+        recent_errors: list[ToolErrorRecord]
+    ) -> DetectedPattern | None:
         """Check for repeated identical error messages"""
-        error_msg_counts: Dict[str, int] = defaultdict(int)
-        error_msg_tools: Dict[str, str] = {}
+        error_msg_counts: dict[str, int] = defaultdict(int)
+        error_msg_tools: dict[str, str] = {}
 
         for e in recent_errors:
             # Normalize error message for comparison
@@ -334,7 +334,7 @@ class ErrorPatternAnalyzer:
 
         return None
 
-    def get_guidance_for_tool(self, tool_name: str) -> Optional[str]:
+    def get_guidance_for_tool(self, tool_name: str) -> str | None:
         """
         Get specific guidance for a tool based on its error history.
 
@@ -352,15 +352,15 @@ class ErrorPatternAnalyzer:
 
         return None
 
-    def get_all_pattern_signals(self) -> List[str]:
+    def get_all_pattern_signals(self) -> list[str]:
         """Get context signals for all detected patterns"""
         patterns = self.analyze_patterns()
         return [p.to_context_signal() for p in patterns]
 
     def get_proactive_signals(
         self,
-        likely_tools: Optional[List[str]] = None
-    ) -> Optional[str]:
+        likely_tools: list[str] | None = None
+    ) -> str | None:
         """Get proactive warning signals for likely tool usage.
 
         Analyzes error history to generate warnings BEFORE execution,
@@ -398,7 +398,7 @@ class ErrorPatternAnalyzer:
             return "\n".join(warnings)
         return None
 
-    def infer_tools_from_description(self, step_description: str) -> List[str]:
+    def infer_tools_from_description(self, step_description: str) -> list[str]:
         """Infer likely tools from a step description.
 
         Args:
@@ -433,7 +433,7 @@ class ErrorPatternAnalyzer:
         self._last_success_time.clear()
         logger.debug("Error pattern analyzer history cleared")
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get analyzer statistics"""
         return {
             "total_errors": len(self._error_history),
@@ -444,7 +444,7 @@ class ErrorPatternAnalyzer:
 
 
 # Singleton for global access
-_pattern_analyzer: Optional[ErrorPatternAnalyzer] = None
+_pattern_analyzer: ErrorPatternAnalyzer | None = None
 
 
 def get_error_pattern_analyzer() -> ErrorPatternAnalyzer:

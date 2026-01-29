@@ -16,7 +16,6 @@ Usage:
     clear_usage_context()
 """
 from contextvars import ContextVar
-from typing import Optional, Tuple, NamedTuple
 from dataclasses import dataclass
 
 
@@ -25,11 +24,11 @@ class UsageContext:
     """Context for tracking usage attribution."""
     user_id: str
     session_id: str
-    model_override: Optional[str] = None  # Override model name for billing
+    model_override: str | None = None  # Override model name for billing
 
 
 # Context variable for usage tracking
-_usage_context: ContextVar[Optional[UsageContext]] = ContextVar(
+_usage_context: ContextVar[UsageContext | None] = ContextVar(
     "usage_context",
     default=None
 )
@@ -38,7 +37,7 @@ _usage_context: ContextVar[Optional[UsageContext]] = ContextVar(
 def set_usage_context(
     user_id: str,
     session_id: str,
-    model_override: Optional[str] = None
+    model_override: str | None = None
 ) -> None:
     """Set the current usage context.
 
@@ -58,7 +57,7 @@ def set_usage_context(
     _usage_context.set(ctx)
 
 
-def get_usage_context() -> Optional[UsageContext]:
+def get_usage_context() -> UsageContext | None:
     """Get the current usage context.
 
     Returns:
@@ -88,12 +87,12 @@ class UsageContextManager:
         self,
         user_id: str,
         session_id: str,
-        model_override: Optional[str] = None
+        model_override: str | None = None
     ):
         self.user_id = user_id
         self.session_id = session_id
         self.model_override = model_override
-        self._previous_context: Optional[UsageContext] = None
+        self._previous_context: UsageContext | None = None
 
     def __enter__(self) -> "UsageContextManager":
         self._previous_context = get_usage_context()

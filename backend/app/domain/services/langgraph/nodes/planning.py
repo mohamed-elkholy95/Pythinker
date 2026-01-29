@@ -9,15 +9,15 @@ Enhanced with:
 
 import asyncio
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Any
 
-from app.domain.services.langgraph.state import PlanActState
-from app.domain.models.event import PlanEvent, PlanStatus, TitleEvent, ErrorEvent
-from app.domain.services.tools.dynamic_toolset import get_toolset_manager
+from app.domain.models.event import ErrorEvent, PlanEvent, PlanStatus, TitleEvent
 
 # P0 Priority: Input Guardrails
-from app.domain.services.agents.guardrails import get_guardrails_manager, InputRiskLevel
+from app.domain.services.agents.guardrails import InputRiskLevel, get_guardrails_manager
 from app.domain.services.agents.intent_tracker import get_intent_tracker
+from app.domain.services.langgraph.state import PlanActState
+from app.domain.services.tools.dynamic_toolset import get_toolset_manager
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 async def _prefetch_tools_for_task(
     user_message_text: str,
     include_mcp: bool = True
-) -> Optional[List[Dict[str, Any]]]:
+) -> list[dict[str, Any]] | None:
     """Prefetch tools in background while planning proceeds.
 
     Args:
@@ -52,7 +52,7 @@ async def _prefetch_tools_for_task(
         return None
 
 
-async def planning_node(state: PlanActState) -> Dict[str, Any]:
+async def planning_node(state: PlanActState) -> dict[str, Any]:
     """Create or revise the execution plan.
 
     This node invokes the PlannerAgent to create a plan from the user message.

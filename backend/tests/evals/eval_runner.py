@@ -8,21 +8,20 @@ import asyncio
 import logging
 import traceback
 import uuid
-from typing import (
-    Dict, Any, Optional, List, Callable, Awaitable, AsyncGenerator, Protocol
-)
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from datetime import datetime
+from typing import Any, Protocol
 
+from tests.evals.metrics.base import get_metric
 from tests.evals.types import (
     EvalCase,
-    EvalResult,
-    EvalDataset,
     EvalConfig,
+    EvalDataset,
     EvalReport,
+    EvalResult,
     EvalStatus,
     MetricScore,
 )
-from tests.evals.metrics.base import get_metric, get_all_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +31,10 @@ class LLMProtocol(Protocol):
 
     async def ask(
         self,
-        messages: List[Dict[str, Any]],
-        tools: Optional[List[Dict[str, Any]]] = None,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
         **kwargs
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         ...
 
 
@@ -47,7 +46,7 @@ class AgentProtocol(Protocol):
 
 
 # Type for custom evaluators
-CustomEvaluator = Callable[[str, str, Dict[str, Any]], Awaitable[MetricScore]]
+CustomEvaluator = Callable[[str, str, dict[str, Any]], Awaitable[MetricScore]]
 
 
 class EvalRunner:
@@ -68,10 +67,10 @@ class EvalRunner:
 
     def __init__(
         self,
-        llm: Optional[LLMProtocol] = None,
-        agent: Optional[AgentProtocol] = None,
-        config: Optional[EvalConfig] = None,
-        custom_evaluators: Optional[Dict[str, CustomEvaluator]] = None,
+        llm: LLMProtocol | None = None,
+        agent: AgentProtocol | None = None,
+        config: EvalConfig | None = None,
+        custom_evaluators: dict[str, CustomEvaluator] | None = None,
     ):
         """Initialize the evaluation runner.
 
@@ -92,7 +91,7 @@ class EvalRunner:
     async def run(
         self,
         dataset: EvalDataset,
-        config: Optional[EvalConfig] = None,
+        config: EvalConfig | None = None,
     ) -> EvalReport:
         """Run evaluation on a dataset.
 
@@ -146,9 +145,9 @@ class EvalRunner:
 
     def _filter_cases(
         self,
-        cases: List[EvalCase],
+        cases: list[EvalCase],
         config: EvalConfig
-    ) -> List[EvalCase]:
+    ) -> list[EvalCase]:
         """Filter cases based on configuration."""
         filtered = []
 
@@ -178,9 +177,9 @@ class EvalRunner:
 
     async def _run_parallel(
         self,
-        cases: List[EvalCase],
+        cases: list[EvalCase],
         config: EvalConfig
-    ) -> List[EvalResult]:
+    ) -> list[EvalResult]:
         """Run cases in parallel with concurrency limit."""
         semaphore = asyncio.Semaphore(config.max_parallel)
 
@@ -210,9 +209,9 @@ class EvalRunner:
 
     async def _run_sequential(
         self,
-        cases: List[EvalCase],
+        cases: list[EvalCase],
         config: EvalConfig
-    ) -> List[EvalResult]:
+    ) -> list[EvalResult]:
         """Run cases sequentially."""
         results = []
 
@@ -263,7 +262,7 @@ class EvalRunner:
                 result.complete(output)
                 break
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 last_error = "Timeout"
                 if attempt < config.retries:
                     logger.warning(f"Case {case.id} timed out, retrying ({attempt + 1}/{config.retries})")
@@ -288,7 +287,7 @@ class EvalRunner:
         self,
         case: EvalCase,
         config: EvalConfig
-    ) -> tuple[str, Dict[str, Any]]:
+    ) -> tuple[str, dict[str, Any]]:
         """Get output from LLM or agent.
 
         Returns:
@@ -299,16 +298,15 @@ class EvalRunner:
         async with asyncio.timeout(timeout):
             if self._agent:
                 return await self._get_agent_output(case)
-            elif self._llm:
+            if self._llm:
                 return await self._get_llm_output(case)
-            else:
-                # Mock mode for testing
-                return self._get_mock_output(case)
+            # Mock mode for testing
+            return self._get_mock_output(case)
 
     async def _get_llm_output(
         self,
         case: EvalCase
-    ) -> tuple[str, Dict[str, Any]]:
+    ) -> tuple[str, dict[str, Any]]:
         """Get output from raw LLM."""
         messages = [{"role": "user", "content": case.input}]
 
@@ -337,9 +335,9 @@ class EvalRunner:
     async def _get_agent_output(
         self,
         case: EvalCase
-    ) -> tuple[str, Dict[str, Any]]:
+    ) -> tuple[str, dict[str, Any]]:
         """Get output from full agent execution."""
-        from app.domain.models.event import MessageEvent, ToolEvent, ErrorEvent
+        from app.domain.models.event import ErrorEvent, MessageEvent, ToolEvent
 
         output_parts = []
         tool_calls = []
@@ -371,7 +369,7 @@ class EvalRunner:
     def _get_mock_output(
         self,
         case: EvalCase
-    ) -> tuple[str, Dict[str, Any]]:
+    ) -> tuple[str, dict[str, Any]]:
         """Get mock output for testing the evaluation framework."""
         # Return a simple mock based on input
         mock_output = f"Mock response to: {case.input[:50]}"
@@ -390,9 +388,9 @@ class EvalRunner:
         self,
         case: EvalCase,
         output: str,
-        context: Dict[str, Any],
+        context: dict[str, Any],
         config: EvalConfig
-    ) -> List[MetricScore]:
+    ) -> list[MetricScore]:
         """Evaluate output using configured metrics."""
         scores = []
 
@@ -421,7 +419,7 @@ class EvalRunner:
                         metric_name=metric_name,
                         score=0.0,
                         passed=False,
-                        message=f"Metric error: {str(e)}"
+                        message=f"Metric error: {e!s}"
                     ))
 
         # Run custom evaluator if specified
@@ -452,9 +450,9 @@ class EvalRunner:
 
 async def run_evaluation(
     dataset: EvalDataset,
-    llm: Optional[LLMProtocol] = None,
-    agent: Optional[AgentProtocol] = None,
-    config: Optional[EvalConfig] = None,
+    llm: LLMProtocol | None = None,
+    agent: AgentProtocol | None = None,
+    config: EvalConfig | None = None,
 ) -> EvalReport:
     """Convenience function for running an evaluation.
 
@@ -475,7 +473,6 @@ async def run_evaluation(
 async def main():
     """Command-line interface for running evaluations."""
     import argparse
-    import json
 
     parser = argparse.ArgumentParser(description="Run agent evaluations")
     parser.add_argument("dataset", help="Path to dataset JSON file")

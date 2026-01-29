@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from difflib import unified_diff
-from typing import Optional
 
 
 def build_unified_diff(
-    before: Optional[str],
-    after: Optional[str],
+    before: str | None,
+    after: str | None,
     path: str,
     context_lines: int = 3,
     max_chars: int = 20000,

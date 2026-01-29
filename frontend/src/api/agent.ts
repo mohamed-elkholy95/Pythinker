@@ -367,3 +367,47 @@ export async function getSessionWorkspace(sessionId: string): Promise<SessionWor
   const response = await apiClient.get<ApiResponse<SessionWorkspaceResponse>>(`/workspace/sessions/${sessionId}`);
   return response.data.data;
 }
+
+// ============================================================================
+// Deep Research API
+// ============================================================================
+
+/**
+ * Approve a pending deep research session to start execution
+ * @param sessionId Session ID
+ */
+export async function approveDeepResearch(sessionId: string): Promise<void> {
+  await apiClient.post<ApiResponse<void>>(`/sessions/${sessionId}/deep-research/approve`);
+}
+
+/**
+ * Skip a specific query or all pending queries in deep research
+ * @param sessionId Session ID
+ * @param queryId Optional query ID to skip (if not provided, skips all)
+ */
+export async function skipDeepResearchQuery(sessionId: string, queryId?: string): Promise<void> {
+  await apiClient.post<ApiResponse<void>>(`/sessions/${sessionId}/deep-research/skip`, {
+    query_id: queryId
+  });
+}
+
+/**
+ * Deep research status response
+ */
+export interface DeepResearchStatusResponse {
+  research_id: string;
+  status: string;
+  total_queries: number;
+  completed_queries: number;
+}
+
+/**
+ * Get the current status of deep research for a session
+ * @param sessionId Session ID
+ */
+export async function getDeepResearchStatus(sessionId: string): Promise<DeepResearchStatusResponse> {
+  const response = await apiClient.get<ApiResponse<DeepResearchStatusResponse>>(
+    `/sessions/${sessionId}/deep-research/status`
+  );
+  return response.data.data;
+}

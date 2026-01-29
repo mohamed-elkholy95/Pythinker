@@ -4,15 +4,14 @@ NOTE: These tests require a full FastAPI TestClient with proper configuration.
 They are skipped by default because they require API keys and database connections.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 from fastapi import status
-from app.domain.models.session import Session, SessionStatus, AgentMode
+
+from app.domain.models.session import AgentMode, Session, SessionStatus
 from app.domain.services.workspace.workspace_templates import (
     RESEARCH_TEMPLATE,
-    DATA_ANALYSIS_TEMPLATE,
-    CODE_PROJECT_TEMPLATE,
-    DOCUMENT_GENERATION_TEMPLATE,
 )
 
 # Skip all tests in this module - they require full app configuration
@@ -501,6 +500,7 @@ class TestWorkspaceRoutes:
 def client():
     """Create a test client."""
     from fastapi.testclient import TestClient
+
     from app.main import app
     return TestClient(app)
 
@@ -508,8 +508,10 @@ def client():
 @pytest.fixture
 def auth_headers(mock_user):
     """Create authentication headers."""
+    from datetime import UTC, datetime, timedelta
+
     import jwt
-    from datetime import datetime, timedelta, UTC
+
     from app.core.config import get_settings
 
     settings = get_settings()

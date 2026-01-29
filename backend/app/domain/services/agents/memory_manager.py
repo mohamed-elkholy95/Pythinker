@@ -11,15 +11,14 @@ Phase 3 Enhancements:
 - Archive integration for persisting compacted content
 """
 
-import hashlib
 import json
 import logging
 import re
 import uuid
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 from datetime import datetime
 from enum import Enum
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from app.domain.external.llm import LLM
@@ -48,7 +47,7 @@ class PressureStatus:
         """Convert pressure status to context signal for the agent."""
         if self.level == PressureLevel.CRITICAL:
             return f"[CONTEXT PRESSURE: CRITICAL - {self.usage_ratio:.0%} capacity used. Prioritize essential outputs only.]"
-        elif self.level == PressureLevel.WARNING:
+        if self.level == PressureLevel.WARNING:
             return f"[CONTEXT PRESSURE: WARNING - {self.usage_ratio:.0%} capacity used. Consider concise responses.]"
         return ""
 
@@ -57,10 +56,10 @@ class PressureStatus:
 class CompactedMessage:
     """Result of message compaction with summary and reference"""
     summary: str
-    file_ref: Optional[str] = None
+    file_ref: str | None = None
     original_tokens: int = 0
     compacted_tokens: int = 0
-    key_results: List[str] = field(default_factory=list)
+    key_results: list[str] = field(default_factory=list)
 
     @property
     def tokens_saved(self) -> int:
@@ -71,10 +70,10 @@ class CompactedMessage:
 class ExtractionResult:
     """Extracted key information from a tool result"""
     success: bool
-    key_facts: List[str]
-    data_points: Dict[str, Any]
-    urls: List[str]
-    error_message: Optional[str] = None
+    key_facts: list[str]
+    data_points: dict[str, Any]
+    urls: list[str]
+    error_message: str | None = None
     extraction_method: str = "heuristic"  # "heuristic", "llm", or "fallback"
     confidence: float = 1.0  # Confidence score (0.0-1.0)
 
@@ -130,21 +129,21 @@ class MemoryManager:
         self._file_storage = file_storage
         self._archive_counter = 0
         # Token history for growth rate tracking (proactive compaction)
-        self._token_history: List[int] = []
+        self._token_history: list[int] = []
         self._max_history_size = 20
         # Archive index: message_id -> archive_path
-        self._archive_index: Dict[str, str] = {}
+        self._archive_index: dict[str, str] = {}
         # Archive index insertion order for FIFO cleanup
-        self._archive_order: List[str] = []
+        self._archive_order: list[str] = []
         # Memory limits
         self._max_archive_size = max_archive_size
         self._archive_cleanup_batch = archive_cleanup_batch
 
     def compact_message(
         self,
-        message: Dict[str, Any],
+        message: dict[str, Any],
         preserve_summary: bool = True
-    ) -> Tuple[Dict[str, Any], CompactedMessage]:
+    ) -> tuple[dict[str, Any], CompactedMessage]:
         """
         Compact a message while preserving key information.
 
@@ -282,7 +281,7 @@ class MemoryManager:
             error_message=error_message
         )
 
-    def _extract_browser_results(self, content: str) -> Tuple[List[str], List[str]]:
+    def _extract_browser_results(self, content: str) -> tuple[list[str], list[str]]:
         """Extract key facts from browser content"""
         facts = []
         urls = []
@@ -313,7 +312,7 @@ class MemoryManager:
 
         return facts, urls
 
-    def _extract_shell_results(self, content: str) -> List[str]:
+    def _extract_shell_results(self, content: str) -> list[str]:
         """Extract key facts from shell command output"""
         facts = []
         lines = content.strip().split('\n')
@@ -346,7 +345,7 @@ class MemoryManager:
 
         return facts[:5]
 
-    def _extract_file_results(self, content: str) -> List[str]:
+    def _extract_file_results(self, content: str) -> list[str]:
         """Extract key facts from file content"""
         facts = []
         lines = content.strip().split('\n')
@@ -365,7 +364,7 @@ class MemoryManager:
 
         return facts
 
-    def _extract_search_results(self, content: str) -> Tuple[List[str], List[str]]:
+    def _extract_search_results(self, content: str) -> tuple[list[str], list[str]]:
         """Extract key facts from search results"""
         facts = []
         urls = []
@@ -397,7 +396,7 @@ class MemoryManager:
 
         return facts[:5], urls
 
-    def _extract_listing_results(self, content: str) -> List[str]:
+    def _extract_listing_results(self, content: str) -> list[str]:
         """Extract key facts from directory listing"""
         facts = []
         lines = content.strip().split('\n')
@@ -411,7 +410,7 @@ class MemoryManager:
 
         return facts
 
-    def _extract_generic_results(self, content: str) -> List[str]:
+    def _extract_generic_results(self, content: str) -> list[str]:
         """Extract key facts from generic content"""
         facts = []
 
@@ -432,10 +431,10 @@ class MemoryManager:
 
     def compact_messages_batch(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         preserve_recent: int = 10,
         token_threshold: int = 80000
-    ) -> Tuple[List[Dict[str, Any]], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """
         Compact a batch of messages based on token threshold.
 
@@ -498,9 +497,9 @@ class MemoryManager:
     def should_trigger_compaction(
         self,
         pressure: PressureStatus,
-        recent_tools: List[str],
+        recent_tools: list[str],
         iteration_count: int
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """
         Determine if compaction should be triggered with reason.
 
@@ -654,7 +653,7 @@ ERRORS: (if any)"""
             logger.warning(f"LLM extraction failed for {function_name}: {e}")
             return self._fallback_extraction(function_name, content)
 
-    def _parse_llm_extraction(self, response: str) -> List[str]:
+    def _parse_llm_extraction(self, response: str) -> list[str]:
         """Parse LLM extraction response into key facts."""
         facts = []
         lines = response.strip().split('\n')
@@ -676,7 +675,7 @@ ERRORS: (if any)"""
 
         return facts[:5]
 
-    def _extract_urls_from_text(self, text: str) -> List[str]:
+    def _extract_urls_from_text(self, text: str) -> list[str]:
         """Extract URLs from text."""
         url_pattern = r'https?://[^\s<>"\']+(?:[^\s<>"\'\.,;:!?\)])'
         return list(set(re.findall(url_pattern, text)))[:5]
@@ -724,9 +723,9 @@ ERRORS: (if any)"""
 
     async def compact_and_archive(
         self,
-        message: Dict[str, Any],
+        message: dict[str, Any],
         session_id: str
-    ) -> Tuple[Dict[str, Any], Optional[str]]:
+    ) -> tuple[dict[str, Any], str | None]:
         """
         Compact message and archive full content to storage.
 
@@ -805,7 +804,7 @@ ERRORS: (if any)"""
 
         return compacted_message, archive_path
 
-    async def retrieve_archived(self, message_id: str) -> Optional[str]:
+    async def retrieve_archived(self, message_id: str) -> str | None:
         """
         Retrieve original content from archive.
 
@@ -837,7 +836,7 @@ ERRORS: (if any)"""
             logger.error(f"Failed to retrieve archive for {message_id}: {e}")
             return None
 
-    def get_archive_stats(self) -> Dict[str, Any]:
+    def get_archive_stats(self) -> dict[str, Any]:
         """
         Get statistics about archived content.
 
@@ -887,7 +886,7 @@ ERRORS: (if any)"""
 
         return removed
 
-    def cleanup_archive(self, max_entries: Optional[int] = None) -> int:
+    def cleanup_archive(self, max_entries: int | None = None) -> int:
         """
         Manually clean up the archive index to free memory.
 
@@ -938,7 +937,7 @@ ERRORS: (if any)"""
 
 
 # Singleton for global access
-_memory_manager: Optional[MemoryManager] = None
+_memory_manager: MemoryManager | None = None
 
 
 def get_memory_manager() -> MemoryManager:

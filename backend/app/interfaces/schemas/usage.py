@@ -1,6 +1,6 @@
 """API schemas for usage tracking endpoints."""
-from typing import List, Dict, Optional
 from datetime import date, datetime
+
 from pydantic import BaseModel
 
 
@@ -37,13 +37,13 @@ class DailyUsageResponse(BaseModel):
     total_cost: float
     llm_call_count: int
     tool_call_count: int
-    tokens_by_model: Dict[str, int]
-    cost_by_model: Dict[str, float]
+    tokens_by_model: dict[str, int]
+    cost_by_model: dict[str, float]
 
 
 class DailyUsageListResponse(BaseModel):
     """List of daily usage records."""
-    days: List[DailyUsageResponse]
+    days: list[DailyUsageResponse]
     total_days: int
 
 
@@ -59,12 +59,12 @@ class MonthlyUsageDetailResponse(BaseModel):
     total_tool_calls: int
     total_sessions: int
     active_days: int
-    cost_by_model: Dict[str, float]
+    cost_by_model: dict[str, float]
 
 
 class MonthlyUsageListResponse(BaseModel):
     """List of monthly usage records."""
-    months: List[MonthlyUsageDetailResponse]
+    months: list[MonthlyUsageDetailResponse]
     total_months: int
 
 
@@ -77,10 +77,10 @@ class SessionUsageResponse(BaseModel):
     total_cost: float
     llm_call_count: int
     tool_call_count: int
-    tokens_by_model: Dict[str, int]
-    cost_by_model: Dict[str, float]
-    first_activity: Optional[datetime]
-    last_activity: Optional[datetime]
+    tokens_by_model: dict[str, int]
+    cost_by_model: dict[str, float]
+    first_activity: datetime | None
+    last_activity: datetime | None
 
 
 class ModelPricingResponse(BaseModel):
@@ -88,9 +88,9 @@ class ModelPricingResponse(BaseModel):
     model: str
     prompt_price: float  # Per 1M tokens
     completion_price: float  # Per 1M tokens
-    cached_price: Optional[float]  # Per 1M tokens (if available)
+    cached_price: float | None  # Per 1M tokens (if available)
 
 
 class PricingListResponse(BaseModel):
     """List of all model pricing."""
-    models: List[ModelPricingResponse]
+    models: list[ModelPricingResponse]

@@ -17,28 +17,28 @@ Custom metrics can be registered using the register_metric function.
 from tests.evals.metrics.base import (
     BaseMetric,
     MetricScore,
-    register_metric,
-    get_metric,
     get_all_metrics,
-)
-from tests.evals.metrics.text_metrics import (
-    ExactMatchMetric,
-    ContainsMetric,
-    NotContainsMetric,
-    RegexMatchMetric,
-)
-from tests.evals.metrics.semantic_metrics import (
-    SimilarityMetric,
-    KeywordCoverageMetric,
-)
-from tests.evals.metrics.structured_metrics import (
-    JsonSchemaMetric,
-    JsonFieldMetric,
+    get_metric,
+    register_metric,
 )
 from tests.evals.metrics.execution_metrics import (
-    ToolCallMetric,
     ResponseTimeMetric,
     TokenCountMetric,
+    ToolCallMetric,
+)
+from tests.evals.metrics.semantic_metrics import (
+    KeywordCoverageMetric,
+    SimilarityMetric,
+)
+from tests.evals.metrics.structured_metrics import (
+    JsonFieldMetric,
+    JsonSchemaMetric,
+)
+from tests.evals.metrics.text_metrics import (
+    ContainsMetric,
+    ExactMatchMetric,
+    NotContainsMetric,
+    RegexMatchMetric,
 )
 
 # Register all built-in metrics

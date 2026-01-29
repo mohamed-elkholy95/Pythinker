@@ -5,8 +5,8 @@ schemas and expected values.
 """
 
 import json
-from typing import Dict, Any, List, Optional
 import re
+from typing import Any
 
 from tests.evals.metrics.base import BaseMetric, MetricScore
 
@@ -24,8 +24,8 @@ class JsonSchemaMetric(BaseMetric):
     def evaluate(
         self,
         actual_output: str,
-        expected: Dict[str, Any],
-        context: Dict[str, Any],
+        expected: dict[str, Any],
+        context: dict[str, Any],
     ) -> MetricScore:
         schema = expected.get("expected_json_schema")
 
@@ -83,7 +83,7 @@ class JsonSchemaMetric(BaseMetric):
             # Fall back to basic validation
             return self._basic_schema_check(parsed, schema)
 
-    def _extract_json(self, text: str) -> Optional[Dict[str, Any]]:
+    def _extract_json(self, text: str) -> dict[str, Any] | None:
         """Try to extract JSON from text."""
         # Try direct parse
         try:
@@ -111,8 +111,8 @@ class JsonSchemaMetric(BaseMetric):
 
     def _basic_schema_check(
         self,
-        data: Dict[str, Any],
-        schema: Dict[str, Any]
+        data: dict[str, Any],
+        schema: dict[str, Any]
     ) -> MetricScore:
         """Basic schema validation without jsonschema library."""
         errors = []
@@ -150,7 +150,7 @@ class JsonSchemaMetric(BaseMetric):
             message="Basic schema check " + ("passed" if passed else f"failed with {len(errors)} errors")
         )
 
-    def _check_type(self, value: Any, expected_type: Optional[str]) -> bool:
+    def _check_type(self, value: Any, expected_type: str | None) -> bool:
         """Check if value matches expected JSON type."""
         if expected_type is None:
             return True
@@ -181,8 +181,8 @@ class JsonFieldMetric(BaseMetric):
     def evaluate(
         self,
         actual_output: str,
-        expected: Dict[str, Any],
-        context: Dict[str, Any],
+        expected: dict[str, Any],
+        context: dict[str, Any],
     ) -> MetricScore:
         expected_fields = expected.get("expected_json_fields", {})
 
@@ -254,7 +254,7 @@ class JsonFieldMetric(BaseMetric):
             message=f"Matched {len(matched)}/{total} JSON fields"
         )
 
-    def _get_nested_value(self, data: Dict[str, Any], path: str) -> Any:
+    def _get_nested_value(self, data: dict[str, Any], path: str) -> Any:
         """Get value from nested dict using dot notation path."""
         keys = path.split(".")
         value = data
@@ -300,8 +300,8 @@ class StructuredOutputMetric(BaseMetric):
     def evaluate(
         self,
         actual_output: str,
-        expected: Dict[str, Any],
-        context: Dict[str, Any],
+        expected: dict[str, Any],
+        context: dict[str, Any],
     ) -> MetricScore:
         rules = expected.get("structured_rules", [])
 
@@ -349,8 +349,8 @@ class StructuredOutputMetric(BaseMetric):
     def _evaluate_rule(
         self,
         text: str,
-        parsed: Optional[Dict[str, Any]],
-        rule: Dict[str, Any]
+        parsed: dict[str, Any] | None,
+        rule: dict[str, Any]
     ) -> bool:
         """Evaluate a single structural rule."""
         rule_type = rule.get("type")
@@ -359,25 +359,25 @@ class StructuredOutputMetric(BaseMetric):
             field = rule.get("field")
             return field in parsed
 
-        elif rule_type == "field_type" and parsed:
+        if rule_type == "field_type" and parsed:
             field = rule.get("field")
             expected_type = rule.get("expected_type")
             if field not in parsed:
                 return False
             return type(parsed[field]).__name__ == expected_type
 
-        elif rule_type == "field_in" and parsed:
+        if rule_type == "field_in" and parsed:
             field = rule.get("field")
             allowed = rule.get("allowed", [])
             if field not in parsed:
                 return False
             return parsed[field] in allowed
 
-        elif rule_type == "text_contains":
+        if rule_type == "text_contains":
             substring = rule.get("substring", "")
             return substring.lower() in text.lower()
 
-        elif rule_type == "text_format":
+        if rule_type == "text_format":
             pattern = rule.get("pattern", "")
             return bool(re.search(pattern, text))
 

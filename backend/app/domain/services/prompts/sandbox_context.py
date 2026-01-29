@@ -9,11 +9,10 @@ Version: 1.0.0
 """
 
 import json
-import os
 import logging
-from typing import Dict, Any, Optional
-from pathlib import Path
+import os
 from datetime import datetime, timedelta
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -22,12 +21,12 @@ class SandboxContextManager:
     """Manages sandbox environment context for agent initialization"""
 
     # Cache context for 24 hours to avoid repeated file reads
-    _cache: Optional[Dict[str, Any]] = None
-    _cache_timestamp: Optional[datetime] = None
+    _cache: dict[str, Any] | None = None
+    _cache_timestamp: datetime | None = None
     _cache_ttl = timedelta(hours=24)
 
     @classmethod
-    def load_context(cls, force_reload: bool = False) -> Optional[Dict[str, Any]]:
+    def load_context(cls, force_reload: bool = False) -> dict[str, Any] | None:
         """
         Load sandbox environment context from JSON file.
 
@@ -54,7 +53,7 @@ class SandboxContextManager:
                 continue
 
             try:
-                with open(path, 'r') as f:
+                with open(path) as f:
                     context = json.load(f)
 
                 # Validate structure
@@ -76,7 +75,7 @@ class SandboxContextManager:
         return None
 
     @classmethod
-    def generate_prompt_section(cls, context: Optional[Dict[str, Any]] = None) -> str:
+    def generate_prompt_section(cls, context: dict[str, Any] | None = None) -> str:
         """
         Generate a concise prompt section with pre-loaded environment knowledge.
 
@@ -222,7 +221,7 @@ debugging a specific failure. Reference command patterns above instead of explor
         return prompt
 
     @classmethod
-    def _format_python_packages(cls, python_env: Dict[str, Any]) -> str:
+    def _format_python_packages(cls, python_env: dict[str, Any]) -> str:
         """Format Python packages for prompt"""
         key_packages = python_env.get("key_packages", {})
         if not key_packages:
@@ -240,7 +239,7 @@ debugging a specific failure. Reference command patterns above instead of explor
         return "\n".join(lines)
 
     @classmethod
-    def _format_browser_info(cls, browser_env: Dict[str, Any]) -> str:
+    def _format_browser_info(cls, browser_env: dict[str, Any]) -> str:
         """Format browser capabilities for prompt"""
         info = []
 
@@ -257,7 +256,7 @@ debugging a specific failure. Reference command patterns above instead of explor
         return "\n".join(info) if info else "- Basic browser automation available"
 
     @classmethod
-    def _format_directories(cls, directories: Dict[str, Any]) -> str:
+    def _format_directories(cls, directories: dict[str, Any]) -> str:
         """Format directory information for prompt"""
         lines = []
         for path, info in directories.items():
@@ -278,7 +277,7 @@ debugging a specific failure. Reference command patterns above instead of explor
         return "\n".join(lines) if lines else "- Standard filesystem layout"
 
     @classmethod
-    def _format_python_stdlib(cls, stdlib: Dict[str, Any]) -> str:
+    def _format_python_stdlib(cls, stdlib: dict[str, Any]) -> str:
         """Format Python standard library modules for prompt"""
         by_category = stdlib.get("by_category", {})
         if not by_category:
@@ -292,7 +291,7 @@ debugging a specific failure. Reference command patterns above instead of explor
         return ", ".join(all_modules[:20])  # Limit to 20 total to save tokens
 
     @classmethod
-    def _format_nodejs_builtins(cls, builtins: Dict[str, Any]) -> str:
+    def _format_nodejs_builtins(cls, builtins: dict[str, Any]) -> str:
         """Format Node.js built-in modules for prompt"""
         by_category = builtins.get("by_category", {})
         if not by_category:
@@ -303,7 +302,7 @@ debugging a specific failure. Reference command patterns above instead of explor
         return ", ".join(core[:20]) if core else "fs, path, http, https, crypto"
 
     @classmethod
-    def _format_execution_patterns(cls, patterns: Dict[str, Any], language: str) -> str:
+    def _format_execution_patterns(cls, patterns: dict[str, Any], language: str) -> str:
         """Format execution patterns for a specific language"""
         lang_patterns = patterns.get(language, {})
         if not lang_patterns:
@@ -317,7 +316,7 @@ debugging a specific failure. Reference command patterns above instead of explor
         return "\n".join(lines)
 
     @classmethod
-    def _format_bash_examples(cls, bash_commands: Dict[str, Any]) -> str:
+    def _format_bash_examples(cls, bash_commands: dict[str, Any]) -> str:
         """Format bash command examples for prompt"""
         if not bash_commands:
             return "- Use standard bash commands with man pages for reference"
@@ -335,7 +334,7 @@ debugging a specific failure. Reference command patterns above instead of explor
         return "\n".join(lines[:8])  # Limit to 8 total examples
 
     @classmethod
-    def _format_resource_limits(cls, limits: Dict[str, Any]) -> str:
+    def _format_resource_limits(cls, limits: dict[str, Any]) -> str:
         """Format resource limits for prompt"""
         lines = []
 
@@ -400,7 +399,7 @@ fs, path, http, https, crypto, buffer, stream, util, events, url
 """
 
     @classmethod
-    def get_context_stats(cls) -> Dict[str, Any]:
+    def get_context_stats(cls) -> dict[str, Any]:
         """Get statistics about current context"""
         context = cls.load_context()
 

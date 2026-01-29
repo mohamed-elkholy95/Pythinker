@@ -12,7 +12,6 @@ import logging
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +155,7 @@ class ModelRouter:
         self,
         default_provider: str = "openai",
         enable_routing: bool = True,
-        force_tier: Optional[ModelTier] = None,
+        force_tier: ModelTier | None = None,
     ):
         """Initialize the model router.
 
@@ -250,7 +249,7 @@ class ModelRouter:
     def route(
         self,
         task: str,
-        provider: Optional[str] = None,
+        provider: str | None = None,
     ) -> ModelConfig:
         """Route a task to the appropriate model.
 
@@ -313,7 +312,7 @@ class ModelRouter:
 
 
 # Singleton instance
-_model_router: Optional[ModelRouter] = None
+_model_router: ModelRouter | None = None
 
 
 def get_model_router(

@@ -1,6 +1,8 @@
-from typing import Optional, Protocol, BinaryIO
-from app.domain.models.tool_result import ToolResult
+from typing import BinaryIO, Protocol
+
 from app.domain.external.browser import Browser
+from app.domain.models.tool_result import ToolResult
+
 
 class Sandbox(Protocol):
     """Sandbox service gateway interface"""
@@ -12,7 +14,7 @@ class Sandbox(Protocol):
     async def ensure_framework(self, session_id: str) -> None:
         """Ensure sandbox framework is initialized for a session"""
         ...
-    
+
     async def exec_command(
         self,
         session_id: str,
@@ -30,7 +32,7 @@ class Sandbox(Protocol):
             Command execution result
         """
         ...
-    
+
     async def view_shell(self, session_id: str, console: bool = False) -> ToolResult:
         """View shell status
         
@@ -42,11 +44,11 @@ class Sandbox(Protocol):
             Shell status information
         """
         ...
-    
+
     async def wait_for_process(
         self,
         session_id: str,
-        seconds: Optional[int] = None
+        seconds: int | None = None
     ) -> ToolResult:
         """Wait for process
         
@@ -58,7 +60,7 @@ class Sandbox(Protocol):
             Wait result
         """
         ...
-    
+
     async def write_to_process(
         self,
         session_id: str,
@@ -76,7 +78,7 @@ class Sandbox(Protocol):
             Write result
         """
         ...
-    
+
     async def kill_process(self, session_id: str) -> ToolResult:
         """Terminate process
         
@@ -87,14 +89,14 @@ class Sandbox(Protocol):
             Termination result
         """
         ...
-    
+
     async def file_write(
-        self, 
-        file: str, 
-        content: str, 
-        append: bool = False, 
-        leading_newline: bool = False, 
-        trailing_newline: bool = False, 
+        self,
+        file: str,
+        content: str,
+        append: bool = False,
+        leading_newline: bool = False,
+        trailing_newline: bool = False,
         sudo: bool = False
     ) -> ToolResult:
         """Write content to file
@@ -111,12 +113,12 @@ class Sandbox(Protocol):
             Write operation result
         """
         ...
-    
+
     async def file_read(
-        self, 
-        file: str, 
-        start_line: int = None, 
-        end_line: int = None, 
+        self,
+        file: str,
+        start_line: int = None,
+        end_line: int = None,
         sudo: bool = False
     ) -> ToolResult:
         """Read file content
@@ -131,7 +133,7 @@ class Sandbox(Protocol):
             File content
         """
         ...
-    
+
     async def file_exists(self, path: str) -> ToolResult:
         """Check if file exists
         
@@ -142,7 +144,7 @@ class Sandbox(Protocol):
             Whether file exists
         """
         ...
-    
+
     async def file_delete(self, path: str) -> ToolResult:
         """Delete file
         
@@ -153,7 +155,7 @@ class Sandbox(Protocol):
             Delete operation result
         """
         ...
-    
+
     async def file_list(self, path: str) -> ToolResult:
         """List directory contents
         
@@ -164,12 +166,12 @@ class Sandbox(Protocol):
             Directory content list
         """
         ...
-    
+
     async def file_replace(
-        self, 
-        file: str, 
-        old_str: str, 
-        new_str: str, 
+        self,
+        file: str,
+        old_str: str,
+        new_str: str,
         sudo: bool = False
     ) -> ToolResult:
         """Replace string in file
@@ -184,11 +186,11 @@ class Sandbox(Protocol):
             Replace operation result
         """
         ...
-    
+
     async def file_search(
-        self, 
-        file: str, 
-        regex: str, 
+        self,
+        file: str,
+        regex: str,
         sudo: bool = False
     ) -> ToolResult:
         """Search in file content
@@ -202,10 +204,10 @@ class Sandbox(Protocol):
             Search result
         """
         ...
-    
+
     async def file_find(
-        self, 
-        path: str, 
+        self,
+        path: str,
         glob_pattern: str
     ) -> ToolResult:
         """Find files by name pattern
@@ -218,7 +220,7 @@ class Sandbox(Protocol):
             Found file list
         """
         ...
-    
+
     async def file_upload(
         self,
         file_data: BinaryIO,
@@ -236,7 +238,7 @@ class Sandbox(Protocol):
             Upload operation result
         """
         ...
-    
+
     async def file_download(
         self,
         path: str
@@ -617,7 +619,7 @@ class Sandbox(Protocol):
             Export list
         """
         ...
-    
+
     async def destroy(self) -> bool:
         """Destroy current sandbox instance
         
@@ -625,7 +627,7 @@ class Sandbox(Protocol):
             Whether destroyed successfully
         """
         ...
-    
+
     async def get_browser(self, clear_session: bool = False) -> Browser:
         """Get browser instance
 
@@ -656,7 +658,7 @@ class Sandbox(Protocol):
     async def create(cls) -> 'Sandbox':
         """Create a new sandbox instance"""
         ...
-    
+
     @classmethod
     async def get(cls, id: str) -> 'Sandbox':
         """Get sandbox by ID

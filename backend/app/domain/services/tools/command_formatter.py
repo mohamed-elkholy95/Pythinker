@@ -1,6 +1,6 @@
 """Human-readable command formatting for tool calls."""
-from typing import Dict, Any, Optional
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +12,7 @@ class CommandFormatter:
     def format_tool_call(
         tool_name: str,
         function_name: str,
-        function_args: Dict[str, Any],
+        function_args: dict[str, Any],
     ) -> tuple[str, str, str]:
         """Format tool call into display components.
 
@@ -45,7 +45,7 @@ class CommandFormatter:
         )
 
     @staticmethod
-    def _format_search(function_name: str, args: Dict) -> tuple[str, str, str]:
+    def _format_search(function_name: str, args: dict) -> tuple[str, str, str]:
         """Format search commands"""
         query = args.get("query", "")
 
@@ -55,15 +55,14 @@ class CommandFormatter:
                 "search",
                 f"Search: {query[:40]}"
             )
-        else:
-            return (
-                f"Search: {query}",
-                "search",
-                f"Search: {query[:40]}"
-            )
+        return (
+            f"Search: {query}",
+            "search",
+            f"Search: {query[:40]}"
+        )
 
     @staticmethod
-    def _format_browser(function_name: str, args: Dict) -> tuple[str, str, str]:
+    def _format_browser(function_name: str, args: dict) -> tuple[str, str, str]:
         """Format browser commands"""
         if "navigate" in function_name:
             url = args.get("url", "")
@@ -74,7 +73,7 @@ class CommandFormatter:
                 f"Browse: {domain}"
             )
 
-        elif "click" in function_name:
+        if "click" in function_name:
             selector = args.get("selector", "element")
             return (
                 f"Clicking {selector}",
@@ -82,7 +81,7 @@ class CommandFormatter:
                 f"Click: {selector[:30]}"
             )
 
-        elif "type" in function_name or "input" in function_name:
+        if "type" in function_name or "input" in function_name:
             text = args.get("text", args.get("value", ""))
             return (
                 f"Typing '{text[:30]}...'",
@@ -90,15 +89,14 @@ class CommandFormatter:
                 f"Type: {text[:20]}"
             )
 
-        else:
-            return (
-                f"Browser: {function_name}",
-                "browse",
-                function_name
-            )
+        return (
+            f"Browser: {function_name}",
+            "browse",
+            function_name
+        )
 
     @staticmethod
-    def _format_shell(function_name: str, args: Dict) -> tuple[str, str, str]:
+    def _format_shell(function_name: str, args: dict) -> tuple[str, str, str]:
         """Format shell commands"""
         language = args.get("language", "bash")
         code = args.get("code", "")
@@ -114,7 +112,7 @@ class CommandFormatter:
         )
 
     @staticmethod
-    def _format_file(function_name: str, args: Dict) -> tuple[str, str, str]:
+    def _format_file(function_name: str, args: dict) -> tuple[str, str, str]:
         """Format file commands"""
         path = args.get("path", args.get("file_path", ""))
 
@@ -125,14 +123,14 @@ class CommandFormatter:
                 f"Read: {path.split('/')[-1]}"
             )
 
-        elif "write" in function_name or "create" in function_name:
+        if "write" in function_name or "create" in function_name:
             return (
                 f"Creating {path}",
                 "file",
                 f"Create: {path.split('/')[-1]}"
             )
 
-        elif "list" in function_name:
+        if "list" in function_name:
             directory = path or args.get("directory", ".")
             return (
                 f"Listing files in {directory}",
@@ -140,15 +138,14 @@ class CommandFormatter:
                 f"List: {directory}"
             )
 
-        else:
-            return (
-                f"File operation: {path}",
-                "file",
-                path.split('/')[-1]
-            )
+        return (
+            f"File operation: {path}",
+            "file",
+            path.split('/')[-1]
+        )
 
     @staticmethod
-    def _format_mcp(function_name: str, args: Dict) -> tuple[str, str, str]:
+    def _format_mcp(function_name: str, args: dict) -> tuple[str, str, str]:
         """Format MCP tool commands"""
         server = args.get("server", "")
         resource = args.get("resource", "")

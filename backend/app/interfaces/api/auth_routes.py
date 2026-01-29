@@ -1,25 +1,33 @@
-from fastapi import APIRouter, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import logging
 
+from fastapi import APIRouter, Depends
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+from app.application.errors.exceptions import BadRequestError, NotFoundError, UnauthorizedError
 from app.application.services.auth_service import AuthService
-from app.application.services.token_service import TokenService
-from app.application.services.file_service import FileService
-from app.application.services.agent_service import AgentService
 from app.application.services.email_service import EmailService
-from app.application.errors.exceptions import (
-    UnauthorizedError, NotFoundError, BadRequestError
-)
-from app.interfaces.dependencies import get_auth_service, get_current_user, get_file_service, get_agent_service, get_token_service, get_email_service
-from app.interfaces.schemas.base import APIResponse
-from app.interfaces.schemas.auth import (
-    LoginRequest, RegisterRequest, ChangePasswordRequest, ChangeFullnameRequest, RefreshTokenRequest,
-    SendVerificationCodeRequest, ResetPasswordRequest,
-    LoginResponse, RegisterResponse, AuthStatusResponse, RefreshTokenResponse,
-    UserResponse
-)
 from app.core.config import get_settings
 from app.domain.models.user import User
+from app.interfaces.dependencies import (
+    get_auth_service,
+    get_current_user,
+    get_email_service,
+)
+from app.interfaces.schemas.auth import (
+    AuthStatusResponse,
+    ChangeFullnameRequest,
+    ChangePasswordRequest,
+    LoginRequest,
+    LoginResponse,
+    RefreshTokenRequest,
+    RefreshTokenResponse,
+    RegisterRequest,
+    RegisterResponse,
+    ResetPasswordRequest,
+    SendVerificationCodeRequest,
+    UserResponse,
+)
+from app.interfaces.schemas.base import APIResponse
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +43,7 @@ async def login(
     """User login endpoint"""
     # Authenticate user and get tokens
     auth_result = await auth_service.login_with_tokens(request.email, request.password)
-    
+
     # Return success response with tokens
     return APIResponse.success(LoginResponse(
         user=UserResponse.from_user(auth_result.user),
@@ -57,11 +65,11 @@ async def register(
         password=request.password,
         email=request.email
     )
-    
+
     # Generate tokens for the new user
     access_token = auth_service.token_service.create_access_token(user)
     refresh_token = auth_service.token_service.create_refresh_token(user)
-    
+
     # Return success response with tokens
     return APIResponse.success(RegisterResponse(
         user=UserResponse.from_user(user),
@@ -77,7 +85,7 @@ async def get_auth_status(
 ) -> APIResponse[AuthStatusResponse]:
     """Get authentication status and configuration"""
     settings = get_settings()
-    
+
     return APIResponse.success(AuthStatusResponse(
         auth_provider=settings.auth_provider
     ))
@@ -92,7 +100,7 @@ async def change_password(
     """Change user password endpoint"""
     # Change password for current user
     await auth_service.change_password(current_user.id, request.old_password, request.new_password)
-    
+
     return APIResponse.success({})
 
 
@@ -105,7 +113,7 @@ async def change_fullname(
     """Change user fullname endpoint"""
     # Change fullname for current user
     updated_user = await auth_service.change_fullname(current_user.id, request.fullname)
-    
+
     return APIResponse.success(UserResponse.from_user(updated_user))
 
 
@@ -127,12 +135,12 @@ async def get_user(
     # Check if current user is admin
     if current_user.role != "admin":
         raise UnauthorizedError("Admin access required")
-    
+
     user = await auth_service.get_user_by_id(user_id)
-    
+
     if not user:
         raise NotFoundError("User not found")
-    
+
     return APIResponse.success(UserResponse.from_user(user))
 
 
@@ -146,11 +154,11 @@ async def deactivate_user(
     # Check if current user is admin
     if current_user.role != "admin":
         raise UnauthorizedError("Admin access required")
-    
+
     # Prevent self-deactivation
     if current_user.id == user_id:
         raise BadRequestError("Cannot deactivate your own account")
-    
+
     await auth_service.deactivate_user(user_id)
     return APIResponse.success({})
 
@@ -165,7 +173,7 @@ async def activate_user(
     # Check if current user is admin
     if current_user.role != "admin":
         raise UnauthorizedError("Admin access required")
-    
+
     await auth_service.activate_user(user_id)
     return APIResponse.success({})
 
@@ -178,7 +186,7 @@ async def refresh_token(
     """Refresh access token endpoint"""
     # Refresh access token
     token_result = await auth_service.refresh_access_token(request.refresh_token)
-    
+
     return APIResponse.success(RefreshTokenResponse(
         access_token=token_result.access_token,
         token_type=token_result.token_type
@@ -194,10 +202,10 @@ async def logout(
     """User logout endpoint"""
     if get_settings().auth_provider == "none":
         raise BadRequestError("Logout is not allowed")
-    
+
     # Revoke token
     await auth_service.logout(bearer_credentials.credentials)
-    
+
     return APIResponse.success({})
 
 
@@ -210,18 +218,18 @@ async def send_verification_code(
     """Send verification code for password reset"""
     if get_settings().auth_provider != "password":
         raise BadRequestError("Password reset is not available")
-    
+
     # Check if user exists with this email
     user = await auth_service.user_repository.get_user_by_email(request.email)
     if not user:
         raise NotFoundError("User not found")
-    
+
     if not user.is_active:
         raise BadRequestError("User account is inactive")
-    
+
     # Send verification code
     await email_service.send_verification_code(request.email)
-    
+
     return APIResponse.success({})
 
 
@@ -234,13 +242,12 @@ async def reset_password(
     """Reset password with verification code"""
     if get_settings().auth_provider != "password":
         raise BadRequestError("Password reset is not available")
-    
+
     # Verify the verification code
     if not await email_service.verify_code(request.email, request.verification_code):
         raise UnauthorizedError("Invalid or expired verification code")
-    
+
     # Reset password
     await auth_service.reset_password(request.email, request.new_password)
-    
+
     return APIResponse.success({})
- 

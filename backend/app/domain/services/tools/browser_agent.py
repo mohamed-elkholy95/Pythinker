@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import re
-from typing import Optional, Dict, Any, Set, List
+from typing import Any
 from urllib.parse import urlparse
 
 # browser_use is an optional dependency
@@ -15,9 +15,9 @@ except ImportError:
     Browser = None
     ChatOpenAI = None
 
-from app.domain.services.tools.base import tool, BaseTool
-from app.domain.models.tool_result import ToolResult
 from app.core.config import get_settings
+from app.domain.models.tool_result import ToolResult
+from app.domain.services.tools.base import BaseTool, tool
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # URL FILTERING - Skip video sites and heavy media content
 # =============================================================================
 
-VIDEO_DOMAINS: Set[str] = {
+VIDEO_DOMAINS: set[str] = {
     "youtube.com", "youtu.be", "vimeo.com", "dailymotion.com",
     "twitch.tv", "tiktok.com", "netflix.com", "hulu.com",
     "disneyplus.com", "primevideo.com", "hbomax.com", "max.com",
@@ -33,7 +33,7 @@ VIDEO_DOMAINS: Set[str] = {
     "bilibili.com", "nicovideo.jp", "pornhub.com", "xvideos.com",
 }
 
-VIDEO_EXTENSIONS: Set[str] = {".mp4", ".webm", ".avi", ".mov", ".mkv", ".flv", ".m3u8"}
+VIDEO_EXTENSIONS: set[str] = {".mp4", ".webm", ".avi", ".mov", ".mkv", ".flv", ".m3u8"}
 
 
 def is_video_url(url: str) -> bool:
@@ -235,7 +235,7 @@ class BrowserAgentTool(BaseTool):
             )
         super().__init__()
         self._cdp_url = cdp_url
-        self._browser: Optional[Browser] = None
+        self._browser: Browser | None = None
         self._settings = get_settings()
 
     async def _get_browser(self) -> Browser:
@@ -293,9 +293,9 @@ CRITICAL INSTRUCTIONS:
     async def _run_agent_task(
         self,
         task: str,
-        start_url: Optional[str] = None,
-        max_steps: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        start_url: str | None = None,
+        max_steps: int | None = None,
+    ) -> dict[str, Any]:
         """Execute browser agent task with comprehensive error handling and timeout protection
 
         Features:
@@ -393,7 +393,7 @@ CRITICAL INSTRUCTIONS:
 
             return result
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(f"Browser agent task timed out after {timeout}s: {task[:50]}...")
             return {
                 "success": False,
@@ -478,8 +478,8 @@ Note: For simple single-action tasks (click, navigate, input), use the regular b
     async def browsing(
         self,
         task: str,
-        start_url: Optional[str] = None,
-        max_steps: Optional[int] = None,
+        start_url: str | None = None,
+        max_steps: int | None = None,
     ) -> ToolResult:
         """Execute complex multi-step web tasks autonomously
 
@@ -504,12 +504,11 @@ Note: For simple single-action tasks (click, navigate, input), use the regular b
                 message=f"Task completed {status_msg} in {steps_taken} steps",
                 data=result
             )
-        else:
-            return ToolResult(
-                success=False,
-                message=result.get("error", "Task failed"),
-                data=result
-            )
+        return ToolResult(
+            success=False,
+            message=result.get("error", "Task failed"),
+            data=result
+        )
 
     @tool(
         name="browser_agent_extract",
@@ -542,7 +541,7 @@ The agent will navigate and interact with the page as needed to extract the requ
     async def browser_agent_extract(
         self,
         extraction_goal: str,
-        url: Optional[str] = None,
+        url: str | None = None,
     ) -> ToolResult:
         """Extract structured data from web pages
 
@@ -570,12 +569,11 @@ The agent will navigate and interact with the page as needed to extract the requ
                 message="Data extraction completed successfully",
                 data=result
             )
-        else:
-            return ToolResult(
-                success=False,
-                message=result.get("error", "Extraction failed"),
-                data=result
-            )
+        return ToolResult(
+            success=False,
+            message=result.get("error", "Extraction failed"),
+            data=result
+        )
 
     async def cleanup(self) -> None:
         """Cleanup browser resources"""

@@ -7,23 +7,21 @@ The PathExplorer manages the lifecycle of multiple solution paths:
 - Abandoning low-scoring paths
 """
 
-import logging
-from typing import List, Dict, Any, Optional, AsyncGenerator
-from datetime import datetime
 import asyncio
+import logging
+from collections.abc import AsyncGenerator
+from typing import Any
 
+from app.domain.models.event import BaseEvent, PathEvent
+from app.domain.models.message import Message
 from app.domain.models.path_state import (
     PathState,
     PathStatus,
-    PathMetrics,
     TreeOfThoughtsConfig,
 )
-from app.domain.models.plan import Plan, Step
-from app.domain.models.event import BaseEvent, PathEvent
-from app.domain.services.agents.planner import PlannerAgent
+from app.domain.models.plan import Plan
 from app.domain.services.agents.execution import ExecutionAgent
-from app.domain.models.message import Message
-
+from app.domain.services.agents.planner import PlannerAgent
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +40,7 @@ class PathExplorer:
         self,
         planner: PlannerAgent,
         executor: ExecutionAgent,
-        config: Optional[TreeOfThoughtsConfig] = None
+        config: TreeOfThoughtsConfig | None = None
     ):
         """Initialize the path explorer.
 
@@ -55,15 +53,15 @@ class PathExplorer:
         self.executor = executor
         self.config = config or TreeOfThoughtsConfig()
 
-        self._paths: List[PathState] = []
+        self._paths: list[PathState] = []
         self._token_budget_used: int = 0
-        self._active_path: Optional[PathState] = None
+        self._active_path: PathState | None = None
 
     def create_paths(
         self,
-        strategies: List[Dict[str, Any]],
+        strategies: list[dict[str, Any]],
         base_message: Message
-    ) -> List[PathState]:
+    ) -> list[PathState]:
         """Create exploration paths from strategy suggestions.
 
         Args:
@@ -141,7 +139,7 @@ class PathExplorer:
                         path_id=path.id,
                         action="abandoned",
                         score=path.score,
-                        description=f"Abandoned due to low score"
+                        description="Abandoned due to low score"
                     )
                     return
 
@@ -251,7 +249,7 @@ class PathExplorer:
         self,
         path: PathState,
         message: Message
-    ) -> Optional[Plan]:
+    ) -> Plan | None:
         """Create a plan for a specific strategy path.
 
         Args:
@@ -309,19 +307,19 @@ class PathExplorer:
         threshold = budget * self.config.budget_exhaustion_threshold
         return self._token_budget_used >= threshold
 
-    def get_paths(self) -> List[PathState]:
+    def get_paths(self) -> list[PathState]:
         """Get all paths."""
         return self._paths
 
-    def get_active_paths(self) -> List[PathState]:
+    def get_active_paths(self) -> list[PathState]:
         """Get currently exploring paths."""
         return [p for p in self._paths if p.status == PathStatus.EXPLORING]
 
-    def get_completed_paths(self) -> List[PathState]:
+    def get_completed_paths(self) -> list[PathState]:
         """Get successfully completed paths."""
         return [p for p in self._paths if p.status == PathStatus.COMPLETED]
 
-    def get_best_path(self) -> Optional[PathState]:
+    def get_best_path(self) -> PathState | None:
         """Get the highest-scoring completed path."""
         completed = self.get_completed_paths()
         if not completed:

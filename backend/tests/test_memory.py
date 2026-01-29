@@ -2,7 +2,6 @@
 Tests for the enhanced memory module.
 """
 
-import pytest
 from app.domain.models.memory import Memory, MemoryConfig
 
 

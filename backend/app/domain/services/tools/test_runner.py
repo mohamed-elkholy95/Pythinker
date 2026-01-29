@@ -3,10 +3,10 @@ Test Runner Tool Implementation
 
 Provides test execution, listing, and coverage capabilities for agents.
 """
-from typing import Optional
+
 from app.domain.external.sandbox import Sandbox
-from app.domain.services.tools.base import tool, BaseTool
 from app.domain.models.tool_result import ToolResult
+from app.domain.services.tools.base import BaseTool, tool
 
 
 class TestRunnerTool(BaseTool):
@@ -14,7 +14,7 @@ class TestRunnerTool(BaseTool):
 
     name: str = "test_runner"
 
-    def __init__(self, sandbox: Sandbox, max_observe: Optional[int] = None):
+    def __init__(self, sandbox: Sandbox, max_observe: int | None = None):
         """Initialize Test Runner tool class
 
         Args:

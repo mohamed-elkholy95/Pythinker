@@ -1,27 +1,27 @@
+
 from pydantic import BaseModel, Field
-from typing import Dict, List, Optional
 
 
 class GitRemoteSpec(BaseModel):
-    repo_url: Optional[str] = None
-    remote_name: Optional[str] = None
-    branch: Optional[str] = None
-    credentials: Optional[Dict[str, str]] = None
+    repo_url: str | None = None
+    remote_name: str | None = None
+    branch: str | None = None
+    credentials: dict[str, str] | None = None
 
 
 class WorkspaceManifest(BaseModel):
-    name: Optional[str] = None
-    path: Optional[str] = None
-    template_id: Optional[str] = None
-    capabilities: List[str] = []
-    dev_command: Optional[str] = None
-    build_command: Optional[str] = None
-    test_command: Optional[str] = None
-    port: Optional[int] = None
-    env_vars: Dict[str, str] = Field(default_factory=dict)
-    secrets: Dict[str, str] = Field(default_factory=dict)
-    files: Dict[str, str] = Field(default_factory=dict)
-    git_remote: Optional[GitRemoteSpec] = None
+    name: str | None = None
+    path: str | None = None
+    template_id: str | None = None
+    capabilities: list[str] = []
+    dev_command: str | None = None
+    build_command: str | None = None
+    test_command: str | None = None
+    port: int | None = None
+    env_vars: dict[str, str] = Field(default_factory=dict)
+    secrets: dict[str, str] = Field(default_factory=dict)
+    files: dict[str, str] = Field(default_factory=dict)
+    git_remote: GitRemoteSpec | None = None
 
 
 class WorkspaceWriteError(BaseModel):
@@ -34,19 +34,19 @@ class WorkspaceManifestResponse(BaseModel):
     workspace_root: str
     project_root: str
     project_name: str
-    project_path: Optional[str] = None
-    template_id: Optional[str] = None
-    template_used: Optional[str] = None
-    capabilities: List[str] = []
+    project_path: str | None = None
+    template_id: str | None = None
+    template_used: str | None = None
+    capabilities: list[str] = []
     files_written: int = 0
     files_failed: int = 0
-    write_errors: List[WorkspaceWriteError] = []
-    env_var_keys: List[str] = []
-    secret_keys: List[str] = []
-    dev_command: Optional[str] = None
-    build_command: Optional[str] = None
-    test_command: Optional[str] = None
-    port: Optional[int] = None
-    git_remote: Optional[GitRemoteSpec] = None
-    git_clone_success: Optional[bool] = None
-    git_clone_message: Optional[str] = None
+    write_errors: list[WorkspaceWriteError] = []
+    env_var_keys: list[str] = []
+    secret_keys: list[str] = []
+    dev_command: str | None = None
+    build_command: str | None = None
+    test_command: str | None = None
+    port: int | None = None
+    git_remote: GitRemoteSpec | None = None
+    git_clone_success: bool | None = None
+    git_clone_message: str | None = None

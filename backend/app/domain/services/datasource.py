@@ -1,4 +1,4 @@
-from typing import List
+
 from app.domain.models.event import DatasourceEvent
 
 
@@ -12,7 +12,7 @@ class DatasourceService:
     def __init__(self):
         pass
 
-    async def get_relevant_apis(self, task_description: str) -> List[DatasourceEvent]:
+    async def get_relevant_apis(self, task_description: str) -> list[DatasourceEvent]:
         """Get data APIs relevant to the given task.
 
         Args:

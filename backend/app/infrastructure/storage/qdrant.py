@@ -1,6 +1,8 @@
-from qdrant_client import AsyncQdrantClient, models
-from functools import lru_cache
 import logging
+from functools import lru_cache
+
+from qdrant_client import AsyncQdrantClient, models
+
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -70,7 +72,7 @@ class QdrantStorage:
         return self._client
 
 
-@lru_cache()
+@lru_cache
 def get_qdrant() -> QdrantStorage:
     """Get the Qdrant storage instance."""
     return QdrantStorage()

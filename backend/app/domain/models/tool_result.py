@@ -1,9 +1,10 @@
+from typing import Generic, TypeVar
+
 from pydantic import BaseModel
-from typing import Optional, TypeVar, Generic
 
 T = TypeVar('T')
 
 class ToolResult(BaseModel, Generic[T]):
     success: bool
-    message: Optional[str] = None
-    data: Optional[T] = None
+    message: str | None = None
+    data: T | None = None

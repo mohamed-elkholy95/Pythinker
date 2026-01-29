@@ -5,12 +5,13 @@ replacing the 500-candidate limit of MongoDB's local cosine similarity
 with sub-100ms retrieval at any scale.
 """
 
-from qdrant_client import models
-from typing import List, Optional
-from app.infrastructure.storage.qdrant import get_qdrant
-from app.domain.models.long_term_memory import MemoryType, MemoryImportance
-from app.core.config import get_settings
 import logging
+
+from qdrant_client import models
+
+from app.core.config import get_settings
+from app.domain.models.long_term_memory import MemoryImportance, MemoryType
+from app.infrastructure.storage.qdrant import get_qdrant
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +23,8 @@ class QdrantSearchResult:
         self,
         memory_id: str,
         relevance_score: float,
-        memory_type: Optional[str] = None,
-        importance: Optional[str] = None,
+        memory_type: str | None = None,
+        importance: str | None = None,
     ):
         self.memory_id = memory_id
         self.relevance_score = relevance_score
@@ -46,10 +47,10 @@ class QdrantMemoryRepository:
         self,
         memory_id: str,
         user_id: str,
-        embedding: List[float],
+        embedding: list[float],
         memory_type: str,
         importance: str,
-        tags: Optional[List[str]] = None,
+        tags: list[str] | None = None,
     ) -> None:
         """Store memory embedding in Qdrant.
 
@@ -80,7 +81,7 @@ class QdrantMemoryRepository:
 
     async def upsert_memories_batch(
         self,
-        memories: List[dict],
+        memories: list[dict],
     ) -> None:
         """Batch upsert multiple memories to Qdrant.
 
@@ -114,13 +115,13 @@ class QdrantMemoryRepository:
     async def search_similar(
         self,
         user_id: str,
-        query_vector: List[float],
+        query_vector: list[float],
         limit: int = 10,
         min_score: float = 0.3,
-        memory_types: Optional[List[MemoryType]] = None,
-        min_importance: Optional[MemoryImportance] = None,
-        tags: Optional[List[str]] = None,
-    ) -> List[QdrantSearchResult]:
+        memory_types: list[MemoryType] | None = None,
+        min_importance: MemoryImportance | None = None,
+        tags: list[str] | None = None,
+    ) -> list[QdrantSearchResult]:
         """Search for similar memories using Qdrant.
 
         Args:
@@ -200,7 +201,7 @@ class QdrantMemoryRepository:
         )
         logger.debug(f"Deleted memory {memory_id} from Qdrant")
 
-    async def delete_memories_batch(self, memory_ids: List[str]) -> None:
+    async def delete_memories_batch(self, memory_ids: list[str]) -> None:
         """Delete multiple memories from Qdrant.
 
         Args:
@@ -235,7 +236,7 @@ class QdrantMemoryRepository:
         )
         logger.info(f"Deleted all memories for user {user_id} from Qdrant")
 
-    async def get_memory_count(self, user_id: Optional[str] = None) -> int:
+    async def get_memory_count(self, user_id: str | None = None) -> int:
         """Get count of memories in Qdrant.
 
         Args:

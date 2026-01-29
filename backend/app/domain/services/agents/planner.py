@@ -1,42 +1,37 @@
-from typing import Dict, Any, List, AsyncGenerator, Optional, TYPE_CHECKING
 import json
 import logging
-from app.domain.models.plan import Plan, Step, ExecutionStatus
-from app.domain.models.message import Message
-from app.domain.services.agents.base import BaseAgent
-from app.domain.models.memory import Memory
+from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING, Optional
+
 from app.domain.external.llm import LLM
-from app.domain.services.prompts.system import SYSTEM_PROMPT
+from app.domain.models.long_term_memory import MemoryType
+from app.domain.models.message import Message
+from app.domain.models.plan import ExecutionStatus, Plan, Step
+from app.domain.services.agents.base import BaseAgent
+from app.domain.services.agents.requirement_extractor import (
+    RequirementSet,
+    extract_requirements,
+)
 from app.domain.services.prompts.planner import (
-    CREATE_PLAN_PROMPT,
-    UPDATE_PLAN_PROMPT,
     PLANNER_SYSTEM_PROMPT,
     THINKING_PROMPT,
+    UPDATE_PLAN_PROMPT,
     build_create_plan_prompt,
 )
-from app.domain.models.long_term_memory import MemoryType
-from app.domain.services.agents.requirement_extractor import (
-    extract_requirements,
-    RequirementSet,
-)
+from app.domain.services.prompts.system import SYSTEM_PROMPT
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
+from app.domain.models.agent_response import PlanResponse, PlanUpdateResponse
 from app.domain.models.event import (
     BaseEvent,
+    MessageEvent,
     PlanEvent,
     PlanStatus,
-    ErrorEvent,
-    MessageEvent,
-    DoneEvent,
     StreamEvent,
 )
-from app.domain.models.agent_response import PlanResponse, PlanUpdateResponse
-from app.domain.external.sandbox import Sandbox
-from app.domain.services.tools.base import BaseTool
-from app.domain.services.tools.file import FileTool
-from app.domain.services.tools.shell import ShellTool
 from app.domain.repositories.agent_repository import AgentRepository
+from app.domain.services.tools.base import BaseTool
 from app.domain.utils.json_parser import JsonParser
 
 logger = logging.getLogger(__name__)
@@ -125,18 +120,18 @@ class PlannerAgent(BaseAgent):
 
     name: str = "planner"
     system_prompt: str = SYSTEM_PROMPT + PLANNER_SYSTEM_PROMPT
-    format: Optional[str] = "json_object"
-    tool_choice: Optional[str] = "none"
+    format: str | None = "json_object"
+    tool_choice: str | None = "none"
 
     def __init__(
         self,
         agent_id: str,
         agent_repository: AgentRepository,
         llm: LLM,
-        tools: List[BaseTool],
+        tools: list[BaseTool],
         json_parser: JsonParser,
         memory_service: Optional["MemoryService"] = None,
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
     ):
         super().__init__(
             agent_id=agent_id,
@@ -150,7 +145,7 @@ class PlannerAgent(BaseAgent):
         self._user_id = user_id
 
         # Requirement tracking for user prompt adherence
-        self._current_requirements: Optional[RequirementSet] = None
+        self._current_requirements: RequirementSet | None = None
 
     async def _stream_thinking(
         self,
@@ -197,7 +192,7 @@ class PlannerAgent(BaseAgent):
     async def create_plan(
         self,
         message: Message,
-        replan_context: Optional[str] = None
+        replan_context: str | None = None
     ) -> AsyncGenerator[BaseEvent, None]:
         """Create an execution plan for the given message.
 
@@ -215,7 +210,7 @@ class PlannerAgent(BaseAgent):
             ProgressEvent for instant feedback, StreamEvent during thinking,
             then PlanEvent with the created plan
         """
-        from app.domain.models.event import ProgressEvent, PlanningPhase
+        from app.domain.models.event import PlanningPhase, ProgressEvent
 
         # Instant acknowledgment - user sees feedback immediately
         yield ProgressEvent(
@@ -345,7 +340,7 @@ class PlannerAgent(BaseAgent):
             _, max_steps_limit = get_step_limits(complexity)
 
         # Helper to apply update steps to plan
-        def apply_plan_update(new_steps: List[Step]) -> None:
+        def apply_plan_update(new_steps: list[Step]) -> None:
             # Completed and remaining steps in current plan
             remaining_pending = [s for s in plan.steps if not s.is_done()]
 
@@ -396,7 +391,7 @@ class PlannerAgent(BaseAgent):
                     new_steps = [Step(id=str(i+1), description=s.description)
                                  for i, s in enumerate(update_response.steps)]
                     apply_plan_update(new_steps)
-                    logger.debug(f"Updated plan using structured output")
+                    logger.debug("Updated plan using structured output")
                     await self._add_to_memory([{"role": "assistant", "content": json.dumps({"steps": [s.model_dump() for s in new_steps]})}])
                     yield PlanEvent(status=PlanStatus.UPDATED, plan=plan)
                     return
@@ -419,9 +414,9 @@ class PlannerAgent(BaseAgent):
 
     def _normalize_plan_steps(
         self,
-        steps: List[Step],
+        steps: list[Step],
         task_message: str = ""
-    ) -> List[Step]:
+    ) -> list[Step]:
         """Clamp plan length and merge overflow steps into the final step.
 
         Uses adaptive step limits based on task complexity.
@@ -442,7 +437,7 @@ class PlannerAgent(BaseAgent):
 
         # Only add filler steps if we're below minimum and not a simple task
         if len(steps) < min_steps and complexity != "simple":
-            fillers: List[str] = []
+            fillers: list[str] = []
             if not any(keyword in existing_text for keyword in ["verify", "validate", "test", "check"]):
                 fillers.append("Validate results and address any issues")
             if not any(keyword in existing_text for keyword in ["deliver", "final", "hand off", "share"]):
@@ -491,10 +486,10 @@ class PlannerAgent(BaseAgent):
 
     def _normalize_update_steps(
         self,
-        steps: List[Step],
+        steps: list[Step],
         max_steps: int,
         id_offset: int = 0
-    ) -> List[Step]:
+    ) -> list[Step]:
         """Normalize remaining steps during plan updates without inflating total steps."""
         if not steps or max_steps <= 0:
             return []
@@ -527,7 +522,7 @@ class PlannerAgent(BaseAgent):
 
         return normalized
 
-    def get_requirements(self) -> Optional[RequirementSet]:
+    def get_requirements(self) -> RequirementSet | None:
         """Get the current requirement set.
 
         Returns:
@@ -545,7 +540,7 @@ class PlannerAgent(BaseAgent):
             return self._current_requirements.get_summary()
         return ""
 
-    def get_unaddressed_reminder(self) -> Optional[str]:
+    def get_unaddressed_reminder(self) -> str | None:
         """Get a reminder about unaddressed requirements.
 
         Returns:

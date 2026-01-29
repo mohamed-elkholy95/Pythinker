@@ -3,18 +3,19 @@
 Provides integration with Anthropic's Claude models using the official SDK.
 Supports Claude Opus 4, Sonnet 4, and other Claude models.
 """
-from typing import List, Dict, Any, Optional, AsyncGenerator, Type, TypeVar
-import logging
 import asyncio
 import json
+import logging
+from collections.abc import AsyncGenerator
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
-from app.domain.external.llm import LLM
 from app.core.config import get_settings
-from app.infrastructure.external.llm.factory import LLMProviderRegistry
-from app.domain.services.agents.usage_context import get_usage_context
+from app.domain.external.llm import LLM
 from app.domain.services.agents.token_manager import TokenManager
+from app.domain.services.agents.usage_context import get_usage_context
+from app.infrastructure.external.llm.factory import LLMProviderRegistry
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -44,10 +45,10 @@ class AnthropicLLM(LLM):
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        model_name: Optional[str] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        api_key: str | None = None,
+        model_name: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ):
         """Initialize Anthropic LLM.
 
@@ -127,9 +128,9 @@ class AnthropicLLM(LLM):
 
     async def _record_stream_usage(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         completion_text: str,
-        tools: Optional[List[Dict[str, Any]]] = None,
+        tools: list[dict[str, Any]] | None = None,
     ) -> None:
         """Record usage for streaming responses using token estimation."""
         ctx = get_usage_context()
@@ -159,8 +160,8 @@ class AnthropicLLM(LLM):
 
     def _convert_openai_tools_to_anthropic(
         self,
-        tools: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+        tools: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """Convert OpenAI tool format to Anthropic format.
 
         Args:
@@ -182,8 +183,8 @@ class AnthropicLLM(LLM):
 
     def _convert_openai_messages_to_anthropic(
         self,
-        messages: List[Dict[str, Any]]
-    ) -> tuple[Optional[str], List[Dict[str, Any]]]:
+        messages: list[dict[str, Any]]
+    ) -> tuple[str | None, list[dict[str, Any]]]:
         """Convert OpenAI message format to Anthropic format.
 
         Args:
@@ -204,7 +205,7 @@ class AnthropicLLM(LLM):
                 system_prompt = content
                 continue
 
-            elif role == "assistant":
+            if role == "assistant":
                 # Handle assistant messages with tool calls
                 if msg.get("tool_calls"):
                     tool_use_blocks = []
@@ -263,7 +264,7 @@ class AnthropicLLM(LLM):
     def _convert_anthropic_response_to_openai(
         self,
         response: Any
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Convert Anthropic response to OpenAI format.
 
         Args:
@@ -330,12 +331,12 @@ class AnthropicLLM(LLM):
 
     async def ask(
         self,
-        messages: List[Dict[str, str]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        response_format: Optional[Dict[str, Any]] = None,
-        tool_choice: Optional[str] = None,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None = None,
+        response_format: dict[str, Any] | None = None,
+        tool_choice: str | None = None,
         enable_caching: bool = True
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Send chat request to Anthropic API.
 
         Args:
@@ -413,10 +414,10 @@ class AnthropicLLM(LLM):
 
     async def ask_structured(
         self,
-        messages: List[Dict[str, str]],
-        response_model: Type[T],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        tool_choice: Optional[str] = None,
+        messages: list[dict[str, str]],
+        response_model: type[T],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | None = None,
         enable_caching: bool = True
     ) -> T:
         """Send chat request with structured output validation.
@@ -451,7 +452,7 @@ class AnthropicLLM(LLM):
             enhanced_messages[-1] = {
                 **enhanced_messages[-1],
                 "content": enhanced_messages[-1].get("content", "") +
-                          f"\n\nPlease respond using the return_structured_response tool."
+                          "\n\nPlease respond using the return_structured_response tool."
             }
 
         response = await self.ask(
@@ -474,10 +475,10 @@ class AnthropicLLM(LLM):
 
     async def ask_stream(
         self,
-        messages: List[Dict[str, str]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        response_format: Optional[Dict[str, Any]] = None,
-        tool_choice: Optional[str] = None,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None = None,
+        response_format: dict[str, Any] | None = None,
+        tool_choice: str | None = None,
         enable_caching: bool = True
     ) -> AsyncGenerator[str, None]:
         """Stream chat response from Anthropic API.
@@ -510,7 +511,7 @@ class AnthropicLLM(LLM):
         if tools:
             params["tools"] = self._convert_openai_tools_to_anthropic(tools)
 
-        completion_parts: List[str] = []
+        completion_parts: list[str] = []
 
         try:
             async with self.client.messages.stream(**params) as stream:

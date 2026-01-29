@@ -10,16 +10,13 @@ This enables selection of the best path and early abandonment of poor paths.
 """
 
 import logging
-from typing import List, Dict, Any, Optional
 
 from app.domain.external.llm import LLM
-from app.domain.utils.json_parser import JsonParser
 from app.domain.models.path_state import (
     PathState,
-    PathScoreWeights,
     TreeOfThoughtsConfig,
 )
-
+from app.domain.utils.json_parser import JsonParser
 
 logger = logging.getLogger(__name__)
 
@@ -68,9 +65,9 @@ class PathScorer:
 
     def __init__(
         self,
-        llm: Optional[LLM] = None,
-        json_parser: Optional[JsonParser] = None,
-        config: Optional[TreeOfThoughtsConfig] = None,
+        llm: LLM | None = None,
+        json_parser: JsonParser | None = None,
+        config: TreeOfThoughtsConfig | None = None,
         goal: str = ""
     ):
         """Initialize the scorer.
@@ -203,7 +200,7 @@ class PathScorer:
 
         return float(parsed.get("quality", 0.5))
 
-    def rank_paths(self, paths: List[PathState]) -> List[PathState]:
+    def rank_paths(self, paths: list[PathState]) -> list[PathState]:
         """Rank paths by score (highest first).
 
         Args:
@@ -219,7 +216,7 @@ class PathScorer:
 
         return sorted(paths, key=lambda p: p.score, reverse=True)
 
-    def get_comparison_summary(self, paths: List[PathState]) -> str:
+    def get_comparison_summary(self, paths: list[PathState]) -> str:
         """Generate a summary comparing paths.
 
         Args:

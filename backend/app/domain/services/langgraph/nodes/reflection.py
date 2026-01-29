@@ -10,23 +10,23 @@ Enhanced with:
 
 import asyncio
 import logging
-from typing import Dict, Any, Optional
+from typing import Any
 
-from app.domain.services.langgraph.state import PlanActState
 from app.domain.models.event import ReflectionEvent, ReflectionStatus
 
 # P0 Priority: Hallucination Prevention & Prompt Adherence
 from app.domain.services.agents.grounding_validator import (
-    get_grounding_validator,
     GroundingLevel,
+    get_grounding_validator,
 )
 from app.domain.services.agents.intent_tracker import get_intent_tracker
-from app.domain.services.agents.stuck_detector import StuckAnalysis, LoopType
+from app.domain.services.agents.stuck_detector import LoopType, StuckAnalysis
+from app.domain.services.langgraph.state import PlanActState
 
 logger = logging.getLogger(__name__)
 
 
-async def reflection_node(state: PlanActState) -> Dict[str, Any]:
+async def reflection_node(state: PlanActState) -> dict[str, Any]:
     """Reflect on progress and determine course correction.
 
     This node implements Phase 2 Enhanced Self-Reflection by analyzing
@@ -91,7 +91,7 @@ async def reflection_node(state: PlanActState) -> Dict[str, Any]:
 
     # === P0: Stuck Pattern Analysis ===
     # Check if execution detected any stuck patterns
-    stuck_analysis: Optional[StuckAnalysis] = state.get("stuck_analysis")
+    stuck_analysis: StuckAnalysis | None = state.get("stuck_analysis")
 
     if stuck_analysis:
         logger.warning(

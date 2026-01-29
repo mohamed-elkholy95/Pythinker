@@ -2,21 +2,21 @@
 Tests for the ReflectionAgent and reflection models.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
-from datetime import datetime
 
-from app.domain.services.agents.reflection import ReflectionAgent
+import pytest
+
+from app.domain.models.event import ReflectionStatus
+from app.domain.models.plan import Plan, Step
 from app.domain.models.reflection import (
-    ReflectionTrigger,
-    ReflectionTriggerType,
+    ProgressMetrics,
+    ReflectionConfig,
     ReflectionDecision,
     ReflectionResult,
-    ReflectionConfig,
-    ProgressMetrics,
+    ReflectionTrigger,
+    ReflectionTriggerType,
 )
-from app.domain.models.event import ReflectionEvent, ReflectionStatus
-from app.domain.models.plan import Plan, Step
+from app.domain.services.agents.reflection import ReflectionAgent
 
 
 class TestReflectionTrigger:

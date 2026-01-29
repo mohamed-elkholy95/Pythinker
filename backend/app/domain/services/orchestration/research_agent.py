@@ -2,16 +2,16 @@
 
 Integrates with existing AgentRegistry for automatic dispatch.
 """
-from typing import AsyncGenerator, List, Dict, Any, Optional
-from app.domain.services.agents.base import BaseAgent
+import logging
+from collections.abc import AsyncGenerator
+
+from app.domain.external.browser import Browser
 from app.domain.external.llm import LLM
 from app.domain.external.search import SearchEngine
-from app.domain.external.browser import Browser
 from app.domain.models.event import BaseEvent, MessageEvent, ToolEvent, ToolStatus
-from app.domain.models.agent_response import AgentResponse
 from app.domain.repositories.agent_repository import AgentRepository
+from app.domain.services.agents.base import BaseAgent
 from app.domain.utils.json_parser import JsonParser
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -43,11 +43,11 @@ Prioritize authoritative sources and recent information."""
     def __init__(
         self,
         agent_id: str,
-        agent_repository: Optional[AgentRepository],
+        agent_repository: AgentRepository | None,
         llm: LLM,
         json_parser: JsonParser,
-        search_engine: Optional[SearchEngine] = None,
-        browser: Optional[Browser] = None,
+        search_engine: SearchEngine | None = None,
+        browser: Browser | None = None,
         max_sources: int = 10,
         search_depth: str = "deep",  # "quick", "standard", "deep"
     ):
@@ -73,7 +73,7 @@ Prioritize authoritative sources and recent information."""
     async def research(
         self,
         topic: str,
-        requirements: Optional[str] = None,
+        requirements: str | None = None,
     ) -> AsyncGenerator[BaseEvent, None]:
         """Execute research workflow.
 
@@ -181,8 +181,8 @@ Prioritize authoritative sources and recent information."""
     async def _generate_queries(
         self,
         topic: str,
-        requirements: Optional[str],
-    ) -> List[str]:
+        requirements: str | None,
+    ) -> list[str]:
         """Generate diverse search queries using LLM"""
         query_count = self._query_counts.get(self._search_depth, 5)
 
@@ -205,7 +205,7 @@ Return JSON array of queries:
             logger.error(f"Failed to generate queries: {e}")
             return [topic]
 
-    def _rank_sources(self, results: List[Dict]) -> List[Dict]:
+    def _rank_sources(self, results: list[dict]) -> list[dict]:
         """Rank sources by credibility and relevance"""
         def credibility_score(result):
             url = result.get('url', '')
@@ -245,8 +245,8 @@ Return JSON array of queries:
     async def _synthesize_findings(
         self,
         topic: str,
-        sources: List[Dict],
-        requirements: Optional[str],
+        sources: list[dict],
+        requirements: str | None,
     ) -> str:
         """Synthesize findings using LLM"""
         # Build context from sources
@@ -286,7 +286,7 @@ Return JSON:
         self,
         topic: str,
         synthesis: str,
-        sources: List[Dict],
+        sources: list[dict],
     ) -> str:
         """Generate final markdown report with citations"""
         report = f"""# Research Report: {topic}

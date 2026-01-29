@@ -3,19 +3,20 @@
 Provides integration with Ollama for running local LLMs.
 Supports all Ollama-compatible models including Llama, Mistral, Phi, etc.
 """
-from typing import List, Dict, Any, Optional, AsyncGenerator, Type, TypeVar
-import logging
 import asyncio
 import json
+import logging
+from collections.abc import AsyncGenerator
+from typing import Any, TypeVar
 
 import httpx
 from pydantic import BaseModel
 
-from app.domain.external.llm import LLM
 from app.core.config import get_settings
-from app.infrastructure.external.llm.factory import LLMProviderRegistry
-from app.domain.services.agents.usage_context import get_usage_context
+from app.domain.external.llm import LLM
 from app.domain.services.agents.token_manager import TokenManager
+from app.domain.services.agents.usage_context import get_usage_context
+from app.infrastructure.external.llm.factory import LLMProviderRegistry
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -37,10 +38,10 @@ class OllamaLLM(LLM):
 
     def __init__(
         self,
-        base_url: Optional[str] = None,
-        model_name: Optional[str] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        base_url: str | None = None,
+        model_name: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ):
         """Initialize Ollama LLM.
 
@@ -83,7 +84,7 @@ class OllamaLLM(LLM):
     def max_tokens(self) -> int:
         return self._max_tokens
 
-    def _tools_to_text(self, tools: List[Dict[str, Any]]) -> str:
+    def _tools_to_text(self, tools: list[dict[str, Any]]) -> str:
         """Convert OpenAI tools format to text description.
 
         Args:
@@ -122,9 +123,9 @@ class OllamaLLM(LLM):
 
     def _inject_tools_into_messages(
         self,
-        messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """Inject tool definitions into the system prompt.
 
         Args:
@@ -169,8 +170,8 @@ Do not include any text before or after the JSON when calling a tool.
 
     def _convert_messages_for_ollama(
         self,
-        messages: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+        messages: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """Convert messages to Ollama format.
 
         Handles tool calls and tool responses.
@@ -229,7 +230,7 @@ Do not include any text before or after the JSON when calling a tool.
 
         return converted
 
-    def _parse_tool_call_from_text(self, content: str) -> Optional[Dict[str, Any]]:
+    def _parse_tool_call_from_text(self, content: str) -> dict[str, Any] | None:
         """Parse tool call from text response.
 
         Args:
@@ -276,12 +277,12 @@ Do not include any text before or after the JSON when calling a tool.
 
     async def ask(
         self,
-        messages: List[Dict[str, str]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        response_format: Optional[Dict[str, Any]] = None,
-        tool_choice: Optional[str] = None,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None = None,
+        response_format: dict[str, Any] | None = None,
+        tool_choice: str | None = None,
         enable_caching: bool = True
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Send chat request to Ollama API.
 
         Args:
@@ -363,10 +364,10 @@ Do not include any text before or after the JSON when calling a tool.
 
     async def ask_structured(
         self,
-        messages: List[Dict[str, str]],
-        response_model: Type[T],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        tool_choice: Optional[str] = None,
+        messages: list[dict[str, str]],
+        response_model: type[T],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | None = None,
         enable_caching: bool = True
     ) -> T:
         """Send chat request with structured output validation.
@@ -424,10 +425,10 @@ Respond ONLY with the JSON object, no other text."""
 
     async def ask_stream(
         self,
-        messages: List[Dict[str, str]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        response_format: Optional[Dict[str, Any]] = None,
-        tool_choice: Optional[str] = None,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None = None,
+        response_format: dict[str, Any] | None = None,
+        tool_choice: str | None = None,
         enable_caching: bool = True
     ) -> AsyncGenerator[str, None]:
         """Stream chat response from Ollama API.
@@ -448,44 +449,43 @@ Respond ONLY with the JSON object, no other text."""
         if tools:
             ollama_messages = self._inject_tools_into_messages(ollama_messages, tools)
 
-        completion_parts: List[str] = []
-        usage_counts: Optional[Dict[str, int]] = None
+        completion_parts: list[str] = []
+        usage_counts: dict[str, int] | None = None
 
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                async with client.stream(
-                    "POST",
-                    f"{self._api_url}/chat",
-                    json={
-                        "model": self._model_name,
-                        "messages": ollama_messages,
-                        "stream": True,
-                        "options": {
-                            "temperature": self._temperature,
-                            "num_predict": self._max_tokens,
-                        }
+            async with httpx.AsyncClient(timeout=120.0) as client, client.stream(
+                "POST",
+                f"{self._api_url}/chat",
+                json={
+                    "model": self._model_name,
+                    "messages": ollama_messages,
+                    "stream": True,
+                    "options": {
+                        "temperature": self._temperature,
+                        "num_predict": self._max_tokens,
                     }
-                ) as response:
-                    response.raise_for_status()
+                }
+            ) as response:
+                response.raise_for_status()
 
-                    async for line in response.aiter_lines():
-                        if line:
-                            try:
-                                data = json.loads(line)
-                                # Ollama may include usage counts on final chunks
-                                prompt_eval = data.get("prompt_eval_count")
-                                eval_count = data.get("eval_count")
-                                if prompt_eval is not None or eval_count is not None:
-                                    usage_counts = {
-                                        "prompt_tokens": prompt_eval or 0,
-                                        "completion_tokens": eval_count or 0,
-                                    }
-                                if data.get("message", {}).get("content"):
-                                    content = data["message"]["content"]
-                                    completion_parts.append(content)
-                                    yield content
-                            except json.JSONDecodeError:
-                                continue
+                async for line in response.aiter_lines():
+                    if line:
+                        try:
+                            data = json.loads(line)
+                            # Ollama may include usage counts on final chunks
+                            prompt_eval = data.get("prompt_eval_count")
+                            eval_count = data.get("eval_count")
+                            if prompt_eval is not None or eval_count is not None:
+                                usage_counts = {
+                                    "prompt_tokens": prompt_eval or 0,
+                                    "completion_tokens": eval_count or 0,
+                                }
+                            if data.get("message", {}).get("content"):
+                                content = data["message"]["content"]
+                                completion_parts.append(content)
+                                yield content
+                        except json.JSONDecodeError:
+                            continue
 
             if usage_counts:
                 await self._record_usage_counts(
@@ -507,7 +507,7 @@ Respond ONLY with the JSON object, no other text."""
         prompt_tokens: int,
         completion_tokens: int,
         cached_tokens: int = 0,
-        model_override: Optional[str] = None,
+        model_override: str | None = None,
     ) -> None:
         """Record usage from explicit token counts."""
         ctx = get_usage_context()
@@ -531,9 +531,9 @@ Respond ONLY with the JSON object, no other text."""
 
     async def _record_stream_usage(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         completion_text: str,
-        tools: Optional[List[Dict[str, Any]]] = None,
+        tools: list[dict[str, Any]] | None = None,
     ) -> None:
         """Record usage for streaming responses using token estimation."""
         ctx = get_usage_context()

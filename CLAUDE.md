@@ -22,7 +22,7 @@ Pythinker is an AI Agent system that runs tools (browser, terminal, files, searc
 >
 > **Before committing, always validate:**
 > - **Frontend**: `cd frontend && bun run lint && bun run type-check`
-> - **Backend**: `conda activate pythinker && cd backend && pytest tests/`
+> - **Backend**: `conda activate pythinker && cd backend && ruff check . && ruff format --check . && pytest tests/`
 
 ### Development Guidelines
 
@@ -34,6 +34,14 @@ Pythinker is an AI Agent system that runs tools (browser, terminal, files, searc
 - **Frontend Validation (Before Commit)**: Always run lint and type checks before committing frontend changes:
   ```bash
   cd frontend && bun run lint && bun run type-check
+  ```
+- **Backend Linting (Before Commit)**: Always run Ruff linter and formatter before committing:
+  ```bash
+  conda activate pythinker && cd backend && ruff check . && ruff format --check .
+  ```
+- **Backend Auto-fix**: To automatically fix linting issues:
+  ```bash
+  conda activate pythinker && cd backend && ruff check --fix . && ruff format .
   ```
 - **Backend Testing (Before Commit)**: Always run tests before committing backend changes:
   ```bash
@@ -72,7 +80,7 @@ Pythinker is an AI Agent system that runs tools (browser, terminal, files, searc
 | **D**ependency Inversion | Depend on abstractions, not concretions |
 
 #### Type Safety
-- **Python**: Use type hints with `mypy` for static analysis; Pydantic for runtime validation
+- **Python**: Use type hints with Pyright for static analysis; Pydantic for runtime validation; Ruff for linting
 - **TypeScript**: Leverage strict mode; avoid `any`; use Zod for runtime validation
 - Catch errors at compile-time; ensure predictable data flow
 
@@ -280,12 +288,13 @@ export class AppError extends Error {
 
 | Category | Python | TypeScript |
 |----------|--------|------------|
-| **Linting** | Ruff (fast), Pylint, Flake8 | ESLint |
-| **Formatting** | Black, isort | Prettier |
-| **Type Checking** | mypy, Pyright | tsc --strict |
-| **Validation** | Pydantic | Zod, Yup |
+| **Linting** | Ruff | ESLint |
+| **Formatting** | Ruff | Prettier |
+| **Type Checking** | Pyright | tsc --strict |
+| **Validation** | Pydantic | Zod |
 | **Testing** | Pytest | Vitest, Playwright |
-| **DI Framework** | dependency-injector | - |
+| **Security** | pip-audit | npm audit |
+| **Logging** | structlog | - |
 
 ---
 
@@ -312,6 +321,9 @@ Before committing code changes:
 - [ ] Custom exceptions used instead of generic ones
 - [ ] Unit tests cover business logic
 - [ ] No `any` types in TypeScript; no untyped functions in Python
+- [ ] Ruff check passes (`ruff check . && ruff format --check .`)
+- [ ] ESLint passes (`bun run lint:check`)
+- [ ] All tests pass (`pytest tests/`)
 
 ## Development Commands
 
@@ -331,10 +343,20 @@ conda activate pythinker              # Use conda environment
 pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
+# Linting & Formatting (Ruff)
+ruff check .                            # Check for issues
+ruff check --fix .                      # Auto-fix issues
+ruff format .                           # Format code
+ruff format --check .                   # Check formatting only
+
 # Testing
-pytest tests/                           # All tests
+pytest tests/                           # All tests (includes coverage)
 pytest tests/test_auth_routes.py        # Single file
-pytest -v --cov                         # With coverage
+pytest -v --no-cov                      # Without coverage
+pytest -m "not slow"                    # Skip slow tests
+
+# Development dependencies
+pip install -r requirements-dev.txt     # Includes ruff, pip-audit
 ```
 
 ### Frontend
@@ -409,7 +431,74 @@ Key endpoints:
 ## Code Style
 - **Python**: 4-space indent, `snake_case` functions, `PascalCase` classes, maintain DDD layers
 - **Vue/TypeScript**: 2-space indent, `PascalCase` components, composables named `useX.ts`
-- **Linting**: Frontend uses ESLint (`frontend/eslint.config.js`)
+- **Linting**: Backend uses Ruff (`backend/pyproject.toml`), Frontend uses ESLint (`frontend/eslint.config.js`)
+
+## Tooling Configuration
+
+### Ruff (Python Linting & Formatting)
+
+Configuration in `backend/pyproject.toml`:
+- **Line length**: 120 characters
+- **Target**: Python 3.11
+- **Lint rules**: E, W, F, I, N, UP, B, C4, LOG, RET, SIM, RUF
+- **Ignored**: E501 (line too long), PLR0913 (too many args), PLR2004 (magic values)
+- **Per-file ignores**: Tests allow assertions (S101), API routes allow B008
+
+```bash
+# Check for issues
+ruff check .
+
+# Auto-fix issues
+ruff check --fix .
+
+# Check formatting
+ruff format --check .
+
+# Apply formatting
+ruff format .
+```
+
+### Structured Logging (structlog)
+
+The backend uses `structlog` for JSON-formatted logging with correlation ID propagation.
+
+**Key features:**
+- JSON output in production, colored console in development
+- Automatic correlation IDs: `request_id`, `session_id`, `user_id`, `agent_id`
+- Context propagation through async operations via ContextVars
+
+**Usage in code:**
+```python
+from app.infrastructure.structured_logging import get_logger, set_session_id
+
+logger = get_logger(__name__)
+
+# Set correlation context
+set_session_id("session-123")
+
+# Log with automatic context
+logger.info("Processing request", user_action="chat", extra_field="value")
+```
+
+**Log output (production JSON):**
+```json
+{"event": "Processing request", "request_id": "abc123", "session_id": "session-123", "level": "INFO", "timestamp": "2024-01-15T10:30:00Z"}
+```
+
+### CI/CD Workflows
+
+GitHub Actions workflows in `.github/workflows/`:
+
+| Workflow | Trigger | Jobs |
+|----------|---------|------|
+| `test-and-lint.yml` | Push/PR to main/develop | backend-lint, backend-test, backend-security, frontend-lint, frontend-typecheck, frontend-test |
+| `security-scan.yml` | Weekly + manual + dependency changes | trufflehog-scan, dependency-audit |
+| `docker-build-and-push.yml` | Push/PR to main/develop | build-and-push (depends on test-and-lint) |
+
+**CI validation runs:**
+- Backend: `ruff check`, `ruff format --check`, `pytest`
+- Frontend: `bun run lint:check`, `bun run type-check`, `bun run test:run`
+- Security: `pip-audit`, `npm audit`, `trufflehog` (secrets scanning)
 
 ## Configuration
 - Copy `.env.example` to `.env` for local runs

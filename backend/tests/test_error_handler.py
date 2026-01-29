@@ -2,11 +2,10 @@
 Tests for the error handler module.
 """
 
-import pytest
 from app.domain.services.agents.error_handler import (
+    ErrorContext,
     ErrorHandler,
     ErrorType,
-    ErrorContext,
     TokenLimitExceeded,
 )
 

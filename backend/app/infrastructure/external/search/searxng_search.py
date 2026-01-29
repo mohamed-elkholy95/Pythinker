@@ -8,25 +8,26 @@ Production-grade search engine adapter with:
 - Comprehensive logging for debugging
 """
 
-from typing import Optional, List, Dict, Set
+import asyncio
+import logging
+import random
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-import logging
-import asyncio
-import random
+
 import httpx
 from tenacity import (
+    RetryError,
+    before_sleep_log,
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     stop_after_delay,
     wait_random_exponential,
-    retry_if_exception_type,
-    before_sleep_log,
-    RetryError,
 )
-from app.domain.models.tool_result import ToolResult
-from app.domain.models.search import SearchResults, SearchResultItem
+
 from app.domain.external.search import SearchEngine
+from app.domain.models.search import SearchResultItem, SearchResults
+from app.domain.models.tool_result import ToolResult
 from app.infrastructure.external.search.factory import SearchProviderRegistry
 
 logger = logging.getLogger(__name__)
@@ -53,10 +54,10 @@ CAPTCHA_INDICATORS = [
 class EngineHealth:
     """Track health status of individual search engines."""
     failures: int = 0
-    last_failure: Optional[datetime] = None
+    last_failure: datetime | None = None
     is_suspended: bool = False
-    suspend_until: Optional[datetime] = None
-    failure_reasons: List[str] = field(default_factory=list)
+    suspend_until: datetime | None = None
+    failure_reasons: list[str] = field(default_factory=list)
 
     def record_failure(self, reason: str, suspend_minutes: int = 5):
         """Record a failure and potentially suspend the engine."""
@@ -99,7 +100,7 @@ class EngineCircuitBreaker:
     """Circuit breaker for managing engine availability."""
 
     def __init__(self):
-        self._engine_health: Dict[str, EngineHealth] = {}
+        self._engine_health: dict[str, EngineHealth] = {}
         self._lock = asyncio.Lock()
 
     def _get_health(self, engine: str) -> EngineHealth:
@@ -121,7 +122,7 @@ class EngineCircuitBreaker:
             health = self._get_health(engine)
             health.record_success()
 
-    async def get_available_engines(self, requested_engines: List[str]) -> List[str]:
+    async def get_available_engines(self, requested_engines: list[str]) -> list[str]:
         """Filter engines to only those currently available."""
         async with self._lock:
             available = []
@@ -133,7 +134,7 @@ class EngineCircuitBreaker:
                     logger.debug(f"Engine '{engine}' is suspended until {health.suspend_until}")
             return available
 
-    async def get_status(self) -> Dict[str, dict]:
+    async def get_status(self) -> dict[str, dict]:
         """Get current status of all engines."""
         async with self._lock:
             return {
@@ -193,7 +194,7 @@ class SearXNGSearchEngine(SearchEngine):
             'X-Real-IP': '127.0.0.1',
         }
         # Reusable HTTP client for connection pooling
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
         # Circuit breaker for engine management
         self._circuit_breaker = _circuit_breaker
 
@@ -218,7 +219,7 @@ class SearXNGSearchEngine(SearchEngine):
             await self._client.aclose()
             self._client = None
 
-    def _get_engines_for_query(self, query: str) -> List[str]:
+    def _get_engines_for_query(self, query: str) -> list[str]:
         """Select appropriate engines based on query content.
 
         Args:
@@ -256,7 +257,7 @@ class SearXNGSearchEngine(SearchEngine):
 
         return ",".join(available)
 
-    def _detect_captcha_or_block(self, response_text: str) -> Optional[str]:
+    def _detect_captcha_or_block(self, response_text: str) -> str | None:
         """Detect CAPTCHA or blocking in response content.
 
         Args:
@@ -271,7 +272,7 @@ class SearXNGSearchEngine(SearchEngine):
                 return indicator
         return None
 
-    async def _process_unresponsive_engines(self, unresponsive: List) -> None:
+    async def _process_unresponsive_engines(self, unresponsive: list) -> None:
         """Process and record unresponsive engines from SearXNG response."""
         for engine_info in unresponsive:
             if isinstance(engine_info, list) and len(engine_info) >= 2:
@@ -288,7 +289,7 @@ class SearXNGSearchEngine(SearchEngine):
     async def search(
         self,
         query: str,
-        date_range: Optional[str] = None
+        date_range: str | None = None
     ) -> ToolResult[SearchResults]:
         """Search web pages using SearXNG metasearch with robust error handling.
 
@@ -361,7 +362,7 @@ class SearXNGSearchEngine(SearchEngine):
         self,
         query: str,
         params: dict,
-        date_range: Optional[str]
+        date_range: str | None
     ) -> ToolResult[SearchResults]:
         """Execute search with tenacity-based exponential backoff retry.
 
@@ -444,7 +445,7 @@ class SearXNGSearchEngine(SearchEngine):
 
         return await _do_search()
 
-    def _parse_results(self, data: dict) -> List[SearchResultItem]:
+    def _parse_results(self, data: dict) -> list[SearchResultItem]:
         """Parse search results from SearXNG JSON response.
 
         Args:
@@ -499,7 +500,7 @@ class SearXNGSearchEngine(SearchEngine):
             logger.warning(f"SearXNG health check failed: {e}")
             return False
 
-    async def get_engine_status(self) -> Dict[str, dict]:
+    async def get_engine_status(self) -> dict[str, dict]:
         """Get current health status of all tracked engines.
 
         Returns:

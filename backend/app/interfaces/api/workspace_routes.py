@@ -1,19 +1,18 @@
 """Workspace template and structure API routes."""
 
-from fastapi import APIRouter, Depends, HTTPException
-from typing import List, Dict
 import logging
 
-from app.interfaces.dependencies import get_agent_service, get_current_user
-from app.interfaces.schemas.base import APIResponse
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
 from app.application.services.agent_service import AgentService
 from app.domain.models.user import User
 from app.domain.services.workspace import (
     get_all_templates,
     get_template,
-    WorkspaceTemplate,
 )
-from pydantic import BaseModel
+from app.interfaces.dependencies import get_agent_service, get_current_user
+from app.interfaces.schemas.base import APIResponse
 
 logger = logging.getLogger(__name__)
 
@@ -25,19 +24,19 @@ class WorkspaceTemplateResponse(BaseModel):
     """Response schema for workspace template."""
     name: str
     description: str
-    folders: Dict[str, str]
-    trigger_keywords: List[str]
+    folders: dict[str, str]
+    trigger_keywords: list[str]
 
 
 class WorkspaceTemplateListResponse(BaseModel):
     """Response schema for list of workspace templates."""
-    templates: List[WorkspaceTemplateResponse]
+    templates: list[WorkspaceTemplateResponse]
 
 
 class SessionWorkspaceResponse(BaseModel):
     """Response schema for session workspace structure."""
     session_id: str
-    workspace_structure: Dict[str, str] | None
+    workspace_structure: dict[str, str] | None
     workspace_root: str | None
 
 

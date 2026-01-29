@@ -2,8 +2,6 @@
 Tests for the flow state module.
 """
 
-import pytest
-from datetime import datetime
 from app.domain.models.flow_state import FlowStateSnapshot, FlowStatus
 
 

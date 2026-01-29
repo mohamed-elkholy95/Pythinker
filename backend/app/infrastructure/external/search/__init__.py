@@ -11,9 +11,9 @@ Supported providers:
 - duckduckgo: DuckDuckGo search (privacy-focused)
 - brave: Brave Search API (requires API key)
 """
+import logging
 from functools import lru_cache
 from typing import Optional
-import logging
 
 from app.domain.external.search import SearchEngine
 from app.infrastructure.external.search.factory import (
@@ -24,8 +24,8 @@ from app.infrastructure.external.search.factory import (
 logger = logging.getLogger(__name__)
 
 
-@lru_cache()
-def get_search_engine() -> Optional[SearchEngine]:
+@lru_cache
+def get_search_engine() -> SearchEngine | None:
     """Get search engine instance based on configuration.
 
     Uses the SearchProviderRegistry to dynamically select and instantiate
@@ -38,6 +38,6 @@ def get_search_engine() -> Optional[SearchEngine]:
 
 
 __all__ = [
-    "get_search_engine",
     "SearchProviderRegistry",
+    "get_search_engine",
 ]

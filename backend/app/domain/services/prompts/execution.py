@@ -1,6 +1,5 @@
 # Execution prompt
-from typing import Optional, List
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 # Current date signal template - injected to provide temporal awareness
 CURRENT_DATE_SIGNAL = """
@@ -106,7 +105,7 @@ def is_complex_task(step_description: str) -> bool:
     return indicator_count >= 2 or len(step_description) > 300
 
 
-def extract_task_constraints(step_description: str) -> List[str]:
+def extract_task_constraints(step_description: str) -> list[str]:
     """Extract constraints from a task description.
 
     Args:
@@ -260,7 +259,7 @@ def get_current_date_signal() -> str:
     Returns:
         Formatted current date signal string
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return CURRENT_DATE_SIGNAL.format(
         current_date=now.strftime("%Y-%m-%d"),
         day_of_week=now.strftime("%A"),
@@ -293,9 +292,9 @@ def build_execution_prompt(
     message: str,
     attachments: str,
     language: str,
-    pressure_signal: Optional[str] = None,
-    task_state: Optional[str] = None,
-    memory_context: Optional[str] = None,
+    pressure_signal: str | None = None,
+    task_state: str | None = None,
+    memory_context: str | None = None,
     enable_cot: bool = True,
     include_current_date: bool = True,
     enable_source_attribution: bool = True
@@ -369,7 +368,7 @@ def build_execution_prompt(
 
 def build_execution_system_prompt(
     base_prompt: str,
-    pressure_signal: Optional[str] = None
+    pressure_signal: str | None = None
 ) -> str:
     """
     Build execution system prompt with optional pressure warning.

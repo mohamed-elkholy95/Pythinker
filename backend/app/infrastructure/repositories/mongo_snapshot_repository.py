@@ -1,11 +1,11 @@
 """MongoDB implementation of SnapshotRepository."""
 
-from typing import Optional, List
-from datetime import datetime, UTC
-from app.domain.models.snapshot import StateSnapshot, SnapshotType
+import logging
+from datetime import datetime
+
+from app.domain.models.snapshot import SnapshotType, StateSnapshot
 from app.domain.repositories.snapshot_repository import SnapshotRepository
 from app.infrastructure.models.documents import SnapshotDocument
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +48,12 @@ class MongoSnapshotRepository(SnapshotRepository):
     def _to_domain(self, doc: SnapshotDocument) -> StateSnapshot:
         """Convert MongoDB document to domain model."""
         from app.domain.models.snapshot import (
-            FileSystemSnapshot, FileSnapshot, BrowserSnapshot,
-            TerminalSnapshot, EditorSnapshot, PlanSnapshot
+            BrowserSnapshot,
+            EditorSnapshot,
+            FileSnapshot,
+            FileSystemSnapshot,
+            PlanSnapshot,
+            TerminalSnapshot,
         )
 
         snapshot = StateSnapshot(
@@ -97,14 +101,14 @@ class MongoSnapshotRepository(SnapshotRepository):
         else:
             await doc.insert()
 
-    async def save_many(self, snapshots: List[StateSnapshot]) -> None:
+    async def save_many(self, snapshots: list[StateSnapshot]) -> None:
         """Save multiple snapshots in a batch operation."""
         if not snapshots:
             return
         docs = [self._to_document(s) for s in snapshots]
         await SnapshotDocument.insert_many(docs)
 
-    async def find_by_id(self, snapshot_id: str) -> Optional[StateSnapshot]:
+    async def find_by_id(self, snapshot_id: str) -> StateSnapshot | None:
         """Find a snapshot by its ID."""
         doc = await SnapshotDocument.find_one(
             SnapshotDocument.snapshot_id == snapshot_id
@@ -114,8 +118,8 @@ class MongoSnapshotRepository(SnapshotRepository):
     async def find_by_session(
         self,
         session_id: str,
-        limit: Optional[int] = None
-    ) -> List[StateSnapshot]:
+        limit: int | None = None
+    ) -> list[StateSnapshot]:
         """Find all snapshots for a session, ordered by sequence number."""
         query = SnapshotDocument.find(
             SnapshotDocument.session_id == session_id
@@ -127,7 +131,7 @@ class MongoSnapshotRepository(SnapshotRepository):
         docs = await query.to_list()
         return [self._to_domain(doc) for doc in docs]
 
-    async def find_by_action(self, action_id: str) -> Optional[StateSnapshot]:
+    async def find_by_action(self, action_id: str) -> StateSnapshot | None:
         """Find the snapshot associated with a specific action."""
         doc = await SnapshotDocument.find_one(
             SnapshotDocument.action_id == action_id
@@ -138,7 +142,7 @@ class MongoSnapshotRepository(SnapshotRepository):
         self,
         session_id: str,
         sequence_number: int
-    ) -> Optional[StateSnapshot]:
+    ) -> StateSnapshot | None:
         """
         Find the nearest snapshot at or before the given sequence number.
         Used for efficient state reconstruction.
@@ -154,7 +158,7 @@ class MongoSnapshotRepository(SnapshotRepository):
         self,
         session_id: str,
         timestamp: datetime
-    ) -> Optional[StateSnapshot]:
+    ) -> StateSnapshot | None:
         """
         Find the nearest snapshot at or before the given timestamp.
         Used for time-based state reconstruction.
@@ -171,7 +175,7 @@ class MongoSnapshotRepository(SnapshotRepository):
         session_id: str,
         start_sequence: int,
         end_sequence: int
-    ) -> List[StateSnapshot]:
+    ) -> list[StateSnapshot]:
         """
         Get all snapshots within a sequence number range.
         Useful for reconstructing state over a range of actions.
@@ -219,7 +223,7 @@ class MongoSnapshotRepository(SnapshotRepository):
     async def get_latest_full_snapshot(
         self,
         session_id: str
-    ) -> Optional[StateSnapshot]:
+    ) -> StateSnapshot | None:
         """
         Get the most recent full state snapshot for a session.
         Full snapshots contain complete session state.

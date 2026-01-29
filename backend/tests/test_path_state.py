@@ -2,18 +2,18 @@
 Tests for Tree-of-Thoughts path state models and complexity analyzer.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
-from datetime import datetime
+
+import pytest
 
 from app.domain.models.path_state import (
+    BranchingDecision,
+    ComplexityAnalysis,
+    PathMetrics,
+    PathScoreWeights,
     PathState,
     PathStatus,
-    PathMetrics,
-    BranchingDecision,
     TaskComplexity,
-    ComplexityAnalysis,
-    PathScoreWeights,
     TreeOfThoughtsConfig,
 )
 from app.domain.services.flows.complexity_analyzer import TaskComplexityAnalyzer

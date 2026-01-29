@@ -1,5 +1,5 @@
+
 from pydantic import BaseModel, Field
-from typing import List, Optional
 
 
 class SearchResultItem(BaseModel):
@@ -12,6 +12,6 @@ class SearchResultItem(BaseModel):
 class SearchResults(BaseModel):
     """Complete search results data structure"""
     query: str = Field(..., description="Original search query")
-    date_range: Optional[str] = Field(default=None, description="Date range filter applied")
+    date_range: str | None = Field(default=None, description="Date range filter applied")
     total_results: int = Field(default=0, description="Total results count")
-    results: List[SearchResultItem] = Field(default_factory=list, description="List of search results")
+    results: list[SearchResultItem] = Field(default_factory=list, description="List of search results")

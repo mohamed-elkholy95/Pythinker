@@ -14,56 +14,52 @@ The workflow follows this structure (with Plan-Verify-Execute pattern):
 """
 
 import logging
-from typing import AsyncGenerator, Optional, List
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
+from typing import Optional
 
-from app.domain.services.flows.workflow_graph import (
-    WorkflowGraph,
-    WorkflowState,
-    WorkflowBuilder,
-    END,
-)
-from app.domain.services.flows.base import BaseFlow
-from app.domain.models.agent import Agent
-from app.domain.models.message import Message
-from app.domain.models.plan import Plan, Step, ExecutionStatus
+from app.core.config import get_settings
+from app.domain.external.browser import Browser
+from app.domain.external.llm import LLM
+from app.domain.external.sandbox import Sandbox
+from app.domain.external.search import SearchEngine
 from app.domain.models.event import (
     BaseEvent,
+    DoneEvent,
     PlanEvent,
     PlanStatus,
-    MessageEvent,
-    DoneEvent,
     TitleEvent,
-    ErrorEvent,
     VerificationEvent,
     VerificationStatus,
 )
-from app.domain.services.agents.planner import PlannerAgent
-from app.domain.services.agents.execution import ExecutionAgent
-from app.domain.services.agents.verifier import VerifierAgent, VerifierConfig
-from app.domain.services.agents.reflection import ReflectionAgent
-from app.domain.models.reflection import ReflectionConfig, ReflectionDecision
-from app.domain.models.agent_response import VerificationVerdict
-from app.domain.external.llm import LLM
-from app.domain.external.sandbox import Sandbox
-from app.domain.external.browser import Browser
-from app.domain.external.search import SearchEngine
-from app.domain.repositories.agent_repository import AgentRepository
-from app.domain.utils.json_parser import JsonParser
-from app.domain.repositories.session_repository import SessionRepository
+from app.domain.models.message import Message
+from app.domain.models.plan import ExecutionStatus, Plan, Step
+from app.domain.models.reflection import ReflectionConfig
 from app.domain.models.session import SessionStatus
-from app.domain.services.tools.mcp import MCPTool
-from app.domain.services.tools.shell import ShellTool
+from app.domain.repositories.agent_repository import AgentRepository
+from app.domain.repositories.session_repository import SessionRepository
+from app.domain.services.agents.execution import ExecutionAgent
+from app.domain.services.agents.planner import PlannerAgent
+from app.domain.services.agents.reflection import ReflectionAgent
+from app.domain.services.agents.task_state_manager import TaskStateManager
+from app.domain.services.agents.verifier import VerifierAgent, VerifierConfig
+from app.domain.services.flows.base import BaseFlow
+from app.domain.services.flows.workflow_graph import (
+    END,
+    WorkflowBuilder,
+    WorkflowGraph,
+    WorkflowState,
+)
 from app.domain.services.tools.browser import BrowserTool
 from app.domain.services.tools.browser_agent import BrowserAgentTool
 from app.domain.services.tools.file import FileTool
+from app.domain.services.tools.idle import IdleTool
+from app.domain.services.tools.mcp import MCPTool
 from app.domain.services.tools.message import MessageTool
 from app.domain.services.tools.search import SearchTool
-from app.domain.services.tools.idle import IdleTool
-from app.domain.services.agents.task_state_manager import TaskStateManager
-from app.core.config import get_settings
-from app.infrastructure.observability import get_tracer, SpanKind
-
+from app.domain.services.tools.shell import ShellTool
+from app.domain.utils.json_parser import JsonParser
+from app.infrastructure.observability import get_tracer
 
 logger = logging.getLogger(__name__)
 
@@ -72,24 +68,24 @@ logger = logging.getLogger(__name__)
 class PlanActState(WorkflowState):
     """State for the PlanAct workflow."""
     # Core data
-    message: Optional[Message] = None
-    plan: Optional[Plan] = None
-    current_step: Optional[Step] = None
+    message: Message | None = None
+    plan: Plan | None = None
+    current_step: Step | None = None
 
     # Agents (injected)
-    planner: Optional[PlannerAgent] = None
-    executor: Optional[ExecutionAgent] = None
-    verifier: Optional[VerifierAgent] = None
+    planner: PlannerAgent | None = None
+    executor: ExecutionAgent | None = None
+    verifier: VerifierAgent | None = None
 
     # Context
     agent_id: str = ""
     session_id: str = ""
 
     # Task state manager
-    task_state_manager: Optional[TaskStateManager] = None
+    task_state_manager: TaskStateManager | None = None
 
     # Events to yield (accumulated during node execution)
-    pending_events: List[BaseEvent] = field(default_factory=list)
+    pending_events: list[BaseEvent] = field(default_factory=list)
 
     # Flags
     plan_created: bool = False
@@ -97,15 +93,15 @@ class PlanActState(WorkflowState):
     needs_wait: bool = False
 
     # Verification state (Phase 1: Plan-Verify-Execute)
-    verification_verdict: Optional[str] = None  # "pass", "revise", "fail"
-    verification_feedback: Optional[str] = None
+    verification_verdict: str | None = None  # "pass", "revise", "fail"
+    verification_feedback: str | None = None
     verification_loops: int = 0
     max_verification_loops: int = 2
 
     # Reflection state (Phase 2: Enhanced Self-Reflection)
     reflection_agent: Optional["ReflectionAgent"] = None
-    reflection_decision: Optional[str] = None  # "continue", "adjust", "replan", "escalate", "abort"
-    reflection_feedback: Optional[str] = None
+    reflection_decision: str | None = None  # "continue", "adjust", "replan", "escalate", "abort"
+    reflection_feedback: str | None = None
     last_had_error: bool = False
 
 
@@ -124,7 +120,7 @@ def create_plan_act_graph() -> WorkflowGraph:
         replan_context = None
         if state.verification_feedback and state.verification_verdict == "revise":
             replan_context = state.verification_feedback
-            logger.info(f"Replanning with verification feedback")
+            logger.info("Replanning with verification feedback")
 
         async for event in state.planner.create_plan(
             state.message,
@@ -307,7 +303,7 @@ def create_plan_act_graph() -> WorkflowGraph:
         """Route after verification based on verdict."""
         if state.verification_verdict == "pass":
             return "executing"
-        elif state.verification_verdict == "revise":
+        if state.verification_verdict == "revise":
             # Check if we've exceeded max revision loops
             if state.verification_loops >= state.max_verification_loops:
                 logger.warning(
@@ -317,7 +313,7 @@ def create_plan_act_graph() -> WorkflowGraph:
                 return "executing"
             # Return to planning with feedback
             return "planning"
-        elif state.verification_verdict == "fail":
+        if state.verification_verdict == "fail":
             # Exit gracefully
             return "summarizing"
         # Default: proceed with execution
@@ -329,26 +325,25 @@ def create_plan_act_graph() -> WorkflowGraph:
 
         if decision == "continue":
             return "updating"
-        elif decision == "adjust":
+        if decision == "adjust":
             # Minor adjustment - proceed with updating but apply adjustment
             # The adjustment is logged but execution continues
             logger.info(f"Reflection adjustment: {state.reflection_feedback}")
             return "updating"
-        elif decision == "replan":
+        if decision == "replan":
             # Major strategy change - return to planning
             logger.info(f"Reflection triggered replan: {state.reflection_feedback}")
             return "planning"
-        elif decision == "escalate":
+        if decision == "escalate":
             # Need user input - summarize current state and wait
             logger.info("Reflection escalated to user")
             return "summarizing"
-        elif decision == "abort":
+        if decision == "abort":
             # Task cannot be completed - exit gracefully
             logger.warning("Reflection decided to abort task")
             return "summarizing"
-        else:
-            # Default: continue with updating
-            return "updating"
+        # Default: continue with updating
+        return "updating"
 
     # Build the graph with verification and reflection steps
     graph = (
@@ -393,8 +388,8 @@ class PlanActGraphFlow(BaseFlow):
         browser: Browser,
         json_parser: JsonParser,
         mcp_tool: MCPTool,
-        search_engine: Optional[SearchEngine] = None,
-        cdp_url: Optional[str] = None,
+        search_engine: SearchEngine | None = None,
+        cdp_url: str | None = None,
         enable_verification: bool = True,
     ):
         self._agent_id = agent_id

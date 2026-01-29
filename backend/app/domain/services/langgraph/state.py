@@ -5,27 +5,27 @@ preserving compatibility with existing agent implementations.
 """
 
 import asyncio
-from typing import TypedDict, Annotated, Optional, List, Any
+from typing import Annotated, TypedDict
 
-from app.domain.models.plan import Plan, Step
-from app.domain.models.message import Message
 from app.domain.models.event import BaseEvent
-from app.domain.services.agents.planner import PlannerAgent
+from app.domain.models.message import Message
+from app.domain.models.plan import Plan, Step
 from app.domain.services.agents.execution import ExecutionAgent
-from app.domain.services.agents.verifier import VerifierAgent
+from app.domain.services.agents.planner import PlannerAgent
 from app.domain.services.agents.reflection import ReflectionAgent
-from app.domain.services.agents.task_state_manager import TaskStateManager
 from app.domain.services.agents.stuck_detector import StuckAnalysis
+from app.domain.services.agents.task_state_manager import TaskStateManager
+from app.domain.services.agents.verifier import VerifierAgent
 
 
-def merge_events(a: List[BaseEvent], b: List[BaseEvent] | None) -> List[BaseEvent]:
+def merge_events(a: list[BaseEvent], b: list[BaseEvent] | None) -> list[BaseEvent]:
     """Reducer function to accumulate events from multiple nodes."""
     if b is None:
         return a
     return a + b
 
 
-def merge_tools(a: List[str], b: List[str] | None) -> List[str]:
+def merge_tools(a: list[str], b: list[str] | None) -> list[str]:
     """Reducer function to track tool usage."""
     if b is None:
         return a
@@ -76,76 +76,76 @@ class PlanActState(TypedDict, total=False):
 
     # Core task data
     user_message: Message
-    plan: Optional[Plan]
-    current_step: Optional[Step]
+    plan: Plan | None
+    current_step: Step | None
 
     # Session identifiers
     agent_id: str
     session_id: str
-    user_id: Optional[str]
+    user_id: str | None
 
     # Execution tracking
     iteration_count: int
     max_iterations: int
 
     # Verification state (Phase 1: Plan-Verify-Execute)
-    verification_verdict: Optional[str]  # "pass", "revise", "fail"
-    verification_feedback: Optional[str]
+    verification_verdict: str | None  # "pass", "revise", "fail"
+    verification_feedback: str | None
     verification_loops: int
     max_verification_loops: int
 
     # Reflection state (Phase 2: Enhanced Self-Reflection)
-    reflection_decision: Optional[str]  # "continue", "adjust", "replan", "escalate"
+    reflection_decision: str | None  # "continue", "adjust", "replan", "escalate"
     last_had_error: bool
 
     # Stuck pattern analysis (Enhanced with OpenHands patterns)
-    stuck_analysis: Optional[StuckAnalysis]
-    recent_actions: Optional[List[dict]]  # Tool action history for stuck analysis
+    stuck_analysis: StuckAnalysis | None
+    recent_actions: list[dict] | None  # Tool action history for stuck analysis
 
     # Error handling
-    error: Optional[str]
+    error: str | None
     error_count: int
 
     # Human-in-the-loop
     needs_human_input: bool
-    human_response: Optional[str]
+    human_response: str | None
 
     # Event accumulator (streamed to frontend)
     # Using Annotated with reducer to properly accumulate events across nodes
-    pending_events: Annotated[List[BaseEvent], merge_events]
+    pending_events: Annotated[list[BaseEvent], merge_events]
 
     # Tool tracking for memory compaction
-    recent_tools: Annotated[List[str], merge_tools]
+    recent_tools: Annotated[list[str], merge_tools]
 
     # Injected agents (not serialized in checkpoints)
-    planner: Optional[PlannerAgent]
-    executor: Optional[ExecutionAgent]
-    verifier: Optional[VerifierAgent]
-    reflection_agent: Optional[ReflectionAgent]
-    task_state_manager: Optional[TaskStateManager]
+    planner: PlannerAgent | None
+    executor: ExecutionAgent | None
+    verifier: VerifierAgent | None
+    reflection_agent: ReflectionAgent | None
+    task_state_manager: TaskStateManager | None
 
     # Flow control flags
     plan_created: bool
     all_steps_done: bool
 
     # Real-time event streaming queue (not serialized in checkpoints)
-    event_queue: Optional[asyncio.Queue]
+    event_queue: asyncio.Queue | None
 
 
 def create_initial_state(
     message: Message,
     agent_id: str,
     session_id: str,
-    user_id: Optional[str] = None,
-    planner: Optional[PlannerAgent] = None,
-    executor: Optional[ExecutionAgent] = None,
-    verifier: Optional[VerifierAgent] = None,
-    reflection_agent: Optional[ReflectionAgent] = None,
-    task_state_manager: Optional[TaskStateManager] = None,
-    existing_plan: Optional[Plan] = None,
+    user_id: str | None = None,
+    planner: PlannerAgent | None = None,
+    executor: ExecutionAgent | None = None,
+    verifier: VerifierAgent | None = None,
+    reflection_agent: ReflectionAgent | None = None,
+    task_state_manager: TaskStateManager | None = None,
+    existing_plan: Plan | None = None,
     max_iterations: int = 200,  # Increased for complex multi-step tasks
     max_verification_loops: int = 3,  # Allow more revision attempts
-    event_queue: Optional[asyncio.Queue] = None,
+    event_queue: asyncio.Queue | None = None,
 ) -> PlanActState:
     """Create the initial state for a new workflow run.
 

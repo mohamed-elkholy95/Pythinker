@@ -1,25 +1,26 @@
+import logging
+from functools import lru_cache
+
+from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
 from pymongo.errors import ConnectionFailure
-from bson import ObjectId
-from typing import Optional
-import logging
+
 from app.core.config import get_settings
-from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
 class MongoDB:
     def __init__(self):
-        self._client: Optional[AsyncIOMotorClient] = None
+        self._client: AsyncIOMotorClient | None = None
         self._settings = get_settings()
-        self._screenshot_bucket: Optional[AsyncIOMotorGridFSBucket] = None
-        self._artifacts_bucket: Optional[AsyncIOMotorGridFSBucket] = None
-    
+        self._screenshot_bucket: AsyncIOMotorGridFSBucket | None = None
+        self._artifacts_bucket: AsyncIOMotorGridFSBucket | None = None
+
     async def initialize(self) -> None:
         """Initialize MongoDB connection and Beanie ODM."""
         if self._client is not None:
             return
-            
+
         try:
             # Connect to MongoDB with connection pooling and timeout settings
             connection_params = {
@@ -55,12 +56,12 @@ class MongoDB:
             self._artifacts_bucket = AsyncIOMotorGridFSBucket(db, bucket_name="artifacts")
             logger.info("Initialized GridFS buckets for screenshots and artifacts")
         except ConnectionFailure as e:
-            logger.error(f"Failed to connect to MongoDB: {str(e)}")
+            logger.error(f"Failed to connect to MongoDB: {e!s}")
             raise
         except Exception as e:
-            logger.error(f"Failed to initialize Beanie: {str(e)}")
+            logger.error(f"Failed to initialize Beanie: {e!s}")
             raise
-    
+
     async def shutdown(self) -> None:
         """Shutdown MongoDB connection."""
         if self._client is not None:
@@ -69,7 +70,7 @@ class MongoDB:
             logger.info("Disconnected from MongoDB")
                 # Clear cache for this module
         get_mongodb.cache_clear()
-    
+
     @property
     def client(self) -> AsyncIOMotorClient:
         """Return initialized MongoDB client"""
@@ -140,7 +141,7 @@ class MongoDB:
         return file_data
 
 
-@lru_cache()
+@lru_cache
 def get_mongodb() -> MongoDB:
     """Get the MongoDB instance."""
     return MongoDB()

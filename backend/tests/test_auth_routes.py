@@ -4,11 +4,12 @@ Integration tests for authentication routes.
 These tests require a running backend API with password auth enabled.
 They are skipped if the API is not accessible or if registration is not allowed.
 """
-import pytest
 import logging
-import requests
-from conftest import BASE_URL
 
+import pytest
+import requests
+
+from conftest import BASE_URL
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,7 @@ def authenticated_user(client, test_user_data):
     # First register the user
     register_url = f"{BASE_URL}/auth/register"
     register_response = client.post(register_url, json=test_user_data)
-    
+
     if register_response.status_code == 200:
         auth_data = register_response.json()["data"]
         return {
@@ -77,16 +78,16 @@ def authenticated_user(client, test_user_data):
             "access_token": auth_data["access_token"],
             "refresh_token": auth_data["refresh_token"]
         }
-    
+
     logger.info(f"register_response: {register_response.status_code} - {register_response.text}")
-    
+
     # If registration fails, try login (user might already exist)
     login_url = f"{BASE_URL}/auth/login"
     login_response = client.post(login_url, json={
         "email": test_user_data["email"],
         "password": test_user_data["password"]
     })
-    
+
     if login_response.status_code == 200:
         auth_data = login_response.json()["data"]
         return {
@@ -95,9 +96,9 @@ def authenticated_user(client, test_user_data):
             "access_token": auth_data["access_token"],
             "refresh_token": auth_data["refresh_token"]
         }
-    
+
     logger.info(f"login_response: {login_response.status_code} - {login_response.text}")
-    
+
     # If both fail, raise error
     raise Exception("Failed to authenticate test user")
 
@@ -111,7 +112,7 @@ def authenticated_admin(client, admin_user_data):
         "email": admin_user_data["email"],
         "password": admin_user_data["password"]
     })
-    
+
     if login_response.status_code == 200:
         auth_data = login_response.json()["data"]
         return {
@@ -120,11 +121,11 @@ def authenticated_admin(client, admin_user_data):
             "access_token": auth_data["access_token"],
             "refresh_token": auth_data["refresh_token"]
         }
-    
+
     # If login fails, register and promote to admin (this would need API support)
     register_url = f"{BASE_URL}/auth/register"
     register_response = client.post(register_url, json=admin_user_data)
-    
+
     if register_response.status_code == 200:
         auth_data = register_response.json()["data"]
         # Note: In a real system, you'd need a way to promote users to admin
@@ -135,7 +136,7 @@ def authenticated_admin(client, admin_user_data):
             "access_token": auth_data["access_token"],
             "refresh_token": auth_data["refresh_token"]
         }
-    
+
     raise Exception("Failed to authenticate admin user")
 
 
@@ -224,9 +225,9 @@ class TestAuthRoutes:
             "password": "password123",
             "email": "invalid-email"  # Invalid email
         }
-        
+
         response = client.post(url, json=user_data)
-        
+
         logger.info(f"Register invalid email response: {response.status_code} - {response.text}")
         assert response.status_code == 422
 
@@ -265,9 +266,9 @@ class TestAuthRoutes:
             "email": authenticated_user["user_data"]["email"],
             "password": authenticated_user["user_data"]["password"]
         }
-        
+
         response = client.post(url, json=login_data)
-        
+
         logger.info(f"Login response: {response.status_code} - {response.text}")
         assert response.status_code == 200
         data = response.json()
@@ -337,9 +338,9 @@ class TestAuthRoutes:
         url = f"{BASE_URL}/auth/me"
         logger.info(f"authenticated_user: {authenticated_user}")
         headers = {"Authorization": f"Bearer {authenticated_user['access_token']}"}
-        
+
         response = client.get(url, headers=headers)
-        
+
         logger.info(f"Get current user response: {response.status_code} - {response.text}")
         assert response.status_code == 200
         data = response.json()
@@ -351,9 +352,9 @@ class TestAuthRoutes:
     def test_get_current_user_info_unauthorized(self, client):
         """Test get current user information without authentication"""
         url = f"{BASE_URL}/auth/me"
-        
+
         response = client.get(url)
-        
+
         logger.info(f"Get current user unauthorized response: {response.status_code} - {response.text}")
         assert response.status_code == 401
 
@@ -361,9 +362,9 @@ class TestAuthRoutes:
         """Test get current user information with invalid token"""
         url = f"{BASE_URL}/auth/me"
         headers = {"Authorization": "Bearer invalid_token"}
-        
+
         response = client.get(url, headers=headers)
-        
+
         logger.info(f"Get current user invalid token response: {response.status_code} - {response.text}")
         assert response.status_code == 401
 
@@ -499,13 +500,13 @@ class TestAuthRoutes:
             "password": "password123",
             "email": f"lifecycle_{unique_suffix}@example.com"
         }
-        
+
         # 1. Register
         register_url = f"{BASE_URL}/auth/register"
         register_response = client.post(register_url, json=user_data)
         logger.info(f"Lifecycle register response: {register_response.status_code} - {register_response.text}")
         assert register_response.status_code == 200
-        
+
         # 2. Login
         login_url = f"{BASE_URL}/auth/login"
         login_response = client.post(login_url, json={
@@ -514,9 +515,9 @@ class TestAuthRoutes:
         })
         logger.info(f"Lifecycle login response: {login_response.status_code} - {login_response.text}")
         assert login_response.status_code == 200
-        
+
         access_token = login_response.json()["data"]["access_token"]
-        
+
         # 3. Change password
         change_password_url = f"{BASE_URL}/auth/change-password"
         headers = {"Authorization": f"Bearer {access_token}"}
@@ -526,7 +527,7 @@ class TestAuthRoutes:
         }, headers=headers)
         logger.info(f"Lifecycle change password response: {change_response.status_code} - {change_response.text}")
         assert change_response.status_code == 200
-        
+
         # 4. Logout
         logout_url = f"{BASE_URL}/auth/logout"
         logout_response = client.post(logout_url, headers=headers)
@@ -555,4 +556,4 @@ class TestAuthRoutes:
         me_response = client.get(me_url, headers=headers)
         logger.info(f"Token refresh workflow me response: {me_response.status_code} - {me_response.text}")
         assert me_response.status_code == 200
-        assert me_response.json()["data"]["email"] == authenticated_user["user_data"]["email"] 
+        assert me_response.json()["data"]["email"] == authenticated_user["user_data"]["email"]

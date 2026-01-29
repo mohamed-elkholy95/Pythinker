@@ -5,33 +5,33 @@ that work within the multi-agent orchestration system.
 """
 
 import logging
-from typing import Dict, Any, List, Optional, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Any
 
-from app.domain.services.orchestration.agent_types import (
-    AgentType,
-    AgentSpec,
-    AgentCapability,
-)
-from app.domain.services.orchestration.swarm import AgentFactory
-from app.domain.services.agents.base import BaseAgent
-from app.domain.models.agent import Agent
+from app.domain.external.browser import Browser
 from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
-from app.domain.external.browser import Browser
 from app.domain.external.search import SearchEngine
-from app.domain.repositories.agent_repository import AgentRepository
-from app.domain.utils.json_parser import JsonParser
-from app.domain.models.event import BaseEvent, MessageEvent, ErrorEvent, StepEvent, StepStatus, ToolEvent
-from app.domain.models.plan import Plan, Step, ExecutionStatus
+from app.domain.models.agent import Agent
+from app.domain.models.event import BaseEvent, ErrorEvent, MessageEvent, StepEvent, StepStatus, ToolEvent
 from app.domain.models.message import Message
+from app.domain.models.plan import ExecutionStatus, Plan, Step
+from app.domain.repositories.agent_repository import AgentRepository
+from app.domain.services.agents.base import BaseAgent
+from app.domain.services.orchestration.agent_types import (
+    AgentCapability,
+    AgentSpec,
+    AgentType,
+)
 from app.domain.services.tools.base import BaseTool
-from app.domain.services.tools.shell import ShellTool
 from app.domain.services.tools.browser import BrowserTool
-from app.domain.services.tools.file import FileTool
-from app.domain.services.tools.search import SearchTool
-from app.domain.services.tools.message import MessageTool
-from app.domain.services.tools.mcp import MCPTool
 from app.domain.services.tools.code_executor import CodeExecutorTool
+from app.domain.services.tools.file import FileTool
+from app.domain.services.tools.mcp import MCPTool
+from app.domain.services.tools.message import MessageTool
+from app.domain.services.tools.search import SearchTool
+from app.domain.services.tools.shell import ShellTool
+from app.domain.utils.json_parser import JsonParser
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ class SwarmAgent(BaseAgent):
         agent_repository: AgentRepository,
         llm: LLM,
         json_parser: JsonParser,
-        tools: List[BaseTool],
+        tools: list[BaseTool],
     ):
         super().__init__(
             agent_id=agent_id,
@@ -72,7 +72,7 @@ class SwarmAgent(BaseAgent):
     async def execute_task(
         self,
         prompt: str,
-        context: Dict[str, Any],
+        context: dict[str, Any],
     ) -> AsyncGenerator[BaseEvent, None]:
         """Execute a task with this agent.
 
@@ -193,7 +193,7 @@ Respond with JSON in this format:
             step.status = ExecutionStatus.FAILED
             step.error = str(e)
             yield StepEvent(status=StepStatus.FAILED, step=step)
-            yield ErrorEvent(error=f"Step execution failed: {str(e)}")
+            yield ErrorEvent(error=f"Step execution failed: {e!s}")
 
 
 class DefaultAgentFactory:
@@ -208,10 +208,10 @@ class DefaultAgentFactory:
         agent_repository: AgentRepository,
         llm: LLM,
         json_parser: JsonParser,
-        sandbox: Optional[Sandbox] = None,
-        browser: Optional[Browser] = None,
-        search_engine: Optional[SearchEngine] = None,
-        mcp_tool: Optional[MCPTool] = None,
+        sandbox: Sandbox | None = None,
+        browser: Browser | None = None,
+        search_engine: SearchEngine | None = None,
+        mcp_tool: MCPTool | None = None,
     ):
         self._repository = agent_repository
         self._llm = llm
@@ -222,7 +222,7 @@ class DefaultAgentFactory:
         self._mcp_tool = mcp_tool
 
         # Cache of created agents
-        self._agents: Dict[str, SwarmAgent] = {}
+        self._agents: dict[str, SwarmAgent] = {}
 
     async def create_agent(
         self,
@@ -295,7 +295,7 @@ class DefaultAgentFactory:
         self,
         agent: SwarmAgent,
         prompt: str,
-        context: Dict[str, Any],
+        context: dict[str, Any],
     ) -> AsyncGenerator[BaseEvent, None]:
         """Execute an agent with the given prompt and context.
 
@@ -312,9 +312,9 @@ class DefaultAgentFactory:
                 yield event
         except Exception as e:
             logger.error(f"Agent {agent.agent_type.value} execution failed: {e}")
-            yield ErrorEvent(error=f"Agent execution failed: {str(e)}")
+            yield ErrorEvent(error=f"Agent execution failed: {e!s}")
 
-    def _build_tools_for_spec(self, spec: AgentSpec) -> List[BaseTool]:
+    def _build_tools_for_spec(self, spec: AgentSpec) -> list[BaseTool]:
         """Build the tool list for an agent based on its specification.
 
         Args:
@@ -323,7 +323,7 @@ class DefaultAgentFactory:
         Returns:
             List of tools the agent should have access to
         """
-        tools: List[BaseTool] = []
+        tools: list[BaseTool] = []
 
         # Always include message tool for user communication
         tools.append(MessageTool())
@@ -363,7 +363,7 @@ class DefaultAgentFactory:
 
         return tools
 
-    def get_agent(self, agent_id: str) -> Optional[SwarmAgent]:
+    def get_agent(self, agent_id: str) -> SwarmAgent | None:
         """Get a previously created agent by ID.
 
         Args:
@@ -374,7 +374,7 @@ class DefaultAgentFactory:
         """
         return self._agents.get(agent_id)
 
-    def get_all_agents(self) -> List[SwarmAgent]:
+    def get_all_agents(self) -> list[SwarmAgent]:
         """Get all created agents.
 
         Returns:
@@ -392,7 +392,7 @@ class SpecializedAgentFactory(DefaultAgentFactory):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._custom_agents: Dict[AgentType, type] = {}
+        self._custom_agents: dict[AgentType, type] = {}
 
     def register_agent_class(
         self,

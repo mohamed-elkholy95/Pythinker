@@ -8,15 +8,15 @@ These tests require:
 
 Tests are skipped if these conditions aren't met.
 """
-import pytest
-import tempfile
-import os
 import io
-from unittest.mock import patch, mock_open
-from conftest import BASE_URL
 import logging
+import os
+import tempfile
+
+import pytest
 import requests
 
+from conftest import BASE_URL
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +109,7 @@ def test_upload_file_success(authenticated_client, sample_text_file):
     with open(sample_text_file, 'rb') as f:
         files = {'file': ('test_file.txt', f, 'text/plain')}
         response = authenticated_client.post(url, files=files)
-    
+
     logger.info(f"Upload file response: {response.status_code} - {response.text}")
     assert response.status_code == 200
     data = response.json()
@@ -125,7 +125,7 @@ def test_upload_file_without_file(authenticated_client):
     """Test upload without providing file"""
     url = f"{BASE_URL}/files"
     response = authenticated_client.post(url)
-    
+
     logger.info(f"Upload without file response: {response.status_code} - {response.text}")
     assert response.status_code == 422  # Validation error
 
@@ -138,7 +138,7 @@ def test_upload_empty_file(authenticated_client):
     empty_file = io.BytesIO(b"")
     files = {'file': ('empty.txt', empty_file, 'text/plain')}
     response = authenticated_client.post(url, files=files)
-    
+
     logger.info(f"Upload empty file response: {response.status_code} - {response.text}")
     assert response.status_code == 200
     data = response.json()
@@ -160,7 +160,7 @@ def test_get_file_info_success(authenticated_client, sample_text_file):
     # Get file info
     info_url = f"{BASE_URL}/files/{file_id}/info"
     response = authenticated_client.get(info_url)
-    
+
     logger.info(f"Get file info response: {response.status_code} - {response.text}")
     assert response.status_code == 200
     data = response.json()
@@ -177,7 +177,7 @@ def test_get_file_info_not_found(authenticated_client):
     fake_file_id = "507f1f77bcf86cd799439011"  # Valid ObjectId format
     url = f"{BASE_URL}/files/{fake_file_id}/info"
     response = authenticated_client.get(url)
-    
+
     logger.info(f"Get file info not found response: {response.status_code} - {response.text}")
     assert response.status_code == 404
 
@@ -250,7 +250,7 @@ def test_delete_file_not_found(authenticated_client):
     fake_file_id = "507f1f77bcf86cd799439011"  # Valid ObjectId format
     url = f"{BASE_URL}/files/{fake_file_id}"
     response = authenticated_client.delete(url)
-    
+
     logger.info(f"Delete file not found response: {response.status_code} - {response.text}")
     assert response.status_code == 404
 
@@ -263,7 +263,7 @@ def test_upload_large_file(authenticated_client):
     url = f"{BASE_URL}/files"
     files = {'file': ('large_file.txt', io.BytesIO(large_content), 'text/plain')}
     response = authenticated_client.post(url, files=files)
-    
+
     assert response.status_code == 200
     data = response.json()
     assert data['code'] == 0

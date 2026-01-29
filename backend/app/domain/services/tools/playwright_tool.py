@@ -7,19 +7,16 @@ wait conditions, and screenshot/PDF capture. Designed to coexist with
 the existing CDP-based BrowserTool.
 """
 
-import logging
-import asyncio
-import base64
 import json
+import logging
 import uuid
-from typing import Optional, List, Dict, Any, Literal
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 from app.domain.external.sandbox import Sandbox
-from app.domain.services.tools.base import tool, BaseTool
 from app.domain.models.tool_result import ToolResult
+from app.domain.services.tools.base import BaseTool, tool
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +47,7 @@ class PageState:
     has_cookies: bool = False
     is_loading: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "url": self.url,
@@ -69,12 +66,12 @@ class Cookie:
     value: str
     domain: str
     path: str = "/"
-    expires: Optional[float] = None
+    expires: float | None = None
     http_only: bool = False
     secure: bool = False
     same_site: str = "Lax"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for Playwright."""
         cookie_dict = {
             "name": self.name,
@@ -147,8 +144,8 @@ class PlaywrightTool(BaseTool):
     def __init__(
         self,
         sandbox: Sandbox,
-        session_id: Optional[str] = None,
-        max_observe: Optional[int] = None,
+        session_id: str | None = None,
+        max_observe: int | None = None,
         default_browser: BrowserType = BrowserType.CHROMIUM,
         headless: bool = True,
         stealth_mode: bool = False,
@@ -304,8 +301,8 @@ if __name__ == "__main__":
     )
     async def playwright_launch(
         self,
-        browser_type: Optional[str] = None,
-        headless: Optional[bool] = None,
+        browser_type: str | None = None,
+        headless: bool | None = None,
         viewport_width: int = 1280,
         viewport_height: int = 720,
     ) -> ToolResult:
@@ -373,7 +370,7 @@ async with async_playwright() as p:
         wait_until: str = "load",
         timeout: int = 30000,
         stealth: bool = False,
-        human_delay: Optional[bool] = None,
+        human_delay: bool | None = None,
     ) -> ToolResult:
         """
         Navigate to a URL.
@@ -670,8 +667,8 @@ async with async_playwright() as p:
     )
     async def playwright_screenshot(
         self,
-        path: Optional[str] = None,
-        selector: Optional[str] = None,
+        path: str | None = None,
+        selector: str | None = None,
         full_page: bool = False,
         type: str = "png",
     ) -> ToolResult:
@@ -747,7 +744,7 @@ async with async_playwright() as p:
     )
     async def playwright_pdf(
         self,
-        path: Optional[str] = None,
+        path: str | None = None,
         format: str = "Letter",
         print_background: bool = True,
     ) -> ToolResult:
@@ -850,7 +847,7 @@ async with async_playwright() as p:
     )
     async def playwright_get_cookies(
         self,
-        urls: Optional[List[str]] = None,
+        urls: list[str] | None = None,
     ) -> ToolResult:
         """
         Get browser cookies.
@@ -904,7 +901,7 @@ async with async_playwright() as p:
     )
     async def playwright_set_cookies(
         self,
-        cookies: List[Dict[str, Any]],
+        cookies: list[dict[str, Any]],
     ) -> ToolResult:
         """
         Set browser cookies.
@@ -946,7 +943,7 @@ async with async_playwright() as p:
     )
     async def playwright_get_content(
         self,
-        url: Optional[str] = None,
+        url: str | None = None,
     ) -> ToolResult:
         """
         Get page HTML content.
@@ -1040,7 +1037,7 @@ async with async_playwright() as p:
     async def playwright_select_option(
         self,
         selector: str,
-        values: List[str],
+        values: list[str],
     ) -> ToolResult:
         """
         Select options from a dropdown.
@@ -1078,7 +1075,7 @@ async with async_playwright() as p:
         import random
         return random.choice(self.USER_AGENTS)
 
-    def _get_random_viewport(self) -> Dict[str, int]:
+    def _get_random_viewport(self) -> dict[str, int]:
         """Get a random viewport for stealth mode."""
         import random
         return random.choice(self.VIEWPORTS)
@@ -1251,7 +1248,7 @@ async with async_playwright() as p:
     async def playwright_intercept_requests(
         self,
         url: str,
-        block_patterns: Optional[List[str]] = None,
+        block_patterns: list[str] | None = None,
     ) -> ToolResult:
         """Intercept and block network requests."""
         patterns = json.dumps(block_patterns or [])
@@ -1613,7 +1610,7 @@ async with async_playwright() as p:
         self,
         credential_id: str,
         selector: str,
-        url: Optional[str] = None,
+        url: str | None = None,
     ) -> ToolResult:
         """
         Auto-fill a 2FA/TOTP code from a stored credential.
@@ -1713,7 +1710,7 @@ async with async_playwright() as p:
         username_selector: str,
         password_selector: str,
         submit_selector: str,
-        totp_selector: Optional[str] = None,
+        totp_selector: str | None = None,
     ) -> ToolResult:
         """
         Complete a full login flow with optional 2FA.

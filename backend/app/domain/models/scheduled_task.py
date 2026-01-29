@@ -2,11 +2,11 @@
 Scheduled Task Model
 Defines scheduled tasks for deferred or recurring agent execution.
 """
-from pydantic import BaseModel, Field
-from datetime import datetime, UTC
-from typing import Optional
-from enum import Enum
 import uuid
+from datetime import UTC, datetime
+from enum import Enum
+
+from pydantic import BaseModel, Field
 
 
 class ScheduleType(str, Enum):
@@ -34,7 +34,7 @@ class ScheduledTask(BaseModel):
     """
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:16])
     user_id: str
-    session_id: Optional[str] = None  # Session to execute in (created if None)
+    session_id: str | None = None  # Session to execute in (created if None)
 
     # Task details
     task_description: str  # What the agent should do
@@ -42,19 +42,19 @@ class ScheduledTask(BaseModel):
 
     # Timing
     scheduled_at: datetime  # When to execute (first execution for recurring)
-    interval_seconds: Optional[int] = None  # Interval for recurring (min 300 = 5 minutes)
-    last_executed_at: Optional[datetime] = None
-    next_execution_at: Optional[datetime] = None
+    interval_seconds: int | None = None  # Interval for recurring (min 300 = 5 minutes)
+    last_executed_at: datetime | None = None
+    next_execution_at: datetime | None = None
 
     # Status tracking
     status: ScheduledTaskStatus = ScheduledTaskStatus.PENDING
     execution_count: int = 0
-    max_executions: Optional[int] = None  # Limit for recurring tasks (None = unlimited)
+    max_executions: int | None = None  # Limit for recurring tasks (None = unlimited)
 
     # Metadata
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
     # Minimum interval for recurring tasks (5 minutes)
     MIN_INTERVAL_SECONDS: int = 300

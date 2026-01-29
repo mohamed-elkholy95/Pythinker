@@ -4,7 +4,7 @@ Metrics for evaluating tool calls, response time, token usage,
 and other execution-related aspects.
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Any
 
 from tests.evals.metrics.base import BaseMetric, MetricScore
 
@@ -18,8 +18,8 @@ class ToolCallMetric(BaseMetric):
     def evaluate(
         self,
         actual_output: str,
-        expected: Dict[str, Any],
-        context: Dict[str, Any],
+        expected: dict[str, Any],
+        context: dict[str, Any],
     ) -> MetricScore:
         expected_calls = expected.get("expected_tool_calls", [])
 
@@ -99,7 +99,7 @@ class ToolCallMetric(BaseMetric):
             message=f"Matched {len(matched)}/{len(expected_calls)} expected tool calls"
         )
 
-    def _calls_match(self, expected: Dict[str, Any], actual: Dict[str, Any]) -> bool:
+    def _calls_match(self, expected: dict[str, Any], actual: dict[str, Any]) -> bool:
         """Check if an actual call matches expected criteria."""
         # Match function name
         exp_name = expected.get("function_name") or expected.get("name")
@@ -144,8 +144,8 @@ class ResponseTimeMetric(BaseMetric):
     def evaluate(
         self,
         actual_output: str,
-        expected: Dict[str, Any],
-        context: Dict[str, Any],
+        expected: dict[str, Any],
+        context: dict[str, Any],
     ) -> MetricScore:
         max_time = expected.get("max_response_time_seconds", 30.0)
         actual_time = context.get("duration_seconds", 0.0)
@@ -193,8 +193,8 @@ class TokenCountMetric(BaseMetric):
     def evaluate(
         self,
         actual_output: str,
-        expected: Dict[str, Any],
-        context: Dict[str, Any],
+        expected: dict[str, Any],
+        context: dict[str, Any],
     ) -> MetricScore:
         max_tokens = expected.get("max_tokens", 10000)
 
@@ -242,8 +242,8 @@ class ErrorFreeMetric(BaseMetric):
     def evaluate(
         self,
         actual_output: str,
-        expected: Dict[str, Any],
-        context: Dict[str, Any],
+        expected: dict[str, Any],
+        context: dict[str, Any],
     ) -> MetricScore:
         error = context.get("error")
         error_type = context.get("error_type")
@@ -299,8 +299,8 @@ class ToolSuccessMetric(BaseMetric):
     def evaluate(
         self,
         actual_output: str,
-        expected: Dict[str, Any],
-        context: Dict[str, Any],
+        expected: dict[str, Any],
+        context: dict[str, Any],
     ) -> MetricScore:
         tool_calls = context.get("tool_calls", [])
 

@@ -9,13 +9,12 @@ Calculates metrics including:
 - Comment ratio
 """
 
-import re
 import ast
 import logging
-from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Tuple
-from enum import Enum
 import math
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +39,7 @@ class FunctionMetrics:
     parameters: int
     nesting_depth: int
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "name": self.name,
@@ -61,7 +60,7 @@ class CodeMetrics:
     code_lines: int
     comment_lines: int
     blank_lines: int
-    functions: List[FunctionMetrics]
+    functions: list[FunctionMetrics]
     classes: int
     imports: int
     average_complexity: float
@@ -70,7 +69,7 @@ class CodeMetrics:
     quality_rating: QualityRating
     duplication_ratio: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "file_path": self.file_path,
@@ -97,11 +96,11 @@ class QualityIssue:
     severity: str
     description: str
     file_path: str
-    line_number: Optional[int]
-    function_name: Optional[str]
+    line_number: int | None
+    function_name: str | None
     recommendation: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "type": self.type,
@@ -194,14 +193,14 @@ class QualityAnalyzer:
 
     def __init__(self):
         """Initialize quality analyzer."""
-        self._duplicate_hashes: Dict[str, List[Tuple[str, int]]] = {}
+        self._duplicate_hashes: dict[str, list[tuple[str, int]]] = {}
 
     def analyze(
         self,
         code: str,
         file_path: str = "unknown",
         language: str = "python",
-    ) -> Tuple[CodeMetrics, List[QualityIssue]]:
+    ) -> tuple[CodeMetrics, list[QualityIssue]]:
         """
         Analyze code quality.
 
@@ -223,7 +222,7 @@ class QualityAnalyzer:
         self,
         code: str,
         file_path: str,
-    ) -> Tuple[CodeMetrics, List[QualityIssue]]:
+    ) -> tuple[CodeMetrics, list[QualityIssue]]:
         """Analyze Python code using AST."""
         issues = []
         lines = code.split('\n')
@@ -370,7 +369,7 @@ class QualityAnalyzer:
         self,
         node: ast.FunctionDef,
         code: str,
-        lines: List[str],
+        lines: list[str],
     ) -> FunctionMetrics:
         """Analyze a single function."""
         # Get line range
@@ -402,7 +401,7 @@ class QualityAnalyzer:
         self,
         code: str,
         file_path: str,
-    ) -> Tuple[CodeMetrics, List[QualityIssue]]:
+    ) -> tuple[CodeMetrics, list[QualityIssue]]:
         """Generic analysis for non-Python code."""
         lines = code.split('\n')
         total_lines = len(lines)
@@ -461,16 +460,15 @@ class QualityAnalyzer:
         """Get quality rating from maintainability index."""
         if maintainability >= 80:
             return QualityRating.EXCELLENT
-        elif maintainability >= 60:
+        if maintainability >= 60:
             return QualityRating.GOOD
-        elif maintainability >= 40:
+        if maintainability >= 40:
             return QualityRating.MODERATE
-        elif maintainability >= 20:
+        if maintainability >= 20:
             return QualityRating.POOR
-        else:
-            return QualityRating.CRITICAL
+        return QualityRating.CRITICAL
 
-    def _estimate_duplication(self, lines: List[str]) -> float:
+    def _estimate_duplication(self, lines: list[str]) -> float:
         """Estimate code duplication ratio."""
         # Simple line-based duplication detection
         if len(lines) < 10:
@@ -487,7 +485,7 @@ class QualityAnalyzer:
             return 0.0
 
         # Count duplicates
-        line_counts: Dict[str, int] = {}
+        line_counts: dict[str, int] = {}
         for line in normalized:
             if len(line) > 10:  # Ignore short lines
                 line_counts[line] = line_counts.get(line, 0) + 1
@@ -497,8 +495,8 @@ class QualityAnalyzer:
 
     def get_summary(
         self,
-        metrics_list: List[CodeMetrics],
-    ) -> Dict[str, Any]:
+        metrics_list: list[CodeMetrics],
+    ) -> dict[str, Any]:
         """Generate a summary across multiple files."""
         if not metrics_list:
             return {"files": 0}

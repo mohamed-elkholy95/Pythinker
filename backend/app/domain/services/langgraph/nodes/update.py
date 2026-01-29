@@ -5,14 +5,14 @@ This node updates the plan after step completion using the PlannerAgent.
 
 import asyncio
 import logging
-from typing import Dict, Any
+from typing import Any
 
 from app.domain.services.langgraph.state import PlanActState
 
 logger = logging.getLogger(__name__)
 
 
-async def update_node(state: PlanActState) -> Dict[str, Any]:
+async def update_node(state: PlanActState) -> dict[str, Any]:
     """Update the plan after step completion.
 
     This node invokes the PlannerAgent to update the plan based on

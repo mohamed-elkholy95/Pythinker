@@ -7,9 +7,9 @@ for proactive context management.
 """
 
 import logging
-from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +30,9 @@ class PressureStatus:
     current_tokens: int
     max_tokens: int
     available_tokens: int
-    recommendations: List[str]
+    recommendations: list[str]
 
-    def to_context_signal(self) -> Optional[str]:
+    def to_context_signal(self) -> str | None:
         """Generate context signal to inject into prompts"""
         if self.level == PressureLevel.NORMAL:
             return None
@@ -123,8 +123,8 @@ class TokenManager:
     def __init__(
         self,
         model_name: str = "gpt-4",
-        max_context_tokens: Optional[int] = None,
-        safety_margin: Optional[int] = None,
+        max_context_tokens: int | None = None,
+        safety_margin: int | None = None,
         enable_cache: bool = True
     ):
         """
@@ -146,7 +146,7 @@ class TokenManager:
 
         # Token count cache (content_hash -> token_count)
         self._enable_cache = enable_cache
-        self._token_cache: Dict[str, int] = {}
+        self._token_cache: dict[str, int] = {}
         self._cache_hits = 0
         self._cache_misses = 0
 
@@ -225,7 +225,7 @@ class TokenManager:
 
         return count
 
-    def count_message_tokens(self, message: Dict[str, Any]) -> TokenCount:
+    def count_message_tokens(self, message: dict[str, Any]) -> TokenCount:
         """
         Count tokens in a single message.
 
@@ -269,7 +269,7 @@ class TokenManager:
             overhead_tokens=self.MESSAGE_OVERHEAD
         )
 
-    def count_messages_tokens(self, messages: List[Dict[str, Any]]) -> int:
+    def count_messages_tokens(self, messages: list[dict[str, Any]]) -> int:
         """
         Count total tokens across all messages.
 
@@ -289,7 +289,7 @@ class TokenManager:
 
         return total
 
-    def is_within_limit(self, messages: List[Dict[str, Any]], buffer: int = 0) -> bool:
+    def is_within_limit(self, messages: list[dict[str, Any]], buffer: int = 0) -> bool:
         """
         Check if messages are within the context limit.
 
@@ -306,10 +306,10 @@ class TokenManager:
 
     def trim_messages(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         preserve_system: bool = True,
         preserve_recent: int = 4
-    ) -> Tuple[List[Dict[str, Any]], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """
         Trim messages to fit within context limit.
 
@@ -400,8 +400,8 @@ class TokenManager:
 
     def _group_tool_messages(
         self,
-        messages: List[Dict[str, Any]]
-    ) -> List[List[Tuple[int, Dict[str, Any]]]]:
+        messages: list[dict[str, Any]]
+    ) -> list[list[tuple[int, dict[str, Any]]]]:
         """
         Group messages so tool_calls stay with their tool responses.
 
@@ -464,7 +464,7 @@ class TokenManager:
         """
         return max(0, self._max_tokens - prompt_tokens - 100)  # 100 token buffer
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get token manager statistics including cache performance."""
         cache_total = self._cache_hits + self._cache_misses
         cache_hit_rate = self._cache_hits / cache_total if cache_total > 0 else 0.0
@@ -500,7 +500,7 @@ class TokenManager:
 
     def get_context_pressure(
         self,
-        messages: List[Dict[str, Any]]
+        messages: list[dict[str, Any]]
     ) -> PressureStatus:
         """
         Get current context pressure status with recommendations.
@@ -544,7 +544,7 @@ class TokenManager:
         self,
         level: PressureLevel,
         usage_ratio: float
-    ) -> List[str]:
+    ) -> list[str]:
         """Generate recommendations based on pressure level"""
         if level == PressureLevel.NORMAL:
             return []
@@ -572,7 +572,7 @@ class TokenManager:
 
         return recommendations
 
-    def should_trigger_compaction(self, messages: List[Dict[str, Any]]) -> bool:
+    def should_trigger_compaction(self, messages: list[dict[str, Any]]) -> bool:
         """Check if context pressure warrants compaction"""
         pressure = self.get_context_pressure(messages)
         return pressure.level in (PressureLevel.CRITICAL, PressureLevel.OVERFLOW)

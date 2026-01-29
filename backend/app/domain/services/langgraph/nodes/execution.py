@@ -10,14 +10,14 @@ Enhanced with:
 import asyncio
 import logging
 import time
-from typing import Dict, Any, Optional
 from contextlib import asynccontextmanager
+from typing import Any
 
-from app.domain.services.langgraph.state import PlanActState
+from app.domain.models.event import ErrorEvent, ToolEvent, WaitEvent
 from app.domain.models.plan import ExecutionStatus
-from app.domain.models.event import ToolEvent, WaitEvent, ErrorEvent
+from app.domain.services.agents.stuck_detector import LoopType, StuckAnalysis
 from app.domain.services.agents.usage_context import UsageContextManager
-from app.domain.services.agents.stuck_detector import StuckAnalysis, LoopType
+from app.domain.services.langgraph.state import PlanActState
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ MAX_TOOL_CALLS_PER_STEP = 100
 STUCK_CHECK_INTERVAL = 10  # Check for stuck every N tool calls
 
 
-async def execution_node(state: PlanActState) -> Dict[str, Any]:
+async def execution_node(state: PlanActState) -> dict[str, Any]:
     """Execute the next step in the plan.
 
     This node gets the next pending step and invokes the ExecutionAgent
@@ -112,7 +112,7 @@ async def execution_node(state: PlanActState) -> Dict[str, Any]:
         last_had_error = False
         step_tool_calls = 0
         step_start_time = time.time()
-        stuck_analysis: Optional[StuckAnalysis] = None
+        stuck_analysis: StuckAnalysis | None = None
 
         async for event in executor.execute_step(plan, step, user_message):
             # Stream event in real-time if queue available

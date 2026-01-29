@@ -1,97 +1,91 @@
-import logging
 import asyncio
+import logging
 import re
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from app.domain.services.flows.base import BaseFlow
-from app.domain.models.agent import Agent
-from app.domain.models.message import Message
-from app.domain.models.plan import Step
-from typing import AsyncGenerator, Optional, List, Dict, Any, Set
-from app.domain.models.event import (
-    BaseEvent,
-    PlanEvent,
-    PlanStatus,
-    MessageEvent,
-    ReportEvent,
-    DoneEvent,
-    TitleEvent,
-    IdleEvent,
-    ErrorEvent,
-    VerificationEvent,
-    VerificationStatus,
-    ToolEvent,
-)
-from app.domain.models.plan import ExecutionStatus
-from app.domain.models.state_model import AgentStatus, validate_transition, StateTransitionError
-from app.domain.services.agents.planner import PlannerAgent
-from app.domain.services.agents.execution import ExecutionAgent
-from app.domain.services.agents.base import BaseAgent
+from typing import Any, Optional
+
+from app.domain.external.browser import Browser
 from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
-from app.domain.external.browser import Browser
 from app.domain.external.search import SearchEngine
-from app.domain.external.file import FileStorage
-from app.domain.repositories.agent_repository import AgentRepository
-from app.domain.utils.json_parser import JsonParser
-from app.domain.repositories.session_repository import SessionRepository
+from app.domain.models.event import (
+    BaseEvent,
+    DoneEvent,
+    ErrorEvent,
+    MessageEvent,
+    PlanEvent,
+    PlanStatus,
+    ReportEvent,
+    TitleEvent,
+    ToolEvent,
+    VerificationEvent,
+    VerificationStatus,
+)
+from app.domain.models.message import Message
+from app.domain.models.plan import ExecutionStatus, Step
 from app.domain.models.session import SessionStatus
-from app.domain.services.tools.mcp import MCPTool
-from app.domain.services.tools.shell import ShellTool
+from app.domain.models.state_model import AgentStatus, StateTransitionError, validate_transition
+from app.domain.repositories.agent_repository import AgentRepository
+from app.domain.repositories.session_repository import SessionRepository
+from app.domain.services.agents.base import BaseAgent
+from app.domain.services.agents.execution import ExecutionAgent
+from app.domain.services.agents.planner import PlannerAgent
+from app.domain.services.flows.base import BaseFlow
 from app.domain.services.tools.browser import BrowserTool
 from app.domain.services.tools.file import FileTool
+from app.domain.services.tools.mcp import MCPTool
+from app.domain.services.tools.shell import ShellTool
+from app.domain.utils.json_parser import JsonParser
 
 # BrowserAgentTool is optional (requires browser_use package)
 try:
-    from app.domain.services.tools.browser_agent import BrowserAgentTool, BROWSER_USE_AVAILABLE
+    from app.domain.services.tools.browser_agent import BROWSER_USE_AVAILABLE, BrowserAgentTool
 except ImportError:
     BrowserAgentTool = None
     BROWSER_USE_AVAILABLE = False
-from app.domain.services.tools.message import MessageTool
-from app.domain.services.tools.search import SearchTool
-from app.domain.services.tools.idle import IdleTool
-from app.domain.services.agents.error_handler import ErrorHandler, ErrorType, ErrorContext
-from app.domain.services.agents.task_state_manager import TaskStateManager
-from app.domain.services.agents.compliance_gates import ComplianceReport, get_compliance_gates
-from app.domain.services.agents.verifier import VerifierAgent, VerifierConfig
-from app.domain.models.agent_response import VerificationVerdict
-from app.core.config import get_settings
-from app.infrastructure.observability import get_tracer, SpanKind
+# Import for type hints
+from typing import TYPE_CHECKING
 
-# Import orchestration components for multi-agent dispatch
-from app.domain.services.orchestration.agent_types import (
-    AgentType,
-    AgentCapability,
-    AgentRegistry,
-    get_agent_registry,
+from app.core.config import get_settings
+from app.domain.services.agents.compliance_gates import ComplianceReport, get_compliance_gates
+from app.domain.services.agents.error_handler import ErrorContext, ErrorHandler
+
+# Import error integration bridge for coordinated health assessment
+from app.domain.services.agents.error_integration import (
+    AgentHealthLevel,
+    ErrorIntegrationBridge,
+)
+
+# Import memory management for Phase 3 proactive compaction
+from app.domain.services.agents.memory_manager import (
+    get_memory_manager,
+)
+from app.domain.services.agents.task_state_manager import TaskStateManager
+from app.domain.services.agents.verifier import VerifierAgent, VerifierConfig
+
+# Import parallel executor for Phase 4
+from app.domain.services.flows.parallel_executor import (
+    ParallelExecutionMode,
+    ParallelExecutor,
 )
 from app.domain.services.orchestration.agent_factory import (
     DefaultAgentFactory,
     SpecializedAgentFactory,
 )
 
-# Import memory management for Phase 3 proactive compaction
-from app.domain.services.agents.memory_manager import (
-    MemoryManager,
-    get_memory_manager,
-    PressureLevel,
+# Import orchestration components for multi-agent dispatch
+from app.domain.services.orchestration.agent_types import (
+    AgentCapability,
+    AgentRegistry,
+    AgentType,
+    get_agent_registry,
 )
+from app.domain.services.tools.idle import IdleTool
+from app.domain.services.tools.message import MessageTool
+from app.domain.services.tools.search import SearchTool
+from app.infrastructure.observability import SpanKind, get_tracer
 
-# Import error integration bridge for coordinated health assessment
-from app.domain.services.agents.error_integration import (
-    ErrorIntegrationBridge,
-    AgentHealthLevel,
-    IterationGuidance,
-)
-
-# Import parallel executor for Phase 4
-from app.domain.services.flows.parallel_executor import (
-    ParallelExecutor,
-    ParallelExecutionMode,
-    StepResult,
-)
-
-# Import for type hints
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
 
@@ -118,14 +112,14 @@ class PlanActFlow(BaseFlow):
         browser: Browser,
         json_parser: JsonParser,
         mcp_tool: MCPTool,
-        search_engine: Optional[SearchEngine] = None,
-        cdp_url: Optional[str] = None,
+        search_engine: SearchEngine | None = None,
+        cdp_url: str | None = None,
         enable_verification: bool = True,
         enable_multi_agent: bool = True,
         enable_parallel_execution: bool = False,
         parallel_max_concurrency: int = 3,
         memory_service: Optional["MemoryService"] = None,
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
     ):
         self._agent_id = agent_id
         self._repository = agent_repository
@@ -147,15 +141,15 @@ class PlanActFlow(BaseFlow):
         self._user_id = user_id
 
         # State management for error recovery
-        self._previous_status: Optional[AgentStatus] = None
-        self._error_context: Optional[ErrorContext] = None
+        self._previous_status: AgentStatus | None = None
+        self._error_context: ErrorContext | None = None
         self._error_handler = ErrorHandler()
         self._max_error_recovery_attempts = 3
         self._error_recovery_attempts = 0
 
         # Verification state (Phase 1: Plan-Verify-Execute)
-        self._verification_verdict: Optional[str] = None
-        self._verification_feedback: Optional[str] = None
+        self._verification_verdict: str | None = None
+        self._verification_feedback: str | None = None
         self._verification_loops = 0
         self._max_verification_loops = 2
 
@@ -205,7 +199,7 @@ class PlanActFlow(BaseFlow):
         logger.debug(f"Created execution agent for Agent {self._agent_id}")
 
         # Create verifier agent (Phase 1: Plan-Verify-Execute)
-        self.verifier: Optional[VerifierAgent] = None
+        self.verifier: VerifierAgent | None = None
         if enable_verification:
             self.verifier = VerifierAgent(
                 llm=llm,
@@ -231,19 +225,19 @@ class PlanActFlow(BaseFlow):
 
         # Multi-agent dispatch configuration
         self._enable_multi_agent = enable_multi_agent
-        self._agent_registry: Optional[AgentRegistry] = None
+        self._agent_registry: AgentRegistry | None = None
 
         # Phase 4: Parallel step execution configuration
         self._enable_parallel_execution = enable_parallel_execution
-        self._parallel_executor: Optional[ParallelExecutor] = None
+        self._parallel_executor: ParallelExecutor | None = None
         if enable_parallel_execution:
             self._parallel_executor = ParallelExecutor(
                 max_concurrency=parallel_max_concurrency,
                 mode=ParallelExecutionMode.PARALLEL,
             )
             logger.info(f"Parallel step execution enabled with max_concurrency={parallel_max_concurrency}")
-        self._agent_factory: Optional[DefaultAgentFactory] = None
-        self._specialized_agents: Dict[str, BaseAgent] = {}
+        self._agent_factory: DefaultAgentFactory | None = None
+        self._specialized_agents: dict[str, BaseAgent] = {}
 
         if enable_multi_agent:
             self._init_multi_agent_dispatch()
@@ -251,7 +245,7 @@ class PlanActFlow(BaseFlow):
         # Phase 3: Proactive memory compaction tracking
         self._memory_manager = get_memory_manager()
         self._iteration_count = 0
-        self._recent_tools: List[str] = []
+        self._recent_tools: list[str] = []
         self._max_recent_tools = 10
 
         # Error Integration Bridge for coordinated health assessment
@@ -274,7 +268,7 @@ class PlanActFlow(BaseFlow):
         )
         logger.info(f"Multi-agent dispatch enabled for Agent {self._agent_id}")
 
-    def _extract_agent_type(self, step_description: str) -> Optional[str]:
+    def _extract_agent_type(self, step_description: str) -> str | None:
         """Extract [AGENT_TYPE] prefix from step description.
 
         Example: "[RESEARCH] Find documentation on the topic" -> "research"
@@ -284,9 +278,9 @@ class PlanActFlow(BaseFlow):
             return match.group(1).lower()
         return None
 
-    def _infer_capabilities(self, step: Step) -> Set[AgentCapability]:
+    def _infer_capabilities(self, step: Step) -> set[AgentCapability]:
         """Infer required capabilities from step description."""
-        capabilities: Set[AgentCapability] = set()
+        capabilities: set[AgentCapability] = set()
         desc_lower = step.description.lower()
 
         # Map keywords to capabilities
@@ -511,9 +505,9 @@ class PlanActFlow(BaseFlow):
             )
         return True
 
-    def _run_compliance_gates(self, content: str, attachments: Optional[List[Any]] = None) -> ComplianceReport:
+    def _run_compliance_gates(self, content: str, attachments: list[Any] | None = None) -> ComplianceReport:
         """Run compliance gates on final output content."""
-        artifacts: List[Dict[str, Any]] = []
+        artifacts: list[dict[str, Any]] = []
         for attachment in attachments or []:
             path = getattr(attachment, "file_path", None) or getattr(attachment, "path", None)
             if path:
@@ -533,7 +527,7 @@ class PlanActFlow(BaseFlow):
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
 
-    def _handle_step_failure(self, failed_step: Step) -> List[str]:
+    def _handle_step_failure(self, failed_step: Step) -> list[str]:
         """Handle step failure by marking dependent steps as blocked.
 
         Args:
@@ -601,7 +595,7 @@ class PlanActFlow(BaseFlow):
 
         return False, ""
 
-    def _check_and_skip_steps(self) -> List[str]:
+    def _check_and_skip_steps(self) -> list[str]:
         """Check all pending steps and skip those that should be skipped.
 
         Returns:
@@ -652,7 +646,7 @@ class PlanActFlow(BaseFlow):
                         blocked_by=dep_id
                     )
                     return False
-                elif dep_step.status in [ExecutionStatus.PENDING, ExecutionStatus.RUNNING]:
+                if dep_step.status in [ExecutionStatus.PENDING, ExecutionStatus.RUNNING]:
                     # Dependency not yet complete - shouldn't happen if get_next_step works correctly
                     return False
 
@@ -1070,6 +1064,6 @@ class PlanActFlow(BaseFlow):
         yield DoneEvent()
 
         logger.info(f"Agent {self._agent_id} message processing completed")
-    
+
     def is_done(self) -> bool:
         return self.status == AgentStatus.IDLE

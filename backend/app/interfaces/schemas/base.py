@@ -1,4 +1,5 @@
-from typing import Any, Generic, Optional, TypeVar
+from typing import Generic, TypeVar
+
 from pydantic import BaseModel
 
 T = TypeVar('T')
@@ -8,10 +9,10 @@ class APIResponse(BaseModel, Generic[T]):
     """Base API response schema"""
     code: int = 0
     msg: str = "success"
-    data: Optional[T] = None 
+    data: T | None = None
 
     @staticmethod
-    def success(data: Optional[T] = None, msg: str = "success") -> "APIResponse[T]":
+    def success(data: T | None = None, msg: str = "success") -> "APIResponse[T]":
         return APIResponse(code=0, msg=msg, data=data)
 
     @staticmethod

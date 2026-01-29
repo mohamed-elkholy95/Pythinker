@@ -15,12 +15,12 @@ Usage:
     record_llm_call(model="claude-sonnet-4", status="success", latency=1.5, tokens=500)
     record_tool_call(tool="file_read", status="success", latency=0.1)
 """
-import time
 import logging
-from dataclasses import dataclass, field
-from typing import Dict, List, Any, Optional
+import time
 from collections import defaultdict
+from dataclasses import dataclass, field
 from threading import Lock
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -30,22 +30,22 @@ class Counter:
     """Prometheus-style counter metric."""
     name: str
     help_text: str
-    labels: List[str]
-    _values: Dict[tuple, float] = field(default_factory=lambda: defaultdict(float))
+    labels: list[str]
+    _values: dict[tuple, float] = field(default_factory=lambda: defaultdict(float))
     _lock: Lock = field(default_factory=Lock)
 
-    def inc(self, labels: Dict[str, str], value: float = 1.0) -> None:
+    def inc(self, labels: dict[str, str], value: float = 1.0) -> None:
         """Increment counter with given labels."""
         label_tuple = tuple(labels.get(l, "") for l in self.labels)
         with self._lock:
             self._values[label_tuple] += value
 
-    def get(self, labels: Dict[str, str]) -> float:
+    def get(self, labels: dict[str, str]) -> float:
         """Get counter value for given labels."""
         label_tuple = tuple(labels.get(l, "") for l in self.labels)
         return self._values.get(label_tuple, 0.0)
 
-    def collect(self) -> List[Dict[str, Any]]:
+    def collect(self) -> list[dict[str, Any]]:
         """Collect all metric values for export."""
         result = []
         with self._lock:
@@ -65,34 +65,34 @@ class Gauge:
     """Prometheus-style gauge metric."""
     name: str
     help_text: str
-    labels: List[str]
-    _values: Dict[tuple, float] = field(default_factory=lambda: defaultdict(float))
+    labels: list[str]
+    _values: dict[tuple, float] = field(default_factory=lambda: defaultdict(float))
     _lock: Lock = field(default_factory=Lock)
 
-    def set(self, labels: Dict[str, str], value: float) -> None:
+    def set(self, labels: dict[str, str], value: float) -> None:
         """Set gauge value for given labels."""
         label_tuple = tuple(labels.get(l, "") for l in self.labels)
         with self._lock:
             self._values[label_tuple] = value
 
-    def inc(self, labels: Dict[str, str], value: float = 1.0) -> None:
+    def inc(self, labels: dict[str, str], value: float = 1.0) -> None:
         """Increment gauge value."""
         label_tuple = tuple(labels.get(l, "") for l in self.labels)
         with self._lock:
             self._values[label_tuple] += value
 
-    def dec(self, labels: Dict[str, str], value: float = 1.0) -> None:
+    def dec(self, labels: dict[str, str], value: float = 1.0) -> None:
         """Decrement gauge value."""
         label_tuple = tuple(labels.get(l, "") for l in self.labels)
         with self._lock:
             self._values[label_tuple] -= value
 
-    def get(self, labels: Dict[str, str]) -> float:
+    def get(self, labels: dict[str, str]) -> float:
         """Get gauge value for given labels."""
         label_tuple = tuple(labels.get(l, "") for l in self.labels)
         return self._values.get(label_tuple, 0.0)
 
-    def collect(self) -> List[Dict[str, Any]]:
+    def collect(self) -> list[dict[str, Any]]:
         """Collect all metric values for export."""
         result = []
         with self._lock:
@@ -112,18 +112,18 @@ class Histogram:
     """Prometheus-style histogram metric."""
     name: str
     help_text: str
-    labels: List[str]
-    buckets: List[float] = field(default_factory=lambda: [0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0])
-    _observations: Dict[tuple, List[float]] = field(default_factory=lambda: defaultdict(list))
+    labels: list[str]
+    buckets: list[float] = field(default_factory=lambda: [0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0])
+    _observations: dict[tuple, list[float]] = field(default_factory=lambda: defaultdict(list))
     _lock: Lock = field(default_factory=Lock)
 
-    def observe(self, labels: Dict[str, str], value: float) -> None:
+    def observe(self, labels: dict[str, str], value: float) -> None:
         """Record an observation."""
         label_tuple = tuple(labels.get(l, "") for l in self.labels)
         with self._lock:
             self._observations[label_tuple].append(value)
 
-    def collect(self) -> List[Dict[str, Any]]:
+    def collect(self) -> list[dict[str, Any]]:
         """Collect all metric values for export."""
         result = []
         with self._lock:
@@ -281,7 +281,7 @@ def update_active_agents(count: int) -> None:
     active_agents.set({}, count)
 
 
-def collect_all_metrics() -> Dict[str, Any]:
+def collect_all_metrics() -> dict[str, Any]:
     """Collect all metrics for JSON export.
 
     Returns:
@@ -328,7 +328,7 @@ def format_prometheus() -> str:
             if item["type"] == "histogram":
                 # Format histogram buckets
                 for bucket, count in item["buckets"].items():
-                    bucket_str = f"+Inf" if bucket == float('inf') else str(bucket)
+                    bucket_str = "+Inf" if bucket == float('inf') else str(bucket)
                     if label_str:
                         lines.append(f'{metric.name}_bucket{{{label_str},le="{bucket_str}"}} {count}')
                     else:

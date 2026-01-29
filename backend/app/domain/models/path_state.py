@@ -4,12 +4,13 @@ These models support exploring multiple solution strategies in parallel,
 scoring them, and selecting the best approach for complex tasks.
 """
 
-from enum import Enum
-from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-import uuid
+from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class PathStatus(str, Enum):
@@ -37,7 +38,7 @@ class PathMetrics:
     errors_encountered: int = 0
     tokens_consumed: int = 0
     time_elapsed_ms: float = 0
-    confidence_scores: List[float] = field(default_factory=list)
+    confidence_scores: list[float] = field(default_factory=list)
     results_quality: float = 0.0  # 0.0-1.0 assessment of result quality
 
     @property
@@ -65,24 +66,24 @@ class PathState:
     status: PathStatus = PathStatus.CREATED
 
     # Plan for this path
-    steps: List[Dict[str, Any]] = field(default_factory=list)
+    steps: list[dict[str, Any]] = field(default_factory=list)
     current_step_index: int = 0
 
     # Metrics
     metrics: PathMetrics = field(default_factory=PathMetrics)
 
     # Results
-    intermediate_results: List[Dict[str, Any]] = field(default_factory=list)
-    final_result: Optional[str] = None
+    intermediate_results: list[dict[str, Any]] = field(default_factory=list)
+    final_result: str | None = None
 
     # Scoring
     score: float = 0.0  # Combined score (0.0-1.0)
-    score_breakdown: Dict[str, float] = field(default_factory=dict)
+    score_breakdown: dict[str, float] = field(default_factory=dict)
 
     # Timestamps
     created_at: datetime = field(default_factory=datetime.now)
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
     def start(self) -> None:
         """Mark path as started."""
@@ -126,7 +127,7 @@ class PathState:
         """Record an error."""
         self.metrics.errors_encountered += 1
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "id": self.id,
@@ -157,7 +158,7 @@ class ComplexityAnalysis:
     complexity: TaskComplexity
     confidence: float
     branching_decision: BranchingDecision
-    suggested_strategies: List[str] = field(default_factory=list)
+    suggested_strategies: list[str] = field(default_factory=list)
     reasoning: str = ""
     estimated_steps: int = 0
     estimated_token_budget: int = 0

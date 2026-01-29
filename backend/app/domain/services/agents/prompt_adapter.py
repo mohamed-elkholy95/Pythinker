@@ -6,9 +6,9 @@ error states, and iteration count.
 """
 
 import logging
-from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +27,11 @@ class ContextType(str, Enum):
 @dataclass
 class ExecutionContext:
     """Tracks current execution context"""
-    recent_tools: List[str] = field(default_factory=list)
-    recent_errors: List[str] = field(default_factory=list)
+    recent_tools: list[str] = field(default_factory=list)
+    recent_errors: list[str] = field(default_factory=list)
     iteration_count: int = 0
     primary_context: ContextType = ContextType.GENERAL
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class PromptAdapter:
@@ -110,7 +110,7 @@ Search Context Tips:
         self._max_recent_tools = max_recent_tools
         self._context = ExecutionContext()
 
-    def track_tool_use(self, tool_name: str, success: bool = True, error: Optional[str] = None) -> None:
+    def track_tool_use(self, tool_name: str, success: bool = True, error: str | None = None) -> None:
         """
         Track a tool usage for context analysis.
 
@@ -146,7 +146,7 @@ Search Context Tips:
             return ContextType.GENERAL
 
         # Count context types from recent tools
-        context_counts: Dict[ContextType, int] = {}
+        context_counts: dict[ContextType, int] = {}
 
         for tool in self._context.recent_tools[-5:]:  # Look at last 5 tools
             # Strip mcp_ prefix and check
@@ -174,7 +174,7 @@ Search Context Tips:
 
         return ContextType.GENERAL
 
-    def get_context_prompt(self) -> Optional[str]:
+    def get_context_prompt(self) -> str | None:
         """
         Get context-specific prompt additions.
 
@@ -255,7 +255,7 @@ Please be aware of these recent errors and adjust your approach accordingly.
         """Get current execution context"""
         return self._context
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get adapter statistics"""
         return {
             "iteration_count": self._context.iteration_count,

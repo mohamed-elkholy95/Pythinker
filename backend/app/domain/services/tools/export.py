@@ -3,10 +3,10 @@ Export Tool Implementation
 
 Provides file organization, archiving, and report generation capabilities.
 """
-from typing import Optional, List
+
 from app.domain.external.sandbox import Sandbox
-from app.domain.services.tools.base import tool, BaseTool
 from app.domain.models.tool_result import ToolResult
+from app.domain.services.tools.base import BaseTool, tool
 
 
 class ExportTool(BaseTool):
@@ -14,7 +14,7 @@ class ExportTool(BaseTool):
 
     name: str = "export"
 
-    def __init__(self, sandbox: Sandbox, max_observe: Optional[int] = None):
+    def __init__(self, sandbox: Sandbox, max_observe: int | None = None):
         """Initialize Export tool class
 
         Args:
@@ -95,8 +95,8 @@ class ExportTool(BaseTool):
         self,
         session_id: str,
         name: str,
-        include_patterns: List[str] = None,
-        exclude_patterns: List[str] = None,
+        include_patterns: list[str] = None,
+        exclude_patterns: list[str] = None,
         base_path: str = None
     ) -> ToolResult:
         """Create ZIP archive of workspace

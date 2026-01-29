@@ -1,5 +1,5 @@
-from typing import Optional
-from datetime import datetime, UTC
+from datetime import UTC, datetime
+
 from pydantic import BaseModel
 
 

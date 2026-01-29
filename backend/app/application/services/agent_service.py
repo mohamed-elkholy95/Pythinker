@@ -1,36 +1,35 @@
-from typing import AsyncGenerator, Optional, List, TYPE_CHECKING, Dict, Tuple
 import asyncio
 import logging
-from datetime import datetime
-from pathlib import PurePosixPath
 import posixpath
 import shlex
-from app.domain.models.session import Session, SessionStatus
-from app.domain.repositories.session_repository import SessionRepository
+from collections.abc import AsyncGenerator
+from datetime import datetime
+from pathlib import PurePosixPath
+from typing import TYPE_CHECKING, Optional
 
-from app.interfaces.schemas.session import ShellViewResponse
+from app.core.config import get_settings
+from app.domain.external.file import FileStorage
+from app.domain.external.llm import LLM
+from app.domain.external.sandbox import Sandbox
+from app.domain.external.search import SearchEngine
+from app.domain.external.task import Task
+from app.domain.models.agent import Agent
+from app.domain.models.event import AgentEvent
+from app.domain.models.file import FileInfo
+from app.domain.models.session import AgentMode, Session, SessionStatus
+from app.domain.repositories.agent_repository import AgentRepository
+from app.domain.repositories.mcp_repository import MCPRepository
+from app.domain.repositories.session_repository import SessionRepository
+from app.domain.services.agent_domain_service import AgentDomainService
+from app.domain.utils.json_parser import JsonParser
 from app.interfaces.schemas.file import FileViewResponse
+from app.interfaces.schemas.session import ShellViewResponse
 from app.interfaces.schemas.workspace import (
+    GitRemoteSpec,
     WorkspaceManifest,
     WorkspaceManifestResponse,
     WorkspaceWriteError,
-    GitRemoteSpec,
 )
-from app.domain.services.agent_domain_service import AgentDomainService
-from app.domain.models.event import AgentEvent
-from typing import Type
-from app.domain.models.agent import Agent
-from app.domain.external.sandbox import Sandbox
-from app.domain.external.search import SearchEngine
-from app.domain.external.llm import LLM
-from app.domain.external.file import FileStorage
-from app.domain.repositories.agent_repository import AgentRepository
-from app.domain.external.task import Task
-from app.domain.utils.json_parser import JsonParser
-from app.domain.models.file import FileInfo
-from app.domain.repositories.mcp_repository import MCPRepository
-from app.domain.models.session import AgentMode
-from app.core.config import get_settings
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
@@ -44,12 +43,12 @@ class AgentService:
         llm: LLM,
         agent_repository: AgentRepository,
         session_repository: SessionRepository,
-        sandbox_cls: Type[Sandbox],
-        task_cls: Type[Task],
+        sandbox_cls: type[Sandbox],
+        task_cls: type[Task],
         json_parser: JsonParser,
         file_storage: FileStorage,
         mcp_repository: MCPRepository,
-        search_engine: Optional[SearchEngine] = None,
+        search_engine: SearchEngine | None = None,
         memory_service: Optional["MemoryService"] = None,
     ):
         logger.info("Initializing AgentService")
@@ -71,7 +70,7 @@ class AgentService:
         self._llm = llm
         self._search_engine = search_engine
         self._sandbox_cls = sandbox_cls
-    
+
     async def create_session(self, user_id: str, mode: AgentMode = AgentMode.AGENT) -> Session:
         logger.info(f"Creating new session for user: {user_id} with mode: {mode}")
         agent = await self._create_agent()
@@ -125,7 +124,7 @@ class AgentService:
 
     async def _create_agent(self) -> Agent:
         logger.info("Creating new agent")
-        
+
         # Create Agent instance
         agent = Agent(
             model_name=self._llm.model_name,
@@ -133,11 +132,11 @@ class AgentService:
             max_tokens=self._llm.max_tokens,
         )
         logger.info(f"Created new Agent with ID: {agent.id}")
-        
+
         # Save agent to repository
         await self._agent_repository.save(agent)
         logger.info(f"Saved agent {agent.id} to repository")
-        
+
         logger.info(f"Agent created successfully with ID: {agent.id}")
         return agent
 
@@ -145,10 +144,10 @@ class AgentService:
         self,
         session_id: str,
         user_id: str,
-        message: Optional[str] = None,
-        timestamp: Optional[datetime] = None,
-        event_id: Optional[str] = None,
-        attachments: Optional[List[dict]] = None
+        message: str | None = None,
+        timestamp: datetime | None = None,
+        event_id: str | None = None,
+        attachments: list[dict] | None = None
     ) -> AsyncGenerator[AgentEvent, None]:
         logger.info(f"Starting chat with session {session_id}: {message[:50]}...")
         # Directly use the domain service's chat method, which will check if the session exists
@@ -156,8 +155,8 @@ class AgentService:
             logger.debug(f"Received event: {event}")
             yield event
         logger.info(f"Chat with session {session_id} completed")
-    
-    async def get_session(self, session_id: str, user_id: Optional[str] = None) -> Optional[Session]:
+
+    async def get_session(self, session_id: str, user_id: str | None = None) -> Session | None:
         """Get a session by ID, ensuring it belongs to the user"""
         logger.info(f"Getting session {session_id} for user {user_id}")
         if not user_id:
@@ -167,8 +166,8 @@ class AgentService:
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
         return session
-    
-    async def get_all_sessions(self, user_id: str) -> List[Session]:
+
+    async def get_all_sessions(self, user_id: str) -> list[Session]:
         """Get all sessions for a specific user"""
         logger.info(f"Getting all sessions for user {user_id}")
         return await self._session_repository.find_by_user_id(user_id)
@@ -181,7 +180,7 @@ class AgentService:
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
             raise RuntimeError("Session not found")
-        
+
         await self._session_repository.delete(session_id)
         logger.info(f"Session {session_id} deleted successfully")
 
@@ -213,8 +212,8 @@ class AgentService:
         self,
         session_id: str,
         user_id: str,
-        context: Optional[str] = None,
-        persist_login_state: Optional[bool] = None
+        context: str | None = None,
+        persist_login_state: bool | None = None
     ) -> bool:
         """Resume a paused session after user takeover, ensuring it belongs to the user
 
@@ -270,38 +269,37 @@ class AgentService:
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
             raise RuntimeError("Session not found")
-        
+
         if not session.sandbox_id:
             raise RuntimeError("Session has no sandbox environment")
-        
+
         # Get sandbox and shell output
         sandbox = await self._sandbox_cls.get(session.sandbox_id)
         if not sandbox:
             raise RuntimeError("Sandbox environment not found")
-        
+
         result = await sandbox.view_shell(shell_session_id, console=True)
         if result.success:
             return ShellViewResponse(**result.data)
-        else:
-            raise RuntimeError(f"Failed to get shell output: {result.message}")
+        raise RuntimeError(f"Failed to get shell output: {result.message}")
 
     async def get_vnc_url(self, session_id: str) -> str:
         """Get VNC URL for a session, ensuring it belongs to the user"""
         logger.info(f"Getting VNC URL for session {session_id}")
-        
+
         session = await self._session_repository.find_by_id(session_id)
         if not session:
             logger.error(f"Session {session_id} not found")
             raise RuntimeError("Session not found")
-        
+
         if not session.sandbox_id:
             raise RuntimeError("Session has no sandbox environment")
-        
+
         # Get sandbox and return VNC URL
         sandbox = await self._sandbox_cls.get(session.sandbox_id)
         if not sandbox:
             raise RuntimeError("Sandbox environment not found")
-        
+
         return sandbox.vnc_url
 
     async def file_view(self, session_id: str, file_path: str, user_id: str) -> FileViewResponse:
@@ -311,15 +309,15 @@ class AgentService:
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
             raise RuntimeError("Session not found")
-        
+
         if not session.sandbox_id:
             raise RuntimeError("Session has no sandbox environment")
-        
+
         # Get sandbox and file content
         sandbox = await self._sandbox_cls.get(session.sandbox_id)
         if not sandbox:
             raise RuntimeError("Sandbox environment not found")
-        
+
         result = await sandbox.file_read(file_path)
         if result.success:
             return FileViewResponse(**result.data)
@@ -494,7 +492,7 @@ class AgentService:
             action_id=action_id,
             accept=accept,
         )
-    
+
     async def is_session_shared(self, session_id: str) -> bool:
         """Check if a session is shared"""
         logger.info(f"Checking if session {session_id} is shared")
@@ -504,13 +502,13 @@ class AgentService:
             raise RuntimeError("Session not found")
         return session.is_shared
 
-    async def get_session_files(self, session_id: str, user_id: Optional[str] = None) -> List[FileInfo]:
+    async def get_session_files(self, session_id: str, user_id: str | None = None) -> list[FileInfo]:
         """Get files for a session, ensuring it belongs to the user"""
         logger.info(f"Getting files for session {session_id} for user {user_id}")
         session = await self.get_session(session_id, user_id)
         return session.files
-    
-    async def get_shared_session_files(self, session_id: str) -> List[FileInfo]:
+
+    async def get_shared_session_files(self, session_id: str) -> list[FileInfo]:
         """Get files for a shared session"""
         logger.info(f"Getting files for shared session {session_id}")
         session = await self._session_repository.find_by_id(session_id)
@@ -527,7 +525,7 @@ class AgentService:
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
             raise RuntimeError("Session not found")
-        
+
         await self._session_repository.update_shared_status(session_id, True)
         logger.info(f"Session {session_id} shared successfully")
 
@@ -539,11 +537,11 @@ class AgentService:
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
             raise RuntimeError("Session not found")
-        
+
         await self._session_repository.update_shared_status(session_id, False)
         logger.info(f"Session {session_id} unshared successfully")
 
-    async def get_shared_session(self, session_id: str) -> Optional[Session]:
+    async def get_shared_session(self, session_id: str) -> Session | None:
         """Get a shared session by ID (no user authentication required)"""
         logger.info(f"Getting shared session {session_id}")
         session = await self._session_repository.find_by_id(session_id)
@@ -563,8 +561,8 @@ class AgentService:
 
     def _resolve_project_name(
         self,
-        name: Optional[str],
-        path: Optional[str],
+        name: str | None,
+        path: str | None,
         default_name: str,
     ) -> str:
         derived_name = name or (PurePosixPath(path).name if path else "")
@@ -584,7 +582,7 @@ class AgentService:
         }
         return template_map.get(key, default_template or "none")
 
-    def _sanitize_git_remote(self, git_remote: Optional[GitRemoteSpec]) -> Optional[GitRemoteSpec]:
+    def _sanitize_git_remote(self, git_remote: GitRemoteSpec | None) -> GitRemoteSpec | None:
         if not git_remote:
             return None
         return GitRemoteSpec(
@@ -598,14 +596,14 @@ class AgentService:
         sandbox: Sandbox,
         session_id: str,
         project_root: str,
-        manifest_root: Optional[str],
-        files: Dict[str, str],
-    ) -> Tuple[int, int, List[WorkspaceWriteError]]:
+        manifest_root: str | None,
+        files: dict[str, str],
+    ) -> tuple[int, int, list[WorkspaceWriteError]]:
         if not files:
             return 0, 0, []
 
         normalized_manifest_root = self._normalize_manifest_root(manifest_root)
-        targets: Dict[str, str] = {}
+        targets: dict[str, str] = {}
         for raw_path, content in files.items():
             resolved = self._resolve_manifest_file_target(
                 project_root,
@@ -620,7 +618,7 @@ class AgentService:
             return 0, 0, []
 
         # Ensure directories exist
-        directories = {posixpath.dirname(path) for path in targets.keys() if posixpath.dirname(path)}
+        directories = {posixpath.dirname(path) for path in targets if posixpath.dirname(path)}
         for directory in sorted(directories):
             await sandbox.exec_command(
                 session_id,
@@ -630,7 +628,7 @@ class AgentService:
 
         files_written = 0
         files_failed = 0
-        errors: List[WorkspaceWriteError] = []
+        errors: list[WorkspaceWriteError] = []
         for path, content in targets.items():
             result = await sandbox.file_write(path, content)
             if result.success:
@@ -643,7 +641,7 @@ class AgentService:
 
         return files_written, files_failed, errors
 
-    def _normalize_manifest_root(self, manifest_root: Optional[str]) -> Optional[str]:
+    def _normalize_manifest_root(self, manifest_root: str | None) -> str | None:
         if not manifest_root:
             return None
         normalized = manifest_root.replace("\\", "/").rstrip("/")
@@ -653,8 +651,8 @@ class AgentService:
         self,
         project_root: str,
         raw_path: str,
-        manifest_root: Optional[str],
-    ) -> Optional[str]:
+        manifest_root: str | None,
+    ) -> str | None:
         if not raw_path:
             return None
         raw_path = raw_path.replace("\\", "/")
@@ -679,15 +677,15 @@ class AgentService:
             return joined
         raise ValueError("Resolved path escapes workspace root")
 
-    def _format_env_content(self, env_vars: Dict[str, str], secrets: Dict[str, str]) -> str:
+    def _format_env_content(self, env_vars: dict[str, str], secrets: dict[str, str]) -> str:
         if not env_vars and not secrets:
             return ""
-        lines: List[str] = []
+        lines: list[str] = []
         for key, value in {**env_vars, **secrets}.items():
             lines.append(self._format_env_line(key, value))
         return "\n".join(lines) + "\n"
 
-    def _format_env_line(self, key: str, value: Optional[str]) -> str:
+    def _format_env_line(self, key: str, value: str | None) -> str:
         safe_value = "" if value is None else str(value)
         needs_quotes = any(ch in safe_value for ch in [" ", "\t", "\n", "\"", "'", "\\"])
         if needs_quotes:

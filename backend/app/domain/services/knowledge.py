@@ -1,4 +1,4 @@
-from typing import List
+
 from app.domain.models.event import KnowledgeEvent
 
 
@@ -12,7 +12,7 @@ class KnowledgeService:
     def __init__(self):
         pass
 
-    async def get_relevant_knowledge(self, task_description: str) -> List[KnowledgeEvent]:
+    async def get_relevant_knowledge(self, task_description: str) -> list[KnowledgeEvent]:
         """Get knowledge items relevant to the given task.
 
         Args:

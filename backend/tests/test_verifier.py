@@ -2,19 +2,20 @@
 Tests for the VerifierAgent and verification workflow.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
-from app.domain.services.agents.verifier import VerifierAgent, VerifierConfig
+import pytest
+
 from app.domain.models.agent_response import (
-    VerificationVerdict,
-    VerificationResponse,
-    ToolFeasibility,
-    PrerequisiteCheck,
     DependencyIssue,
+    PrerequisiteCheck,
+    ToolFeasibility,
+    VerificationResponse,
+    VerificationVerdict,
 )
 from app.domain.models.event import VerificationEvent, VerificationStatus
 from app.domain.models.plan import Plan, Step
+from app.domain.services.agents.verifier import VerifierAgent, VerifierConfig
 
 
 class TestVerifierConfig:

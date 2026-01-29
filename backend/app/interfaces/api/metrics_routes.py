@@ -7,21 +7,22 @@ Endpoints:
     GET /metrics/json - JSON format metrics
     GET /metrics/health - Health check for monitoring
 """
-from fastapi import APIRouter, Response
-from typing import Dict, Any
 import time
+from typing import Any
 
+from fastapi import APIRouter, Response
+
+from app.domain.services.agents.metrics import get_metrics_collector
+from app.domain.services.tools.cache_layer import get_cache_stats, get_combined_cache_stats
+from app.domain.services.tools.dynamic_toolset import get_toolset_manager
+from app.infrastructure.observability.llm_tracer import NoOpLLMTracer, get_llm_tracer
+from app.infrastructure.observability.otel_exporter import get_otel_config
 from app.infrastructure.observability.prometheus_metrics import (
-    format_prometheus,
-    collect_all_metrics,
     active_sessions,
-    active_agents,
+    collect_all_metrics,
+    format_prometheus,
 )
 from app.infrastructure.observability.tracer import get_tracer
-from app.infrastructure.observability.otel_exporter import get_otel_config
-from app.domain.services.tools.cache_layer import get_cache_stats, get_combined_cache_stats
-from app.domain.services.agents.metrics import get_metrics_collector
-from app.domain.services.tools.dynamic_toolset import get_toolset_manager
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 
@@ -46,7 +47,7 @@ async def get_prometheus_metrics():
 
 
 @router.get("/json")
-async def get_json_metrics() -> Dict[str, Any]:
+async def get_json_metrics() -> dict[str, Any]:
     """Get metrics in JSON format.
 
     Returns all metrics in a structured JSON format for
@@ -81,7 +82,7 @@ async def get_json_metrics() -> Dict[str, Any]:
 
 
 @router.get("/health")
-async def health_check() -> Dict[str, Any]:
+async def health_check() -> dict[str, Any]:
     """Health check endpoint for monitoring systems.
 
     Returns basic health information and uptime status.
@@ -94,7 +95,7 @@ async def health_check() -> Dict[str, Any]:
 
 
 @router.get("/tracer")
-async def get_tracer_metrics() -> Dict[str, Any]:
+async def get_tracer_metrics() -> dict[str, Any]:
     """Get detailed tracer metrics.
 
     Returns metrics from the internal tracer including
@@ -108,7 +109,7 @@ async def get_tracer_metrics() -> Dict[str, Any]:
 
 
 @router.get("/cache")
-async def get_cache_metrics() -> Dict[str, Any]:
+async def get_cache_metrics() -> dict[str, Any]:
     """Get tool cache statistics.
 
     Returns cache hit/miss rates and other caching metrics.
@@ -119,7 +120,7 @@ async def get_cache_metrics() -> Dict[str, Any]:
 
 
 @router.get("/agent")
-async def get_agent_optimization_metrics() -> Dict[str, Any]:
+async def get_agent_optimization_metrics() -> dict[str, Any]:
     """Get agent optimization metrics.
 
     Returns comprehensive metrics for all agent optimizations:
@@ -150,7 +151,7 @@ async def get_agent_prometheus_metrics():
 
 
 @router.get("/agent/timeseries")
-async def get_agent_timeseries(minutes: int = 60) -> Dict[str, Any]:
+async def get_agent_timeseries(minutes: int = 60) -> dict[str, Any]:
     """Get time-series metrics for the last N minutes.
 
     Args:
@@ -168,7 +169,7 @@ async def get_agent_timeseries(minutes: int = 60) -> Dict[str, Any]:
 
 
 @router.get("/agent/cache")
-async def get_agent_cache_details() -> Dict[str, Any]:
+async def get_agent_cache_details() -> dict[str, Any]:
     """Get detailed cache metrics including L1 and L2.
 
     Returns multi-tier cache performance data.
@@ -190,7 +191,7 @@ async def get_agent_cache_details() -> Dict[str, Any]:
 
 
 @router.get("/agent/toolset")
-async def get_toolset_metrics() -> Dict[str, Any]:
+async def get_toolset_metrics() -> dict[str, Any]:
     """Get dynamic toolset filtering metrics.
 
     Returns statistics about tool filtering effectiveness.
@@ -206,7 +207,7 @@ async def get_toolset_metrics() -> Dict[str, Any]:
 
 
 @router.post("/agent/reset")
-async def reset_agent_metrics() -> Dict[str, Any]:
+async def reset_agent_metrics() -> dict[str, Any]:
     """Reset all agent optimization metrics.
 
     Returns confirmation of reset.
@@ -217,6 +218,152 @@ async def reset_agent_metrics() -> Dict[str, Any]:
     return {
         "status": "reset",
         "timestamp": time.time()
+    }
+
+
+@router.get("/tokens/summary")
+async def get_token_usage_summary() -> dict[str, Any]:
+    """Get token usage summary across all LLM calls.
+
+    Returns aggregated token counts, costs, and latency by model.
+    This endpoint provides data for cost dashboards and usage monitoring.
+    """
+    llm_tracer = get_llm_tracer()
+
+    # Get metrics from LLM tracer
+    if isinstance(llm_tracer, NoOpLLMTracer):
+        metrics = llm_tracer.get_metrics_summary()
+    else:
+        # For external tracers, return basic info
+        metrics = {
+            "total_calls": 0,
+            "total_tokens": 0,
+            "total_cost_usd": 0.0,
+            "note": "Detailed metrics available in external tracing platform"
+        }
+
+    # Add tracer URL if available
+    trace_url = llm_tracer.get_trace_url("latest") if hasattr(llm_tracer, 'get_trace_url') else None
+
+    return {
+        "summary": metrics,
+        "trace_dashboard_url": trace_url,
+        "timestamp": time.time(),
+    }
+
+
+@router.get("/tokens/timeline")
+async def get_token_timeline(
+    minutes: int = 60,
+    model: str | None = None
+) -> dict[str, Any]:
+    """Get time-series token usage data.
+
+    Args:
+        minutes: Number of minutes of history (max 1440 = 24h)
+        model: Optional model filter
+
+    Returns time-bucketed token usage for trend analysis.
+    """
+    # Cap at 24 hours
+    minutes = min(minutes, 1440)
+
+    llm_tracer = get_llm_tracer()
+
+    if isinstance(llm_tracer, NoOpLLMTracer):
+        # Build timeline from stored traces
+        now = time.time()
+        cutoff = now - (minutes * 60)
+
+        # Group by 5-minute buckets
+        bucket_size = 5 * 60  # 5 minutes in seconds
+        buckets: dict[int, dict[str, Any]] = {}
+
+        for trace in llm_tracer._traces:
+            trace_time = trace.start_time.timestamp()
+            if trace_time < cutoff:
+                continue
+
+            if model and trace.model != model:
+                continue
+
+            bucket_key = int(trace_time // bucket_size) * bucket_size
+
+            if bucket_key not in buckets:
+                buckets[bucket_key] = {
+                    "timestamp": bucket_key,
+                    "calls": 0,
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "cost_usd": 0.0,
+                    "avg_latency_ms": 0.0,
+                    "latencies": [],
+                }
+
+            buckets[bucket_key]["calls"] += 1
+            buckets[bucket_key]["prompt_tokens"] += trace.prompt_tokens
+            buckets[bucket_key]["completion_tokens"] += trace.completion_tokens
+            buckets[bucket_key]["cost_usd"] += trace.total_cost_usd
+            buckets[bucket_key]["latencies"].append(trace.latency_ms)
+
+        # Calculate averages and sort
+        timeline = []
+        for bucket in sorted(buckets.values(), key=lambda x: x["timestamp"]):
+            latencies = bucket.pop("latencies")
+            bucket["avg_latency_ms"] = sum(latencies) / len(latencies) if latencies else 0
+            bucket["cost_usd"] = round(bucket["cost_usd"], 6)
+            timeline.append(bucket)
+
+        return {
+            "period_minutes": minutes,
+            "bucket_size_seconds": bucket_size,
+            "model_filter": model,
+            "timeline": timeline,
+        }
+    return {
+        "period_minutes": minutes,
+        "note": "Timeline available in external tracing platform",
+        "timeline": [],
+    }
+
+
+@router.get("/costs")
+async def get_cost_tracking() -> dict[str, Any]:
+    """Get cost tracking data for LLM usage.
+
+    Returns cost breakdown by model, session, and time period.
+    Useful for budget monitoring and cost optimization.
+    """
+    llm_tracer = get_llm_tracer()
+
+    if isinstance(llm_tracer, NoOpLLMTracer):
+        metrics = llm_tracer.get_metrics_summary()
+
+        # Calculate cost breakdown
+        by_model = metrics.get("by_model", {})
+        total_cost = metrics.get("total_cost_usd", 0.0)
+
+        # Calculate percentages
+        cost_breakdown = {}
+        for model_name, model_stats in by_model.items():
+            model_cost = model_stats.get("cost_usd", 0.0)
+            cost_breakdown[model_name] = {
+                "cost_usd": round(model_cost, 6),
+                "percentage": round(model_cost / total_cost * 100, 2) if total_cost > 0 else 0,
+                "calls": model_stats.get("calls", 0),
+                "tokens": model_stats.get("tokens", 0),
+            }
+
+        return {
+            "total_cost_usd": round(total_cost, 6),
+            "by_model": cost_breakdown,
+            "period": "all_time",
+            "timestamp": time.time(),
+        }
+    return {
+        "note": "Cost tracking available in external tracing platform",
+        "total_cost_usd": 0.0,
+        "by_model": {},
     }
 
 

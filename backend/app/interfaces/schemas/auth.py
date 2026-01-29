@@ -1,6 +1,7 @@
-from typing import Optional
-from pydantic import BaseModel, field_validator
 from datetime import datetime
+
+from pydantic import BaseModel, field_validator
+
 from app.domain.models.user import UserRole
 
 
@@ -8,14 +9,14 @@ class LoginRequest(BaseModel):
     """Login request schema"""
     email: str
     password: str
-    
+
     @field_validator('email')
     @classmethod
     def validate_email(cls, v):
         if not v or '@' not in v:
             raise ValueError("Valid email is required")
         return v.strip().lower()
-    
+
     @field_validator('password')
     @classmethod
     def validate_password(cls, v):
@@ -29,21 +30,21 @@ class RegisterRequest(BaseModel):
     fullname: str
     email: str
     password: str
-    
+
     @field_validator('fullname')
     @classmethod
     def validate_fullname(cls, v):
         if not v or len(v.strip()) < 2:
             raise ValueError("Full name must be at least 2 characters long")
         return v.strip()
-    
+
     @field_validator('email')
     @classmethod
     def validate_email(cls, v):
         if not v or '@' not in v:
             raise ValueError("Valid email is required")
         return v.strip().lower()
-    
+
     @field_validator('password')
     @classmethod
     def validate_password(cls, v):
@@ -56,14 +57,14 @@ class ChangePasswordRequest(BaseModel):
     """Change password request schema"""
     old_password: str
     new_password: str
-    
+
     @field_validator('old_password')
     @classmethod
     def validate_old_password(cls, v):
         if not v:
             raise ValueError("Old password is required")
         return v
-    
+
     @field_validator('new_password')
     @classmethod
     def validate_new_password(cls, v):
@@ -75,7 +76,7 @@ class ChangePasswordRequest(BaseModel):
 class ChangeFullnameRequest(BaseModel):
     """Change fullname request schema"""
     fullname: str
-    
+
     @field_validator('fullname')
     @classmethod
     def validate_fullname(cls, v):
@@ -87,7 +88,7 @@ class ChangeFullnameRequest(BaseModel):
 class RefreshTokenRequest(BaseModel):
     """Refresh token request schema"""
     refresh_token: str
-    
+
     @field_validator('refresh_token')
     @classmethod
     def validate_refresh_token(cls, v):
@@ -99,7 +100,7 @@ class RefreshTokenRequest(BaseModel):
 class SendVerificationCodeRequest(BaseModel):
     """Send verification code request schema"""
     email: str
-    
+
     @field_validator('email')
     @classmethod
     def validate_email(cls, v):
@@ -113,14 +114,14 @@ class ResetPasswordRequest(BaseModel):
     email: str
     verification_code: str
     new_password: str
-    
+
     @field_validator('email')
     @classmethod
     def validate_email(cls, v):
         if not v or '@' not in v:
             raise ValueError("Valid email is required")
         return v.strip().lower()
-    
+
     @field_validator('verification_code')
     @classmethod
     def validate_verification_code(cls, v):
@@ -129,7 +130,7 @@ class ResetPasswordRequest(BaseModel):
         if not v.isdigit() or len(v) != 6:
             raise ValueError("Verification code must be 6 digits")
         return v
-    
+
     @field_validator('new_password')
     @classmethod
     def validate_new_password(cls, v):
@@ -147,8 +148,8 @@ class UserResponse(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: datetime
-    last_login_at: Optional[datetime] = None
-    
+    last_login_at: datetime | None = None
+
     @staticmethod
     def from_user(user) -> 'UserResponse':
         """Convert user domain model to response schema"""
@@ -188,4 +189,4 @@ class AuthStatusResponse(BaseModel):
 class RefreshTokenResponse(BaseModel):
     """Refresh token response schema"""
     access_token: str
-    token_type: str = "bearer" 
+    token_type: str = "bearer"

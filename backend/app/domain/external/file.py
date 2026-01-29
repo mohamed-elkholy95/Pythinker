@@ -1,16 +1,18 @@
-from typing import Protocol, BinaryIO, Optional, Dict, Any, Tuple
+from typing import Any, BinaryIO, Protocol
+
 from app.domain.models.file import FileInfo
+
 
 class FileStorage(Protocol):
     """File storage service interface for file upload and download operations"""
-    
+
     async def upload_file(
         self,
         file_data: BinaryIO,
         filename: str,
         user_id: str,
-        content_type: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        content_type: str | None = None,
+        metadata: dict[str, Any] | None = None
     ) -> FileInfo:
         """Upload file to storage
         
@@ -25,12 +27,12 @@ class FileStorage(Protocol):
             FileUploadResult containing file_id and upload information
         """
         ...
-    
+
     async def download_file(
         self,
         file_id: str,
-        user_id: Optional[str] = None
-    ) -> Tuple[BinaryIO, FileInfo]:
+        user_id: str | None = None
+    ) -> tuple[BinaryIO, FileInfo]:
         """Download file from storage by file ID
         
         Args:
@@ -41,9 +43,9 @@ class FileStorage(Protocol):
             FileDownloadResult containing file data and metadata for FastAPI streaming
         """
         ...
-    
 
-    
+
+
     async def delete_file(
         self,
         file_id: str,
@@ -59,12 +61,12 @@ class FileStorage(Protocol):
             True if deletion successful, False otherwise
         """
         ...
-    
+
     async def get_file_info(
         self,
         file_id: str,
-        user_id: Optional[str] = None
-    ) -> Optional[FileInfo]:
+        user_id: str | None = None
+    ) -> FileInfo | None:
         """Get file metadata from storage
         
         Args:

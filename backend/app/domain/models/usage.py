@@ -1,9 +1,9 @@
 """Usage tracking domain models for token consumption and cost tracking."""
-from pydantic import BaseModel, Field
-from datetime import datetime, date, UTC
-from typing import Optional, Dict
-from enum import Enum
 import uuid
+from datetime import UTC, date, datetime
+from enum import Enum
+
+from pydantic import BaseModel, Field
 
 
 class UsageType(str, Enum):
@@ -64,12 +64,12 @@ class SessionUsage(BaseModel):
     tool_call_count: int = 0
 
     # Model breakdown (model -> token count)
-    tokens_by_model: Dict[str, int] = {}
-    cost_by_model: Dict[str, float] = {}
+    tokens_by_model: dict[str, int] = {}
+    cost_by_model: dict[str, float] = {}
 
     # Time range
-    first_activity: Optional[datetime] = None
-    last_activity: Optional[datetime] = None
+    first_activity: datetime | None = None
+    last_activity: datetime | None = None
 
 
 class SessionMetrics(BaseModel):
@@ -81,9 +81,9 @@ class SessionMetrics(BaseModel):
     user_id: str
 
     # Time metrics
-    duration_seconds: Optional[float] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    duration_seconds: float | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
     # Task metrics
     tasks_completed: int = 0
@@ -91,7 +91,7 @@ class SessionMetrics(BaseModel):
     steps_executed: int = 0
 
     # Tool usage
-    tool_usage_stats: Dict[str, int] = {}  # tool_name -> count
+    tool_usage_stats: dict[str, int] = {}  # tool_name -> count
     avg_step_duration_seconds: float = 0.0
 
     # Performance metrics
@@ -102,7 +102,7 @@ class SessionMetrics(BaseModel):
     verification_count: int = 0
 
     # Budget tracking (references UsageRecord)
-    budget_limit: Optional[float] = None
+    budget_limit: float | None = None
     budget_consumed: float = 0.0
     budget_warnings_triggered: int = 0
 
@@ -142,8 +142,8 @@ class DailyUsageAggregate(BaseModel):
     session_count: int = 0  # Unique sessions active this day
 
     # Model breakdown
-    tokens_by_model: Dict[str, int] = {}
-    cost_by_model: Dict[str, float] = {}
+    tokens_by_model: dict[str, int] = {}
+    cost_by_model: dict[str, float] = {}
 
     # Sessions active this day
     active_sessions: list[str] = []
@@ -174,4 +174,4 @@ class MonthlyUsageSummary(BaseModel):
     active_days: int = 0
 
     # Model breakdown
-    cost_by_model: Dict[str, float] = {}
+    cost_by_model: dict[str, float] = {}

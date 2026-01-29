@@ -94,11 +94,19 @@
     <!-- Task Completed Footer - shown below everything -->
     <TaskCompletedFooter @rate="handleReportRate" />
   </div>
+  <!-- Deep Research Card -->
+  <DeepResearchCard
+    v-else-if="message.type === 'deep_research'"
+    :content="deepResearchContent"
+    @run="handleDeepResearchRun"
+    @skip="handleDeepResearchSkip"
+    @toggle-auto-run="handleToggleAutoRun"
+  />
 </template>
 
 <script setup lang="ts">
 import PythinkerTextIcon from './icons/PythinkerTextIcon.vue';
-import { Message, MessageContent, AttachmentsContent, ReportContent } from '../types/message';
+import { Message, MessageContent, AttachmentsContent, ReportContent, DeepResearchContent } from '../types/message';
 import ToolUse from './ToolUse.vue';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
@@ -111,6 +119,7 @@ import AttachmentsMessage from './AttachmentsMessage.vue';
 import { ReportCard, AttachmentsInlineGrid, TaskCompletedFooter } from './report';
 import type { ReportData } from './report';
 import type { FileInfo } from '../api/file';
+import DeepResearchCard from './DeepResearchCard.vue';
 
 
 const props = defineProps<{
@@ -126,6 +135,9 @@ const emit = defineEmits<{
   (e: 'showAllFiles'): void;
   (e: 'reportRate', rating: number): void;
   (e: 'selectSuggestion', suggestion: string): void;
+  (e: 'deepResearchRun', researchId: string): void;
+  (e: 'deepResearchSkip', researchId: string, queryId?: string): void;
+  (e: 'toggleAutoRun'): void;
 }>();
 
 const handleToolClick = (tool: ToolContent) => {
@@ -152,12 +164,25 @@ const handleSelectSuggestion = (suggestion: string) => {
   emit('selectSuggestion', suggestion);
 };
 
+const handleDeepResearchRun = (researchId: string) => {
+  emit('deepResearchRun', researchId);
+};
+
+const handleDeepResearchSkip = (researchId: string, queryId?: string) => {
+  emit('deepResearchSkip', researchId, queryId);
+};
+
+const handleToggleAutoRun = () => {
+  emit('toggleAutoRun');
+};
+
 // For backward compatibility, provide the original computed properties
 const stepContent = computed(() => props.message.content as StepContent);
 const messageContent = computed(() => props.message.content as MessageContent);
 const toolContent = computed(() => props.message.content as ToolContent);
 const attachmentsContent = computed(() => props.message.content as AttachmentsContent);
 const reportContent = computed(() => props.message.content as ReportContent);
+const deepResearchContent = computed(() => props.message.content as DeepResearchContent);
 
 // Convert ReportContent to ReportData for the component
 const reportData = computed<ReportData>(() => {

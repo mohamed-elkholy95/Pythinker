@@ -5,32 +5,32 @@ with nodes, edges, and conditional routing.
 """
 
 import logging
-from typing import Optional, Any
+from typing import Any
 
-from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.graph import END, START, StateGraph
 
-from app.domain.services.langgraph.state import PlanActState
 from app.domain.services.langgraph.nodes import (
-    planning_node,
-    verification_node,
     execution_node,
+    planning_node,
     reflection_node,
-    update_node,
     summarize_node,
+    update_node,
+    verification_node,
 )
 from app.domain.services.langgraph.routing import (
-    route_after_planning,
-    route_after_verification,
     route_after_execution,
+    route_after_planning,
     route_after_reflection,
+    route_after_verification,
 )
+from app.domain.services.langgraph.state import PlanActState
 
 logger = logging.getLogger(__name__)
 
 
 def create_plan_act_graph(
-    checkpointer: Optional[BaseCheckpointSaver] = None,
+    checkpointer: BaseCheckpointSaver | None = None,
 ) -> Any:  # CompiledGraph
     """Create and compile the PlanAct workflow graph.
 

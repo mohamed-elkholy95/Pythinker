@@ -30,18 +30,14 @@ Usage:
         yield event
 """
 
-import logging
 import asyncio
-from enum import Enum
-from typing import (
-    Any, AsyncGenerator, Callable, Dict, List, Optional,
-    Set, TypeVar, Union, Awaitable
-)
+import logging
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
-from abc import ABC, abstractmethod
+from enum import Enum
+from typing import Any
 
 from app.domain.models.event import BaseEvent
-
 
 logger = logging.getLogger(__name__)
 
@@ -68,11 +64,11 @@ class WorkflowState:
     The state is passed between nodes and can be mutated.
     """
     current_node: str = START
-    previous_node: Optional[str] = None
+    previous_node: str | None = None
     iteration_count: int = 0
     max_iterations: int = 100
-    error: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def should_continue(self) -> bool:
         """Check if workflow should continue executing."""
@@ -91,7 +87,7 @@ class WorkflowState:
 
 # Type aliases
 NodeHandler = Callable[[WorkflowState], AsyncGenerator[BaseEvent, None]]
-ConditionalRouter = Callable[[WorkflowState], Union[str, Awaitable[str]]]
+ConditionalRouter = Callable[[WorkflowState], str | Awaitable[str]]
 
 
 @dataclass
@@ -107,7 +103,7 @@ class Edge:
     """An edge connecting two nodes."""
     from_node: str
     to_node: str
-    condition: Optional[str] = None  # Human-readable condition description
+    condition: str | None = None  # Human-readable condition description
 
 
 @dataclass
@@ -115,7 +111,7 @@ class ConditionalEdge:
     """A conditional edge that routes based on state."""
     from_node: str
     router: ConditionalRouter
-    possible_targets: List[str] = field(default_factory=list)
+    possible_targets: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -125,7 +121,7 @@ class NodeExecution:
     status: NodeStatus
     duration_ms: float = 0
     events_emitted: int = 0
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class WorkflowGraph:
@@ -144,11 +140,11 @@ class WorkflowGraph:
         """
         self.name = name
         self.description = description
-        self._nodes: Dict[str, Node] = {}
-        self._edges: Dict[str, List[Edge]] = {}
-        self._conditional_edges: Dict[str, ConditionalEdge] = {}
-        self._entry_point: Optional[str] = None
-        self._execution_history: List[NodeExecution] = []
+        self._nodes: dict[str, Node] = {}
+        self._edges: dict[str, list[Edge]] = {}
+        self._conditional_edges: dict[str, ConditionalEdge] = {}
+        self._entry_point: str | None = None
+        self._execution_history: list[NodeExecution] = []
 
     def add_node(
         self,
@@ -185,7 +181,7 @@ class WorkflowGraph:
         self,
         from_node: str,
         to_node: str,
-        condition: Optional[str] = None
+        condition: str | None = None
     ) -> "WorkflowGraph":
         """Add a direct edge between nodes.
 
@@ -215,7 +211,7 @@ class WorkflowGraph:
         self,
         from_node: str,
         router: ConditionalRouter,
-        possible_targets: Optional[List[str]] = None
+        possible_targets: list[str] | None = None
     ) -> "WorkflowGraph":
         """Add a conditional edge that routes based on state.
 
@@ -253,7 +249,7 @@ class WorkflowGraph:
         self.add_edge(START, node_name)
         return self
 
-    def _get_next_node(self, state: WorkflowState) -> Optional[str]:
+    def _get_next_node(self, state: WorkflowState) -> str | None:
         """Determine the next node based on current state and edges."""
         current = state.current_node
 
@@ -292,8 +288,8 @@ class WorkflowGraph:
     async def run(
         self,
         initial_state: WorkflowState,
-        on_node_start: Optional[Callable[[str, WorkflowState], None]] = None,
-        on_node_end: Optional[Callable[[str, WorkflowState, NodeExecution], None]] = None
+        on_node_start: Callable[[str, WorkflowState], None] | None = None,
+        on_node_end: Callable[[str, WorkflowState, NodeExecution], None] | None = None
     ) -> AsyncGenerator[BaseEvent, None]:
         """Execute the workflow graph.
 
@@ -311,7 +307,7 @@ class WorkflowGraph:
         # Start from entry point
         if self._entry_point:
             state.transition_to(self._entry_point)
-        elif START in self._edges and self._edges[START]:
+        elif self._edges.get(START):
             state.transition_to(self._edges[START][0].to_node)
         else:
             raise ValueError("No entry point defined for workflow")
@@ -375,11 +371,11 @@ class WorkflowGraph:
             f"Workflow '{self.name}' completed after {state.iteration_count} iterations"
         )
 
-    def get_execution_history(self) -> List[NodeExecution]:
+    def get_execution_history(self) -> list[NodeExecution]:
         """Get the execution history from the last run."""
         return self._execution_history.copy()
 
-    def get_graph_structure(self) -> Dict[str, Any]:
+    def get_graph_structure(self) -> dict[str, Any]:
         """Get the graph structure for visualization/debugging."""
         nodes = []
         edges = []
@@ -421,7 +417,7 @@ class WorkflowBuilder:
 
     def __init__(self, name: str, description: str = ""):
         self._graph = WorkflowGraph(name, description)
-        self._current_node: Optional[str] = None
+        self._current_node: str | None = None
 
     def node(
         self,
@@ -449,7 +445,7 @@ class WorkflowBuilder:
     def conditional(
         self,
         router: ConditionalRouter,
-        targets: List[str]
+        targets: list[str]
     ) -> "WorkflowBuilder":
         """Add conditional edge from current node."""
         if not self._current_node:

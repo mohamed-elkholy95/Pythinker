@@ -1,8 +1,9 @@
-from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-import uuid
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class ExecutionStatus(str, Enum):
@@ -15,7 +16,7 @@ class ExecutionStatus(str, Enum):
     SKIPPED = "skipped"  # Step skipped due to condition or optimization
 
     @classmethod
-    def get_status_marks(cls) -> Dict[str, str]:
+    def get_status_marks(cls) -> dict[str, str]:
         """Get visual markers for UI display."""
         return {
             cls.PENDING.value: "[ ]",
@@ -27,22 +28,22 @@ class ExecutionStatus(str, Enum):
         }
 
     @classmethod
-    def get_active_statuses(cls) -> List[str]:
+    def get_active_statuses(cls) -> list[str]:
         """Get statuses that indicate step needs attention."""
         return [cls.PENDING.value, cls.RUNNING.value]
 
     @classmethod
-    def get_terminal_statuses(cls) -> List[str]:
+    def get_terminal_statuses(cls) -> list[str]:
         """Get statuses that indicate step is done (no further action needed)."""
         return [cls.COMPLETED.value, cls.FAILED.value, cls.BLOCKED.value, cls.SKIPPED.value]
 
     @classmethod
-    def get_success_statuses(cls) -> List[str]:
+    def get_success_statuses(cls) -> list[str]:
         """Get statuses that indicate successful completion."""
         return [cls.COMPLETED.value, cls.SKIPPED.value]
 
     @classmethod
-    def get_failure_statuses(cls) -> List[str]:
+    def get_failure_statuses(cls) -> list[str]:
         """Get statuses that indicate failure."""
         return [cls.FAILED.value, cls.BLOCKED.value]
 
@@ -68,17 +69,17 @@ class Step(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     description: str = ""
     status: ExecutionStatus = ExecutionStatus.PENDING
-    result: Optional[str] = None
-    error: Optional[str] = None
+    result: str | None = None
+    error: str | None = None
     success: bool = False
-    attachments: List[str] = []
+    attachments: list[str] = []
     # Enhanced fields
     notes: str = ""  # Additional context (e.g., why blocked)
-    agent_type: Optional[str] = None  # Which agent should handle this
-    dependencies: List[str] = Field(default_factory=list)  # Step IDs this depends on
-    blocked_by: Optional[str] = None  # ID of step that caused blocking
+    agent_type: str | None = None  # Which agent should handle this
+    dependencies: list[str] = Field(default_factory=list)  # Step IDs this depends on
+    blocked_by: str | None = None  # ID of step that caused blocking
     # Metadata for merged steps and additional context
-    metadata: Optional[Dict[str, Any]] = None  # Stores merged_steps, original_descriptions, etc.
+    metadata: dict[str, Any] | None = None  # Stores merged_steps, original_descriptions, etc.
 
     def is_done(self) -> bool:
         """Check if step has reached a terminal state."""
@@ -88,7 +89,7 @@ class Step(BaseModel):
         """Check if step can be executed (pending and not blocked)."""
         return self.status == ExecutionStatus.PENDING
 
-    def mark_blocked(self, reason: str, blocked_by: Optional[str] = None) -> None:
+    def mark_blocked(self, reason: str, blocked_by: str | None = None) -> None:
         """Mark this step as blocked with a reason."""
         self.status = ExecutionStatus.BLOCKED
         self.notes = reason
@@ -111,32 +112,32 @@ class Plan(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     title: str = ""
     goal: str = ""
-    language: Optional[str] = "en"
-    steps: List[Step] = []
-    message: Optional[str] = None
+    language: str | None = "en"
+    steps: list[Step] = []
+    message: str | None = None
     status: ExecutionStatus = ExecutionStatus.PENDING
-    result: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
+    result: dict[str, Any] | None = None
+    error: str | None = None
 
     def is_done(self) -> bool:
         """Check if plan has reached a terminal state."""
         return self.status.is_terminal()
 
-    def get_next_step(self) -> Optional[Step]:
+    def get_next_step(self) -> Step | None:
         """Get next step that needs execution."""
         for step in self.steps:
             if step.is_actionable():
                 return step
         return None
 
-    def get_running_step(self) -> Optional[Step]:
+    def get_running_step(self) -> Step | None:
         """Get currently running step if any."""
         for step in self.steps:
             if step.status == ExecutionStatus.RUNNING:
                 return step
         return None
 
-    def get_progress(self) -> Dict[str, Any]:
+    def get_progress(self) -> dict[str, Any]:
         """Get progress statistics for the plan."""
         total = len(self.steps)
         if total == 0:
@@ -181,7 +182,7 @@ class Plan(BaseModel):
 
         return "\n".join(lines)
 
-    def mark_blocked_cascade(self, blocked_step_id: str, reason: str) -> List[str]:
+    def mark_blocked_cascade(self, blocked_step_id: str, reason: str) -> list[str]:
         """Mark all steps that depend on a blocked step as blocked.
 
         Args:
@@ -247,7 +248,7 @@ class Plan(BaseModel):
                 # Default: sequential dependency
                 step.dependencies = [self.steps[i - 1].id]
 
-    def get_step_by_id(self, step_id: str) -> Optional[Step]:
+    def get_step_by_id(self, step_id: str) -> Step | None:
         """Get a step by its ID."""
         for step in self.steps:
             if step.id == step_id:
@@ -268,8 +269,8 @@ class Plan(BaseModel):
         Returns:
             ValidationResult with passed, errors[], warnings[]
         """
-        errors: List[str] = []
-        warnings: List[str] = []
+        errors: list[str] = []
+        warnings: list[str] = []
 
         if not self.steps:
             errors.append("Plan has no steps")
@@ -346,10 +347,10 @@ class Plan(BaseModel):
 class ValidationResult:
     """Result of plan validation."""
     passed: bool
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "passed": self.passed,

@@ -3,13 +3,13 @@
 Tavily AI-powered Search API implementation.
 Requires a Tavily API key from https://tavily.com/
 """
-from typing import Optional
 import logging
+
 import httpx
 
-from app.domain.models.tool_result import ToolResult
-from app.domain.models.search import SearchResults, SearchResultItem
 from app.domain.external.search import SearchEngine
+from app.domain.models.search import SearchResultItem, SearchResults
+from app.domain.models.tool_result import ToolResult
 from app.infrastructure.external.search.factory import SearchProviderRegistry
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ class TavilySearchEngine(SearchEngine):
     async def search(
         self,
         query: str,
-        date_range: Optional[str] = None
+        date_range: str | None = None
     ) -> ToolResult[SearchResults]:
         """Search web pages using Tavily Search API.
 

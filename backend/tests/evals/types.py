@@ -3,12 +3,13 @@
 Defines the core data structures used throughout the evaluation system.
 """
 
-from enum import Enum
-from typing import List, Dict, Any, Optional, Union, Callable
+import json
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
+from typing import Any
+
 from pydantic import BaseModel, Field
-import json
 
 
 class EvalStatus(str, Enum):
@@ -39,10 +40,10 @@ class MetricScore:
     metric_name: str
     score: float  # 0.0 to 1.0
     passed: bool
-    details: Dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
     message: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "metric_name": self.metric_name,
             "score": self.score,
@@ -61,34 +62,34 @@ class EvalCase(BaseModel):
     id: str = Field(description="Unique identifier for this case")
     name: str = Field(default="", description="Human-readable name")
     description: str = Field(default="", description="Description of what's being tested")
-    tags: List[str] = Field(default_factory=list, description="Tags for filtering")
+    tags: list[str] = Field(default_factory=list, description="Tags for filtering")
 
     # Input
     input: str = Field(description="The input prompt/message")
-    input_context: Dict[str, Any] = Field(
+    input_context: dict[str, Any] = Field(
         default_factory=dict,
         description="Additional context for the input"
     )
-    attachments: List[str] = Field(default_factory=list)
+    attachments: list[str] = Field(default_factory=list)
 
     # Expected outputs (multiple criteria supported)
-    expected_output: Optional[str] = Field(
+    expected_output: str | None = Field(
         default=None,
         description="Exact expected output"
     )
-    expected_output_contains: List[str] = Field(
+    expected_output_contains: list[str] = Field(
         default_factory=list,
         description="Strings that should appear in output"
     )
-    expected_output_not_contains: List[str] = Field(
+    expected_output_not_contains: list[str] = Field(
         default_factory=list,
         description="Strings that should NOT appear in output"
     )
-    expected_json_schema: Optional[Dict[str, Any]] = Field(
+    expected_json_schema: dict[str, Any] | None = Field(
         default=None,
         description="JSON schema the output should match"
     )
-    expected_tool_calls: List[Dict[str, Any]] = Field(
+    expected_tool_calls: list[dict[str, Any]] = Field(
         default_factory=list,
         description="Expected tool calls"
     )
@@ -117,13 +118,13 @@ class EvalCase(BaseModel):
     skip_reason: str = Field(default="")
 
     # Custom evaluation function (name reference)
-    custom_evaluator: Optional[str] = Field(
+    custom_evaluator: str | None = Field(
         default=None,
         description="Name of custom evaluator function"
     )
 
     # Metadata
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 @dataclass
@@ -132,30 +133,30 @@ class EvalResult:
     case_id: str
     status: EvalStatus
     actual_output: str = ""
-    scores: List[MetricScore] = field(default_factory=list)
+    scores: list[MetricScore] = field(default_factory=list)
     overall_score: float = 0.0
     passed: bool = False
 
     # Timing
     start_time: datetime = field(default_factory=datetime.utcnow)
-    end_time: Optional[datetime] = None
+    end_time: datetime | None = None
     duration_seconds: float = 0.0
 
     # Resource usage
     input_tokens: int = 0
     output_tokens: int = 0
     total_tokens: int = 0
-    tool_calls: List[Dict[str, Any]] = field(default_factory=list)
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
 
     # Error information
-    error: Optional[str] = None
-    error_type: Optional[str] = None
-    traceback: Optional[str] = None
+    error: str | None = None
+    error_type: str | None = None
+    traceback: str | None = None
 
     # Raw data
-    raw_response: Optional[Dict[str, Any]] = None
+    raw_response: dict[str, Any] | None = None
 
-    def complete(self, output: str, end_time: Optional[datetime] = None) -> None:
+    def complete(self, output: str, end_time: datetime | None = None) -> None:
         """Mark the evaluation as complete."""
         self.actual_output = output
         self.end_time = end_time or datetime.utcnow()
@@ -179,7 +180,7 @@ class EvalResult:
         self.end_time = datetime.utcnow()
         self.duration_seconds = (self.end_time - self.start_time).total_seconds()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "case_id": self.case_id,
             "status": self.status.value,
@@ -207,17 +208,17 @@ class EvalDataset(BaseModel):
     description: str = Field(default="")
 
     # Test cases
-    cases: List[EvalCase] = Field(default_factory=list)
+    cases: list[EvalCase] = Field(default_factory=list)
 
     # Configuration
-    tags: List[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
     default_timeout: int = Field(default=60)
     parallel_execution: bool = Field(default=True)
     max_parallel: int = Field(default=5)
 
     # Metadata
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
     def from_file(cls, path: str) -> "EvalDataset":
@@ -231,7 +232,7 @@ class EvalDataset(BaseModel):
         with open(path, "w") as f:
             json.dump(self.model_dump(mode="json"), f, indent=2, default=str)
 
-    def filter_by_tags(self, tags: List[str]) -> "EvalDataset":
+    def filter_by_tags(self, tags: list[str]) -> "EvalDataset":
         """Create a new dataset with only cases matching the given tags."""
         filtered_cases = [
             case for case in self.cases
@@ -248,7 +249,7 @@ class EvalDataset(BaseModel):
             max_parallel=self.max_parallel,
         )
 
-    def get_case(self, case_id: str) -> Optional[EvalCase]:
+    def get_case(self, case_id: str) -> EvalCase | None:
         """Get a specific case by ID."""
         for case in self.cases:
             if case.id == case_id:
@@ -265,7 +266,7 @@ class EvalConfig(BaseModel):
     retries: int = Field(default=1, ge=0, le=3)
 
     # Metrics to run
-    metrics: List[str] = Field(
+    metrics: list[str] = Field(
         default_factory=lambda: ["contains", "response_time"],
         description="List of metric names to evaluate"
     )
@@ -280,12 +281,12 @@ class EvalConfig(BaseModel):
     output_format: str = Field(default="json")  # json, markdown, html
 
     # Filtering
-    include_tags: List[str] = Field(default_factory=list)
-    exclude_tags: List[str] = Field(default_factory=list)
-    case_ids: List[str] = Field(default_factory=list)  # Run specific cases only
+    include_tags: list[str] = Field(default_factory=list)
+    exclude_tags: list[str] = Field(default_factory=list)
+    case_ids: list[str] = Field(default_factory=list)  # Run specific cases only
 
     # Comparison (for A/B testing)
-    baseline_report: Optional[str] = Field(default=None)
+    baseline_report: str | None = Field(default=None)
     comparison_threshold: float = Field(default=0.05)
 
 
@@ -296,13 +297,13 @@ class EvalReport:
     run_id: str
     dataset_name: str
     started_at: datetime = field(default_factory=datetime.utcnow)
-    completed_at: Optional[datetime] = None
+    completed_at: datetime | None = None
 
     # Configuration used
-    config: Optional[EvalConfig] = None
+    config: EvalConfig | None = None
 
     # Results
-    results: List[EvalResult] = field(default_factory=list)
+    results: list[EvalResult] = field(default_factory=list)
 
     # Aggregated statistics
     total_cases: int = 0
@@ -321,7 +322,7 @@ class EvalReport:
     total_tokens: int = 0
 
     # Per-metric statistics
-    metric_scores: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    metric_scores: dict[str, dict[str, float]] = field(default_factory=dict)
 
     def add_result(self, result: EvalResult) -> None:
         """Add a result and update statistics."""
@@ -382,7 +383,7 @@ class EvalReport:
                 stats["average_score"] = stats["total_score"] / stats["count"]
                 stats["pass_rate"] = stats["passed"] / stats["count"]
 
-    def is_passing(self, config: Optional[EvalConfig] = None) -> bool:
+    def is_passing(self, config: EvalConfig | None = None) -> bool:
         """Check if the report meets passing criteria."""
         cfg = config or self.config or EvalConfig()
         return (
@@ -390,7 +391,7 @@ class EvalReport:
             self.average_score >= cfg.min_average_score
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "run_id": self.run_id,
             "dataset_name": self.dataset_name,
@@ -417,15 +418,15 @@ class EvalReport:
         """Generate a markdown report."""
         lines = [
             f"# Evaluation Report: {self.dataset_name}",
-            f"",
+            "",
             f"**Run ID:** `{self.run_id}`",
             f"**Started:** {self.started_at.isoformat()}",
             f"**Duration:** {self.total_duration_seconds:.2f}s",
-            f"",
-            f"## Summary",
-            f"",
-            f"| Metric | Value |",
-            f"|--------|-------|",
+            "",
+            "## Summary",
+            "",
+            "| Metric | Value |",
+            "|--------|-------|",
             f"| Total Cases | {self.total_cases} |",
             f"| Passed | {self.passed_cases} ({self.pass_rate*100:.1f}%) |",
             f"| Failed | {self.failed_cases} |",
@@ -433,16 +434,16 @@ class EvalReport:
             f"| Skipped | {self.skipped_cases} |",
             f"| Average Score | {self.average_score:.3f} |",
             f"| Total Tokens | {self.total_tokens:,} |",
-            f"",
+            "",
         ]
 
         # Per-metric breakdown
         if self.metric_scores:
             lines.extend([
-                f"## Metrics Breakdown",
-                f"",
-                f"| Metric | Average Score | Pass Rate |",
-                f"|--------|--------------|-----------|",
+                "## Metrics Breakdown",
+                "",
+                "| Metric | Average Score | Pass Rate |",
+                "|--------|--------------|-----------|",
             ])
             for name, stats in self.metric_scores.items():
                 avg = stats.get("average_score", 0)
@@ -454,16 +455,16 @@ class EvalReport:
         failed = [r for r in self.results if r.status in (EvalStatus.FAILED, EvalStatus.ERROR)]
         if failed:
             lines.extend([
-                f"## Failed Cases",
-                f"",
+                "## Failed Cases",
+                "",
             ])
             for r in failed[:10]:  # Show first 10
                 lines.append(f"### {r.case_id}")
-                lines.append(f"")
+                lines.append("")
                 lines.append(f"**Status:** {r.status.value}")
                 if r.error:
                     lines.append(f"**Error:** {r.error}")
                 lines.append(f"**Score:** {r.overall_score:.3f}")
-                lines.append(f"")
+                lines.append("")
 
         return "\n".join(lines)

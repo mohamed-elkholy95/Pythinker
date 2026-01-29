@@ -5,11 +5,11 @@ Provides quality gates that block final responses if critical
 quality issues are detected, ensuring consistent output standards.
 """
 
-import re
 import logging
+import re
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Set
 from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class GateResult:
     gate_name: str
     status: GateStatus
     message: str
-    details: Dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
 
     def is_blocking(self) -> bool:
         """Check if this result should block output delivery."""
@@ -38,10 +38,10 @@ class GateResult:
 @dataclass
 class ComplianceReport:
     """Aggregated report from all compliance gates."""
-    results: List[GateResult] = field(default_factory=list)
+    results: list[GateResult] = field(default_factory=list)
     passed: bool = True
-    blocking_issues: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    blocking_issues: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     def add_result(self, result: GateResult) -> None:
         """Add a gate result to the report."""
@@ -52,7 +52,7 @@ class ComplianceReport:
         elif result.status == GateStatus.WARNING:
             self.warnings.append(f"{result.gate_name}: {result.message}")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "passed": self.passed,
@@ -92,8 +92,8 @@ class ComplianceGates:
     def check_all(
         self,
         content: str,
-        artifacts: Optional[List[Dict[str, Any]]] = None,
-        sources: Optional[List[Dict[str, Any]]] = None
+        artifacts: list[dict[str, Any]] | None = None,
+        sources: list[dict[str, Any]] | None = None
     ) -> ComplianceReport:
         """Run all compliance gates on the output.
 
@@ -127,7 +127,7 @@ class ComplianceGates:
 
         return report
 
-    def check_artifact_hygiene(self, artifacts: List[Dict[str, Any]]) -> GateResult:
+    def check_artifact_hygiene(self, artifacts: list[dict[str, Any]]) -> GateResult:
         """Check artifact quality: no duplicates, valid paths.
 
         Args:
@@ -144,8 +144,8 @@ class ComplianceGates:
             )
 
         issues = []
-        seen_paths: Set[str] = set()
-        seen_names: Set[str] = set()
+        seen_paths: set[str] = set()
+        seen_names: set[str] = set()
 
         for artifact in artifacts:
             path = artifact.get("path", "")
@@ -224,7 +224,7 @@ class ComplianceGates:
             message="Command contexts are properly labeled"
         )
 
-    def check_source_labeling(self, sources: List[Dict[str, Any]]) -> GateResult:
+    def check_source_labeling(self, sources: list[dict[str, Any]]) -> GateResult:
         """Check that sources are properly labeled (official vs community).
 
         Args:
@@ -319,7 +319,7 @@ class ComplianceGates:
 
 
 # Singleton for global access
-_compliance_gates: Optional[ComplianceGates] = None
+_compliance_gates: ComplianceGates | None = None
 
 
 def get_compliance_gates(strict_mode: bool = False) -> ComplianceGates:

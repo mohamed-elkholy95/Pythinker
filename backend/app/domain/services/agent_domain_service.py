@@ -1,24 +1,26 @@
-from typing import Optional, AsyncGenerator, List, TYPE_CHECKING
-import logging
 import asyncio
-from datetime import datetime
-from app.domain.models.session import Session, SessionStatus
+import logging
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Optional
+
+from pydantic import TypeAdapter
+
+from app.core.config import get_settings
+from app.domain.external.file import FileStorage
 from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
-from app.domain.models.event import BaseEvent, ErrorEvent, DoneEvent, MessageEvent, WaitEvent, AgentEvent
-from pydantic import TypeAdapter
+from app.domain.external.task import Task
+from app.domain.models.event import AgentEvent, BaseEvent, DoneEvent, ErrorEvent, MessageEvent, WaitEvent
+from app.domain.models.file import FileInfo
+from app.domain.models.session import Session, SessionStatus
 from app.domain.repositories.agent_repository import AgentRepository
+from app.domain.repositories.mcp_repository import MCPRepository
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.agent_task_runner import AgentTaskRunner
-from app.domain.external.task import Task
-from app.domain.utils.json_parser import JsonParser
-from typing import Type
-from app.domain.external.file import FileStorage
-from app.domain.models.file import FileInfo
-from app.domain.repositories.mcp_repository import MCPRepository
-from app.core.config import get_settings
 from app.domain.services.workspace import get_session_workspace_initializer
+from app.domain.utils.json_parser import JsonParser
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
@@ -30,18 +32,18 @@ class AgentDomainService:
     """
     Agent domain service, responsible for coordinating the work of planning agent and execution agent
     """
-    
+
     def __init__(
         self,
         agent_repository: AgentRepository,
         session_repository: SessionRepository,
         llm: LLM,
-        sandbox_cls: Type[Sandbox],
-        task_cls: Type[Task],
+        sandbox_cls: type[Sandbox],
+        task_cls: type[Task],
         json_parser: JsonParser,
         file_storage: FileStorage,
         mcp_repository: MCPRepository,
-        search_engine: Optional[SearchEngine] = None,
+        search_engine: SearchEngine | None = None,
         memory_service: Optional["MemoryService"] = None,
     ):
         self._repository = agent_repository
@@ -55,7 +57,7 @@ class AgentDomainService:
         self._mcp_repository = mcp_repository
         self._memory_service = memory_service
         logger.info("AgentDomainService initialization completed")
-            
+
     async def shutdown(self) -> None:
         """Clean up all Agent's resources"""
         logger.info("Starting to close all Agents")
@@ -150,7 +152,7 @@ class AgentDomainService:
         if not browser:
             logger.error(f"Failed to get browser for Sandbox {sandbox_id}")
             raise RuntimeError(f"Failed to get browser for Sandbox {sandbox_id}")
-        
+
         await self._session_repository.save(session)
 
         # Get multi-agent configuration from settings
@@ -187,14 +189,14 @@ class AgentDomainService:
 
     async def _resolve_user_attachments(
         self,
-        attachments: Optional[List[dict]],
+        attachments: list[dict] | None,
         user_id: str
-    ) -> Optional[List[FileInfo]]:
+    ) -> list[FileInfo] | None:
         """Resolve attachment metadata so UI can display accurate info (size/type)."""
         if not attachments:
             return None
 
-        async def resolve_attachment(attachment: dict) -> Optional[FileInfo]:
+        async def resolve_attachment(attachment: dict) -> FileInfo | None:
             file_id = attachment.get("file_id")
             filename = attachment.get("filename")
             content_type = attachment.get("content_type")
@@ -236,7 +238,7 @@ class AgentDomainService:
             return_exceptions=True
         )
 
-        resolved: List[FileInfo] = []
+        resolved: list[FileInfo] = []
         for result in results:
             if isinstance(result, Exception):
                 logger.warning(f"Failed to resolve attachment: {result}")
@@ -245,14 +247,14 @@ class AgentDomainService:
                 resolved.append(result)
 
         return resolved if resolved else None
-        
-    async def _get_task(self, session: Session) -> Optional[Task]:
+
+    async def _get_task(self, session: Session) -> Task | None:
         """Get a task for the given session"""
 
         task_id = session.task_id
         if not task_id:
             return None
-        
+
         return self._task_cls.get(task_id)
 
     async def stop_session(self, session_id: str) -> None:
@@ -287,8 +289,8 @@ class AgentDomainService:
     async def resume_session(
         self,
         session_id: str,
-        context: Optional[str] = None,
-        persist_login_state: Optional[bool] = None
+        context: str | None = None,
+        persist_login_state: bool | None = None
     ) -> bool:
         """Resume a paused session (after user takeover)
 
@@ -372,10 +374,10 @@ IMPORTANT: The browser state may have changed. Before continuing:
         self,
         session_id: str,
         user_id: str,
-        message: Optional[str] = None,
-        timestamp: Optional[datetime] = None,
-        latest_event_id: Optional[str] = None,
-        attachments: Optional[List[dict]] = None
+        message: str | None = None,
+        timestamp: datetime | None = None,
+        latest_event_id: str | None = None,
+        attachments: list[dict] | None = None
     ) -> AsyncGenerator[BaseEvent, None]:
         """
         Chat with an agent
@@ -396,12 +398,11 @@ IMPORTANT: The browser state may have changed. Before continuing:
                 # - Backend restarts and frontend retries the request
                 is_duplicate = False
                 if session.latest_message == message and session.latest_message_at:
-                    from datetime import timezone
-                    now = datetime.now(timezone.utc)
+                    now = datetime.now(UTC)
                     # Make latest_message_at timezone-aware if it isn't
                     latest_at = session.latest_message_at
                     if latest_at.tzinfo is None:
-                        latest_at = latest_at.replace(tzinfo=timezone.utc)
+                        latest_at = latest_at.replace(tzinfo=UTC)
                     time_since_last = (now - latest_at).total_seconds()
                     if time_since_last < 300:  # Within 5 minutes (research tasks can take a while)
                         is_duplicate = True
@@ -466,10 +467,10 @@ IMPORTANT: The browser state may have changed. Before continuing:
 
                     await task.run()
                     logger.debug(f"Put message into Session {session_id}'s event queue: {message[:50]}...")
-            
+
             logger.info(f"Session {session_id} started")
             logger.debug(f"Session {session_id} task: {task}")
-           
+
             while task and not task.done:
                 event_id, event_str = await task.output_stream.get(start_id=latest_event_id, block_ms=0)
                 if event_str is None:
@@ -483,7 +484,7 @@ IMPORTANT: The browser state may have changed. Before continuing:
                 yield event
                 if isinstance(event, (DoneEvent, ErrorEvent, WaitEvent)):
                     break
-            
+
             logger.info(f"Session {session_id} completed")
 
         except Exception as e:

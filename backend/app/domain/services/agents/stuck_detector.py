@@ -18,9 +18,9 @@ import logging
 import math
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ class StuckAnalysis:
     repeat_count: int
     recovery_strategy: RecoveryStrategy
     details: str = ""
-    affected_tools: List[str] = field(default_factory=list)
+    affected_tools: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -69,11 +69,11 @@ class ToolActionRecord:
     args_hash: str
     success: bool
     result_hash: str
-    error: Optional[str] = None
+    error: str | None = None
     timestamp: datetime = field(default_factory=datetime.now)
 
 
-def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
+def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
     """Calculate cosine similarity between two vectors"""
     if not vec1 or not vec2 or len(vec1) != len(vec2):
         return 0.0
@@ -93,9 +93,9 @@ class ResponseRecord:
     """Record of an LLM response for stuck detection"""
     content_hash: str
     timestamp: datetime
-    tool_calls: Optional[List[str]] = None
+    tool_calls: list[str] | None = None
     content_preview: str = ""
-    embedding: Optional[List[float]] = None  # For semantic similarity
+    embedding: list[float] | None = None  # For semantic similarity
 
 
 class StuckDetector:
@@ -138,13 +138,13 @@ class StuckDetector:
         self._semantic_stuck_detected = False
 
         # Lightweight embedding cache for efficiency
-        self._embedding_cache: Dict[str, List[float]] = {}
+        self._embedding_cache: dict[str, list[float]] = {}
 
         # Enhanced: Tool action tracking for OpenHands-style pattern detection
         self._tool_action_history: deque[ToolActionRecord] = deque(maxlen=50)
-        self._stuck_analysis: Optional[StuckAnalysis] = None
+        self._stuck_analysis: StuckAnalysis | None = None
 
-    def track_response(self, response: Dict[str, Any]) -> bool:
+    def track_response(self, response: dict[str, Any]) -> bool:
         """
         Track a new LLM response and check if agent is stuck.
 
@@ -216,7 +216,7 @@ class StuckDetector:
 
         return is_stuck
 
-    def _hash_response(self, content: str, tool_calls: Optional[List[Dict]]) -> str:
+    def _hash_response(self, content: str, tool_calls: list[dict] | None) -> str:
         """
         Create a hash representing the response content and structure.
 
@@ -264,7 +264,7 @@ class StuckDetector:
             return False
 
         # Count occurrences of each hash in the window
-        hash_counts: Dict[str, int] = {}
+        hash_counts: dict[str, int] = {}
         for record in self._response_history:
             hash_counts[record.content_hash] = hash_counts.get(record.content_hash, 0) + 1
 
@@ -282,7 +282,7 @@ class StuckDetector:
 
         return False
 
-    def _get_simple_embedding(self, text: str) -> List[float]:
+    def _get_simple_embedding(self, text: str) -> list[float]:
         """
         Get a simple embedding for text using a lightweight approach.
 
@@ -330,7 +330,7 @@ class StuckDetector:
 
         return embedding
 
-    def check_semantic_similarity(self, recent_responses: List[str]) -> Tuple[bool, float]:
+    def check_semantic_similarity(self, recent_responses: list[str]) -> tuple[bool, float]:
         """
         Check if recent responses are semantically similar.
 
@@ -408,7 +408,7 @@ class StuckDetector:
                 "3. Break the problem into smaller steps\n"
                 "4. If you're blocked, explain what's preventing progress"
             )
-        elif self._recovery_attempts == 1:
+        if self._recovery_attempts == 1:
             return base_prompt + (
                 "You've been prompted about this before. Please:\n"
                 "1. Stop and assess what you've attempted\n"
@@ -416,13 +416,12 @@ class StuckDetector:
                 "3. Choose a completely different strategy\n"
                 "4. If the task cannot be completed, explain why and ask the user for guidance"
             )
-        else:
-            return base_prompt + (
-                "This is the final recovery attempt. Please either:\n"
-                "1. Complete the task using a new approach, OR\n"
-                "2. Clearly explain what is blocking progress and what user input is needed\n\n"
-                "Do not repeat previous actions."
-            )
+        return base_prompt + (
+            "This is the final recovery attempt. Please either:\n"
+            "1. Complete the task using a new approach, OR\n"
+            "2. Clearly explain what is blocking progress and what user input is needed\n\n"
+            "Do not repeat previous actions."
+        )
 
     def reset(self) -> None:
         """Reset the detector state"""
@@ -435,7 +434,7 @@ class StuckDetector:
         self._stuck_analysis = None
         logger.debug("Stuck detector reset")
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get current detector statistics"""
         return {
             "window_size": self._window_size,
@@ -460,11 +459,11 @@ class StuckDetector:
     def track_tool_action(
         self,
         tool_name: str,
-        tool_args: Dict[str, Any],
+        tool_args: dict[str, Any],
         success: bool,
-        result: Optional[str] = None,
-        error: Optional[str] = None,
-    ) -> Optional[StuckAnalysis]:
+        result: str | None = None,
+        error: str | None = None,
+    ) -> StuckAnalysis | None:
         """
         Track a tool action and check for action-based stuck patterns.
 
@@ -509,7 +508,7 @@ class StuckDetector:
 
         return analysis
 
-    def _detect_action_patterns(self) -> Optional[StuckAnalysis]:
+    def _detect_action_patterns(self) -> StuckAnalysis | None:
         """Detect stuck patterns in tool action history."""
         if len(self._tool_action_history) < 3:
             return None
@@ -539,7 +538,7 @@ class StuckDetector:
 
         return None
 
-    def _detect_action_error_loop(self) -> Optional[StuckAnalysis]:
+    def _detect_action_error_loop(self) -> StuckAnalysis | None:
         """
         Detect: Same action producing errors repeatedly.
 
@@ -572,7 +571,7 @@ class StuckDetector:
 
         return None
 
-    def _detect_action_observation_loop(self) -> Optional[StuckAnalysis]:
+    def _detect_action_observation_loop(self) -> StuckAnalysis | None:
         """
         Detect: Same action producing same result repeatedly.
 
@@ -606,7 +605,7 @@ class StuckDetector:
 
         return None
 
-    def _detect_alternating_pattern(self) -> Optional[StuckAnalysis]:
+    def _detect_alternating_pattern(self) -> StuckAnalysis | None:
         """
         Detect: Alternating between two approaches without progress.
 
@@ -641,7 +640,7 @@ class StuckDetector:
 
         return None
 
-    def _detect_tool_failure_cascade(self) -> Optional[StuckAnalysis]:
+    def _detect_tool_failure_cascade(self) -> StuckAnalysis | None:
         """
         Detect: Multiple different tools all failing.
 
@@ -674,7 +673,7 @@ class StuckDetector:
     # Browser-Specific Stuck Detection
     # =========================================================================
 
-    def _detect_browser_same_page_loop(self) -> Optional[StuckAnalysis]:
+    def _detect_browser_same_page_loop(self) -> StuckAnalysis | None:
         """
         Detect: Navigating to the same URL repeatedly.
 
@@ -706,7 +705,7 @@ class StuckDetector:
 
         return None
 
-    def _detect_browser_scroll_no_progress(self) -> Optional[StuckAnalysis]:
+    def _detect_browser_scroll_no_progress(self) -> StuckAnalysis | None:
         """
         Detect: Repeated scrolling without extracting or processing content.
 
@@ -743,7 +742,7 @@ class StuckDetector:
 
         return None
 
-    def _detect_browser_click_failures(self) -> Optional[StuckAnalysis]:
+    def _detect_browser_click_failures(self) -> StuckAnalysis | None:
         """
         Detect: Repeated failed click attempts.
 
@@ -886,11 +885,11 @@ class StuckDetector:
             self.get_recovery_prompt()
         )
 
-    def get_analysis(self) -> Optional[StuckAnalysis]:
+    def get_analysis(self) -> StuckAnalysis | None:
         """Get the current stuck analysis if available."""
         return self._stuck_analysis
 
-    def _hash_dict(self, d: Dict[str, Any]) -> str:
+    def _hash_dict(self, d: dict[str, Any]) -> str:
         """Create a stable hash of a dictionary."""
         import json
         try:

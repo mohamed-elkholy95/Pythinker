@@ -1,21 +1,21 @@
-from typing import List, Dict, Any, Optional, AsyncGenerator, Type, TypeVar
-from openai import AsyncOpenAI
-from pydantic import BaseModel
-from app.domain.external.llm import LLM
-from app.core.config import get_settings
-from app.domain.services.agents.error_handler import TokenLimitExceeded
-from app.domain.services.agents.prompt_cache_manager import (
-    PromptCacheManager,
-    get_prompt_cache_manager
-)
-from app.infrastructure.external.llm.factory import LLMProviderRegistry
-from app.domain.services.agents.usage_context import get_usage_context
-from app.domain.services.agents.token_manager import TokenManager
-import logging
 import asyncio
 import json
+import logging
 import re
 import uuid
+from collections.abc import AsyncGenerator
+from typing import Any, TypeVar
+
+from openai import AsyncOpenAI
+from pydantic import BaseModel
+
+from app.core.config import get_settings
+from app.domain.external.llm import LLM
+from app.domain.services.agents.error_handler import TokenLimitExceeded
+from app.domain.services.agents.prompt_cache_manager import get_prompt_cache_manager
+from app.domain.services.agents.token_manager import TokenManager
+from app.domain.services.agents.usage_context import get_usage_context
+from app.infrastructure.external.llm.factory import LLMProviderRegistry
 
 T = TypeVar('T', bound=BaseModel)
 
@@ -108,7 +108,7 @@ class OpenAILLM(LLM):
         prompt_tokens: int,
         completion_tokens: int,
         cached_tokens: int = 0,
-        model_override: Optional[str] = None,
+        model_override: str | None = None,
     ) -> None:
         """Record usage from explicit token counts."""
         ctx = get_usage_context()
@@ -132,9 +132,9 @@ class OpenAILLM(LLM):
 
     async def _record_stream_usage(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         completion_text: str,
-        tools: Optional[List[Dict[str, Any]]] = None,
+        tools: list[dict[str, Any]] | None = None,
     ) -> None:
         """Record usage for streaming responses using token estimation."""
         ctx = get_usage_context()
@@ -156,7 +156,7 @@ class OpenAILLM(LLM):
         except Exception as e:
             logger.warning(f"Failed to record streaming usage: {e}")
 
-    def _tools_to_text(self, tools: List[Dict[str, Any]]) -> str:
+    def _tools_to_text(self, tools: list[dict[str, Any]]) -> str:
         """Convert OpenAI tools format to text description for MLX models."""
         if not tools:
             return ""
@@ -188,9 +188,9 @@ class OpenAILLM(LLM):
 
     def _inject_tools_into_messages(
         self,
-        messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """Inject tool definitions into the system prompt for MLX mode."""
         if not tools:
             return messages
@@ -263,7 +263,7 @@ To extract data from a webpage:
 
         return new_messages
 
-    def _convert_messages_for_mlx(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _convert_messages_for_mlx(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Convert messages with tool_calls to plain text format for MLX."""
         converted = []
         for msg in messages:
@@ -305,7 +305,7 @@ To extract data from a webpage:
 
         return converted
 
-    def _parse_tool_call_from_text(self, content: str) -> Optional[Dict[str, Any]]:
+    def _parse_tool_call_from_text(self, content: str) -> dict[str, Any] | None:
         """Parse tool call from text response for MLX mode."""
         if not content:
             return None
@@ -340,20 +340,20 @@ To extract data from a webpage:
                     continue
 
         return None
-    
+
     @property
     def model_name(self) -> str:
         return self._model_name
-    
+
     @property
     def temperature(self) -> float:
         return self._temperature
-    
+
     @property
     def max_tokens(self) -> int:
         return self._max_tokens
-    
-    def _validate_and_fix_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+
+    def _validate_and_fix_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         Validate message sequence and fix tool_call/tool_response ordering issues.
 
@@ -399,7 +399,7 @@ To extract data from a webpage:
                 # Regular message (user/system/assistant without tool_calls)
                 if pending_tool_ids:
                     # We have an incomplete tool sequence - remove the assistant message
-                    logger.warning(f"Incomplete tool sequence detected, removing last assistant message")
+                    logger.warning("Incomplete tool sequence detected, removing last assistant message")
                     # Find and remove the last assistant message with tool_calls
                     for j in range(len(fixed_messages) - 1, -1, -1):
                         if fixed_messages[j].get("role") == "assistant" and fixed_messages[j].get("tool_calls"):
@@ -411,7 +411,7 @@ To extract data from a webpage:
 
         # Handle trailing incomplete tool sequence
         if pending_tool_ids:
-            logger.warning(f"Trailing incomplete tool sequence, removing last assistant message")
+            logger.warning("Trailing incomplete tool sequence, removing last assistant message")
             for j in range(len(fixed_messages) - 1, -1, -1):
                 if fixed_messages[j].get("role") == "assistant" and fixed_messages[j].get("tool_calls"):
                     fixed_messages.pop(j)
@@ -422,11 +422,11 @@ To extract data from a webpage:
 
         return fixed_messages
 
-    async def ask(self, messages: List[Dict[str, str]],
-                tools: Optional[List[Dict[str, Any]]] = None,
-                response_format: Optional[Dict[str, Any]] = None,
-                tool_choice: Optional[str] = None,
-                enable_caching: bool = True) -> Dict[str, Any]:
+    async def ask(self, messages: list[dict[str, str]],
+                tools: list[dict[str, Any]] | None = None,
+                response_format: dict[str, Any] | None = None,
+                tool_choice: str | None = None,
+                enable_caching: bool = True) -> dict[str, Any]:
         """Send chat request to OpenAI API with retry mechanism and caching support.
 
         For MLX models (local server), tools are converted to text-based format
@@ -512,7 +512,7 @@ To extract data from a webpage:
                     content = result.get("content", "")
                     parsed_tool_call = self._parse_tool_call_from_text(content)
                     if parsed_tool_call:
-                        logger.info(f"MLX mode: Parsed tool call from text response")
+                        logger.info("MLX mode: Parsed tool call from text response")
                         return parsed_tool_call
 
                 return result
@@ -522,7 +522,7 @@ To extract data from a webpage:
 
                 # Check for MLX-specific content type error
                 if "only 'text' content type is supported" in error_msg:
-                    logger.warning(f"MLX content type error detected, enabling MLX mode for retry")
+                    logger.warning("MLX content type error detected, enabling MLX mode for retry")
                     self._is_mlx_mode = True
                     if original_tools:
                         messages = self._convert_messages_for_mlx(messages)
@@ -541,13 +541,13 @@ To extract data from a webpage:
                     logger.warning(f"Token limit exceeded: {e}")
                     raise TokenLimitExceeded(str(e))
 
-                error_log = f"Error calling API on attempt {attempt + 1}: {str(e)}"
+                error_log = f"Error calling API on attempt {attempt + 1}: {e!s}"
                 logger.error(error_log)
                 if attempt == max_retries:
                     raise e
                 continue
 
-    def get_cache_metrics(self) -> Dict[str, Any]:
+    def get_cache_metrics(self) -> dict[str, Any]:
         """Get prompt caching performance metrics"""
         if self._cache_manager:
             return self._cache_manager.get_metrics()
@@ -555,10 +555,10 @@ To extract data from a webpage:
 
     async def ask_structured(
         self,
-        messages: List[Dict[str, str]],
-        response_model: Type[T],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        tool_choice: Optional[str] = None,
+        messages: list[dict[str, str]],
+        response_model: type[T],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | None = None,
         enable_caching: bool = True
     ) -> T:
         """Send chat request with structured output validation.
@@ -678,10 +678,10 @@ To extract data from a webpage:
 
     async def ask_stream(
         self,
-        messages: List[Dict[str, str]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        response_format: Optional[Dict[str, Any]] = None,
-        tool_choice: Optional[str] = None,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None = None,
+        response_format: dict[str, Any] | None = None,
+        tool_choice: str | None = None,
         enable_caching: bool = True
     ) -> AsyncGenerator[str, None]:
         """Stream chat response from OpenAI API.
@@ -736,8 +736,8 @@ To extract data from a webpage:
         if response_format and not tools:
             params['response_format'] = response_format
 
-        completion_parts: List[str] = []
-        usage_counts: Optional[Dict[str, int]] = None
+        completion_parts: list[str] = []
+        usage_counts: dict[str, int] | None = None
 
         try:
             stream = await self.client.chat.completions.create(**params)

@@ -1,8 +1,9 @@
 """Source citation model for tracking references in reports."""
 
-from pydantic import BaseModel
-from typing import Optional, Literal
 from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel
 
 
 class SourceCitation(BaseModel):
@@ -17,7 +18,7 @@ class SourceCitation(BaseModel):
     """
     url: str
     title: str
-    snippet: Optional[str] = None
+    snippet: str | None = None
     access_time: datetime
     source_type: Literal["search", "browser", "file"]
 

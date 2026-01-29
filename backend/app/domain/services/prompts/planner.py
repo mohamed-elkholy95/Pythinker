@@ -1,6 +1,5 @@
 # Planner prompt - optimized for token efficiency
-from typing import Optional
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 PLANNER_SYSTEM_PROMPT = """You are a task planner. Create focused, actionable plans. No explanations - just plan."""
 
@@ -19,7 +18,7 @@ def get_current_date_signal() -> str:
     Returns:
         Formatted current date signal string
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return CURRENT_DATE_SIGNAL.format(
         current_date=now.strftime("%Y-%m-%d"),
         day_of_week=now.strftime("%A"),
@@ -97,7 +96,7 @@ Response format: {{"steps": [{{"id": "N", "description": "..."}}]}}
 def build_create_plan_prompt(
     message: str,
     attachments: str,
-    task_memory: Optional[str] = None,
+    task_memory: str | None = None,
     include_current_date: bool = True
 ) -> str:
     """Build create plan prompt with optional task memory context.

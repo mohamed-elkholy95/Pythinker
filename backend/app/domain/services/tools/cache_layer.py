@@ -15,9 +15,10 @@ import hashlib
 import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import wraps
-from typing import Any, Callable, Dict, Optional, Set, Tuple
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -52,13 +53,13 @@ class L1Cache:
             max_size: Maximum number of entries
             default_ttl: Default TTL in seconds (5 minutes)
         """
-        self._cache: Dict[str, L1CacheEntry] = {}
+        self._cache: dict[str, L1CacheEntry] = {}
         self._max_size = max_size
         self._default_ttl = default_ttl
         self._hits = 0
         self._misses = 0
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         """Get value from L1 cache.
 
         Returns:
@@ -78,7 +79,7 @@ class L1Cache:
         self._hits += 1
         return entry.value
 
-    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
+    def set(self, key: str, value: Any, ttl: int | None = None) -> None:
         """Store value in L1 cache.
 
         Args:
@@ -134,7 +135,7 @@ class L1Cache:
         self._cache.clear()
         return count
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get cache statistics."""
         total = self._hits + self._misses
         return {
@@ -161,7 +162,7 @@ class ToolCacheConfig:
     default_ttl: int = 3600
 
     # TTL overrides per tool name
-    ttl_by_tool: Dict[str, int] = field(default_factory=lambda: {
+    ttl_by_tool: dict[str, int] = field(default_factory=lambda: {
         # Read operations - shorter TTL as content may change
         "file_read": 300,           # 5 minutes
         "file_list_directory": 300,  # 5 minutes
@@ -178,7 +179,7 @@ class ToolCacheConfig:
     })
 
     # Tools that should never be cached (write operations, side effects)
-    exclude_tools: Set[str] = field(default_factory=lambda: {
+    exclude_tools: set[str] = field(default_factory=lambda: {
         # Write operations
         "file_write",
         "file_create_directory",
@@ -222,7 +223,7 @@ def set_cache_config(config: ToolCacheConfig) -> None:
     _cache_config = config
 
 
-def _generate_cache_key(tool_name: str, kwargs: Dict[str, Any]) -> str:
+def _generate_cache_key(tool_name: str, kwargs: dict[str, Any]) -> str:
     """Generate a deterministic cache key from tool name and arguments.
 
     Args:
@@ -315,7 +316,7 @@ class ToolCacheStats:
             return 0.0
         return self.hits / total
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert stats to dictionary."""
         return {
             "hits": self.hits,
@@ -347,7 +348,7 @@ def get_l1_cache() -> L1Cache:
     return _l1_cache
 
 
-def cacheable_tool(ttl: Optional[int] = None, use_l1: bool = True):
+def cacheable_tool(ttl: int | None = None, use_l1: bool = True):
     """Decorator for making tool methods cacheable with multi-tier caching.
 
     This decorator wraps async tool methods to add caching behavior.
@@ -461,7 +462,7 @@ def cacheable_tool(ttl: Optional[int] = None, use_l1: bool = True):
     return decorator
 
 
-async def clear_tool_cache(tool_name: Optional[str] = None, clear_l1: bool = True) -> Tuple[int, int]:
+async def clear_tool_cache(tool_name: str | None = None, clear_l1: bool = True) -> tuple[int, int]:
     """Clear cached tool results from both L1 and L2 caches.
 
     Args:
@@ -497,7 +498,7 @@ async def clear_tool_cache(tool_name: Optional[str] = None, clear_l1: bool = Tru
     return l1_cleared, l2_cleared
 
 
-async def get_cached_keys(tool_name: Optional[str] = None) -> list[str]:
+async def get_cached_keys(tool_name: str | None = None) -> list[str]:
     """Get list of cached tool result keys from L2 (Redis).
 
     Args:
@@ -522,7 +523,7 @@ async def get_cached_keys(tool_name: Optional[str] = None) -> list[str]:
         return []
 
 
-def get_combined_cache_stats() -> Dict[str, Any]:
+def get_combined_cache_stats() -> dict[str, Any]:
     """Get combined statistics for L1 and L2 caches.
 
     Returns:
@@ -546,7 +547,7 @@ def get_combined_cache_stats() -> Dict[str, Any]:
     }
 
 
-async def warmup_common_tools() -> Dict[str, bool]:
+async def warmup_common_tools() -> dict[str, bool]:
     """Warmup cache with common tool patterns.
 
     Pre-executes common read operations to populate L1 cache

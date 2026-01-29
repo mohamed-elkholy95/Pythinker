@@ -14,9 +14,9 @@ Architecture:
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Set, Tuple
-from enum import Enum
 from datetime import datetime
+from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -46,23 +46,42 @@ class InputIssueType(str, Enum):
 
 
 @dataclass
+class PIIDetectionResult:
+    """Result of PII detection scan."""
+    contains_pii: bool
+    pii_types: list[str] = field(default_factory=list)
+    redacted_text: str | None = None
+    pii_count: int = 0
+    risk_score: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "contains_pii": self.contains_pii,
+            "pii_types": self.pii_types,
+            "pii_count": self.pii_count,
+            "risk_score": self.risk_score,
+            "has_redacted": self.redacted_text is not None,
+        }
+
+
+@dataclass
 class InputIssue:
     """A detected issue in user input."""
     issue_type: InputIssueType
     description: str
     severity: float  # 0.0 to 1.0
-    location: Optional[str] = None  # Where in the input
-    suggestion: Optional[str] = None  # How to fix
+    location: str | None = None  # Where in the input
+    suggestion: str | None = None  # How to fix
 
 
 @dataclass
 class InputAnalysisResult:
     """Result of input guardrail analysis."""
     risk_level: InputRiskLevel
-    issues: List[InputIssue]
-    cleaned_input: Optional[str] = None  # Sanitized version if applicable
+    issues: list[InputIssue]
+    cleaned_input: str | None = None  # Sanitized version if applicable
     clarification_needed: bool = False
-    clarification_questions: List[str] = field(default_factory=list)
+    clarification_questions: list[str] = field(default_factory=list)
     timestamp: datetime = field(default_factory=datetime.now)
 
     @property
@@ -114,7 +133,7 @@ class InputGuardrails:
         r'pretend\s+there\s+are\s+no\s+(rules?|restrictions?)',
     ]
 
-    # Sensitive data patterns
+    # Sensitive data patterns (basic)
     SENSITIVE_PATTERNS = [
         r'\b\d{3}[-.]?\d{2}[-.]?\d{4}\b',  # SSN
         r'\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b',  # Credit card
@@ -124,36 +143,154 @@ class InputGuardrails:
         r'secret\s*[:=]\s*\S+',  # Secret
     ]
 
+    # Enhanced PII patterns (Phase 4 Enhancement)
+    PII_PATTERNS = [
+        # SSN (US)
+        (r'\b\d{3}-\d{2}-\d{4}\b', 'ssn'),
+        (r'\b\d{9}\b', 'ssn_no_dash'),  # SSN without dashes
+        # Passport numbers (various formats)
+        (r'\b[A-Z]{1,2}\d{6,9}\b', 'passport'),
+        # Credit card patterns (Visa, MC, Amex, etc.)
+        (r'\b4\d{3}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b', 'credit_card_visa'),
+        (r'\b5[1-5]\d{2}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b', 'credit_card_mc'),
+        (r'\b3[47]\d{2}[-\s]?\d{6}[-\s]?\d{5}\b', 'credit_card_amex'),
+        # Password values in common formats
+        (r'(?:password|passwd|pwd)\s*[:=]\s*["\']?([^"\'\s]+)["\']?', 'password_value'),
+        (r'(?:pass|pw)\s*[:=]\s*["\']?([^"\'\s]+)["\']?', 'password_value'),
+        # Bearer tokens and API keys
+        (r'(?:bearer|token|auth)\s+[A-Za-z0-9\-._~+/]+=*', 'bearer_token'),
+        (r'(?:api[_-]?key|apikey)\s*[:=]\s*["\']?([A-Za-z0-9\-._~+/]{20,})["\']?', 'api_key'),
+        (r'sk-[A-Za-z0-9]{20,}', 'openai_key'),  # OpenAI API keys
+        (r'sk_live_[A-Za-z0-9]{20,}', 'stripe_key'),  # Stripe live keys
+        # AWS credentials
+        (r'AKIA[0-9A-Z]{16}', 'aws_access_key'),
+        (r'(?:aws_secret|secret_access)\s*[:=]\s*["\']?([A-Za-z0-9/+=]{40})["\']?', 'aws_secret'),
+        # Private keys
+        (r'-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----', 'private_key'),
+        (r'-----BEGIN\s+PGP\s+PRIVATE\s+KEY-----', 'pgp_private_key'),
+        # Phone numbers (US format)
+        (r'\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b', 'phone_us'),
+        (r'\+1[-.\s]?\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b', 'phone_us_intl'),
+        # Bank account numbers (basic pattern)
+        (r'\b\d{8,17}\b', 'potential_account_number'),
+        # IPv4 addresses (may indicate sensitive config)
+        (r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', 'ip_address'),
+    ]
+
     # Ambiguity indicators
     AMBIGUITY_INDICATORS = [
         'something', 'anything', 'whatever', 'somehow',
         'it', 'this', 'that', 'stuff', 'things',
     ]
 
+    # PII type risk scores (higher = more sensitive)
+    PII_RISK_SCORES = {
+        'ssn': 1.0,
+        'ssn_no_dash': 0.8,
+        'passport': 0.9,
+        'credit_card_visa': 1.0,
+        'credit_card_mc': 1.0,
+        'credit_card_amex': 1.0,
+        'password_value': 1.0,
+        'bearer_token': 0.9,
+        'api_key': 0.9,
+        'openai_key': 0.95,
+        'stripe_key': 0.95,
+        'aws_access_key': 0.95,
+        'aws_secret': 1.0,
+        'private_key': 1.0,
+        'pgp_private_key': 1.0,
+        'phone_us': 0.4,
+        'phone_us_intl': 0.4,
+        'potential_account_number': 0.3,
+        'ip_address': 0.2,
+    }
+
     def __init__(
         self,
         strict_mode: bool = False,
         log_issues: bool = True,
+        enable_pii_detection: bool = True,
     ):
         """Initialize input guardrails.
 
         Args:
             strict_mode: If True, blocks on medium risk (not just high)
             log_issues: If True, logs all detected issues
+            enable_pii_detection: If True, enables enhanced PII detection
         """
         self.strict_mode = strict_mode
         self.log_issues = log_issues
+        self.enable_pii_detection = enable_pii_detection
 
         # Compile patterns for efficiency
         self._injection_re = [re.compile(p, re.IGNORECASE) for p in self.INJECTION_PATTERNS]
         self._jailbreak_re = [re.compile(p, re.IGNORECASE) for p in self.JAILBREAK_PATTERNS]
         self._sensitive_re = [re.compile(p, re.IGNORECASE) for p in self.SENSITIVE_PATTERNS]
 
+        # Compile PII patterns
+        self._pii_patterns = [
+            (re.compile(pattern, re.IGNORECASE), pii_type)
+            for pattern, pii_type in self.PII_PATTERNS
+        ]
+
         self._stats = {
             "analyzed": 0,
             "blocked": 0,
             "clarification_requested": 0,
+            "pii_detected": 0,
         }
+
+    def detect_pii(self, text: str, redact: bool = False) -> PIIDetectionResult:
+        """Detect PII in text with optional redaction.
+
+        Args:
+            text: Text to scan for PII
+            redact: If True, create a redacted version of the text
+
+        Returns:
+            PIIDetectionResult with detection details
+        """
+        if not text:
+            return PIIDetectionResult(contains_pii=False)
+
+        detected_types: set[str] = set()
+        total_risk = 0.0
+        pii_count = 0
+        redacted_text = text if redact else None
+
+        for pattern, pii_type in self._pii_patterns:
+            matches = list(pattern.finditer(text))
+            if matches:
+                detected_types.add(pii_type)
+                pii_count += len(matches)
+                total_risk += self.PII_RISK_SCORES.get(pii_type, 0.5) * len(matches)
+
+                # Redact if requested
+                if redact:
+                    redaction = f"[REDACTED_{pii_type.upper()}]"
+                    redacted_text = pattern.sub(redaction, redacted_text)
+
+        contains_pii = len(detected_types) > 0
+
+        if contains_pii:
+            self._stats["pii_detected"] += 1
+            if self.log_issues:
+                logger.warning(
+                    f"PII detected: {', '.join(detected_types)}",
+                    extra={"pii_types": list(detected_types), "count": pii_count}
+                )
+
+        # Normalize risk score (0-1 range)
+        risk_score = min(1.0, total_risk / max(1, pii_count))
+
+        return PIIDetectionResult(
+            contains_pii=contains_pii,
+            pii_types=list(detected_types),
+            redacted_text=redacted_text,
+            pii_count=pii_count,
+            risk_score=round(risk_score, 3),
+        )
 
     def analyze(self, user_input: str) -> InputAnalysisResult:
         """Analyze user input for potential issues.
@@ -165,7 +302,7 @@ class InputGuardrails:
             InputAnalysisResult with risk assessment
         """
         self._stats["analyzed"] += 1
-        issues: List[InputIssue] = []
+        issues: list[InputIssue] = []
 
         if not user_input:
             return InputAnalysisResult(
@@ -223,7 +360,7 @@ class InputGuardrails:
             clarification_questions=clarification_questions,
         )
 
-    def _check_injection(self, text: str) -> List[InputIssue]:
+    def _check_injection(self, text: str) -> list[InputIssue]:
         """Check for prompt injection attempts."""
         issues = []
 
@@ -238,7 +375,7 @@ class InputGuardrails:
 
         return issues
 
-    def _check_jailbreak(self, text: str) -> List[InputIssue]:
+    def _check_jailbreak(self, text: str) -> list[InputIssue]:
         """Check for jailbreak attempts."""
         issues = []
 
@@ -253,7 +390,7 @@ class InputGuardrails:
 
         return issues
 
-    def _check_sensitive_data(self, text: str) -> List[InputIssue]:
+    def _check_sensitive_data(self, text: str) -> list[InputIssue]:
         """Check for sensitive data in input."""
         issues = []
 
@@ -269,7 +406,7 @@ class InputGuardrails:
 
         return issues
 
-    def _check_ambiguity(self, text: str) -> List[InputIssue]:
+    def _check_ambiguity(self, text: str) -> list[InputIssue]:
         """Check for ambiguous or underspecified requests."""
         issues = []
         text_lower = text.lower()
@@ -296,7 +433,7 @@ class InputGuardrails:
 
         return issues
 
-    def _calculate_risk_level(self, issues: List[InputIssue]) -> InputRiskLevel:
+    def _calculate_risk_level(self, issues: list[InputIssue]) -> InputRiskLevel:
         """Calculate overall risk level from issues."""
         if not issues:
             return InputRiskLevel.SAFE
@@ -309,18 +446,17 @@ class InputGuardrails:
 
         if has_high_risk or max_severity >= 0.85:
             return InputRiskLevel.BLOCKED
-        elif max_severity >= 0.6:
+        if max_severity >= 0.6:
             return InputRiskLevel.HIGH_RISK if self.strict_mode else InputRiskLevel.MEDIUM_RISK
-        elif max_severity >= 0.4:
+        if max_severity >= 0.4:
             return InputRiskLevel.MEDIUM_RISK if self.strict_mode else InputRiskLevel.LOW_RISK
-        else:
-            return InputRiskLevel.LOW_RISK
+        return InputRiskLevel.LOW_RISK
 
     def _generate_clarification_questions(
         self,
         text: str,
-        issues: List[InputIssue],
-    ) -> List[str]:
+        issues: list[InputIssue],
+    ) -> list[str]:
         """Generate clarification questions for ambiguous requests."""
         questions = []
 
@@ -346,7 +482,7 @@ class InputGuardrails:
 
         return cleaned
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get guardrail statistics."""
         return self._stats.copy()
 
@@ -372,18 +508,18 @@ class OutputIssue:
     issue_type: OutputIssueType
     description: str
     severity: float
-    location: Optional[str] = None
-    fix_suggestion: Optional[str] = None
+    location: str | None = None
+    fix_suggestion: str | None = None
 
 
 @dataclass
 class OutputAnalysisResult:
     """Result of output guardrail analysis."""
     is_safe: bool
-    issues: List[OutputIssue]
-    filtered_output: Optional[str] = None
+    issues: list[OutputIssue]
+    filtered_output: str | None = None
     needs_revision: bool = False
-    revision_guidance: Optional[str] = None
+    revision_guidance: str | None = None
     timestamp: datetime = field(default_factory=datetime.now)
 
     @property
@@ -455,7 +591,7 @@ class OutputGuardrails:
         self,
         output: str,
         original_query: str,
-        context: Optional[str] = None,
+        context: str | None = None,
     ) -> OutputAnalysisResult:
         """Analyze agent output for potential issues.
 
@@ -468,7 +604,7 @@ class OutputGuardrails:
             OutputAnalysisResult
         """
         self._stats["analyzed"] += 1
-        issues: List[OutputIssue] = []
+        issues: list[OutputIssue] = []
 
         if not output:
             return OutputAnalysisResult(is_safe=True, issues=[])
@@ -511,7 +647,7 @@ class OutputGuardrails:
             revision_guidance=revision_guidance,
         )
 
-    def _check_instruction_leak(self, text: str) -> List[OutputIssue]:
+    def _check_instruction_leak(self, text: str) -> list[OutputIssue]:
         """Check for system instruction leakage."""
         issues = []
 
@@ -527,7 +663,7 @@ class OutputGuardrails:
 
         return issues
 
-    def _check_harmful_content(self, text: str) -> List[OutputIssue]:
+    def _check_harmful_content(self, text: str) -> list[OutputIssue]:
         """Check for potentially harmful content."""
         issues = []
 
@@ -546,7 +682,7 @@ class OutputGuardrails:
         self,
         output: str,
         query: str,
-    ) -> List[OutputIssue]:
+    ) -> list[OutputIssue]:
         """Check if output is relevant to the query."""
         issues = []
 
@@ -572,7 +708,7 @@ class OutputGuardrails:
 
         return issues
 
-    def _check_consistency(self, text: str) -> List[OutputIssue]:
+    def _check_consistency(self, text: str) -> list[OutputIssue]:
         """Check for internal contradictions."""
         issues = []
 
@@ -600,7 +736,7 @@ class OutputGuardrails:
 
         return issues
 
-    def _generate_revision_guidance(self, issues: List[OutputIssue]) -> str:
+    def _generate_revision_guidance(self, issues: list[OutputIssue]) -> str:
         """Generate guidance for revising the output."""
         guidance = ["Please revise the response to address the following:"]
 
@@ -612,7 +748,7 @@ class OutputGuardrails:
 
         return "\n".join(guidance)
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get guardrail statistics."""
         return self._stats.copy()
 
@@ -661,12 +797,12 @@ class GuardrailsManager:
         self,
         output: str,
         original_query: str,
-        context: Optional[str] = None,
+        context: str | None = None,
     ) -> OutputAnalysisResult:
         """Check agent output through guardrails."""
         return self.output_guardrails.analyze(output, original_query, context)
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get combined statistics."""
         return {
             "input": self.input_guardrails.get_stats(),
@@ -675,7 +811,7 @@ class GuardrailsManager:
 
 
 # Singleton instance
-_guardrails: Optional[GuardrailsManager] = None
+_guardrails: GuardrailsManager | None = None
 
 
 def get_guardrails_manager(strict_mode: bool = False) -> GuardrailsManager:

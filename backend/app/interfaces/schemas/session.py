@@ -1,26 +1,27 @@
+
 from pydantic import BaseModel
-from typing import Optional, List
+
+from app.domain.models.session import AgentMode, SessionStatus
 from app.interfaces.schemas.event import AgentSSEEvent
-from app.domain.models.session import SessionStatus, AgentMode
 
 
 class CreateSessionRequest(BaseModel):
     """Create session request schema"""
-    mode: Optional[AgentMode] = AgentMode.AGENT
+    mode: AgentMode | None = AgentMode.AGENT
 
 
 class ChatRequest(BaseModel):
     """Chat request schema"""
-    timestamp: Optional[int] = None
-    message: Optional[str] = None
-    attachments: Optional[List[dict]] = None
-    event_id: Optional[str] = None
+    timestamp: int | None = None
+    message: str | None = None
+    attachments: list[dict] | None = None
+    event_id: str | None = None
 
 
 class ResumeSessionRequest(BaseModel):
     """Resume session request schema (for user takeover exit)"""
-    context: Optional[str] = None
-    persist_login_state: Optional[bool] = None
+    context: str | None = None
+    persist_login_state: bool | None = None
 
 
 class ShellViewRequest(BaseModel):
@@ -36,7 +37,7 @@ class ConfirmActionRequest(BaseModel):
 class SandboxInfo(BaseModel):
     """Sandbox connection info for optimistic VNC connection (Phase 4)"""
     sandbox_id: str
-    vnc_url: Optional[str] = None
+    vnc_url: str | None = None
     status: str = "initializing"
 
 
@@ -44,25 +45,25 @@ class CreateSessionResponse(BaseModel):
     """Create session response schema"""
     session_id: str
     mode: AgentMode = AgentMode.AGENT
-    sandbox: Optional[SandboxInfo] = None  # Phase 4: Early sandbox info for optimistic VNC
+    sandbox: SandboxInfo | None = None  # Phase 4: Early sandbox info for optimistic VNC
     status: SessionStatus = SessionStatus.PENDING
 
 
 class GetSessionResponse(BaseModel):
     """Get session response schema"""
     session_id: str
-    title: Optional[str] = None
+    title: str | None = None
     status: SessionStatus
-    events: List[AgentSSEEvent] = []
+    events: list[AgentSSEEvent] = []
     is_shared: bool = False
 
 
 class ListSessionItem(BaseModel):
     """List session item schema"""
     session_id: str
-    title: Optional[str] = None
-    latest_message: Optional[str] = None
-    latest_message_at: Optional[int] = None
+    title: str | None = None
+    latest_message: str | None = None
+    latest_message_at: int | None = None
     status: SessionStatus
     unread_message_count: int
     is_shared: bool = False
@@ -70,7 +71,7 @@ class ListSessionItem(BaseModel):
 
 class ListSessionResponse(BaseModel):
     """List session response schema"""
-    sessions: List[ListSessionItem]
+    sessions: list[ListSessionItem]
 
 
 class ConsoleRecord(BaseModel):
@@ -84,7 +85,7 @@ class ShellViewResponse(BaseModel):
     """Shell view response schema"""
     output: str
     session_id: str
-    console: Optional[List[ConsoleRecord]] = None
+    console: list[ConsoleRecord] | None = None
 
 
 class ShareSessionResponse(BaseModel):
@@ -96,7 +97,25 @@ class ShareSessionResponse(BaseModel):
 class SharedSessionResponse(BaseModel):
     """Shared session response schema (for public access)"""
     session_id: str
-    title: Optional[str] = None
+    title: str | None = None
     status: SessionStatus
-    events: List[AgentSSEEvent] = []
+    events: list[AgentSSEEvent] = []
     is_shared: bool
+
+
+class DeepResearchApproveRequest(BaseModel):
+    """Approve deep research request"""
+    pass  # No body needed, just the action
+
+
+class DeepResearchSkipRequest(BaseModel):
+    """Skip deep research query request"""
+    query_id: str | None = None  # If None, skip all
+
+
+class DeepResearchStatusResponse(BaseModel):
+    """Deep research status response"""
+    research_id: str
+    status: str
+    total_queries: int
+    completed_queries: int

@@ -1,11 +1,13 @@
 """Unit tests for WorkspaceOrganizer."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
 from app.domain.services.workspace.workspace_organizer import WorkspaceOrganizer
 from app.domain.services.workspace.workspace_templates import (
-    RESEARCH_TEMPLATE,
     DATA_ANALYSIS_TEMPLATE,
+    RESEARCH_TEMPLATE,
     WorkspaceTemplate,
 )
 

@@ -3,10 +3,10 @@ Code Development Tool Implementation
 
 Provides code formatting, linting, analysis, and search capabilities.
 """
-from typing import Optional
+
 from app.domain.external.sandbox import Sandbox
-from app.domain.services.tools.base import tool, BaseTool
 from app.domain.models.tool_result import ToolResult
+from app.domain.services.tools.base import BaseTool, tool
 
 
 class CodeDevTool(BaseTool):
@@ -14,7 +14,7 @@ class CodeDevTool(BaseTool):
 
     name: str = "code_dev"
 
-    def __init__(self, sandbox: Sandbox, max_observe: Optional[int] = None):
+    def __init__(self, sandbox: Sandbox, max_observe: int | None = None):
         """Initialize Code Development tool class
 
         Args:

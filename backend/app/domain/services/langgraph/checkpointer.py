@@ -4,22 +4,22 @@ This module implements a LangGraph checkpoint saver using MongoDB,
 enabling persistent state across workflow executions.
 """
 
-import logging
 import json
-from datetime import datetime, timezone
-from typing import Any, Dict, Iterator, Optional, Sequence, Tuple, AsyncIterator
+import logging
+from collections.abc import AsyncIterator, Iterator, Sequence
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
+from typing import Any
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
     BaseCheckpointSaver,
     ChannelVersions,
     Checkpoint,
     CheckpointMetadata,
     CheckpointTuple,
-    PendingWrite,
     get_checkpoint_id,
 )
-from langchain_core.runnables import RunnableConfig
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
         self,
         config: RunnableConfig,
         checkpoint_ns: str = "",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Convert config to MongoDB query.
 
         Args:
@@ -87,7 +87,7 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
         thread_id = configurable.get("thread_id")
         checkpoint_id = configurable.get("checkpoint_id")
 
-        query: Dict[str, Any] = {"thread_id": thread_id}
+        query: dict[str, Any] = {"thread_id": thread_id}
 
         if checkpoint_ns:
             query["checkpoint_ns"] = checkpoint_ns
@@ -99,7 +99,7 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
 
         return query
 
-    def _serialize_checkpoint(self, checkpoint: Checkpoint) -> Dict[str, Any]:
+    def _serialize_checkpoint(self, checkpoint: Checkpoint) -> dict[str, Any]:
         """Serialize a checkpoint for MongoDB storage.
 
         Args:
@@ -112,7 +112,7 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
         # Note: Some values may need special handling for complex types
         return {
             "v": checkpoint.get("v", 1),
-            "ts": checkpoint.get("ts", datetime.now(timezone.utc).isoformat()),
+            "ts": checkpoint.get("ts", datetime.now(UTC).isoformat()),
             "id": checkpoint.get("id"),
             "channel_values": self._serialize_channel_values(
                 checkpoint.get("channel_values", {})
@@ -122,7 +122,7 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
             "pending_sends": checkpoint.get("pending_sends", []),
         }
 
-    def _serialize_channel_values(self, channel_values: Dict[str, Any]) -> Dict[str, Any]:
+    def _serialize_channel_values(self, channel_values: dict[str, Any]) -> dict[str, Any]:
         """Serialize channel values, handling non-serializable objects.
 
         Agent instances and other non-serializable objects are excluded
@@ -155,7 +155,7 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
 
         return serialized
 
-    def _deserialize_checkpoint(self, doc: Dict[str, Any]) -> Checkpoint:
+    def _deserialize_checkpoint(self, doc: dict[str, Any]) -> Checkpoint:
         """Deserialize a checkpoint from MongoDB.
 
         Args:
@@ -176,7 +176,7 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
 
     # Async methods for async graph execution
 
-    async def aget_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
+    async def aget_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
         """Get a checkpoint tuple for the given config.
 
         Args:
@@ -262,7 +262,7 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
             **self._serialize_checkpoint(checkpoint),
             "metadata": metadata,
             "new_versions": new_versions,
-            "updated_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(UTC),
         }
 
         # Upsert the checkpoint
@@ -287,7 +287,7 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
     async def aput_writes(
         self,
         config: RunnableConfig,
-        writes: Sequence[Tuple[str, Any]],
+        writes: Sequence[tuple[str, Any]],
         task_id: str,
     ) -> None:
         """Store pending writes.
@@ -317,7 +317,7 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
                     "task_id": task_id,
                     "channel": channel,
                     "value": value,
-                    "created_at": datetime.now(timezone.utc),
+                    "created_at": datetime.now(UTC),
                 })
             except (TypeError, ValueError):
                 logger.debug(f"Skipping non-serializable write for channel: {channel}")
@@ -328,11 +328,11 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
 
     async def alist(
         self,
-        config: Optional[RunnableConfig],
+        config: RunnableConfig | None,
         *,
-        filter: Optional[Dict[str, Any]] = None,
-        before: Optional[RunnableConfig] = None,
-        limit: Optional[int] = None,
+        filter: dict[str, Any] | None = None,
+        before: RunnableConfig | None = None,
+        limit: int | None = None,
     ) -> AsyncIterator[CheckpointTuple]:
         """List checkpoints matching the given criteria.
 
@@ -345,7 +345,7 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
         Yields:
             CheckpointTuple for each matching checkpoint
         """
-        query: Dict[str, Any] = {}
+        query: dict[str, Any] = {}
 
         if config:
             configurable = config.get("configurable", {})
@@ -398,7 +398,7 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
 
     # Sync methods (required by interface but raise for async-only usage)
 
-    def get_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
+    def get_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
         """Sync get_tuple - not supported, use aget_tuple."""
         raise NotImplementedError(
             "MongoDBCheckpointer only supports async operations. Use aget_tuple instead."
@@ -419,7 +419,7 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
     def put_writes(
         self,
         config: RunnableConfig,
-        writes: Sequence[Tuple[str, Any]],
+        writes: Sequence[tuple[str, Any]],
         task_id: str,
     ) -> None:
         """Sync put_writes - not supported, use aput_writes."""
@@ -429,11 +429,11 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
 
     def list(
         self,
-        config: Optional[RunnableConfig],
+        config: RunnableConfig | None,
         *,
-        filter: Optional[Dict[str, Any]] = None,
-        before: Optional[RunnableConfig] = None,
-        limit: Optional[int] = None,
+        filter: dict[str, Any] | None = None,
+        before: RunnableConfig | None = None,
+        limit: int | None = None,
     ) -> Iterator[CheckpointTuple]:
         """Sync list - not supported, use alist."""
         raise NotImplementedError(

@@ -3,7 +3,7 @@ Scheduler Service
 Manages scheduled tasks using Redis persistence and APScheduler execution.
 """
 import logging
-from typing import Dict, List
+
 from app.domain.models.scheduled_task import (
     ScheduledTask,
     ScheduledTaskStatus,
@@ -38,8 +38,8 @@ class SchedulerService:
             redis_client: Redis client for persistence (optional)
         """
         self._redis = redis_client
-        self._in_memory_tasks: Dict[str, ScheduledTask] = {}
-        self._user_active_tasks: Dict[str, str] = {}  # user_id -> task_id
+        self._in_memory_tasks: dict[str, ScheduledTask] = {}
+        self._user_active_tasks: dict[str, str] = {}  # user_id -> task_id
         logger.info("SchedulerService initialized")
 
     async def schedule_task(self, task: ScheduledTask) -> ToolResult:
@@ -177,7 +177,7 @@ class SchedulerService:
             data={"tasks": tasks_data}
         )
 
-    async def get_pending_tasks(self) -> List[ScheduledTask]:
+    async def get_pending_tasks(self) -> list[ScheduledTask]:
         """
         Get all tasks ready for execution.
 

@@ -1,4 +1,6 @@
-from typing import List, Dict, Any, Optional, Protocol, AsyncGenerator, Type, TypeVar
+from collections.abc import AsyncGenerator
+from typing import Any, Protocol, TypeVar
+
 from pydantic import BaseModel
 
 T = TypeVar('T', bound=BaseModel)
@@ -9,11 +11,11 @@ class LLM(Protocol):
 
     async def ask(
         self,
-        messages: List[Dict[str, str]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        response_format: Optional[Dict[str, Any]] = None,
-        tool_choice: Optional[str] = None
-    ) -> Dict[str, Any]:
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None = None,
+        response_format: dict[str, Any] | None = None,
+        tool_choice: str | None = None
+    ) -> dict[str, Any]:
         """Send chat request to AI service
 
         Args:
@@ -28,10 +30,10 @@ class LLM(Protocol):
 
     async def ask_structured(
         self,
-        messages: List[Dict[str, str]],
-        response_model: Type[T],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        tool_choice: Optional[str] = None,
+        messages: list[dict[str, str]],
+        response_model: type[T],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | None = None,
         enable_caching: bool = True
     ) -> T:
         """Send chat request with structured output validation.
@@ -52,10 +54,10 @@ class LLM(Protocol):
 
     async def ask_stream(
         self,
-        messages: List[Dict[str, str]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        response_format: Optional[Dict[str, Any]] = None,
-        tool_choice: Optional[str] = None,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None = None,
+        response_format: dict[str, Any] | None = None,
+        tool_choice: str | None = None,
         enable_caching: bool = True
     ) -> AsyncGenerator[str, None]:
         """Stream chat response.

@@ -1,5 +1,7 @@
-from redis.asyncio import Redis
 import logging
+
+from redis.asyncio import Redis
+
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -8,12 +10,12 @@ class RedisClient:
     def __init__(self):
         self._client: Redis | None = None
         self._settings = get_settings()
-    
+
     async def initialize(self) -> None:
         """Initialize Redis connection."""
         if self._client is not None:
             return
-            
+
         try:
             # Connect to Redis with connection pooling and timeout settings
             self._client = Redis(
@@ -34,9 +36,9 @@ class RedisClient:
             await self._client.ping()
             logger.info("Successfully connected to Redis")
         except Exception as e:
-            logger.error(f"Failed to connect to Redis: {str(e)}")
+            logger.error(f"Failed to connect to Redis: {e!s}")
             raise
-    
+
     async def shutdown(self) -> None:
         """Shutdown Redis connection."""
         if self._client is not None:
@@ -45,7 +47,7 @@ class RedisClient:
             logger.info("Disconnected from Redis")
                 # Clear cache for this module
         get_redis.cache_clear()
-    
+
     @property
     def client(self) -> Redis:
         """Return initialized Redis client"""
@@ -55,7 +57,8 @@ class RedisClient:
 
 from functools import lru_cache
 
-@lru_cache()
+
+@lru_cache
 def get_redis() -> RedisClient:
     """Get the Redis client instance."""
-    return RedisClient() 
+    return RedisClient()

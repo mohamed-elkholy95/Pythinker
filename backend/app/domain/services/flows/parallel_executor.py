@@ -16,21 +16,15 @@ Usage:
 """
 import asyncio
 import logging
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import (
-    AsyncGenerator,
-    Callable,
-    Awaitable,
-    Dict,
-    List,
-    Optional,
-    Set,
     Any,
 )
-from enum import Enum
 
-from app.domain.models.plan import Plan, Step, ExecutionStatus
-from app.domain.models.event import BaseEvent, PlanEvent, PlanStatus, ErrorEvent
+from app.domain.models.event import BaseEvent, PlanEvent, PlanStatus
+from app.domain.models.plan import ExecutionStatus, Plan, Step
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +48,7 @@ class ExecutionStats:
     max_parallel_achieved: int = 0
     total_wait_time_ms: float = 0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "total_steps": self.total_steps,
             "completed_steps": self.completed_steps,
@@ -72,9 +66,9 @@ class StepResult:
     """Result of executing a single step."""
     step_id: str
     success: bool
-    result: Optional[str] = None
-    error: Optional[str] = None
-    events: List[BaseEvent] = field(default_factory=list)
+    result: str | None = None
+    error: str | None = None
+    events: list[BaseEvent] = field(default_factory=list)
 
 
 class ParallelExecutor:
@@ -95,9 +89,9 @@ class ParallelExecutor:
     ):
         self.max_concurrency = max_concurrency
         self.mode = mode
-        self._semaphore: Optional[asyncio.Semaphore] = None
-        self._completed: Set[str] = set()
-        self._failed: Set[str] = set()
+        self._semaphore: asyncio.Semaphore | None = None
+        self._completed: set[str] = set()
+        self._failed: set[str] = set()
         self._stats = ExecutionStats()
 
     def reset(self) -> None:
@@ -111,7 +105,7 @@ class ParallelExecutor:
         """Get execution statistics."""
         return self._stats
 
-    def _get_ready_steps(self, plan: Plan) -> List[Step]:
+    def _get_ready_steps(self, plan: Plan) -> list[Step]:
         """Get steps that are ready to execute (dependencies satisfied).
 
         Args:
@@ -365,7 +359,7 @@ class ParallelExecutor:
 
         return has_independent
 
-    def estimate_parallelism(self, plan: Plan) -> Dict[str, Any]:
+    def estimate_parallelism(self, plan: Plan) -> dict[str, Any]:
         """Estimate the parallelism potential of a plan.
 
         Args:
@@ -378,12 +372,12 @@ class ParallelExecutor:
             return {"max_parallel": 0, "critical_path_length": 0, "speedup_factor": 1.0}
 
         # Build dependency graph
-        deps_graph: Dict[str, Set[str]] = {}
+        deps_graph: dict[str, set[str]] = {}
         for step in plan.steps:
             deps_graph[step.id] = set(step.dependencies)
 
         # Calculate critical path length (longest chain)
-        def get_depth(step_id: str, memo: Dict[str, int]) -> int:
+        def get_depth(step_id: str, memo: dict[str, int]) -> int:
             if step_id in memo:
                 return memo[step_id]
             step = plan.get_step_by_id(step_id)
@@ -398,11 +392,11 @@ class ParallelExecutor:
             memo[step_id] = max_dep_depth + 1
             return memo[step_id]
 
-        memo: Dict[str, int] = {}
+        memo: dict[str, int] = {}
         critical_path = max(get_depth(step.id, memo) for step in plan.steps)
 
         # Calculate max parallel steps at any level
-        levels: Dict[int, int] = {}
+        levels: dict[int, int] = {}
         for step in plan.steps:
             depth = memo.get(step.id, 1)
             levels[depth] = levels.get(depth, 0) + 1

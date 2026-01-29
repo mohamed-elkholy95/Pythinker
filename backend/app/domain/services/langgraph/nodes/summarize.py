@@ -6,21 +6,20 @@ Includes output validation for hallucination detection (logging only, non-blocki
 
 import asyncio
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Any
 
-from app.domain.services.langgraph.state import PlanActState
+from app.domain.models.event import DoneEvent, MessageEvent, PlanEvent, PlanStatus
 from app.domain.models.plan import ExecutionStatus
-from app.domain.models.event import PlanEvent, PlanStatus, DoneEvent, MessageEvent
+from app.domain.models.source_attribution import SourceAttribution
 from app.domain.services.agents.content_hallucination_detector import (
     ContentHallucinationDetector,
-    HallucinationAnalysisResult,
 )
-from app.domain.models.source_attribution import SourceAttribution, AttributionSummary
+from app.domain.services.langgraph.state import PlanActState
 
 logger = logging.getLogger(__name__)
 
 # Singleton hallucination detector for validation
-_output_validator: Optional[ContentHallucinationDetector] = None
+_output_validator: ContentHallucinationDetector | None = None
 
 
 def get_output_validator() -> ContentHallucinationDetector:
@@ -33,8 +32,8 @@ def get_output_validator() -> ContentHallucinationDetector:
 
 def _validate_output(
     output: str,
-    source_attributions: Optional[List[SourceAttribution]] = None
-) -> Dict[str, Any]:
+    source_attributions: list[SourceAttribution] | None = None
+) -> dict[str, Any]:
     """Validate output for potential hallucinations (non-blocking).
 
     This is a logging-only validation that doesn't block delivery.
@@ -81,7 +80,7 @@ def _validate_output(
     return validation_result
 
 
-async def summarize_node(state: PlanActState) -> Dict[str, Any]:
+async def summarize_node(state: PlanActState) -> dict[str, Any]:
     """Summarize the completed work.
 
     This node invokes the ExecutionAgent to generate a summary of

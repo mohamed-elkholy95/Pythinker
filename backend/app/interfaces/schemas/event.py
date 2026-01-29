@@ -1,34 +1,26 @@
-from pydantic import BaseModel, Field, TypeAdapter
-from typing import Any, Union, Literal, Dict, Optional, List, Self, Type
-from datetime import datetime
 from dataclasses import dataclass
-from app.domain.models.plan import ExecutionStatus, Step
-from app.interfaces.schemas.file import FileInfoResponse
-from app.domain.models.event import (
-    ToolStatus,
-    ToolContent,
-    BrowserToolContent,
-    FileToolContent,
-    ShellToolContent,
-    SearchToolContent,
-    BrowserAgentToolContent,
-)
+from datetime import datetime
+from typing import Any, Literal, Self, Union
+
+from pydantic import BaseModel, Field
+
 from app.domain.models.event import (
     AgentEvent,
-    ErrorEvent,
-    PlanEvent,
+    DeepResearchEvent,
     MessageEvent,
-    TitleEvent,
-    ToolEvent,
-    StepEvent,
+    PlanEvent,
     ReportEvent,
-    SuggestionEvent,
-    ModeChangeEvent,
-    StreamEvent,
+    StepEvent,
+    ToolContent,
+    ToolEvent,
+    ToolStatus,
 )
+from app.domain.models.plan import ExecutionStatus
+from app.interfaces.schemas.file import FileInfoResponse
+
 
 class BaseEventData(BaseModel):
-    event_id: Optional[str]
+    event_id: str | None
     timestamp: datetime = Field(default_factory=lambda: datetime.now())
 
     class Config:
@@ -42,7 +34,7 @@ class BaseEventData(BaseModel):
             "event_id": event.id,
             "timestamp": int(event.timestamp.timestamp())
         }
-    
+
     @classmethod
     def from_event(cls, event: AgentEvent) -> Self:
         return cls(
@@ -63,7 +55,7 @@ class BaseSSEEvent(BaseModel):
 
     @classmethod
     def from_event(cls, event: AgentEvent) -> Self:
-        data_class: Type[BaseEventData] = cls.__annotations__.get('data', BaseEventData)
+        data_class: type[BaseEventData] = cls.__annotations__.get('data', BaseEventData)
         return cls(
             event=event.type,
             data=data_class.from_event(event)
@@ -72,7 +64,7 @@ class BaseSSEEvent(BaseModel):
 class MessageEventData(BaseEventData):
     role: Literal["user", "assistant"]
     content: str
-    attachments: Optional[List[FileInfoResponse]] = None
+    attachments: list[FileInfoResponse] | None = None
 
 class MessageSSEEvent(BaseSSEEvent):
     event: Literal["message"] = "message"
@@ -102,24 +94,24 @@ class ToolEventData(BaseEventData):
     name: str
     status: ToolStatus
     function: str
-    args: Dict[str, Any]
-    content: Optional[ToolContent] = None
+    args: dict[str, Any]
+    content: ToolContent | None = None
     # Action/observation metadata
-    action_type: Optional[str] = None
-    observation_type: Optional[str] = None
-    command: Optional[str] = None
-    cwd: Optional[str] = None
-    stdout: Optional[str] = None
-    stderr: Optional[str] = None
-    exit_code: Optional[int] = None
-    file_path: Optional[str] = None
-    diff: Optional[str] = None
-    runtime_status: Optional[str] = None
+    action_type: str | None = None
+    observation_type: str | None = None
+    command: str | None = None
+    cwd: str | None = None
+    stdout: str | None = None
+    stderr: str | None = None
+    exit_code: int | None = None
+    file_path: str | None = None
+    diff: str | None = None
+    runtime_status: str | None = None
     # Security/confirmation metadata
-    security_risk: Optional[str] = None
-    security_reason: Optional[str] = None
-    security_suggestions: Optional[List[str]] = None
-    confirmation_state: Optional[str] = None
+    security_risk: str | None = None
+    security_reason: str | None = None
+    security_suggestions: list[str] | None = None
+    confirmation_state: str | None = None
 
 class ToolSSEEvent(BaseSSEEvent):
     event: Literal["tool"] = "tool"
@@ -194,7 +186,7 @@ class TitleSSEEvent(BaseSSEEvent):
     data: TitleEventData
 
 class PlanEventData(BaseEventData):
-    steps: List[StepEventData]
+    steps: list[StepEventData]
 
 class PlanSSEEvent(BaseSSEEvent):
     event: Literal["plan"] = "plan"
@@ -208,7 +200,7 @@ class PlanSSEEvent(BaseSSEEvent):
                 steps=[StepEventData(
                     **BaseEventData.base_event_data(event),
                     status=step.status,
-                    id=step.id, 
+                    id=step.id,
                     description=step.description
                 ) for step in event.plan.steps]
             )
@@ -218,7 +210,7 @@ class ReportEventData(BaseEventData):
     id: str
     title: str
     content: str
-    attachments: Optional[List[FileInfoResponse]] = None
+    attachments: list[FileInfoResponse] | None = None
 
 class ReportSSEEvent(BaseSSEEvent):
     event: Literal["report"] = "report"
@@ -245,7 +237,7 @@ class ReportSSEEvent(BaseSSEEvent):
         )
 
 class SuggestionEventData(BaseEventData):
-    suggestions: List[str]
+    suggestions: list[str]
 
 class SuggestionSSEEvent(BaseSSEEvent):
     event: Literal["suggestion"] = "suggestion"
@@ -253,7 +245,7 @@ class SuggestionSSEEvent(BaseSSEEvent):
 
 class ModeChangeEventData(BaseEventData):
     mode: str
-    reason: Optional[str] = None
+    reason: str | None = None
 
 class ModeChangeSSEEvent(BaseSSEEvent):
     event: Literal["mode_change"] = "mode_change"
@@ -271,6 +263,56 @@ class CommonSSEEvent(BaseSSEEvent):
     event: str
     data: CommonEventData
 
+
+class DeepResearchQueryEventData(BaseModel):
+    """Individual query data for SSE event"""
+    id: str
+    query: str
+    status: str  # DeepResearchQueryStatus value
+    result: list[dict] | None = None
+    started_at: int | None = None  # Unix timestamp
+    completed_at: int | None = None  # Unix timestamp
+
+
+class DeepResearchEventData(BaseEventData):
+    """Deep research progress event data"""
+    research_id: str
+    status: str  # DeepResearchStatus value
+    total_queries: int
+    completed_queries: int
+    queries: list[DeepResearchQueryEventData]
+    auto_run: bool = False
+
+
+class DeepResearchSSEEvent(BaseSSEEvent):
+    event: Literal["deep_research"] = "deep_research"
+    data: DeepResearchEventData
+
+    @classmethod
+    def from_event(cls, event: DeepResearchEvent) -> Self:
+        return cls(
+            data=DeepResearchEventData(
+                **BaseEventData.base_event_data(event),
+                research_id=event.research_id,
+                status=event.status.value,
+                total_queries=event.total_queries,
+                completed_queries=event.completed_queries,
+                queries=[
+                    DeepResearchQueryEventData(
+                        id=q.id,
+                        query=q.query,
+                        status=q.status.value,
+                        result=q.result,
+                        started_at=int(q.started_at.timestamp()) if q.started_at else None,
+                        completed_at=int(q.completed_at.timestamp()) if q.completed_at else None,
+                    )
+                    for q in event.queries
+                ],
+                auto_run=event.auto_run,
+            )
+        )
+
+
 AgentSSEEvent = Union[
     CommonSSEEvent,
     PlanSSEEvent,
@@ -285,66 +327,67 @@ AgentSSEEvent = Union[
     SuggestionSSEEvent,
     ModeChangeSSEEvent,
     StreamSSEEvent,
+    DeepResearchSSEEvent,
 ]
 
 @dataclass
 class EventMapping:
     """Data class to store event type mapping information"""
-    sse_event_class: Type[BaseEventData]
-    data_class: Type[BaseEventData]
+    sse_event_class: type[BaseEventData]
+    data_class: type[BaseEventData]
     event_type: str
 
 class EventMapper:
     """Map AgentEvent to SSEEvent"""
-    
-    _cached_mapping: Optional[Dict[str, EventMapping]] = None
-    
+
+    _cached_mapping: dict[str, EventMapping] | None = None
+
     @staticmethod
-    def _get_event_type_mapping() -> Dict[str, EventMapping]:
+    def _get_event_type_mapping() -> dict[str, EventMapping]:
         """Dynamically get mapping from event type to SSE event class with caching"""
         if EventMapper._cached_mapping is not None:
             return EventMapper._cached_mapping
-            
+
         from typing import get_args
-        
+
         # Get all subclasses of AgentSSEEvent Union
         sse_event_classes = get_args(AgentSSEEvent)
         mapping = {}
-        
+
         for sse_event_class in sse_event_classes:
             # Skip base class
             if sse_event_class == BaseSSEEvent:
                 continue
-                
+
             # Get event type
             if hasattr(sse_event_class, '__annotations__') and 'event' in sse_event_class.__annotations__:
                 event_field = sse_event_class.__annotations__['event']
                 if hasattr(event_field, '__args__') and len(event_field.__args__) > 0:
                     event_type = event_field.__args__[0]  # Get Literal value
-                    
+
                     # Get data class from sse_event_class
                     data_class = None
                     if hasattr(sse_event_class, '__annotations__') and 'data' in sse_event_class.__annotations__:
                         data_class = sse_event_class.__annotations__['data']
-                    
+
                     mapping[event_type] = EventMapping(
                         sse_event_class=sse_event_class,
                         data_class=data_class,
                         event_type=event_type
                     )
-        
+
         # Cache the mapping
         EventMapper._cached_mapping = mapping
         return mapping
-    
+
     @staticmethod
     async def event_to_sse_event(event: AgentEvent) -> AgentSSEEvent:
         # Get mapping dynamically
         event_type_mapping = EventMapper._get_event_type_mapping()
-        
+
         # Find matching SSE event class
         event_mapping = event_type_mapping.get(event.type)
-        
+
         if event_mapping:
             # Prioritize from_event_async class method if exists, otherwise use from_event
             sse_event_class = event_mapping.sse_event_class
@@ -358,9 +401,9 @@ class EventMapper:
             event=event.type,
             data=CommonEventData.from_event(event)
         )
-    
+
     @staticmethod
-    async def events_to_sse_events(events: List[AgentEvent]) -> List[AgentSSEEvent]:
+    async def events_to_sse_events(events: list[AgentEvent]) -> list[AgentSSEEvent]:
         """Create SSE event list from event list"""
         return list(filter(lambda x: x is not None, [
             await EventMapper.event_to_sse_event(event) for event in events if event

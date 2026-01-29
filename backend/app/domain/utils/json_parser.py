@@ -1,9 +1,10 @@
-from typing import Protocol, Optional, Any, Union, Dict, List
+from typing import Any, Protocol
+
 
 class JsonParser(Protocol):
     """Json parser interface"""
-    
-    async def parse(self, text: str, default_value: Optional[Any] = None) -> Union[Dict, List, Any]:
+
+    async def parse(self, text: str, default_value: Any | None = None) -> dict | list | Any:
         """
         Parse LLM output string to JSON using multiple strategies.
         Falls back to LLM parsing if local strategies fail.

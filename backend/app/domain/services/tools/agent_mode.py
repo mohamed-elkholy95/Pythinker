@@ -3,9 +3,9 @@ Agent Mode Tool
 Provides functionality to switch from Discuss mode to Agent mode for complex tasks.
 """
 import logging
-from typing import Optional
-from app.domain.services.tools.base import tool, BaseTool
+
 from app.domain.models.tool_result import ToolResult
+from app.domain.services.tools.base import BaseTool, tool
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ class AgentModeTool(BaseTool):
         """Initialize agent mode tool"""
         super().__init__()
         self._mode_switch_requested = False
-        self._task_description: Optional[str] = None
+        self._task_description: str | None = None
 
     @property
     def mode_switch_requested(self) -> bool:
@@ -27,7 +27,7 @@ class AgentModeTool(BaseTool):
         return self._mode_switch_requested
 
     @property
-    def task_description(self) -> Optional[str]:
+    def task_description(self) -> str | None:
         """Get the task description for Agent mode"""
         return self._task_description
 
@@ -71,7 +71,7 @@ Agent Mode will:
     async def agent_start_task(
         self,
         task: str,
-        reason: Optional[str] = None
+        reason: str | None = None
     ) -> ToolResult:
         """
         Request a switch to Agent Mode for complex task execution.

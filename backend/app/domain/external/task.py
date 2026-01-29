@@ -1,5 +1,6 @@
-from typing import Protocol, Optional
 from abc import ABC, abstractmethod
+from typing import Optional, Protocol
+
 from app.domain.external.message_queue import MessageQueue
 
 
@@ -19,7 +20,7 @@ class TaskRunner(ABC):
         Implementations should handle setup, execution, and cleanup.
         """
         ...
-    
+
     @abstractmethod
     async def destroy(self) -> None:
         """Destroy the task and release resources.
@@ -45,11 +46,11 @@ class TaskRunner(ABC):
 
 class Task(Protocol):
     """Protocol defining the interface for task management operations."""
-    
+
     async def run(self) -> None:
         """Run a task."""
         ...
-    
+
     def cancel(self) -> bool:
         """Cancel a task.
 
@@ -79,22 +80,22 @@ class Task(Protocol):
             bool: True if the task is paused, False otherwise
         """
         ...
-    
+
     @property
     def input_stream(self) -> MessageQueue:
         """Input stream."""
         ...
-    
+
     @property
     def output_stream(self) -> MessageQueue:
         """Output stream."""
         ...
-    
+
     @property
     def id(self) -> str:
         """Task ID."""
         ...
-    
+
     @property
     def done(self) -> bool:
         """Check if the task is done.
@@ -103,7 +104,7 @@ class Task(Protocol):
             bool: True if the task is done, False otherwise
         """
         ...
-    
+
     @classmethod
     def get(cls, task_id: str) -> Optional["Task"]:
         """Get a task by its ID.
@@ -112,7 +113,7 @@ class Task(Protocol):
             Optional[Task]: Task instance if found, None otherwise
         """
         ...
-    
+
     @classmethod
     def create(cls, runner: TaskRunner) -> "Task":
         """Create a new task instance with the specified task runner.

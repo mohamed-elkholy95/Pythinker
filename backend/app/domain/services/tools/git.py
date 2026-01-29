@@ -4,10 +4,10 @@ Git Tool Implementation
 Provides git operations for agents including repository cloning,
 status checking, diff viewing, and commit history.
 """
-from typing import Optional
+
 from app.domain.external.sandbox import Sandbox
-from app.domain.services.tools.base import tool, BaseTool
 from app.domain.models.tool_result import ToolResult
+from app.domain.services.tools.base import BaseTool, tool
 
 
 class GitTool(BaseTool):
@@ -15,7 +15,7 @@ class GitTool(BaseTool):
 
     name: str = "git"
 
-    def __init__(self, sandbox: Sandbox, max_observe: Optional[int] = None):
+    def __init__(self, sandbox: Sandbox, max_observe: int | None = None):
         """Initialize Git tool class
 
         Args:

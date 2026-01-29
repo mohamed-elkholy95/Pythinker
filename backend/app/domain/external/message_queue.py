@@ -1,8 +1,9 @@
-from typing import Any, Protocol, Tuple, Optional
+from typing import Any, Protocol
+
 
 class MessageQueue(Protocol):
     """Message queue interface for agent communication"""
-    
+
     async def put(self, message: Any) -> str:
         """Put a message into the queue
         
@@ -10,8 +11,8 @@ class MessageQueue(Protocol):
             str: Message ID
         """
         ...
-    
-    async def get(self, start_id: Optional[str] = None, block_ms: Optional[int] = None) -> Tuple[str, Any]:
+
+    async def get(self, start_id: str | None = None, block_ms: int | None = None) -> tuple[str, Any]:
         """Get a message from the queue
         
         Args:
@@ -22,23 +23,23 @@ class MessageQueue(Protocol):
             Tuple[str, Any]: (Message ID, Message content), returns (None, None) if no message
         """
         ...
-    
-    async def pop(self) -> Tuple[str, Any]:
+
+    async def pop(self) -> tuple[str, Any]:
         """Get and remove the first message from the queue
         
         Returns:
             Tuple[str, Any]: (Message ID, Message content), returns (None, None) if queue is empty
         """
         ...
-    
+
     async def clear(self) -> None:
         """Clear all messages from the queue"""
         ...
-    
+
     async def is_empty(self) -> bool:
         """Check if the queue is empty"""
         ...
-    
+
     async def size(self) -> int:
         """Get the current size of the queue"""
         ...
@@ -52,4 +53,4 @@ class MessageQueue(Protocol):
         Returns:
             bool: True if message was deleted successfully, False otherwise
         """
-        ... 
+        ...

@@ -2,8 +2,7 @@
 Tests for the token manager module.
 """
 
-import pytest
-from app.domain.services.agents.token_manager import TokenManager, TokenCount
+from app.domain.services.agents.token_manager import TokenCount, TokenManager
 
 
 class TestTokenCount:

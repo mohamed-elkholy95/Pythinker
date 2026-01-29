@@ -10,8 +10,8 @@ Enhanced with ProgressMetrics integration for reflection system (Phase 2).
 
 import logging
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional
 from datetime import datetime
+from typing import Any
 
 from app.domain.models.reflection import ProgressMetrics
 
@@ -50,8 +50,8 @@ STEP_STATUS_ICONS = {
 class TaskState:
     """Current state of the task for recitation"""
     objective: str = ""
-    steps: List[Dict[str, Any]] = field(default_factory=list)
-    key_findings: List[str] = field(default_factory=list)
+    steps: list[dict[str, Any]] = field(default_factory=list)
+    key_findings: list[str] = field(default_factory=list)
     current_step_index: int = 0
     last_updated: datetime = field(default_factory=datetime.now)
 
@@ -59,7 +59,7 @@ class TaskState:
         self,
         description: str,
         status: str = "pending",
-        step_id: Optional[str] = None
+        step_id: str | None = None
     ) -> None:
         """Add a step to the task"""
         self.steps.append({
@@ -71,7 +71,7 @@ class TaskState:
     def mark_step_completed(
         self,
         step_id: str,
-        result: Optional[str] = None
+        result: str | None = None
     ) -> None:
         """Mark a step as completed"""
         for step in self.steps:
@@ -99,7 +99,7 @@ class TaskState:
                 self.key_findings = self.key_findings[-10:]
         self.last_updated = datetime.now()
 
-    def get_current_step(self) -> Optional[Dict[str, Any]]:
+    def get_current_step(self) -> dict[str, Any] | None:
         """Get the current step being worked on"""
         for step in self.steps:
             if step["status"] == "in_progress":
@@ -177,18 +177,18 @@ class TaskStateManager:
             sandbox: Optional sandbox for file operations
         """
         self._sandbox = sandbox
-        self._state: Optional[TaskState] = None
+        self._state: TaskState | None = None
         self._file_path = TASK_STATE_PATH
         # Progress metrics for reflection integration
-        self._progress_metrics: Optional[ProgressMetrics] = None
+        self._progress_metrics: ProgressMetrics | None = None
         # Track recent actions for reflection context
-        self._recent_actions: List[Dict[str, Any]] = []
+        self._recent_actions: list[dict[str, Any]] = []
         self._max_recent_actions = 10
 
     def initialize_from_plan(
         self,
         objective: str,
-        steps: List[Dict[str, Any]]
+        steps: list[dict[str, Any]]
     ) -> TaskState:
         """
         Initialize task state from a plan.
@@ -227,8 +227,8 @@ class TaskStateManager:
         self,
         step_id: str,
         status: str,
-        result: Optional[str] = None,
-        findings: Optional[List[str]] = None
+        result: str | None = None,
+        findings: list[str] | None = None
     ) -> None:
         """
         Update step status and add any findings.
@@ -259,13 +259,13 @@ class TaskStateManager:
         if self._state:
             self._state.add_finding(finding)
 
-    def get_context_signal(self) -> Optional[str]:
+    def get_context_signal(self) -> str | None:
         """Get compact context signal for prompt injection"""
         if not self._state:
             return None
         return self._state.to_context_signal()
 
-    def get_markdown(self) -> Optional[str]:
+    def get_markdown(self) -> str | None:
         """Get full markdown representation"""
         if not self._state:
             return None
@@ -334,7 +334,7 @@ class TaskStateManager:
     # Progress Metrics for Reflection (Phase 2)
     # =========================================================================
 
-    def get_progress_metrics(self) -> Optional[ProgressMetrics]:
+    def get_progress_metrics(self) -> ProgressMetrics | None:
         """Get current progress metrics for reflection."""
         return self._progress_metrics
 
@@ -343,7 +343,7 @@ class TaskStateManager:
         function_name: str,
         success: bool,
         result: Any = None,
-        error: Optional[str] = None
+        error: str | None = None
     ) -> None:
         """Record a tool action for progress tracking and reflection context.
 
@@ -397,11 +397,11 @@ class TaskStateManager:
         if self._progress_metrics:
             self._progress_metrics.record_no_progress()
 
-    def get_recent_actions(self) -> List[Dict[str, Any]]:
+    def get_recent_actions(self) -> list[dict[str, Any]]:
         """Get recent actions for reflection context."""
         return self._recent_actions.copy()
 
-    def get_last_error(self) -> Optional[str]:
+    def get_last_error(self) -> str | None:
         """Get the most recent error message."""
         if self._progress_metrics and self._progress_metrics.errors:
             return self._progress_metrics.errors[-1]
@@ -409,7 +409,7 @@ class TaskStateManager:
 
 
 # Singleton for global access
-_task_state_manager: Optional[TaskStateManager] = None
+_task_state_manager: TaskStateManager | None = None
 
 
 def get_task_state_manager(sandbox=None) -> TaskStateManager:

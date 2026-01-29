@@ -2,4 +2,4 @@
 
 from .gridfsfile import GridFSFileStorage
 
-__all__ = ["GridFSFileStorage"] 
+__all__ = ["GridFSFileStorage"]

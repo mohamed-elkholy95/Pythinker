@@ -1,55 +1,55 @@
-from typing import Optional, List
-from datetime import datetime, UTC
-from app.domain.models.session import Session, SessionStatus, AgentMode
-from app.domain.models.file import FileInfo
-from app.domain.repositories.session_repository import SessionRepository
-from app.domain.models.event import BaseEvent
-from app.infrastructure.models.documents import SessionDocument
 import logging
+from datetime import UTC, datetime
+
+from app.domain.models.event import BaseEvent
+from app.domain.models.file import FileInfo
+from app.domain.models.session import AgentMode, Session, SessionStatus
+from app.domain.repositories.session_repository import SessionRepository
+from app.infrastructure.models.documents import SessionDocument
 
 logger = logging.getLogger(__name__)
 
 class MongoSessionRepository(SessionRepository):
     """MongoDB implementation of SessionRepository"""
-    
+
     async def save(self, session: Session) -> None:
         """Save or update a session"""
         mongo_session = await SessionDocument.find_one(
             SessionDocument.session_id == session.id
         )
-        
+
         if not mongo_session:
             mongo_session = SessionDocument.from_domain(session)
             await mongo_session.save()
             return
-        
+
         # Update fields from session domain model
         mongo_session.update_from_domain(session)
         await mongo_session.save()
 
 
-    async def find_by_id(self, session_id: str) -> Optional[Session]:
+    async def find_by_id(self, session_id: str) -> Session | None:
         """Find a session by its ID"""
         mongo_session = await SessionDocument.find_one(
             SessionDocument.session_id == session_id
         )
         return mongo_session.to_domain() if mongo_session else None
-    
-    async def find_by_user_id(self, user_id: str) -> List[Session]:
+
+    async def find_by_user_id(self, user_id: str) -> list[Session]:
         """Find all sessions for a specific user"""
         mongo_sessions = await SessionDocument.find(
             SessionDocument.user_id == user_id
         ).sort("-latest_message_at").to_list()
         return [mongo_session.to_domain() for mongo_session in mongo_sessions]
-    
-    async def find_by_id_and_user_id(self, session_id: str, user_id: str) -> Optional[Session]:
+
+    async def find_by_id_and_user_id(self, session_id: str, user_id: str) -> Session | None:
         """Find a session by ID and user ID (for authorization)"""
         mongo_session = await SessionDocument.find_one(
             SessionDocument.session_id == session_id,
             SessionDocument.user_id == user_id
         )
         return mongo_session.to_domain() if mongo_session else None
-    
+
     async def update_title(self, session_id: str, title: str) -> None:
         """Update the title of a session"""
         result = await SessionDocument.find_one(
@@ -79,7 +79,7 @@ class MongoSessionRepository(SessionRepository):
         )
         if not result:
             raise ValueError(f"Session {session_id} not found")
-    
+
     async def add_file(self, session_id: str, file_info: FileInfo) -> None:
         """Add a file to a session"""
         result = await SessionDocument.find_one(
@@ -89,7 +89,7 @@ class MongoSessionRepository(SessionRepository):
         )
         if not result:
             raise ValueError(f"Session {session_id} not found")
-    
+
     async def remove_file(self, session_id: str, file_id: str) -> None:
         """Remove a file from a session"""
         result = await SessionDocument.find_one(
@@ -100,14 +100,14 @@ class MongoSessionRepository(SessionRepository):
         if not result:
             raise ValueError(f"Session {session_id} not found")
 
-    async def get_file_by_path(self, session_id: str, file_path: str) -> Optional[FileInfo]:
+    async def get_file_by_path(self, session_id: str, file_path: str) -> FileInfo | None:
         """Get file by path from a session"""
         mongo_session = await SessionDocument.find_one(
             SessionDocument.session_id == session_id
         )
         if not mongo_session:
             raise ValueError(f"Session {session_id} not found")
-        
+
         # Search for file with matching path
         for file_info in mongo_session.files:
             if file_info.file_path == file_path:
@@ -122,11 +122,11 @@ class MongoSessionRepository(SessionRepository):
         if mongo_session:
             await mongo_session.delete()
 
-    async def get_all(self) -> List[Session]:
+    async def get_all(self) -> list[Session]:
         """Get all sessions"""
         mongo_sessions = await SessionDocument.find().sort("-latest_message_at").to_list()
         return [mongo_session.to_domain() for mongo_session in mongo_sessions]
-    
+
     async def update_status(self, session_id: str, status: SessionStatus) -> None:
         """Update the status of a session"""
         result = await SessionDocument.find_one(
@@ -190,8 +190,8 @@ class MongoSessionRepository(SessionRepository):
     async def update_pending_action(
         self,
         session_id: str,
-        pending_action: Optional[dict],
-        status: Optional[str],
+        pending_action: dict | None,
+        status: str | None,
     ) -> None:
         """Update pending action details for confirmation flow."""
         result = await SessionDocument.find_one(
@@ -230,7 +230,7 @@ class MongoSessionRepository(SessionRepository):
         session_id: str,
         offset: int = 0,
         limit: int = 100
-    ) -> List[BaseEvent]:
+    ) -> list[BaseEvent]:
         """Get paginated events for a session using MongoDB aggregation."""
         pipeline = [
             {"$match": {"session_id": session_id}},
@@ -248,7 +248,7 @@ class MongoSessionRepository(SessionRepository):
         session_id: str,
         start_time: datetime,
         end_time: datetime
-    ) -> List[BaseEvent]:
+    ) -> list[BaseEvent]:
         """Get events within a time range using MongoDB aggregation."""
         mongo_session = await SessionDocument.find_one(
             SessionDocument.session_id == session_id
@@ -279,7 +279,7 @@ class MongoSessionRepository(SessionRepository):
         self,
         session_id: str,
         sequence: int
-    ) -> Optional[BaseEvent]:
+    ) -> BaseEvent | None:
         """Get an event by its sequence number (0-indexed position)."""
         pipeline = [
             {"$match": {"session_id": session_id}},

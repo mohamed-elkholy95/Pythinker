@@ -21,30 +21,31 @@ Usage:
 """
 
 import logging
-from enum import Enum
-from typing import Dict, Any, List, Optional, AsyncGenerator
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
+from enum import Enum
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from app.domain.external.llm import LLM
-from app.domain.utils.json_parser import JsonParser
-from app.domain.services.prompts.critic import (
-    CRITIC_SYSTEM_PROMPT,
-    REVIEW_OUTPUT_PROMPT,
-    REVIEW_CODE_PROMPT,
-    REVIEW_RESEARCH_PROMPT,
-    REVISION_PROMPT,
-    FACT_CHECK_PROMPT,
-    STRUCTURED_FEEDBACK_PROMPT,
-    QUICK_VALIDATE_PROMPT,
-)
 from app.domain.models.event import BaseEvent, MessageEvent
-from app.domain.models.source_attribution import SourceAttribution, AttributionSummary
+from app.domain.models.source_attribution import AttributionSummary, SourceAttribution
 from app.domain.services.agents.content_hallucination_detector import (
     ContentHallucinationDetector,
     HallucinationAnalysisResult,
 )
-
+from app.domain.services.prompts.critic import (
+    CRITIC_SYSTEM_PROMPT,
+    FACT_CHECK_PROMPT,
+    QUICK_VALIDATE_PROMPT,
+    REVIEW_CODE_PROMPT,
+    REVIEW_OUTPUT_PROMPT,
+    REVIEW_RESEARCH_PROMPT,
+    REVISION_PROMPT,
+    STRUCTURED_FEEDBACK_PROMPT,
+)
+from app.domain.utils.json_parser import JsonParser
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +68,8 @@ class CriticReview(BaseModel):
     """Structured review from the CriticAgent."""
     verdict: CriticVerdict = Field(description="Review verdict")
     confidence: float = Field(ge=0.0, le=1.0, description="Confidence in verdict")
-    issues: List[str] = Field(default_factory=list, description="Identified issues")
-    suggestions: List[str] = Field(default_factory=list, description="Improvement suggestions")
+    issues: list[str] = Field(default_factory=list, description="Identified issues")
+    suggestions: list[str] = Field(default_factory=list, description="Improvement suggestions")
     summary: str = Field(description="Brief explanation of the verdict")
     review_type: ReviewType = Field(default=ReviewType.GENERAL, description="Type of review performed")
 
@@ -87,13 +88,13 @@ class FactCheckResult(BaseModel):
     verified: int = Field(default=0, description="Number of verified claims")
     unverified: int = Field(default=0, description="Number of unverified claims")
     contradicted: int = Field(default=0, description="Number of contradicted claims")
-    red_flags: List[str] = Field(default_factory=list, description="Specific concerns")
+    red_flags: list[str] = Field(default_factory=list, description="Specific concerns")
     confidence_score: float = Field(ge=0.0, le=1.0, description="Overall confidence")
     recommendation: FactCheckRecommendation = Field(
         default=FactCheckRecommendation.DELIVER,
         description="Delivery recommendation"
     )
-    caveats_to_add: List[str] = Field(
+    caveats_to_add: list[str] = Field(
         default_factory=list,
         description="Disclaimers to add if recommendation is add_caveats"
     )
@@ -105,19 +106,19 @@ class StructuredImprovement(BaseModel):
     severity: str = Field(description="Severity: critical/major/minor/suggestion")
     issue: str = Field(description="Specific issue description")
     fix: str = Field(description="How to fix it")
-    location: Optional[str] = Field(default=None, description="Where in the output")
+    location: str | None = Field(default=None, description="Where in the output")
 
 
 class StructuredFeedback(BaseModel):
     """Structured feedback with actionable improvements."""
     overall_quality: float = Field(ge=0.0, le=1.0, description="Quality score")
-    strengths: List[str] = Field(default_factory=list, description="Things done well")
-    improvements: List[StructuredImprovement] = Field(
+    strengths: list[str] = Field(default_factory=list, description="Things done well")
+    improvements: list[StructuredImprovement] = Field(
         default_factory=list,
         description="Actionable improvements"
     )
-    missing_elements: List[str] = Field(default_factory=list, description="Missing items")
-    priority_order: List[int] = Field(default_factory=list, description="Priority ranking")
+    missing_elements: list[str] = Field(default_factory=list, description="Missing items")
+    priority_order: list[int] = Field(default_factory=list, description="Priority ranking")
 
 
 class CriticConfig(BaseModel):
@@ -147,8 +148,8 @@ class ReviewContext:
     user_request: str
     output: str
     task_context: str = ""
-    files: List[str] = None
-    sources: List[str] = None
+    files: list[str] = None
+    sources: list[str] = None
     review_type: ReviewType = ReviewType.GENERAL
     language: str = ""  # For code reviews
 
@@ -172,7 +173,7 @@ class CriticAgent:
         self,
         llm: LLM,
         json_parser: JsonParser,
-        config: Optional[CriticConfig] = None
+        config: CriticConfig | None = None
     ):
         """Initialize the CriticAgent.
 
@@ -186,7 +187,7 @@ class CriticAgent:
         self.config = config or CriticConfig()
 
         # Track review history for learning
-        self._review_history: List[CriticReview] = []
+        self._review_history: list[CriticReview] = []
         self._revision_count: int = 0
 
         # Initialize hallucination detector
@@ -261,9 +262,9 @@ class CriticAgent:
         user_request: str,
         output: str,
         task_context: str = "",
-        files: Optional[List[str]] = None,
-        sources: Optional[List[str]] = None,
-        force_review_type: Optional[ReviewType] = None
+        files: list[str] | None = None,
+        sources: list[str] | None = None,
+        force_review_type: ReviewType | None = None
     ) -> CriticReview:
         """Review an output for quality assurance.
 
@@ -369,7 +370,7 @@ class CriticAgent:
             return CriticReview(
                 verdict=CriticVerdict.APPROVE,
                 confidence=0.5,
-                summary=f"Review error (fail-open): {str(e)}"
+                summary=f"Review error (fail-open): {e!s}"
             )
 
     def _build_review_prompt(self, context: ReviewContext) -> str:
@@ -381,21 +382,20 @@ class CriticAgent:
                 code=context.output,
                 context=context.task_context or "No additional context"
             )
-        elif context.review_type == ReviewType.RESEARCH:
+        if context.review_type == ReviewType.RESEARCH:
             sources_text = "\n".join(f"- {s}" for s in context.sources) if context.sources else "No sources provided"
             return REVIEW_RESEARCH_PROMPT.format(
                 user_request=context.user_request,
                 output=context.output,
                 sources=sources_text
             )
-        else:
-            files_text = "\n".join(f"- {f}" for f in context.files) if context.files else "No files"
-            return REVIEW_OUTPUT_PROMPT.format(
-                user_request=context.user_request,
-                task_context=context.task_context or "No additional context",
-                output=context.output,
-                files=files_text
-            )
+        files_text = "\n".join(f"- {f}" for f in context.files) if context.files else "No files"
+        return REVIEW_OUTPUT_PROMPT.format(
+            user_request=context.user_request,
+            task_context=context.task_context or "No additional context",
+            output=context.output,
+            files=files_text
+        )
 
     async def get_revision_guidance(
         self,
@@ -428,7 +428,7 @@ class CriticAgent:
         output: str,
         revision_handler,
         task_context: str = "",
-        max_attempts: Optional[int] = None
+        max_attempts: int | None = None
     ) -> AsyncGenerator[BaseEvent, None]:
         """Review output and iterate through revisions if needed.
 
@@ -500,7 +500,7 @@ class CriticAgent:
                 current_output = await revision_handler(guidance)
             except Exception as e:
                 logger.error(f"Revision handler failed: {e}")
-                yield MessageEvent(message=f"Revision failed: {str(e)}")
+                yield MessageEvent(message=f"Revision failed: {e!s}")
                 return
 
     def _record_review(self, review: CriticReview) -> None:
@@ -510,7 +510,7 @@ class CriticAgent:
         if len(self._review_history) > 100:
             self._review_history = self._review_history[-50:]
 
-    def get_review_stats(self) -> Dict[str, Any]:
+    def get_review_stats(self) -> dict[str, Any]:
         """Get statistics about critic reviews."""
         if not self._review_history:
             return {"total_reviews": 0}
@@ -539,7 +539,7 @@ class CriticAgent:
         self,
         output: str,
         task_context: str = "",
-        source_attributions: Optional[List[SourceAttribution]] = None
+        source_attributions: list[SourceAttribution] | None = None
     ) -> FactCheckResult:
         """Perform pre-delivery fact checking to detect potential hallucinations.
 
@@ -572,8 +572,8 @@ class CriticAgent:
                 recommendation=FactCheckRecommendation.DELIVER
             )
 
-        red_flags: List[str] = []
-        caveats_to_add: List[str] = []
+        red_flags: list[str] = []
+        caveats_to_add: list[str] = []
 
         # Step 1: Run hallucination pattern detection
         verified_claims = set()
@@ -718,7 +718,7 @@ class CriticAgent:
             return FactCheckResult(
                 confidence_score=initial_confidence,
                 recommendation=initial_recommendation,
-                red_flags=red_flags + [f"Fact check error: {str(e)}"],
+                red_flags=red_flags + [f"Fact check error: {e!s}"],
                 caveats_to_add=caveats_to_add
             )
 
@@ -735,7 +735,7 @@ class CriticAgent:
         """
         return self._hallucination_detector.analyze(output)
 
-    def extract_quantitative_claims(self, output: str) -> List[str]:
+    def extract_quantitative_claims(self, output: str) -> list[str]:
         """Extract quantitative claims from output for verification.
 
         Args:
@@ -750,7 +750,7 @@ class CriticAgent:
         self,
         output: str,
         user_request: str,
-        focus_areas: Optional[List[str]] = None
+        focus_areas: list[str] | None = None
     ) -> StructuredFeedback:
         """Get detailed structured feedback with actionable improvements.
 
@@ -831,7 +831,7 @@ class CriticAgent:
         output: str,
         user_request: str,
         expected_format: str = "any",
-        required_elements: Optional[List[str]] = None
+        required_elements: list[str] | None = None
     ) -> bool:
         """Perform a quick validation check.
 

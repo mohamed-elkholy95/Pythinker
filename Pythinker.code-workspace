@@ -35,7 +35,12 @@
 		"typescript.preferences.importModuleSpecifier": "relative",
 		"python.analysis.typeCheckingMode": "basic",
 		"[python]": {
-			"editor.defaultFormatter": "ms-python.black-formatter",
+			"editor.defaultFormatter": "charliermarsh.ruff",
+			"editor.formatOnSave": true,
+			"editor.codeActionsOnSave": {
+				"source.fixAll.ruff": "explicit",
+				"source.organizeImports.ruff": "explicit"
+			},
 			"editor.tabSize": 4
 		},
 		"[typescript]": {
@@ -150,7 +155,7 @@
 		"recommendations": [
 			"ms-python.python",
 			"ms-python.vscode-pylance",
-			"ms-python.black-formatter",
+			"charliermarsh.ruff",
 			"ms-python.debugpy",
 			"Vue.volar",
 			"dbaeumer.vscode-eslint",

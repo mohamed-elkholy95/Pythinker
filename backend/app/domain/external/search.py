@@ -1,14 +1,16 @@
-from typing import Optional, Protocol
-from app.domain.models.tool_result import ToolResult
+from typing import Protocol
+
 from app.domain.models.search import SearchResults
+from app.domain.models.tool_result import ToolResult
+
 
 class SearchEngine(Protocol):
     """Search engine service gateway interface"""
-    
+
     async def search(
-        self, 
-        query: str, 
-        date_range: Optional[str] = None
+        self,
+        query: str,
+        date_range: str | None = None
     ) -> ToolResult[SearchResults]:
         """Search webpages using search engine
         
@@ -19,4 +21,4 @@ class SearchEngine(Protocol):
         Returns:
             Search results
         """
-        ... 
+        ...

@@ -6,44 +6,44 @@ workflow in a BaseFlow-compatible interface.
 
 import asyncio
 import logging
-from typing import AsyncGenerator, Optional, List, Any
+from collections.abc import AsyncGenerator
+from typing import Any
 
-from app.domain.services.flows.base import BaseFlow
-from app.domain.models.message import Message
-from app.domain.models.event import BaseEvent
-from app.domain.models.session import SessionStatus
+from app.core.config import get_settings
+from app.domain.external.browser import Browser
 from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
-from app.domain.external.browser import Browser
 from app.domain.external.search import SearchEngine
+from app.domain.models.event import BaseEvent
+from app.domain.models.message import Message
+from app.domain.models.reflection import ReflectionConfig
+from app.domain.models.session import SessionStatus
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.session_repository import SessionRepository
-from app.domain.utils.json_parser import JsonParser
-from app.domain.services.tools.mcp import MCPTool
-from app.domain.services.tools.shell import ShellTool
+from app.domain.services.agents.execution import ExecutionAgent
+from app.domain.services.agents.planner import PlannerAgent
+from app.domain.services.agents.reflection import ReflectionAgent
+from app.domain.services.agents.task_state_manager import TaskStateManager
+from app.domain.services.agents.verifier import VerifierAgent, VerifierConfig
+from app.domain.services.flows.base import BaseFlow
+from app.domain.services.langgraph.checkpointer import MongoDBCheckpointer
+from app.domain.services.langgraph.graph import create_plan_act_graph
+from app.domain.services.langgraph.state import create_initial_state
+from app.domain.services.tools.base import BaseTool
 from app.domain.services.tools.browser import BrowserTool
+from app.domain.services.tools.code_executor import CodeExecutorTool
 from app.domain.services.tools.file import FileTool
+from app.domain.services.tools.idle import IdleTool
+from app.domain.services.tools.mcp import MCPTool
 from app.domain.services.tools.message import MessageTool
 from app.domain.services.tools.search import SearchTool
-from app.domain.services.tools.idle import IdleTool
-from app.domain.services.tools.code_executor import CodeExecutorTool
-from app.domain.services.tools.base import BaseTool
-from app.domain.services.agents.planner import PlannerAgent
-from app.domain.services.agents.execution import ExecutionAgent
-from app.domain.services.agents.verifier import VerifierAgent, VerifierConfig
-from app.domain.services.agents.reflection import ReflectionAgent
-from app.domain.models.reflection import ReflectionConfig
-from app.domain.services.agents.task_state_manager import TaskStateManager
-from app.core.config import get_settings
+from app.domain.services.tools.shell import ShellTool
+from app.domain.utils.json_parser import JsonParser
 from app.infrastructure.observability import get_tracer
-
-from app.domain.services.langgraph.state import PlanActState, create_initial_state
-from app.domain.services.langgraph.graph import create_plan_act_graph
-from app.domain.services.langgraph.checkpointer import MongoDBCheckpointer
 
 # BrowserAgentTool is optional (requires browser_use package)
 try:
-    from app.domain.services.tools.browser_agent import BrowserAgentTool, BROWSER_USE_AVAILABLE
+    from app.domain.services.tools.browser_agent import BROWSER_USE_AVAILABLE, BrowserAgentTool
 except ImportError:
     BrowserAgentTool = None
     BROWSER_USE_AVAILABLE = False
@@ -72,14 +72,14 @@ class LangGraphPlanActFlow(BaseFlow):
         browser: Browser,
         json_parser: JsonParser,
         mcp_tool: MCPTool,
-        search_engine: Optional[SearchEngine] = None,
-        cdp_url: Optional[str] = None,
+        search_engine: SearchEngine | None = None,
+        cdp_url: str | None = None,
         enable_verification: bool = True,
         enable_reflection: bool = True,
         enable_checkpointing: bool = False,
-        mongodb_db: Optional[Any] = None,  # AsyncIOMotorDatabase for checkpointing
-        memory_service: Optional[Any] = None,
-        user_id: Optional[str] = None,
+        mongodb_db: Any | None = None,  # AsyncIOMotorDatabase for checkpointing
+        memory_service: Any | None = None,
+        user_id: str | None = None,
     ):
         """Initialize the LangGraph PlanAct flow.
 
@@ -110,7 +110,7 @@ class LangGraphPlanActFlow(BaseFlow):
         self._memory_service = memory_service
 
         # Build tools list
-        tools: List[BaseTool] = [
+        tools: list[BaseTool] = [
             ShellTool(sandbox),
             BrowserTool(browser),
             FileTool(sandbox),
@@ -156,7 +156,7 @@ class LangGraphPlanActFlow(BaseFlow):
         logger.debug(f"Created execution agent for Agent {agent_id}")
 
         # Create verifier agent (optional)
-        self.verifier: Optional[VerifierAgent] = None
+        self.verifier: VerifierAgent | None = None
         if enable_verification:
             self.verifier = VerifierAgent(
                 llm=llm,
@@ -172,7 +172,7 @@ class LangGraphPlanActFlow(BaseFlow):
             logger.info(f"VerifierAgent enabled for Agent {agent_id}")
 
         # Create reflection agent (optional)
-        self.reflection_agent: Optional[ReflectionAgent] = None
+        self.reflection_agent: ReflectionAgent | None = None
         if enable_reflection:
             self.reflection_agent = ReflectionAgent(
                 llm=llm,

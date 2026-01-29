@@ -12,13 +12,12 @@ Usage:
 """
 
 import logging
-import time
+import threading
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional
 from enum import Enum
-from collections import deque
-import threading
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +39,7 @@ class MetricEvent:
     metric_type: MetricType
     value: float
     timestamp: datetime = field(default_factory=datetime.now)
-    labels: Dict[str, str] = field(default_factory=dict)
+    labels: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -109,7 +108,7 @@ class LatencyMetrics:
     p50_ms: float = 0
     p95_ms: float = 0
     p99_ms: float = 0
-    _samples: List[float] = field(default_factory=list)
+    _samples: list[float] = field(default_factory=list)
 
     def record(self, latency_ms: float) -> None:
         self.count += 1
@@ -170,18 +169,18 @@ class MetricsCollector:
 
         # Time-series data (last hour, 1-minute buckets)
         self._time_series: deque = deque(maxlen=60)
-        self._current_bucket: Dict[str, Any] = self._new_bucket()
+        self._current_bucket: dict[str, Any] = self._new_bucket()
         self._bucket_start = datetime.now()
 
         # Error tracking
         self._errors: deque = deque(maxlen=100)
 
         # Dynamic toolset metrics
-        self._toolset_reductions: List[float] = []
+        self._toolset_reductions: list[float] = []
 
         logger.info("MetricsCollector initialized")
 
-    def _new_bucket(self) -> Dict[str, Any]:
+    def _new_bucket(self) -> dict[str, Any]:
         """Create a new time bucket for metrics."""
         return {
             "timestamp": datetime.now(),
@@ -278,7 +277,7 @@ class MetricsCollector:
         self._current_bucket["latency_sum"] += duration_ms
         self._current_bucket["latency_count"] += 1
 
-    def record_hallucination(self, attempted_tool: str, suggestions: List[str]) -> None:
+    def record_hallucination(self, attempted_tool: str, suggestions: list[str]) -> None:
         """Record a tool hallucination detection."""
         self.tools.hallucinations_detected += 1
         logger.debug(f"Hallucination recorded: {attempted_tool} -> {suggestions}")
@@ -303,7 +302,7 @@ class MetricsCollector:
 
     # ==================== Error Tracking ====================
 
-    def record_error(self, error_type: str, message: str, context: Optional[Dict] = None) -> None:
+    def record_error(self, error_type: str, message: str, context: dict | None = None) -> None:
         """Record an error event."""
         self._errors.append({
             "timestamp": datetime.now(),
@@ -327,7 +326,7 @@ class MetricsCollector:
 
     # ==================== Summary & Export ====================
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Get comprehensive metrics summary."""
         uptime = datetime.now() - self._start_time
 
@@ -378,7 +377,7 @@ class MetricsCollector:
             }
         }
 
-    def get_time_series(self, minutes: int = 60) -> List[Dict[str, Any]]:
+    def get_time_series(self, minutes: int = 60) -> list[dict[str, Any]]:
         """Get time-series data for the last N minutes."""
         # Include current bucket
         all_buckets = list(self._time_series) + [self._current_bucket]
@@ -439,7 +438,7 @@ class MetricsCollector:
 
 
 # Global accessor
-_metrics_collector: Optional[MetricsCollector] = None
+_metrics_collector: MetricsCollector | None = None
 
 
 def get_metrics_collector() -> MetricsCollector:

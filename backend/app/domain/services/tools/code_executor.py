@@ -7,17 +7,15 @@ isolated execution directories, artifact collection, and resource limits.
 """
 
 import logging
-import asyncio
 import uuid
-import os
-from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
 from app.domain.external.sandbox import Sandbox
-from app.domain.services.tools.base import tool, BaseTool
 from app.domain.models.tool_result import ToolResult
+from app.domain.services.tools.base import BaseTool, tool
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +29,7 @@ class Language(str, Enum):
 
 
 # Language configuration mapping
-LANGUAGE_CONFIG: Dict[str, Dict[str, Any]] = {
+LANGUAGE_CONFIG: dict[str, dict[str, Any]] = {
     Language.PYTHON: {
         "interpreter": "python3",
         "package_manager": "pip3",
@@ -76,14 +74,14 @@ class ExecutionResult:
     """Result of code execution."""
     success: bool
     output: str
-    error: Optional[str] = None
+    error: str | None = None
     return_code: int = 0
-    execution_time_ms: Optional[int] = None
-    artifacts: List[Dict[str, Any]] = field(default_factory=list)
-    packages_installed: List[str] = field(default_factory=list)
-    working_directory: Optional[str] = None
+    execution_time_ms: int | None = None
+    artifacts: list[dict[str, Any]] = field(default_factory=list)
+    packages_installed: list[str] = field(default_factory=list)
+    working_directory: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "success": self.success,
@@ -104,9 +102,9 @@ class Artifact:
     path: str
     size_bytes: int
     created_at: datetime = field(default_factory=datetime.now)
-    content_preview: Optional[str] = None
+    content_preview: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "filename": self.filename,
@@ -134,8 +132,8 @@ class CodeExecutorTool(BaseTool):
     def __init__(
         self,
         sandbox: Sandbox,
-        session_id: Optional[str] = None,
-        max_observe: Optional[int] = None,
+        session_id: str | None = None,
+        max_observe: int | None = None,
     ):
         """
         Initialize Code Executor tool.
@@ -173,8 +171,8 @@ class CodeExecutorTool(BaseTool):
     async def _install_packages(
         self,
         language: Language,
-        packages: List[str],
-    ) -> tuple[bool, List[str], str]:
+        packages: list[str],
+    ) -> tuple[bool, list[str], str]:
         """
         Install packages for the specified language.
 
@@ -225,7 +223,7 @@ class CodeExecutorTool(BaseTool):
         pattern = r'^[a-zA-Z0-9_\-\.]+([<>=!]+[a-zA-Z0-9_\-\.]+)?$'
         return bool(re.match(pattern, package))
 
-    async def _collect_artifacts(self) -> List[Artifact]:
+    async def _collect_artifacts(self) -> list[Artifact]:
         """
         Collect artifacts from the workspace directory.
 
@@ -321,10 +319,10 @@ class CodeExecutorTool(BaseTool):
         self,
         language: str,
         code: str,
-        packages: Optional[List[str]] = None,
-        timeout: Optional[int] = None,
-        env_vars: Optional[Dict[str, str]] = None,
-        working_dir: Optional[str] = None,
+        packages: list[str] | None = None,
+        timeout: int | None = None,
+        env_vars: dict[str, str] | None = None,
+        working_dir: str | None = None,
     ) -> ToolResult:
         """
         Execute code in the specified language.
@@ -494,8 +492,8 @@ class CodeExecutorTool(BaseTool):
     async def code_execute_python(
         self,
         code: str,
-        packages: Optional[List[str]] = None,
-        timeout: Optional[int] = None,
+        packages: list[str] | None = None,
+        timeout: int | None = None,
     ) -> ToolResult:
         """
         Execute Python code.
@@ -538,8 +536,8 @@ class CodeExecutorTool(BaseTool):
     async def code_execute_javascript(
         self,
         code: str,
-        packages: Optional[List[str]] = None,
-        timeout: Optional[int] = None,
+        packages: list[str] | None = None,
+        timeout: int | None = None,
     ) -> ToolResult:
         """
         Execute JavaScript code.
@@ -678,11 +676,10 @@ class CodeExecutorTool(BaseTool):
                 success=True,
                 message=f"🧹 Workspace cleaned: {self._workspace_path}"
             )
-        else:
-            return ToolResult(
-                success=False,
-                message=f"Cleanup failed: {result.message}"
-            )
+        return ToolResult(
+            success=False,
+            message=f"Cleanup failed: {result.message}"
+        )
 
     @tool(
         name="code_save_artifact",
@@ -726,8 +723,7 @@ class CodeExecutorTool(BaseTool):
                 message=f"💾 Saved artifact: {filename} ({len(content)} bytes)",
                 data={"filename": filename, "path": file_path, "size": len(content)}
             )
-        else:
-            return ToolResult(
-                success=False,
-                message=f"Failed to save artifact: {result.message}"
-            )
+        return ToolResult(
+            success=False,
+            message=f"Failed to save artifact: {result.message}"
+        )

@@ -63,3 +63,6 @@ langgraph-checkpoint>=2.0.0
 
 # TOTP authentication
 pyotp>=2.9.0
+
+# Structured logging
+structlog>=24.4.0

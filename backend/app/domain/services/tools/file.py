@@ -1,14 +1,14 @@
-from typing import Optional, Dict, Any
 from app.domain.external.sandbox import Sandbox
-from app.domain.services.tools.base import tool, BaseTool
 from app.domain.models.tool_result import ToolResult
+from app.domain.services.tools.base import BaseTool, tool
+
 
 class FileTool(BaseTool):
     """File tool class, providing file operation functions"""
 
     name: str = "file"
 
-    def __init__(self, sandbox: Sandbox, max_observe: Optional[int] = None):
+    def __init__(self, sandbox: Sandbox, max_observe: int | None = None):
         """Initialize file tool class
 
         Args:
@@ -17,7 +17,7 @@ class FileTool(BaseTool):
         """
         super().__init__(max_observe=max_observe)
         self.sandbox = sandbox
-        
+
     @tool(
         name="file_read",
         description="Read file content. Use for checking file contents, analyzing logs, or reading configuration files.",
@@ -44,9 +44,9 @@ class FileTool(BaseTool):
     async def file_read(
         self,
         file: str,
-        start_line: Optional[int] = None,
-        end_line: Optional[int] = None,
-        sudo: Optional[bool] = False
+        start_line: int | None = None,
+        end_line: int | None = None,
+        sudo: bool | None = False
     ) -> ToolResult:
         """Read file content
         
@@ -66,7 +66,7 @@ class FileTool(BaseTool):
             end_line=end_line,
             sudo=sudo
         )
-    
+
     @tool(
         name="file_write",
         description="Overwrite or append content to a file. Use for creating new files, appending content, or modifying existing files.",
@@ -102,10 +102,10 @@ class FileTool(BaseTool):
         self,
         file: str,
         content: str,
-        append: Optional[bool] = False,
-        leading_newline: Optional[bool] = False,
-        trailing_newline: Optional[bool] = False,
-        sudo: Optional[bool] = False
+        append: bool | None = False,
+        leading_newline: bool | None = False,
+        trailing_newline: bool | None = False,
+        sudo: bool | None = False
     ) -> ToolResult:
         """Write content to file
         
@@ -126,17 +126,17 @@ class FileTool(BaseTool):
             final_content = "\n" + final_content
         if trailing_newline:
             final_content = final_content + "\n"
-            
+
         # Directly call sandbox's file_write method, pass all parameters
         return await self.sandbox.file_write(
-            file=file, 
+            file=file,
             content=final_content,
             append=append,
             leading_newline=False,  # Already handled in final_content
             trailing_newline=False,  # Already handled in final_content
             sudo=sudo
         )
-    
+
     @tool(
         name="file_str_replace",
         description="Replace specified string in a file. Use for updating specific content in files or fixing errors in code.",
@@ -165,7 +165,7 @@ class FileTool(BaseTool):
         file: str,
         old_str: str,
         new_str: str,
-        sudo: Optional[bool] = False
+        sudo: bool | None = False
     ) -> ToolResult:
         """Replace specified string in file
         
@@ -185,7 +185,7 @@ class FileTool(BaseTool):
             new_str=new_str,
             sudo=sudo
         )
-    
+
     @tool(
         name="file_find_in_content",
         description="Search for matching text within file content. Use for finding specific content or patterns in files.",
@@ -209,7 +209,7 @@ class FileTool(BaseTool):
         self,
         file: str,
         regex: str,
-        sudo: Optional[bool] = False
+        sudo: bool | None = False
     ) -> ToolResult:
         """Search for matching text in file content
         
@@ -227,7 +227,7 @@ class FileTool(BaseTool):
             regex=regex,
             sudo=sudo
         )
-    
+
     @tool(
         name="file_find_by_name",
         description="Find files by name pattern in specified directory. Use for locating files with specific naming patterns.",
@@ -261,4 +261,4 @@ class FileTool(BaseTool):
         return await self.sandbox.file_find(
             path=path,
             glob_pattern=glob
-        ) 
+        )

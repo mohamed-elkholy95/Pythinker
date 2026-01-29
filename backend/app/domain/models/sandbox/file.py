@@ -1,8 +1,8 @@
 """
 File operation related models
 """
+
 from pydantic import BaseModel, Field
-from typing import List, Optional
 
 
 class FileReadResult(BaseModel):
@@ -14,7 +14,7 @@ class FileReadResult(BaseModel):
 class FileWriteResult(BaseModel):
     """File write result"""
     file: str = Field(..., description="Path of the written file")
-    bytes_written: Optional[int] = Field(None, description="Number of bytes written")
+    bytes_written: int | None = Field(None, description="Number of bytes written")
 
 
 class FileReplaceResult(BaseModel):
@@ -26,14 +26,14 @@ class FileReplaceResult(BaseModel):
 class FileSearchResult(BaseModel):
     """File content search result"""
     file: str = Field(..., description="Path of the searched file")
-    matches: List[str] = Field([], description="List of matched content")
-    line_numbers: List[int] = Field([], description="List of matched line numbers")
+    matches: list[str] = Field([], description="List of matched content")
+    line_numbers: list[int] = Field([], description="List of matched line numbers")
 
 
 class FileFindResult(BaseModel):
     """File find result"""
     path: str = Field(..., description="Path of the search directory")
-    files: List[str] = Field([], description="List of found files")
+    files: list[str] = Field([], description="List of found files")
 
 
 class FileUploadResult(BaseModel):
