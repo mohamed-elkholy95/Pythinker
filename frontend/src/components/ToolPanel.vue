@@ -36,15 +36,12 @@
           :plan="plan"
           :isLoading="isLoading"
           :isThinking="isThinking"
-          :showThumbnail="showThumbnail"
-          :hideThumbnail="true"
+          :showThumbnail="false"
           :defaultExpanded="false"
           :compact="true"
           :thumbnailUrl="thumbnailUrl"
           :currentTool="currentTool"
           :toolContent="toolContent"
-          :sessionId="sessionId"
-          :liveVnc="liveVnc"
         />
       </div>
     </div>
@@ -88,10 +85,8 @@ defineProps<{
   plan?: PlanEventData
   isLoading?: boolean
   isThinking?: boolean
-  showThumbnail?: boolean
   thumbnailUrl?: string
   currentTool?: { name: string; function: string; functionArg?: string; status?: string } | null
-  liveVnc?: boolean
   showTimeline?: boolean
   timelineProgress?: number
   timelineTimestamp?: number

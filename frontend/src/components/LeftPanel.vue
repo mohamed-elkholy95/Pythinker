@@ -1,14 +1,18 @@
 <template>
-  <div :class="isLeftPanelShow ?
-    'h-full flex flex-col' :
-    'h-full flex flex-col fixed top-0 start-0 bottom-0 z-[1]'" :style="isLeftPanelShow ?
-      'width: 300px; transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1);' :
-      'width: 24px; transition: width 0.36s cubic-bezier(0.4, 0, 0.2, 1);'">
+  <div
+    class="left-panel-container h-full flex flex-col"
+    :class="{
+      'left-panel-expanded': isLeftPanelShow,
+      'left-panel-collapsed fixed top-0 start-0 bottom-0 z-[1]': !isLeftPanelShow
+    }"
+  >
     <div
-      :class="isLeftPanelShow ?
-        'flex flex-col overflow-hidden bg-[var(--background-nav)] h-full opacity-100 translate-x-0 border-r border-[var(--border-main)]' :
-        'flex flex-col overflow-hidden bg-[var(--background-nav)] fixed top-1 start-1 bottom-1 z-[1] border-1 dark:border-[1px] border-[var(--border-main)] dark:border-[var(--border-light)] rounded-xl shadow-[0px_8px_32px_0px_rgba(0,0,0,0.16),0px_0px_0px_1px_rgba(0,0,0,0.06)] opacity-0 pointer-events-none -translate-x-10'"
-      :style="(isLeftPanelShow ? 'width: 300px;' : 'width: 0px;') + ' transition: opacity 0.2s, transform 0.2s, width 0.2s;'">
+      class="left-panel-content flex flex-col overflow-hidden bg-[var(--background-nav)]"
+      :class="{
+        'h-full opacity-100 translate-x-0 border-r border-[var(--border-main)]': isLeftPanelShow,
+        'fixed top-1 start-1 bottom-1 z-[1] border dark:border border-[var(--border-main)] dark:border-[var(--border-light)] rounded-xl shadow-[0px_8px_32px_0px_rgba(0,0,0,0.16),0px_0px_0px_1px_rgba(0,0,0,0.06)] opacity-0 pointer-events-none -translate-x-10': !isLeftPanelShow
+      }"
+    >
       <div class="flex">
         <div class="flex items-center px-3 py-3 flex-row h-[52px] gap-1 justify-end w-full">
           <div class="flex justify-between w-full px-1 pt-2">
@@ -23,21 +27,16 @@
         </div>
       </div>
       <div class="px-3 mb-1 flex justify-center flex-shrink-0">
-        <button @click="handleNewTaskClick"
-          class="flex min-w-[36px] w-full items-center justify-center gap-1.5 rounded-lg h-[32px] bg-[var(--bolt-elements-button-primary-background)] hover:bg-[var(--bolt-elements-button-primary-backgroundHover)] cursor-pointer border border-[var(--bolt-elements-borderColor)]">
-          <Plus class="h-4 w-4 text-[var(--bolt-elements-button-primary-text)]" />
-          <span class="text-sm font-medium text-[var(--bolt-elements-button-primary-text)] whitespace-nowrap truncate">
+        <button @click="handleNewTaskClick" class="new-task-btn">
+          <Plus class="h-4 w-4" />
+          <span class="new-task-label">
             {{ t('New Task') }}
           </span>
-          <div class="flex items-center gap-0.5">
-            <span
-              class="flex text-[var(--text-tertiary)] justify-center items-center min-w-5 h-5 px-1 rounded-[4px] bg-[var(--bolt-elements-bg-depth-2)] border border-[var(--border-light)]">
-              <Command :size="14" />
+          <div class="new-task-shortcut">
+            <span class="shortcut-key">
+              <Command :size="12" />
             </span>
-            <span
-              class="flex justify-center items-center w-5 h-5 px-1 rounded-[4px] bg-[var(--bolt-elements-bg-depth-2)] border border-[var(--border-light)] text-sm font-normal text-[var(--text-tertiary)] ">
-              K
-            </span>
+            <span class="shortcut-key">K</span>
           </div>
         </button>
       </div>
@@ -203,3 +202,89 @@ watch(() => route.path, async (newPath, oldPath) => {
   }
 })
 </script>
+
+<style scoped>
+/* ===== LEFT PANEL LAYOUT ===== */
+/* CSS custom properties for configurable widths */
+.left-panel-container {
+  --left-panel-width-expanded: 300px;
+  --left-panel-width-collapsed: 24px;
+}
+
+.left-panel-expanded {
+  width: var(--left-panel-width-expanded);
+  transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.left-panel-collapsed {
+  width: var(--left-panel-width-collapsed);
+  transition: width 0.36s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.left-panel-content {
+  transition: opacity 0.2s, transform 0.2s, width 0.2s;
+}
+
+.left-panel-expanded .left-panel-content {
+  width: var(--left-panel-width-expanded);
+}
+
+.left-panel-collapsed .left-panel-content {
+  width: 0px;
+}
+
+/* ===== NEW TASK BUTTON ===== */
+.new-task-btn {
+  display: flex;
+  width: 100%;
+  min-width: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--bolt-elements-button-primary-background);
+  border: 1px solid var(--bolt-elements-borderColor);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: var(--bolt-elements-button-primary-text);
+}
+
+.new-task-btn:hover {
+  background: var(--bolt-elements-button-primary-backgroundHover);
+  border-color: var(--bolt-elements-borderColorActive);
+}
+
+.new-task-btn:active {
+  transform: scale(0.98);
+}
+
+.new-task-label {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.new-task-shortcut {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 4px;
+}
+
+.shortcut-key {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 5px;
+  background: var(--bolt-elements-bg-depth-2);
+  border: 1px solid var(--bolt-elements-borderColor);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--bolt-elements-textTertiary);
+}
+</style>

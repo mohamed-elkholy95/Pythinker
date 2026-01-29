@@ -335,12 +335,9 @@ export const createSSEConnection = async <T = any>(
         return;
       }
 
-      // Only include body on first attempt; on retry after 401, we just reconnect to listen
-      // The message was already added to the queue on the first attempt
+      // Include body on first attempt OR if previous attempt failed before server acknowledged
+      // Only skip body on retry after successful connection (e.g., 401 auth refresh, stream disconnect)
       const requestBody = (!messageSent && body) ? JSON.stringify(body) : undefined;
-      if (body && !messageSent) {
-        messageSent = true;
-      }
 
       const ssePromise = fetchEventSource(apiUrl, {
         method,
@@ -378,12 +375,27 @@ export const createSSEConnection = async <T = any>(
             return;
           }
 
+          // Handle validation errors (422) - don't retry, the request body is invalid
+          if (response.status === 422) {
+            console.error('Request validation failed (422). Not retrying.');
+            if (onError) {
+              onError(new Error('Request validation failed. Please check your input.'));
+            }
+            // Abort connection to prevent retry loop
+            abortController.abort();
+            return;
+          }
+
           // Check for other error status codes
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
           }
 
-          // Connection successful - reset retry counter
+          // Connection successful - mark message as sent and reset retry counter
+          // Only set messageSent after server confirms receipt (200 OK)
+          if (body && !messageSent) {
+            messageSent = true;
+          }
           retryCount = 0;
           if (onOpen) {
             onOpen();

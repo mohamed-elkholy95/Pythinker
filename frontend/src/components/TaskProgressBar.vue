@@ -1,38 +1,39 @@
 <template>
   <div v-if="isVisible" class="task-progress-bar">
     <!-- Collapsed View -->
-    <div v-if="!isExpanded" class="relative">
-      <!-- Live VNC thumbnail (auto-updates every 1s during task execution) -->
+    <div v-if="!isExpanded" class="collapsed-wrapper" :class="showCollapsedThumbnail && displayThumbnailUrl ? 'has-thumbnail' : ''">
+      <!-- Floating VNC thumbnail -->
       <div
-        v-if="showCollapsedThumbnail"
-        class="absolute -top-[38px] left-2 z-[1100] flex-shrink-0 group/thumb"
+        v-if="showCollapsedThumbnail && displayThumbnailUrl"
+        class="vnc-thumbnail-floating"
+        @click.stop="emit('openPanel')"
         @mouseenter="showTooltip"
         @mouseleave="hideTooltip"
       >
-        <div
-          v-if="displayThumbnailUrl"
-          class="w-[140px] h-[80px] rounded-lg overflow-hidden border border-gray-200 dark:border-[#3a3a3a] bg-gray-50 dark:bg-[#1a1a1a] cursor-pointer hover:border-gray-300 dark:hover:border-[#4a4a4a] transition-colors flex items-center justify-center"
-          @click.stop="emit('openPanel')"
-        >
-          <img
-            :src="displayThumbnailUrl"
-            alt="Screenshot"
-            class="w-full h-full object-cover"
-          />
+        <img
+          :src="displayThumbnailUrl"
+          alt="Screenshot"
+          class="w-full h-full object-cover"
+        />
+        <div class="vnc-thumbnail-overlay">
+          <MonitorPlay class="w-4 h-4 text-white opacity-90" />
         </div>
       </div>
 
       <!-- Compact Progress Bar -->
       <div
-        class="bg-white dark:bg-[#2a2a2a] rounded-lg border border-gray-200 dark:border-[#3a3a3a] px-4 py-2.5 flex items-center gap-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-[#2d2d2d] transition-colors shadow-sm"
-        :class="showCollapsedThumbnail && displayThumbnailUrl ? 'pl-[156px]' : ''"
+        class="progress-bar-collapsed"
+        :class="showCollapsedThumbnail && displayThumbnailUrl ? 'has-thumbnail' : ''"
         @click="toggleExpand"
       >
+        <!-- Status indicator -->
         <div class="flex-shrink-0">
-          <Check v-if="isAllCompleted" class="w-4 h-4 text-[#22c55e]" :stroke-width="2.5" />
+          <div v-if="isAllCompleted" class="status-complete">
+            <Check class="w-3.5 h-3.5 text-white" :stroke-width="2.5" />
+          </div>
           <div
             v-else
-            class="status-morph status-morph-small"
+            class="status-morph"
             :class="[
               isIdle ? 'status-morph-idle' : 'status-morph-active',
               `shape-${currentShape}`
@@ -40,41 +41,44 @@
           ></div>
         </div>
 
-        <div class="flex-1 min-w-0 flex flex-col gap-1">
-          <span class="text-[15px] font-normal text-gray-900 dark:text-[#e5e5e5] truncate">
+        <!-- Content -->
+        <div class="flex-1 min-w-0 flex flex-col gap-0.5">
+          <span class="text-[14px] font-medium text-gray-900 dark:text-[#f0f0f0] truncate">
             {{ currentTaskDescription }}
           </span>
-          <div class="flex items-center gap-2 text-xs text-gray-600 dark:text-[#888888]">
-            <span v-if="taskStartTime">{{ formattedElapsedTime }}</span>
-            <span v-if="taskStartTime && (currentToolName || props.isThinking || props.isLoading)">•</span>
-            <span v-if="isToolRunning">Using {{ currentToolName.toLowerCase() }}</span>
-            <span v-else-if="props.isThinking">Thinking</span>
-            <span v-else-if="props.currentTool && currentToolName && !isAllCompleted">Using {{ currentToolName.toLowerCase() }}</span>
-            <span v-else-if="props.isLoading && !isAllCompleted">Processing</span>
+          <div class="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-[#808080]">
+            <span v-if="taskStartTime" class="font-mono tabular-nums">{{ formattedElapsedTime }}</span>
+            <span v-if="taskStartTime && (currentToolName || props.isThinking || props.isLoading)" class="text-gray-300 dark:text-[#404040]">·</span>
+            <span v-if="isToolRunning" class="truncate">{{ currentToolName.toLowerCase() }}</span>
+            <span v-else-if="props.isThinking" class="text-blue-500 dark:text-blue-400">thinking</span>
+            <span v-else-if="props.currentTool && currentToolName && !isAllCompleted" class="truncate">{{ currentToolName.toLowerCase() }}</span>
+            <span v-else-if="props.isLoading && !isAllCompleted">processing</span>
           </div>
         </div>
 
+        <!-- Progress pill & expand -->
         <div class="flex items-center gap-2 flex-shrink-0">
-          <span class="text-sm font-normal text-gray-600 dark:text-[#888888]">{{ progressText }}</span>
-          <button @click.stop="toggleExpand" class="p-0.5 hover:bg-gray-200 dark:hover:bg-[#3a3a3a] rounded transition-colors">
-            <ChevronUp class="w-4 h-4 text-gray-600 dark:text-[#888888]" />
+          <div class="progress-pill">
+            <span class="text-[12px] font-medium tabular-nums">{{ completedCount }}</span>
+            <span class="text-[10px] text-gray-400 dark:text-[#606060]">/</span>
+            <span class="text-[12px] font-medium tabular-nums">{{ totalCount }}</span>
+          </div>
+          <button @click.stop="toggleExpand" class="expand-btn">
+            <ChevronUp class="w-4 h-4" />
           </button>
         </div>
       </div>
     </div>
 
     <!-- Expanded View -->
-    <div
-      v-else
-      class="flex flex-col rounded-lg border border-gray-200 dark:border-[#3a3a3a] bg-white dark:bg-[#2a2a2a] overflow-hidden shadow-sm"
-    >
+    <div v-else class="progress-bar-expanded">
       <!-- Header -->
-      <div class="px-5 py-4 border-b border-gray-200 dark:border-[#3a3a3a]">
+      <div class="expanded-header">
         <div class="flex items-start gap-4">
-          <!-- Live VNC thumbnail (auto-updates every 1s during task execution) -->
+          <!-- Live VNC thumbnail -->
           <div
             v-if="showExpandedThumbnail && displayThumbnailUrl"
-            class="flex-shrink-0 w-[140px] h-[80px] rounded-lg overflow-hidden border border-gray-200 dark:border-[#3a3a3a] bg-gray-50 dark:bg-[#1a1a1a] cursor-pointer hover:border-gray-300 dark:hover:border-[#4a4a4a] transition-colors flex items-center justify-center"
+            class="vnc-thumbnail-expanded"
             @click.stop="emit('openPanel')"
           >
             <img
@@ -82,94 +86,111 @@
               alt="Screenshot"
               class="w-full h-full object-cover"
             />
+            <div class="vnc-thumbnail-overlay">
+              <MonitorPlay class="w-5 h-5 text-white opacity-90" />
+            </div>
           </div>
 
           <!-- Title and Tool Info -->
           <div class="flex-1 min-w-0">
-            <h2 class="text-xl font-normal text-gray-900 dark:text-[#e5e5e5] mb-3">
+            <h2 class="text-[16px] font-semibold text-gray-900 dark:text-[#f0f0f0] mb-2.5">
               {{ $t("Pythinker's computer") }}
             </h2>
 
             <div class="flex items-center gap-2.5">
-              <div class="w-7 h-7 rounded bg-gray-200 dark:bg-[#3a3a3a] flex items-center justify-center flex-shrink-0">
-                <component :is="currentToolIcon" class="w-4 h-4 text-gray-600 dark:text-[#888888]" />
+              <div class="tool-icon-badge">
+                <component :is="currentToolIcon" class="w-3.5 h-3.5" />
               </div>
-              <span class="text-[15px] text-gray-600 dark:text-[#888888]">
-                Pythinker is using <span class="text-gray-900 dark:text-[#e5e5e5]">{{ currentToolName }}</span>
+              <span class="text-[13px] text-gray-500 dark:text-[#909090]">
+                Using <span class="text-gray-800 dark:text-[#d0d0d0] font-medium">{{ currentToolName }}</span>
               </span>
             </div>
           </div>
 
           <!-- Action Buttons -->
-          <div class="flex items-center gap-2 flex-shrink-0">
+          <div class="flex items-center gap-1 flex-shrink-0">
             <button
               type="button"
               @click.stop="emit('openPanel')"
-              class="p-1.5 hover:bg-gray-200 dark:hover:bg-[#3a3a3a] rounded transition-colors"
+              class="action-btn"
             >
-              <MonitorPlay class="w-5 h-5 text-gray-600 dark:text-[#888888]" />
+              <MonitorPlay class="w-4 h-4" />
             </button>
-            <button
-              @click="toggleExpand"
-              class="p-1.5 hover:bg-gray-200 dark:hover:bg-[#3a3a3a] rounded transition-colors"
-            >
-              <ChevronDown class="w-5 h-5 text-gray-600 dark:text-[#888888]" />
+            <button @click="toggleExpand" class="action-btn">
+              <ChevronDown class="w-4 h-4" />
             </button>
           </div>
         </div>
       </div>
 
       <!-- Task Progress Section -->
-      <div class="px-5 py-4">
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="text-lg font-normal text-gray-900 dark:text-[#e5e5e5]">{{ $t('Task progress') }}</h3>
-          <span class="text-sm text-gray-600 dark:text-[#888888]">{{ progressText }}</span>
+      <div class="expanded-content">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-[13px] font-semibold text-gray-700 dark:text-[#a0a0a0] uppercase tracking-wide">{{ $t('Task progress') }}</h3>
+          <div class="progress-pill-lg">
+            <span class="text-[13px] font-semibold tabular-nums">{{ completedCount }}</span>
+            <span class="text-[11px] text-gray-400 dark:text-[#505050] mx-0.5">/</span>
+            <span class="text-[13px] font-semibold tabular-nums">{{ totalCount }}</span>
+          </div>
         </div>
 
         <!-- Task List -->
-        <div class="flex flex-col gap-2.5 overflow-y-auto max-h-[50vh] custom-scrollbar">
+        <div class="task-list custom-scrollbar">
           <div
-            v-for="step in steps"
+            v-for="(step, index) in steps"
             :key="step.id"
-            class="flex items-start gap-3"
+            class="task-item"
+            :class="{
+              'task-completed': step.status === 'completed',
+              'task-running': step.status === 'running',
+              'task-pending': step.status === 'pending'
+            }"
           >
-            <div class="flex-shrink-0 mt-0.5">
-              <Check
-                v-if="step.status === 'completed'"
-                class="w-4 h-4 text-[#22c55e]"
-                :stroke-width="2.5"
-              />
+            <!-- Connector line -->
+            <div v-if="index < steps.length - 1" class="task-connector" :class="{ 'connector-active': step.status === 'completed' }"></div>
+
+            <div class="task-indicator">
+              <div v-if="step.status === 'completed'" class="indicator-complete">
+                <Check class="w-3 h-3 text-white" :stroke-width="3" />
+              </div>
               <div
                 v-else-if="step.status === 'running'"
-                class="status-morph-step"
+                class="indicator-running"
                 :class="`shape-${currentShape}`"
               ></div>
-              <div v-else class="w-4 h-4 rounded-full border-2 border-gray-300 dark:border-[#3a3a3a]"></div>
+              <div v-else class="indicator-pending">
+                <span class="text-[10px] font-medium">{{ index + 1 }}</span>
+              </div>
             </div>
 
-            <span
-              class="text-[15px] leading-relaxed flex-1"
-              :class="step.status === 'completed' || step.status === 'running' ? 'text-gray-900 dark:text-[#e5e5e5]' : 'text-gray-400 dark:text-[#666666]'"
-            >
+            <span class="task-description">
               {{ step.description }}
             </span>
           </div>
         </div>
 
         <!-- Timer -->
-        <div v-if="taskStartTime" class="mt-4 pt-4 border-t border-gray-200 dark:border-[#3a3a3a] flex items-center justify-between">
-          <span class="text-sm text-gray-600 dark:text-[#888888]">Elapsed time</span>
-          <span class="text-sm font-mono text-gray-900 dark:text-[#e5e5e5]">{{ formattedElapsedTime }}</span>
+        <div v-if="taskStartTime" class="timer-section">
+          <div class="flex items-center gap-2">
+            <div class="timer-icon">
+              <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M12 6v6l4 2" />
+              </svg>
+            </div>
+            <span class="text-[11px] text-gray-500 dark:text-[#707070] uppercase tracking-wider">Elapsed</span>
+          </div>
+          <span class="timer-value">{{ formattedElapsedTime }}</span>
         </div>
       </div>
     </div>
-    
+
     <Teleport to="body">
       <Transition name="tooltip">
         <div
           v-if="tooltipVisible"
           ref="tooltipRef"
-          class="tooltip-badge fixed inline-flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-[#e5e5e5] rounded text-xs font-normal whitespace-nowrap shadow-lg z-[12000] pointer-events-none border border-gray-200 dark:border-[#3a3a3a]"
+          class="tooltip-badge"
           :style="tooltipStyle"
         >
           {{ $t("View Pythinker's computer") }}
@@ -180,40 +201,37 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick, toRef } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { ChevronUp, ChevronDown, Check, MonitorPlay, Terminal, Globe, FolderOpen } from 'lucide-vue-next'
 import type { PlanEventData } from '@/types/event'
 import type { ToolContent } from '@/types/message'
-import { useLiveVncThumbnail } from '@/composables/useLiveVncThumbnail'
 
 interface Props {
   plan?: PlanEventData
   isLoading: boolean
   isThinking: boolean
+  /** Whether to show the VNC thumbnail */
   showThumbnail?: boolean
-  hideThumbnail?: boolean
   defaultExpanded?: boolean
   compact?: boolean
+  /** VNC thumbnail URL (managed by parent via useLiveVncThumbnail composable) */
   thumbnailUrl?: string
   currentTool?: { name: string; function: string; functionArg?: string; status?: string } | null
   toolContent?: ToolContent | null
-  sessionId?: string
-  liveVnc?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   showThumbnail: false,
-  hideThumbnail: false,
   defaultExpanded: false,
   compact: false,
   thumbnailUrl: '',
-  currentTool: null,
-  sessionId: '',
-  liveVnc: false
+  currentTool: null
 })
 
 const emit = defineEmits<{
   (e: 'openPanel'): void
+  /** Emitted when tasks complete to request a final screenshot capture */
+  (e: 'requestRefresh'): void
 }>()
 
 const isToolRunning = computed(() => {
@@ -221,14 +239,8 @@ const isToolRunning = computed(() => {
 })
 
 // Computed: show thumbnails in collapsed/expanded view
-// Show thumbnail in collapsed view when showThumbnail is true (regardless of compact prop)
-const showCollapsedThumbnail = computed(() => {
-  return props.showThumbnail && !props.hideThumbnail
-})
-
-const showExpandedThumbnail = computed(() => {
-  return props.showThumbnail && !props.hideThumbnail
-})
+const showCollapsedThumbnail = computed(() => props.showThumbnail)
+const showExpandedThumbnail = computed(() => props.showThumbnail)
 
 // Check if all tasks are completed
 const isAllCompleted = computed(() => {
@@ -236,32 +248,8 @@ const isAllCompleted = computed(() => {
   return props.plan.steps.every(step => step.status === 'completed')
 })
 
-// Computed: when to enable live VNC polling
-const enableLivePolling = computed(() =>
-  (showCollapsedThumbnail.value || showExpandedThumbnail.value) &&
-  !!props.sessionId &&
-  !isAllCompleted.value &&
-  props.liveVnc
-)
-
-// Use live VNC thumbnail composable
-const {
-  thumbnailUrl: liveThumbnailUrl,
-  isLoading: _thumbnailLoading,
-  error: _thumbnailError,
-  forceRefresh: refreshThumbnail
-} = useLiveVncThumbnail({
-  sessionId: toRef(props, 'sessionId'),
-  enabled: enableLivePolling,
-  updateIntervalMs: 1000,  // 1 FPS
-  quality: 50,             // Optimized for 140x80px thumbnails
-  scale: 0.3               // 30% scale
-})
-
-// Computed: prefer live thumbnail, fallback to static prop
-const displayThumbnailUrl = computed(() =>
-  liveThumbnailUrl.value || props.thumbnailUrl
-)
+// Use the thumbnail URL directly from props (parent manages VNC polling)
+const displayThumbnailUrl = computed(() => props.thumbnailUrl)
 
 const isExpanded = ref(props.defaultExpanded)
 const tooltipVisible = ref(false)
@@ -339,11 +327,8 @@ const isIdle = computed(() => {
 
 const steps = computed(() => props.plan?.steps ?? [])
 
-const progressText = computed(() => {
-  const completed = steps.value.filter(s => s.status === 'completed').length
-  const total = steps.value.length
-  return `${completed} / ${total}`
-})
+const completedCount = computed(() => steps.value.filter(s => s.status === 'completed').length)
+const totalCount = computed(() => steps.value.length)
 
 const formattedElapsedTime = computed(() => {
   const seconds = taskElapsedSeconds.value
@@ -431,15 +416,12 @@ watch(() => props.isLoading, (loading) => {
   }
 }, { immediate: true })
 
-// Also watch for completion
+// Watch for completion - emit event for parent to capture final screenshot
 watch(isAllCompleted, (completed) => {
   if (completed) {
     stopShapeAnimation()
     stopTimer()
-    // Capture final screenshot when tasks complete
-    if (props.sessionId && props.liveVnc) {
-      refreshThumbnail()
-    }
+    emit('requestRefresh')
   }
 })
 
@@ -461,128 +443,419 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* Morphing shape animation */
-.status-morph {
-  width: 10px;
-  height: 10px;
-  flex-shrink: 0;
-  transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+/* ===== COLLAPSED VIEW ===== */
+.collapsed-wrapper {
   position: relative;
 }
 
-.status-morph.status-morph-small {
-  width: 10px;
-  height: 10px;
+.collapsed-wrapper.has-thumbnail {
+  margin-top: 50px;
 }
 
-/* Step indicator morphing shape */
-.status-morph-step {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-  background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 50%, #3b82f6 100%);
-  background-size: 200% 200%;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  animation: shimmer 1.5s ease-in-out infinite;
+.progress-bar-collapsed {
+  background: var(--bolt-elements-bg-depth-1);
+  border: 1px solid var(--bolt-elements-borderColor);
+  border-radius: 14px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
-.status-morph-step.shape-circle {
+.progress-bar-collapsed:hover {
+  background: var(--bolt-elements-bg-depth-2);
+  border-color: var(--bolt-elements-borderColorActive);
+}
+
+/* ===== STATUS INDICATORS ===== */
+.status-complete {
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.35);
 }
 
-.status-morph-step.shape-diamond {
-  border-radius: 2px;
-  transform: rotate(45deg) scale(0.85);
-}
-
-.status-morph-step.shape-cube {
-  border-radius: 2px;
-}
-
-.status-morph-step.shape-square {
-  border-radius: 3px;
+.status-morph {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
 }
 
 .status-morph-active {
-  background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 50%, #3b82f6 100%);
-  background-size: 200% 200%;
-  border: none;
-  animation: shimmer 1.5s ease-in-out infinite, pulse-glow 2s ease-in-out infinite;
+  background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 100%);
+  box-shadow:
+    0 0 0 2px rgba(59, 130, 246, 0.15),
+    0 2px 8px rgba(59, 130, 246, 0.3);
+  animation: morph-pulse 2s ease-in-out infinite;
 }
 
 .status-morph-idle {
-  border: 2px solid #666666;
+  border: 2px solid var(--bolt-elements-borderColor);
   background: transparent;
 }
 
 /* Shape transformations */
 .status-morph.shape-circle {
   border-radius: 50%;
-  transform: rotate(0deg);
+  transform: rotate(0deg) scale(1);
 }
 
 .status-morph.shape-square {
-  border-radius: 2px;
-  transform: rotate(0deg);
+  border-radius: 4px;
+  transform: rotate(0deg) scale(0.95);
 }
 
 .status-morph.shape-diamond {
-  border-radius: 2px;
-  transform: rotate(45deg);
+  border-radius: 4px;
+  transform: rotate(45deg) scale(0.85);
 }
 
 .status-morph.shape-cube {
-  border-radius: 3px;
-  transform: rotate(90deg) scale(1.1);
+  border-radius: 5px;
+  transform: rotate(90deg) scale(0.9);
 }
 
-@keyframes pulse-glow {
+@keyframes morph-pulse {
   0%, 100% {
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+    box-shadow:
+      0 0 0 2px rgba(59, 130, 246, 0.15),
+      0 2px 8px rgba(59, 130, 246, 0.3);
   }
   50% {
-    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0);
+    box-shadow:
+      0 0 0 4px rgba(59, 130, 246, 0.1),
+      0 4px 16px rgba(59, 130, 246, 0.25);
   }
 }
 
-@keyframes shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
+/* ===== PROGRESS PILL ===== */
+.progress-pill {
+  display: flex;
+  align-items: baseline;
+  gap: 1px;
+  padding: 4px 10px;
+  background: var(--bolt-elements-bg-depth-4);
+  border-radius: 20px;
+  color: var(--bolt-elements-textSecondary);
 }
 
-/* Custom scrollbar */
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
+.progress-pill-lg {
+  display: flex;
+  align-items: baseline;
+  padding: 5px 12px;
+  background: var(--bolt-elements-item-backgroundAccent);
+  border: 1px solid var(--bolt-elements-borderColorActive);
+  border-radius: 20px;
+  color: var(--bolt-elements-item-contentAccent);
 }
 
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
+/* ===== EXPAND BUTTON ===== */
+.expand-btn {
+  padding: 6px;
+  border-radius: 8px;
+  color: var(--bolt-elements-textTertiary);
+  transition: all 0.15s ease;
+}
+
+.expand-btn:hover {
+  background: var(--bolt-elements-item-backgroundActive);
+  color: var(--bolt-elements-textSecondary);
+}
+
+/* ===== VNC THUMBNAILS ===== */
+.vnc-thumbnail-floating {
+  position: absolute;
+  left: 12px;
+  bottom: 8px;
+  width: 130px;
+  height: 80px;
   border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--bolt-elements-borderColor);
+  background: var(--bolt-elements-bg-depth-2);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  z-index: 10;
 }
 
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #d1d5db;
+.vnc-thumbnail-floating:hover {
+  border-color: var(--bolt-elements-borderColorActive);
+}
+
+.progress-bar-collapsed.has-thumbnail {
+  padding-left: 155px;
+}
+
+.vnc-thumbnail-expanded {
+  flex-shrink: 0;
+  width: 150px;
+  height: 86px;
   border-radius: 10px;
-  transition: background 0.2s;
+  overflow: hidden;
+  border: 1px solid var(--bolt-elements-borderColor);
+  background: var(--bolt-elements-bg-depth-2);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
 }
 
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #9ca3af;
+.vnc-thumbnail-expanded:hover {
+  border-color: var(--bolt-elements-borderColorActive);
 }
 
-:global(.dark) .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #3a3a3a;
+.vnc-thumbnail-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
 }
 
-:global(.dark) .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #4a4a4a;
+.vnc-thumbnail-floating:hover .vnc-thumbnail-overlay,
+.vnc-thumbnail-expanded:hover .vnc-thumbnail-overlay {
+  opacity: 1;
 }
 
+/* ===== EXPANDED VIEW ===== */
+.progress-bar-expanded {
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px;
+  border: 1px solid var(--bolt-elements-borderColor);
+  background: var(--bolt-elements-bg-depth-1);
+  overflow: hidden;
+}
+
+.expanded-header {
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--bolt-elements-borderColor);
+  background: var(--bolt-elements-bg-depth-2);
+}
+
+.expanded-content {
+  padding: 16px 18px;
+}
+
+/* ===== TOOL ICON BADGE ===== */
+.tool-icon-badge {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--bolt-elements-item-backgroundAccent);
+  border: 1px solid var(--bolt-elements-borderColorActive);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--bolt-elements-item-contentAccent);
+}
+
+/* ===== ACTION BUTTONS ===== */
+.action-btn {
+  padding: 8px;
+  border-radius: 8px;
+  color: var(--bolt-elements-textTertiary);
+  transition: all 0.15s ease;
+}
+
+.action-btn:hover {
+  background: var(--bolt-elements-item-backgroundActive);
+  color: var(--bolt-elements-textSecondary);
+}
+
+/* ===== TASK LIST ===== */
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow-y: auto;
+  max-height: 50vh;
+}
+
+.task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  position: relative;
+}
+
+.task-item:first-child {
+  padding-top: 0;
+}
+
+.task-item:last-child {
+  padding-bottom: 0;
+}
+
+/* Connector line between tasks */
+.task-connector {
+  position: absolute;
+  left: 11px;
+  top: 32px;
+  bottom: -10px;
+  width: 2px;
+  background: var(--bolt-elements-borderColor);
+  border-radius: 1px;
+}
+
+.task-connector.connector-active {
+  background: linear-gradient(to bottom, var(--function-success), var(--bolt-elements-borderColor));
+}
+
+/* Task indicators */
+.task-indicator {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+}
+
+.indicator-complete {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(34, 197, 94, 0.3);
+}
+
+.indicator-running {
+  width: 22px;
+  height: 22px;
+  background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 100%);
+  transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  box-shadow:
+    0 0 0 3px rgba(59, 130, 246, 0.12),
+    0 2px 8px rgba(59, 130, 246, 0.3);
+  animation: indicator-pulse 2s ease-in-out infinite;
+}
+
+.indicator-running.shape-circle {
+  border-radius: 50%;
+}
+
+.indicator-running.shape-square {
+  border-radius: 5px;
+}
+
+.indicator-running.shape-diamond {
+  border-radius: 5px;
+  transform: rotate(45deg) scale(0.85);
+}
+
+.indicator-running.shape-cube {
+  border-radius: 6px;
+  transform: rotate(90deg) scale(0.9);
+}
+
+@keyframes indicator-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 3px rgba(59, 130, 246, 0.12),
+      0 2px 8px rgba(59, 130, 246, 0.3);
+  }
+  50% {
+    box-shadow:
+      0 0 0 5px rgba(59, 130, 246, 0.08),
+      0 4px 12px rgba(59, 130, 246, 0.25);
+  }
+}
+
+.indicator-pending {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--bolt-elements-borderColor);
+  background: var(--bolt-elements-bg-depth-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--bolt-elements-textTertiary);
+}
+
+/* Task description */
+.task-description {
+  font-size: 14px;
+  line-height: 1.5;
+  padding-top: 2px;
+  flex: 1;
+}
+
+.task-completed .task-description {
+  color: var(--bolt-elements-textSecondary);
+}
+
+.task-running .task-description {
+  color: var(--bolt-elements-textPrimary);
+  font-weight: 500;
+}
+
+.task-pending .task-description {
+  color: var(--bolt-elements-textTertiary);
+}
+
+/* ===== TIMER SECTION ===== */
+.timer-section {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--bolt-elements-borderColor);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.timer-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--bolt-elements-bg-depth-4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--bolt-elements-textTertiary);
+}
+
+.timer-value {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--bolt-elements-textPrimary);
+  letter-spacing: 0.02em;
+}
+
+/* ===== TOOLTIP ===== */
 .tooltip-badge {
+  position: fixed;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--Tooltips-main);
+  color: #ffffff;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  z-index: 12000;
+  pointer-events: none;
   transform: translate(-50%, -100%);
   will-change: opacity, transform;
 }
@@ -602,5 +875,33 @@ onUnmounted(() => {
 .tooltip-leave-from {
   opacity: 1;
   transform: translate(-50%, -100%);
+}
+
+/* ===== CUSTOM SCROLLBAR ===== */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+:global(.dark) .custom-scrollbar::-webkit-scrollbar-thumb,
+:global([data-theme='dark']) .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+:global(.dark) .custom-scrollbar::-webkit-scrollbar-thumb:hover,
+:global([data-theme='dark']) .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
 }
 </style>

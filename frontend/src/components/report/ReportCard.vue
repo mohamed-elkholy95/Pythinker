@@ -1,17 +1,15 @@
 <template>
   <div
-    class="report-card w-full max-w-[600px] min-w-0 rounded-[16px] border border-[var(--border-main)] bg-[var(--background-card)] overflow-hidden shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+    class="report-card"
     @click="openReport"
   >
     <!-- Header -->
-    <div
-      class="flex items-start gap-3 p-4 hover:bg-[var(--fill-tsp-white-main)] transition-colors"
-    >
-      <div class="flex-shrink-0 w-10 h-10 rounded-lg bg-[#4285f4] flex items-center justify-center">
+    <div class="report-header">
+      <div class="report-icon">
         <FileText class="w-5 h-5 text-white" />
       </div>
       <div class="flex-1 min-w-0">
-        <h3 class="text-[15px] font-semibold text-[var(--text-primary)] line-clamp-2 leading-snug">
+        <h3 class="report-title">
           {{ report.title }}
         </h3>
       </div>
@@ -19,10 +17,10 @@
       <Popover v-model:open="showMenu">
         <PopoverTrigger as-child>
           <button
-            class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)]"
+            class="report-menu-btn"
             @click.stop
           >
-            <MoreHorizontal class="w-4 h-4 text-[var(--icon-tertiary)]" />
+            <MoreHorizontal class="w-4 h-4" />
           </button>
         </PopoverTrigger>
         <PopoverContent
@@ -102,44 +100,39 @@
     </div>
 
     <!-- Content Preview - Rendered Markdown -->
-    <div class="px-4 pb-4" v-if="report.content">
-      <!-- Preview rendered markdown content -->
+    <div class="report-content" v-if="report.content">
       <div
-        class="report-preview text-sm text-[var(--text-secondary)] leading-relaxed max-h-[320px] overflow-hidden relative"
+        class="report-preview"
         v-html="renderedPreview"
       ></div>
-      <div class="h-8 bg-gradient-to-t from-[var(--background-card)] to-transparent -mt-8 relative pointer-events-none"></div>
+      <div class="report-fade"></div>
     </div>
 
     <!-- Suggested Follow-ups Section -->
-    <div v-if="suggestions && suggestions.length > 0" class="border-t border-[var(--border-main)]">
-      <div class="px-4 pt-4 pb-2">
-        <span class="text-sm text-[var(--text-tertiary)]">Suggested follow-ups</span>
+    <div v-if="suggestions && suggestions.length > 0" class="suggestions-section">
+      <div class="suggestions-header">
+        <span>Suggested follow-ups</span>
       </div>
-      <div class="flex flex-col">
+      <div class="suggestions-list">
         <div
           v-for="(suggestion, index) in suggestions"
           :key="index"
-          class="group flex items-start gap-3 px-4 py-4 cursor-pointer border-t border-[var(--border-light)] transition-colors hover:bg-[var(--fill-tsp-white-light)]"
+          class="suggestion-item"
           @click.stop="selectSuggestion(suggestion)"
         >
-          <div class="flex-shrink-0 mt-0.5">
-            <div
-              class="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border-light)] bg-[var(--fill-tsp-white-main)]"
-            >
-              <component
-                :is="getSuggestionIcon(index)"
-                class="h-4 w-4 text-[var(--icon-tertiary)] transition-colors group-hover:text-[var(--icon-primary)]"
-              />
-            </div>
+          <div class="suggestion-icon-wrap">
+            <component
+              :is="getSuggestionIcon(index)"
+              class="suggestion-icon"
+            />
           </div>
           <div class="flex-1 min-w-0">
-            <p class="text-base text-[var(--text-primary)] leading-relaxed font-medium">
+            <p class="suggestion-text">
               {{ suggestion }}
             </p>
           </div>
-          <div class="flex-shrink-0 mt-1">
-            <ArrowRight class="w-5 h-5 text-[var(--icon-tertiary)] transition-colors group-hover:text-[var(--icon-primary)]" />
+          <div class="suggestion-arrow">
+            <ArrowRight class="w-4 h-4" />
           </div>
         </div>
       </div>
@@ -300,6 +293,181 @@ const _handleSaveToOneDriveWork = () => {
 <style scoped>
 @reference "tailwindcss";
 
+/* ===== CARD CONTAINER ===== */
+.report-card {
+  width: 100%;
+  max-width: 600px;
+  min-width: 0;
+  border-radius: 16px;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--background-card);
+  border: 1px solid var(--bolt-elements-borderColor);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.report-card:hover {
+  border-color: var(--bolt-elements-borderColorActive);
+  transform: translateY(-2px);
+}
+
+/* ===== HEADER ===== */
+.report-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  transition: background-color 0.15s ease;
+}
+
+.report-card:hover .report-header {
+  background: var(--bolt-elements-item-backgroundActive);
+}
+
+.report-icon {
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+.report-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.report-menu-btn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--icon-tertiary);
+  transition: all 0.15s ease;
+  opacity: 0;
+}
+
+.report-card:hover .report-menu-btn {
+  opacity: 1;
+}
+
+.report-menu-btn:hover {
+  background: var(--bolt-elements-item-backgroundActive);
+  color: var(--icon-secondary);
+}
+
+/* ===== CONTENT ===== */
+.report-content {
+  padding: 0 16px 16px;
+  position: relative;
+}
+
+.report-fade {
+  height: 32px;
+  background: linear-gradient(to top, var(--background-card) 0%, transparent 100%);
+  margin-top: -32px;
+  position: relative;
+  pointer-events: none;
+}
+
+/* ===== SUGGESTIONS ===== */
+.suggestions-section {
+  border-top: 1px solid var(--bolt-elements-borderColor);
+}
+
+.suggestions-header {
+  padding: 14px 16px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.suggestions-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.suggestion-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  border-top: 1px solid var(--bolt-elements-borderColor);
+  transition: all 0.15s ease;
+}
+
+.suggestion-item:hover {
+  background: var(--bolt-elements-item-backgroundAccent);
+}
+
+.suggestion-icon-wrap {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--bolt-elements-bg-depth-4);
+  border: 1px solid var(--bolt-elements-borderColor);
+  transition: all 0.15s ease;
+}
+
+.suggestion-item:hover .suggestion-icon-wrap {
+  background: var(--bolt-elements-item-backgroundAccent);
+  border-color: var(--bolt-elements-borderColorActive);
+}
+
+.suggestion-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--icon-tertiary);
+  transition: color 0.15s ease;
+}
+
+.suggestion-item:hover .suggestion-icon {
+  color: #3b82f6;
+}
+
+.suggestion-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.suggestion-arrow {
+  flex-shrink: 0;
+  margin-top: 4px;
+  color: var(--icon-tertiary);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: all 0.2s ease;
+}
+
+.suggestion-item:hover .suggestion-arrow {
+  opacity: 1;
+  transform: translateX(0);
+  color: #3b82f6;
+}
+
+/* ===== LINE CLAMP ===== */
 .line-clamp-2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -307,9 +475,14 @@ const _handleSaveToOneDriveWork = () => {
   overflow: hidden;
 }
 
-/* Report preview markdown styling */
+/* ===== REPORT PREVIEW MARKDOWN ===== */
 .report-preview {
-  @apply text-[var(--text-secondary)];
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  max-height: 320px;
+  overflow: hidden;
+  position: relative;
 }
 
 .report-preview :deep(h2),

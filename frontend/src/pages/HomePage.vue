@@ -35,33 +35,31 @@
         </div>
         <div class="h-8"></div>
       </div>
-      <div class="w-full max-w-full sm:max-w-[768px] sm:min-w-[390px] mx-auto mt-[120px] mb-auto">
-        <div class="w-full flex pl-4 items-center justify-start pb-4">
-          <span class="text-[var(--text-primary)] text-start font-semibold text-[32px] leading-[40px]">
+      <div class="home-content">
+        <!-- Greeting -->
+        <div class="greeting-section">
+          <h1 class="greeting-primary">
             {{ $t('Hello') }}, {{ currentUser?.fullname }}
-            <br />
-            <span class="text-[var(--text-tertiary)]">
-              {{ $t('What can I do for you?') }}
-            </span>
-          </span>
+          </h1>
+          <p class="greeting-secondary">
+            {{ $t('What can I do for you?') }}
+          </p>
         </div>
-        <div class="flex flex-col gap-1 w-full">
-          <div class="flex flex-col bg-[var(--background-gray-main)] w-full">
-            <div class="[&amp;:not(:empty)]:pb-2 bg-[var(--background-gray-main)] rounded-[22px_22px_0px_0px]">
-            </div>
-            <ChatBox :rows="2" v-model="message" @submit="handleSubmit" :isRunning="false" :attachments="attachments" />
-          </div>
+
+        <!-- Chat Input -->
+        <div class="chat-input-wrapper">
+          <ChatBox :rows="2" v-model="message" @submit="handleSubmit" :isRunning="false" :attachments="attachments" />
         </div>
 
         <!-- Feature Buttons -->
-        <div class="flex flex-wrap items-center justify-center gap-2 mt-4 px-4">
+        <div class="feature-buttons">
           <button
             v-for="feature in visibleFeatures"
             :key="feature.id"
             @click="handleFeatureClick(feature)"
-            class="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[var(--border-main)] bg-[var(--bolt-elements-bg-depth-1)] hover:bg-[var(--bolt-elements-item-backgroundActive)] transition-colors text-sm text-[var(--text-secondary)] cursor-pointer"
+            class="feature-btn"
           >
-            <component :is="feature.icon" :size="18" class="text-[var(--icon-secondary)]" />
+            <component :is="feature.icon" :size="17" class="feature-icon" />
             <span>{{ $t(feature.label) }}</span>
           </button>
 
@@ -69,32 +67,29 @@
           <div class="relative" ref="moreDropdownRef">
             <button
               @click="toggleMoreDropdown"
-              class="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[var(--border-main)] bg-[var(--bolt-elements-bg-depth-1)] hover:bg-[var(--bolt-elements-item-backgroundActive)] transition-colors text-sm text-[var(--text-secondary)] cursor-pointer"
-              :class="{ 'bg-[var(--bolt-elements-item-backgroundActive)]': showMoreDropdown }"
+              class="feature-btn feature-btn-more"
+              :class="{ 'active': showMoreDropdown }"
             >
               <span>{{ $t('More') }}</span>
             </button>
 
             <!-- Dropdown Menu -->
             <Transition
-              enter-active-class="transition duration-100 ease-out"
-              enter-from-class="transform scale-95 opacity-0"
-              enter-to-class="transform scale-100 opacity-100"
-              leave-active-class="transition duration-75 ease-in"
-              leave-from-class="transform scale-100 opacity-100"
-              leave-to-class="transform scale-95 opacity-0"
+              enter-active-class="transition duration-150 ease-out"
+              enter-from-class="transform scale-95 opacity-0 translate-y-2"
+              enter-to-class="transform scale-100 opacity-100 translate-y-0"
+              leave-active-class="transition duration-100 ease-in"
+              leave-from-class="transform scale-100 opacity-100 translate-y-0"
+              leave-to-class="transform scale-95 opacity-0 translate-y-2"
             >
-              <div
-                v-if="showMoreDropdown"
-                class="absolute right-0 bottom-full mb-2 w-52 rounded-xl border border-[var(--border-main)] bg-[var(--fill-input-chat)] shadow-lg z-50 py-2"
-              >
+              <div v-if="showMoreDropdown" class="more-dropdown">
                 <button
                   v-for="item in moreFeatures"
                   :key="item.id"
                   @click="handleFeatureClick(item)"
-                  class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--fill-tsp-gray-main)] transition-colors text-left"
+                  class="more-dropdown-item"
                 >
-                  <component :is="item.icon" :size="18" class="text-[var(--icon-secondary)]" />
+                  <component :is="item.icon" :size="17" class="more-dropdown-icon" />
                   <span>{{ $t(item.label) }}</span>
                 </button>
               </div>
@@ -350,3 +345,147 @@ const handleSubmit = async () => {
   }
 };
 </script>
+
+<style scoped>
+/* ===== CONTENT AREA ===== */
+.home-content {
+  width: 100%;
+  max-width: 768px;
+  min-width: 390px;
+  margin: 0 auto;
+  margin-top: 100px;
+  margin-bottom: auto;
+}
+
+@media (max-width: 640px) {
+  .home-content {
+    max-width: 100%;
+    min-width: 0;
+  }
+}
+
+/* ===== GREETING ===== */
+.greeting-section {
+  padding: 0 16px;
+  margin-bottom: 24px;
+}
+
+.greeting-primary {
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.greeting-secondary {
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text-tertiary);
+}
+
+/* ===== CHAT INPUT WRAPPER ===== */
+.chat-input-wrapper {
+  width: 100%;
+}
+
+/* ===== FEATURE BUTTONS ===== */
+.feature-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 0 16px;
+}
+
+.feature-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 24px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: var(--bolt-elements-bg-depth-1);
+  border: 1px solid var(--bolt-elements-borderColor);
+  color: var(--bolt-elements-textSecondary);
+}
+
+.feature-btn:hover {
+  background: var(--bolt-elements-item-backgroundActive);
+  border-color: var(--bolt-elements-borderColorActive);
+  color: var(--bolt-elements-textPrimary);
+  transform: translateY(-1px);
+}
+
+.feature-btn:active {
+  transform: translateY(0);
+}
+
+.feature-icon {
+  color: var(--bolt-elements-textTertiary);
+  transition: color 0.2s ease;
+}
+
+.feature-btn:hover .feature-icon {
+  color: var(--bolt-elements-item-contentAccent);
+}
+
+.feature-btn-more {
+  padding-left: 20px;
+  padding-right: 20px;
+}
+
+.feature-btn-more.active {
+  background: var(--bolt-elements-item-backgroundActive);
+  border-color: var(--bolt-elements-borderColorActive);
+}
+
+/* ===== MORE DROPDOWN ===== */
+.more-dropdown {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  width: 220px;
+  padding: 6px;
+  border-radius: 14px;
+  z-index: 50;
+  background: var(--fill-input-chat);
+  border: 1px solid var(--bolt-elements-borderColor);
+  box-shadow: var(--shadow-L);
+}
+
+.more-dropdown-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--bolt-elements-textSecondary);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.more-dropdown-item:hover {
+  background: var(--bolt-elements-item-backgroundAccent);
+  color: var(--bolt-elements-textPrimary);
+}
+
+.more-dropdown-icon {
+  color: var(--bolt-elements-textTertiary);
+  transition: color 0.15s ease;
+}
+
+.more-dropdown-item:hover .more-dropdown-icon {
+  color: var(--bolt-elements-item-contentAccent);
+}
+</style>

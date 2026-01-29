@@ -1,39 +1,34 @@
 <template>
-    <div class="pb-3 relative bg-[var(--background-gray-main)]">
-        <div
-            class="flex flex-col gap-3 rounded-[22px] transition-all relative bg-[var(--fill-input-chat)] py-3 max-h-[300px] border border-[var(--bolt-elements-borderColor)] shadow-[0px_0px_0px_1px_var(--bolt-elements-borderColor)]">
+    <div class="chatbox-wrapper">
+        <div class="chatbox-container">
             <ChatBoxFiles ref="chatBoxFileListRef" :attachments="attachments" />
-            <div class="overflow-y-auto pl-4 pr-2">
+            <div class="chatbox-input-area">
                 <textarea
                     ref="textareaRef"
-                    class="flex rounded-md border-input focus-visible:outline-none focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 overflow-hidden flex-1 bg-transparent p-0 pt-[1px] border-0 focus-visible:ring-0 focus-visible:ring-offset-0 w-full placeholder:text-[var(--text-disable)] text-[15px] shadow-none resize-none min-h-[40px]"
+                    class="chatbox-textarea"
                     :rows="rows" :value="modelValue"
                     @input="$emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
                     @compositionstart="isComposing = true" @compositionend="isComposing = false"
                     @keydown.enter.exact="handleEnterKeydown"
                     @paste="handlePaste"
-                    :placeholder="t('Give Manus a task to work on...')"
+                    :placeholder="t('Give Pythinker a task to work on...')"
                     :style="{ height: '46px' }"></textarea>
             </div>
-            <footer class="flex flex-row justify-between w-full px-3">
-                <div class="flex gap-2 pr-2 items-center">
-                    <button @click="uploadFile"
-                        class="rounded-full border border-[var(--border-main)] inline-flex items-center justify-center gap-1 clickable cursor-pointer text-xs text-[var(--text-secondary)] hover:bg-[var(--bolt-elements-item-backgroundActive)] w-8 h-8 p-0 data-[popover-trigger]:bg-[var(--bolt-elements-item-backgroundActive)] shrink-0"
-                        aria-expanded="false" aria-haspopup="dialog">
+            <footer class="chatbox-footer">
+                <div class="chatbox-actions-left">
+                    <button @click="uploadFile" class="chatbox-attach-btn">
                         <Paperclip :size="16" />
                     </button>
                 </div>
-                <div class="flex gap-2">
+                <div class="chatbox-actions-right">
                     <button v-if="!isRunning || sendEnabled"
-                        class="whitespace-nowrap text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 text-primary-foreground p-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors"
-                        :class="!sendEnabled ? 'cursor-not-allowed bg-[var(--bolt-elements-bg-depth-3)] text-[var(--text-tertiary)]' : 'cursor-pointer bg-[var(--bolt-elements-item-contentAccent)] text-white hover:opacity-90'"
+                        class="chatbox-send-btn"
+                        :class="{ 'disabled': !sendEnabled, 'enabled': sendEnabled }"
                         @click="handleSubmit">
                         <SendIcon :disabled="!sendEnabled" />
                     </button>
-                    <button v-else @click="handleStop"
-                        class="inline-flex items-center justify-center whitespace-nowrap text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring bg-[var(--bolt-elements-item-contentAccent)] text-white gap-[4px] hover:opacity-90 rounded-full p-0 w-8 h-8">
-                        <div class="w-[10px] h-[10px] bg-white rounded-[2px]">
-                        </div>
+                    <button v-else @click="handleStop" class="chatbox-stop-btn">
+                        <div class="stop-icon"></div>
                     </button>
                 </div>
             </footer>
@@ -234,3 +229,163 @@ watch(() => props.modelValue, (value) => {
     hasTextInput.value = value.trim() !== '';
 });
 </script>
+
+<style scoped>
+.chatbox-wrapper {
+    padding-bottom: 12px;
+    position: relative;
+}
+
+.chatbox-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    border-radius: 20px;
+    transition: all 0.2s ease;
+    position: relative;
+    padding: 14px 0;
+    max-height: 300px;
+    background: var(--fill-input-chat);
+    border: 1px solid var(--bolt-elements-borderColor);
+}
+
+.chatbox-container:focus-within {
+    border-color: var(--bolt-elements-borderColorActive);
+}
+
+.chatbox-input-area {
+    overflow-y: auto;
+    padding-left: 16px;
+    padding-right: 8px;
+}
+
+.chatbox-textarea {
+    display: flex;
+    border-radius: 8px;
+    overflow: hidden;
+    flex: 1;
+    background: transparent;
+    padding: 0;
+    padding-top: 1px;
+    border: 0;
+    width: 100%;
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--text-primary);
+    box-shadow: none;
+    resize: none;
+    min-height: 40px;
+    outline: none;
+}
+
+.chatbox-textarea::placeholder {
+    color: var(--text-disable);
+}
+
+.chatbox-textarea:focus {
+    outline: none;
+    box-shadow: none;
+}
+
+.chatbox-footer {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    width: 100%;
+    padding: 0 12px;
+}
+
+.chatbox-actions-left {
+    display: flex;
+    gap: 8px;
+    padding-right: 8px;
+    align-items: center;
+}
+
+.chatbox-actions-right {
+    display: flex;
+    gap: 8px;
+}
+
+.chatbox-attach-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+    background: var(--bolt-elements-bg-depth-4);
+    border: 1px solid var(--bolt-elements-borderColor);
+    color: var(--bolt-elements-textTertiary);
+}
+
+.chatbox-attach-btn:hover {
+    background: var(--bolt-elements-item-backgroundActive);
+    border-color: var(--bolt-elements-borderColor);
+    color: var(--bolt-elements-textSecondary);
+}
+
+.chatbox-send-btn {
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.chatbox-send-btn.disabled {
+    cursor: not-allowed;
+    background: var(--bolt-elements-bg-depth-3);
+    color: var(--bolt-elements-textTertiary);
+}
+
+.chatbox-send-btn.enabled {
+    cursor: pointer;
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: white;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35);
+}
+
+.chatbox-send-btn.enabled:hover {
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.45);
+    transform: scale(1.05);
+}
+
+.chatbox-send-btn.enabled:active {
+    transform: scale(0.98);
+}
+
+.chatbox-stop-btn {
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: white;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35);
+}
+
+.chatbox-stop-btn:hover {
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.45);
+}
+
+.stop-icon {
+    width: 10px;
+    height: 10px;
+    background: white;
+    border-radius: 2px;
+}
+</style>

@@ -1,7 +1,9 @@
 <template>
-  <p v-if="tool.name === 'message' && tool.args?.text" class="text-[var(--text-secondary)] text-[14px] overflow-hidden text-ellipsis whitespace-pre-line">
+  <!-- Inline message tools (rendered as plain text) -->
+  <p v-if="isInlineMessageTool && tool.args?.text" class="text-[var(--text-secondary)] text-[14px] overflow-hidden text-ellipsis whitespace-pre-line">
     {{ tool.args.text }}
   </p>
+  <!-- Standard tool display (rendered as interactive chip) -->
   <div v-else-if="toolInfo" class="flex items-center group gap-2">
     <div class="flex-1 min-w-0">
       <div @click="handleClick"
@@ -29,10 +31,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import { ToolContent } from "../types/message";
 import { useToolInfo } from "../composables/useTool";
 import { useRelativeTime } from "../composables/useTime";
+
+/**
+ * Configuration: Tools that should be rendered as inline text messages
+ * instead of the standard interactive chip display.
+ * Add tool names here if they should show their text content directly.
+ */
+const INLINE_MESSAGE_TOOLS: ReadonlySet<string> = new Set([
+  'message',
+  'user_message',
+  'system_note',
+]);
 
 const props = defineProps<{
   tool: ToolContent;
@@ -44,6 +57,11 @@ const emit = defineEmits<{
 
 const { relativeTime } = useRelativeTime();
 const { toolInfo } = useToolInfo(ref(props.tool));
+
+/** Check if this tool should be rendered as an inline message */
+const isInlineMessageTool = computed(() => {
+  return INLINE_MESSAGE_TOOLS.has(props.tool.name);
+});
 
 const handleClick = () => {
   emit("click");
