@@ -12,6 +12,7 @@
     <!-- Live VNC - use absolute positioning to fill parent -->
     <div v-else-if="enabled" class="vnc-content-inner">
       <VNCViewer
+        ref="vncViewerRef"
         :session-id="sessionId"
         :enabled="enabled"
         :view-only="viewOnly"
@@ -35,6 +36,7 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue';
 import VNCViewer from '@/components/VNCViewer.vue';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
 
@@ -53,6 +55,22 @@ const emit = defineEmits<{
   connected: [];
   disconnected: [];
 }>();
+
+const vncViewerRef = ref<InstanceType<typeof VNCViewer> | null>(null);
+
+// Expose method to capture screenshot from VNC canvas
+function captureScreenshot(quality?: number, scale?: number): string | null {
+  return vncViewerRef.value?.captureScreenshot(quality, scale) ?? null;
+}
+
+function isConnected(): boolean {
+  return vncViewerRef.value?.isConnected() ?? false;
+}
+
+defineExpose({
+  captureScreenshot,
+  isConnected
+});
 </script>
 
 <style scoped>

@@ -187,9 +187,40 @@ onBeforeUnmount(() => {
   disconnect();
 });
 
+// Capture current canvas as data URL for thumbnail
+function captureScreenshot(quality: number = 0.5, scale: number = 0.3): string | null {
+  if (!rfb || !vncContainer.value) return null;
+
+  const canvas = vncContainer.value.querySelector('canvas');
+  if (!canvas) return null;
+
+  try {
+    // Create scaled canvas for thumbnail
+    const scaledCanvas = document.createElement('canvas');
+    scaledCanvas.width = canvas.width * scale;
+    scaledCanvas.height = canvas.height * scale;
+
+    const ctx = scaledCanvas.getContext('2d');
+    if (!ctx) return null;
+
+    ctx.drawImage(canvas, 0, 0, scaledCanvas.width, scaledCanvas.height);
+    return scaledCanvas.toDataURL('image/jpeg', quality);
+  } catch (e) {
+    console.warn('[VNC] Failed to capture screenshot:', e);
+    return null;
+  }
+}
+
+// Check if connected
+function isConnected(): boolean {
+  return !!rfb;
+}
+
 defineExpose({
   disconnect,
-  initConnection: initVNCConnection
+  initConnection: initVNCConnection,
+  captureScreenshot,
+  isConnected
 });
 </script>
 
