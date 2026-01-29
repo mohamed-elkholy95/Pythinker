@@ -965,7 +965,12 @@ class AgentTaskRunner(TaskRunner):
 
                 message_obj = Message(message=message, attachments=[attachment.file_path for attachment in event.attachments])
                 
-                async for event in self._run_flow(message_obj):
+                async for event in self._run_flow(message_obj, task):
+                    # Check if task is paused (for user takeover)
+                    while task.paused:
+                        logger.debug(f"Agent {self._agent_id} paused, waiting for resume...")
+                        await asyncio.sleep(0.5)
+
                     await self._put_and_add_event(task, event)
                     if isinstance(event, TitleEvent):
                         await self._session_repository.update_title(self._session_id, event.title)
@@ -988,8 +993,13 @@ class AgentTaskRunner(TaskRunner):
             await self._put_and_add_event(task, ErrorEvent(error=f"Task error: {str(e)}"))
             await self._session_repository.update_status(self._session_id, SessionStatus.COMPLETED)
     
-    async def _run_flow(self, message: Message) -> AsyncGenerator[BaseEvent, None]:
-        """Process a single message through the agent's flow and yield events"""
+    async def _run_flow(self, message: Message, task: Optional[Task] = None) -> AsyncGenerator[BaseEvent, None]:
+        """Process a single message through the agent's flow and yield events
+
+        Args:
+            message: The message to process
+            task: Optional task reference for pause checking
+        """
         if not message.message:
             logger.warning(f"Agent {self._agent_id} received empty message")
             yield ErrorEvent(error="No message")
@@ -999,6 +1009,12 @@ class AgentTaskRunner(TaskRunner):
 
         async with self._usage_context():
             async for event in self._flow.run(message):
+                # Check if task is paused (for user takeover) before processing each event
+                if task and hasattr(task, 'paused'):
+                    while task.paused:
+                        logger.debug(f"Agent {self._agent_id} paused in flow, waiting for resume...")
+                        await asyncio.sleep(0.5)
+
                 if isinstance(event, ToolEvent):
                     # TODO: move to tool function
                     await self._handle_tool_event(event)
@@ -1027,6 +1043,12 @@ class AgentTaskRunner(TaskRunner):
             # Run through Agent mode flow
             async with self._usage_context():
                 async for event in self._flow.run(task_message):
+                    # Check if task is paused (for user takeover)
+                    if task and hasattr(task, 'paused'):
+                        while task.paused:
+                            logger.debug(f"Agent {self._agent_id} paused in mode switch flow, waiting for resume...")
+                            await asyncio.sleep(0.5)
+
                     if isinstance(event, ToolEvent):
                         await self._handle_tool_event(event)
                     elif isinstance(event, (MessageEvent, ReportEvent)):

@@ -29,7 +29,8 @@ class RedisStreamTask(Task):
         output_stream_name = f"task:output:{self._id}"
         self._input_stream = RedisStreamQueue(input_stream_name)
         self._output_stream = RedisStreamQueue(output_stream_name)
-        
+        self._paused = False
+
         # Register task instance
         RedisStreamTask._task_registry[self._id] = self
         
@@ -66,9 +67,42 @@ class RedisStreamTask(Task):
             logger.info(f"Task {self._id} cancelled")
             self._cleanup_registry()
             return True
-        
+
         self._cleanup_registry()
         return False
+
+    def pause(self) -> bool:
+        """Pause the task.
+
+        Returns:
+            bool: True if the task is paused, False otherwise
+        """
+        if not self.done and not self._paused:
+            self._paused = True
+            logger.info(f"Task {self._id} paused")
+            return True
+        return False
+
+    def resume(self) -> bool:
+        """Resume a paused task.
+
+        Returns:
+            bool: True if the task is resumed, False otherwise
+        """
+        if self._paused:
+            self._paused = False
+            logger.info(f"Task {self._id} resumed")
+            return True
+        return False
+
+    @property
+    def paused(self) -> bool:
+        """Check if the task is paused.
+
+        Returns:
+            bool: True if the task is paused, False otherwise
+        """
+        return self._paused
     
     @property
     def input_stream(self) -> MessageQueue:
