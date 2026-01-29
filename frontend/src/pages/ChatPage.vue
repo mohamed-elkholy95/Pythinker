@@ -185,7 +185,7 @@
             :isLoading="isLoading"
             :isThinking="isThinking"
             :showThumbnail="shouldShowThumbnail"
-            :thumbnailUrl="currentThumbnailUrl"
+            :sessionId="sessionId"
             :currentTool="currentToolInfo"
             :toolContent="lastNoMessageTool"
             @openPanel="handleOpenPanel"
@@ -202,8 +202,6 @@
       :plan="plan"
       :isLoading="isLoading"
       :isThinking="isThinking"
-      :thumbnailUrl="currentThumbnailUrl"
-      :currentTool="currentToolInfo"
       @jumpToRealTime="jumpToRealTime"
       :showTimeline="showTimelineControls"
       :timelineProgress="toolTimelineProgress"
@@ -281,7 +279,6 @@ import { ReportModal } from '@/components/report';
 import FilePanelContent from '@/components/FilePanelContent.vue';
 import type { ReportData } from '@/components/report';
 import { useReport, extractSectionsFromMarkdown } from '@/composables/useReport';
-import { useLiveVncThumbnail } from '@/composables/useLiveVncThumbnail';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
 
@@ -441,68 +438,9 @@ const checkStaleConnection = () => {
 // Track if ToolPanel is open (needed for VNC thumbnail management)
 const isToolPanelOpen = ref(false);
 
-// ===== VNC Thumbnail Management (Centralized) =====
-// Live canvas thumbnail (captured from ToolPanel's VNC connection - ALWAYS accurate)
-const canvasThumbnailUrl = ref<string>('');
-let canvasPollingInterval: ReturnType<typeof setInterval> | null = null;
-
-// HTTP polling as secondary source (used when panel hasn't been opened yet)
-const enableVncPolling = computed(() => !!sessionId.value && !canvasThumbnailUrl.value);
-
-const {
-  thumbnailUrl: vncThumbnailUrl,
-  forceRefresh: refreshVncThumbnail
-} = useLiveVncThumbnail({
-  sessionId: sessionId,
-  enabled: enableVncPolling,
-  updateIntervalMs: 1000,
-  quality: 50,
-  scale: 0.3
-});
-
-// Capture thumbnail from VNC canvas (most reliable source)
-const captureCanvasThumbnail = () => {
-  const isConnected = toolPanel.value?.isVncConnected();
-  console.log('[Thumbnail] Attempting canvas capture...', { isConnected, panelOpen: isToolPanelOpen.value });
-
-  if (!isConnected) {
-    console.log('[Thumbnail] VNC not connected, skipping canvas capture');
-    return;
-  }
-
-  const dataUrl = toolPanel.value?.captureVncScreenshot(0.5, 0.3);
-  if (dataUrl) {
-    console.log('[Thumbnail] Canvas capture success, dataUrl length:', dataUrl.length);
-    canvasThumbnailUrl.value = dataUrl;
-  } else {
-    console.log('[Thumbnail] Canvas capture returned null');
-  }
-};
-
-// Start/stop canvas polling based on panel state
-watch(isToolPanelOpen, (isOpen) => {
-  console.log('[Thumbnail] Panel state changed:', { isOpen, hasCanvasUrl: !!canvasThumbnailUrl.value, hasHttpUrl: !!vncThumbnailUrl.value });
-
-  if (isOpen) {
-    console.log('[Thumbnail] Panel opened - starting canvas capture polling');
-    // Small delay to let VNC connect first, then capture every second
-    setTimeout(captureCanvasThumbnail, 500);
-    canvasPollingInterval = setInterval(captureCanvasThumbnail, 1000);
-  } else {
-    console.log('[Thumbnail] Panel closed - stopping canvas capture, capturing final state');
-    // Capture final state when closing, keep polling briefly to get final state
-    setTimeout(captureCanvasThumbnail, 100);
-    if (canvasPollingInterval) {
-      clearInterval(canvasPollingInterval);
-      canvasPollingInterval = null;
-    }
-  }
-});
-
-// Handler for TaskProgressBar's requestRefresh event
+// Handler for TaskProgressBar's requestRefresh event (no-op with live VNC preview)
 const handleThumbnailRefresh = () => {
-  captureCanvasThumbnail();
-  refreshVncThumbnail();
+  // With live VNC preview, no refresh is needed - it's always up to date
 };
 
 // Start stale detection when loading starts
@@ -526,10 +464,6 @@ onUnmounted(() => {
   if (staleCheckInterval) {
     clearInterval(staleCheckInterval);
     staleCheckInterval = null;
-  }
-  if (canvasPollingInterval) {
-    clearInterval(canvasPollingInterval);
-    canvasPollingInterval = null;
   }
   stopPlanningMessageCycle();
 });
@@ -574,32 +508,6 @@ const isPlanCompleted = computed(() => {
   return !!plan.value?.steps?.length && plan.value.steps.every(step => step.status === 'completed');
 });
 
-// Get current thumbnail URL - prefer live sources over stale tool screenshots
-const currentThumbnailUrl = computed(() => {
-  const hasCanvas = !!canvasThumbnailUrl.value;
-  const hasHttp = !!vncThumbnailUrl.value;
-
-  console.log('[Thumbnail] Computing URL...', {
-    hasCanvas,
-    hasHttp,
-    canvasUrlPrefix: canvasThumbnailUrl.value?.slice(0, 30),
-    httpUrlPrefix: vncThumbnailUrl.value?.slice(0, 30)
-  });
-
-  // 1. Canvas capture (most accurate when panel is open/was open)
-  if (canvasThumbnailUrl.value) {
-    console.log('[Thumbnail] Using CANVAS source');
-    return canvasThumbnailUrl.value;
-  }
-  // 2. HTTP polling (when panel is closed)
-  if (vncThumbnailUrl.value) {
-    console.log('[Thumbnail] Using HTTP POLLING source');
-    return vncThumbnailUrl.value;
-  }
-  // 3. No fallback to stale tool screenshots - return empty to show placeholder
-  console.log('[Thumbnail] No source available');
-  return '';
-});
 
 // Get current tool info for display
 const currentToolInfo = computed(() => {

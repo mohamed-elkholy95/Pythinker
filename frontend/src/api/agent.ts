@@ -102,7 +102,11 @@ export async function getVNCScreenshot(
 ): Promise<Blob> {
   const response = await apiClient.get(`/sessions/${sessionId}/vnc/screenshot`, {
     responseType: 'blob',
-    params: { quality, scale }
+    params: { quality, scale, _t: Date.now() },  // Cache-busting timestamp
+    headers: {
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache'
+    }
   });
   return response.data;
 }

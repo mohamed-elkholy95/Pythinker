@@ -387,13 +387,21 @@ async def get_vnc_screenshot(
 
     # Fetch screenshot from sandbox with quality and scale parameters
     try:
+        import time
+        timestamp = int(time.time() * 1000)
+        logger.info(f"[VNC Screenshot] Fetching from sandbox {sandbox.base_url}, session={session_id}, ts={timestamp}")
+
         async with httpx.AsyncClient(timeout=10.0) as client:
             sandbox_url = f"{sandbox.base_url}/api/v1/vnc/screenshot"
             response = await client.get(
                 sandbox_url,
-                params={"quality": quality, "scale": scale, "format": "jpeg"}
+                params={"quality": quality, "scale": scale, "format": "jpeg", "_t": timestamp},
+                headers={"Cache-Control": "no-cache, no-store"}
             )
             response.raise_for_status()
+
+            content_size = len(response.content)
+            logger.info(f"[VNC Screenshot] Received {content_size} bytes from sandbox")
 
             return Response(
                 content=response.content,
@@ -404,7 +412,9 @@ async def get_vnc_screenshot(
                     "Expires": "0",
                     "Access-Control-Allow-Origin": "*",
                     "Access-Control-Allow-Methods": "GET, OPTIONS",
-                    "Access-Control-Allow-Headers": "*"
+                    "Access-Control-Allow-Headers": "*",
+                    "X-Screenshot-Timestamp": str(timestamp),
+                    "X-Screenshot-Size": str(content_size)
                 }
             )
     except Exception as e:

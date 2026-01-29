@@ -57,20 +57,6 @@ const emit = defineEmits<{
 }>();
 
 const vncViewerRef = ref<InstanceType<typeof VNCViewer> | null>(null);
-
-// Expose method to capture screenshot from VNC canvas
-function captureScreenshot(quality?: number, scale?: number): string | null {
-  return vncViewerRef.value?.captureScreenshot(quality, scale) ?? null;
-}
-
-function isConnected(): boolean {
-  return vncViewerRef.value?.isConnected() ?? false;
-}
-
-defineExpose({
-  captureScreenshot,
-  isConnected
-});
 </script>
 
 <style scoped>

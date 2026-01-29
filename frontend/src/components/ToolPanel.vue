@@ -24,7 +24,6 @@
         :plan="plan"
         :isLoading="isLoading"
         :isThinking="isThinking"
-        :thumbnailUrl="thumbnailUrl"
         @hide="() => hideToolPanel(true)"
         @jumpToRealTime="jumpToRealTime"
         @stepForward="handleTimelineStepForward"
@@ -73,7 +72,6 @@ defineProps<{
   plan?: PlanEventData
   isLoading?: boolean
   isThinking?: boolean
-  thumbnailUrl?: string
   showTimeline?: boolean
   timelineProgress?: number
   timelineTimestamp?: number
@@ -138,21 +136,10 @@ onUnmounted(() => {
   eventBus.off(EVENT_SHOW_FILE_PANEL)
 })
 
-// Capture VNC screenshot from the live canvas
-function captureVncScreenshot(quality?: number, scale?: number): string | null {
-  return toolPanelContentRef.value?.captureVncScreenshot(quality, scale) ?? null
-}
-
-function isVncConnected(): boolean {
-  return toolPanelContentRef.value?.isVncConnected() ?? false
-}
-
 defineExpose({
   showToolPanel,
   hideToolPanel,
   clearContent,
-  isShow,
-  captureVncScreenshot,
-  isVncConnected
+  isShow
 })
 </script>
