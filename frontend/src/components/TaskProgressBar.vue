@@ -141,7 +141,8 @@
               />
               <div
                 v-else-if="step.status === 'running'"
-                class="w-4 h-4 rounded-full border-2 border-[#3b82f6] border-t-transparent animate-spin"
+                class="status-morph-step"
+                :class="`shape-${currentShape}`"
               ></div>
               <div v-else class="w-4 h-4 rounded-full border-2 border-gray-300 dark:border-[#3a3a3a]"></div>
             </div>
@@ -474,10 +475,39 @@ onUnmounted(() => {
   height: 10px;
 }
 
+/* Step indicator morphing shape */
+.status-morph-step {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 50%, #3b82f6 100%);
+  background-size: 200% 200%;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.status-morph-step.shape-circle {
+  border-radius: 50%;
+}
+
+.status-morph-step.shape-diamond {
+  border-radius: 2px;
+  transform: rotate(45deg) scale(0.85);
+}
+
+.status-morph-step.shape-cube {
+  border-radius: 2px;
+}
+
+.status-morph-step.shape-square {
+  border-radius: 3px;
+}
+
 .status-morph-active {
-  border: 2px solid #9c7dff;
-  background: rgba(156, 125, 255, 0.2);
-  animation: pulse-glow 2s ease-in-out infinite;
+  background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 50%, #3b82f6 100%);
+  background-size: 200% 200%;
+  border: none;
+  animation: shimmer 1.5s ease-in-out infinite, pulse-glow 2s ease-in-out infinite;
 }
 
 .status-morph-idle {
@@ -508,10 +538,19 @@ onUnmounted(() => {
 
 @keyframes pulse-glow {
   0%, 100% {
-    box-shadow: 0 0 0 0 rgba(156, 125, 255, 0.4);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
   }
   50% {
-    box-shadow: 0 0 0 4px rgba(156, 125, 255, 0);
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
   }
 }
 

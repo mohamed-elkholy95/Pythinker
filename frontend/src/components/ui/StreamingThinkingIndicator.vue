@@ -144,7 +144,7 @@ watch(
   inset: -4px;
   background: radial-gradient(
     circle,
-    var(--accent-glow, rgba(99, 102, 241, 0.15)) 0%,
+    var(--accent-glow, rgba(59, 130, 246, 0.15)) 0%,
     transparent 70%
   );
   border-radius: 50%;
@@ -159,11 +159,11 @@ watch(
   justify-content: center;
   width: 24px;
   height: 24px;
-  background: var(--indicator-bg, rgba(99, 102, 241, 0.1));
+  background: var(--indicator-bg, rgba(59, 130, 246, 0.1));
   border-radius: 8px;
-  border: 1px solid var(--indicator-border, rgba(99, 102, 241, 0.2));
+  border: 1px solid var(--indicator-border, rgba(59, 130, 246, 0.2));
   box-shadow:
-    0 2px 8px rgba(99, 102, 241, 0.1),
+    0 2px 8px rgba(59, 130, 246, 0.1),
     inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
@@ -188,9 +188,9 @@ watch(
   letter-spacing: 0.01em;
   background: linear-gradient(
     135deg,
-    var(--label-color-1, #6366f1) 0%,
-    var(--label-color-2, #8b5cf6) 50%,
-    var(--label-color-1, #6366f1) 100%
+    var(--label-color-1, #3b82f6) 0%,
+    var(--label-color-2, #60a5fa) 50%,
+    var(--label-color-1, #3b82f6) 100%
   );
   background-size: 200% 200%;
   -webkit-background-clip: text;
@@ -210,7 +210,7 @@ watch(
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: var(--dot-color, #6366f1);
+  background: var(--dot-color, #3b82f6);
   opacity: 0.6;
   animation: dot-bounce 1.4s ease-in-out infinite;
 }
@@ -270,12 +270,12 @@ watch(
   display: inline-block;
   width: 2px;
   height: 1em;
-  background: var(--cursor-color, #6366f1);
+  background: var(--cursor-color, #3b82f6);
   margin-left: 2px;
   vertical-align: text-bottom;
   border-radius: 1px;
   animation: cursor-blink 1s ease-in-out infinite;
-  box-shadow: 0 0 8px var(--cursor-glow, rgba(99, 102, 241, 0.4));
+  box-shadow: 0 0 8px var(--cursor-glow, rgba(59, 130, 246, 0.4));
 }
 
 /* Fade Overlay */
@@ -323,17 +323,17 @@ watch(
 /* Dark Mode */
 :global(.dark) .thinking-block {
   --border-color: rgba(71, 85, 105, 0.4);
-  --accent-glow: rgba(129, 140, 248, 0.2);
-  --indicator-bg: rgba(129, 140, 248, 0.15);
-  --indicator-border: rgba(129, 140, 248, 0.25);
-  --label-color-1: #a5b4fc;
-  --label-color-2: #c4b5fd;
-  --dot-color: #a5b4fc;
+  --accent-glow: rgba(96, 165, 250, 0.2);
+  --indicator-bg: rgba(96, 165, 250, 0.15);
+  --indicator-border: rgba(96, 165, 250, 0.25);
+  --label-color-1: #60a5fa;
+  --label-color-2: #93c5fd;
+  --dot-color: #60a5fa;
   --text-container-bg: rgba(30, 41, 59, 0.6);
   --text-container-border: rgba(71, 85, 105, 0.5);
   --text-color: #e2e8f0;
-  --cursor-color: #a5b4fc;
-  --cursor-glow: rgba(165, 180, 252, 0.4);
+  --cursor-color: #60a5fa;
+  --cursor-glow: rgba(96, 165, 250, 0.4);
   --scrollbar-thumb: rgba(100, 116, 139, 0.4);
   --scrollbar-thumb-hover: rgba(100, 116, 139, 0.6);
 }
