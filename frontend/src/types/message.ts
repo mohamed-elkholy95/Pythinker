@@ -2,6 +2,15 @@ import type { FileInfo } from '../api/file';
 
 export type MessageType = "user" | "assistant" | "tool" | "step" | "attachments" | "report";
 
+// Source citation for report bibliography
+export interface SourceCitation {
+  url: string;
+  title: string;
+  snippet?: string;
+  access_time: string;
+  source_type: 'search' | 'browser' | 'file';
+}
+
 export interface Message {
   type: MessageType;
   content: BaseContent;
@@ -66,4 +75,5 @@ export interface ReportContent extends BaseContent {
   fileCount?: number;
   sections?: ReportSection[];
   attachments?: FileInfo[];
+  sources?: SourceCitation[];
 }

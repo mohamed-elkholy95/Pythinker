@@ -818,6 +818,7 @@ const handleReportEvent = (reportData: ReportEventData) => {
       lastModified: reportData.timestamp * 1000,
       fileCount: reportData.attachments?.length || 0,
       sections,
+      sources: reportData.sources,
       attachments: reportData.attachments,
       timestamp: reportData.timestamp
     } as ReportContent,

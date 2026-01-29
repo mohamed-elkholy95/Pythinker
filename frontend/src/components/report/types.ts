@@ -1,4 +1,5 @@
 import type { FileInfo } from '@/api/file';
+import type { SourceCitation } from '@/types/message';
 
 export interface ReportSection {
   title: string;
@@ -14,4 +15,5 @@ export interface ReportData {
   fileCount?: number;
   sections?: ReportSection[];
   attachments?: FileInfo[];
+  sources?: SourceCitation[];
 }

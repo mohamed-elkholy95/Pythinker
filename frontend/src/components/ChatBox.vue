@@ -73,65 +73,11 @@ const emit = defineEmits<{
 }>();
 
 /**
- * Detect if pasted text is code based on common patterns
- */
-const detectCodeType = (text: string): { isCode: boolean; extension: string; language: string } => {
-    const lines = text.split('\n');
-    const firstLines = lines.slice(0, 10).join('\n');
-
-    // Check for common code patterns
-    const patterns = [
-        { regex: /^(import|from)\s+\w+/m, ext: 'py', lang: 'Python' },
-        { regex: /^(def|class|async def)\s+\w+/m, ext: 'py', lang: 'Python' },
-        { regex: /^(const|let|var|function|import|export)\s+/m, ext: 'js', lang: 'JavaScript' },
-        { regex: /^(interface|type|enum)\s+\w+/m, ext: 'ts', lang: 'TypeScript' },
-        { regex: /<\?php/m, ext: 'php', lang: 'PHP' },
-        { regex: /^package\s+\w+/m, ext: 'java', lang: 'Java' },
-        { regex: /^(func|package|import)\s+/m, ext: 'go', lang: 'Go' },
-        { regex: /^(fn|use|mod|impl|struct|enum)\s+/m, ext: 'rs', lang: 'Rust' },
-        { regex: /^#include\s+[<"]/m, ext: 'cpp', lang: 'C++' },
-        { regex: /^(SELECT\s+.+\s+FROM|INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|CREATE\s+(TABLE|DATABASE|INDEX|VIEW|SCHEMA|PROCEDURE|FUNCTION)|DROP\s+(TABLE|DATABASE|INDEX|VIEW|SCHEMA)|ALTER\s+TABLE)\s+/im, ext: 'sql', lang: 'SQL' },
-        { regex: /^<!DOCTYPE|^<html|^<\?xml/im, ext: 'html', lang: 'HTML' },
-        { regex: /^\s*[\w-]+\s*:\s*[\w#"']/m, ext: 'css', lang: 'CSS' },
-        { regex: /^(apiVersion|kind|metadata):/m, ext: 'yaml', lang: 'YAML' },
-        { regex: /^\s*\{[\s\S]*"[\w]+"\s*:/m, ext: 'json', lang: 'JSON' },
-        { regex: /^#!\/.*\/(bash|sh|zsh)/m, ext: 'sh', lang: 'Shell' },
-    ];
-
-    for (const pattern of patterns) {
-        if (pattern.regex.test(firstLines)) {
-            return { isCode: true, extension: pattern.ext, language: pattern.lang };
-        }
-    }
-
-    // Check for general code indicators
-    const codeIndicators = [
-        /[{}();].*[{}();]/,  // Multiple brackets/semicolons
-        /^\s{2,}(if|for|while|return|else)/m,  // Indented control flow
-        /\w+\s*\([^)]*\)\s*[{;]/,  // Function calls/definitions
-    ];
-
-    for (const indicator of codeIndicators) {
-        if (indicator.test(firstLines)) {
-            return { isCode: true, extension: 'txt', language: 'Code' };
-        }
-    }
-
-    return { isCode: false, extension: 'txt', language: 'Text' };
-};
-
-/**
  * Generate a filename for the pasted content
  */
-const generateFilename = (text: string): string => {
-    const { extension, language } = detectCodeType(text);
+const generateFilename = (): string => {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-
-    if (extension !== 'txt') {
-        return `pasted-${language.toLowerCase()}-${timestamp}.${extension}`;
-    }
-
-    return `pasted-text-${timestamp}.txt`;
+    return `attached-file-${timestamp}.txt`;
 };
 
 /**
@@ -173,8 +119,8 @@ const handlePaste = async (event: ClipboardEvent) => {
         // Prevent default paste behavior
         event.preventDefault();
 
-        // Generate filename based on content type
-        const filename = generateFilename(pastedText);
+        // Generate generic filename
+        const filename = generateFilename();
 
         // Convert to File and upload
         const file = textToFile(pastedText, filename);
@@ -184,16 +130,15 @@ const handlePaste = async (event: ClipboardEvent) => {
             await chatBoxFileListRef.value.uploadFileFromBlob(file);
         }
 
-        // Get content info for toast message
-        const { language } = detectCodeType(pastedText);
+        // Get line count for toast message
         const lineCount = pastedText.split('\n').length;
 
         // Show toast notification
         showInfoToast(t('Long text converted to file attachment ({lines} lines)', { lines: lineCount }));
 
-        // If textarea is empty, add a helpful prompt
+        // If textarea is empty, add a vague prompt so user can decide what to do
         if (!props.modelValue.trim()) {
-            emit('update:modelValue', t('Analyze the attached {language} content', { language: language.toLowerCase() }));
+            emit('update:modelValue', t('Process this file:'));
         }
     }
     // Otherwise, let normal paste happen

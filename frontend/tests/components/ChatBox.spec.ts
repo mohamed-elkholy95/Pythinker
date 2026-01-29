@@ -64,7 +64,7 @@ describe('ChatBox', () => {
 
     const textarea = wrapper.find('textarea')
     expect(textarea.exists()).toBe(true)
-    expect(textarea.attributes('placeholder')).toBe('Give Manus a task to work on...')
+    expect(textarea.attributes('placeholder')).toBe('Give Pythinker a task to work on...')
   })
 
   it('should emit update:modelValue on input', async () => {
@@ -99,8 +99,8 @@ describe('ChatBox', () => {
       },
     })
 
-    // Stop button has a square div inside
-    const stopButton = wrapper.find('.w-\\[10px\\].h-\\[10px\\]')
+    // Stop button has a stop-icon div inside
+    const stopButton = wrapper.find('.stop-icon')
     expect(stopButton.exists()).toBe(true)
   })
 
@@ -126,16 +126,17 @@ describe('ChatBox', () => {
     const wrapper = mount(ChatBox, {
       props: {
         ...defaultProps,
-        modelValue: 'Some text',
+        modelValue: '',
       },
     })
 
-    // Wait for watcher to update hasTextInput
+    // Update modelValue to trigger the watcher
+    await wrapper.setProps({ modelValue: 'Some text' })
     await wrapper.vm.$nextTick()
 
-    const buttons = wrapper.findAll('button')
-    const sendButton = buttons.find(b => b.classes().includes('cursor-pointer'))
-    expect(sendButton).toBeDefined()
+    // Check for the send button with enabled class
+    const sendButton = wrapper.find('.chatbox-send-btn.enabled')
+    expect(sendButton.exists()).toBe(true)
   })
 
   it('should emit submit when clicking enabled send button', async () => {
@@ -166,17 +167,12 @@ describe('ChatBox', () => {
       },
     })
 
-    // Find the stop button (the one with the square div inside)
-    const buttons = wrapper.findAll('button')
-    const stopButton = buttons.find(b => b.find('.w-\\[10px\\]').exists())
+    // Find the stop button (has chatbox-stop-btn class)
+    const stopButton = wrapper.find('.chatbox-stop-btn')
+    expect(stopButton.exists()).toBe(true)
 
-    if (stopButton) {
-      await stopButton.trigger('click')
-      expect(wrapper.emitted('stop')).toBeTruthy()
-    } else {
-      // If there's no dedicated stop button found, just verify running state
-      expect(wrapper.props('isRunning')).toBe(true)
-    }
+    await stopButton.trigger('click')
+    expect(wrapper.emitted('stop')).toBeTruthy()
   })
 
   it('should handle Enter key to submit', async () => {

@@ -1,7 +1,9 @@
 from typing import AsyncGenerator, Optional, List, TYPE_CHECKING
+from datetime import datetime
 from app.domain.models.plan import Plan, Step, ExecutionStatus
 from app.domain.models.file import FileInfo
 from app.domain.models.message import Message
+from app.domain.models.source_citation import SourceCitation
 from app.domain.services.agents.base import BaseAgent
 from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
@@ -99,6 +101,10 @@ class ExecutionAgent(BaseAgent):
 
         # Context manager for execution continuity (Phase 1)
         self._context_manager = ContextManager(max_context_tokens=8000)
+
+        # Source citation tracking for reports
+        self._collected_sources: List[SourceCitation] = []
+        self._seen_urls: set = set()
     
     async def execute_step(self, plan: Plan, step: Step, message: Message) -> AsyncGenerator[BaseEvent, None]:
         # Store user request for critic context
@@ -202,6 +208,9 @@ class ExecutionAgent(BaseAgent):
                     success = event.function_result.success if event.function_result else True
                     error = event.function_result.message if event.function_result and not success else None
                     self._prompt_adapter.track_tool_use(event.function_name, success=success, error=error)
+
+                    # Track sources from tool events for report bibliography
+                    self._track_sources_from_tool_event(event)
 
                     # Track in context manager (Phase 1)
                     if success and event.function_result:
@@ -322,11 +331,14 @@ class ExecutionAgent(BaseAgent):
 
             if has_attachments or is_substantial or has_title or is_report_structure:
                 title = message_title or self._extract_title(message_content)
+                # Include collected sources in the report
+                sources = self.get_collected_sources() if self._collected_sources else None
                 yield ReportEvent(
                     id=str(uuid.uuid4()),
                     title=title,
                     content=message_content,
-                    attachments=attachments if attachments else None
+                    attachments=attachments if attachments else None,
+                    sources=sources
                 )
             else:
                 yield MessageEvent(message=message_content, attachments=attachments)
@@ -523,4 +535,137 @@ class ExecutionAgent(BaseAgent):
     def clear_context(self) -> None:
         """Clear execution context (use between tasks)."""
         self._context_manager.clear()
+        self._collected_sources = []
+        self._seen_urls = set()
         logger.debug("Cleared execution context")
+
+    # Source Citation Tracking
+    def _track_sources_from_tool_event(self, event: ToolEvent) -> None:
+        """Extract and track source citations from tool events.
+
+        Collects URLs and titles from search results and browser navigation
+        to build a bibliography for the final report.
+
+        Args:
+            event: ToolEvent that completed execution
+        """
+        if not event.function_result or not event.function_result.success:
+            return
+
+        access_time = event.started_at or datetime.now()
+
+        # Extract sources from search results
+        if event.function_name == "info_search_web":
+            self._extract_search_sources(event, access_time)
+
+        # Extract sources from browser navigation
+        elif event.function_name in ["browser_navigate", "browser_get_content", "browser_view"]:
+            self._extract_browser_source(event, access_time)
+
+    def _extract_search_sources(self, event: ToolEvent, access_time: datetime) -> None:
+        """Extract sources from search tool results.
+
+        Args:
+            event: Search tool event
+            access_time: When the search was performed
+        """
+        # Try to get results from tool_content (SearchToolContent)
+        results = []
+        if event.tool_content and hasattr(event.tool_content, 'results'):
+            results = event.tool_content.results or []
+        # Fallback: try to parse from function_result
+        elif event.function_result and hasattr(event.function_result, 'data'):
+            data = event.function_result.data
+            if isinstance(data, dict) and 'results' in data:
+                results = data['results']
+            elif isinstance(data, list):
+                results = data
+
+        for result in results:
+            # Handle both dict and SearchResultItem objects
+            if hasattr(result, 'link'):
+                url = result.link
+                title = result.title
+                snippet = getattr(result, 'snippet', None)
+            elif isinstance(result, dict):
+                url = result.get('link') or result.get('url', '')
+                title = result.get('title', '')
+                snippet = result.get('snippet')
+            else:
+                continue
+
+            if url and url not in self._seen_urls:
+                self._seen_urls.add(url)
+                self._collected_sources.append(SourceCitation(
+                    url=url,
+                    title=title or url,
+                    snippet=snippet[:300] if snippet else None,
+                    access_time=access_time,
+                    source_type="search"
+                ))
+                logger.debug(f"Tracked search source: {title[:50] if title else url[:50]}")
+
+    def _extract_browser_source(self, event: ToolEvent, access_time: datetime) -> None:
+        """Extract source from browser navigation events.
+
+        Args:
+            event: Browser tool event
+            access_time: When the page was accessed
+        """
+        url = event.function_args.get("url", "")
+        if not url or url in self._seen_urls:
+            return
+
+        # Try to extract title from page content or result
+        title = url
+        if event.tool_content and hasattr(event.tool_content, 'content'):
+            content = event.tool_content.content
+            if content:
+                # Try to extract title from HTML/content
+                title = self._extract_title_from_content(content) or url
+
+        self._seen_urls.add(url)
+        self._collected_sources.append(SourceCitation(
+            url=url,
+            title=title,
+            snippet=None,
+            access_time=access_time,
+            source_type="browser"
+        ))
+        logger.debug(f"Tracked browser source: {title[:50]}")
+
+    def _extract_title_from_content(self, content: str) -> Optional[str]:
+        """Extract page title from HTML or text content.
+
+        Args:
+            content: Page content (HTML or text)
+
+        Returns:
+            Extracted title or None
+        """
+        import re
+
+        # Try to find HTML title tag
+        title_match = re.search(r'<title[^>]*>([^<]+)</title>', content, re.IGNORECASE)
+        if title_match:
+            return title_match.group(1).strip()[:200]
+
+        # Try to find first h1 tag
+        h1_match = re.search(r'<h1[^>]*>([^<]+)</h1>', content, re.IGNORECASE)
+        if h1_match:
+            return h1_match.group(1).strip()[:200]
+
+        # Try to find first markdown h1
+        md_h1_match = re.match(r'^#\s+(.+)$', content, re.MULTILINE)
+        if md_h1_match:
+            return md_h1_match.group(1).strip()[:200]
+
+        return None
+
+    def get_collected_sources(self) -> List[SourceCitation]:
+        """Get all collected source citations.
+
+        Returns:
+            List of deduplicated source citations
+        """
+        return self._collected_sources.copy()

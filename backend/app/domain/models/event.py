@@ -6,6 +6,7 @@ from enum import Enum
 from app.domain.models.plan import Plan, Step
 from app.domain.models.file import FileInfo
 from app.domain.models.search import SearchResultItem
+from app.domain.models.source_citation import SourceCitation
 
 
 class PlanStatus(str, Enum):
@@ -227,6 +228,7 @@ class ReportEvent(BaseEvent):
     title: str  # Report title
     content: str  # Markdown content of the report
     attachments: Optional[List[FileInfo]] = None  # Associated files
+    sources: Optional[List[SourceCitation]] = None  # Bibliography/references
 
 
 class StreamEvent(BaseEvent):

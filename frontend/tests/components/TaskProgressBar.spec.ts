@@ -226,7 +226,8 @@ describe('TaskProgressBar', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('thinking')
+    // Component displays "Thinking" with capital T
+    expect(wrapper.text()).toContain('Thinking')
   })
 
   it('should display timer starting at 0:00', () => {
