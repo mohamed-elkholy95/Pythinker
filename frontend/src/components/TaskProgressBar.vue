@@ -72,8 +72,8 @@
 
     <!-- Expanded View -->
     <div v-else class="progress-bar-expanded">
-      <!-- Header -->
-      <div class="expanded-header">
+      <!-- Header (hidden when panel is open above) -->
+      <div v-if="!hideExpandedHeader" class="expanded-header">
         <div class="flex items-start gap-4">
           <!-- Live VNC thumbnail -->
           <div
@@ -127,10 +127,15 @@
       <div class="expanded-content">
         <div class="flex items-center justify-between mb-3">
           <h3 class="text-[13px] font-semibold text-gray-700 dark:text-[#a0a0a0] uppercase tracking-wide">{{ $t('Task progress') }}</h3>
-          <div class="progress-pill-lg">
-            <span class="text-[13px] font-semibold tabular-nums">{{ completedCount }}</span>
-            <span class="text-[11px] text-gray-400 dark:text-[#505050] mx-0.5">/</span>
-            <span class="text-[13px] font-semibold tabular-nums">{{ totalCount }}</span>
+          <div class="flex items-center gap-2">
+            <div class="progress-pill-lg">
+              <span class="text-[13px] font-semibold tabular-nums">{{ completedCount }}</span>
+              <span class="text-[11px] text-gray-400 dark:text-[#505050] mx-0.5">/</span>
+              <span class="text-[13px] font-semibold tabular-nums">{{ totalCount }}</span>
+            </div>
+            <button v-if="hideExpandedHeader" @click="toggleExpand" class="action-btn">
+              <ChevronDown class="w-4 h-4" />
+            </button>
           </div>
         </div>
 
@@ -218,6 +223,8 @@ interface Props {
   thumbnailUrl?: string
   currentTool?: { name: string; function: string; functionArg?: string; status?: string } | null
   toolContent?: ToolContent | null
+  /** Hide the expanded header (when panel is already showing above) */
+  hideExpandedHeader?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -225,7 +232,8 @@ const props = withDefaults(defineProps<Props>(), {
   defaultExpanded: false,
   compact: false,
   thumbnailUrl: '',
-  currentTool: null
+  currentTool: null,
+  hideExpandedHeader: false
 })
 
 const emit = defineEmits<{

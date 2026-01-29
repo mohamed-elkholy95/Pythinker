@@ -13,20 +13,14 @@
         'fixed top-1 start-1 bottom-1 z-[1] border dark:border border-[var(--border-main)] dark:border-[var(--border-light)] rounded-xl shadow-[0px_8px_32px_0px_rgba(0,0,0,0.16),0px_0px_0px_1px_rgba(0,0,0,0.06)] opacity-0 pointer-events-none -translate-x-10': !isLeftPanelShow
       }"
     >
-      <div class="flex">
-        <div class="flex items-center px-3 py-3 flex-row h-[52px] gap-1 justify-end w-full">
-          <div class="flex justify-between w-full px-1 pt-2">
-            <div class="relative flex">
-              <div
-                class="flex h-7 w-7 items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)] rounded-md"
-                @click="toggleLeftPanel">
-                <PanelLeft class="h-5 w-5 text-[var(--icon-secondary)]" />
-              </div>
-            </div>
-          </div>
+      <div class="flex items-center px-4 py-3 h-[56px]">
+        <div
+          class="flex h-8 w-8 items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)] rounded-lg transition-colors"
+          @click="toggleLeftPanel">
+          <PanelLeft class="h-5 w-5 text-[var(--icon-secondary)]" />
         </div>
       </div>
-      <div class="px-3 mb-1 flex justify-center flex-shrink-0">
+      <div class="px-3 mb-2 flex justify-center flex-shrink-0">
         <button @click="handleNewTaskClick" class="new-task-btn">
           <Plus class="h-4 w-4" />
           <span class="new-task-label">
@@ -41,7 +35,7 @@
         </button>
       </div>
       <div class="flex flex-col flex-1 min-h-0">
-        <div v-if="sessions.length > 0" class="flex flex-col flex-1 min-h-0 overflow-auto pt-2 pb-5 overflow-x-hidden">
+        <div v-if="sessions.length > 0" class="flex flex-col flex-1 min-h-0 overflow-auto pt-1 pb-4 px-2 overflow-x-hidden minimal-scrollbar">
           <SessionItem v-for="session in sessions" :key="session.session_id" :session="session"
             @deleted="handleSessionDeleted" />
         </div>
@@ -51,7 +45,7 @@
             <span class="text-sm font-medium">{{ t('Create a task to get started') }}</span></div>
         </div>
       </div>
-      <div class="mt-auto border-t border-[var(--border-light)] p-3">
+      <div class="mt-auto border-t border-[var(--border-light)] p-3 bg-[var(--background-nav)]">
         <div class="flex items-center gap-1 w-full">
           <Popover>
             <PopoverTrigger as-child>
@@ -205,9 +199,8 @@ watch(() => route.path, async (newPath, oldPath) => {
 
 <style scoped>
 /* ===== LEFT PANEL LAYOUT ===== */
-/* CSS custom properties for configurable widths */
 .left-panel-container {
-  --left-panel-width-expanded: 300px;
+  --left-panel-width-expanded: 280px;
   --left-panel-width-collapsed: 24px;
 }
 
@@ -242,18 +235,20 @@ watch(() => route.path, async (newPath, oldPath) => {
   justify-content: center;
   gap: 8px;
   padding: 0 14px;
-  height: 38px;
-  border-radius: 10px;
-  background: var(--bolt-elements-button-primary-background);
-  border: 1px solid var(--bolt-elements-borderColor);
+  height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.05) 100%);
+  border: 1px solid rgba(59, 130, 246, 0.2);
   cursor: pointer;
   transition: all 0.2s ease;
   color: var(--bolt-elements-button-primary-text);
+  font-weight: 500;
 }
 
 .new-task-btn:hover {
-  background: var(--bolt-elements-button-primary-backgroundHover);
-  border-color: var(--bolt-elements-borderColorActive);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.08) 100%);
+  border-color: rgba(59, 130, 246, 0.35);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
 }
 
 .new-task-btn:active {
@@ -269,22 +264,23 @@ watch(() => route.path, async (newPath, oldPath) => {
 .new-task-shortcut {
   display: flex;
   align-items: center;
-  gap: 3px;
-  margin-left: 4px;
+  gap: 2px;
+  margin-left: auto;
+  opacity: 0.7;
 }
 
 .shortcut-key {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 20px;
-  height: 20px;
+  min-width: 18px;
+  height: 18px;
   padding: 0 4px;
-  border-radius: 5px;
+  border-radius: 4px;
   background: var(--bolt-elements-bg-depth-2);
   border: 1px solid var(--bolt-elements-borderColor);
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 10px;
+  font-weight: 600;
   color: var(--bolt-elements-textTertiary);
 }
 </style>

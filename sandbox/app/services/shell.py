@@ -82,7 +82,7 @@ class ShellService:
                     if not buffer:
                         # Process output ended
                         break
-                    
+
                     output = buffer.decode('utf-8')
                     # Add output to shell session
                     shell = self.active_shells.get(session_id)
@@ -93,7 +93,7 @@ class ShellService:
                     break
             else:
                 break
-        
+
         logger.debug(f"Output reader for session {session_id} has finished")
 
     async def exec_command(self, session_id: str, exec_dir: Optional[str], command: str) -> ShellExecResult:

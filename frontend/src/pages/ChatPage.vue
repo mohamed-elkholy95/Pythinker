@@ -2,29 +2,29 @@
   <SimpleBar ref="simpleBarRef" @scroll="handleScroll">
     <div ref="chatContainerRef" class="relative flex flex-col h-full flex-1 min-w-0 px-5">
       <div ref="observerRef"
-        class="sm:min-w-[390px] flex flex-row items-center justify-between pt-3 pb-2 gap-1 sticky top-0 z-10 bg-[var(--background-white-main)] border-b border-[var(--border-main)] flex-shrink-0">
+        class="chat-header sm:min-w-[390px] flex flex-row items-center justify-between py-3 gap-2 sticky top-0 z-10 flex-shrink-0">
         <div class="flex items-center flex-1">
           <div class="relative flex items-center">
             <div @click="toggleLeftPanel" v-if="!isLeftPanelShow"
-              class="flex h-7 w-7 items-center justify-center cursor-pointer rounded-md hover:bg-[var(--fill-tsp-gray-main)]">
+              class="flex h-8 w-8 items-center justify-center cursor-pointer rounded-lg hover:bg-[var(--fill-tsp-gray-main)] transition-colors">
               <PanelLeft class="size-5 text-[var(--icon-secondary)]" />
             </div>
           </div>
         </div>
-        <div class="max-w-full sm:max-w-[768px] sm:min-w-[390px] flex w-full flex-col gap-[6px] overflow-hidden">
+        <div class="max-w-full sm:max-w-[768px] sm:min-w-[390px] flex w-full flex-col overflow-hidden">
           <div
-            class="text-[var(--text-primary)] text-lg font-medium w-full flex flex-row items-center justify-between flex-1 min-w-0 gap-2">
-            <div class="flex flex-row items-center gap-[6px] flex-1 min-w-0">
-              <span class="whitespace-nowrap text-ellipsis overflow-hidden">
+            class="text-[var(--text-primary)] text-base font-medium w-full flex flex-row items-center justify-between flex-1 min-w-0 gap-3">
+            <div class="flex flex-row items-center gap-2 flex-1 min-w-0">
+              <span class="whitespace-nowrap text-ellipsis overflow-hidden leading-relaxed">
                 {{ title }}
               </span>
             </div>
-            <div class="flex items-center gap-2 flex-shrink-0">
+            <div class="flex items-center gap-1 flex-shrink-0">
               <span class="relative flex-shrink-0" aria-expanded="false" aria-haspopup="dialog">
                 <Popover>
                   <PopoverTrigger>
                     <button
-                      class="h-8 px-3 rounded-[100px] inline-flex items-center gap-1 clickable outline outline-1 outline-offset-[-1px] outline-[var(--border-btn-main)] hover:bg-[var(--fill-tsp-white-light)] me-1.5">
+                      class="h-8 px-3 rounded-lg inline-flex items-center gap-1.5 clickable border border-[var(--border-main)] hover:border-[var(--border-dark)] hover:bg-[var(--fill-tsp-white-main)] transition-all">
                       <ShareIcon color="var(--icon-secondary)" />
                       <span class="text-[var(--text-secondary)] text-sm font-medium">{{ t('Share') }}</span>
                     </button>
@@ -90,12 +90,10 @@
                 </Popover>
               </span>
               <button @click="handleFileListShow"
-                class="p-[5px] flex items-center justify-center hover:bg-[var(--bolt-elements-item-backgroundActive)] rounded-lg cursor-pointer">
+                class="h-8 w-8 flex items-center justify-center hover:bg-[var(--fill-tsp-gray-main)] rounded-lg cursor-pointer transition-colors">
                 <FileSearch class="text-[var(--icon-secondary)]" :size="18" />
               </button>
             </div>
-          </div>
-          <div class="w-full flex justify-between items-center">
           </div>
         </div>
         <div class="flex-1"></div>
@@ -161,7 +159,6 @@
         </div>
 
         <div class="flex flex-col sticky bottom-0">
-          <div class="absolute inset-0 bg-[var(--background-white-main)] dark:bg-[var(--bolt-elements-bg-depth-2)] -z-10" style="mask-image: linear-gradient(to top, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to top, black 85%, transparent 100%);"></div>
           <button @click="handleFollow" v-if="!follow"
             class="flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[var(--background-white-main)] hover:bg-[var(--background-gray-main)] clickable border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)] absolute -top-20 left-1/2 -translate-x-1/2">
             <ArrowDown class="text-[var(--icon-primary)]" :size="20" />
@@ -183,7 +180,7 @@
 
           <!-- Task Progress Bar - shown above ChatBox when ToolPanel is closed -->
           <TaskProgressBar
-            v-if="!isToolPanelOpen && plan && plan.steps.length > 0"
+            v-if="!isToolPanelOpen && (plan?.steps?.length > 0 || lastNoMessageTool)"
             :plan="plan"
             :isLoading="isLoading"
             :isThinking="isThinking"
@@ -521,15 +518,15 @@ const isComputerTool = (tool?: ToolContent | null) => {
 const shouldShowThumbnail = computed(() => {
   if (isToolPanelOpen.value) return false;
   if (!sessionId.value) return false;
-  // Show thumbnail when there's a screenshot URL available or when there's an active plan/loading
-  return !!currentThumbnailUrl.value || !!plan.value?.steps?.length || isLoading.value || isPlanCompleted.value;
+  // Show live VNC thumbnail when there's an active plan, loading, or tool activity
+  return !!plan.value?.steps?.length || isLoading.value || isPlanCompleted.value || !!lastNoMessageTool.value;
 });
 
 const isPlanCompleted = computed(() => {
   return !!plan.value?.steps?.length && plan.value.steps.every(step => step.status === 'completed');
 });
 
-// Get current thumbnail URL from tool content or VNC screenshot
+// Get current thumbnail URL from tool content screenshot
 const currentThumbnailUrl = computed(() => {
   const tool = lastNoMessageTool.value;
   // Prefer tool screenshot if available, otherwise use VNC thumbnail from composable
@@ -1220,6 +1217,30 @@ const handleCopyLink = async () => {
 </script>
 
 <style scoped>
+/* ===== CHAT HEADER ===== */
+.chat-header {
+  background: var(--background-white-main);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.chat-header::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--border-main) 10%,
+    var(--border-main) 90%,
+    transparent 100%
+  );
+  opacity: 0.6;
+}
+
 /* 120-degree diagonal shimmer text effect */
 .thinking-text-shimmer {
   background: linear-gradient(

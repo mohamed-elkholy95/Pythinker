@@ -188,61 +188,61 @@ export interface ContentConfig {
  */
 export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
   shell: {
-    primaryView: 'vnc',
-    secondaryView: 'terminal',
-    tabLabels: ['Screen', 'Output'],
+    primaryView: 'terminal',  // Show terminal output directly
+    secondaryView: 'vnc',
+    tabLabels: [],
     defaultView: 'primary',
-    showTabs: true
+    showTabs: false  // No toggle buttons
   },
   browser: {
-    primaryView: 'vnc',
+    primaryView: 'vnc',  // Show browser in VNC
     secondaryView: 'terminal',
-    tabLabels: ['Screen', 'Output'],
+    tabLabels: [],
     defaultView: 'primary',
-    showTabs: true
+    showTabs: false
   },
   browser_agent: {
     primaryView: 'vnc',
     secondaryView: 'terminal',
-    tabLabels: ['Screen', 'Output'],
+    tabLabels: [],
     defaultView: 'primary',
-    showTabs: true
+    showTabs: false
   },
   browsing: {
     primaryView: 'vnc',
     secondaryView: 'terminal',
-    tabLabels: ['Screen', 'Output'],
+    tabLabels: [],
     defaultView: 'primary',
-    showTabs: true
+    showTabs: false
   },
   code_executor: {
-    primaryView: 'vnc',
-    secondaryView: 'terminal',
-    tabLabels: ['Screen', 'Output'],
+    primaryView: 'terminal',  // Show code output directly
+    secondaryView: 'vnc',
+    tabLabels: [],
     defaultView: 'primary',
-    showTabs: true
+    showTabs: false
   },
   file: {
     primaryView: 'editor',
-    secondaryView: 'editor',  // original
-    tertiaryView: 'editor',   // diff
-    tabLabels: ['Modified', 'Original', 'Diff'],
+    secondaryView: 'editor',
+    tertiaryView: 'editor',
+    tabLabels: [],
     defaultView: 'primary',
-    showTabs: true
+    showTabs: false
   },
   search: {
-    primaryView: 'vnc',
-    secondaryView: 'search',
-    tabLabels: ['Screen', 'Results'],
+    primaryView: 'search',  // Show search results directly
+    secondaryView: 'vnc',
+    tabLabels: [],
     defaultView: 'primary',
-    showTabs: true
+    showTabs: false
   },
   info: {
-    primaryView: 'vnc',
-    secondaryView: 'search',
-    tabLabels: ['Screen', 'Results'],
+    primaryView: 'search',  // Show results directly
+    secondaryView: 'vnc',
+    tabLabels: [],
     defaultView: 'primary',
-    showTabs: true
+    showTabs: false
   },
   mcp: {
     primaryView: 'generic',
