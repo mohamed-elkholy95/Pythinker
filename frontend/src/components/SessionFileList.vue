@@ -1,33 +1,72 @@
 <template>
-    <div class="absolute z-[1000] pointer-events-auto" v-if="visible">
-        <div class="w-full h-full bg-black/60 backdrop-blur-[4px] fixed inset-0 data-[state=open]:animate-dialog-bg-fade-in data-[state=closed]:animate-dialog-bg-fade-out"
-            style="position: fixed; overflow: auto; inset: 0px;" @click="hideSessionFileList"></div>
-        <div role="dialog"
-            class="bg-[var(--background-menu-white)] rounded-[20px] border border-white/5 fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 max-w-[95%] max-h-[95%] overflow-hidden data-[state=open]:animate-dialog-slide-in-from-bottom data-[state=closed]:animate-dialog-slide-out-to-bottom h-[680px] flex flex-col"
-            style="width: 600px;">
-            <!-- Header -->
-            <header class="flex items-center justify-between pt-6 pr-6 pl-6 pb-4 flex-shrink-0">
-                <h1 class="text-[var(--text-primary)] text-lg font-semibold">{{ $t('All files in this task') }}</h1>
-                <div class="flex items-center gap-2">
+    <Dialog v-model:open="visible">
+        <DialogContent
+            :hide-close-button="true"
+            :title="previewFile ? previewFile.filename : $t('All files in this task')"
+            description="View and download session files"
+            :class="cn(
+                'p-0 flex flex-col overflow-hidden transition-all duration-200',
+                'bg-[var(--background-white-main)]',
+                previewFile
+                    ? 'w-[95vw] max-w-[900px] h-[85vh] max-h-[800px]'
+                    : 'w-[95vw] max-w-[600px] h-[680px]'
+            )"
+        >
+            <!-- Header Bar -->
+            <div class="modal-header">
+                <div class="header-left">
                     <button
-                        class="flex h-8 w-8 items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)] rounded-lg disabled:opacity-50"
+                        v-if="previewFile"
+                        class="action-btn"
+                        @click="closePreview"
+                        :title="$t('Back')"
+                    >
+                        <ArrowLeft class="w-5 h-5" />
+                    </button>
+                    <div v-if="previewFile" class="header-icon">
+                        <component :is="getFileIconComponent(previewFile.filename)" class="w-5 h-5 text-white" />
+                    </div>
+                    <div class="header-info">
+                        <h2 class="header-title">
+                            {{ previewFile ? previewFile.filename : $t('All files in this task') }}
+                        </h2>
+                    </div>
+                </div>
+                <div class="header-actions">
+                    <button
+                        v-if="previewFile"
+                        class="action-btn"
+                        @click="downloadFile(previewFile)"
+                        :title="$t('Download')"
+                    >
+                        <Download class="w-5 h-5" />
+                    </button>
+                    <button
+                        v-if="!previewFile"
+                        class="action-btn"
                         @click="downloadAllFiles"
                         :disabled="isDownloadingZip || filteredFiles.length === 0"
                         :title="$t('Download all as ZIP')"
                     >
-                        <FolderDown class="size-5 text-[var(--icon-tertiary)]" />
+                        <FolderDown class="w-5 h-5" />
                     </button>
                     <button
-                        class="flex h-8 w-8 items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)] rounded-lg"
-                        @click="hideSessionFileList"
+                        class="action-btn"
+                        @click="visible = false"
+                        :title="$t('Close')"
                     >
-                        <X class="size-5 text-[var(--icon-tertiary)]" />
+                        <X class="w-5 h-5" />
                     </button>
                 </div>
-            </header>
+            </div>
+
+            <!-- File Preview -->
+            <div v-if="previewFile" class="flex-1 min-h-0 overflow-hidden flex flex-col">
+                <component :is="getPreviewComponent(previewFile.filename)" :file="previewFile" class="flex-1 min-h-0" />
+            </div>
 
             <!-- Filter Tabs -->
-            <div class="px-6 pb-4 flex-shrink-0">
+            <div v-if="!previewFile" class="px-6 py-4 flex-shrink-0">
                 <div class="flex gap-2 flex-wrap">
                     <button
                         v-for="tab in filterTabs"
@@ -46,7 +85,7 @@
             </div>
 
             <!-- File List -->
-            <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <div v-if="!previewFile" class="flex-1 min-h-0 flex flex-col overflow-hidden">
                 <div v-if="filteredFiles.length > 0" class="flex-1 min-h-0 overflow-auto px-3 pb-4">
                     <!-- Grouped by date -->
                     <div v-for="group in groupedFiles" :key="group.label" class="mb-4">
@@ -92,7 +131,7 @@
                                         <PopoverContent class="w-48 p-1" align="end">
                                             <button
                                                 class="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-md"
-                                                @click="previewFile(file)"
+                                                @click="openPreview(file)"
                                             >
                                                 <Eye class="size-4" />
                                                 {{ $t('Preview') }}
@@ -129,12 +168,12 @@
                     </p>
                 </div>
             </div>
-        </div>
-    </div>
+        </DialogContent>
+    </Dialog>
 </template>
 
 <script setup lang="ts">
-import { X, Download, MoreHorizontal, Eye, Link, FileText, FileCode, FileImage, FileArchive, File, FolderDown, FileQuestion, Globe } from 'lucide-vue-next';
+import { X, Download, MoreHorizontal, Eye, Link, FileText, FileCode, FileImage, FileArchive, File, FolderDown, FileQuestion, Globe, ArrowLeft } from 'lucide-vue-next';
 import { ref, watch, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
@@ -142,18 +181,20 @@ import type { FileInfo } from '../api/file';
 import { getFileDownloadUrl, downloadFilesAsZip } from '../api/file';
 import { getSessionFiles, getSharedSessionFiles } from '../api/agent';
 import { useSessionFileList } from '../composables/useSessionFileList';
-import { useFilePanel } from '../composables/useFilePanel';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { cn } from '@/lib/utils';
 import { showSuccessToast, showErrorToast } from '../utils/toast';
+import { getFileType } from '../utils/fileType';
 
 const { t } = useI18n();
 const route = useRoute();
 const files = ref<FileInfo[]>([]);
 const activeFilter = ref<string>('all');
 const isDownloadingZip = ref(false);
+const previewFile = ref<FileInfo | null>(null);
 
-const { showFilePanel } = useFilePanel();
-const { visible, hideSessionFileList, shared } = useSessionFileList();
+const { visible, shared } = useSessionFileList();
 
 // Filter tab definitions
 const filterTabs = computed(() => [
@@ -352,14 +393,20 @@ const downloadAllFiles = async () => {
     }
 };
 
-const previewFile = (file: FileInfo) => {
-    showFilePanel(file);
-    hideSessionFileList();
+const openPreview = (file: FileInfo) => {
+    previewFile.value = file;
+};
+
+const closePreview = () => {
+    previewFile.value = null;
+};
+
+const getPreviewComponent = (filename: string) => {
+    return getFileType(filename).preview;
 };
 
 const showFile = (file: FileInfo) => {
-    showFilePanel(file);
-    hideSessionFileList();
+    openPreview(file);
 };
 
 const copyFileLink = async (file: FileInfo) => {
@@ -371,10 +418,114 @@ const copyFileLink = async (file: FileInfo) => {
 watch(visible, (newVisible) => {
     if (newVisible) {
         activeFilter.value = 'all'; // Reset filter when opening
+        previewFile.value = null; // Reset preview when opening
         const sessionId = route.params.sessionId as string;
         if (sessionId) {
             fetchFiles(sessionId);
         }
+    } else {
+        previewFile.value = null; // Reset preview when closing
     }
 });
 </script>
+
+<style scoped>
+/* ===== HEADER ===== */
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-light);
+    background: var(--background-white-main);
+    flex-shrink: 0;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    flex: 1;
+}
+
+.header-icon {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #4285f4 0%, #1a73e8 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.header-info {
+    min-width: 0;
+    flex: 1;
+}
+
+.header-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin: 0;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.action-btn {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    color: var(--icon-tertiary);
+    transition: all 0.15s ease;
+}
+
+.action-btn:hover {
+    background: var(--fill-tsp-gray-main);
+    color: var(--icon-secondary);
+}
+
+.action-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ===== SCROLLBAR ===== */
+:deep(.overflow-auto)::-webkit-scrollbar,
+:deep(.overflow-y-auto)::-webkit-scrollbar,
+:deep(.overflow-y-scroll)::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+:deep(.overflow-auto)::-webkit-scrollbar-track,
+:deep(.overflow-y-auto)::-webkit-scrollbar-track,
+:deep(.overflow-y-scroll)::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+:deep(.overflow-auto)::-webkit-scrollbar-thumb,
+:deep(.overflow-y-auto)::-webkit-scrollbar-thumb,
+:deep(.overflow-y-scroll)::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 3px;
+}
+
+:deep(.overflow-auto)::-webkit-scrollbar-thumb:hover,
+:deep(.overflow-y-auto)::-webkit-scrollbar-thumb:hover,
+:deep(.overflow-y-scroll)::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.3);
+}
+</style>

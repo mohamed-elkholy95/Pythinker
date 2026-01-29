@@ -1,7 +1,7 @@
 <template>
-    <div class="relative overflow-auto flex-1 min-h-0 p-5">
-        <div class="relative w-full max-w-[768px] mx-auto" style="min-height: calc(-200px + 100vh);">
-            <div class="prose prose-gray max-w-none dark:prose-invert" 
+    <div class="markdown-preview-scroll relative overflow-y-scroll h-full p-5">
+        <div class="relative w-full max-w-[768px] mx-auto">
+            <div class="prose prose-gray max-w-none dark:prose-invert"
                  v-html="renderedContent">
             </div>
         </div>
@@ -51,3 +51,28 @@ watch(() => props.file.file_id, async (fileId) => {
     }
 }, { immediate: true });
 </script>
+
+<style scoped>
+.markdown-preview-scroll::-webkit-scrollbar {
+    width: 6px;
+}
+
+.markdown-preview-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.markdown-preview-scroll::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 3px;
+}
+
+.markdown-preview-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.3);
+}
+
+/* Firefox */
+.markdown-preview-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+</style>
