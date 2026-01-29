@@ -514,7 +514,17 @@ class StuckDetector:
         if len(self._tool_action_history) < 3:
             return None
 
-        # Check patterns in order of severity
+        # Check browser-specific patterns first (more specific)
+        if analysis := self._detect_browser_same_page_loop():
+            return analysis
+
+        if analysis := self._detect_browser_scroll_no_progress():
+            return analysis
+
+        if analysis := self._detect_browser_click_failures():
+            return analysis
+
+        # Check generic patterns in order of severity
         if analysis := self._detect_action_error_loop():
             return analysis
 
@@ -525,16 +535,6 @@ class StuckDetector:
             return analysis
 
         if analysis := self._detect_tool_failure_cascade():
-            return analysis
-
-        # Browser-specific patterns
-        if analysis := self._detect_browser_same_page_loop():
-            return analysis
-
-        if analysis := self._detect_browser_scroll_no_progress():
-            return analysis
-
-        if analysis := self._detect_browser_click_failures():
             return analysis
 
         return None
