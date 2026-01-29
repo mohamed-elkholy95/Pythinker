@@ -192,16 +192,18 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
     showTabs: true
   },
   search: {
-    primaryView: 'search',
-    tabLabels: [],
+    primaryView: 'vnc',
+    secondaryView: 'search',
+    tabLabels: ['Screen', 'Results'],
     defaultView: 'primary',
-    showTabs: false
+    showTabs: true
   },
   info: {
-    primaryView: 'search',
-    tabLabels: [],
+    primaryView: 'vnc',
+    secondaryView: 'search',
+    tabLabels: ['Screen', 'Results'],
     defaultView: 'primary',
-    showTabs: false
+    showTabs: true
   },
   mcp: {
     primaryView: 'generic',

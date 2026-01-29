@@ -22,7 +22,7 @@
         </div>
       </div>
     </div>
-    <div class="float-right transition text-[12px] text-[var(--text-tertiary)] invisible group-hover:visible">
+    <div class="transition text-[12px] text-[var(--text-tertiary)] invisible group-hover:visible">
       {{ relativeTime(tool.timestamp) }}
     </div>
   </div>

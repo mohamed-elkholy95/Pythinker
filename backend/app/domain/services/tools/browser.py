@@ -135,7 +135,14 @@ Much faster than browser_navigate for read-only pages. Falls back to browser_nav
     
     @tool(
         name="browser_navigate",
-        description="Navigate browser to specified URL. Use when accessing new pages is needed.",
+        description="""Navigate browser to URL with automatic content loading.
+
+AUTOMATIC BEHAVIOR (faster response, fewer tool calls):
+- Scrolls page to load lazy content
+- Extracts page content immediately
+- Returns interactive elements + full content in single call
+
+Returns: Interactive elements, page content, title, URL - ready to use without additional calls.""",
         parameters={
             "url": {
                 "type": "string",
@@ -145,13 +152,13 @@ Much faster than browser_navigate for read-only pages. Falls back to browser_nav
         required=["url"]
     )
     async def browser_navigate(self, url: str) -> ToolResult:
-        """Navigate browser to specified URL
-        
+        """Navigate browser to specified URL with automatic content extraction
+
         Args:
             url: Complete URL address, must include protocol prefix
-            
+
         Returns:
-            Navigation result
+            Navigation result with interactive elements and page content
         """
         return await self.browser.navigate(url)
     
@@ -441,11 +448,136 @@ Much faster than browser_navigate for read-only pages. Falls back to browser_nav
         max_lines: Optional[int] = None
     ) -> ToolResult:
         """View browser console output
-        
+
         Args:
             max_lines: (Optional) Maximum number of log lines to return
-            
+
         Returns:
             Console output
         """
-        return await self.browser.console_view(max_lines) 
+        return await self.browser.console_view(max_lines)
+
+    @tool(
+        name="browsing",
+        description="""Execute complex multi-step browsing task autonomously using AI.
+
+WHEN TO USE:
+- Complex workflows: research, comparison shopping, multi-page navigation
+- Form filling with contextual understanding
+- Data extraction across multiple pages
+- When user wants to "watch" autonomous browsing in VNC
+
+AUTOMATIC CAPABILITIES:
+- Navigates pages intelligently
+- Scrolls to find elements
+- Clicks buttons and links
+- Fills forms with context awareness
+- Extracts and processes data
+- Handles pagination and multi-step flows
+
+ALL ACTIONS VISIBLE IN REAL-TIME VIA VNC
+
+Examples:
+- "Search Amazon for wireless keyboards, filter by 4+ stars, extract top 3 products"
+- "Go to httpbin.org/forms/post and fill the form with test data"
+- "Research Python async tutorials, visit top 3 sites, summarize key concepts"
+""",
+        parameters={
+            "task": {
+                "type": "string",
+                "description": "Natural language description of the browsing task. Be specific about what to search, filter, extract, or do."
+            },
+            "max_steps": {
+                "type": "integer",
+                "description": "Maximum autonomous actions before stopping. Default: 20. Range: 5-50. Use higher for complex multi-page tasks."
+            }
+        },
+        required=["task"]
+    )
+    async def browsing(
+        self,
+        task: str,
+        max_steps: Optional[int] = 20
+    ) -> ToolResult:
+        """Execute autonomous browsing task with natural language instruction
+
+        Args:
+            task: Natural language task description
+            max_steps: Maximum autonomous actions (default: 20, range: 5-50)
+
+        Returns:
+            Execution results with actions taken and final output
+        """
+        try:
+            # Lazy import to avoid circular dependencies
+            from app.infrastructure.external.browser.browseruse_browser import (
+                BrowserUseService,
+                is_browser_use_available
+            )
+
+            # Check if browser-use is available
+            if not is_browser_use_available():
+                return ToolResult(
+                    success=False,
+                    message="Browser-use library not installed. Install with: pip install browser-use>=0.11.0"
+                )
+
+            # Validate max_steps range
+            if max_steps is not None:
+                max_steps = max(5, min(50, max_steps))
+            else:
+                max_steps = 20
+
+            # Get or create browser-use service
+            if not hasattr(self.browser, 'browseruse_service'):
+                # Get CDP URL from existing browser
+                cdp_url = getattr(self.browser, 'cdp_url', 'http://localhost:9222')
+
+                # Create browser-use service
+                self.browser.browseruse_service = BrowserUseService(cdp_url=cdp_url)
+                await self.browser.browseruse_service.initialize()
+
+                logger.info("Initialized browser-use service for autonomous browsing")
+
+            # Execute autonomous task
+            logger.info(f"Executing autonomous task (max_steps={max_steps}): {task}")
+
+            result = await self.browser.browseruse_service.execute_autonomous_task(
+                task=task,
+                max_steps=max_steps
+            )
+
+            if result["success"]:
+                # Format successful result
+                actions_summary = "\n".join([
+                    f"Step {action['step']}: {action['action']}"
+                    for action in result["actions"][:10]  # Show first 10 steps
+                ])
+
+                if len(result["actions"]) > 10:
+                    actions_summary += f"\n... and {len(result['actions']) - 10} more steps"
+
+                return ToolResult(
+                    success=True,
+                    message=f"Autonomous task completed in {result['total_steps']} steps",
+                    data={
+                        "final_result": result["final_result"],
+                        "total_steps": result["total_steps"],
+                        "actions_summary": actions_summary,
+                        "model_used": result.get("model_used", "gpt-4o-mini"),
+                        "all_actions": result["actions"]  # Full action history
+                    }
+                )
+            else:
+                # Task failed
+                return ToolResult(
+                    success=False,
+                    message=f"Autonomous task failed: {result.get('error', 'Unknown error')}"
+                )
+
+        except Exception as e:
+            logger.error(f"browsing failed: {e}", exc_info=True)
+            return ToolResult(
+                success=False,
+                message=f"Failed to execute autonomous task: {str(e)}"
+            ) 

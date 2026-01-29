@@ -275,7 +275,7 @@ const handleSSEAuthError = async <T = any>(
 };
 
 /**
- * Generic SSE connection function
+ * Generic SSE connection function with automatic reconnection
  * @param endpoint - API endpoint (relative to BASE_URL)
  * @param options - Request options
  * @param callbacks - Event callbacks
@@ -313,7 +313,22 @@ export const createSSEConnection = async <T = any>(
   // Track if the initial message has been sent to prevent duplicate submissions on retry
   let messageSent = false;
 
-  // Create SSE connection
+  // Retry configuration
+  let retryCount = 0;
+  const maxRetries = 5;
+  const baseDelay = 1000; // 1 second
+  const maxDelay = 30000; // 30 seconds
+  let reconnectTimeout: NodeJS.Timeout | null = null;
+  let isConnected = false;
+
+  // Calculate exponential backoff delay
+  const getRetryDelay = (attempt: number): number => {
+    const delay = Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
+    // Add jitter to prevent thundering herd
+    return delay + Math.random() * 1000;
+  };
+
+  // Create SSE connection with retry logic
   const createConnection = async (): Promise<void> => {
     return new Promise((_resolve, reject) => {
       if (abortController.signal.aborted) {
@@ -352,10 +367,26 @@ export const createSSEConnection = async <T = any>(
             return;
           }
 
+          // Handle rate limiting - don't retry immediately
+          if (response.status === 429) {
+            console.warn('Rate limit exceeded. Waiting 60 seconds before retry...');
+            // Stop retrying for rate limit - user should refresh or wait
+            if (onError) {
+              onError(new Error('Rate limit exceeded. Please wait a moment and try again.'));
+            }
+            // Abort connection to prevent retry loop
+            abortController.abort();
+            return;
+          }
+
           // Check for other error status codes
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
           }
+
+          // Connection successful - reset retry counter
+          retryCount = 0;
+          isConnected = true;
 
           if (onOpen) {
             onOpen();
@@ -372,17 +403,50 @@ export const createSSEConnection = async <T = any>(
           }
         },
         onclose() {
+          isConnected = false;
           if (onClose) {
             onClose();
           }
+
+          // Attempt reconnection if not manually aborted
+          if (!abortController.signal.aborted && retryCount < maxRetries) {
+            const delay = getRetryDelay(retryCount);
+            console.log(`SSE connection closed. Reconnecting in ${Math.round(delay / 1000)}s... (attempt ${retryCount + 1}/${maxRetries})`);
+            retryCount++;
+
+            reconnectTimeout = setTimeout(() => {
+              createConnection().catch(console.error);
+            }, delay);
+          } else if (retryCount >= maxRetries) {
+            console.error('SSE max reconnection attempts reached. Please refresh the page.');
+            if (onError) {
+              onError(new Error('Max reconnection attempts reached'));
+            }
+          }
         },
         onerror(err: any) {
+          isConnected = false;
           const error = err instanceof Error ? err : new Error(String(err));
           console.error('EventSource error:', error);
-          
-          if (onError) {
+
+          // Attempt reconnection on network errors if not manually aborted
+          if (!abortController.signal.aborted && retryCount < maxRetries) {
+            const delay = getRetryDelay(retryCount);
+            console.log(`SSE connection error. Retrying in ${Math.round(delay / 1000)}s... (attempt ${retryCount + 1}/${maxRetries})`);
+            retryCount++;
+
+            reconnectTimeout = setTimeout(() => {
+              createConnection().catch(console.error);
+            }, delay);
+          } else if (retryCount >= maxRetries) {
+            console.error('SSE max reconnection attempts reached. Please refresh the page.');
+            if (onError) {
+              onError(new Error('Max reconnection attempts reached'));
+            }
+          } else if (onError) {
             onError(error);
           }
+
           reject(error);
         },
       });
@@ -398,6 +462,11 @@ export const createSSEConnection = async <T = any>(
   });
 
   return () => {
+    // Cancel any pending reconnection attempts
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout);
+      reconnectTimeout = null;
+    }
     abortController.abort();
   };
 }; 

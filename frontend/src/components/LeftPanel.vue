@@ -52,33 +52,39 @@
             <span class="text-sm font-medium">{{ t('Create a task to get started') }}</span></div>
         </div>
       </div>
-      <div class="mt-auto px-3 pb-3 pt-2">
-        <div class="flex items-center gap-2 rounded-xl border border-[var(--border-light)] bg-[var(--bolt-elements-bg-depth-2)] px-2 py-1">
-          <button
-            class="flex h-8 w-8 items-center justify-center rounded-md hover:bg-[var(--fill-tsp-gray-main)]"
-            @click="openSettingsDialog('settings')"
-            aria-label="Open settings"
-          >
-            <Settings2 class="h-4 w-4 text-[var(--icon-secondary)]" />
-          </button>
+      <div class="mt-auto border-t border-[var(--border-light)] p-3">
+        <div class="flex items-center gap-1 w-full">
           <Popover>
             <PopoverTrigger as-child>
               <button
-                class="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-[var(--fill-tsp-gray-main)] min-w-0"
+                class="group flex flex-1 items-center gap-3 rounded-lg p-2 text-start hover:bg-[var(--fill-tsp-gray-main)] transition-colors min-w-0 outline-none"
                 aria-label="Open user menu"
               >
-                <span class="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--bolt-elements-item-contentAccent)] text-white text-sm font-semibold">
+                <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--bolt-elements-item-contentAccent)] text-white text-sm font-semibold shadow-sm">
                   {{ avatarLetter }}
                 </span>
-                <span class="text-xs font-medium text-[var(--text-primary)] truncate min-w-0">
-                  {{ currentUser?.fullname || t('Account') }}
-                </span>
+                <div class="flex flex-col min-w-0 overflow-hidden">
+                  <span class="truncate text-sm font-medium text-[var(--text-primary)]">
+                    {{ currentUser?.fullname || t('Account') }}
+                  </span>
+                  <span v-if="currentUser?.email" class="truncate text-xs text-[var(--text-tertiary)]">
+                    {{ currentUser?.email }}
+                  </span>
+                </div>
               </button>
             </PopoverTrigger>
-            <PopoverContent side="top" align="start" :side-offset="8" class="p-0 border-0 bg-transparent shadow-none">
+            <PopoverContent side="top" align="start" :side-offset="12" class="p-0 border-0 bg-transparent shadow-none">
               <UserMenu />
             </PopoverContent>
           </Popover>
+
+          <button
+            class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--icon-tertiary)] hover:bg-[var(--fill-tsp-gray-main)] hover:text-[var(--text-primary)] transition-colors"
+            @click="openSettingsDialog('settings')"
+            aria-label="Open settings"
+          >
+            <Settings2 class="h-4 w-4" />
+          </button>
         </div>
       </div>
     </div>
@@ -184,7 +190,16 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
 })
 
-watch(() => route.path, async () => {
-  await updateSessions()
+// Only update sessions when navigating to/from chat pages (not on every route change)
+// The SSE connection will handle real-time updates
+watch(() => route.path, async (newPath, oldPath) => {
+  // Only update if moving between different session pages or to/from home
+  const isSessionChange =
+    newPath.startsWith('/chat/') !== oldPath?.startsWith('/chat/') ||
+    (newPath === '/' && oldPath !== '/');
+
+  if (isSessionChange) {
+    await updateSessions();
+  }
 })
 </script>

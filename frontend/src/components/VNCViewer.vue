@@ -1,24 +1,17 @@
 <template>
-  <div class="vnc-wrapper" style="position: relative; width: 100%; height: 100%;">
-    <!-- Loading overlay -->
-    <div v-if="!isConnected" class="loading-overlay">
-      <div class="loading-content">
-        <div class="loading-shape" :class="currentShape"></div>
-        <span class="loading-text">Connecting</span>
-      </div>
+  <div ref="wrapperRef" class="vnc-wrapper">
+    <!-- Loading state -->
+    <div v-if="isLoading" class="vnc-loading">
+      <div class="vnc-loading-spinner"></div>
+      <span class="vnc-loading-text">{{ statusText }}</span>
     </div>
-    <!-- VNC container -->
-    <div
-      ref="vncContainer"
-      class="vnc-container"
-      :class="{ 'vnc-viewonly': props.viewOnly }"
-      style="width: 100%; height: 100%; overflow: hidden; background: rgb(40, 40, 40);">
-    </div>
+    <!-- VNC renders inside this container -->
+    <div ref="vncContainer" class="vnc-screen"></div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onBeforeUnmount, onMounted, onUnmounted, watch } from 'vue';
+import { ref, onBeforeUnmount, watch, onMounted } from 'vue';
 import { getVNCUrl } from '@/api/agent';
 
 const props = defineProps<{
@@ -33,199 +26,167 @@ const emit = defineEmits<{
   credentialsRequired: [];
 }>();
 
+const wrapperRef = ref<HTMLDivElement | null>(null);
 const vncContainer = ref<HTMLDivElement | null>(null);
-const isConnected = ref(false);
+const isLoading = ref(false);
+const statusText = ref('Connecting...');
+
 let rfb: any = null;
-const isConnecting = ref(false);
-const reconnectAttempts = ref(0);
-const suspendForTakeover = ref(false);
-let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-let lastSessionId = '';
+let RFBClass: any = null;
+let isConnecting = false;
+let connectionId = 0;
 
-// Morphing shape animation
-const shapes = ['circle', 'diamond', 'cube'] as const;
-type Shape = typeof shapes[number];
-const currentShapeIndex = ref(0);
-const currentShape = ref<Shape>('circle');
-let shapeIntervalId: ReturnType<typeof setInterval> | null = null;
+// Load RFB module dynamically
+async function loadRFB(): Promise<any> {
+  if (RFBClass) return RFBClass;
 
-onMounted(() => {
-  shapeIntervalId = setInterval(() => {
-    currentShapeIndex.value = (currentShapeIndex.value + 1) % shapes.length;
-    currentShape.value = shapes[currentShapeIndex.value];
-  }, 800);
-});
-
-onUnmounted(() => {
-  if (shapeIntervalId) {
-    clearInterval(shapeIntervalId);
+  try {
+    const module = await import('@novnc/novnc/lib/rfb');
+    RFBClass = module.default || module.RFB || module;
+    console.log('[VNC] RFB loaded from npm');
+    return RFBClass;
+  } catch (e) {
+    console.warn('[VNC] npm import failed, trying CDN:', e);
+    const module = await import(/* @vite-ignore */ 'https://cdn.jsdelivr.net/gh/novnc/noVNC@v1.5.0/core/rfb.js');
+    RFBClass = module.default || module.RFB || module;
+    console.log('[VNC] RFB loaded from CDN');
+    return RFBClass;
   }
-});
+}
 
-const initVNCConnection = async () => {
-  if (!vncContainer.value || !props.enabled || suspendForTakeover.value) return;
-
-  if (isConnecting.value) return;
-  if (rfb && isConnected.value && lastSessionId === props.sessionId) return;
-  isConnecting.value = true;
-
-  // Disconnect existing connection
-  if (rfb) {
-    rfb.disconnect();
-    rfb = null;
+async function initVNCConnection() {
+  if (isConnecting) {
+    console.log('[VNC] Already connecting, skipping');
+    return;
   }
 
-  isConnected.value = false;
+  if (!vncContainer.value || !props.enabled || !props.sessionId) {
+    console.log('[VNC] Cannot connect - missing requirements');
+    return;
+  }
+
+  const thisConnectionId = ++connectionId;
+  isConnecting = true;
+
+  // Disconnect any existing connection
+  disconnect();
+
+  isLoading.value = true;
+  statusText.value = 'Connecting...';
 
   try {
     const wsUrl = await getVNCUrl(props.sessionId);
-    lastSessionId = props.sessionId;
-    console.log('[VNC] Attempting to connect to:', wsUrl);
 
-    // Dynamically import RFB with proper error handling
-    let RFB;
-    try {
-      // Try default export first (ESM)
-      const module = await import('@novnc/novnc/lib/rfb.js');
-      RFB = module.default || module.RFB || module;
-    } catch (importError) {
-      console.error('Failed to import noVNC RFB module:', importError);
-      throw new Error('noVNC library not available. Please check build configuration.');
+    if (thisConnectionId !== connectionId) {
+      console.log('[VNC] Connection attempt superseded');
+      return;
     }
 
-    if (!RFB || typeof RFB !== 'function') {
-      throw new Error('noVNC RFB constructor not found');
+    console.log('[VNC] Connecting to:', wsUrl);
+
+    const RFB = await loadRFB();
+
+    if (thisConnectionId !== connectionId || !vncContainer.value) {
+      console.log('[VNC] Connection attempt no longer valid');
+      return;
     }
 
-    // Create NoVNC connection
+    // Clear container before creating connection
+    vncContainer.value.innerHTML = '';
+
+    // Create NoVNC connection - let noVNC handle scaling
     rfb = new RFB(vncContainer.value, wsUrl, {
       credentials: { password: '' },
       shared: true,
-      repeaterID: '',
       wsProtocols: ['binary'],
-      // Scaling options
-      scaleViewport: true,  // Automatically scale to fit container
-      //resizeSession: true   // Request server to adjust resolution
     });
 
-    // Set viewOnly based on props, default to false (interactive)
+    // Configure RFB - scaleViewport scales to fit, clipViewport clips overflow
     rfb.viewOnly = props.viewOnly ?? false;
     rfb.scaleViewport = true;
-    rfb.clipViewport = true;
-    //rfb.resizeSession = true;
+    rfb.clipViewport = true;  // Must be true to prevent weird tiling artifacts
+    rfb.resizeSession = false;
 
     rfb.addEventListener('connect', () => {
-      console.log('VNC connection successful');
-      isConnected.value = true;
-      isConnecting.value = false;
-      reconnectAttempts.value = 0;
+      console.log('[VNC] Connected');
+      isLoading.value = false;
+      isConnecting = false;
+      statusText.value = 'Connected';
       emit('connected');
     });
 
     rfb.addEventListener('disconnect', (e: any) => {
-      console.log('VNC connection disconnected', e);
-      isConnected.value = false;
-      isConnecting.value = false;
-      emit('disconnected', e);
-      scheduleReconnect();
+      console.log('[VNC] Disconnected', e?.detail);
+      isLoading.value = false;
+      isConnecting = false;
+      statusText.value = e?.detail?.clean ? 'Disconnected' : 'Connection lost';
+      rfb = null;
+      emit('disconnected', e?.detail);
     });
 
     rfb.addEventListener('credentialsrequired', () => {
-      console.log('VNC credentials required');
+      console.log('[VNC] Credentials required');
+      statusText.value = 'Password required';
       emit('credentialsRequired');
     });
+
   } catch (error) {
-    console.error('Failed to initialize VNC connection:', error);
-    isConnected.value = false;
-    isConnecting.value = false;
-    scheduleReconnect();
+    console.error('[VNC] Connection error:', error);
+    isLoading.value = false;
+    isConnecting = false;
+    statusText.value = 'Connection failed';
   }
-};
+}
 
-const scheduleReconnect = () => {
-  if (!props.enabled || suspendForTakeover.value || isConnecting.value) return;
-  if (reconnectTimer) return;
-
-  // Stop after 10 failed attempts to prevent infinite loop
-  const attempt = reconnectAttempts.value + 1;
-  if (attempt > 10) {
-    console.warn('VNC connection failed after 10 attempts, stopping reconnection');
-    isConnecting.value = false;
-    return;
-  }
-
-  reconnectAttempts.value = attempt;
-  const delay = Math.min(1000 * attempt, 5000);
-  console.log(`Scheduling VNC reconnect attempt ${attempt} in ${delay}ms`);
-
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
-    initVNCConnection();
-  }, delay);
-};
-
-const disconnect = () => {
+function disconnect() {
   if (rfb) {
-    rfb.disconnect();
+    try {
+      rfb.disconnect();
+    } catch {
+      // Ignore
+    }
     rfb = null;
   }
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-  }
-  isConnecting.value = false;
-  isConnected.value = false;
-};
+  isConnecting = false;
+  isLoading.value = false;
 
-// Watch for session ID or enabled state changes
-watch([() => props.sessionId, () => props.enabled], () => {
-  if (props.enabled && vncContainer.value && !suspendForTakeover.value) {
-    initVNCConnection();
-  } else {
-    disconnect();
+  // Clear the container
+  if (vncContainer.value) {
+    vncContainer.value.innerHTML = '';
   }
-}, { immediate: true });
+}
 
-// Watch for container availability
-watch(vncContainer, () => {
-  if (vncContainer.value && props.enabled && !suspendForTakeover.value) {
-    initVNCConnection();
-  }
-});
+// Single watcher for connection props
+watch(
+  [() => props.sessionId, () => props.enabled, vncContainer],
+  ([sessionId, enabled, container]) => {
+    if (enabled && sessionId && container) {
+      initVNCConnection();
+    } else if (!enabled) {
+      disconnect();
+    }
+  },
+  { immediate: false }
+);
 
-// Update viewOnly on the fly
-watch(() => props.viewOnly, (next) => {
+// Watch viewOnly separately
+watch(() => props.viewOnly, (viewOnly) => {
   if (rfb) {
-    rfb.viewOnly = next ?? false;
+    rfb.viewOnly = viewOnly ?? false;
   }
-});
-
-// Suspend view-only previews during takeover for stability
-const handleTakeoverEvent = (event: Event) => {
-  if (!props.viewOnly) return;
-  const customEvent = event as CustomEvent;
-  const active = !!customEvent.detail?.active;
-  suspendForTakeover.value = active;
-  if (active) {
-    disconnect();
-  } else if (props.enabled && vncContainer.value) {
-    initVNCConnection();
-  }
-};
-
-onBeforeUnmount(() => {
-  disconnect();
 });
 
 onMounted(() => {
-  window.addEventListener('takeover', handleTakeoverEvent as EventListener);
+  if (props.enabled && props.sessionId && vncContainer.value) {
+    initVNCConnection();
+  }
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener('takeover', handleTakeoverEvent as EventListener);
+  connectionId++;
+  disconnect();
 });
 
-// Expose methods for parent component
 defineExpose({
   disconnect,
   initConnection: initVNCConnection
@@ -233,67 +194,66 @@ defineExpose({
 </script>
 
 <style scoped>
-.loading-overlay {
+.vnc-wrapper {
+  /* Use absolute positioning to fill parent container */
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgb(40, 40, 40);
+  background: #282828;
+  overflow: hidden;
+}
+
+.vnc-screen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+/* noVNC creates a div > canvas structure - ensure it fills container */
+.vnc-screen :deep(> div) {
+  width: 100% !important;
+  height: 100% !important;
+  position: relative !important;
+}
+
+.vnc-screen :deep(canvas) {
+  /* Let noVNC handle the canvas sizing with scaleViewport */
+  display: block !important;
+}
+
+.vnc-loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 10px;
+  background: #282828;
   z-index: 10;
 }
 
-.loading-content {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.loading-shape {
-  width: 10px;
-  height: 10px;
-  background: linear-gradient(135deg, #9c7dff 0%, #b69eff 50%, #9c7dff 100%);
-  background-size: 200% 200%;
-  animation: shimmer 1.5s ease-in-out infinite;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.loading-shape.circle {
+.vnc-loading-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #666;
+  border-top-color: #9c7dff;
   border-radius: 50%;
+  animation: spin 1s linear infinite;
 }
 
-.loading-shape.diamond {
-  border-radius: 2px;
-  transform: rotate(45deg) scale(0.85);
-}
-
-.loading-shape.cube {
-  border-radius: 2px;
-}
-
-.loading-text {
+.vnc-loading-text {
+  color: #999;
   font-size: 14px;
-  font-weight: 500;
-  color: #ffffff;
 }
 
-@keyframes shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-
-.vnc-container.vnc-viewonly {
-  cursor: default;
-}
-
-.vnc-container.vnc-viewonly :deep(canvas) {
-  cursor: default !important;
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>

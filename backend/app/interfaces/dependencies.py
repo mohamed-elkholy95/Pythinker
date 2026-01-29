@@ -171,6 +171,11 @@ def get_email_service() -> EmailService:
     return EmailService(cache=cache)
 
 
+def get_sandbox_cls():
+    """Get sandbox class for dependency injection"""
+    return DockerSandbox
+
+
 async def get_current_user(
     bearer_credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_bearer),
     auth_service: AuthService = Depends(get_auth_service)

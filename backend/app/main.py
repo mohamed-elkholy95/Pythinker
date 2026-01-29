@@ -401,7 +401,7 @@ cors_origins = settings.cors_origins_list
 if not cors_origins:
     # In development without explicit config, allow common dev origins
     if settings.is_development:
-        cors_origins = ["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"]
+        cors_origins = ["http://localhost:5173", "http://localhost:3000", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:5174"]
         logger.warning(f"[SECURITY] CORS using development defaults: {cors_origins}")
     else:
         logger.error("[SECURITY] No CORS origins configured for production!")

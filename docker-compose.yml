@@ -9,7 +9,7 @@ services:
           - linux/amd64
           - linux/arm64
     ports:
-      - "5173:80"
+      - "5174:80"
     depends_on:
       - backend
     restart: unless-stopped
@@ -54,12 +54,10 @@ services:
     hostname: sandbox
     restart: unless-stopped
     environment:
-      - PASSWORD=${CODE_SERVER_PASSWORD}
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
     ports:
-      - "8080:8080"  # Sandbox API
-      - "8081:8081"  # code-server (VS Code in browser)
+      - "8083:8080"  # Sandbox API
       - "8082:8082"  # Sandbox framework API
       - "5902:5900"  # VNC
       - "5901:5901"  # VNC WebSocket

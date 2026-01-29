@@ -53,6 +53,7 @@ from app.domain.services.orchestration.coordinator_flow import (
     create_coordinator_flow,
 )
 from app.domain.services.tools.mcp import MCPTool
+from app.domain.services.screenshot_service import ScreenshotService, ScreenshotConfig
 from app.domain.services.agents.usage_context import UsageContextManager
 from app.application.services.usage_service import get_usage_service
 from app.core.config import get_settings
@@ -119,6 +120,22 @@ class AgentTaskRunner(TaskRunner):
 
         # Memory service for long-term context (Phase 6: Qdrant integration)
         self._memory_service = memory_service
+
+        # Screenshot service for VNC desktop capture
+        settings = get_settings()
+        screenshot_config = ScreenshotConfig(
+            quality=settings.vnc_screenshot_quality,
+            scale=settings.vnc_screenshot_scale,
+            format=settings.vnc_screenshot_format,
+            timeout=settings.vnc_screenshot_timeout
+        )
+        self._screenshot_service = ScreenshotService(
+            sandbox=sandbox,
+            browser=browser,
+            file_storage=file_storage,
+            user_id=user_id,
+            config=screenshot_config
+        )
 
         # Tool metadata caches for enhanced UI
         self._tool_start_times: dict[str, float] = {}
@@ -265,10 +282,17 @@ class AgentTaskRunner(TaskRunner):
         event.id = event_id
         return event
     
-    async def _get_browser_screenshot(self) -> str:
-        screenshot = await self._browser.screenshot()
-        result = await self._file_storage.upload_file(screenshot, "screenshot.png", self._user_id)
-        return result.file_id
+    async def _capture_screenshot(self) -> Optional[str]:
+        """Capture VNC desktop screenshot for thumbnail preview.
+
+        This captures the entire Pythinker PC screen via VNC using the
+        ScreenshotService, showing whatever is currently displayed
+        (browser, terminal, editor, etc.).
+
+        Returns:
+            File ID of captured screenshot, or None if capture fails
+        """
+        return await self._screenshot_service.capture_desktop_screenshot()
 
     async def _sync_file_to_storage(self, file_path: str) -> Optional[FileInfo]:
         """
@@ -752,15 +776,20 @@ class AgentTaskRunner(TaskRunner):
 
                     if event.function_name in screenshot_functions:
                         event.tool_content = BrowserToolContent(
-                            screenshot=await self._get_browser_screenshot(),
+                            screenshot=await self._capture_screenshot(),
                             content=page_content
                         )
                     else:
                         event.tool_content = BrowserToolContent(content=page_content)
                 elif event.tool_name == "search":
+                    # Capture screenshot for search tool
+                    screenshot_id = await self._capture_screenshot()
                     search_results: ToolResult[SearchResults] = event.function_result
                     logger.debug(f"Search tool results: {search_results}")
-                    event.tool_content = SearchToolContent(results=search_results.data.results)
+                    event.tool_content = SearchToolContent(
+                        results=search_results.data.results,
+                        screenshot=screenshot_id
+                    )
                 elif event.tool_name == "shell":
                     event.observation_type = "run"
                     if event.function_result and hasattr(event.function_result, "data"):
@@ -768,13 +797,23 @@ class AgentTaskRunner(TaskRunner):
                         if isinstance(data, dict):
                             event.stdout = data.get("output")
                             event.exit_code = data.get("returncode")
+                    # Capture screenshot for shell tool
+                    screenshot_id = await self._capture_screenshot()
                     if "id" in event.function_args:
                         shell_result = await self._sandbox.view_shell(event.function_args["id"], console=True)
-                        event.tool_content = ShellToolContent(console=shell_result.data.get("console", []))
+                        event.tool_content = ShellToolContent(
+                            console=shell_result.data.get("console", []),
+                            screenshot=screenshot_id
+                        )
                     else:
-                        event.tool_content = ShellToolContent(console="(No Console)")
+                        event.tool_content = ShellToolContent(
+                            console="(No Console)",
+                            screenshot=screenshot_id
+                        )
                 elif event.tool_name == "file":
                     event.observation_type = "edit"
+                    # Capture screenshot for file tool
+                    screenshot_id = await self._capture_screenshot()
                     if "file" in event.function_args:
                         file_path = event.function_args["file"]
                         # Read file and sync to storage concurrently
@@ -787,30 +826,50 @@ class AgentTaskRunner(TaskRunner):
                             file_content = f"(Error: {file_read_result})"
                         else:
                             file_content = file_read_result.data.get("content", "")
-                        event.tool_content = FileToolContent(content=file_content)
+                        event.tool_content = FileToolContent(
+                            content=file_content,
+                            screenshot=screenshot_id
+                        )
 
                         before_content = self._file_before_cache.pop(event.tool_call_id, "")
                         diff_text = build_unified_diff(before_content, file_content, file_path)
                         if diff_text:
                             event.diff = diff_text
                     else:
-                        event.tool_content = FileToolContent(content="(No Content)")
+                        event.tool_content = FileToolContent(
+                            content="(No Content)",
+                            screenshot=screenshot_id
+                        )
                 elif event.tool_name == "mcp":
+                    # Capture screenshot for MCP tool
+                    screenshot_id = await self._capture_screenshot()
                     logger.debug(f"Processing MCP tool event: function_result={event.function_result}")
                     if event.function_result:
                         if hasattr(event.function_result, 'data') and event.function_result.data:
                             logger.debug(f"MCP tool result data: {event.function_result.data}")
-                            event.tool_content = McpToolContent(result=event.function_result.data)
+                            event.tool_content = McpToolContent(
+                                result=event.function_result.data,
+                                screenshot=screenshot_id
+                            )
                         elif hasattr(event.function_result, 'success') and event.function_result.success:
                             logger.debug(f"MCP tool result (success, no data): {event.function_result}")
                             result_data = event.function_result.model_dump() if hasattr(event.function_result, 'model_dump') else str(event.function_result)
-                            event.tool_content = McpToolContent(result=result_data)
+                            event.tool_content = McpToolContent(
+                                result=result_data,
+                                screenshot=screenshot_id
+                            )
                         else:
                             logger.debug(f"MCP tool result (fallback): {event.function_result}")
-                            event.tool_content = McpToolContent(result=str(event.function_result))
+                            event.tool_content = McpToolContent(
+                                result=str(event.function_result),
+                                screenshot=screenshot_id
+                            )
                     else:
                         logger.warning("MCP tool: No function_result found")
-                        event.tool_content = McpToolContent(result="No result available")
+                        event.tool_content = McpToolContent(
+                            result="No result available",
+                            screenshot=screenshot_id
+                        )
 
                     logger.debug(f"MCP tool_content set to: {event.tool_content}")
                     if event.tool_content:
@@ -819,7 +878,7 @@ class AgentTaskRunner(TaskRunner):
                 elif event.tool_name == "browser_agent":
                     # Handle browser agent tool results with screenshot
                     logger.debug(f"Processing browser_agent tool event: function_result={event.function_result}")
-                    screenshot_id = await self._get_browser_screenshot()
+                    screenshot_id = await self._capture_screenshot()
                     if event.function_result:
                         result_data = event.function_result.data if hasattr(event.function_result, 'data') else {}
                         steps_taken = result_data.get('steps_taken', 0) if isinstance(result_data, dict) else 0
@@ -843,6 +902,8 @@ class AgentTaskRunner(TaskRunner):
                     logger.debug("Processing message tool event")
                 elif event.tool_name == "code_executor":
                     event.observation_type = "run"
+                    # Capture screenshot for code executor tool
+                    screenshot_id = await self._capture_screenshot()
                     # Code execution output shown in terminal-like view
                     if event.function_result and hasattr(event.function_result, 'data'):
                         data = event.function_result.data
@@ -859,12 +920,19 @@ class AgentTaskRunner(TaskRunner):
                             event.stderr = data.get("stderr")
                             event.exit_code = data.get("exit_code")
                             event.tool_content = ShellToolContent(
-                                console="\n".join(console_output) if console_output else "(No output)"
+                                console="\n".join(console_output) if console_output else "(No output)",
+                                screenshot=screenshot_id
                             )
                         else:
-                            event.tool_content = ShellToolContent(console=str(data) if data else "(No output)")
+                            event.tool_content = ShellToolContent(
+                                console=str(data) if data else "(No output)",
+                                screenshot=screenshot_id
+                            )
                     else:
-                        event.tool_content = ShellToolContent(console="(No output)")
+                        event.tool_content = ShellToolContent(
+                            console="(No output)",
+                            screenshot=screenshot_id
+                        )
                 else:
                     logger.warning(f"Agent {self._agent_id} received unknown tool event: {event.tool_name}")
         except Exception as e:

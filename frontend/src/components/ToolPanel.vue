@@ -90,7 +90,7 @@ defineProps<{
   isThinking?: boolean
   showThumbnail?: boolean
   thumbnailUrl?: string
-  currentTool?: { name: string; function: string; functionArg?: string } | null
+  currentTool?: { name: string; function: string; functionArg?: string; status?: string } | null
   liveVnc?: boolean
   showTimeline?: boolean
   timelineProgress?: number

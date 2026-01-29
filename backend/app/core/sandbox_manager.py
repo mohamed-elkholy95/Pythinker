@@ -41,7 +41,6 @@ class SandboxHealth:
     api_responsive: bool = False
     browser_responsive: bool = False
     vnc_responsive: bool = False
-    code_server_responsive: bool = False
     last_check: datetime = None
     
     @property
@@ -303,7 +302,6 @@ class ManagedSandbox:
             "environment": {
                 "SERVICE_TIMEOUT_MINUTES": settings.sandbox_ttl_minutes,
                 "CHROME_ARGS": settings.sandbox_chrome_args or "",
-                "PASSWORD": settings.code_server_password or "",
             },
             "security_opt": ["no-new-privileges:true"],
             "cap_drop": ["ALL"],
@@ -363,10 +361,7 @@ class ManagedSandbox:
             
             # Check VNC (optional)
             self.health.vnc_responsive = await self._check_vnc_health()
-            
-            # Check code server (optional)
-            self.health.code_server_responsive = await self._check_code_server_health()
-            
+
             return self.health.is_healthy
             
         except Exception as e:
@@ -403,16 +398,7 @@ class ManagedSandbox:
             return True
         except Exception:
             return False
-            
-    async def _check_code_server_health(self) -> bool:
-        """Check if code server is responsive"""
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(f"http://{self.ip_address}:8081/healthz")
-                return response.status_code == 200
-        except Exception:
-            return False
-            
+
     async def _restart_services(self) -> bool:
         """Restart sandbox services"""
         try:

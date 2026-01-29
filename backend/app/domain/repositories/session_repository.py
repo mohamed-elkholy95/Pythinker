@@ -80,6 +80,10 @@ class SessionRepository(Protocol):
         """Update pending action details for confirmation flow."""
         ...
 
+    async def update_by_id(self, session_id: str, updates: dict) -> None:
+        """Update session fields by ID with a dictionary of updates"""
+        ...
+
     async def delete(self, session_id: str) -> None:
         """Delete a session"""
         ...

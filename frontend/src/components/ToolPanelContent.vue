@@ -7,14 +7,6 @@
         <div class="flex items-center gap-1">
           <button
             class="w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)]"
-            @click="openCodeServer"
-            aria-label="Open IDE"
-            title="Open IDE"
-          >
-            <Code class="w-4 h-4 text-[var(--icon-tertiary)]" />
-          </button>
-          <button
-            class="w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)]"
             @click="takeOver"
             aria-label="Open takeover"
           >
@@ -52,43 +44,11 @@
             <div v-if="toolSubtitle" class="text-[12px] text-[var(--text-tertiary)] truncate">
               {{ toolSubtitle }}
             </div>
-            <div
-              v-if="securityRiskLabel"
-              class="px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wide font-semibold flex-shrink-0"
-              :class="securityRiskClass"
-              :title="securityRiskReason"
-            >
-              {{ securityRiskLabel }}
-            </div>
           </div>
         </div>
       </div>
 
-      <!-- Confirmation banner for high-risk actions -->
-      <div
-        v-if="isAwaitingConfirmation"
-        class="mt-3 flex items-center justify-between gap-3 rounded-lg border border-[var(--border-main)] bg-[var(--background-white-main)] px-3 py-2"
-      >
-        <div class="text-xs text-[var(--text-secondary)]">
-          {{ $t('This action requires confirmation') }}
-        </div>
-        <div class="flex items-center gap-2">
-          <button
-            class="px-3 py-1 rounded-md text-xs font-medium border border-[var(--border-main)] text-[var(--text-secondary)] hover:bg-[var(--fill-tsp-gray-main)] disabled:opacity-60"
-            :disabled="confirmationLoading"
-            @click="handleConfirmAction(false)"
-          >
-            {{ $t('Reject') }}
-          </button>
-          <button
-            class="px-3 py-1 rounded-md text-xs font-medium bg-[var(--text-brand)] text-white hover:opacity-90 disabled:opacity-60"
-            :disabled="confirmationLoading"
-            @click="handleConfirmAction(true)"
-          >
-            {{ $t('Confirm') }}
-          </button>
-        </div>
-      </div>
+      <!-- Confirmation banner removed -->
 
       <!-- Content Container with rounded frame -->
       <div
@@ -128,7 +88,7 @@
         </div>
 
         <!-- Content Area: Dynamic content rendering -->
-        <div class="flex-1 min-h-0 w-full overflow-hidden">
+        <div class="flex-1 min-h-0 w-full overflow-hidden relative">
           <!-- Text-only operation: Show placeholder while active, terminal when complete -->
           <VNCContentView
             v-if="shouldUseTextOnly && isActiveOperation"
@@ -153,6 +113,7 @@
           <!-- VNC View (for non-text-only operations) -->
           <VNCContentView
             v-else-if="currentViewType === 'vnc'"
+            :key="'vnc-main-' + (sessionId || 'none')"
             :session-id="sessionId || ''"
             :enabled="vncEnabled"
             :view-only="true"
@@ -243,11 +204,11 @@
 
 <script setup lang="ts">
 import { toRef, computed, watch, ref, onMounted, onUnmounted } from 'vue';
-import { Code, Minimize2, MonitorUp, X } from 'lucide-vue-next';
+import { Minimize2, MonitorUp, X } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
 import { useToolInfo } from '@/composables/useTool';
 import { useContentConfig } from '@/composables/useContentConfig';
-import { viewFile, viewShellSession, confirmToolAction, getCodeServerUrl } from '@/api/agent';
+import { viewFile, viewShellSession } from '@/api/agent';
 import TimelineControls from '@/components/timeline/TimelineControls.vue';
 import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';
 import { showErrorToast, showSuccessToast } from '@/utils/toast';
@@ -290,33 +251,6 @@ const {
 const toolName = computed(() => props.toolContent?.name || '');
 const toolFunction = computed(() => props.toolContent?.function || '');
 const toolStatus = computed(() => props.toolContent?.status || '');
-const securityRisk = computed(() => props.toolContent?.security_risk || '');
-const securityRiskReason = computed(() => props.toolContent?.security_reason || '');
-const confirmationState = ref(props.toolContent?.confirmation_state || '');
-const isAwaitingConfirmation = computed(
-  () => confirmationState.value === 'awaiting_confirmation'
-);
-const confirmationLoading = ref(false);
-
-const securityRiskLabel = computed(() => {
-  if (!securityRisk.value) return '';
-  return securityRisk.value.toUpperCase();
-});
-
-const securityRiskClass = computed(() => {
-  switch (securityRisk.value) {
-    case 'low':
-      return 'bg-green-100 text-green-700';
-    case 'medium':
-      return 'bg-yellow-100 text-yellow-700';
-    case 'high':
-      return 'bg-orange-100 text-orange-700';
-    case 'critical':
-      return 'bg-red-100 text-red-700';
-    default:
-      return 'bg-gray-100 text-gray-600';
-  }
-});
 
 // Activity detection
 const isActiveOperation = computed(() => {
@@ -735,12 +669,7 @@ watch(() => props.toolContent?.args?.content, () => {
   }
 });
 
-watch(
-  () => props.toolContent?.confirmation_state,
-  (next) => {
-    confirmationState.value = next || '';
-  }
-);
+// Confirmation state watcher removed
 
 // ============ Search Content ============
 const searchResults = computed(() => {
@@ -762,22 +691,6 @@ const emit = defineEmits<{
 
 const hide = () => {
   emit('hide');
-};
-
-const openCodeServer = async () => {
-  if (!props.sessionId) return;
-  try {
-    const response = await getCodeServerUrl(props.sessionId);
-    const url = response?.url;
-    if (!url) {
-      showErrorToast('Code-server URL not available');
-      return;
-    }
-    window.open(url, '_blank', 'noopener,noreferrer');
-  } catch (error) {
-    console.error('Failed to open code-server:', error);
-    showErrorToast('Failed to open IDE');
-  }
 };
 
 const takeOver = () => {
@@ -816,18 +729,5 @@ const onNewTerminalContent = () => {
   markNewOutput();
 };
 
-const handleConfirmAction = async (accept: boolean) => {
-  if (!props.sessionId || !props.toolContent?.tool_call_id) return;
-  confirmationLoading.value = true;
-  try {
-    await confirmToolAction(props.sessionId, props.toolContent.tool_call_id, accept);
-    confirmationState.value = accept ? 'confirmed' : 'rejected';
-    showSuccessToast(accept ? 'Action confirmed' : 'Action rejected');
-  } catch (error) {
-    console.error('Failed to confirm action:', error);
-    showErrorToast('Failed to send confirmation');
-  } finally {
-    confirmationLoading.value = false;
-  }
-};
+// Confirmation action handler removed
 </script>

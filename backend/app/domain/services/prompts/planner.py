@@ -48,21 +48,31 @@ Consider these experiences when creating your plan.
 
 CREATE_PLAN_PROMPT = """Plan the following request: {message}
 
+🌐 CRITICAL - WEB BROWSING TASKS:
+If the request involves web browsing (search, visit websites, navigate, click, extract from web):
+- Create ONLY ONE step with the COMPLETE browsing task description
+- Do NOT break into: search → navigate → click → extract
+- Example: "Search Google for FastAPI tutorials, click first result, extract main topics"
+- The browsing tool handles ALL web actions autonomously
+
 Step writing rules:
 - Start each step with an action verb (Analyze, Review, Design, Create, Develop, Search, Compare, Compile, Save, Deliver)
 - Keep steps concise: one line, 5-15 words
 - NEVER mention tool names (no "using file_write", "via browser", "with search tool")
 - NEVER add explanatory phrases (no "in order to", "so that", "which will")
-- 3-5 substantive steps; consolidate related work
+- 3-5 substantive steps; consolidate related work (1 step for web browsing)
 
 Planning principles:
 - Proceed with sensible defaults (mid-range budget, current year, mainstream options)
 - Match the user's language throughout
 - DO NOT explain or acknowledge - just create the plan
 
-For research tasks, always end with:
-- Compile findings into structured Markdown report with citations
-- Save final report and deliver to user
+For complex multi-source research tasks ONLY (3+ websites, comparative analysis):
+- Add step: "Compile findings into structured Markdown report with citations"
+- Add step: "Save final report and deliver to user"
+
+For simple web queries (single search, one website):
+- ONE browsing step returns results directly - NO compilation/save steps needed
 
 Response format (JSON only, no other text):
 ```json
