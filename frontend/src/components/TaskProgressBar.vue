@@ -246,8 +246,8 @@ const enableLivePolling = computed(() =>
 // Use live VNC thumbnail composable
 const {
   thumbnailUrl: liveThumbnailUrl,
-  isLoading: thumbnailLoading,
-  error: thumbnailError,
+  isLoading: _thumbnailLoading,
+  error: _thumbnailError,
   forceRefresh: refreshThumbnail
 } = useLiveVncThumbnail({
   sessionId: toRef(props, 'sessionId'),

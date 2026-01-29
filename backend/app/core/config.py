@@ -127,6 +127,11 @@ class Settings(BaseSettings):
     browser_ignore_https_errors: bool | None = None  # None = auto (True in dev, False in prod)
     browser_allow_dangerous_js: bool = False  # Allow dangerous JavaScript execution (SECURITY RISK)
 
+    # Browser Hardening Configuration
+    browser_skip_video_urls: bool = True  # Skip video sites (YouTube, Vimeo, etc.)
+    browser_auto_dismiss_dialogs: bool = True  # Auto-dismiss popups, alerts, confirms
+    browser_show_cursor: bool = True  # Show visual cursor indicator for agent actions
+
     # Auth configuration
     auth_provider: str = "password"  # "password", "none", "local"
     password_salt: str | None = None

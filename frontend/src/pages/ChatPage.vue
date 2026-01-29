@@ -166,6 +166,27 @@
             class="flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[var(--background-white-main)] hover:bg-[var(--background-gray-main)] clickable border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)] absolute -top-20 left-1/2 -translate-x-1/2">
             <ArrowDown class="text-[var(--icon-primary)]" :size="20" />
           </button>
+          <!-- Planning Progress Indicator - shows instant feedback before plan is ready -->
+          <div
+            v-if="!isToolPanelOpen && planningProgress && (!plan || plan.steps.length === 0)"
+            class="mb-2 bg-white dark:bg-[#2a2a2a] rounded-lg border border-gray-200 dark:border-[#3a3a3a] px-4 py-2.5 flex items-center gap-3 shadow-sm"
+          >
+            <div class="flex-shrink-0">
+              <div class="w-4 h-4 rounded-full border-2 border-[#7c3aed] border-t-transparent animate-spin"></div>
+            </div>
+            <div class="flex-1 min-w-0 flex flex-col gap-1">
+              <span class="text-[15px] font-normal text-gray-900 dark:text-[#e5e5e5]">
+                {{ planningProgress.message }}
+              </span>
+              <div class="w-full bg-gray-200 dark:bg-[#3a3a3a] rounded-full h-1.5 overflow-hidden">
+                <div
+                  class="h-full bg-[#7c3aed] rounded-full transition-all duration-300"
+                  :style="{ width: `${planningProgress.percent}%` }"
+                ></div>
+              </div>
+            </div>
+          </div>
+
           <!-- Task Progress Bar - shown above ChatBox when ToolPanel is closed -->
           <TaskProgressBar
             v-if="!isToolPanelOpen && plan && plan.steps.length > 0"
@@ -252,6 +273,7 @@ import {
   SuggestionEventData,
   ReportEventData,
   StreamEventData,
+  ProgressEventData,
 } from '../types/event';
 import Suggestions from '../components/Suggestions.vue';
 import ToolPanel from '../components/ToolPanel.vue'
@@ -314,6 +336,7 @@ const createInitialState = () => ({
   toolTimeline: [] as ToolContent[],
   panelToolId: undefined as string | undefined,
   isInitializing: false, // True when starting up the sandbox environment
+  planningProgress: null as { phase: string; message: string; percent: number } | null, // Planning progress
 });
 
 // Create reactive state
@@ -351,6 +374,7 @@ const {
   toolTimeline,
   panelToolId,
   isInitializing,
+  planningProgress,
 } = toRefs(state);
 
 // Non-state refs that don't need reset
@@ -482,7 +506,16 @@ watch(isLoading, (loading) => {
 });
 
 // Start screenshot fetching when session loads
-watch(sessionId, (newSessionId) => {
+watch(sessionId, (newSessionId, oldSessionId) => {
+  // Clear old screenshot when switching sessions
+  if (oldSessionId && newSessionId !== oldSessionId) {
+    stopScreenshotFetching();
+    if (vncScreenshotUrl.value) {
+      URL.revokeObjectURL(vncScreenshotUrl.value);
+      vncScreenshotUrl.value = '';
+    }
+  }
+
   if (newSessionId) {
     // Start fetching screenshots when session is available
     startScreenshotFetching();
@@ -725,10 +758,7 @@ const handleToolEvent = (toolData: ToolEventData) => {
     if (realTime.value) {
       panelToolId.value = toolContent.tool_call_id;
     }
-    // Only auto-open if user hasn't explicitly closed the panel
-    if (realTime.value && !userClosedPanel.value) {
-      toolPanel.value?.showToolPanel(toolContent, true);
-    }
+    // Panel no longer auto-opens - user must click thumbnail or button to open
   }
 }
 
@@ -737,8 +767,6 @@ const handleStepEvent = (stepData: StepEventData) => {
   const lastStep = getLastStep();
   if (stepData.status === 'running') {
     isThinking.value = true;
-    // Reset userClosedPanel when a new step starts - allows panel to auto-reopen
-    userClosedPanel.value = false;
     messages.value.push({
       type: 'step',
       content: {
@@ -776,9 +804,10 @@ const handleTitleEvent = (titleData: TitleEventData) => {
 
 // Handle plan event
 const handlePlanEvent = (planData: PlanEventData) => {
-  // Clear thinking text when plan arrives
+  // Clear thinking text and planning progress when plan arrives
   thinkingText.value = '';
   isThinkingStreaming.value = false;
+  planningProgress.value = null;  // Clear progress - plan is ready
   plan.value = planData;
 }
 
@@ -790,6 +819,26 @@ const handleStreamEvent = (streamData: StreamEventData) => {
   } else {
     isThinkingStreaming.value = true;
     thinkingText.value += streamData.content;
+  }
+}
+
+// Handle progress event (instant feedback during planning)
+const handleProgressEvent = (progressData: ProgressEventData) => {
+  // Update planning progress for UI
+  planningProgress.value = {
+    phase: progressData.phase,
+    message: progressData.message,
+    percent: progressData.progress_percent || 0
+  };
+
+  // Clear initialization state on first progress event
+  if (isInitializing.value) {
+    isInitializing.value = false;
+  }
+
+  // Clear progress when planning is complete (plan event will follow)
+  if (progressData.phase === 'finalizing' && progressData.progress_percent && progressData.progress_percent >= 80) {
+    // Keep progress visible until plan arrives
   }
 }
 
@@ -913,6 +962,8 @@ const handleEvent = (event: AgentSSEEvent) => {
     handleReportEvent(event.data as ReportEventData);
   } else if (event.event === 'stream') {
     handleStreamEvent(event.data as StreamEventData);
+  } else if (event.event === 'progress') {
+    handleProgressEvent(event.data as ProgressEventData);
   }
   lastEventId.value = event.data.event_id;
 }
@@ -943,11 +994,6 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value();
     cancelCurrentChat.value = null;
-  }
-
-  // Reset user panel preference when starting new chat with a message
-  if (message) {
-    userClosedPanel.value = false;
   }
 
   // Automatically enable follow mode when sending message
@@ -994,6 +1040,7 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
           thinkingText.value = '';
           isThinkingStreaming.value = false;
           isInitializing.value = false;
+          planningProgress.value = null;
           // Clear the cancel function when connection is closed normally
           if (cancelCurrentChat.value) {
             cancelCurrentChat.value = null;
@@ -1006,6 +1053,7 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
           thinkingText.value = '';
           isThinkingStreaming.value = false;
           isInitializing.value = false;
+          planningProgress.value = null;
           // Clear the cancel function when there's an error
           if (cancelCurrentChat.value) {
             cancelCurrentChat.value = null;
@@ -1042,7 +1090,7 @@ const restoreSession = async () => {
 
 
 onBeforeRouteUpdate((to, _, next) => {
-  toolPanel.value?.hideToolPanel();
+  toolPanel.value?.clearContent();  // Clear tool panel content when switching sessions
   hideFilePanel();
   resetState();
   if (to.params.sessionId) {
@@ -1161,6 +1209,7 @@ const handleStop = () => {
   thinkingText.value = '';
   isThinkingStreaming.value = false;
   isInitializing.value = false;
+  planningProgress.value = null;
 }
 
 const handleFileListShow = () => {

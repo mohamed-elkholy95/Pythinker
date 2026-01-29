@@ -199,6 +199,27 @@ class SuggestionEvent(BaseEvent):
     suggestions: List[str]  # List of 2-3 contextual suggestions
 
 
+class PlanningPhase(str, Enum):
+    """Planning phase enum for progressive disclosure"""
+    RECEIVED = "received"        # Message received, starting to process
+    ANALYZING = "analyzing"      # Analyzing task complexity
+    PLANNING = "planning"        # Generating plan with LLM
+    FINALIZING = "finalizing"    # Parsing and validating plan
+
+
+class ProgressEvent(BaseEvent):
+    """Progress event for instant feedback during planning/execution.
+
+    Provides immediate visual feedback to users while LLM is working.
+    Enables progressive disclosure UX pattern.
+    """
+    type: Literal["progress"] = "progress"
+    phase: PlanningPhase
+    message: str                           # User-friendly status message
+    estimated_steps: Optional[int] = None  # Estimated number of steps (if known)
+    progress_percent: Optional[int] = None # 0-100 progress indicator
+
+
 class ReportEvent(BaseEvent):
     """Report event for displaying task completion reports in Notion-like markdown view"""
     type: Literal["report"] = "report"
@@ -328,4 +349,5 @@ AgentEvent = Union[
     WorkspaceEvent,
     ScreenshotEvent,
     BudgetEvent,
+    ProgressEvent,
 ]

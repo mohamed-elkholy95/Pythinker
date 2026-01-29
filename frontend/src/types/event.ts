@@ -1,8 +1,8 @@
 import type { FileInfo } from '../api/file';
 
 export type AgentSSEEvent = {
-  event: 'tool' | 'step' | 'message' | 'error' | 'done' | 'title' | 'wait' | 'plan' | 'attachments' | 'mode_change' | 'suggestion' | 'report' | 'stream';
-  data: ToolEventData | StepEventData | MessageEventData | ErrorEventData | DoneEventData | TitleEventData | WaitEventData | PlanEventData | ModeChangeEventData | SuggestionEventData | ReportEventData | StreamEventData;
+  event: 'tool' | 'step' | 'message' | 'error' | 'done' | 'title' | 'wait' | 'plan' | 'attachments' | 'mode_change' | 'suggestion' | 'report' | 'stream' | 'progress';
+  data: ToolEventData | StepEventData | MessageEventData | ErrorEventData | DoneEventData | TitleEventData | WaitEventData | PlanEventData | ModeChangeEventData | SuggestionEventData | ReportEventData | StreamEventData | ProgressEventData;
 }
 
 export interface BaseEventData {
@@ -84,4 +84,13 @@ export interface ReportEventData extends BaseEventData {
 export interface StreamEventData extends BaseEventData {
   content: string;
   is_final: boolean;
+}
+
+export type PlanningPhase = 'received' | 'analyzing' | 'planning' | 'finalizing';
+
+export interface ProgressEventData extends BaseEventData {
+  phase: PlanningPhase;
+  message: string;
+  estimated_steps?: number;
+  progress_percent?: number;
 }

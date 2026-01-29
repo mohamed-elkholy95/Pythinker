@@ -163,6 +163,162 @@ class PlaywrightBrowser:
         await context.route("**/*", route_handler)
         logger.debug("Network route interception configured")
 
+    async def _show_cursor_click(self, x: float, y: float) -> None:
+        """Show cursor animation at the specified coordinates.
+
+        Args:
+            x: X coordinate
+            y: Y coordinate
+        """
+        if not self.page:
+            return
+
+        try:
+            await self.page.evaluate(f"window.__animateAgentClick && window.__animateAgentClick({x}, {y})")
+            # Brief pause to let animation be visible
+            await asyncio.sleep(0.1)
+        except Exception as e:
+            logger.debug(f"Could not show cursor animation: {e}")
+
+    async def _setup_dialog_handlers(self, page: Page) -> None:
+        """Set up automatic dialog/popup handlers for the page.
+
+        Automatically dismisses:
+        - Alert dialogs
+        - Confirm dialogs (accepts or dismisses based on context)
+        - Prompt dialogs
+        - beforeunload dialogs
+
+        Args:
+            page: Page to configure handlers on
+        """
+        async def handle_dialog(dialog):
+            dialog_type = dialog.type
+            message = dialog.message[:100] if dialog.message else ""
+            logger.info(f"Auto-dismissing {dialog_type} dialog: {message}")
+
+            try:
+                if dialog_type == "beforeunload":
+                    # Accept beforeunload to allow navigation
+                    await dialog.accept()
+                elif dialog_type == "confirm":
+                    # Dismiss confirms (usually "Leave page?" or "Are you sure?")
+                    await dialog.dismiss()
+                elif dialog_type == "prompt":
+                    # Dismiss prompts
+                    await dialog.dismiss()
+                else:
+                    # Dismiss alerts
+                    await dialog.dismiss()
+            except Exception as e:
+                logger.debug(f"Error handling dialog: {e}")
+
+        page.on("dialog", handle_dialog)
+        logger.debug("Dialog handlers configured")
+
+    async def _inject_cursor_indicator(self) -> None:
+        """Inject visual cursor indicator for agent actions.
+
+        Shows a visible cursor/pointer that follows agent clicks,
+        giving users visual feedback that the agent is working.
+        """
+        if not self.page:
+            return
+
+        try:
+            await self.page.add_init_script("""
+                (function() {
+                    // Create cursor element
+                    const cursor = document.createElement('div');
+                    cursor.id = 'agent-cursor';
+                    cursor.style.cssText = `
+                        position: fixed;
+                        width: 20px;
+                        height: 20px;
+                        border: 3px solid #7c3aed;
+                        border-radius: 50%;
+                        pointer-events: none;
+                        z-index: 999999;
+                        transition: all 0.15s ease-out;
+                        display: none;
+                        box-shadow: 0 0 10px rgba(124, 58, 237, 0.5);
+                    `;
+
+                    // Create click ripple effect
+                    const ripple = document.createElement('div');
+                    ripple.id = 'agent-cursor-ripple';
+                    ripple.style.cssText = `
+                        position: fixed;
+                        width: 40px;
+                        height: 40px;
+                        border: 2px solid #7c3aed;
+                        border-radius: 50%;
+                        pointer-events: none;
+                        z-index: 999998;
+                        opacity: 0;
+                        transform: scale(0);
+                    `;
+
+                    document.addEventListener('DOMContentLoaded', () => {
+                        document.body.appendChild(cursor);
+                        document.body.appendChild(ripple);
+                    });
+
+                    // Also append immediately if DOM is ready
+                    if (document.body) {
+                        document.body.appendChild(cursor);
+                        document.body.appendChild(ripple);
+                    }
+
+                    // Global function to show cursor at position
+                    window.__showAgentCursor = function(x, y) {
+                        const c = document.getElementById('agent-cursor');
+                        if (c) {
+                            c.style.left = (x - 10) + 'px';
+                            c.style.top = (y - 10) + 'px';
+                            c.style.display = 'block';
+                        }
+                    };
+
+                    // Global function to animate click
+                    window.__animateAgentClick = function(x, y) {
+                        const c = document.getElementById('agent-cursor');
+                        const r = document.getElementById('agent-cursor-ripple');
+
+                        if (c) {
+                            c.style.left = (x - 10) + 'px';
+                            c.style.top = (y - 10) + 'px';
+                            c.style.display = 'block';
+                            c.style.transform = 'scale(0.8)';
+                            setTimeout(() => { c.style.transform = 'scale(1)'; }, 100);
+                        }
+
+                        if (r) {
+                            r.style.left = (x - 20) + 'px';
+                            r.style.top = (y - 20) + 'px';
+                            r.style.opacity = '1';
+                            r.style.transform = 'scale(1)';
+                            r.style.transition = 'none';
+
+                            setTimeout(() => {
+                                r.style.transition = 'all 0.4s ease-out';
+                                r.style.opacity = '0';
+                                r.style.transform = 'scale(2)';
+                            }, 10);
+                        }
+                    };
+
+                    // Global function to hide cursor
+                    window.__hideAgentCursor = function() {
+                        const c = document.getElementById('agent-cursor');
+                        if (c) c.style.display = 'none';
+                    };
+                })();
+            """)
+            logger.debug("Cursor indicator script injected")
+        except Exception as e:
+            logger.debug(f"Failed to inject cursor indicator: {e}")
+
     async def _inject_anti_detection_scripts(self) -> None:
         """Inject scripts to evade bot detection.
 
@@ -171,6 +327,9 @@ class PlaywrightBrowser:
         """
         if not self.page:
             return
+
+        # First inject cursor indicator
+        await self._inject_cursor_indicator()
 
         try:
             # Inject scripts before any page loads
@@ -384,6 +543,9 @@ class PlaywrightBrowser:
 
                 # Set up network interception if enabled
                 await self._setup_route_interception(self.context)
+
+                # Set up automatic dialog/popup handlers
+                await self._setup_dialog_handlers(self.page)
 
                 # Configure default timeouts
                 self.page.set_default_timeout(30000)  # 30 seconds for operations
@@ -1063,6 +1225,8 @@ class PlaywrightBrowser:
 
         try:
             if coordinate_x is not None and coordinate_y is not None:
+                # Show cursor animation at coordinates
+                await self._show_cursor_click(coordinate_x, coordinate_y)
                 await self.page.mouse.click(coordinate_x, coordinate_y)
             elif index is not None:
                 element = await self._get_element_by_index(index)
@@ -1091,6 +1255,16 @@ class PlaywrightBrowser:
                     await element.scroll_into_view_if_needed()
                     # Brief wait for scroll animation
                     await asyncio.sleep(0.3)
+
+                # Get element center coordinates for cursor animation
+                try:
+                    box = await element.bounding_box()
+                    if box:
+                        center_x = box["x"] + box["width"] / 2
+                        center_y = box["y"] + box["height"] / 2
+                        await self._show_cursor_click(center_x, center_y)
+                except Exception:
+                    pass  # Continue without cursor animation
 
                 # Click with force option as fallback for tricky elements
                 try:
@@ -1148,6 +1322,8 @@ class PlaywrightBrowser:
 
         try:
             if coordinate_x is not None and coordinate_y is not None:
+                # Show cursor animation at coordinates
+                await self._show_cursor_click(coordinate_x, coordinate_y)
                 await self.page.mouse.click(coordinate_x, coordinate_y)
                 if clear_first:
                     # Select all and clear
@@ -1164,6 +1340,16 @@ class PlaywrightBrowser:
 
                 # Scroll into view if needed
                 await element.scroll_into_view_if_needed()
+
+                # Get element center coordinates for cursor animation
+                try:
+                    box = await element.bounding_box()
+                    if box:
+                        center_x = box["x"] + box["width"] / 2
+                        center_y = box["y"] + box["height"] / 2
+                        await self._show_cursor_click(center_x, center_y)
+                except Exception:
+                    pass  # Continue without cursor animation
 
                 # Try fill() first (fastest and most reliable for input fields)
                 try:

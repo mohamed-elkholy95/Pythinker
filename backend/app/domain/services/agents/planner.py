@@ -194,15 +194,36 @@ class PlannerAgent(BaseAgent):
     ) -> AsyncGenerator[BaseEvent, None]:
         """Create an execution plan for the given message.
 
+        Emits ProgressEvents for instant user feedback during planning:
+        - RECEIVED: Message acknowledged
+        - ANALYZING: Analyzing complexity
+        - PLANNING: LLM generating plan
+        - FINALIZING: Validating and preparing plan
+
         Args:
             message: The user message to create a plan for
             replan_context: Optional feedback from verification for replanning
 
         Yields:
-            StreamEvent during thinking, then PlanEvent with the created plan
+            ProgressEvent for instant feedback, StreamEvent during thinking,
+            then PlanEvent with the created plan
         """
+        from app.domain.models.event import ProgressEvent, PlanningPhase
+
+        # Instant acknowledgment - user sees feedback immediately
+        yield ProgressEvent(
+            phase=PlanningPhase.RECEIVED,
+            message="Message received, starting to process...",
+            progress_percent=10
+        )
+
         # Stream thinking phase for initial plans (skip on replans for speed)
         if not replan_context:
+            yield ProgressEvent(
+                phase=PlanningPhase.ANALYZING,
+                message="Analyzing task complexity...",
+                progress_percent=20
+            )
             async for event in self._stream_thinking(message.message):
                 yield event
 
@@ -236,6 +257,13 @@ class PlannerAgent(BaseAgent):
         else:
             prompt = base_prompt
 
+        # Progress: Starting plan generation
+        yield ProgressEvent(
+            phase=PlanningPhase.PLANNING,
+            message="Creating execution plan...",
+            progress_percent=40
+        )
+
         # Try structured output first for type-safe response
         try:
             await self._add_to_memory([{"role": "user", "content": prompt}])
@@ -250,6 +278,15 @@ class PlannerAgent(BaseAgent):
                         tools=None,
                         tool_choice=None
                     )
+
+                    # Progress: Finalizing plan
+                    yield ProgressEvent(
+                        phase=PlanningPhase.FINALIZING,
+                        message="Finalizing plan...",
+                        estimated_steps=len(plan_response.steps),
+                        progress_percent=80
+                    )
+
                     # Convert to Plan model
                     plan = Plan(
                         goal=plan_response.goal,

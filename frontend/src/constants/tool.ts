@@ -31,9 +31,25 @@ export const TOOL_FUNCTION_MAP: {[key: string]: string} = {
   "browser_console_exec": "Executing JS",
   "browser_console_view": "Viewing console",
 
-  // Browser Agent tools
-  "browser_agent_run": "Running task",
-  "browser_agent_extract": "Extracting",
+  // Browser Agent tools (browser-use library)
+  "browser_agent_run": "Launching browser",
+  "browser_agent_extract": "Extracting data",
+  "browsing": "Navigating web",
+
+  // Browser-use internal actions (displayed during autonomous browsing)
+  "go_to_url": "Opening",
+  "click_element": "Clicking",
+  "input_text": "Typing",
+  "scroll_down": "Scrolling down",
+  "scroll_up": "Scrolling up",
+  "go_back": "Going back",
+  "wait": "Waiting",
+  "extract_content": "Reading page",
+  "done": "Completed",
+  "send_keys": "Pressing keys",
+  "scroll_to_text": "Finding text",
+  "get_dropdown_options": "Checking options",
+  "select_dropdown_option": "Selecting option",
 
   // Search tools
   "info_search_web": "Searching",
@@ -86,6 +102,20 @@ export const TOOL_FUNCTION_ARG_MAP: {[key: string]: string} = {
   "message_ask_user": "question",
   "browser_agent_run": "task",
   "browser_agent_extract": "extraction_goal",
+  "browsing": "task",
+  "go_to_url": "url",
+  "click_element": "element",
+  "input_text": "text",
+  "scroll_down": "page",
+  "scroll_up": "page",
+  "go_back": "page",
+  "wait": "duration",
+  "extract_content": "selector",
+  "done": "result",
+  "send_keys": "keys",
+  "scroll_to_text": "text",
+  "get_dropdown_options": "selector",
+  "select_dropdown_option": "option",
   "idle_standby": "reason",
   "agent_start_task": "task",
   "code_execute": "code",
@@ -100,7 +130,8 @@ export const TOOL_NAME_MAP: {[key: string]: string} = {
   "shell": "Terminal",
   "file": "Editor",
   "browser": "Browser",
-  "browser_agent": "Browser Agent",
+  "browser_agent": "Web Pilot",
+  "browsing": "Web Pilot",
   "info": "Information",
   "message": "Message",
   "mcp": "MCP Tool",
@@ -126,6 +157,7 @@ export const TOOL_ICON_MAP: {[key: string]: any} = {
   "file": EditIcon,
   "browser": BrowserIcon,
   "browser_agent": GlobeIcon,
+  "browsing": GlobeIcon,  // browser-use autonomous browsing
   "search": SearchIcon,
   "info": SearchIcon,  // Search/info tools use search icon
   "message": "",
@@ -170,6 +202,13 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
     showTabs: true
   },
   browser_agent: {
+    primaryView: 'vnc',
+    secondaryView: 'terminal',
+    tabLabels: ['Screen', 'Output'],
+    defaultView: 'primary',
+    showTabs: true
+  },
+  browsing: {
     primaryView: 'vnc',
     secondaryView: 'terminal',
     tabLabels: ['Screen', 'Output'],
