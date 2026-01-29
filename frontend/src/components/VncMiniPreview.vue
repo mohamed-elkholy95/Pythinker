@@ -13,26 +13,34 @@
       />
     </div>
 
-    <!-- File content preview -->
+    <!-- File content preview (decorated window style) -->
     <div v-else-if="isFileTool && contentPreview" class="content-preview file-preview">
-      <div class="preview-header">
-        <FileText class="preview-header-icon" />
-        <span class="preview-filename">{{ fileName }}</span>
-      </div>
-      <div class="preview-content">
-        <pre class="preview-text">{{ contentPreview }}</pre>
+      <div class="file-window">
+        <div class="file-header">
+          <span class="file-title">{{ fileName }}</span>
+        </div>
+        <div class="file-body">
+          <div class="file-accent"></div>
+          <div class="file-content-area">
+            <pre class="preview-text">{{ contentPreview }}</pre>
+          </div>
+        </div>
       </div>
       <div v-if="isActive" class="activity-indicator"></div>
     </div>
 
-    <!-- Terminal output preview -->
+    <!-- Terminal output preview (decorated window style) -->
     <div v-else-if="isShellTool && contentPreview" class="content-preview terminal-preview">
-      <div class="preview-header">
-        <Terminal class="preview-header-icon" />
-        <span class="preview-filename">Terminal</span>
-      </div>
-      <div class="preview-content terminal-content">
-        <pre class="preview-text terminal-text">{{ contentPreview }}</pre>
+      <div class="terminal-window">
+        <div class="terminal-header">
+          <span class="terminal-title">Terminal</span>
+        </div>
+        <div class="terminal-body">
+          <div class="terminal-accent"></div>
+          <div class="terminal-content-area">
+            <pre class="preview-text terminal-text">{{ contentPreview }}</pre>
+          </div>
+        </div>
       </div>
       <div v-if="isActive" class="activity-indicator"></div>
     </div>
@@ -154,18 +162,18 @@ const sizeClass = computed(() => {
   position: relative;
   border-radius: 8px;
   overflow: hidden;
-  background: #1a1a1a;
+  background: #f8fafc;
   border: 1px solid var(--bolt-elements-borderColor);
   cursor: pointer;
   transition: all 0.2s ease;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   aspect-ratio: 16 / 10;
 }
 
 .vnc-mini-preview:hover {
   transform: scale(1.02);
   border-color: var(--bolt-elements-borderColorActive);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
 }
 
 /* Size variants */
@@ -183,7 +191,7 @@ const sizeClass = computed(() => {
 .vnc-container {
   position: absolute;
   inset: 0;
-  background: #282828;
+  background: #f1f5f9;
 }
 
 /* Content Preview (File/Terminal) */
@@ -196,11 +204,107 @@ const sizeClass = computed(() => {
 }
 
 .file-preview {
-  background: #1e1e1e;
+  background: #ffffff;
+}
+
+/* Decorated file window */
+.file-window {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #ffffff;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.file-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  background: #fafafa;
+  border-bottom: 1px solid #e5e5e5;
+  flex-shrink: 0;
+}
+
+.file-title {
+  font-size: 8px;
+  font-weight: 500;
+  color: #374151;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.file-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.file-accent {
+  width: 2px;
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+  flex-shrink: 0;
+}
+
+.file-content-area {
+  flex: 1;
+  padding: 4px 6px;
+  overflow: hidden;
+  background: #ffffff;
 }
 
 .terminal-preview {
-  background: #0d1117;
+  background: #ffffff;
+}
+
+/* Decorated terminal window */
+.terminal-window {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #ffffff;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  background: #fafafa;
+  border-bottom: 1px solid #e5e5e5;
+  flex-shrink: 0;
+}
+
+.terminal-title {
+  font-size: 8px;
+  font-weight: 500;
+  color: #374151;
+}
+
+.terminal-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.terminal-accent {
+  width: 2px;
+  background: linear-gradient(180deg, #f97316 0%, #ea580c 100%);
+  flex-shrink: 0;
+}
+
+.terminal-content-area {
+  flex: 1;
+  padding: 4px 6px;
+  overflow: hidden;
+  background: #ffffff;
 }
 
 .preview-header {
@@ -208,8 +312,8 @@ const sizeClass = computed(() => {
   align-items: center;
   gap: 4px;
   padding: 4px 6px;
-  background: rgba(0, 0, 0, 0.3);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.05);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 .preview-header-icon {
@@ -222,7 +326,7 @@ const sizeClass = computed(() => {
 .preview-filename {
   font-size: 8px;
   font-weight: 500;
-  color: #94a3b8;
+  color: #475569;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -238,18 +342,16 @@ const sizeClass = computed(() => {
   font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
   font-size: 6px;
   line-height: 1.4;
-  color: #e2e8f0;
+  color: #1e293b;
   margin: 0;
   white-space: pre-wrap;
   word-break: break-all;
 }
 
-.terminal-content {
-  background: #0d1117;
-}
-
 .terminal-text {
-  color: #7ee787;
+  color: #1f2937;
+  font-size: 5px;
+  line-height: 1.3;
 }
 
 /* Activity indicator */
@@ -271,7 +373,7 @@ const sizeClass = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
+  background: linear-gradient(145deg, #f8fafc 0%, #e2e8f0 100%);
 }
 
 .tool-preview-content {
@@ -284,7 +386,7 @@ const sizeClass = computed(() => {
 .tool-preview-icon {
   width: 24px;
   height: 24px;
-  color: #94a3b8;
+  color: #64748b;
 }
 
 .tool-preview-label {
@@ -323,7 +425,7 @@ const sizeClass = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(4px);
   color: white;
   opacity: 0;
@@ -343,11 +445,88 @@ const sizeClass = computed(() => {
 }
 
 .expand-btn:hover {
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.7);
 }
 
 /* Dark mode */
 :global(.dark) .vnc-mini-preview {
+  background: #1a1a1a;
   border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+:global(.dark) .vnc-mini-preview:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+:global(.dark) .vnc-container {
+  background: #282828;
+}
+
+:global(.dark) .file-preview {
+  background: #1a1a1a;
+}
+
+:global(.dark) .file-window {
+  background: #1a1a1a;
+}
+
+:global(.dark) .file-header {
+  background: #252525;
+  border-bottom: 1px solid #333333;
+}
+
+:global(.dark) .file-title {
+  color: #d1d5db;
+}
+
+:global(.dark) .file-content-area {
+  background: #1a1a1a;
+}
+
+:global(.dark) .terminal-preview {
+  background: #1a1a1a;
+}
+
+:global(.dark) .terminal-window {
+  background: #1a1a1a;
+}
+
+:global(.dark) .terminal-header {
+  background: #252525;
+  border-bottom: 1px solid #333333;
+}
+
+:global(.dark) .terminal-title {
+  color: #d1d5db;
+}
+
+:global(.dark) .terminal-content-area {
+  background: #1a1a1a;
+}
+
+:global(.dark) .terminal-text {
+  color: #e5e7eb;
+}
+
+:global(.dark) .preview-header {
+  background: rgba(0, 0, 0, 0.3);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+:global(.dark) .preview-filename {
+  color: #94a3b8;
+}
+
+:global(.dark) .preview-text {
+  color: #e2e8f0;
+}
+
+:global(.dark) .tool-preview {
+  background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
+}
+
+:global(.dark) .tool-preview-icon {
+  color: #94a3b8;
 }
 </style>

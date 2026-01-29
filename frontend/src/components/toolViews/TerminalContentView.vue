@@ -1,13 +1,17 @@
 <template>
   <ContentContainer :scrollable="false" padding="none" class="terminal-view">
-    <div class="terminal-shell" :class="{ 'dark-mode': isDarkMode }">
-      <div ref="terminalRef" class="terminal-surface"></div>
-      <EmptyState
-        v-if="!content"
-        :message="emptyLabel"
-        :icon="emptyIcon"
-        overlay
-      />
+    <div class="terminal-body">
+      <!-- Orange left accent -->
+      <div class="terminal-accent"></div>
+      <div class="terminal-shell" :class="{ 'dark-mode': isDarkMode }">
+        <div ref="terminalRef" class="terminal-surface"></div>
+        <EmptyState
+          v-if="!content"
+          :message="emptyLabel"
+          :icon="emptyIcon"
+          overlay
+        />
+      </div>
     </div>
   </ContentContainer>
 </template>
@@ -39,12 +43,12 @@ const lastContent = ref('');
 const isDarkMode = ref(false);
 let resizeObserver: ResizeObserver | null = null;
 
-// Light theme (matching the reference design)
+// Light theme (matching the decorated design)
 const lightTheme = {
-  background: '#f8f9fa',
+  background: '#ffffff',
   foreground: '#1f2937',
   cursor: '#1f2937',
-  cursorAccent: '#f8f9fa',
+  cursorAccent: '#ffffff',
   selectionBackground: 'rgba(59, 130, 246, 0.2)',
   selectionForeground: '#1f2937',
   black: '#1f2937',
@@ -241,13 +245,30 @@ watch(
 <style scoped>
 .terminal-view {
   position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.terminal-body {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Orange left accent */
+.terminal-accent {
+  width: 2px;
+  background: linear-gradient(180deg, #f97316 0%, #ea580c 100%);
+  flex-shrink: 0;
 }
 
 .terminal-shell {
   position: relative;
+  flex: 1;
   width: 100%;
   height: 100%;
-  background: #f8f9fa;
+  background: #ffffff;
   color: #1f2937;
   font-family: 'SF Mono', Menlo, Monaco, 'Cascadia Code', 'Courier New', monospace;
   font-size: 13px;
@@ -265,6 +286,7 @@ watch(
   height: 100%;
   padding: 12px 16px;
 }
+
 
 /* xterm.js customization */
 .terminal-shell :deep(.xterm) {
@@ -319,12 +341,16 @@ watch(
 
 /* Empty state overlay */
 .terminal-view :deep(.empty-state.overlay) {
-  background: rgba(248, 249, 250, 0.9);
+  background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(4px);
 }
 
 .terminal-shell.dark-mode + :deep(.empty-state.overlay),
 .terminal-view:has(.dark-mode) :deep(.empty-state.overlay) {
+  background: rgba(26, 26, 26, 0.9);
+}
+
+:global(.dark) .terminal-view :deep(.empty-state.overlay) {
   background: rgba(26, 26, 26, 0.9);
 }
 

@@ -1,23 +1,19 @@
 <template>
-  <div
-    class="h-[36px] flex items-center px-3 w-full bg-[var(--background-gray-main)] border-b border-[var(--border-main)] rounded-t-[12px] shadow-[inset_0px_1px_0px_0px_#FFFFFF] dark:shadow-[inset_0px_1px_0px_0px_#FFFFFF30]">
-    <div class="flex-1 flex items-center justify-center">
-      <div class="max-w-[250px] truncate text-[var(--text-tertiary)] text-sm font-medium text-center">{{
-        shellSessionId }}
-      </div>
-    </div>
-  </div>
   <ContentContainer :scrollable="false" padding="none" class="shell-view">
-    <div class="shell-surface">
-      <LoadingState
-        v-if="isLoading"
-        label="Executing command"
-        animation="terminal"
-      />
-      <div v-else-if="hasShellOutput" class="shell-output">
-        <code v-html="shell"></code>
+    <div class="shell-body">
+      <!-- Orange left accent -->
+      <div class="shell-accent"></div>
+      <div class="shell-surface">
+        <LoadingState
+          v-if="isLoading"
+          label="Executing command"
+          animation="terminal"
+        />
+        <div v-else-if="hasShellOutput" class="shell-output">
+          <code v-html="shell"></code>
+        </div>
+        <EmptyState v-else :message="emptyMessage" icon="terminal" />
       </div>
-      <EmptyState v-else :message="emptyMessage" icon="terminal" />
     </div>
   </ContentContainer>
 </template>
@@ -62,7 +58,8 @@ const updateShellContent = (console: any) => {
   if (!console) return;
   let newShell = '';
   for (const e of console) {
-    newShell += `<span style="color: rgb(0, 187, 0);">${e.ps1}</span><span> ${e.command}</span>\n`;
+    // Green prompt (ubuntu@sandbox:~ $) for visibility on white background
+    newShell += `<span class="shell-prompt">${e.ps1}</span><span> ${e.command}</span>\n`;
     newShell += `<span>${e.output}</span>\n`;
   }
   if (newShell !== shell.value) {
@@ -144,19 +141,34 @@ onUnmounted(() => {
   min-height: 0;
 }
 
-.shell-surface {
+.shell-body {
+  display: flex;
   width: 100%;
   height: 100%;
-  background: #1e1e1e;
-  color: #e5e7eb;
-  font-family: Menlo, Monaco, 'Courier New', monospace;
+  overflow: hidden;
+}
+
+/* Orange left accent border */
+.shell-accent {
+  width: 2px;
+  background: linear-gradient(180deg, #f97316 0%, #ea580c 100%);
+  flex-shrink: 0;
+}
+
+.shell-surface {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  background: #ffffff;
+  color: #1f2937;
+  font-family: 'SF Mono', Menlo, Monaco, 'Courier New', monospace;
   font-size: 13px;
   overflow: hidden;
 }
 
 .shell-output {
   height: 100%;
-  padding: 8px 12px;
+  padding: 12px 16px;
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
@@ -164,6 +176,22 @@ onUnmounted(() => {
 
 .shell-view :deep(.empty-icon),
 .shell-view :deep(.empty-message) {
+  color: rgba(31, 41, 55, 0.5);
+}
+
+/* Green prompt (ubuntu@sandbox:~ $) */
+.shell-output :deep(.shell-prompt) {
+  color: #16a34a;
+}
+
+/* Dark mode */
+:global(.dark) .shell-surface {
+  background: #1a1a1a;
+  color: #e5e7eb;
+}
+
+:global(.dark) .shell-view :deep(.empty-icon),
+:global(.dark) .shell-view :deep(.empty-message) {
   color: rgba(229, 231, 235, 0.65);
 }
 </style>
