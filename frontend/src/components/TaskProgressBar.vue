@@ -172,7 +172,7 @@
             <span v-if="taskStartTime" class="font-mono tabular-nums">{{ formattedElapsedTime }}</span>
             <span v-if="taskStartTime && (currentToolName || props.isThinking || props.isLoading)" class="text-gray-300 dark:text-[#404040]">·</span>
             <span v-if="isToolRunning" class="truncate">{{ currentToolName.toLowerCase() }}</span>
-            <span v-else-if="props.isThinking" class="text-blue-500 dark:text-blue-400">thinking</span>
+            <span v-else-if="props.isThinking" class="text-blue-500 dark:text-blue-400">Thinking</span>
             <span v-else-if="props.currentTool && currentToolName && !isAllCompleted" class="truncate">{{ currentToolName.toLowerCase() }}</span>
             <span v-else-if="props.isLoading && !isAllCompleted">processing</span>
           </div>
