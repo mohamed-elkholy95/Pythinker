@@ -462,20 +462,34 @@ const {
 
 // Capture thumbnail from VNC canvas (most reliable source)
 const captureCanvasThumbnail = () => {
-  if (!toolPanel.value?.isVncConnected()) return;
+  const isConnected = toolPanel.value?.isVncConnected();
+  console.log('[Thumbnail] Attempting canvas capture...', { isConnected, panelOpen: isToolPanelOpen.value });
+
+  if (!isConnected) {
+    console.log('[Thumbnail] VNC not connected, skipping canvas capture');
+    return;
+  }
+
   const dataUrl = toolPanel.value?.captureVncScreenshot(0.5, 0.3);
   if (dataUrl) {
+    console.log('[Thumbnail] Canvas capture success, dataUrl length:', dataUrl.length);
     canvasThumbnailUrl.value = dataUrl;
+  } else {
+    console.log('[Thumbnail] Canvas capture returned null');
   }
 };
 
 // Start/stop canvas polling based on panel state
 watch(isToolPanelOpen, (isOpen) => {
+  console.log('[Thumbnail] Panel state changed:', { isOpen, hasCanvasUrl: !!canvasThumbnailUrl.value, hasHttpUrl: !!vncThumbnailUrl.value });
+
   if (isOpen) {
+    console.log('[Thumbnail] Panel opened - starting canvas capture polling');
     // Small delay to let VNC connect first, then capture every second
     setTimeout(captureCanvasThumbnail, 500);
     canvasPollingInterval = setInterval(captureCanvasThumbnail, 1000);
   } else {
+    console.log('[Thumbnail] Panel closed - stopping canvas capture, capturing final state');
     // Capture final state when closing, keep polling briefly to get final state
     setTimeout(captureCanvasThumbnail, 100);
     if (canvasPollingInterval) {
@@ -562,11 +576,28 @@ const isPlanCompleted = computed(() => {
 
 // Get current thumbnail URL - prefer live sources over stale tool screenshots
 const currentThumbnailUrl = computed(() => {
+  const hasCanvas = !!canvasThumbnailUrl.value;
+  const hasHttp = !!vncThumbnailUrl.value;
+
+  console.log('[Thumbnail] Computing URL...', {
+    hasCanvas,
+    hasHttp,
+    canvasUrlPrefix: canvasThumbnailUrl.value?.slice(0, 30),
+    httpUrlPrefix: vncThumbnailUrl.value?.slice(0, 30)
+  });
+
   // 1. Canvas capture (most accurate when panel is open/was open)
-  if (canvasThumbnailUrl.value) return canvasThumbnailUrl.value;
+  if (canvasThumbnailUrl.value) {
+    console.log('[Thumbnail] Using CANVAS source');
+    return canvasThumbnailUrl.value;
+  }
   // 2. HTTP polling (when panel is closed)
-  if (vncThumbnailUrl.value) return vncThumbnailUrl.value;
+  if (vncThumbnailUrl.value) {
+    console.log('[Thumbnail] Using HTTP POLLING source');
+    return vncThumbnailUrl.value;
+  }
   // 3. No fallback to stale tool screenshots - return empty to show placeholder
+  console.log('[Thumbnail] No source available');
   return '';
 });
 
@@ -1378,11 +1409,11 @@ const handleCopyLink = async () => {
 .planning-text-shimmer {
   background: linear-gradient(
     120deg,
-    #374151 0%,
-    #374151 35%,
-    #3b82f6 50%,
-    #374151 65%,
-    #374151 100%
+    #6b7280 0%,
+    #6b7280 35%,
+    #d1d5db 50%,
+    #6b7280 65%,
+    #6b7280 100%
   );
   background-size: 300% 300%;
   -webkit-background-clip: text;
@@ -1391,16 +1422,16 @@ const handleCopyLink = async () => {
   animation: planning-shimmer 2.5s ease-in-out infinite;
 }
 
-/* Dark mode - planning shimmer */
+/* Dark mode - planning shimmer (silver) */
 :deep(.dark) .planning-text-shimmer,
 .dark .planning-text-shimmer {
   background: linear-gradient(
     120deg,
-    #e5e7eb 0%,
-    #e5e7eb 35%,
-    #60a5fa 50%,
-    #e5e7eb 65%,
-    #e5e7eb 100%
+    #9ca3af 0%,
+    #9ca3af 35%,
+    #f3f4f6 50%,
+    #9ca3af 65%,
+    #9ca3af 100%
   );
   background-size: 300% 300%;
   -webkit-background-clip: text;
