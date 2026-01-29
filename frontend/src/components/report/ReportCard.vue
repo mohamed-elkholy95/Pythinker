@@ -211,15 +211,6 @@ const processedContent = computed(() => {
   return preview;
 });
 
-const formatDate = (timestamp: number) => {
-  const date = new Date(timestamp);
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  });
-};
-
 const formatDateLong = (timestamp: number) => {
   const date = new Date(timestamp);
   return date.toLocaleDateString('en-US', {
