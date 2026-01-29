@@ -9,6 +9,7 @@
     :style="{ 'width': isShow ? `${parentSize/2}px` : '0px', 'opacity': isShow ? '1' : '0', 'transition': '0.2s ease-in-out' }">
     <div class="h-full flex flex-col" :style="{ 'width': isShow ? '100%' : '0px' }">
       <ToolPanelContent
+        ref="toolPanelContentRef"
         v-if="isShow && toolContent"
         :sessionId="sessionId"
         :realTime="realTime"
@@ -55,6 +56,7 @@ const isShow = ref(false)
 const live = ref(false)
 const toolContent = ref<ToolContent>()
 const visible = ref(true)
+const toolPanelContentRef = ref<InstanceType<typeof ToolPanelContent> | null>(null)
 
 const emit = defineEmits<{
   (e: 'jumpToRealTime'): void
@@ -136,10 +138,21 @@ onUnmounted(() => {
   eventBus.off(EVENT_SHOW_FILE_PANEL)
 })
 
+// Capture VNC screenshot from the live canvas
+function captureVncScreenshot(quality?: number, scale?: number): string | null {
+  return toolPanelContentRef.value?.captureVncScreenshot(quality, scale) ?? null
+}
+
+function isVncConnected(): boolean {
+  return toolPanelContentRef.value?.isVncConnected() ?? false
+}
+
 defineExpose({
   showToolPanel,
   hideToolPanel,
   clearContent,
-  isShow
+  isShow,
+  captureVncScreenshot,
+  isVncConnected
 })
 </script>
