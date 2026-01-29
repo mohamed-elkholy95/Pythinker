@@ -1,4 +1,5 @@
 import type { FileInfo } from '../api/file';
+import type { SourceCitation } from './message';
 
 export type AgentSSEEvent = {
   event: 'tool' | 'step' | 'message' | 'error' | 'done' | 'title' | 'wait' | 'plan' | 'attachments' | 'mode_change' | 'suggestion' | 'report' | 'stream' | 'progress';
@@ -79,6 +80,7 @@ export interface ReportEventData extends BaseEventData {
   title: string;
   content: string;
   attachments?: FileInfo[];
+  sources?: SourceCitation[];
 }
 
 export interface StreamEventData extends BaseEventData {

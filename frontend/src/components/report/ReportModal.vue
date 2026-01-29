@@ -126,11 +126,15 @@
 
         <!-- Table of Contents Sidebar (hidden on mobile) -->
         <div
-          v-if="showToc && tableOfContents.length > 0"
+          v-if="showToc && (tableOfContents.length > 0 || (report?.sources && report.sources.length > 0))"
           class="hidden lg:block w-[240px] flex-shrink-0 border-l border-[var(--border-main)] overflow-y-auto py-4 px-3 bg-[var(--background-gray-main)]"
         >
           <div class="sticky top-0">
-            <nav class="space-y-1">
+            <!-- Table of Contents -->
+            <nav v-if="tableOfContents.length > 0" class="space-y-1 mb-4">
+              <h4 class="text-xs font-semibold text-[var(--text-tertiary)] uppercase tracking-wide mb-2 px-2">
+                Contents
+              </h4>
               <button
                 v-for="(item, index) in tableOfContents"
                 :key="index"
@@ -148,6 +152,14 @@
                 {{ item.title }}
               </button>
             </nav>
+
+            <!-- Sources Section -->
+            <SourcesSection
+              v-if="report?.sources && report.sources.length > 0"
+              :sources="report.sources"
+              :showSnippets="false"
+              class="pt-3"
+            />
           </div>
         </div>
       </div>
@@ -194,6 +206,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { cn } from '@/lib/utils';
 import type { ReportData } from './ReportCard.vue';
 import TiptapReportEditor from './TiptapReportEditor.vue';
+import SourcesSection from './SourcesSection.vue';
 
 interface TocItem {
   id: string;

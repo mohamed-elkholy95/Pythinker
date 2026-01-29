@@ -37,7 +37,14 @@ vi.mock('@/constants/event', () => ({
 vi.mock('@/components/ToolPanelContent.vue', () => ({
   default: {
     name: 'ToolPanelContent',
-    template: '<div class="mock-tool-panel-content"><slot /></div>',
+    template: '<div class="mock-tool-panel-content"><TaskProgressBar v-if="plan && plan.steps && plan.steps.length > 0" :plan="plan" :isLoading="isLoading" :isThinking="isThinking" /><slot /></div>',
+    components: {
+      TaskProgressBar: {
+        name: 'TaskProgressBar',
+        template: '<div class="mock-task-progress-bar" />',
+        props: ['plan', 'isLoading', 'isThinking'],
+      },
+    },
     props: [
       'sessionId',
       'realTime',
@@ -49,6 +56,9 @@ vi.mock('@/components/ToolPanelContent.vue', () => ({
       'timelineTimestamp',
       'timelineCanStepForward',
       'timelineCanStepBackward',
+      'plan',
+      'isLoading',
+      'isThinking',
     ],
     emits: ['hide', 'jumpToRealTime', 'stepForward', 'stepBackward', 'seekByProgress'],
   },
