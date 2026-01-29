@@ -12,8 +12,9 @@ Key Features:
 
 import logging
 import re
+import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Set, Tuple
 from enum import Enum
 
@@ -109,6 +110,8 @@ class ToolsetConfig:
     keyword_similarity_threshold: float = 0.3
     boost_recent_tools: bool = True
     boost_successful_tools: bool = True
+    enable_task_type_cache: bool = True  # Cache tools by task type
+    cache_ttl_seconds: int = 300  # 5 minute cache TTL
 
 
 class DynamicToolsetManager:
@@ -136,6 +139,10 @@ class DynamicToolsetManager:
             cat: [] for cat in ToolCategory
         }
         self._keyword_index: Dict[str, Set[str]] = {}  # keyword -> tool names
+
+        # Task-type based tool cache for prefetching
+        self._task_type_cache: Dict[str, Tuple[List[Dict[str, Any]], datetime]] = {}
+        self._prefetch_in_progress: Dict[str, bool] = {}
 
     def register_tools(self, tools: List[Dict[str, Any]]) -> None:
         """Register tools for filtering.
@@ -447,6 +454,156 @@ class DynamicToolsetManager:
     def get_all_tools(self) -> List[Dict[str, Any]]:
         """Get all registered tools (bypass filtering)."""
         return [t.schema for t in self._tools.values()]
+
+    def _classify_task_type(self, message: str) -> str:
+        """Classify a message into a task type for caching.
+
+        Args:
+            message: User message or task description
+
+        Returns:
+            Task type string (e.g., "research", "coding", "general")
+        """
+        task_types = self.detect_task_type(message)
+        if task_types and task_types[0] != "general":
+            return task_types[0]
+        return "general"
+
+    def _is_cache_valid(self, task_type: str) -> bool:
+        """Check if cached tools for a task type are still valid.
+
+        Args:
+            task_type: The task type to check
+
+        Returns:
+            True if cache exists and is not expired
+        """
+        if not self.config.enable_task_type_cache:
+            return False
+
+        if task_type not in self._task_type_cache:
+            return False
+
+        _, cached_time = self._task_type_cache[task_type]
+        age = (datetime.now() - cached_time).total_seconds()
+        return age < self.config.cache_ttl_seconds
+
+    def prefetch_tools_for_message(
+        self,
+        message: str,
+        include_mcp: bool = True
+    ) -> List[Dict[str, Any]]:
+        """Prefetch and cache tools based on message/task type.
+
+        This method is optimized for speed - uses cached results when available
+        to reduce latency during planning phase.
+
+        Args:
+            message: User message or task description
+            include_mcp: Whether to include MCP tools
+
+        Returns:
+            List of relevant tool schemas
+        """
+        task_type = self._classify_task_type(message)
+
+        # Check cache first
+        cache_key = f"{task_type}_{include_mcp}"
+        if self._is_cache_valid(cache_key):
+            cached_tools, _ = self._task_type_cache[cache_key]
+            logger.debug(f"Prefetch cache hit for task type: {task_type}")
+            return cached_tools
+
+        # Generate tools if not cached
+        tools = self.get_tools_for_task(message, include_mcp=include_mcp)
+
+        # Cache the result
+        if self.config.enable_task_type_cache:
+            self._task_type_cache[cache_key] = (tools, datetime.now())
+            logger.debug(f"Prefetch cached {len(tools)} tools for task type: {task_type}")
+
+        return tools
+
+    async def prefetch_tools_async(
+        self,
+        message: str,
+        include_mcp: bool = True
+    ) -> List[Dict[str, Any]]:
+        """Async version of prefetch for use in parallel operations.
+
+        Can be run concurrently with other async operations like planning.
+
+        Args:
+            message: User message or task description
+            include_mcp: Whether to include MCP tools
+
+        Returns:
+            List of relevant tool schemas
+        """
+        task_type = self._classify_task_type(message)
+        cache_key = f"{task_type}_{include_mcp}"
+
+        # Check if prefetch is already in progress
+        if cache_key in self._prefetch_in_progress and self._prefetch_in_progress[cache_key]:
+            # Wait for existing prefetch to complete
+            while self._prefetch_in_progress.get(cache_key, False):
+                await asyncio.sleep(0.01)
+            if self._is_cache_valid(cache_key):
+                return self._task_type_cache[cache_key][0]
+
+        # Mark as in progress
+        self._prefetch_in_progress[cache_key] = True
+
+        try:
+            # Run prefetch (this is CPU-bound but quick)
+            tools = self.prefetch_tools_for_message(message, include_mcp)
+            return tools
+        finally:
+            self._prefetch_in_progress[cache_key] = False
+
+    def warm_cache_for_common_tasks(self) -> None:
+        """Pre-warm cache with tools for common task types.
+
+        Call during application startup to reduce cold-start latency.
+        """
+        common_task_messages = {
+            "research": "Research and find information about the topic",
+            "coding": "Write code to implement the feature",
+            "file_management": "Read and write files as needed",
+            "web_browsing": "Browse the web and navigate pages",
+            "analysis": "Analyze the data and provide insights",
+        }
+
+        for task_type, message in common_task_messages.items():
+            self.prefetch_tools_for_message(message)
+            logger.debug(f"Warmed cache for task type: {task_type}")
+
+        logger.info(f"Cache warmed for {len(common_task_messages)} common task types")
+
+    def clear_cache(self) -> None:
+        """Clear all cached tool prefetch data."""
+        self._task_type_cache.clear()
+        self._prefetch_in_progress.clear()
+        logger.debug("Tool prefetch cache cleared")
+
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get statistics about the tool cache."""
+        cache_entries = []
+        for key, (tools, cached_time) in self._task_type_cache.items():
+            age = (datetime.now() - cached_time).total_seconds()
+            cache_entries.append({
+                "key": key,
+                "tool_count": len(tools),
+                "age_seconds": age,
+                "expired": age >= self.config.cache_ttl_seconds
+            })
+
+        return {
+            "total_entries": len(self._task_type_cache),
+            "entries": cache_entries,
+            "cache_enabled": self.config.enable_task_type_cache,
+            "ttl_seconds": self.config.cache_ttl_seconds,
+        }
 
 
 class CacheWarmupManager:

@@ -5,8 +5,20 @@ import aiohttp
 from app.domain.external.browser import Browser
 from app.domain.services.tools.base import tool, BaseTool
 from app.domain.models.tool_result import ToolResult
+from app.domain.services.tools.paywall_detector import PaywallDetector, PaywallDetectionResult
 
 logger = logging.getLogger(__name__)
+
+# Singleton paywall detector
+_paywall_detector: Optional[PaywallDetector] = None
+
+
+def get_paywall_detector() -> PaywallDetector:
+    """Get or create shared paywall detector instance."""
+    global _paywall_detector
+    if _paywall_detector is None:
+        _paywall_detector = PaywallDetector()
+    return _paywall_detector
 
 # Singleton HTTP client session for connection pooling
 _http_session: Optional[aiohttp.ClientSession] = None
@@ -107,10 +119,28 @@ Much faster than browser_navigate for read-only pages. Falls back to browser_nav
                         html = await response.text()
                         text = html_to_text(html)
                         if len(text) > 500:  # Valid content threshold
+                            # Detect paywall
+                            detector = get_paywall_detector()
+                            paywall_result = detector.detect(html, text, url)
+
+                            # Determine access status
+                            if paywall_result.detected:
+                                access_status = "paywall" if paywall_result.access_type == "blocked" else "partial"
+                                access_message = detector.get_access_status_message(paywall_result)
+                            else:
+                                access_status = "full"
+                                access_message = "Full content accessible"
+
                             return ToolResult(
                                 success=True,
-                                message=f"Fast fetch successful ({len(text)} chars)",
-                                data={"content": text, "url": str(response.url)}
+                                message=f"Content fetched ({access_status}): {len(text)} chars. {access_message}",
+                                data={
+                                    "content": text,
+                                    "url": str(response.url),
+                                    "access_status": access_status,
+                                    "paywall_confidence": paywall_result.confidence,
+                                    "paywall_indicators": paywall_result.indicators[:3] if paywall_result.indicators else []
+                                }
                             )
                     logger.debug(f"Content type {content_type} not suitable for fast fetch")
         except Exception as e:

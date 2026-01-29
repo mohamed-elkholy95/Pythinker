@@ -68,6 +68,9 @@ class VerifierConfig:
     simple_operations: tuple = (
         "search", "read", "list", "browse", "view", "find", "look up"
     )
+    # Streaming short-circuit for faster verification
+    enable_streaming_shortcircuit: bool = True
+    early_pass_confidence_threshold: float = 0.85
 
 
 class VerifierAgent:
@@ -242,7 +245,11 @@ class VerifierAgent:
         user_request: str,
         task_context: str
     ) -> VerificationResponse:
-        """Perform the actual verification."""
+        """Perform the actual verification.
+
+        Uses streaming with short-circuit when enabled to detect early PASS
+        signals and return faster for straightforward plans.
+        """
         # Build the prompt
         prompt = VERIFY_PLAN_PROMPT.format(
             user_request=user_request,
@@ -253,18 +260,120 @@ class VerifierAgent:
             task_context=task_context or "No additional context"
         )
 
-        # Call LLM
         messages = [
             {"role": "system", "content": VERIFIER_SYSTEM_PROMPT},
             {"role": "user", "content": prompt}
         ]
 
+        # Try streaming verification with short-circuit if enabled
+        if self.config.enable_streaming_shortcircuit:
+            early_result = await self._try_streaming_verification(messages, plan)
+            if early_result:
+                logger.debug(f"Streaming short-circuit: early {early_result.verdict.value} detected")
+                return early_result
+
+        # Fall back to standard verification
         response = await self.llm.ask(
             messages=messages,
             response_format={"type": "json_object"}
         )
 
         content = response.get("content", "")
+        return await self._parse_verification_response(content)
+
+    async def _try_streaming_verification(
+        self,
+        messages: List[Dict[str, Any]],
+        plan: Plan
+    ) -> Optional[VerificationResponse]:
+        """Attempt streaming verification with early exit on clear PASS signal.
+
+        Args:
+            messages: LLM messages
+            plan: Plan being verified
+
+        Returns:
+            Early VerificationResponse if PASS detected, None otherwise
+        """
+        if not hasattr(self.llm, 'stream') and not hasattr(self.llm, 'stream_ask'):
+            return None
+
+        try:
+            accumulated = ""
+            stream_method = getattr(self.llm, 'stream', None) or getattr(self.llm, 'stream_ask', None)
+
+            # Some LLMs use different streaming interfaces
+            if hasattr(self.llm, 'stream_ask'):
+                stream = self.llm.stream_ask(
+                    messages=messages,
+                    response_format={"type": "json_object"}
+                )
+            elif hasattr(self.llm, 'stream'):
+                stream = self.llm.stream(
+                    messages=messages,
+                    response_format={"type": "json_object"}
+                )
+            else:
+                return None
+
+            async for chunk in stream:
+                # Extract token from chunk (format varies by LLM)
+                if isinstance(chunk, dict):
+                    token = chunk.get("content", "") or chunk.get("text", "")
+                elif isinstance(chunk, str):
+                    token = chunk
+                else:
+                    token = str(chunk)
+
+                accumulated += token
+
+                # Check for early PASS signal in accumulated content
+                accumulated_lower = accumulated.lower()
+
+                # Look for clear pass indicators early in the response
+                if len(accumulated) > 50:  # Need some content
+                    # Check for "verdict": "pass" pattern
+                    if '"verdict"' in accumulated_lower and '"pass"' in accumulated_lower:
+                        # Also check there's no revision feedback yet
+                        if '"revision_feedback": null' in accumulated_lower or \
+                           '"revision_feedback":null' in accumulated_lower:
+                            # Early PASS detected
+                            logger.info(f"Verification streaming: early PASS detected at {len(accumulated)} chars")
+                            return VerificationResponse(
+                                verdict=VerificationVerdict.PASS,
+                                confidence=self.config.early_pass_confidence_threshold,
+                                tool_feasibility=[],
+                                prerequisite_checks=[],
+                                dependency_issues=[],
+                                revision_feedback=None,
+                                summary=f"Plan verified (streaming early-exit, {len(plan.steps)} steps)"
+                            )
+
+                    # If we see REVISE or FAIL early, don't short-circuit - need full response
+                    if '"verdict"' in accumulated_lower:
+                        if '"revise"' in accumulated_lower or '"fail"' in accumulated_lower:
+                            return None  # Fall back to full verification
+
+                # Safety limit - if accumulated too much without clear signal, fall back
+                if len(accumulated) > 500:
+                    return None
+
+            # If stream completed without early exit, return None to use full parsing
+            return None
+
+        except Exception as e:
+            logger.debug(f"Streaming verification failed: {e}")
+            return None
+
+    async def _parse_verification_response(self, content: str) -> VerificationResponse:
+        """Parse verification response content into VerificationResponse.
+
+        Args:
+            content: JSON response content
+
+        Returns:
+            Parsed VerificationResponse
+        """
         parsed = await self.json_parser.parse(content)
 
         # Parse verdict

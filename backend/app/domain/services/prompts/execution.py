@@ -56,6 +56,33 @@ Execute with this reasoning in mind, but output only the result.
 ---
 """
 
+# Source Attribution Signal - injected to prevent hallucination
+SOURCE_ATTRIBUTION_SIGNAL = """
+---
+CRITICAL - Source Attribution Requirements:
+
+1. FACTS: Always prefix with source - "According to [source]..." or cite the URL
+2. INFERENCE: Mark explicitly - "[Inferred] Based on available data..."
+3. PARTIAL ACCESS: State clearly - "[Partial access] Only preview was available..."
+4. UNAVAILABLE: Be honest - "Engagement metrics not visible in accessible content"
+
+STRICTLY FORBIDDEN:
+- NEVER present inferred information as direct fact
+- NEVER fabricate statistics, engagement metrics, or specific numbers
+- NEVER make up clap counts, view counts, read times, or follower numbers
+- NEVER invent dates, prices, or ratings without verification
+
+If data is not visible in the source, state "Not available" or "Not visible" - do not guess.
+If content is behind a paywall, acknowledge this and only report what was accessible.
+
+Example good practices:
+- "The article discusses X (full content accessible)"
+- "According to the visible preview, the topic is Y [Partial access - paywall detected]"
+- "[Inferred from context] The author appears to be an expert based on their writing style"
+- "Engagement metrics: Not available in accessible content"
+---
+"""
+
 # Keywords that indicate a complex task requiring CoT
 COMPLEX_TASK_INDICATORS = [
     "research", "analyze", "compare", "investigate", "design",
@@ -225,6 +252,26 @@ def get_current_date_signal() -> str:
     )
 
 
+def is_research_task(step_description: str) -> bool:
+    """Determine if a task involves research or content extraction.
+
+    Args:
+        step_description: The step description to analyze
+
+    Returns:
+        True if the task involves research or web content
+    """
+    step_lower = step_description.lower()
+
+    research_indicators = [
+        "research", "search", "find", "browse", "web", "article",
+        "content", "information", "look up", "investigate", "summarize",
+        "extract", "analyze", "review", "read", "fetch", "scrape"
+    ]
+
+    return any(indicator in step_lower for indicator in research_indicators)
+
+
 def build_execution_prompt(
     step: str,
     message: str,
@@ -234,7 +281,8 @@ def build_execution_prompt(
     task_state: Optional[str] = None,
     memory_context: Optional[str] = None,
     enable_cot: bool = True,
-    include_current_date: bool = True
+    include_current_date: bool = True,
+    enable_source_attribution: bool = True
 ) -> str:
     """
     Build execution prompt with optional context signals and CoT reasoning.
@@ -249,6 +297,7 @@ def build_execution_prompt(
         memory_context: Optional relevant memories from long-term storage
         enable_cot: Enable Chain-of-Thought for complex tasks (default: True)
         include_current_date: Include current date context (default: True)
+        enable_source_attribution: Enable source attribution signal for research tasks (default: True)
 
     Returns:
         Formatted execution prompt with injected signals
@@ -272,6 +321,10 @@ def build_execution_prompt(
             primary_objective=primary_obj,
             constraints=constraints_text
         ) + prompt
+
+    # Inject source attribution signal for research tasks
+    if enable_source_attribution and is_research_task(step):
+        prompt = SOURCE_ATTRIBUTION_SIGNAL + prompt
 
     # Inject memory context if present (Phase 6: Qdrant integration)
     if memory_context:
