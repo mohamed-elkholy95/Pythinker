@@ -74,8 +74,15 @@ class DockerLogMonitor:
     def _stream_container_logs(self, container) -> None:
         name = getattr(container, "name", "unknown")
         try:
-            stream = container.logs(stream=True, follow=True, since=int(time.time()) - 5)
-            for raw in stream:
+            # Fix for "Invalid stream ID specified as stream command argument" error:
+            # Don't combine since parameter with stream/follow as it can cause API errors
+            # Instead, use tail to get recent logs and then follow for new ones
+            log_stream = container.logs(
+                stream=True,
+                follow=True,
+                tail=50  # Get last 50 lines instead of using 'since'
+            )
+            for raw in log_stream:
                 if self._stop_event.is_set():
                     break
                 try:

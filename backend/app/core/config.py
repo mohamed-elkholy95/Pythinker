@@ -90,10 +90,13 @@ class Settings(BaseSettings):
     sandbox_framework_enabled: bool = True
     sandbox_framework_required: bool = False
 
-    # code-server configuration (VS Code in browser)
-    code_server_public_url: str | None = None
-    code_server_password: str | None = None
-    
+    # VNC Screenshot configuration (for desktop thumbnail previews)
+    vnc_screenshot_enabled: bool = True  # Enable VNC desktop screenshots
+    vnc_screenshot_quality: int = 75  # JPEG quality (1-100)
+    vnc_screenshot_scale: float = 0.5  # Scale factor (0.1-1.0, 50% by default)
+    vnc_screenshot_format: str = "jpeg"  # Image format (jpeg or png)
+    vnc_screenshot_timeout: float = 5.0  # Timeout in seconds for screenshot capture
+
     # Search engine configuration
     search_provider: str | None = "bing"  #  "google", "bing", "searxng", "whoogle", "duckduckgo", "brave", "tavily"
     google_search_api_key: str | None = None
@@ -165,7 +168,7 @@ class Settings(BaseSettings):
 
     # Rate limiting configuration
     rate_limit_enabled: bool = True
-    rate_limit_requests_per_minute: int = 60  # Default rate limit
+    rate_limit_requests_per_minute: int = 300  # Increased for SSE polling (temporary)
     rate_limit_auth_requests_per_minute: int = 10  # Rate limit for auth endpoints (login, register)
     rate_limit_burst: int = 10  # Allow burst of requests
     
@@ -267,8 +270,14 @@ class Settings(BaseSettings):
         """Get CORS origins as a list"""
         if not self.cors_origins:
             if self.is_development:
-                # Allow localhost in development
-                return ["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"]
+                # Allow common frontend dev server ports in development
+                return [
+                    "http://localhost:5173",     # Vite default
+                    "http://localhost:5174",     # Pythinker frontend
+                    "http://localhost:3000",     # Common React/Next.js
+                    "http://127.0.0.1:5173",
+                    "http://127.0.0.1:5174"
+                ]
             return []
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 

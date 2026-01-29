@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import tailwindcss from '@tailwindcss/vite';
+import commonjs from 'vite-plugin-commonjs';
 import { resolve } from 'path';
 
 // https://vitejs.dev/config/
@@ -8,6 +9,15 @@ export default defineConfig({
   plugins: [
     tailwindcss(),
     vue(),
+    commonjs({
+      filter(id) {
+        // Transform @novnc/novnc CommonJS modules to ESM
+        if (id.includes('@novnc/novnc')) {
+          return true;
+        }
+        return false;
+      }
+    }),
   ],
   resolve: {
     alias: {
@@ -15,8 +25,7 @@ export default defineConfig({
     }
   },
   optimizeDeps: {
-    include: ['monaco-editor'],
-    exclude: ['@novnc/novnc'],
+    include: ['monaco-editor', '@novnc/novnc/lib/rfb'],
     esbuildOptions: {
       target: 'esnext',
       supported: {
@@ -26,7 +35,7 @@ export default defineConfig({
   },
   server: {
     host: true,
-    port: 5173,
+    port: 5174,
     ...(process.env.BACKEND_URL && {
       proxy: {
         '/api': {

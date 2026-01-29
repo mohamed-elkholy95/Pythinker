@@ -13,7 +13,7 @@ services:
       - ./frontend/tsconfig.node.json:/app/tsconfig.node.json  # Mount tsconfig node
       - ./frontend/env.d.ts:/app/env.d.ts  # Mount env types
     ports:
-      - "5173:5173"  # Vite default development port
+      - "5174:5174"  # Vite default development port
     environment:
       - NODE_ENV=development
       - VITE_API_URL=http://localhost:8000
@@ -78,8 +78,7 @@ services:
       #- "9222:9222"
       - "5902:5900"
       - "5901:5901"
-      - "8080:8080"
-      - "8081:8081"
+      - "8083:8080"
       - "8082:8082"
     # Shared memory size for Chrome browser stability (prevents crashes)
     shm_size: '2gb'
@@ -95,7 +94,6 @@ services:
       - FRAMEWORK_UVI_ARGS="--reload"
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
       - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
-      - PASSWORD=${CODE_SERVER_PASSWORD}
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome
     restart: unless-stopped
     networks:

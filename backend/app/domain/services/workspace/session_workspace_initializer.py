@@ -59,7 +59,7 @@ class SessionWorkspaceInitializer:
 
             # Initialize workspace structure
             organizer = WorkspaceOrganizer(sandbox)
-            workspace_structure = await organizer.initialize_workspace(template)
+            workspace_structure = await organizer.initialize_workspace(session.id, template)
 
             # Store in session
             session.workspace_structure = workspace_structure

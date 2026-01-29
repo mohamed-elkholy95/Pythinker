@@ -55,18 +55,22 @@ class BrowserToolContent(BaseModel):
 class SearchToolContent(BaseModel):
     """Search tool content"""
     results: List[SearchResultItem]
+    screenshot: Optional[str] = None
 
 class ShellToolContent(BaseModel):
     """Shell tool content"""
     console: Any
+    screenshot: Optional[str] = None
 
 class FileToolContent(BaseModel):
     """File tool content"""
     content: str
+    screenshot: Optional[str] = None
 
 class McpToolContent(BaseModel):
     """MCP tool content"""
     result: Any
+    screenshot: Optional[str] = None
 
 class BrowserAgentToolContent(BaseModel):
     """Browser agent tool content"""

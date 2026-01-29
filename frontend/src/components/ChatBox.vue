@@ -95,7 +95,7 @@ const detectCodeType = (text: string): { isCode: boolean; extension: string; lan
         { regex: /^(func|package|import)\s+/m, ext: 'go', lang: 'Go' },
         { regex: /^(fn|use|mod|impl|struct|enum)\s+/m, ext: 'rs', lang: 'Rust' },
         { regex: /^#include\s+[<"]/m, ext: 'cpp', lang: 'C++' },
-        { regex: /^(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER)\s+/im, ext: 'sql', lang: 'SQL' },
+        { regex: /^(SELECT\s+.+\s+FROM|INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|CREATE\s+(TABLE|DATABASE|INDEX|VIEW|SCHEMA|PROCEDURE|FUNCTION)|DROP\s+(TABLE|DATABASE|INDEX|VIEW|SCHEMA)|ALTER\s+TABLE)\s+/im, ext: 'sql', lang: 'SQL' },
         { regex: /^<!DOCTYPE|^<html|^<\?xml/im, ext: 'html', lang: 'HTML' },
         { regex: /^\s*[\w-]+\s*:\s*[\w#"']/m, ext: 'css', lang: 'CSS' },
         { regex: /^(apiVersion|kind|metadata):/m, ext: 'yaml', lang: 'YAML' },

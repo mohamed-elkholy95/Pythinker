@@ -1,8 +1,8 @@
 # Sandbox Environment Context
 
-**Generated:** 2026-01-27T23:06:27.795336
+**Generated:** 2026-01-28T23:49:55.718862
 **Version:** 1.0.0
-**Checksum:** 3afb52f039e49b80
+**Checksum:** 8a9675be862a2abe
 
 ## Operating System
 
@@ -17,7 +17,7 @@
 - **Version:** Python 3.11.14
 - **Path:** /usr/bin/python3
 - **Pip:** pip 25.3 from /usr/local/lib/python3.11/dist-packages/pip (python 3.11)
-- **Total Packages:** 102
+- **Total Packages:** 165
 
 ### Key Python Packages
 
@@ -31,6 +31,8 @@
 - **flake8:** 7.3.0
 - **mypy:** 1.19.1
 - **requests:** 2.32.5
+- **httpx:** 0.28.1
+- **aiohttp:** 3.13.3
 - **numpy:** 1.21.5
 
 ## Node.js Environment
@@ -179,7 +181,7 @@ Key variables available:
 
 ## Resource Limits
 
-- **Disk Space:** 35G available (55% used)
+- **Disk Space:** 22G available (72% used)
 - **Shared Memory:** 2gb
 
 ---

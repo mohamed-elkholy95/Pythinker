@@ -320,8 +320,11 @@ class PlaywrightBrowser:
                 contexts = self.browser.contexts
 
                 if contexts:
+                    # ALWAYS use the default (first) context - this is the visible one in VNC
                     self.context = contexts[0]
                     pages = self.context.pages
+
+                    logger.info(f"Using existing default context with {len(pages)} page(s) - will be visible in VNC")
 
                     # After clearing, check if we can reuse remaining blank page
                     reuse_page = None
@@ -330,13 +333,26 @@ class PlaywrightBrowser:
                             page_url = await pages[0].evaluate("window.location.href")
                             if page_url in ("about:blank", "chrome://newtab/", "chrome://new-tab-page/", ""):
                                 reuse_page = pages[0]
+                                logger.info("Reusing existing blank page in visible context")
                         except Exception as e:
                             logger.debug(f"Could not check page URL for reuse: {e}")
+                    elif len(pages) == 0:
+                        # No pages exist, create one in the visible context
+                        logger.info("No pages in default context, creating new visible page")
 
                     if reuse_page:
                         self.page = reuse_page
                     else:
+                        # Create new page in the DEFAULT (visible) context
                         self.page = await self.context.new_page()
+                        logger.info(f"Created new page in visible context (total pages: {len(self.context.pages)})")
+
+                    # Ensure the page is brought to front and visible in VNC
+                    try:
+                        await self.page.bring_to_front()
+                        logger.info("Brought page to front for VNC visibility")
+                    except Exception as e:
+                        logger.debug(f"Could not bring page to front: {e}")
                 else:
                     # Randomize fingerprint for anti-detection
                     if self._randomize_fingerprint:
@@ -623,6 +639,13 @@ class PlaywrightBrowser:
         """
         await self._ensure_page()
 
+        # Ensure page is visible in VNC when viewing
+        try:
+            await self.page.bring_to_front()
+            logger.debug("Brought page to front before viewing for VNC visibility")
+        except Exception as e:
+            logger.debug(f"Could not bring page to front: {e}")
+
         try:
             # Wait for page to be ready
             if wait_for_load:
@@ -808,16 +831,17 @@ class PlaywrightBrowser:
         
         return formatted_elements
     
-    async def navigate(self, url: str, timeout: Optional[int] = 30000, wait_until: str = "domcontentloaded") -> ToolResult:
-        """Navigate to the specified URL with proper wait handling
+    async def navigate(self, url: str, timeout: Optional[int] = 30000, wait_until: str = "domcontentloaded", auto_extract: bool = True) -> ToolResult:
+        """Navigate to the specified URL with automatic content loading and extraction
 
         Args:
             url: URL to navigate to
             timeout: Navigation timeout in milliseconds (default: 30000)
             wait_until: Load state to wait for ("load", "domcontentloaded", "networkidle")
+            auto_extract: Whether to automatically scroll and extract content (default: True)
 
         Returns:
-            ToolResult with navigation status and interactive elements
+            ToolResult with navigation status, interactive elements, and optionally page content
         """
         await self._ensure_page()
 
@@ -836,29 +860,98 @@ class PlaywrightBrowser:
             if response and response.status >= 400:
                 logger.warning(f"Navigation to {url} returned status {response.status}")
 
+            # AUTOMATIC BEHAVIOR: Scroll page to load lazy content and trigger any scroll-based loading
+            if auto_extract:
+                try:
+                    # Scroll to bottom to trigger lazy loading
+                    await self.page.evaluate("window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'})")
+                    await asyncio.sleep(0.5)  # Wait for lazy content to load
+
+                    # Scroll back to top for initial view
+                    await self.page.evaluate("window.scrollTo({top: 0, behavior: 'smooth'})")
+                    await asyncio.sleep(0.3)  # Brief wait for smooth scroll
+
+                    logger.debug("Auto-scrolled page to load lazy content")
+                except Exception as e:
+                    logger.debug(f"Auto-scroll failed (non-critical): {e}")
+
             # Extract interactive elements after page loads
             interactive_elements = await self._extract_interactive_elements()
 
+            # Ensure page is visible in VNC after navigation
+            try:
+                await self.page.bring_to_front()
+                logger.info("Brought page to front after navigation for VNC visibility")
+            except Exception as e:
+                logger.debug(f"Could not bring page to front: {e}")
+
+            # AUTOMATIC BEHAVIOR: Extract page content automatically for faster response
+            result_data = {
+                "interactive_elements": interactive_elements,
+                "url": self.page.url,
+                "status": response.status if response else None,
+            }
+
+            if auto_extract:
+                try:
+                    # Extract content automatically
+                    content = await self._extract_content()
+                    title = await self.page.title()
+
+                    result_data["content"] = content
+                    result_data["title"] = title
+
+                    logger.info(f"Auto-extracted content ({len(content)} chars) from {url}")
+                except Exception as e:
+                    logger.warning(f"Auto-extract content failed: {e}")
+                    # Continue without content - non-critical
+
             return ToolResult(
                 success=True,
-                data={
-                    "interactive_elements": interactive_elements,
-                    "url": self.page.url,
-                    "status": response.status if response else None,
-                }
+                data=result_data
             )
         except PlaywrightTimeoutError:
             # Page might still be usable even after timeout
             logger.warning(f"Navigation to {url} timed out, attempting to extract elements anyway")
             try:
+                # Auto-scroll even after timeout
+                if auto_extract:
+                    try:
+                        await self.page.evaluate("window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'})")
+                        await asyncio.sleep(0.3)
+                        await self.page.evaluate("window.scrollTo({top: 0, behavior: 'smooth'})")
+                        await asyncio.sleep(0.2)
+                    except Exception:
+                        pass
+
                 interactive_elements = await self._extract_interactive_elements()
+
+                # Ensure page is visible in VNC even after timeout
+                try:
+                    await self.page.bring_to_front()
+                    logger.info("Brought page to front after timeout for VNC visibility")
+                except Exception as e:
+                    logger.debug(f"Could not bring page to front: {e}")
+
+                result_data = {
+                    "interactive_elements": interactive_elements,
+                    "url": self.page.url,
+                }
+
+                # Try to extract content even after timeout
+                if auto_extract:
+                    try:
+                        content = await self._extract_content()
+                        title = await self.page.title()
+                        result_data["content"] = content
+                        result_data["title"] = title
+                    except Exception:
+                        pass  # Skip content if extraction fails
+
                 return ToolResult(
                     success=True,
                     message=f"Navigation timed out but page partially loaded",
-                    data={
-                        "interactive_elements": interactive_elements,
-                        "url": self.page.url,
-                    }
+                    data=result_data
                 )
             except Exception:
                 return ToolResult(success=False, message=f"Navigation to {url} timed out")
@@ -961,6 +1054,13 @@ class PlaywrightBrowser:
         """
         await self._ensure_page()
 
+        # Ensure page is visible in VNC before clicking
+        try:
+            await self.page.bring_to_front()
+            logger.debug("Brought page to front before click for VNC visibility")
+        except Exception as e:
+            logger.debug(f"Could not bring page to front: {e}")
+
         try:
             if coordinate_x is not None and coordinate_y is not None:
                 await self.page.mouse.click(coordinate_x, coordinate_y)
@@ -1038,6 +1138,13 @@ class PlaywrightBrowser:
             ToolResult indicating success or failure
         """
         await self._ensure_page()
+
+        # Ensure page is visible in VNC before input
+        try:
+            await self.page.bring_to_front()
+            logger.debug("Brought page to front before input for VNC visibility")
+        except Exception as e:
+            logger.debug(f"Could not bring page to front: {e}")
 
         try:
             if coordinate_x is not None and coordinate_y is not None:
@@ -1140,6 +1247,13 @@ class PlaywrightBrowser:
         """
         await self._ensure_page()
         try:
+            # Ensure page is visible in VNC before scrolling
+            try:
+                await self.page.bring_to_front()
+                logger.debug("Brought page to front before scroll up for VNC visibility")
+            except Exception as e:
+                logger.debug(f"Could not bring page to front: {e}")
+
             if to_top:
                 await self.page.evaluate("window.scrollTo({top: 0, behavior: 'smooth'})")
             else:
@@ -1164,6 +1278,13 @@ class PlaywrightBrowser:
         """
         await self._ensure_page()
         try:
+            # Ensure page is visible in VNC before scrolling
+            try:
+                await self.page.bring_to_front()
+                logger.debug("Brought page to front before scroll down for VNC visibility")
+            except Exception as e:
+                logger.debug(f"Could not bring page to front: {e}")
+
             if to_bottom:
                 await self.page.evaluate("window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'})")
             else:

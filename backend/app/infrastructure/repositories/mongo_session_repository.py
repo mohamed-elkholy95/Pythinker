@@ -208,6 +208,22 @@ class MongoSessionRepository(SessionRepository):
         if not result:
             raise ValueError(f"Session {session_id} not found")
 
+    async def update_by_id(self, session_id: str, updates: dict) -> None:
+        """Update session fields by ID with a dictionary of updates"""
+        if not updates:
+            return
+
+        # Add updated_at timestamp
+        updates["updated_at"] = datetime.now(UTC)
+
+        result = await SessionDocument.find_one(
+            SessionDocument.session_id == session_id
+        ).update(
+            {"$set": updates}
+        )
+        if not result:
+            raise ValueError(f"Session {session_id} not found")
+
     # Timeline query methods
     async def get_events_paginated(
         self,

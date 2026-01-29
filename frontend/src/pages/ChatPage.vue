@@ -112,14 +112,8 @@
             @selectSuggestion="handleSuggestionSelect" />
 
           <!-- Loading/Thinking indicators - only show when no tool is actively being called -->
-          <!-- Streaming thinking indicator with text -->
-          <StreamingThinkingIndicator
-            v-if="isLoading && isThinkingStreaming && lastTool?.status !== 'calling'"
-            :text="thinkingText"
-            :maxLines="8"
-          />
-          <!-- Static thinking indicator (no streaming text) -->
-          <div v-else-if="isLoading && isThinking && lastTool?.status !== 'calling'" class="flex flex-col">
+          <!-- Morphing shape thinking indicator - only shown when chat is actively thinking -->
+          <div v-if="isLoading && (isThinkingStreaming || isThinking) && lastTool?.status !== 'calling'" class="flex flex-col">
             <div class="flex">
               <div class="w-[24px] relative h-4">
                 <div class="border-l border-dashed border-[var(--border-dark)] absolute start-[8px] top-0 bottom-0"></div>
@@ -166,7 +160,8 @@
           />
         </div>
 
-        <div class="flex flex-col bg-[var(--background-white-main)] sticky bottom-0">
+        <div class="flex flex-col sticky bottom-0">
+          <div class="absolute inset-0 bg-[var(--background-white-main)] -z-10" style="mask-image: linear-gradient(to top, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to top, black 85%, transparent 100%);"></div>
           <button @click="handleFollow" v-if="!follow"
             class="flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[var(--background-white-main)] hover:bg-[var(--background-gray-main)] clickable border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)] absolute -top-20 left-1/2 -translate-x-1/2">
             <ArrowDown class="text-[var(--icon-primary)]" :size="20" />
@@ -271,14 +266,13 @@ import { copyToClipboard } from '../utils/dom'
 import { SessionStatus } from '../types/response';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import LoadingIndicator from '@/components/ui/LoadingIndicator.vue';
-import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
-import StreamingThinkingIndicator from '@/components/ui/StreamingThinkingIndicator.vue';
 import TaskProgressBar from '@/components/TaskProgressBar.vue';
 import { ReportModal } from '@/components/report';
 import FilePanelContent from '@/components/FilePanelContent.vue';
 import type { ReportData } from '@/components/report';
 import { useReport, extractSectionsFromMarkdown } from '@/composables/useReport';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
 
 const router = useRouter()
 const { t } = useI18n()
@@ -319,6 +313,7 @@ const createInitialState = () => ({
   filePreviewFile: null as FileInfo | null,
   toolTimeline: [] as ToolContent[],
   panelToolId: undefined as string | undefined,
+  isInitializing: false, // True when starting up the sandbox environment
 });
 
 // Create reactive state
@@ -355,6 +350,7 @@ const {
   filePreviewFile,
   toolTimeline,
   panelToolId,
+  isInitializing,
 } = toRefs(state);
 
 // Non-state refs that don't need reset
@@ -429,6 +425,42 @@ const checkStaleConnection = () => {
   }
 };
 
+// VNC screenshot state for thumbnail
+const vncScreenshotUrl = ref<string>('');
+let screenshotIntervalId: ReturnType<typeof setInterval> | null = null;
+
+// Fetch VNC screenshot from sandbox
+const fetchVNCScreenshot = async () => {
+  if (!sessionId.value) return;
+  try {
+    const response = await agentApi.getVNCScreenshot(sessionId.value);
+    // Revoke previous URL to avoid memory leaks
+    if (vncScreenshotUrl.value) {
+      URL.revokeObjectURL(vncScreenshotUrl.value);
+    }
+    vncScreenshotUrl.value = URL.createObjectURL(response);
+  } catch (error) {
+    console.warn('[Screenshot] Failed to fetch VNC screenshot:', error);
+  }
+};
+
+// Start periodic screenshot fetching
+const startScreenshotFetching = () => {
+  if (screenshotIntervalId) return;
+  // Fetch immediately
+  fetchVNCScreenshot();
+  // Then fetch every 5 seconds (background sync - TaskProgressBar handles fast updates)
+  screenshotIntervalId = setInterval(fetchVNCScreenshot, 5000);
+};
+
+// Stop screenshot fetching
+const stopScreenshotFetching = () => {
+  if (screenshotIntervalId) {
+    clearInterval(screenshotIntervalId);
+    screenshotIntervalId = null;
+  }
+};
+
 // Start stale detection when loading starts
 watch(isLoading, (loading) => {
   if (loading) {
@@ -436,20 +468,43 @@ watch(isLoading, (loading) => {
     if (!staleCheckInterval) {
       staleCheckInterval = setInterval(checkStaleConnection, STALE_CHECK_INTERVAL_MS);
     }
+    // Start fetching VNC screenshots when agent starts thinking
+    startScreenshotFetching();
   } else {
     isStale.value = false;
     if (staleCheckInterval) {
       clearInterval(staleCheckInterval);
       staleCheckInterval = null;
     }
+    // Keep screenshot fetching running even after loading stops
+    // as user wants thumbnail to stay showing
   }
 });
+
+// Start screenshot fetching when session loads
+watch(sessionId, (newSessionId) => {
+  if (newSessionId) {
+    // Start fetching screenshots when session is available
+    startScreenshotFetching();
+  } else {
+    // Stop and cleanup when session is cleared
+    stopScreenshotFetching();
+    if (vncScreenshotUrl.value) {
+      URL.revokeObjectURL(vncScreenshotUrl.value);
+      vncScreenshotUrl.value = '';
+    }
+  }
+}, { immediate: true });
 
 // Cleanup on unmount
 onUnmounted(() => {
   if (staleCheckInterval) {
     clearInterval(staleCheckInterval);
     staleCheckInterval = null;
+  }
+  stopScreenshotFetching();
+  if (vncScreenshotUrl.value) {
+    URL.revokeObjectURL(vncScreenshotUrl.value);
   }
 });
 
@@ -488,14 +543,14 @@ const isComputerTool = (tool?: ToolContent | null) => {
 const shouldShowThumbnail = computed(() => {
   if (isToolPanelOpen.value) return false;
   if (!sessionId.value) return false;
-  // Show thumbnail when there's an active plan or loading
-  return !!plan.value?.steps?.length || isLoading.value || isPlanCompleted.value;
+  // Show thumbnail when there's a screenshot URL available or when there's an active plan/loading
+  return !!currentThumbnailUrl.value || !!plan.value?.steps?.length || isLoading.value || isPlanCompleted.value;
 });
 
 const shouldShowPanelThumbnail = computed(() => {
   if (!sessionId.value) return false;
-  // Show thumbnail when there's an active plan or loading
-  return !!plan.value?.steps?.length || isLoading.value || isPlanCompleted.value;
+  // Show thumbnail when there's a screenshot URL available or when there's an active plan/loading
+  return !!currentThumbnailUrl.value || !!plan.value?.steps?.length || isLoading.value || isPlanCompleted.value;
 });
 
 const isPlanCompleted = computed(() => {
@@ -507,11 +562,12 @@ const shouldEnableVnc = computed(() => {
   return !!sessionId.value;
 });
 
-// Get current thumbnail URL from tool content
+// Get current thumbnail URL from tool content or VNC screenshot
 const currentThumbnailUrl = computed(() => {
   const tool = lastNoMessageTool.value;
-  if (!tool?.content?.screenshot) return '';
-  return tool.content.screenshot;
+  // Prefer tool screenshot if available, otherwise use VNC screenshot
+  if (tool?.content?.screenshot) return tool.content.screenshot;
+  return vncScreenshotUrl.value;
 });
 
 // Get current tool info for display
@@ -521,15 +577,15 @@ const currentToolInfo = computed(() => {
 
   // Import the mapping from tool constants
   const TOOL_FUNCTION_MAP: Record<string, string> = {
-    'browser_get_content': 'Fetching',
-    'browser_view': 'Viewing',
-    'browser_navigate': 'Browsing',
-    'browser_click': 'Clicking',
-    'browser_input': 'Typing',
-    'shell_exec': 'Running',
-    'file_read': 'Reading',
-    'file_write': 'Creating file',
-    'info_search_web': 'Searching',
+    'browser_get_content': 'Browser',
+    'browser_view': 'Browser',
+    'browser_navigate': 'Browser',
+    'browser_click': 'Browser',
+    'browser_input': 'Browser',
+    'shell_exec': 'Terminal',
+    'file_read': 'File Reader',
+    'file_write': 'File Editor',
+    'info_search_web': 'Search Engine',
   };
 
   const TOOL_FUNCTION_ARG_MAP: Record<string, string> = {
@@ -552,7 +608,8 @@ const currentToolInfo = computed(() => {
   return {
     name: tool.name,
     function: TOOL_FUNCTION_MAP[tool.function] || tool.function,
-    functionArg
+    functionArg,
+    status: tool.status
   };
 });
 
@@ -822,6 +879,11 @@ const handleEvent = (event: AgentSSEEvent) => {
     seenEventIds.value.add(eventId);
   }
 
+  // End initialization phase when first event arrives
+  if (isInitializing.value) {
+    isInitializing.value = false;
+  }
+
   // Update last event time for stale connection detection
   updateLastEventTime();
 
@@ -895,6 +957,12 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
   inputMessage.value = '';
   isLoading.value = true;
 
+  // Set initialization state when starting a new chat
+  // (when there are no messages or only 1 message which is the user's first message)
+  if (message && (messages.value.length === 0 || (messages.value.length === 1 && messages.value[0].type === 'user'))) {
+    isInitializing.value = true;
+  }
+
   try {
     // Use the split event handler function and store the cancel function
     cancelCurrentChat.value = await agentApi.chatWithSession(
@@ -925,6 +993,7 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
           isThinking.value = false;
           thinkingText.value = '';
           isThinkingStreaming.value = false;
+          isInitializing.value = false;
           // Clear the cancel function when connection is closed normally
           if (cancelCurrentChat.value) {
             cancelCurrentChat.value = null;
@@ -936,6 +1005,7 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
           isThinking.value = false;
           thinkingText.value = '';
           isThinkingStreaming.value = false;
+          isInitializing.value = false;
           // Clear the cancel function when there's an error
           if (cancelCurrentChat.value) {
             cancelCurrentChat.value = null;
@@ -1090,6 +1160,7 @@ const handleStop = () => {
   isStale.value = false;
   thinkingText.value = '';
   isThinkingStreaming.value = false;
+  isInitializing.value = false;
 }
 
 const handleFileListShow = () => {

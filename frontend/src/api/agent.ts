@@ -1,7 +1,7 @@
 // Backend API service
 import { apiClient, API_CONFIG, ApiResponse, createSSEConnection, SSECallbacks } from './client';
 import { AgentSSEEvent } from '../types/event';
-import { CreateSessionResponse, GetSessionResponse, ShellViewResponse, FileViewResponse, ListSessionResponse, SignedUrlResponse, ShareSessionResponse, SharedSessionResponse, CodeServerUrlResponse } from '../types/response';
+import { CreateSessionResponse, GetSessionResponse, ShellViewResponse, FileViewResponse, ListSessionResponse, SignedUrlResponse, ShareSessionResponse, SharedSessionResponse } from '../types/response';
 import type { FileInfo } from './file';
 
 
@@ -67,33 +67,44 @@ export async function createVncSignedUrl(sessionId: string, expireMinutes: numbe
 }
 
 /**
- * Get code-server URL
- * @param sessionId Session ID
- * @returns Code-server URL response
- */
-export async function getCodeServerUrl(sessionId: string): Promise<CodeServerUrlResponse> {
-  const response = await apiClient.get<ApiResponse<CodeServerUrlResponse>>(`/sessions/${sessionId}/code-server`);
-  return response.data.data;
-}
-
-/**
  * Get VNC WebSocket URL with signed URL
  * @param sessionId Session ID
  * @param expireMinutes URL expiration time in minutes (default: 60)
  * @returns Promise resolving to signed VNC WebSocket URL string
- * 
+ *
  * @example
  * // Signed URL (no Authorization header needed, more secure)
  * const url = await getVNCUrl('session123');
  * const url = await getVNCUrl('session123', 120);
  */
 export const getVNCUrl = async (
-  sessionId: string, 
+  sessionId: string,
   expireMinutes: number = 15
 ): Promise<string> => {
     const signedUrlResponse = await createVncSignedUrl(sessionId, expireMinutes);
     const wsBaseUrl = API_CONFIG.host.replace(/^http/, 'ws');
     return `${wsBaseUrl}${signedUrlResponse.signed_url}`;
+}
+
+/**
+ * Get VNC screenshot from sandbox
+ * @param sessionId Session ID
+ * @returns Promise resolving to screenshot blob
+ *
+ * @example
+ * const blob = await getVNCScreenshot('session123');
+ * const url = URL.createObjectURL(blob);
+ */
+export async function getVNCScreenshot(
+  sessionId: string,
+  quality: number = 75,
+  scale: number = 0.5
+): Promise<Blob> {
+  const response = await apiClient.get(`/sessions/${sessionId}/vnc/screenshot`, {
+    responseType: 'blob',
+    params: { quality, scale }
+  });
+  return response.data;
 }
 
 /**

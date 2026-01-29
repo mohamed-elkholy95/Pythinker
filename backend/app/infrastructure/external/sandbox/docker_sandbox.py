@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # CDP health check timeout
 CDP_HEALTH_CHECK_TIMEOUT = 10  # seconds
-CDP_CONNECTION_RETRIES = 3
+CDP_CONNECTION_RETRIES = 15
 
 class DockerSandbox(Sandbox):
     def __init__(self, ip: str = None, container_name: str = None):
@@ -33,7 +33,6 @@ class DockerSandbox(Sandbox):
         self.base_url = f"http://{self.ip}:8080"
         self._vnc_url = f"ws://{self.ip}:5901"
         self._cdp_url = f"http://{self.ip}:9222"
-        self._code_server_url = f"http://{self.ip}:8081"
         self._framework_url = f"http://{self.ip}:{settings.sandbox_framework_port}"
         self._container_name = container_name
 
@@ -76,10 +75,6 @@ class DockerSandbox(Sandbox):
     @property
     def vnc_url(self) -> str:
         return self._vnc_url
-
-    @property
-    def code_server_url(self) -> str:
-        return self._code_server_url
 
     @property
     def framework_url(self) -> str:
@@ -174,9 +169,6 @@ class DockerSandbox(Sandbox):
             if settings.sandbox_network:
                 container_config["network"] = settings.sandbox_network
 
-            if settings.code_server_password:
-                container_config["environment"]["PASSWORD"] = settings.code_server_password
-            
             # Create container
             container = docker_client.containers.run(**container_config)
             
@@ -267,14 +259,21 @@ class DockerSandbox(Sandbox):
                     continue
 
                 # Check if all services are RUNNING
+                # Note: context_generator is expected to EXITED (runs once at startup)
                 all_running = True
                 non_running_services = []
+                expected_exit_services = {"context_generator"}
 
                 for service in services:
                     service_name = service.get("name", "unknown")
                     state_name = service.get("statename", "")
 
-                    if state_name != "RUNNING":
+                    # Allow EXITED state for services that are expected to exit
+                    if service_name in expected_exit_services:
+                        if state_name not in ("EXITED", "RUNNING"):
+                            all_running = False
+                            non_running_services.append(f"{service_name}({state_name})")
+                    elif state_name != "RUNNING":
                         all_running = False
                         non_running_services.append(f"{service_name}({state_name})")
 
@@ -968,6 +967,38 @@ class DockerSandbox(Sandbox):
             logger.error(f"Failed to destroy Docker sandbox: {str(e)}")
             return False
     
+    async def get_screenshot(
+        self,
+        quality: int = 75,
+        scale: float = 0.5,
+        format: str = "jpeg"
+    ) -> httpx.Response:
+        """Capture desktop screenshot for thumbnail preview.
+
+        Args:
+            quality: JPEG quality (1-100, default 75)
+            scale: Scale factor (0.1-1.0, default 0.5)
+            format: Image format (jpeg or png, default jpeg)
+
+        Returns:
+            HTTP response with image bytes
+        """
+        try:
+            response = await self.client.get(
+                f"{self.base_url}/api/v1/vnc/screenshot",
+                params={
+                    "quality": quality,
+                    "scale": scale,
+                    "format": format
+                },
+                timeout=10.0
+            )
+            response.raise_for_status()
+            return response
+        except Exception as e:
+            logger.debug(f"Screenshot capture failed: {e}")
+            raise
+
     async def get_browser(self, block_resources: bool = False, verify_connection: bool = True) -> Browser:
         """Get browser instance with optional connection verification
 
@@ -989,7 +1020,7 @@ class DockerSandbox(Sandbox):
                     break
                 if attempt < CDP_CONNECTION_RETRIES - 1:
                     logger.warning(f"CDP connection attempt {attempt + 1} failed, retrying...")
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(2)
             else:
                 raise Exception(f"Failed to verify CDP connection after {CDP_CONNECTION_RETRIES} attempts")
 

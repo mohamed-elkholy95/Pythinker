@@ -217,28 +217,6 @@ class AgentService:
         
         return sandbox.vnc_url
 
-    async def get_code_server_url(self, session_id: str, user_id: str) -> str:
-        """Get code-server URL for a session, ensuring it belongs to the user"""
-        logger.info(f"Getting code-server URL for session {session_id}")
-
-        session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
-        if not session:
-            logger.error(f"Session {session_id} not found for user {user_id}")
-            raise RuntimeError("Session not found")
-
-        if not session.sandbox_id:
-            raise RuntimeError("Session has no sandbox environment")
-
-        settings = get_settings()
-        if settings.code_server_public_url:
-            return settings.code_server_public_url.rstrip("/")
-
-        sandbox = await self._sandbox_cls.get(session.sandbox_id)
-        if not sandbox:
-            raise RuntimeError("Sandbox environment not found")
-
-        return sandbox.code_server_url
-
     async def file_view(self, session_id: str, file_path: str, user_id: str) -> FileViewResponse:
         """View file content, ensuring session belongs to the user"""
         logger.info(f"Getting file view for session {session_id} for user {user_id}")

@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, Query
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, Query, HTTPException
 from sse_starlette.sse import EventSourceResponse
-from typing import AsyncGenerator, List, Optional
+from typing import AsyncGenerator, List, Optional, Type
 from sse_starlette.event import ServerSentEvent
 from datetime import datetime
 import asyncio
@@ -11,12 +11,13 @@ from app.interfaces.dependencies import get_file_service
 from app.application.services.agent_service import AgentService
 from app.application.services.token_service import TokenService
 from app.application.errors.exceptions import NotFoundError, UnauthorizedError
-from app.interfaces.dependencies import get_agent_service, get_current_user, get_optional_current_user, get_token_service, verify_signature_websocket
+from app.interfaces.dependencies import get_agent_service, get_current_user, get_optional_current_user, get_token_service, verify_signature_websocket, get_sandbox_cls
 from app.interfaces.schemas.base import APIResponse
+from app.domain.external.sandbox import Sandbox
 from app.interfaces.schemas.session import (
     ChatRequest, ShellViewRequest, CreateSessionRequest, CreateSessionResponse, GetSessionResponse,
     ListSessionItem, ListSessionResponse, ShellViewResponse, ConfirmActionRequest,
-    ShareSessionResponse, SharedSessionResponse, CodeServerUrlResponse
+    ShareSessionResponse, SharedSessionResponse
 )
 from app.interfaces.schemas.workspace import WorkspaceManifest, WorkspaceManifestResponse
 from app.interfaces.schemas.file import FileViewRequest, FileViewResponse
@@ -257,8 +258,8 @@ async def vnc_websocket(
         sandbox_ws_url = await agent_service.get_vnc_url(session_id)
 
         logger.info(f"Connecting to VNC WebSocket at {sandbox_ws_url}")
-    
-        # Connect to sandbox WebSocket
+
+        # Connect to sandbox WebSocket (standard RFB protocol)
         async with websockets.connect(sandbox_ws_url) as sandbox_ws:
             logger.info(f"Connected to VNC WebSocket at {sandbox_ws_url}")
             # Create two tasks to forward data bidirectionally
@@ -358,15 +359,60 @@ async def create_vnc_signed_url(
     ))
 
 
-@router.get("/{session_id}/code-server", response_model=APIResponse[CodeServerUrlResponse])
-async def get_code_server_url(
+@router.get("/{session_id}/vnc/screenshot")
+async def get_vnc_screenshot(
     session_id: str,
+    quality: int = Query(default=75, ge=1, le=100, description="JPEG quality (1-100)"),
+    scale: float = Query(default=0.5, ge=0.1, le=1.0, description="Scale factor (0.1-1.0)"),
     current_user: User = Depends(get_current_user),
-    agent_service: AgentService = Depends(get_agent_service)
-) -> APIResponse[CodeServerUrlResponse]:
-    """Get code-server URL for a session."""
-    url = await agent_service.get_code_server_url(session_id, current_user.id)
-    return APIResponse.success(CodeServerUrlResponse(url=url))
+    agent_service: AgentService = Depends(get_agent_service),
+    sandbox_cls: Type[Sandbox] = Depends(get_sandbox_cls)
+):
+    """Get VNC screenshot from sandbox"""
+    from fastapi.responses import Response
+    import httpx
+
+    # Check if session exists and belongs to user
+    session = await agent_service.get_session(session_id, current_user.id)
+    if not session:
+        raise NotFoundError("Session not found")
+
+    if not session.sandbox_id:
+        raise NotFoundError("Session has no active sandbox")
+
+    # Get sandbox
+    sandbox = await sandbox_cls.get(session.sandbox_id)
+    if not sandbox:
+        raise NotFoundError("Sandbox not found")
+
+    # Fetch screenshot from sandbox with quality and scale parameters
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            sandbox_url = f"{sandbox.base_url}/api/v1/vnc/screenshot"
+            response = await client.get(
+                sandbox_url,
+                params={"quality": quality, "scale": scale, "format": "jpeg"}
+            )
+            response.raise_for_status()
+
+            return Response(
+                content=response.content,
+                media_type="image/jpeg",
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "GET, OPTIONS",
+                    "Access-Control-Allow-Headers": "*"
+                }
+            )
+    except Exception as e:
+        logger.error(f"Failed to fetch VNC screenshot: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch screenshot: {str(e)}"
+        )
 
 
 @router.post("/{session_id}/workspace/manifest", response_model=APIResponse[WorkspaceManifestResponse])

@@ -72,11 +72,6 @@ class ShellViewResponse(BaseModel):
     console: Optional[List[ConsoleRecord]] = None
 
 
-class CodeServerUrlResponse(BaseModel):
-    """Code-server URL response schema"""
-    url: str
-
-
 class ShareSessionResponse(BaseModel):
     """Share session response schema"""
     session_id: str

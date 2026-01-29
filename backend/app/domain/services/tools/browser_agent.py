@@ -294,21 +294,20 @@ class BrowserAgentTool(BaseTool):
             is_successful = history.is_successful() if history else False
             has_errors = history.has_errors() if history else False
 
-            # Get action names for history summary
-            action_names = history.action_names() if history else []
+            # Get URLs visited (simplified - no granular actions)
             urls_visited = history.urls() if history else []
 
             # Clean up the final result if it contains markdown fences
             if final_result:
                 final_result = self._clean_llm_response(final_result)
 
+            # Simplified response - no granular action details
             return {
                 "success": is_successful if is_successful is not None else (not has_errors),
                 "result": final_result,
                 "steps_taken": steps_taken,
                 "has_errors": has_errors,
-                "actions": action_names[:10],  # Limit for response size
-                "urls_visited": urls_visited[:10],  # Limit for response size
+                "urls_visited": urls_visited[:5] if urls_visited else [],  # Only show URLs visited
             }
 
         except asyncio.TimeoutError:
@@ -361,8 +360,8 @@ class BrowserAgentTool(BaseTool):
         return response
 
     @tool(
-        name="browser_agent_run",
-        description="""Execute complex multi-step web tasks autonomously using an AI-powered browser agent.
+        name="browsing",
+        description="""Execute web tasks autonomously using AI-powered browser agent.
 
 Use this tool when you need to perform tasks that require:
 - Multiple interactions across different pages
@@ -393,7 +392,7 @@ Note: For simple single-action tasks (click, navigate, input), use the regular b
         },
         required=["task"]
     )
-    async def browser_agent_run(
+    async def browsing(
         self,
         task: str,
         start_url: Optional[str] = None,
@@ -409,7 +408,7 @@ Note: For simple single-action tasks (click, navigate, input), use the regular b
         Returns:
             Task execution result
         """
-        logger.info(f"Browser agent starting task: {task[:100]}...")
+        logger.info(f"Browsing: {task[:100]}...")
 
         result = await self._run_agent_task(task, start_url, max_steps)
 

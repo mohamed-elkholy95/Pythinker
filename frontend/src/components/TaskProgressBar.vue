@@ -1,65 +1,63 @@
 <template>
   <div v-if="isVisible" class="task-progress-bar">
-    <!-- Collapsed View - Task Summary Bar -->
+    <!-- Collapsed View -->
     <div v-if="!isExpanded" class="relative">
-      <!-- Floating Terminal Thumbnail -->
+      <!-- Live VNC thumbnail (auto-updates every 1s during task execution) -->
       <div
         v-if="showCollapsedThumbnail"
-        class="absolute -top-8 left-3 z-[1100] flex-shrink-0 group/thumb"
+        class="absolute -top-[38px] left-2 z-[1100] flex-shrink-0 group/thumb"
         @mouseenter="showTooltip"
         @mouseleave="hideTooltip"
       >
         <div
-          class="w-[140px] h-[88px] sm:w-[150px] sm:h-[96px] rounded-xl overflow-hidden border border-black/8 dark:border-[var(--border-main)] bg-[var(--background-menu-white)] cursor-pointer group-hover/thumb:border-[var(--text-brand)] transition-colors shadow-md"
+          v-if="displayThumbnailUrl"
+          class="w-[140px] h-[80px] rounded-lg overflow-hidden border border-gray-200 dark:border-[#3a3a3a] bg-gray-50 dark:bg-[#1a1a1a] cursor-pointer hover:border-gray-300 dark:hover:border-[#4a4a4a] transition-colors flex items-center justify-center"
           @click.stop="emit('openPanel')"
         >
-          <!-- Live VNC View -->
-          <VNCViewer
-            v-if="showVncPreview"
-            :session-id="sessionId"
-            :enabled="true"
-            :view-only="true"
-            class="w-full h-full vnc-thumbnail"
+          <img
+            :src="displayThumbnailUrl"
+            alt="Screenshot"
+            class="w-full h-full object-cover"
           />
         </div>
-        <!-- Expand Button -->
-        <button
-          @click.stop="emit('openPanel')"
-          class="absolute bottom-1.5 right-1.5 w-6 h-6 rounded-md bg-[#4a4a4a]/80 hover:bg-[#5a5a5a] flex items-center justify-center transition-colors opacity-0 group-hover/thumb:opacity-100"
-        >
-          <ArrowUpRight class="w-3.5 h-3.5 text-white" />
-        </button>
       </div>
 
+      <!-- Compact Progress Bar -->
       <div
-        class="bg-[var(--background-menu-white)] rounded-2xl border border-black/8 dark:border-[var(--border-main)] shadow-[0px_0px_1px_0px_rgba(0,_0,_0,_0.05),_0px_8px_32px_0px_rgba(0,_0,_0,_0.04)] p-3 sm:p-4 flex items-center gap-3 clickable"
-        :class="showCollapsedThumbnail ? 'pl-[176px] sm:pl-[188px]' : ''"
+        class="bg-white dark:bg-[#2a2a2a] rounded-lg border border-gray-200 dark:border-[#3a3a3a] px-4 py-2.5 flex items-center gap-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-[#2d2d2d] transition-colors shadow-sm"
+        :class="showCollapsedThumbnail && displayThumbnailUrl ? 'pl-[156px]' : ''"
         @click="toggleExpand"
       >
-        <!-- Status Indicator -->
-        <div class="flex items-center gap-2.5 flex-1 min-w-0">
-          <div v-if="isAllCompleted" class="flex-shrink-0">
-            <Check class="w-4 h-4 text-[#22c55e]" :stroke-width="2.5" />
-          </div>
+        <div class="flex-shrink-0">
+          <Check v-if="isAllCompleted" class="w-4 h-4 text-[#22c55e]" :stroke-width="2.5" />
           <div
             v-else
-            class="status-morph"
+            class="status-morph status-morph-small"
             :class="[
               isIdle ? 'status-morph-idle' : 'status-morph-active',
               `shape-${currentShape}`
             ]"
           ></div>
-          <div class="flex flex-col flex-1 min-w-0">
-            <span class="text-sm text-[var(--text-primary)] truncate">{{ currentTaskDescription }}</span>
-            <span v-if="!isAllCompleted" class="text-xs text-[var(--text-tertiary)] mt-0.5">{{ taskTimer }}</span>
+        </div>
+
+        <div class="flex-1 min-w-0 flex flex-col gap-1">
+          <span class="text-[15px] font-normal text-gray-900 dark:text-[#e5e5e5] truncate">
+            {{ currentTaskDescription }}
+          </span>
+          <div class="flex items-center gap-2 text-xs text-gray-600 dark:text-[#888888]">
+            <span v-if="taskStartTime">{{ formattedElapsedTime }}</span>
+            <span v-if="taskStartTime && (currentToolName || props.isThinking || props.isLoading)">•</span>
+            <span v-if="isToolRunning">Using {{ currentToolName.toLowerCase() }}</span>
+            <span v-else-if="props.isThinking">Thinking</span>
+            <span v-else-if="props.currentTool && currentToolName && !isAllCompleted">Using {{ currentToolName.toLowerCase() }}</span>
+            <span v-else-if="props.isLoading && !isAllCompleted">Processing</span>
           </div>
         </div>
 
-        <!-- Progress Indicator -->
         <div class="flex items-center gap-2 flex-shrink-0">
-          <span class="text-xs text-[var(--text-tertiary)]">{{ progressText }}</span>
-          <button @click.stop="toggleExpand" class="p-0.5 hover:bg-[var(--fill-tsp-gray-main)] rounded cursor-pointer">
-            <ChevronUp class="w-4 h-4 text-[var(--icon-tertiary)]" />
+          <span class="text-sm font-normal text-gray-600 dark:text-[#888888]">{{ progressText }}</span>
+          <button @click.stop="toggleExpand" class="p-0.5 hover:bg-gray-200 dark:hover:bg-[#3a3a3a] rounded transition-colors">
+            <ChevronUp class="w-4 h-4 text-gray-600 dark:text-[#888888]" />
           </button>
         </div>
       </div>
@@ -68,135 +66,109 @@
     <!-- Expanded View -->
     <div
       v-else
-      class="flex flex-col rounded-3xl border border-black/8 dark:border-[var(--border-main)] bg-[var(--background-menu-white)] shadow-[0px_0px_1px_0px_rgba(0,_0,_0,_0.05),_0px_8px_32px_0px_rgba(0,_0,_0,_0.04)] p-5 sm:p-6 overflow-hidden min-h-0"
-      :class="compact ? 'gap-0 max-h-[50vh]' : 'gap-4 max-h-[70vh]'"
+      class="flex flex-col rounded-lg border border-gray-200 dark:border-[#3a3a3a] bg-white dark:bg-[#2a2a2a] overflow-hidden shadow-sm"
     >
-      <!-- Header Section - always show for collapse control -->
-      <div v-if="showExpandedHeader" class="flex flex-col sm:flex-row sm:items-start gap-4">
-        <!-- Terminal Thumbnail Card - only when available -->
-        <div
-          v-if="showExpandedThumbnail"
-          class="flex-shrink-0 relative group/thumb"
-          @mouseenter="showTooltip"
-          @mouseleave="hideTooltip"
-        >
+      <!-- Header -->
+      <div class="px-5 py-4 border-b border-gray-200 dark:border-[#3a3a3a]">
+        <div class="flex items-start gap-4">
+          <!-- Live VNC thumbnail (auto-updates every 1s during task execution) -->
           <div
-            class="w-[140px] h-[88px] sm:w-[150px] sm:h-[96px] rounded-xl overflow-hidden border border-black/8 dark:border-[var(--border-main)] bg-[var(--background-menu-white)] cursor-pointer group-hover/thumb:border-[var(--text-brand)] transition-colors shadow-md"
+            v-if="showExpandedThumbnail && displayThumbnailUrl"
+            class="flex-shrink-0 w-[140px] h-[80px] rounded-lg overflow-hidden border border-gray-200 dark:border-[#3a3a3a] bg-gray-50 dark:bg-[#1a1a1a] cursor-pointer hover:border-gray-300 dark:hover:border-[#4a4a4a] transition-colors flex items-center justify-center"
             @click.stop="emit('openPanel')"
           >
-            <!-- Live VNC View -->
-            <VNCViewer
-              v-if="showVncPreview"
-              :session-id="sessionId"
-              :enabled="true"
-              :view-only="true"
-              class="w-full h-full vnc-thumbnail"
+            <img
+              :src="displayThumbnailUrl"
+              alt="Screenshot"
+              class="w-full h-full object-cover"
             />
           </div>
-          <!-- Expand Button -->
-          <button
-            @click.stop="emit('openPanel')"
-            class="absolute bottom-2 right-2 w-7 h-7 rounded-lg bg-[#4a4a4a]/80 hover:bg-[#5a5a5a] flex items-center justify-center transition-colors"
-          >
-            <ArrowUpRight class="w-4 h-4 text-white" />
-          </button>
-        </div>
 
-        <!-- Computer Info -->
-        <div class="flex-1 min-w-0">
-          <div class="flex items-start justify-between gap-4">
-            <h2 class="text-lg sm:text-xl font-semibold text-[var(--text-primary)]">
+          <!-- Title and Tool Info -->
+          <div class="flex-1 min-w-0">
+            <h2 class="text-xl font-normal text-gray-900 dark:text-[#e5e5e5] mb-3">
               {{ $t("Pythinker's computer") }}
             </h2>
-            <div class="flex items-center gap-3 flex-shrink-0 pt-0.5">
-              <button
-                type="button"
-                @click.stop="emit('openPanel')"
-                class="w-9 h-9 rounded-lg border border-black/10 dark:border-[var(--border-main)] bg-[var(--background-white-main)] flex items-center justify-center shadow-sm hover:bg-[var(--fill-tsp-gray-main)] cursor-pointer"
-                aria-label="Open Pythinker's computer"
-              >
-                <Monitor class="w-5 h-5 text-[var(--icon-secondary)]" />
-              </button>
-              <button
-                @click="toggleExpand"
-                class="p-1 hover:bg-[var(--fill-tsp-gray-main)] rounded cursor-pointer"
-              >
-                <ChevronDown class="w-5 h-5 text-[var(--icon-tertiary)]" />
-              </button>
+
+            <div class="flex items-center gap-2.5">
+              <div class="w-7 h-7 rounded bg-gray-200 dark:bg-[#3a3a3a] flex items-center justify-center flex-shrink-0">
+                <component :is="currentToolIcon" class="w-4 h-4 text-gray-600 dark:text-[#888888]" />
+              </div>
+              <span class="text-[15px] text-gray-600 dark:text-[#888888]">
+                Pythinker is using <span class="text-gray-900 dark:text-[#e5e5e5]">{{ currentToolName }}</span>
+              </span>
             </div>
           </div>
-          <div class="flex items-center gap-3 text-[var(--text-secondary)] mt-2">
-            <div class="w-9 h-9 rounded-lg border border-black/10 dark:border-[var(--border-main)] bg-[var(--background-white-main)] flex items-center justify-center shadow-sm">
-              <component :is="currentToolIcon" class="w-[18px] h-[18px] text-[var(--text-secondary)]" />
-            </div>
-            <span class="text-xs sm:text-sm">
-              <span v-if="isAllCompleted" class="font-medium text-[var(--text-primary)]">
-                {{ currentToolName }}
-              </span>
-              <span v-else>
-                {{ $t('Pythinker is using') }}
-                <span class="font-medium text-[var(--text-primary)]">{{ currentToolName }}</span>
-              </span>
-            </span>
+
+          <!-- Action Buttons -->
+          <div class="flex items-center gap-2 flex-shrink-0">
+            <button
+              type="button"
+              @click.stop="emit('openPanel')"
+              class="p-1.5 hover:bg-gray-200 dark:hover:bg-[#3a3a3a] rounded transition-colors"
+            >
+              <MonitorPlay class="w-5 h-5 text-gray-600 dark:text-[#888888]" />
+            </button>
+            <button
+              @click="toggleExpand"
+              class="p-1.5 hover:bg-gray-200 dark:hover:bg-[#3a3a3a] rounded transition-colors"
+            >
+              <ChevronDown class="w-5 h-5 text-gray-600 dark:text-[#888888]" />
+            </button>
           </div>
         </div>
       </div>
 
-      <!-- Task Progress Card -->
-      <div class="bg-[var(--fill-tsp-gray-main)] rounded-2xl p-5 sm:p-6 border border-black/5 dark:border-[var(--border-main)]">
-        <!-- Card Header -->
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="text-sm sm:text-base font-semibold text-[var(--text-primary)]">{{ $t('Task progress') }}</h3>
-          <div class="flex items-center gap-2">
-            <span class="text-xs text-[var(--text-tertiary)]">{{ progressText }}</span>
-            <button
-              v-if="!showExpandedHeader"
-              @click="toggleExpand"
-              class="p-0.5 hover:bg-[var(--fill-tsp-gray-main)] rounded cursor-pointer"
-            >
-              <ChevronDown class="w-4 h-4 text-[var(--icon-tertiary)]" />
-            </button>
-          </div>
+      <!-- Task Progress Section -->
+      <div class="px-5 py-4">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-normal text-gray-900 dark:text-[#e5e5e5]">{{ $t('Task progress') }}</h3>
+          <span class="text-sm text-gray-600 dark:text-[#888888]">{{ progressText }}</span>
         </div>
 
         <!-- Task List -->
-        <div class="flex flex-col max-h-[42vh] sm:max-h-[50vh] overflow-y-auto pr-1">
+        <div class="flex flex-col gap-2.5 overflow-y-auto max-h-[50vh] custom-scrollbar">
           <div
             v-for="step in steps"
             :key="step.id"
-            class="flex items-start gap-2.5 py-2.5"
+            class="flex items-start gap-3"
           >
-            <!-- Checkmark -->
             <div class="flex-shrink-0 mt-0.5">
               <Check
                 v-if="step.status === 'completed'"
-                class="w-3.5 h-3.5 text-[#22c55e]"
+                class="w-4 h-4 text-[#22c55e]"
                 :stroke-width="2.5"
               />
               <div
                 v-else-if="step.status === 'running'"
-                class="w-3.5 h-3.5 rounded-full border-2 border-blue-400 bg-blue-100"
+                class="w-4 h-4 rounded-full border-2 border-[#3b82f6] border-t-transparent animate-spin"
               ></div>
-              <div v-else class="w-3.5 h-3.5 rounded-full border-2 border-gray-300"></div>
+              <div v-else class="w-4 h-4 rounded-full border-2 border-gray-300 dark:border-[#3a3a3a]"></div>
             </div>
 
-            <!-- Task Text -->
             <span
-              class="text-xs sm:text-sm leading-relaxed"
-              :class="step.status === 'running' ? 'text-[var(--text-primary)] font-semibold' : 'text-[var(--text-primary)] font-medium'"
+              class="text-[15px] leading-relaxed flex-1"
+              :class="step.status === 'completed' || step.status === 'running' ? 'text-gray-900 dark:text-[#e5e5e5]' : 'text-gray-400 dark:text-[#666666]'"
             >
               {{ step.description }}
             </span>
           </div>
         </div>
+
+        <!-- Timer -->
+        <div v-if="taskStartTime" class="mt-4 pt-4 border-t border-gray-200 dark:border-[#3a3a3a] flex items-center justify-between">
+          <span class="text-sm text-gray-600 dark:text-[#888888]">Elapsed time</span>
+          <span class="text-sm font-mono text-gray-900 dark:text-[#e5e5e5]">{{ formattedElapsedTime }}</span>
+        </div>
       </div>
     </div>
+    
     <Teleport to="body">
       <Transition name="tooltip">
         <div
           v-if="tooltipVisible"
           ref="tooltipRef"
-          class="tooltip-badge fixed inline-flex items-center gap-1.5 px-4 py-2 bg-[var(--Button-primary-black)] text-[var(--text-onblack)] rounded-full text-sm font-medium whitespace-nowrap shadow-lg z-[12000] pointer-events-none"
+          class="tooltip-badge fixed inline-flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-[#e5e5e5] rounded text-xs font-normal whitespace-nowrap shadow-lg z-[12000] pointer-events-none border border-gray-200 dark:border-[#3a3a3a]"
           :style="tooltipStyle"
         >
           {{ $t("View Pythinker's computer") }}
@@ -207,11 +179,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { ChevronUp, ChevronDown, Check, Monitor, Terminal, Globe, FolderOpen, ArrowUpRight } from 'lucide-vue-next'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, toRef } from 'vue'
+import { ChevronUp, ChevronDown, Check, MonitorPlay, Terminal, Globe, FolderOpen } from 'lucide-vue-next'
 import type { PlanEventData } from '@/types/event'
 import type { ToolContent } from '@/types/message'
-import VNCViewer from '@/components/VNCViewer.vue'
+import { useLiveVncThumbnail } from '@/composables/useLiveVncThumbnail'
 
 interface Props {
   plan?: PlanEventData
@@ -222,7 +194,7 @@ interface Props {
   defaultExpanded?: boolean
   compact?: boolean
   thumbnailUrl?: string
-  currentTool?: { name: string; function: string; functionArg?: string } | null
+  currentTool?: { name: string; function: string; functionArg?: string; status?: string } | null
   toolContent?: ToolContent | null
   sessionId?: string
   liveVnc?: boolean
@@ -242,6 +214,53 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   (e: 'openPanel'): void
 }>()
+
+const isToolRunning = computed(() => {
+  return props.currentTool?.status === 'calling' || props.currentTool?.status === 'running'
+})
+
+// Computed: show thumbnails in collapsed/expanded view
+// Show thumbnail in collapsed view when showThumbnail is true (regardless of compact prop)
+const showCollapsedThumbnail = computed(() => {
+  return props.showThumbnail && !props.hideThumbnail
+})
+
+const showExpandedThumbnail = computed(() => {
+  return props.showThumbnail && !props.hideThumbnail
+})
+
+// Check if all tasks are completed
+const isAllCompleted = computed(() => {
+  if (!props.plan?.steps) return false
+  return props.plan.steps.every(step => step.status === 'completed')
+})
+
+// Computed: when to enable live VNC polling
+const enableLivePolling = computed(() =>
+  (showCollapsedThumbnail.value || showExpandedThumbnail.value) &&
+  !!props.sessionId &&
+  !isAllCompleted.value &&
+  props.liveVnc
+)
+
+// Use live VNC thumbnail composable
+const {
+  thumbnailUrl: liveThumbnailUrl,
+  isLoading: thumbnailLoading,
+  error: thumbnailError,
+  forceRefresh: refreshThumbnail
+} = useLiveVncThumbnail({
+  sessionId: toRef(props, 'sessionId'),
+  enabled: enableLivePolling,
+  updateIntervalMs: 1000,  // 1 FPS
+  quality: 50,             // Optimized for 140x80px thumbnails
+  scale: 0.3               // 30% scale
+})
+
+// Computed: prefer live thumbnail, fallback to static prop
+const displayThumbnailUrl = computed(() =>
+  liveThumbnailUrl.value || props.thumbnailUrl
+)
 
 const isExpanded = ref(props.defaultExpanded)
 const tooltipVisible = ref(false)
@@ -308,19 +327,6 @@ const taskStartTime = ref<number | null>(null)
 const taskElapsedSeconds = ref(0)
 let timerIntervalId: ReturnType<typeof setInterval> | null = null
 
-const taskTimer = computed(() => {
-  const seconds = taskElapsedSeconds.value
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  const remainingSeconds = seconds % 60
-  return `${minutes}m ${remainingSeconds}s`
-})
-
-// Check if all steps are completed
-const isAllCompleted = computed(() => {
-  return steps.value.length > 0 && steps.value.every(s => s.status === 'completed')
-})
-
 const isVisible = computed(() => {
   return props.plan && props.plan.steps.length > 0
 })
@@ -332,17 +338,17 @@ const isIdle = computed(() => {
 
 const steps = computed(() => props.plan?.steps ?? [])
 
-// Prioritize VNC when liveVnc is enabled (shows live sandbox activity)
-// Show VNC for all tools since everything runs in the sandbox
-const showVncPreview = computed(() => (
-  !!props.sessionId &&
-  !!props.liveVnc
-))
-
 const progressText = computed(() => {
   const completed = steps.value.filter(s => s.status === 'completed').length
   const total = steps.value.length
   return `${completed} / ${total}`
+})
+
+const formattedElapsedTime = computed(() => {
+  const seconds = taskElapsedSeconds.value
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
 })
 
 const currentTaskDescription = computed(() => {
@@ -359,29 +365,15 @@ const currentTaskDescription = computed(() => {
   return 'Processing...'
 })
 
-const showCollapsedThumbnail = computed(() => {
-  if (props.hideThumbnail) return false
-  if (!props.showThumbnail) return false
-  return showVncPreview.value
-})
-
-const showExpandedThumbnail = computed(() => {
-  if (props.hideThumbnail) return false
-  return showVncPreview.value
-})
-
-const showExpandedHeader = computed(() => !props.compact && showExpandedThumbnail.value)
-
 // Get current tool name for display
 const currentToolName = computed(() => {
-  if (isAllCompleted.value) return 'Task completed'
+  if (isAllCompleted.value) return 'Terminal' // Default back to terminal on complete
   if (props.currentTool?.function) return props.currentTool.function
   return 'Terminal'
 })
 
 // Get icon for current tool
 const currentToolIcon = computed(() => {
-  if (isAllCompleted.value) return Check
   const toolName = props.currentTool?.name || ''
   if (toolName.includes('browser') || toolName.includes('web')) return Globe
   if (toolName.includes('file') || toolName.includes('folder')) return FolderOpen
@@ -425,8 +417,6 @@ const stopTimer = () => {
     clearInterval(timerIntervalId)
     timerIntervalId = null
   }
-  taskStartTime.value = null
-  taskElapsedSeconds.value = 0
 }
 
 // Start/stop animations based on loading/thinking state
@@ -445,6 +435,10 @@ watch(isAllCompleted, (completed) => {
   if (completed) {
     stopShapeAnimation()
     stopTimer()
+    // Capture final screenshot when tasks complete
+    if (props.sessionId && props.liveVnc) {
+      refreshThumbnail()
+    }
   }
 })
 
@@ -468,11 +462,16 @@ onUnmounted(() => {
 <style scoped>
 /* Morphing shape animation */
 .status-morph {
-  width: 14px;
-  height: 14px;
+  width: 10px;
+  height: 10px;
   flex-shrink: 0;
   transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
+}
+
+.status-morph.status-morph-small {
+  width: 10px;
+  height: 10px;
 }
 
 .status-morph-active {
@@ -482,7 +481,7 @@ onUnmounted(() => {
 }
 
 .status-morph-idle {
-  border: 2px solid var(--text-tertiary);
+  border: 2px solid #666666;
   background: transparent;
 }
 
@@ -516,53 +515,32 @@ onUnmounted(() => {
   }
 }
 
-/* Terminal cursor blink */
-.terminal-cursor {
-  display: inline-block;
+/* Custom scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
   width: 6px;
-  height: 10px;
-  background: #22c55e;
-  animation: cursor-blink 1s step-end infinite;
-  margin-left: 2px;
-  vertical-align: middle;
 }
 
-@keyframes cursor-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 10px;
 }
 
-.fetching-dots {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 10px;
+  transition: background 0.2s;
 }
 
-.fetching-dot {
-  width: 3px;
-  height: 3px;
-  border-radius: 999px;
-  background: var(--text-tertiary);
-  animation: fetching-dot 1.1s ease-in-out infinite;
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
 }
 
-.fetching-dot:nth-child(2) {
-  animation-delay: 0.15s;
+:global(.dark) .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
 }
 
-.fetching-dot:nth-child(3) {
-  animation-delay: 0.3s;
-}
-
-@keyframes fetching-dot {
-  0%, 80%, 100% {
-    transform: translateY(0);
-    opacity: 0.4;
-  }
-  40% {
-    transform: translateY(-2px);
-    opacity: 1;
-  }
+:global(.dark) .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #4a4a4a;
 }
 
 .tooltip-badge {
@@ -585,41 +563,5 @@ onUnmounted(() => {
 .tooltip-leave-from {
   opacity: 1;
   transform: translate(-50%, -100%);
-}
-
-/* VNC Thumbnail scaling */
-.vnc-thumbnail :deep(canvas) {
-  width: 100% !important;
-  height: 100% !important;
-  object-fit: contain;
-  cursor: pointer !important;
-  pointer-events: none;
-  margin: 0 !important;
-  display: block;
-}
-
-.vnc-thumbnail {
-  cursor: pointer;
-  pointer-events: none;
-  border-radius: 12px;
-  overflow: hidden;
-}
-
-.vnc-thumbnail :deep(.vnc-container) {
-  width: 100% !important;
-  height: 100% !important;
-  margin: 0 !important;
-  display: flex !important;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden !important;
-  background: #0f0f0f;
-}
-
-.vnc-thumbnail :deep(.vnc-container > div) {
-  width: 100% !important;
-  height: 100% !important;
-  margin: 0 !important;
-  display: block;
 }
 </style>

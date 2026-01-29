@@ -18,9 +18,14 @@ class WorkspaceOrganizer:
 
     async def initialize_workspace(
         self,
+        session_id: str,
         template: WorkspaceTemplate
     ) -> Dict[str, str]:
         """Initialize workspace structure from template.
+
+        Args:
+            session_id: Session ID for sandbox operations
+            template: Workspace template to use
 
         Returns:
             Dict mapping folder names to their purposes
@@ -31,25 +36,20 @@ class WorkspaceOrganizer:
         for folder_name, purpose in template.folders.items():
             folder_path = f"{self._workspace_root}/{folder_name}"
 
-            # Create directory
-            await self._sandbox.execute_code(
-                language="python",
-                code=f"""
-import os
-os.makedirs("{folder_path}", exist_ok=True)
-"""
+            # Create directory using exec_command
+            await self._sandbox.exec_command(
+                session_id=session_id,
+                exec_dir="/workspace",
+                command=f"mkdir -p {folder_path}"
             )
 
             logger.debug(f"Created folder: {folder_path} ({purpose})")
 
-        # Create README
+        # Create README using file_write
         readme_path = f"{self._workspace_root}/README.md"
-        await self._sandbox.execute_code(
-            language="python",
-            code=f"""
-with open("{readme_path}", "w") as f:
-    f.write('''{template.readme_content}''')
-"""
+        await self._sandbox.file_write(
+            file=readme_path,
+            content=template.readme_content
         )
 
         logger.info(f"Workspace initialized: {len(template.folders)} folders created")
@@ -65,8 +65,11 @@ with open("{readme_path}", "w") as f:
         """Get list of tracked deliverables"""
         return self._deliverables.copy()
 
-    async def generate_manifest(self) -> str:
+    async def generate_manifest(self, session_id: str) -> str:
         """Generate deliverables manifest.
+
+        Args:
+            session_id: Session ID for sandbox operations
 
         Returns:
             Path to manifest file
@@ -79,13 +82,10 @@ with open("{readme_path}", "w") as f:
         for i, deliverable in enumerate(self._deliverables, 1):
             manifest_content += f"{i}. `{deliverable}`\n"
 
-        # Write manifest
-        await self._sandbox.execute_code(
-            language="python",
-            code=f"""
-with open("{manifest_path}", "w") as f:
-    f.write('''{manifest_content}''')
-"""
+        # Write manifest using file_write
+        await self._sandbox.file_write(
+            file=manifest_path,
+            content=manifest_content
         )
 
         logger.info(f"Generated manifest: {manifest_path}")

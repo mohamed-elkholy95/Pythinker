@@ -166,37 +166,65 @@ Research approach:
 # Browser-specific rules - include when browsing needed
 BROWSER_RULES = """
 <browser_rules>
-Navigation and Access:
-- Use browser to access all user-provided and search result URLs
-- For fast text-only content retrieval, prefer browser_get_content over full browser navigation
-- Navigate to full browser only when interaction, JavaScript rendering, or screenshots are required
+🌐 STANDARDIZED BROWSING - ONE TOOL, ONE CALL
 
-Element Interaction:
-- Elements are displayed as `index[:]<tag>text</tag>` format
-- Use the numeric index for all click, type, and interaction operations
-- Wait for page load completion before interacting with elements
-- If elements are not visible, scroll the page to reveal them
+CRITICAL RULE: Use the "browsing" tool for ALL web tasks - DO NOT break browsing tasks into multiple steps.
 
-Content Extraction:
-- Extracted Markdown may be incomplete for long pages; scroll to load additional content
-- For paginated content, navigate through all relevant pages
-- Capture screenshots when visual context is important for the task
+⚡ SINGLE CALL SOLUTION:
+The "browsing" tool handles EVERYTHING autonomously:
+- Navigation, searching, clicking, scrolling, extracting
+- Multi-page workflows, form filling, data collection
+- Research, comparisons, complex web tasks
+
+❌ DO NOT:
+- Break browsing into multiple sub-tasks
+- Use separate calls for search → click → extract
+- Create plans with multiple browsing steps
+- Use manual browser tools (browser_navigate, browser_click, etc.)
+
+✅ DO:
+- Pass the ENTIRE browsing task in ONE natural language description
+- Let the autonomous browser handle ALL steps
+
+HOW TO USE - Single natural language description:
+
+Examples:
+- "Go to example.com and tell me what's on the page"
+- "Search Google for FastAPI tutorials and summarize the top result"
+- "Visit Amazon, search for wireless keyboards, filter by 4+ stars, extract top 3"
+- "Go to httpbin.org/forms/post and fill the form with test data"
+- "Research Python async programming, visit top 3 sites, compare their approaches"
+
+The browsing tool will autonomously:
+- Navigate to pages
+- Search and type in forms
+- Click buttons and links
+- Scroll to find content
+- Extract and process data
+- Handle multi-page workflows
+- Complete complex research tasks
+
+DO NOT use manual browser tools (browser_navigate, browser_click, browser_view, etc.)
+The "browsing" tool is the ONLY tool you need for all web browsing.
+
+Exception - Fast text fetch ONLY:
+- browser_get_content: Only for simple text extraction without rendering (API docs, static pages)
 
 Source Verification:
-- CHECK DATES: Always look for publish/update dates on pages
-- Flag content older than 6 months in your findings
-- If a page is outdated, actively search for more recent sources on the same topic
-- Cross-reference information across multiple authoritative sources
+- CHECK DATES in auto-extracted content
+- Flag content older than 6 months
+- Search for recent sources if outdated
+- Cross-reference multiple authoritative sources
 
 Security and Sensitive Operations:
-- Suggest user takeover for login, payment, or credential-related operations
-- Never enter or store sensitive information (passwords, credit cards, personal data)
-- Avoid clicking on suspicious links or downloading unknown files
+- Suggest user takeover for login, payment, credentials
+- Never enter sensitive information
+- Avoid suspicious links or downloads
 
 Error Handling:
-- If a page fails to load, retry once before reporting failure
-- For timeout errors, check network connectivity and try alternative URLs
-- Report blocked or restricted content clearly to the user
+- If page fails, retry once before reporting
+- For timeouts, try alternative URLs
+- Report blocked content clearly
 </browser_rules>
 """
 

@@ -255,10 +255,6 @@ class EnvironmentScanner:
                     "enabled": True,
                     "port": 9222,
                 },
-                "code_server": {
-                    "enabled": True,
-                    "port": 8081,
-                },
             },
             "resource_limits": {
                 "description": "Containerized environment with resource limits",

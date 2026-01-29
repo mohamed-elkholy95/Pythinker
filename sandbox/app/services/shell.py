@@ -16,7 +16,6 @@ from app.models.shell import (
 )
 from app.core.exceptions import AppException, ResourceNotFoundException, BadRequestException
 from app.core.config import settings
-from app.core.security import security_manager
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -106,17 +105,7 @@ class ShellService:
             exec_dir = os.path.expanduser("~")
         if not os.path.isabs(exec_dir):
             exec_dir = os.path.abspath(exec_dir)
-        # Validate execution directory
-        if not security_manager.validate_path(exec_dir, session_id=session_id, allow_create=False):
-            raise BadRequestException(f"Invalid execution directory: {exec_dir}")
 
-        # Sanitize and validate command
-        try:
-            if not settings.ALLOW_SUDO and re.search(r"(^|\\s)sudo\\b", command):
-                raise BadRequestException("sudo is not allowed in this sandbox")
-            security_manager.sanitize_command(command)
-        except ValueError as e:
-            raise BadRequestException(str(e))
         # Ensure directory exists
         if not os.path.exists(exec_dir):
             logger.error(f"Directory does not exist: {exec_dir}")

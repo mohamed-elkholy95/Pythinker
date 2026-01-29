@@ -21,7 +21,7 @@
         <PythinkerTextIcon :width="80" :height="20" />
       </div>
       <div class="flex items-center gap-[2px] invisible group-hover:visible">
-        <div class="float-right transition text-[12px] text-[var(--text-tertiary)] invisible group-hover:visible">
+        <div class="transition text-[12px] text-[var(--text-tertiary)] invisible group-hover:visible">
           {{ relativeTime(message.content.timestamp) }}
         </div>
       </div>

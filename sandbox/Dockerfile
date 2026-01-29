@@ -8,7 +8,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Set hostname to sandbox
 ENV HOSTNAME=sandbox
 
-# Base system tools
+# Base system tools (VNC provided by x11vnc + websockify, installed separately)
 RUN apt-get update && \
     apt-get install -y \
     sudo \
@@ -19,18 +19,45 @@ RUN apt-get update && \
     ca-certificates \
     software-properties-common \
     python3-apt \
-    xvfb \
-    x11vnc \
     xterm \
     socat \
     supervisor \
-    websockify \
+    libjpeg-turbo8 \
+    libpng16-16 \
+    libxfont2 \
+    libgl1-mesa-dri \
+    libgl1-mesa-glx \
+    libgif7 \
+    libssl3 \
+    libgnutls30 \
+    libxtst6 \
+    libxrandr2 \
+    libxcursor1 \
+    libxinerama1 \
+    libxkbfile1 \
+    perl \
+    xauth \
+    x11-xkb-utils \
+    xkb-data \
+    x11-utils \
+    dbus-x11 \
     && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install x11vnc + websockify (lightweight VNC stack)
+RUN apt-get update && apt-get install -y \
+    x11vnc \
+    websockify \
+    xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 # Create user ubuntu and grant sudo privileges
 RUN useradd -m -d /home/ubuntu -s /bin/bash ubuntu && \
     echo "ubuntu ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ubuntu
+
+# Configure VNC directories for ubuntu user
+RUN mkdir -p /home/ubuntu/.vnc /run/user/1000 && \
+    chown -R ubuntu:ubuntu /home/ubuntu/.vnc /run/user/1000
 
 # Install Python 3.11
 RUN add-apt-repository ppa:deadsnakes/ppa && \
@@ -92,6 +119,8 @@ RUN apt-get update && apt-get install -y \
     zip \
     unzip \
     ffmpeg \
+    imagemagick \
+    x11-apps \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -137,14 +166,6 @@ RUN mkdir -p ${PNPM_HOME} /home/ubuntu/.config/pnpm /home/ubuntu/.local/share/pn
     chown -R ubuntu:ubuntu ${PNPM_HOME} /home/ubuntu/.config /home/ubuntu/.local/share/pnpm /home/ubuntu/.pnpm-store && \
     su - ubuntu -c "export NVM_DIR=/usr/local/nvm; export PNPM_HOME=/home/ubuntu/.local/share/pnpm; export PNPM_STORE_PATH=/home/ubuntu/.pnpm-store; source /usr/local/nvm/nvm.sh; export PATH=$PNPM_HOME:$NVM_DIR/versions/node/v${NODE_VERSION}/bin:$PATH; pnpm config set store-dir /home/ubuntu/.pnpm-store; pnpm config set global-bin-dir $PNPM_HOME; pnpm config set ignore-scripts false; pnpm add -g @anthropic-ai/mcpb@2.1.2 @mermaid-js/mermaid-cli@11.12.0 yarn@1.22.22"
 
-# Install code-server from official release package
-RUN CODE_SERVER_VERSION=4.104.3 && \
-    ARCH="$(dpkg --print-architecture)" && \
-    curl -fsSL -o /tmp/code-server.deb "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server_${CODE_SERVER_VERSION}_${ARCH}.deb" && \
-    apt-get update && apt-get install -y /tmp/code-server.deb && \
-    rm -f /tmp/code-server.deb && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
-
 # Create base Python virtual environment template for workspaces
 RUN python3 -m venv /opt/base-python-venv && \
     /opt/base-python-venv/bin/pip install --no-cache-dir --upgrade pip wheel setuptools && \
@@ -158,7 +179,12 @@ COPY . .
 COPY supervisord.conf /etc/supervisor/conf.d/app.conf
 
 # Expose ports
-EXPOSE 8080 8081 9222 5900 5901
+# 8080: Main sandbox API
+# 8082: Framework API
+# 9222: Chrome DevTools
+# 5900: VNC native protocol
+# 5901: WebSocket VNC (websockify)
+EXPOSE 8080 8082 9222 5900 5901
 
 # Environment variables for service configuration
 ENV UVI_ARGS=""
