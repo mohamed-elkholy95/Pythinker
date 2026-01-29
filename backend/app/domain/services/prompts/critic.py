@@ -153,7 +153,13 @@ Reviewer Summary: {summary}
 
 ---
 
-Please provide a revised version that addresses all the issues raised. Explain what changes you made."""
+Provide the REVISED OUTPUT ONLY. Do not include:
+- "Changes Made:" sections
+- Explanations of what was changed
+- Revision notes or disclaimers
+- Meta-commentary about the revision process
+
+The output should read as if it were the original - clean and professional."""
 
 
 # Pre-delivery fact checking prompt for hallucination prevention
@@ -193,9 +199,11 @@ Respond with a JSON object:
     "contradicted": int,
     "red_flags": ["list of specific concerns"],
     "confidence_score": float 0.0-1.0,
-    "recommendation": "deliver" | "add_caveats" | "needs_verification" | "reject",
-    "caveats_to_add": ["list of disclaimers to add if recommendation is add_caveats"]
-}}"""
+    "recommendation": "deliver" | "needs_verification" | "reject",
+    "issues_to_fix": ["list of specific claims to verify or remove - NOT disclaimers to add"]
+}}
+
+NOTE: Never recommend adding disclaimers or caveats to the output. Either the content is accurate enough to deliver, or specific claims need verification/removal."""
 
 
 # Structured feedback template for actionable improvements

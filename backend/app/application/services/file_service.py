@@ -1,5 +1,7 @@
-from typing import Dict, Any, Optional, BinaryIO, Tuple
+from typing import Dict, Any, Optional, BinaryIO, Tuple, List, AsyncGenerator
 import logging
+import zipfile
+import io
 from app.domain.external.file import FileStorage
 from app.domain.models.file import FileInfo
 from app.application.services.token_service import TokenService
@@ -116,5 +118,62 @@ class FileService:
         )
         
         logger.info(f"Created signed URL for file download for user {user_id}, file {file_id}")
-        
+
         return signed_url
+
+    async def create_zip_archive(self, file_ids: List[str], user_id: Optional[str] = None) -> Tuple[io.BytesIO, str]:
+        """Create a zip archive containing multiple files
+
+        Args:
+            file_ids: List of file IDs to include in the archive
+            user_id: User ID for access control
+
+        Returns:
+            Tuple of (zip file bytes, suggested filename)
+        """
+        logger.info(f"Creating zip archive for {len(file_ids)} files, user_id={user_id}")
+
+        if not self._file_storage:
+            logger.error("File storage service not available")
+            raise RuntimeError("File storage service not available")
+
+        # Create in-memory zip file
+        zip_buffer = io.BytesIO()
+
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            filenames_count: Dict[str, int] = {}
+
+            for file_id in file_ids:
+                try:
+                    file_data, file_info = await self._file_storage.download_file(file_id, user_id)
+
+                    # Handle duplicate filenames by adding suffix
+                    filename = file_info.filename
+                    if filename in filenames_count:
+                        filenames_count[filename] += 1
+                        name_parts = filename.rsplit('.', 1)
+                        if len(name_parts) > 1:
+                            filename = f"{name_parts[0]}_{filenames_count[filename]}.{name_parts[1]}"
+                        else:
+                            filename = f"{filename}_{filenames_count[filename]}"
+                    else:
+                        filenames_count[filename] = 0
+
+                    # Read file content and add to zip
+                    content = file_data.read()
+                    zip_file.writestr(filename, content)
+                    logger.debug(f"Added file to zip: {filename}")
+
+                except Exception as e:
+                    logger.warning(f"Failed to add file {file_id} to zip: {str(e)}")
+                    continue
+
+        zip_buffer.seek(0)
+
+        # Generate archive filename
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        archive_name = f"files_{timestamp}.zip"
+
+        logger.info(f"Zip archive created successfully: {archive_name}, size={zip_buffer.getbuffer().nbytes} bytes")
+        return zip_buffer, archive_name

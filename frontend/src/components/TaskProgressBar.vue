@@ -127,7 +127,7 @@
         v-if="showCollapsedThumbnail && sessionId"
         class="vnc-thumbnail-floating"
         @mouseenter="showTooltip"
-        @mouseleave="hideTooltip"
+        @mouseleave="scheduleHideTooltip"
       >
         <VncMiniPreview
           :session-id="sessionId"
@@ -165,7 +165,7 @@
 
         <!-- Content -->
         <div class="flex-1 min-w-0 flex flex-col gap-0.5">
-          <span class="text-[14px] font-medium text-gray-900 dark:text-[#f0f0f0] truncate">
+          <span class="text-[13px] font-medium text-gray-900 dark:text-[#f0f0f0] truncate">
             {{ currentTaskDescription }}
           </span>
           <div class="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-[#808080]">
@@ -198,8 +198,11 @@
         <div
           v-if="tooltipVisible"
           ref="tooltipRef"
-          class="tooltip-badge"
+          class="tooltip-badge tooltip-clickable"
           :style="tooltipStyle"
+          @mouseenter="cancelHideTooltip"
+          @mouseleave="scheduleHideTooltip"
+          @click="handleTooltipClick"
         >
           {{ $t("View Pythinker's computer") }}
         </div>
@@ -292,6 +295,7 @@ const updateTooltipPosition = () => {
 }
 
 const showTooltip = (event: MouseEvent) => {
+  cancelHideTooltip()
   const target = event.currentTarget as HTMLElement | null
   if (!target) return
   const rect = target.getBoundingClientRect()
@@ -302,8 +306,28 @@ const showTooltip = (event: MouseEvent) => {
   nextTick(updateTooltipPosition)
 }
 
+let hideTooltipTimeout: ReturnType<typeof setTimeout> | null = null
+
 const hideTooltip = () => {
   tooltipVisible.value = false
+}
+
+const scheduleHideTooltip = () => {
+  hideTooltipTimeout = setTimeout(() => {
+    hideTooltip()
+  }, 100)
+}
+
+const cancelHideTooltip = () => {
+  if (hideTooltipTimeout) {
+    clearTimeout(hideTooltipTimeout)
+    hideTooltipTimeout = null
+  }
+}
+
+const handleTooltipClick = () => {
+  hideTooltip()
+  emit('openPanel')
 }
 
 const handleScroll = () => {
@@ -388,7 +412,7 @@ const contentPreview = computed(() => {
     return String(props.toolContent.content.content).slice(0, 500)
   }
 
-  // Shell output
+  // Shell output (completed command)
   if (props.toolContent.stdout) {
     return String(props.toolContent.stdout).slice(0, 500)
   }
@@ -398,6 +422,15 @@ const contentPreview = computed(() => {
       return console.map((e: any) => `${e.command || ''}\n${e.output || ''}`).join('\n').slice(0, 500)
     }
     return String(console).slice(0, 500)
+  }
+
+  // Shell command being executed (show command during execution)
+  const toolName = props.toolContent?.name || ''
+  if (toolName.includes('shell') || toolName.includes('code')) {
+    const command = props.toolContent.args?.command || props.toolContent.command
+    if (command) {
+      return `$ ${command}`
+    }
   }
 
   return ''
@@ -534,8 +567,8 @@ onUnmounted(() => {
 }
 
 .status-morph {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
   transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
   position: relative;
@@ -544,8 +577,8 @@ onUnmounted(() => {
 .status-morph-active {
   background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 100%);
   box-shadow:
-    0 0 0 2px rgba(59, 130, 246, 0.15),
-    0 2px 8px rgba(59, 130, 246, 0.3);
+    0 0 0 1.5px rgba(59, 130, 246, 0.15),
+    0 1px 6px rgba(59, 130, 246, 0.3);
   animation: morph-pulse 2s ease-in-out infinite;
 }
 
@@ -561,30 +594,30 @@ onUnmounted(() => {
 }
 
 .status-morph.shape-square {
-  border-radius: 4px;
-  transform: rotate(0deg) scale(0.95);
+  border-radius: 3px;
+  transform: rotate(0deg) scale(0.9);
 }
 
 .status-morph.shape-diamond {
-  border-radius: 4px;
-  transform: rotate(45deg) scale(0.85);
+  border-radius: 3px;
+  transform: rotate(45deg) scale(0.75);
 }
 
 .status-morph.shape-cube {
-  border-radius: 5px;
-  transform: rotate(90deg) scale(0.9);
+  border-radius: 4px;
+  transform: rotate(90deg) scale(0.85);
 }
 
 @keyframes morph-pulse {
   0%, 100% {
     box-shadow:
-      0 0 0 2px rgba(59, 130, 246, 0.15),
-      0 2px 8px rgba(59, 130, 246, 0.3);
+      0 0 0 1.5px rgba(59, 130, 246, 0.15),
+      0 1px 6px rgba(59, 130, 246, 0.3);
   }
   50% {
     box-shadow:
-      0 0 0 4px rgba(59, 130, 246, 0.1),
-      0 4px 16px rgba(59, 130, 246, 0.25);
+      0 0 0 3px rgba(59, 130, 246, 0.1),
+      0 3px 12px rgba(59, 130, 246, 0.25);
   }
 }
 

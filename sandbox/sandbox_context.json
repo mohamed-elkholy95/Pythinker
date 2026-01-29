@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-01-29T02:43:38.014478",
+  "generated_at": "2026-01-29T18:03:29.743831",
   "version": "1.0.0",
   "environment": {
     "os": {
@@ -47,6 +47,8 @@
         "cloudpickle": "3.1.2",
         "coverage": "7.13.2",
         "cryptography": "46.0.4",
+        "css-html-js-minify": "2.5.5",
+        "csscompressor": "0.9.5",
         "cyclonedx-bom": "7.2.1",
         "cyclonedx-python-lib": "11.6.0",
         "defusedxml": "0.7.1",
@@ -182,7 +184,7 @@
         "wrapt": "1.13.3",
         "yarl": "1.22.0"
       },
-      "package_count": 165,
+      "package_count": 167,
       "key_packages": {
         "fastapi": "0.119.0",
         "uvicorn": "0.37.0",
@@ -863,9 +865,9 @@
       "shared_memory": "2gb",
       "disk": {
         "total": "79G",
-        "used": "62G",
-        "available": "13G",
-        "use_percent": "84%"
+        "used": "68G",
+        "available": "6.9G",
+        "use_percent": "91%"
       }
     }
   },
