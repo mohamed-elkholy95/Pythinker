@@ -25,33 +25,32 @@ Usage:
 """
 
 import logging
-from typing import List, Dict, Any, Optional, AsyncGenerator
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from pydantic import BaseModel, Field
+from typing import Any
 
 from app.domain.external.llm import LLM
-from app.domain.utils.json_parser import JsonParser
-from app.domain.models.plan import Plan, Step
+from app.domain.models.agent_response import (
+    DependencyIssue,
+    PrerequisiteCheck,
+    SimpleVerificationResponse,
+    ToolFeasibility,
+    VerificationResponse,
+    VerificationVerdict,
+)
 from app.domain.models.event import (
     BaseEvent,
     VerificationEvent,
     VerificationStatus,
 )
-from app.domain.models.agent_response import (
-    VerificationResponse,
-    VerificationVerdict,
-    SimpleVerificationResponse,
-    ToolFeasibility,
-    PrerequisiteCheck,
-    DependencyIssue,
-)
+from app.domain.models.plan import Plan, Step
 from app.domain.services.prompts.verifier import (
     VERIFIER_SYSTEM_PROMPT,
     VERIFY_PLAN_PROMPT,
     VERIFY_SIMPLE_PLAN_PROMPT,
 )
 from app.domain.services.tools.base import BaseTool
-
+from app.domain.utils.json_parser import JsonParser
 
 logger = logging.getLogger(__name__)
 
@@ -91,8 +90,8 @@ class VerifierAgent:
         self,
         llm: LLM,
         json_parser: JsonParser,
-        tools: List[BaseTool],
-        config: Optional[VerifierConfig] = None
+        tools: list[BaseTool],
+        config: VerifierConfig | None = None
     ):
         """Initialize the VerifierAgent.
 
@@ -111,7 +110,7 @@ class VerifierAgent:
         self._tool_names = self._get_tool_names()
         self._tool_descriptions = self._get_tool_descriptions()
 
-    def _get_tool_names(self) -> List[str]:
+    def _get_tool_names(self) -> list[str]:
         """Get list of available tool names."""
         names = []
         for tool in self.tools:
@@ -159,7 +158,7 @@ class VerifierAgent:
 
         return False
 
-    def _format_steps(self, steps: List[Step]) -> str:
+    def _format_steps(self, steps: list[Step]) -> str:
         """Format steps for prompt."""
         lines = []
         for step in steps:
@@ -283,9 +282,9 @@ class VerifierAgent:
 
     async def _try_streaming_verification(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         plan: Plan
-    ) -> Optional[VerificationResponse]:
+    ) -> VerificationResponse | None:
         """Attempt streaming verification with early exit on clear PASS signal.
 
         Args:

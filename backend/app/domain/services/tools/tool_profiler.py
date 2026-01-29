@@ -7,10 +7,11 @@ to enable performance optimization and reliability monitoring.
 
 import logging
 import time
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional, Any, Callable, TypeVar
 from functools import wraps
+from typing import Any, TypeVar
 
 from app.domain.models.tool_result import ToolResult
 
@@ -29,9 +30,9 @@ class ToolExecutionMetrics:
     total_duration_ms: float = 0.0
     min_duration_ms: float = float('inf')
     max_duration_ms: float = 0.0
-    last_used: Optional[datetime] = None
-    last_error: Optional[str] = None
-    last_error_time: Optional[datetime] = None
+    last_used: datetime | None = None
+    last_error: str | None = None
+    last_error_time: datetime | None = None
     consecutive_failures: int = 0
 
     @property
@@ -59,7 +60,7 @@ class ToolExecutionMetrics:
         self,
         duration_ms: float,
         success: bool,
-        error: Optional[str] = None
+        error: str | None = None
     ) -> None:
         """Record a single execution.
 
@@ -83,7 +84,7 @@ class ToolExecutionMetrics:
             self.last_error = error
             self.last_error_time = datetime.now()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert metrics to dictionary for serialization."""
         return {
             "tool_name": self.tool_name,
@@ -108,8 +109,8 @@ class ExecutionRecord:
     timestamp: datetime
     duration_ms: float
     success: bool
-    error: Optional[str] = None
-    args_summary: Optional[str] = None
+    error: str | None = None
+    args_summary: str | None = None
 
 
 class ToolExecutionProfiler:
@@ -145,8 +146,8 @@ class ToolExecutionProfiler:
             slow_threshold_ms: Duration threshold for slow tool detection
             unreliable_threshold: Failure rate threshold for unreliable tools
         """
-        self._metrics: Dict[str, ToolExecutionMetrics] = {}
-        self._history: List[ExecutionRecord] = []
+        self._metrics: dict[str, ToolExecutionMetrics] = {}
+        self._history: list[ExecutionRecord] = []
         self._history_limit = history_limit
         self._slow_threshold_ms = slow_threshold_ms
         self._unreliable_threshold = unreliable_threshold
@@ -154,7 +155,7 @@ class ToolExecutionProfiler:
     async def profile_execution(
         self,
         tool,
-        function_name: Optional[str] = None,
+        function_name: str | None = None,
         **kwargs
     ) -> ToolResult:
         """Execute and profile a tool call.
@@ -218,7 +219,7 @@ class ToolExecutionProfiler:
         tool_name: str,
         duration_ms: float,
         success: bool,
-        error: Optional[str] = None
+        error: str | None = None
     ) -> None:
         """Record a tool execution directly without wrapping the call.
 
@@ -251,8 +252,8 @@ class ToolExecutionProfiler:
         tool_name: str,
         duration_ms: float,
         success: bool,
-        error: Optional[str],
-        kwargs: Dict[str, Any]
+        error: str | None,
+        kwargs: dict[str, Any]
     ) -> None:
         """Record execution in history."""
         # Create brief summary of args
@@ -319,15 +320,15 @@ class ToolExecutionProfiler:
 
         return wrapper
 
-    def get_metrics(self, tool_name: str) -> Optional[ToolExecutionMetrics]:
+    def get_metrics(self, tool_name: str) -> ToolExecutionMetrics | None:
         """Get metrics for a specific tool."""
         return self._metrics.get(tool_name)
 
-    def get_all_metrics(self) -> Dict[str, ToolExecutionMetrics]:
+    def get_all_metrics(self) -> dict[str, ToolExecutionMetrics]:
         """Get metrics for all tools."""
         return self._metrics.copy()
 
-    def get_slow_tools(self) -> List[ToolExecutionMetrics]:
+    def get_slow_tools(self) -> list[ToolExecutionMetrics]:
         """Get tools with average execution time above threshold.
 
         Returns:
@@ -339,7 +340,7 @@ class ToolExecutionProfiler:
         ]
         return sorted(slow_tools, key=lambda m: m.avg_duration_ms, reverse=True)
 
-    def get_unreliable_tools(self) -> List[ToolExecutionMetrics]:
+    def get_unreliable_tools(self) -> list[ToolExecutionMetrics]:
         """Get tools with failure rate above threshold.
 
         Returns:
@@ -351,7 +352,7 @@ class ToolExecutionProfiler:
         ]
         return sorted(unreliable, key=lambda m: m.failure_rate, reverse=True)
 
-    def get_tools_with_consecutive_failures(self, min_failures: int = 3) -> List[ToolExecutionMetrics]:
+    def get_tools_with_consecutive_failures(self, min_failures: int = 3) -> list[ToolExecutionMetrics]:
         """Get tools with recent consecutive failures.
 
         Args:
@@ -365,7 +366,7 @@ class ToolExecutionProfiler:
             if m.consecutive_failures >= min_failures
         ]
 
-    def get_recent_history(self, limit: int = 20, tool_name: Optional[str] = None) -> List[ExecutionRecord]:
+    def get_recent_history(self, limit: int = 20, tool_name: str | None = None) -> list[ExecutionRecord]:
         """Get recent execution history.
 
         Args:
@@ -380,7 +381,7 @@ class ToolExecutionProfiler:
             history = [r for r in history if r.tool_name == tool_name]
         return history[-limit:]
 
-    def get_execution_summary(self) -> Dict[str, Any]:
+    def get_execution_summary(self) -> dict[str, Any]:
         """Get summary of all tool executions.
 
         Returns:
@@ -420,7 +421,7 @@ class ToolExecutionProfiler:
             "tools": {name: m.to_dict() for name, m in self._metrics.items()}
         }
 
-    def reset(self, tool_name: Optional[str] = None) -> None:
+    def reset(self, tool_name: str | None = None) -> None:
         """Reset metrics and history.
 
         Args:
@@ -436,8 +437,8 @@ class ToolExecutionProfiler:
 
     def set_thresholds(
         self,
-        slow_threshold_ms: Optional[float] = None,
-        unreliable_threshold: Optional[float] = None
+        slow_threshold_ms: float | None = None,
+        unreliable_threshold: float | None = None
     ) -> None:
         """Update profiler thresholds.
 
@@ -452,7 +453,7 @@ class ToolExecutionProfiler:
 
 
 # Global profiler instance for convenience
-_global_profiler: Optional[ToolExecutionProfiler] = None
+_global_profiler: ToolExecutionProfiler | None = None
 
 
 def get_tool_profiler() -> ToolExecutionProfiler:

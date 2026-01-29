@@ -110,7 +110,7 @@ import ChatBox from '../components/ChatBox.vue';
 import { createSession, type AgentMode } from '../api/agent';
 import { showErrorToast } from '../utils/toast';
 import {
-  Bot, PanelLeft, Search, Presentation, Palette,
+  Bot, PanelLeft, Search, Palette,
   Calendar, Table2, BarChart3, Video, AudioLines, MessageSquare, BookOpen
 } from 'lucide-vue-next';
 import PythinkerLogoTextIcon from '../components/icons/PythinkerLogoTextIcon.vue';
@@ -148,11 +148,11 @@ const visibleFeatures: Feature[] = [
     prompt: 'Create a comprehensive research report on: '
   },
   {
-    id: 'slides',
-    label: 'Create slides',
-    icon: Presentation,
+    id: 'deep-research',
+    label: 'Deep Research',
+    icon: Search,
     mode: 'agent',
-    prompt: 'Create a professional presentation slides about: '
+    prompt: 'Conduct a deep research with multiple parallel searches on: '
   },
   {
     id: 'design',

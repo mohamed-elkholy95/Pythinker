@@ -20,25 +20,19 @@ Usage:
             span.set_token_usage(prompt_tokens=100, completion_tokens=50)
 """
 
-import time
-import uuid
 import logging
-import asyncio
-from typing import Any, Dict, List, Optional, Callable
-from dataclasses import dataclass, field
-from contextlib import contextmanager, asynccontextmanager
+import uuid
 from collections import defaultdict
+from collections.abc import Callable
+from contextlib import asynccontextmanager, contextmanager
+from dataclasses import dataclass, field
+from typing import Any, Optional
 
 from app.infrastructure.observability.spans import (
     Span,
     SpanKind,
     SpanStatus,
-    TokenUsage,
-    create_llm_span,
-    create_tool_span,
-    create_flow_span,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +53,7 @@ class TraceMetrics:
     def total_tokens(self) -> int:
         return self.total_prompt_tokens + self.total_completion_tokens
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "total_spans": self.total_spans,
             "total_duration_ms": self.total_duration_ms,
@@ -79,8 +73,8 @@ class TraceContext:
 
     trace_id: str
     root_span: Span
-    spans: List[Span] = field(default_factory=list)
-    _current_span: Optional[Span] = None
+    spans: list[Span] = field(default_factory=list)
+    _current_span: Span | None = None
     _tracer: Optional["Tracer"] = None
 
     def __post_init__(self):
@@ -92,7 +86,7 @@ class TraceContext:
         self,
         name: str,
         kind: SpanKind = SpanKind.INTERNAL,
-        attributes: Optional[Dict[str, Any]] = None
+        attributes: dict[str, Any] | None = None
     ):
         """Create a child span within this trace context.
 
@@ -136,7 +130,7 @@ class TraceContext:
         self,
         name: str,
         kind: SpanKind = SpanKind.INTERNAL,
-        attributes: Optional[Dict[str, Any]] = None
+        attributes: dict[str, Any] | None = None
     ):
         """Async version of span context manager."""
         with self.span(name, kind, attributes) as span:
@@ -159,7 +153,7 @@ class TraceContext:
         return self.span(f"flow:{state}", SpanKind.FLOW_STATE, {"flow.state": state})
 
     @property
-    def current_span(self) -> Optional[Span]:
+    def current_span(self) -> Span | None:
         """Get the currently active span."""
         return self._current_span
 
@@ -206,7 +200,7 @@ class Tracer:
         self,
         service_name: str = "pythinker-agent",
         export_to_log: bool = True,
-        on_trace_complete: Optional[Callable[[TraceContext], None]] = None
+        on_trace_complete: Callable[[TraceContext], None] | None = None
     ):
         """Initialize the tracer.
 
@@ -218,17 +212,17 @@ class Tracer:
         self.service_name = service_name
         self.export_to_log = export_to_log
         self.on_trace_complete = on_trace_complete
-        self._active_traces: Dict[str, TraceContext] = {}
-        self._completed_traces: List[TraceContext] = []
-        self._metrics_by_agent: Dict[str, TraceMetrics] = defaultdict(TraceMetrics)
+        self._active_traces: dict[str, TraceContext] = {}
+        self._completed_traces: list[TraceContext] = []
+        self._metrics_by_agent: dict[str, TraceMetrics] = defaultdict(TraceMetrics)
 
     @contextmanager
     def trace(
         self,
         name: str,
-        agent_id: Optional[str] = None,
-        session_id: Optional[str] = None,
-        attributes: Optional[Dict[str, Any]] = None
+        agent_id: str | None = None,
+        session_id: str | None = None,
+        attributes: dict[str, Any] | None = None
     ):
         """Start a new trace.
 
@@ -322,7 +316,7 @@ class Tracer:
             f"[errors={metrics.error_count}]"
         )
 
-    def get_active_traces(self) -> List[TraceContext]:
+    def get_active_traces(self) -> list[TraceContext]:
         """Get all currently active traces."""
         return list(self._active_traces.values())
 
@@ -330,7 +324,7 @@ class Tracer:
         """Get aggregated metrics for a specific agent."""
         return self._metrics_by_agent.get(agent_id, TraceMetrics())
 
-    def get_all_metrics(self) -> Dict[str, Any]:
+    def get_all_metrics(self) -> dict[str, Any]:
         """Get metrics summary for all agents."""
         return {
             "active_traces": len(self._active_traces),
@@ -343,7 +337,7 @@ class Tracer:
 
 
 # Global tracer instance
-_tracer: Optional[Tracer] = None
+_tracer: Tracer | None = None
 
 
 def get_tracer() -> Tracer:
@@ -357,7 +351,7 @@ def get_tracer() -> Tracer:
 def configure_tracer(
     service_name: str = "pythinker-agent",
     export_to_log: bool = True,
-    on_trace_complete: Optional[Callable[[TraceContext], None]] = None,
+    on_trace_complete: Callable[[TraceContext], None] | None = None,
     export_to_otel: bool = False,
 ) -> Tracer:
     """Configure and return the global tracer.

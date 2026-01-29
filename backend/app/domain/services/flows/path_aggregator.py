@@ -7,17 +7,15 @@ The PathAggregator:
 """
 
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 from app.domain.external.llm import LLM
-from app.domain.utils.json_parser import JsonParser
 from app.domain.models.path_state import (
     PathState,
     PathStatus,
     TreeOfThoughtsConfig,
 )
-from app.domain.models.event import PathEvent
-
+from app.domain.utils.json_parser import JsonParser
 
 logger = logging.getLogger(__name__)
 
@@ -55,9 +53,9 @@ class PathAggregator:
 
     def __init__(
         self,
-        llm: Optional[LLM] = None,
-        json_parser: Optional[JsonParser] = None,
-        config: Optional[TreeOfThoughtsConfig] = None
+        llm: LLM | None = None,
+        json_parser: JsonParser | None = None,
+        config: TreeOfThoughtsConfig | None = None
     ):
         """Initialize the aggregator.
 
@@ -72,9 +70,9 @@ class PathAggregator:
 
     def select_best_path(
         self,
-        paths: List[PathState],
+        paths: list[PathState],
         min_score: float = 0.0
-    ) -> Optional[PathState]:
+    ) -> PathState | None:
         """Select the best path from completed paths.
 
         Args:
@@ -114,10 +112,10 @@ class PathAggregator:
 
     async def aggregate(
         self,
-        paths: List[PathState],
+        paths: list[PathState],
         goal: str,
         synthesize: bool = True
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Aggregate results from explored paths.
 
         Args:
@@ -165,7 +163,7 @@ class PathAggregator:
 
     async def _synthesize(
         self,
-        paths: List[PathState],
+        paths: list[PathState],
         goal: str,
         best_path: PathState
     ) -> str:
@@ -204,7 +202,7 @@ class PathAggregator:
 
     def generate_summary(
         self,
-        paths: List[PathState],
+        paths: list[PathState],
         goal: str
     ) -> str:
         """Generate a summary of path exploration.

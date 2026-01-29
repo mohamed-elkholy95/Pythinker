@@ -1,0 +1,4 @@
+-r requirements.txt
+-r tests/requirements.txt
+ruff>=0.8.0
+pip-audit>=2.7.0

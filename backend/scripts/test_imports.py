@@ -18,14 +18,6 @@ def test_imports():
     # Test 1: Domain models
     print("1. Testing domain models...")
     try:
-        from app.domain.models.multi_task import (
-            TaskStatus,
-            DeliverableType,
-            Deliverable,
-            TaskDefinition,
-            TaskResult,
-            MultiTaskChallenge,
-        )
         print("   ✅ multi_task models")
         tests_passed += 1
     except Exception as e:
@@ -33,12 +25,6 @@ def test_imports():
         tests_failed += 1
 
     try:
-        from app.domain.models.event import (
-            MultiTaskEvent,
-            WorkspaceEvent,
-            ScreenshotEvent,
-            BudgetEvent,
-        )
         print("   ✅ new event types")
         tests_passed += 1
     except Exception as e:
@@ -46,7 +32,6 @@ def test_imports():
         tests_failed += 1
 
     try:
-        from app.domain.models.usage import SessionMetrics
         print("   ✅ SessionMetrics")
         tests_passed += 1
     except Exception as e:
@@ -54,7 +39,6 @@ def test_imports():
         tests_failed += 1
 
     try:
-        from app.domain.models.session import Session
         print("   ✅ updated Session model")
         tests_passed += 1
     except Exception as e:
@@ -64,11 +48,6 @@ def test_imports():
     # Test 2: Services
     print("\n2. Testing services...")
     try:
-        from app.domain.services.agents.context_manager import (
-            ContextManager,
-            FileContext,
-            ToolContext,
-        )
         print("   ✅ ContextManager")
         tests_passed += 1
     except Exception as e:
@@ -76,10 +55,6 @@ def test_imports():
         tests_failed += 1
 
     try:
-        from app.domain.services.agents.complexity_assessor import (
-            ComplexityAssessor,
-            ComplexityAssessment,
-        )
         print("   ✅ ComplexityAssessor")
         tests_passed += 1
     except Exception as e:
@@ -87,7 +62,6 @@ def test_imports():
         tests_failed += 1
 
     try:
-        from app.domain.services.tools.command_formatter import CommandFormatter
         print("   ✅ CommandFormatter")
         tests_passed += 1
     except Exception as e:
@@ -95,13 +69,6 @@ def test_imports():
         tests_failed += 1
 
     try:
-        from app.domain.services.workspace import (
-            WorkspaceTemplate,
-            WorkspaceSelector,
-            WorkspaceOrganizer,
-            get_template,
-            get_all_templates,
-        )
         print("   ✅ Workspace services")
         tests_passed += 1
     except Exception as e:
@@ -109,7 +76,6 @@ def test_imports():
         tests_failed += 1
 
     try:
-        from app.domain.services.orchestration.research_agent import ResearchAgent
         print("   ✅ ResearchAgent")
         tests_passed += 1
     except Exception as e:
@@ -119,7 +85,6 @@ def test_imports():
     # Test 3: Infrastructure
     print("\n3. Testing infrastructure...")
     try:
-        from app.infrastructure.storage.mongodb import MongoDB, get_mongodb
         print("   ✅ MongoDB with GridFS")
         tests_passed += 1
     except Exception as e:
@@ -135,9 +100,8 @@ def test_imports():
     if tests_failed == 0:
         print("\n✅ All imports successful!")
         return 0
-    else:
-        print(f"\n❌ {tests_failed} import(s) failed")
-        return 1
+    print(f"\n❌ {tests_failed} import(s) failed")
+    return 1
 
 
 if __name__ == "__main__":

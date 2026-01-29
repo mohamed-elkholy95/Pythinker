@@ -7,8 +7,9 @@ errors when fetching session data.
 """
 
 import logging
-from typing import Optional, Dict, Any
 from datetime import datetime
+from typing import Any
+
 from beanie import PydanticObjectId
 
 logger = logging.getLogger(__name__)
@@ -28,9 +29,9 @@ class MaintenanceService:
 
     async def cleanup_invalid_attachments(
         self,
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
         dry_run: bool = True
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Clean up events with invalid attachments (null file_id or filename).
 
@@ -184,7 +185,7 @@ class MaintenanceService:
 
         return stats
 
-    async def get_session_health(self, session_id: str) -> Dict[str, Any]:
+    async def get_session_health(self, session_id: str) -> dict[str, Any]:
         """
         Get health status for a specific session's data integrity.
 

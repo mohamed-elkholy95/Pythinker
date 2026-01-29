@@ -1,14 +1,15 @@
-from typing import Optional
+
 from app.domain.external.sandbox import Sandbox
-from app.domain.services.tools.base import tool, BaseTool
 from app.domain.models.tool_result import ToolResult
+from app.domain.services.tools.base import BaseTool, tool
+
 
 class ShellTool(BaseTool):
     """Shell tool class, providing Shell interaction related functions"""
 
     name: str = "shell"
 
-    def __init__(self, sandbox: Sandbox, max_observe: Optional[int] = None):
+    def __init__(self, sandbox: Sandbox, max_observe: int | None = None):
         """Initialize Shell tool class
 
         Args:
@@ -17,7 +18,7 @@ class ShellTool(BaseTool):
         """
         super().__init__(max_observe=max_observe)
         self.sandbox = sandbox
-        
+
     @tool(
         name="shell_exec",
         description="Execute commands in a specified shell session. Use for running code, installing packages, or managing files.",
@@ -54,7 +55,7 @@ class ShellTool(BaseTool):
             Command execution result
         """
         return await self.sandbox.exec_command(id, exec_dir, command)
-    
+
     @tool(
         name="shell_view",
         description="View the content of a specified shell session. Use for checking command execution results or monitoring output.",
@@ -76,7 +77,7 @@ class ShellTool(BaseTool):
             Shell session content
         """
         return await self.sandbox.view_shell(id)
-    
+
     @tool(
         name="shell_wait",
         description="Wait for the running process in a specified shell session to return. Use after running commands that require longer runtime.",
@@ -95,7 +96,7 @@ class ShellTool(BaseTool):
     async def shell_wait(
         self,
         id: str,
-        seconds: Optional[int] = None
+        seconds: int | None = None
     ) -> ToolResult:
         """Wait for the running process in Shell session to return
         
@@ -107,7 +108,7 @@ class ShellTool(BaseTool):
             Wait result
         """
         return await self.sandbox.wait_for_process(id, seconds)
-    
+
     @tool(
         name="shell_write_to_process",
         description="Write input to a running process in a specified shell session. Use for responding to interactive command prompts.",
@@ -144,7 +145,7 @@ class ShellTool(BaseTool):
             Write result
         """
         return await self.sandbox.write_to_process(id, input, press_enter)
-    
+
     @tool(
         name="shell_kill_process",
         description="Terminate a running process in a specified shell session. Use for stopping long-running processes or handling frozen commands.",

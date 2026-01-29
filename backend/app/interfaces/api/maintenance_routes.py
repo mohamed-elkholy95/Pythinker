@@ -9,13 +9,14 @@ These endpoints allow administrators to:
 Note: These endpoints should be protected in production environments.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from typing import Optional
-from pydantic import BaseModel
-from app.infrastructure.storage.mongodb import get_mongodb
-from app.core.config import get_settings
-from app.application.services.maintenance_service import MaintenanceService
 import logging
+
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
+
+from app.application.services.maintenance_service import MaintenanceService
+from app.core.config import get_settings
+from app.infrastructure.storage.mongodb import get_mongodb
 
 logger = logging.getLogger(__name__)
 
@@ -38,15 +39,15 @@ class SessionHealthResponse(BaseModel):
     """Response schema for session health check"""
     session_id: str
     found: bool
-    status: Optional[str] = None
-    total_events: Optional[int] = None
-    events_with_attachments: Optional[int] = None
-    total_attachments: Optional[int] = None
-    valid_attachments: Optional[int] = None
-    invalid_attachments: Optional[int] = None
-    is_healthy: Optional[bool] = None
-    issues: Optional[list] = None
-    error: Optional[str] = None
+    status: str | None = None
+    total_events: int | None = None
+    events_with_attachments: int | None = None
+    total_attachments: int | None = None
+    valid_attachments: int | None = None
+    invalid_attachments: int | None = None
+    is_healthy: bool | None = None
+    issues: list | None = None
+    error: str | None = None
 
 
 @router.get("/health/session/{session_id}", response_model=SessionHealthResponse)
@@ -72,7 +73,7 @@ async def get_session_health(session_id: str):
 
 @router.post("/cleanup/attachments", response_model=CleanupResponse)
 async def cleanup_invalid_attachments(
-    session_id: Optional[str] = Query(None, description="Specific session to clean up"),
+    session_id: str | None = Query(None, description="Specific session to clean up"),
     dry_run: bool = Query(True, description="If true, only reports what would be cleaned")
 ):
     """
@@ -107,7 +108,7 @@ async def cleanup_invalid_attachments(
 
 @router.get("/cleanup/attachments/preview", response_model=CleanupResponse)
 async def preview_attachment_cleanup(
-    session_id: Optional[str] = Query(None, description="Specific session to check")
+    session_id: str | None = Query(None, description="Specific session to check")
 ):
     """
     Preview what would be cleaned without making any changes.

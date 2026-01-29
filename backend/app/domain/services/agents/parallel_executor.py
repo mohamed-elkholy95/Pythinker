@@ -12,10 +12,11 @@ Key features:
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Callable, Awaitable, Set
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +33,8 @@ class ToolCall:
     """Represents a pending tool call."""
     id: str
     tool_name: str
-    arguments: Dict[str, Any]
-    depends_on: Set[str] = field(default_factory=set)  # IDs of dependent calls
+    arguments: dict[str, Any]
+    depends_on: set[str] = field(default_factory=set)  # IDs of dependent calls
     priority: int = 0  # Higher = execute first
 
 
@@ -44,7 +45,7 @@ class ToolResult:
     tool_name: str
     success: bool
     result: Any
-    error: Optional[str] = None
+    error: str | None = None
     execution_time_ms: float = 0
 
 
@@ -102,8 +103,8 @@ class ParallelToolExecutor:
         self.max_concurrent = max_concurrent
         self.timeout_per_call = timeout_per_call
         self.enable_parallel = enable_parallel
-        self._pending_calls: List[ToolCall] = []
-        self._results: Dict[str, ToolResult] = {}
+        self._pending_calls: list[ToolCall] = []
+        self._results: dict[str, ToolResult] = {}
 
         # Execution statistics
         self._stats = {
@@ -121,7 +122,7 @@ class ParallelToolExecutor:
         """
         self._pending_calls.append(call)
 
-    def add_calls(self, calls: List[ToolCall]) -> None:
+    def add_calls(self, calls: list[ToolCall]) -> None:
         """Add multiple tool calls.
 
         Args:
@@ -194,7 +195,7 @@ class ParallelToolExecutor:
 
         return False
 
-    def create_execution_batches(self) -> List[List[ToolCall]]:
+    def create_execution_batches(self) -> list[list[ToolCall]]:
         """Group pending calls into parallel-safe batches.
 
         Returns:
@@ -206,9 +207,9 @@ class ParallelToolExecutor:
         # Detect dependencies first
         self.detect_dependencies()
 
-        batches: List[List[ToolCall]] = []
+        batches: list[list[ToolCall]] = []
         remaining = list(self._pending_calls)
-        completed_ids: Set[str] = set()
+        completed_ids: set[str] = set()
 
         while remaining:
             # Find calls with no unmet dependencies
@@ -224,8 +225,8 @@ class ParallelToolExecutor:
                 break
 
             # Group parallelizable calls
-            parallel_batch: List[ToolCall] = []
-            sequential_batch: List[ToolCall] = []
+            parallel_batch: list[ToolCall] = []
+            sequential_batch: list[ToolCall] = []
 
             for call in ready:
                 if self.can_parallelize(call) and len(parallel_batch) < self.max_concurrent:
@@ -250,8 +251,8 @@ class ParallelToolExecutor:
 
     async def execute_all(
         self,
-        executor: Callable[[str, Dict[str, Any]], Awaitable[Any]],
-    ) -> List[ToolResult]:
+        executor: Callable[[str, dict[str, Any]], Awaitable[Any]],
+    ) -> list[ToolResult]:
         """Execute all pending calls optimally.
 
         Args:
@@ -265,7 +266,7 @@ class ParallelToolExecutor:
             return []
 
         batches = self.create_execution_batches()
-        all_results: List[ToolResult] = []
+        all_results: list[ToolResult] = []
         total_sequential_time = 0
         actual_time = 0
 
@@ -308,7 +309,7 @@ class ParallelToolExecutor:
     async def _execute_single(
         self,
         call: ToolCall,
-        executor: Callable[[str, Dict[str, Any]], Awaitable[Any]],
+        executor: Callable[[str, dict[str, Any]], Awaitable[Any]],
     ) -> ToolResult:
         """Execute a single tool call.
 
@@ -336,7 +337,7 @@ class ParallelToolExecutor:
                 execution_time_ms=execution_time,
             )
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             execution_time = (datetime.now() - start).total_seconds() * 1000
             logger.warning(f"Tool call timed out: {call.tool_name}")
             return ToolResult(
@@ -362,9 +363,9 @@ class ParallelToolExecutor:
 
     async def _execute_batch(
         self,
-        batch: List[ToolCall],
-        executor: Callable[[str, Dict[str, Any]], Awaitable[Any]],
-    ) -> List[ToolResult]:
+        batch: list[ToolCall],
+        executor: Callable[[str, dict[str, Any]], Awaitable[Any]],
+    ) -> list[ToolResult]:
         """Execute a batch of tool calls in parallel.
 
         Args:
@@ -382,7 +383,7 @@ class ParallelToolExecutor:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Convert any exceptions to ToolResults
-        processed_results: List[ToolResult] = []
+        processed_results: list[ToolResult] = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 processed_results.append(ToolResult(
@@ -397,7 +398,7 @@ class ParallelToolExecutor:
 
         return processed_results
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get execution statistics."""
         return {
             **self._stats,
@@ -409,10 +410,10 @@ class ParallelToolExecutor:
 
 # Convenience function for quick parallel execution
 async def execute_tools_parallel(
-    tool_calls: List[Dict[str, Any]],
-    executor: Callable[[str, Dict[str, Any]], Awaitable[Any]],
+    tool_calls: list[dict[str, Any]],
+    executor: Callable[[str, dict[str, Any]], Awaitable[Any]],
     max_concurrent: int = 5,
-) -> List[ToolResult]:
+) -> list[ToolResult]:
     """Execute tool calls in parallel where safe.
 
     Args:

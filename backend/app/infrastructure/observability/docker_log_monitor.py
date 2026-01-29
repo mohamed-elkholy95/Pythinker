@@ -1,8 +1,8 @@
+import logging
+import re
 import threading
 import time
-import re
-import logging
-from typing import Dict, List, Tuple, Optional
+
 try:
     import docker
 except Exception:
@@ -12,13 +12,13 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 class DockerLogMonitor:
-    def __init__(self, project_network: Optional[str] = None, throttle_seconds: Optional[int] = None):
+    def __init__(self, project_network: str | None = None, throttle_seconds: int | None = None):
         self._project_network = project_network
         self._throttle_seconds = throttle_seconds or get_settings().alert_throttle_seconds
         self._stop_event = threading.Event()
-        self._threads: List[threading.Thread] = []
-        self._last_alert_by_key: Dict[str, float] = {}
-        self._patterns: List[Tuple[re.Pattern, int]] = [
+        self._threads: list[threading.Thread] = []
+        self._last_alert_by_key: dict[str, float] = {}
+        self._patterns: list[tuple[re.Pattern, int]] = [
             (re.compile(r"\b(error|exception|critical|panic|traceback|failed|unauthorized|timeout)\b", re.IGNORECASE), logging.ERROR),
             (re.compile(r"\bconnection refused|network unreachable|broken pipe|reset by peer\b", re.IGNORECASE), logging.ERROR),
             (re.compile(r"\boom|out\s*of\s*memory|oom-killer|killed process\b", re.IGNORECASE), logging.CRITICAL),

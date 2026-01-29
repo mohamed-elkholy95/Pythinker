@@ -10,16 +10,14 @@ Provides unified access to all analysis capabilities via tool interface.
 """
 
 import logging
-from typing import Dict, Any, List, Optional
-from pathlib import Path
 
-from app.domain.services.tools.base import BaseTool, tool
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.analyzers import (
-    SecurityAnalyzer,
-    QualityAnalyzer,
     DependencyAnalyzer,
+    QualityAnalyzer,
+    SecurityAnalyzer,
 )
+from app.domain.services.tools.base import BaseTool, tool
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +152,7 @@ class DeepScanAnalyzerTool(BaseTool):
 
             if include_security:
                 sec = results["security"]["summary"]
-                message_parts.append(f"### Security Analysis")
+                message_parts.append("### Security Analysis")
                 message_parts.append(f"- Total vulnerabilities: {sec['total']}")
                 message_parts.append(f"- Critical: {sec['critical_count']}")
                 message_parts.append(f"- High: {sec['high_count']}")
@@ -172,7 +170,7 @@ class DeepScanAnalyzerTool(BaseTool):
 
             if include_quality:
                 met = results["quality"]["metrics"]
-                message_parts.append(f"### Quality Analysis")
+                message_parts.append("### Quality Analysis")
                 message_parts.append(f"- Lines of code: {met['code_lines']}")
                 message_parts.append(f"- Functions: {len(met['functions'])}")
                 message_parts.append(f"- Classes: {met['classes']}")
@@ -212,7 +210,7 @@ class DeepScanAnalyzerTool(BaseTool):
             logger.error(f"Deep scan failed: {e}")
             return ToolResult(
                 success=False,
-                message=f"Deep scan failed: {str(e)}",
+                message=f"Deep scan failed: {e!s}",
             )
 
     @tool(
@@ -294,7 +292,7 @@ class DeepScanAnalyzerTool(BaseTool):
             logger.error(f"Security scan failed: {e}")
             return ToolResult(
                 success=False,
-                message=f"Security scan failed: {str(e)}",
+                message=f"Security scan failed: {e!s}",
             )
 
     @tool(
@@ -338,19 +336,19 @@ class DeepScanAnalyzerTool(BaseTool):
             metrics, issues = self._quality_analyzer.analyze(code, file_path, language)
 
             message_parts = [f"## Quality Analysis: {file_path}\n"]
-            message_parts.append(f"### Metrics")
+            message_parts.append("### Metrics")
             message_parts.append(f"- Total lines: {metrics.total_lines}")
             message_parts.append(f"- Code lines: {metrics.code_lines}")
             message_parts.append(f"- Comment lines: {metrics.comment_lines}")
             message_parts.append(f"- Blank lines: {metrics.blank_lines}")
             message_parts.append(f"- Comment ratio: {metrics.to_dict()['comment_ratio']}%")
             message_parts.append("")
-            message_parts.append(f"### Structure")
+            message_parts.append("### Structure")
             message_parts.append(f"- Functions: {len(metrics.functions)}")
             message_parts.append(f"- Classes: {metrics.classes}")
             message_parts.append(f"- Imports: {metrics.imports}")
             message_parts.append("")
-            message_parts.append(f"### Complexity")
+            message_parts.append("### Complexity")
             message_parts.append(
                 f"- Average cyclomatic complexity: {metrics.average_complexity:.2f}"
             )
@@ -403,7 +401,7 @@ class DeepScanAnalyzerTool(BaseTool):
             logger.error(f"Quality analysis failed: {e}")
             return ToolResult(
                 success=False,
-                message=f"Quality analysis failed: {str(e)}",
+                message=f"Quality analysis failed: {e!s}",
             )
 
     @tool(
@@ -463,7 +461,7 @@ class DeepScanAnalyzerTool(BaseTool):
             summary = self._dependency_analyzer.get_summary(dependencies, issues)
 
             message_parts = [f"## Dependency Analysis: {file_path}\n"]
-            message_parts.append(f"### Overview")
+            message_parts.append("### Overview")
             message_parts.append(f"- Total dependencies: {summary['total_dependencies']}")
             message_parts.append(
                 f"- Production dependencies: {summary['production_dependencies']}"
@@ -525,7 +523,7 @@ class DeepScanAnalyzerTool(BaseTool):
             logger.error(f"Dependency analysis failed: {e}")
             return ToolResult(
                 success=False,
-                message=f"Dependency analysis failed: {str(e)}",
+                message=f"Dependency analysis failed: {e!s}",
             )
 
     @tool(
@@ -554,7 +552,7 @@ class DeepScanAnalyzerTool(BaseTool):
     )
     async def deep_scan_project(
         self,
-        files: List[Dict[str, str]],
+        files: list[dict[str, str]],
     ) -> ToolResult:
         """
         Perform comprehensive project-wide analysis.
@@ -698,5 +696,5 @@ class DeepScanAnalyzerTool(BaseTool):
             logger.error(f"Project analysis failed: {e}")
             return ToolResult(
                 success=False,
-                message=f"Project analysis failed: {str(e)}",
+                message=f"Project analysis failed: {e!s}",
             )

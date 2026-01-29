@@ -18,11 +18,11 @@ Key concepts:
 
 import logging
 import re
-from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Callable, Awaitable, Set
-from enum import Enum
-from datetime import datetime
 import uuid
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -53,23 +53,23 @@ class Subtask:
     description: str
     subtask_type: SubtaskType
     strategy: DecompositionStrategy
-    dependencies: List[str] = field(default_factory=list)  # IDs of dependent subtasks
-    input_context: Optional[str] = None  # Context from previous subtasks
-    expected_output: Optional[str] = None  # What this subtask should produce
+    dependencies: list[str] = field(default_factory=list)  # IDs of dependent subtasks
+    input_context: str | None = None  # Context from previous subtasks
+    expected_output: str | None = None  # What this subtask should produce
     estimated_complexity: float = 0.5  # 0-1 scale
-    parent_id: Optional[str] = None  # For recursive decomposition
-    children: List["Subtask"] = field(default_factory=list)
+    parent_id: str | None = None  # For recursive decomposition
+    children: list["Subtask"] = field(default_factory=list)
 
     # Execution state
     status: str = "pending"  # pending, in_progress, completed, failed
-    result: Optional[str] = None
-    error: Optional[str] = None
+    result: str | None = None
+    error: str | None = None
 
     def is_atomic(self) -> bool:
         """Check if this subtask is atomic (no further decomposition needed)."""
         return self.strategy == DecompositionStrategy.ATOMIC or len(self.children) == 0
 
-    def is_ready(self, completed_ids: Set[str]) -> bool:
+    def is_ready(self, completed_ids: set[str]) -> bool:
         """Check if all dependencies are satisfied."""
         return all(dep_id in completed_ids for dep_id in self.dependencies)
 
@@ -78,15 +78,15 @@ class Subtask:
 class DecompositionResult:
     """Result of task decomposition."""
     original_task: str
-    subtasks: List[Subtask]
+    subtasks: list[Subtask]
     strategy: DecompositionStrategy
     estimated_total_complexity: float
     decomposition_tree_depth: int
-    parallel_groups: List[List[str]]  # Groups of subtask IDs that can run in parallel
+    parallel_groups: list[list[str]]  # Groups of subtask IDs that can run in parallel
     created_at: datetime = field(default_factory=datetime.now)
 
     @property
-    def atomic_subtasks(self) -> List[Subtask]:
+    def atomic_subtasks(self) -> list[Subtask]:
         """Get all atomic (leaf) subtasks."""
         return [s for s in self.subtasks if s.is_atomic()]
 
@@ -174,14 +174,14 @@ class TaskDecomposer:
         }
 
         # Track decomposed subtasks
-        self._subtasks: Dict[str, Subtask] = {}
-        self._completed_ids: Set[str] = set()
-        self._results: Dict[str, str] = {}
+        self._subtasks: dict[str, Subtask] = {}
+        self._completed_ids: set[str] = set()
+        self._results: dict[str, str] = {}
 
     def decompose(
         self,
         task: str,
-        context: Optional[str] = None,
+        context: str | None = None,
         depth: int = 0,
     ) -> DecompositionResult:
         """Decompose a task into subtasks.
@@ -292,7 +292,7 @@ class TaskDecomposer:
     def _create_atomic_subtask(
         self,
         task: str,
-        context: Optional[str],
+        context: str | None,
     ) -> Subtask:
         """Create an atomic subtask."""
         subtask_type = self._detect_subtask_type(task)
@@ -310,9 +310,9 @@ class TaskDecomposer:
     def _extract_subtasks(
         self,
         task: str,
-        context: Optional[str],
+        context: str | None,
         depth: int,
-    ) -> List[Subtask]:
+    ) -> list[Subtask]:
         """Extract subtasks from a complex task."""
         subtasks = []
 
@@ -360,9 +360,9 @@ class TaskDecomposer:
     def _create_subtask_from_item(
         self,
         item: str,
-        context: Optional[str],
+        context: str | None,
         depth: int,
-        depends_on: Optional[str] = None,
+        depends_on: str | None = None,
     ) -> Subtask:
         """Create a subtask from an extracted item."""
         subtask_type = self._detect_subtask_type(item)
@@ -426,7 +426,7 @@ class TaskDecomposer:
 
         return min(length_score + complexity_boost + action_score, 1.0)
 
-    def _determine_strategy(self, subtasks: List[Subtask]) -> DecompositionStrategy:
+    def _determine_strategy(self, subtasks: list[Subtask]) -> DecompositionStrategy:
         """Determine the overall decomposition strategy."""
         if not subtasks:
             return DecompositionStrategy.ATOMIC
@@ -442,11 +442,11 @@ class TaskDecomposer:
         # Mixed - some parallel, some sequential
         return DecompositionStrategy.SEQUENTIAL  # Default to safer option
 
-    def _create_parallel_groups(self, subtasks: List[Subtask]) -> List[List[str]]:
+    def _create_parallel_groups(self, subtasks: list[Subtask]) -> list[list[str]]:
         """Create groups of subtasks that can run in parallel."""
         groups = []
         remaining = list(subtasks)
-        completed_ids: Set[str] = set()
+        completed_ids: set[str] = set()
 
         while remaining:
             # Find all subtasks with satisfied dependencies
@@ -495,7 +495,7 @@ class TaskDecomposer:
 
             logger.warning(f"Subtask {subtask_id} failed: {error}")
 
-    def get_next_ready_subtasks(self) -> List[Subtask]:
+    def get_next_ready_subtasks(self) -> list[Subtask]:
         """Get subtasks that are ready to execute.
 
         Returns:
@@ -546,7 +546,7 @@ class TaskDecomposer:
 
         return "\n\n".join(results)
 
-    def get_progress(self) -> Dict[str, Any]:
+    def get_progress(self) -> dict[str, Any]:
         """Get decomposition progress."""
         total = len(self._subtasks)
         completed = len(self._completed_ids)
@@ -568,7 +568,7 @@ class TaskDecomposer:
 
 
 # Singleton instance
-_decomposer: Optional[TaskDecomposer] = None
+_decomposer: TaskDecomposer | None = None
 
 
 def get_task_decomposer() -> TaskDecomposer:
@@ -579,7 +579,7 @@ def get_task_decomposer() -> TaskDecomposer:
     return _decomposer
 
 
-def decompose_task(task: str, context: Optional[str] = None) -> DecompositionResult:
+def decompose_task(task: str, context: str | None = None) -> DecompositionResult:
     """Convenience function to decompose a task.
 
     Args:

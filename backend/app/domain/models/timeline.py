@@ -1,10 +1,11 @@
 """Timeline models for action recording and replay."""
 
-from pydantic import BaseModel, Field
-from typing import Dict, Any, Optional, List
+import uuid
 from datetime import datetime
 from enum import Enum
-import uuid
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class ActionType(str, Enum):
@@ -55,36 +56,36 @@ class FileChange(BaseModel):
     """Represents a file change within an action."""
     path: str
     operation: str  # "create", "edit", "delete", "move"
-    content_before: Optional[str] = None  # For edit/delete, previous content
-    content_after: Optional[str] = None   # For create/edit, new content
-    diff: Optional[str] = None            # Unified diff format for edits
+    content_before: str | None = None  # For edit/delete, previous content
+    content_after: str | None = None   # For create/edit, new content
+    diff: str | None = None            # Unified diff format for edits
 
 
 class BrowserAction(BaseModel):
     """Represents a browser action within an action."""
     action_type: str  # "navigate", "click", "type", "scroll", etc.
-    target: Optional[str] = None  # CSS selector, URL, or element description
-    value: Optional[str] = None   # Input value for type actions
-    screenshot_before: Optional[str] = None  # Base64 screenshot
-    screenshot_after: Optional[str] = None   # Base64 screenshot
+    target: str | None = None  # CSS selector, URL, or element description
+    value: str | None = None   # Input value for type actions
+    screenshot_before: str | None = None  # Base64 screenshot
+    screenshot_after: str | None = None   # Base64 screenshot
 
 
 class TerminalCommand(BaseModel):
     """Represents a terminal command within an action."""
     command: str
     working_directory: str
-    exit_code: Optional[int] = None
-    stdout: Optional[str] = None
-    stderr: Optional[str] = None
+    exit_code: int | None = None
+    stdout: str | None = None
+    stderr: str | None = None
 
 
 class ActionMetadata(BaseModel):
     """Metadata for a timeline action."""
-    file_changes: Optional[List[FileChange]] = None
-    browser_actions: Optional[List[BrowserAction]] = None
-    terminal_commands: Optional[List[TerminalCommand]] = None
-    reasoning: Optional[str] = None  # Agent's reasoning for this action
-    error_message: Optional[str] = None  # Error details if action failed
+    file_changes: list[FileChange] | None = None
+    browser_actions: list[BrowserAction] | None = None
+    terminal_commands: list[TerminalCommand] | None = None
+    reasoning: str | None = None  # Agent's reasoning for this action
+    error_message: str | None = None  # Error details if action failed
 
 
 class TimelineAction(BaseModel):
@@ -99,25 +100,25 @@ class TimelineAction(BaseModel):
     # Timing
     timestamp: datetime = Field(default_factory=datetime.now)
     started_at: datetime = Field(default_factory=datetime.now)
-    completed_at: Optional[datetime] = None
-    duration_ms: Optional[int] = None  # Computed from started_at and completed_at
+    completed_at: datetime | None = None
+    duration_ms: int | None = None  # Computed from started_at and completed_at
 
     # Action details
     action_type: ActionType
     status: ActionStatus = ActionStatus.PENDING
 
     # Tool information (if this action is from a tool call)
-    tool_name: Optional[str] = None
-    tool_call_id: Optional[str] = None
-    function_name: Optional[str] = None
-    function_args: Optional[Dict[str, Any]] = None
-    function_result: Optional[Any] = None
+    tool_name: str | None = None
+    tool_call_id: str | None = None
+    function_name: str | None = None
+    function_args: dict[str, Any] | None = None
+    function_result: Any | None = None
 
     # Rich metadata
     metadata: ActionMetadata = Field(default_factory=ActionMetadata)
 
     # Event association
-    event_id: Optional[str] = None  # Reference to the associated event
+    event_id: str | None = None  # Reference to the associated event
 
     def mark_completed(self, result: Any = None) -> None:
         """Mark this action as completed and calculate duration."""

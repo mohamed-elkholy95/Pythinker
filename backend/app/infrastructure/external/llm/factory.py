@@ -3,11 +3,10 @@
 Registry pattern for dynamically selecting LLM providers based on configuration.
 Supports: openai, anthropic, ollama
 """
-from typing import Dict, Type, Optional
 import logging
 
-from app.domain.external.llm import LLM
 from app.core.config import get_settings
+from app.domain.external.llm import LLM
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +17,7 @@ class LLMProviderRegistry:
     Allows dynamic registration and retrieval of LLM implementations
     based on provider name configuration.
     """
-    _providers: Dict[str, Type[LLM]] = {}
+    _providers: dict[str, type[LLM]] = {}
 
     @classmethod
     def register(cls, name: str):
@@ -35,14 +34,14 @@ class LLMProviderRegistry:
             class AnthropicLLM(LLM):
                 ...
         """
-        def decorator(provider_class: Type[LLM]) -> Type[LLM]:
+        def decorator(provider_class: type[LLM]) -> type[LLM]:
             cls._providers[name.lower()] = provider_class
             logger.debug(f"Registered LLM provider: {name}")
             return provider_class
         return decorator
 
     @classmethod
-    def get(cls, name: str, **kwargs) -> Optional[LLM]:
+    def get(cls, name: str, **kwargs) -> LLM | None:
         """Get an LLM instance by provider name.
 
         Args:
@@ -69,7 +68,7 @@ class LLMProviderRegistry:
         return list(cls._providers.keys())
 
 
-def get_llm_from_factory() -> Optional[LLM]:
+def get_llm_from_factory() -> LLM | None:
     """Get LLM instance based on configuration.
 
     This is the main entry point for getting an LLM.
@@ -79,7 +78,6 @@ def get_llm_from_factory() -> Optional[LLM]:
         LLM instance or None if configuration is invalid
     """
     # Import providers to register them
-    from app.infrastructure.external.llm.openai_llm import OpenAILLM
 
     # Try to import optional providers
     try:
@@ -118,6 +116,6 @@ def get_llm_from_factory() -> Optional[LLM]:
 
 
 # Backwards-compatible function
-def get_llm() -> Optional[LLM]:
+def get_llm() -> LLM | None:
     """Get LLM instance (backwards compatible alias)."""
     return get_llm_from_factory()

@@ -1,5 +1,18 @@
 from fastapi import APIRouter
-from . import session_routes, file_routes, auth_routes, maintenance_routes, metrics_routes, settings_routes, usage_routes, monitoring_routes, workspace_routes, health_routes
+
+from . import (
+    auth_routes,
+    file_routes,
+    health_routes,
+    maintenance_routes,
+    metrics_routes,
+    monitoring_routes,
+    session_routes,
+    settings_routes,
+    usage_routes,
+    workspace_routes,
+)
+
 
 def create_api_router() -> APIRouter:
     """Create and configure the main API router"""

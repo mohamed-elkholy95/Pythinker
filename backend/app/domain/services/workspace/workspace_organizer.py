@@ -1,9 +1,8 @@
 """Workspace organization and deliverable tracking."""
-from typing import Dict, List, Optional
-from pathlib import Path
 import logging
-from app.domain.services.workspace.workspace_templates import WorkspaceTemplate
+
 from app.domain.external.sandbox import Sandbox
+from app.domain.services.workspace.workspace_templates import WorkspaceTemplate
 
 logger = logging.getLogger(__name__)
 
@@ -14,13 +13,13 @@ class WorkspaceOrganizer:
     def __init__(self, sandbox: Sandbox, workspace_root: str = "/workspace"):
         self._sandbox = sandbox
         self._workspace_root = workspace_root
-        self._deliverables: List[str] = []
+        self._deliverables: list[str] = []
 
     async def initialize_workspace(
         self,
         session_id: str,
         template: WorkspaceTemplate
-    ) -> Dict[str, str]:
+    ) -> dict[str, str]:
         """Initialize workspace structure from template.
 
         Args:
@@ -61,7 +60,7 @@ class WorkspaceOrganizer:
             self._deliverables.append(file_path)
             logger.info(f"Added deliverable: {file_path}")
 
-    def get_deliverables(self) -> List[str]:
+    def get_deliverables(self) -> list[str]:
         """Get list of tracked deliverables"""
         return self._deliverables.copy()
 

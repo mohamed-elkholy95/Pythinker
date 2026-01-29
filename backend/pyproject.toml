@@ -1,0 +1,71 @@
+[project]
+name = "pythinker-backend"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "UP", "B", "C4", "LOG", "RET", "SIM", "RUF"]
+ignore = ["E501", "PLR0913", "PLR2004"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "ARG", "PLR2004"]
+"app/interfaces/api/**/*.py" = ["B008"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.ruff.format]
+quote-style = "double"
+docstring-code-format = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-v --tb=short --strict-markers --color=yes --cov=app --cov-report=term-missing --cov-fail-under=70"
+log_cli = true
+log_cli_level = "INFO"
+log_cli_format = "%(asctime)s %(filename)s:%(lineno)s [%(levelname)s]: %(message)s"
+log_cli_date_format = "%Y-%m-%d %H:%M:%S"
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+markers = [
+    "file_api: marks tests for file API",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks integration tests that require external services",
+    "unit: marks unit tests",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+omit = [
+    "app/infrastructure/models/*",
+    "app/__init__.py",
+    "*/__init__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "pass",
+]
+show_missing = true
+fail_under = 70
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"

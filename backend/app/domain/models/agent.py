@@ -1,8 +1,10 @@
-from typing import Optional, Dict
-from datetime import datetime, UTC
-from pydantic import BaseModel, Field, field_validator
-from app.domain.models.memory import Memory
 import uuid
+from datetime import UTC, datetime
+
+from pydantic import BaseModel, Field, field_validator
+
+from app.domain.models.memory import Memory
+
 
 class Agent(BaseModel):
     """
@@ -10,11 +12,11 @@ class Agent(BaseModel):
     Including its execution context, memory, and current plan
     """
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:16])
-    memories: Dict[str, Memory] = Field(default_factory=dict)
+    memories: dict[str, Memory] = Field(default_factory=dict)
     model_name: str = Field(default="")
     temperature: float = Field(default=0.7)
     max_tokens: int = Field(default=2000)
-    
+
     # Context related fields
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))  # Creation timestamp
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))  # Last update timestamp
@@ -27,7 +29,7 @@ class Agent(BaseModel):
         return v
 
     @field_validator("max_tokens")
-    def validate_max_tokens(cls, v: Optional[int]) -> Optional[int]:
+    def validate_max_tokens(cls, v: int | None) -> int | None:
         """Validate max_tokens is positive if provided"""
         if v is not None and v <= 0:
             raise ValueError("Max tokens must be positive")

@@ -2,11 +2,10 @@
 Tests for the prompt adapter module.
 """
 
-import pytest
 from app.domain.services.agents.prompt_adapter import (
-    PromptAdapter,
     ContextType,
     ExecutionContext,
+    PromptAdapter,
 )
 
 

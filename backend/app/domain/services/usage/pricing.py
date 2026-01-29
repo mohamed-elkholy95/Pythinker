@@ -2,9 +2,8 @@
 
 Pricing is per 1 million tokens (1M tokens).
 """
-from dataclasses import dataclass
-from typing import Optional, Tuple
 import re
+from dataclasses import dataclass
 
 
 @dataclass
@@ -15,14 +14,14 @@ class ModelPricing:
     """
     prompt_price: float  # Price per 1M prompt tokens
     completion_price: float  # Price per 1M completion tokens
-    cached_price: Optional[float] = None  # Price per 1M cached tokens (Anthropic)
+    cached_price: float | None = None  # Price per 1M cached tokens (Anthropic)
 
     def calculate_cost(
         self,
         prompt_tokens: int,
         completion_tokens: int,
         cached_tokens: int = 0
-    ) -> Tuple[float, float, float]:
+    ) -> tuple[float, float, float]:
         """Calculate cost for token usage.
 
         Returns:
@@ -212,7 +211,7 @@ def calculate_cost(
     prompt_tokens: int,
     completion_tokens: int,
     cached_tokens: int = 0
-) -> Tuple[float, float, float]:
+) -> tuple[float, float, float]:
     """Calculate cost for token usage with automatic model pricing lookup.
 
     Args:
@@ -241,12 +240,11 @@ def get_provider_from_model(model_name: str) -> str:
 
     if model_lower.startswith(("gpt-", "o1", "o3")):
         return "openai"
-    elif model_lower.startswith("claude"):
+    if model_lower.startswith("claude"):
         return "anthropic"
-    elif model_lower.startswith("gemini"):
+    if model_lower.startswith("gemini"):
         return "google"
-    elif model_lower.startswith("deepseek"):
+    if model_lower.startswith("deepseek"):
         return "deepseek"
-    else:
-        # Assume local/ollama for unrecognized models
-        return "ollama"
+    # Assume local/ollama for unrecognized models
+    return "ollama"

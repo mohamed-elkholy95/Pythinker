@@ -4,10 +4,10 @@ Metrics for evaluating text outputs using semantic similarity
 and keyword analysis.
 """
 
-import re
-from typing import Dict, Any, List, Set
-from collections import Counter
 import math
+import re
+from collections import Counter
+from typing import Any
 
 from tests.evals.metrics.base import BaseMetric, MetricScore
 
@@ -25,8 +25,8 @@ class SimilarityMetric(BaseMetric):
     def evaluate(
         self,
         actual_output: str,
-        expected: Dict[str, Any],
-        context: Dict[str, Any],
+        expected: dict[str, Any],
+        context: dict[str, Any],
     ) -> MetricScore:
         expected_output = expected.get("expected_output")
 
@@ -62,13 +62,13 @@ class SimilarityMetric(BaseMetric):
             message=f"Similarity score: {similarity:.3f} (threshold: {threshold})"
         )
 
-    def _tokenize(self, text: str) -> List[str]:
+    def _tokenize(self, text: str) -> list[str]:
         """Tokenize text into lowercase words."""
         # Simple word tokenization
         words = re.findall(r'\b[a-zA-Z]+\b', text.lower())
         return words
 
-    def _cosine_similarity(self, words1: List[str], words2: List[str]) -> float:
+    def _cosine_similarity(self, words1: list[str], words2: list[str]) -> float:
         """Calculate cosine similarity between two word lists."""
         if not words1 or not words2:
             return 0.0
@@ -120,8 +120,8 @@ class KeywordCoverageMetric(BaseMetric):
     def evaluate(
         self,
         actual_output: str,
-        expected: Dict[str, Any],
-        context: Dict[str, Any],
+        expected: dict[str, Any],
+        context: dict[str, Any],
     ) -> MetricScore:
         # Get keywords from expected or extract from expected output
         keywords = expected.get("expected_keywords", [])
@@ -175,7 +175,7 @@ class KeywordCoverageMetric(BaseMetric):
             message=f"Keyword coverage: {coverage*100:.1f}% ({len(found)}/{len(keywords)})"
         )
 
-    def _extract_keywords(self, text: str, min_length: int = 4, top_n: int = 10) -> List[str]:
+    def _extract_keywords(self, text: str, min_length: int = 4, top_n: int = 10) -> list[str]:
         """Extract significant keywords from text."""
         # Tokenize
         words = re.findall(r'\b[a-zA-Z]+\b', text.lower())
@@ -197,8 +197,8 @@ class JaccardSimilarityMetric(BaseMetric):
     def evaluate(
         self,
         actual_output: str,
-        expected: Dict[str, Any],
-        context: Dict[str, Any],
+        expected: dict[str, Any],
+        context: dict[str, Any],
     ) -> MetricScore:
         expected_output = expected.get("expected_output")
 

@@ -8,13 +8,12 @@ Analyzes:
 - Identifies known vulnerabilities
 """
 
-import re
 import json
 import logging
-from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Tuple
+import re
+from dataclasses import dataclass
 from enum import Enum
-from datetime import datetime
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +41,9 @@ class Dependency:
     version_constraint: str  # Original constraint (e.g., ">=1.0,<2.0")
     dependency_type: DependencyType
     source_file: str
-    line_number: Optional[int] = None
+    line_number: int | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "name": self.name,
@@ -64,11 +63,11 @@ class VulnerabilityInfo:
     title: str
     description: str
     affected_versions: str
-    fixed_version: Optional[str]
-    published_date: Optional[str]
-    url: Optional[str] = None
+    fixed_version: str | None
+    published_date: str | None
+    url: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "cve_id": self.cve_id,
@@ -90,9 +89,9 @@ class DependencyIssue:
     severity: str
     description: str
     recommendation: str
-    vulnerability: Optional[VulnerabilityInfo] = None
+    vulnerability: VulnerabilityInfo | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "dependency": self.dependency.to_dict(),
@@ -105,7 +104,7 @@ class DependencyIssue:
 
 
 # Known vulnerable packages (simplified - in production, use a real CVE database)
-KNOWN_VULNERABILITIES: Dict[str, List[Dict[str, Any]]] = {
+KNOWN_VULNERABILITIES: dict[str, list[dict[str, Any]]] = {
     # Python packages
     "pyyaml": [
         {
@@ -185,14 +184,14 @@ class DependencyAnalyzer:
 
     def __init__(self):
         """Initialize dependency analyzer."""
-        self._dependencies: List[Dependency] = []
-        self._issues: List[DependencyIssue] = []
+        self._dependencies: list[Dependency] = []
+        self._issues: list[DependencyIssue] = []
 
     def analyze_requirements_txt(
         self,
         content: str,
         file_path: str = "requirements.txt",
-    ) -> Tuple[List[Dependency], List[DependencyIssue]]:
+    ) -> tuple[list[Dependency], list[DependencyIssue]]:
         """
         Analyze a Python requirements.txt file.
 
@@ -234,7 +233,7 @@ class DependencyAnalyzer:
         self,
         content: str,
         file_path: str = "package.json",
-    ) -> Tuple[List[Dependency], List[DependencyIssue]]:
+    ) -> tuple[list[Dependency], list[DependencyIssue]]:
         """
         Analyze a Node.js package.json file.
 
@@ -285,7 +284,7 @@ class DependencyAnalyzer:
         line: str,
         file_path: str,
         line_num: int,
-    ) -> Optional[Dependency]:
+    ) -> Dependency | None:
         """Parse a single requirement line."""
         # Match patterns like: package==1.0, package>=1.0, package~=1.0
         patterns = [
@@ -324,7 +323,7 @@ class DependencyAnalyzer:
         version = re.sub(r'^[\^~>=<]+', '', version_str)
         return version.split(' ')[0] if ' ' in version else version
 
-    def _check_dependency(self, dep: Dependency) -> List[DependencyIssue]:
+    def _check_dependency(self, dep: Dependency) -> list[DependencyIssue]:
         """Check a dependency for issues."""
         issues = []
 
@@ -377,26 +376,25 @@ class DependencyAnalyzer:
             if affected_range.startswith('<'):
                 limit = pkg_version.parse(affected_range[1:])
                 return current < limit
-            elif affected_range.startswith('>=') and '<' in affected_range:
+            if affected_range.startswith('>=') and '<' in affected_range:
                 # Range like ">=1.0,<2.0"
                 parts = affected_range.split(',')
                 lower = pkg_version.parse(parts[0][2:])
                 upper = pkg_version.parse(parts[1][1:])
                 return lower <= current < upper
-            elif affected_range.startswith('<='):
+            if affected_range.startswith('<='):
                 limit = pkg_version.parse(affected_range[2:])
                 return current <= limit
-            else:
-                return True  # Assume affected if can't parse
+            return True  # Assume affected if can't parse
         except Exception:
             # If packaging not available or parse fails, assume affected
             return True
 
     def get_summary(
         self,
-        dependencies: List[Dependency],
-        issues: List[DependencyIssue],
-    ) -> Dict[str, Any]:
+        dependencies: list[Dependency],
+        issues: list[DependencyIssue],
+    ) -> dict[str, Any]:
         """Generate a summary of the analysis."""
         vuln_count = sum(1 for i in issues if i.issue_type == "vulnerable")
         outdated_count = sum(1 for i in issues if i.issue_type == "outdated")

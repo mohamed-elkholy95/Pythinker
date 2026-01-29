@@ -1,9 +1,9 @@
 import type { FileInfo } from '../api/file';
-import type { SourceCitation } from './message';
+import type { SourceCitation, DeepResearchQuery, DeepResearchStatus } from './message';
 
 export type AgentSSEEvent = {
-  event: 'tool' | 'step' | 'message' | 'error' | 'done' | 'title' | 'wait' | 'plan' | 'attachments' | 'mode_change' | 'suggestion' | 'report' | 'stream' | 'progress';
-  data: ToolEventData | StepEventData | MessageEventData | ErrorEventData | DoneEventData | TitleEventData | WaitEventData | PlanEventData | ModeChangeEventData | SuggestionEventData | ReportEventData | StreamEventData | ProgressEventData;
+  event: 'tool' | 'step' | 'message' | 'error' | 'done' | 'title' | 'wait' | 'plan' | 'attachments' | 'mode_change' | 'suggestion' | 'report' | 'stream' | 'progress' | 'deep_research';
+  data: ToolEventData | StepEventData | MessageEventData | ErrorEventData | DoneEventData | TitleEventData | WaitEventData | PlanEventData | ModeChangeEventData | SuggestionEventData | ReportEventData | StreamEventData | ProgressEventData | DeepResearchEventData;
 }
 
 export interface BaseEventData {
@@ -95,4 +95,13 @@ export interface ProgressEventData extends BaseEventData {
   message: string;
   estimated_steps?: number;
   progress_percent?: number;
+}
+
+export interface DeepResearchEventData extends BaseEventData {
+  research_id: string;
+  status: DeepResearchStatus;
+  total_queries: number;
+  completed_queries: number;
+  queries: DeepResearchQuery[];
+  auto_run: boolean;
 }

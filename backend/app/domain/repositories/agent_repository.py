@@ -1,18 +1,20 @@
-from typing import Optional, Protocol
+from typing import Protocol
+
 from app.domain.models.agent import Agent
 from app.domain.models.memory import Memory
 
+
 class AgentRepository(Protocol):
     """Repository interface for Agent aggregate"""
-    
+
     async def save(self, agent: Agent) -> None:
         """Save or update an agent"""
         ...
-    
-    async def find_by_id(self, agent_id: str) -> Optional[Agent]:
+
+    async def find_by_id(self, agent_id: str) -> Agent | None:
         """Find an agent by its ID"""
         ...
-    
+
     async def add_memory(self, agent_id: str,
                         name: str,
                         memory: Memory) -> None:
@@ -25,4 +27,4 @@ class AgentRepository(Protocol):
 
     async def save_memory(self, agent_id: str, name: str, memory: Memory) -> None:
         """Update the messages of a memory"""
-        ... 
+        ...

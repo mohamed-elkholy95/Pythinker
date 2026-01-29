@@ -1,13 +1,14 @@
 """Unit tests for SessionWorkspaceInitializer."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from app.domain.models.session import AgentMode, Session, SessionStatus
 from app.domain.services.workspace.session_workspace_initializer import (
     SessionWorkspaceInitializer,
     get_session_workspace_initializer,
 )
-from app.domain.models.session import Session, SessionStatus, AgentMode
-from app.domain.services.workspace.workspace_templates import RESEARCH_TEMPLATE
 
 
 class TestSessionWorkspaceInitializer:

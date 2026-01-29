@@ -1,7 +1,8 @@
 """Repository interface for StateSnapshot aggregate."""
 
-from typing import Optional, Protocol, List
 from datetime import datetime
+from typing import Protocol
+
 from app.domain.models.snapshot import StateSnapshot
 
 
@@ -12,23 +13,23 @@ class SnapshotRepository(Protocol):
         """Save a state snapshot."""
         ...
 
-    async def save_many(self, snapshots: List[StateSnapshot]) -> None:
+    async def save_many(self, snapshots: list[StateSnapshot]) -> None:
         """Save multiple snapshots in a batch operation."""
         ...
 
-    async def find_by_id(self, snapshot_id: str) -> Optional[StateSnapshot]:
+    async def find_by_id(self, snapshot_id: str) -> StateSnapshot | None:
         """Find a snapshot by its ID."""
         ...
 
     async def find_by_session(
         self,
         session_id: str,
-        limit: Optional[int] = None
-    ) -> List[StateSnapshot]:
+        limit: int | None = None
+    ) -> list[StateSnapshot]:
         """Find all snapshots for a session, ordered by sequence number."""
         ...
 
-    async def find_by_action(self, action_id: str) -> Optional[StateSnapshot]:
+    async def find_by_action(self, action_id: str) -> StateSnapshot | None:
         """Find the snapshot associated with a specific action."""
         ...
 
@@ -36,7 +37,7 @@ class SnapshotRepository(Protocol):
         self,
         session_id: str,
         sequence_number: int
-    ) -> Optional[StateSnapshot]:
+    ) -> StateSnapshot | None:
         """
         Find the nearest snapshot at or before the given sequence number.
         Used for efficient state reconstruction.
@@ -47,7 +48,7 @@ class SnapshotRepository(Protocol):
         self,
         session_id: str,
         timestamp: datetime
-    ) -> Optional[StateSnapshot]:
+    ) -> StateSnapshot | None:
         """
         Find the nearest snapshot at or before the given timestamp.
         Used for time-based state reconstruction.
@@ -59,7 +60,7 @@ class SnapshotRepository(Protocol):
         session_id: str,
         start_sequence: int,
         end_sequence: int
-    ) -> List[StateSnapshot]:
+    ) -> list[StateSnapshot]:
         """
         Get all snapshots within a sequence number range.
         Useful for reconstructing state over a range of actions.
@@ -92,7 +93,7 @@ class SnapshotRepository(Protocol):
     async def get_latest_full_snapshot(
         self,
         session_id: str
-    ) -> Optional[StateSnapshot]:
+    ) -> StateSnapshot | None:
         """
         Get the most recent full state snapshot for a session.
         Full snapshots contain complete session state.

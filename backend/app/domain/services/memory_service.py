@@ -9,26 +9,26 @@ Provides high-level operations for:
 
 import logging
 import re
-from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
 from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any
 
 from openai import AsyncOpenAI
-from app.core.config import get_settings
 
+from app.core.config import get_settings
+from app.domain.external.llm import LLM
 from app.domain.models.long_term_memory import (
+    ExtractedMemory,
     MemoryEntry,
+    MemoryImportance,
     MemoryQuery,
     MemorySearchResult,
-    MemoryStats,
-    MemoryUpdate,
-    MemoryType,
-    MemoryImportance,
     MemorySource,
-    ExtractedMemory,
+    MemoryStats,
+    MemoryType,
+    MemoryUpdate,
 )
 from app.domain.repositories.memory_repository import MemoryRepository
-from app.domain.external.llm import LLM
 
 # Lazy import to avoid circular dependencies
 _qdrant_repo = None
@@ -78,8 +78,8 @@ class MemoryService:
     def __init__(
         self,
         repository: MemoryRepository,
-        llm: Optional[LLM] = None,
-        embedding_model: Optional[str] = None
+        llm: LLM | None = None,
+        embedding_model: str | None = None
     ):
         """Initialize memory service.
 
@@ -120,10 +120,10 @@ class MemoryService:
         memory_type: MemoryType,
         importance: MemoryImportance = MemoryImportance.MEDIUM,
         source: MemorySource = MemorySource.SYSTEM,
-        session_id: Optional[str] = None,
-        entities: Optional[List[str]] = None,
-        tags: Optional[List[str]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        session_id: str | None = None,
+        entities: list[str] | None = None,
+        tags: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
         generate_embedding: bool = True
     ) -> MemoryEntry:
         """Store a new memory.
@@ -210,9 +210,9 @@ class MemoryService:
     async def store_many(
         self,
         user_id: str,
-        memories: List[ExtractedMemory],
-        session_id: Optional[str] = None
-    ) -> List[MemoryEntry]:
+        memories: list[ExtractedMemory],
+        session_id: str | None = None
+    ) -> list[MemoryEntry]:
         """Store multiple extracted memories.
 
         Args:
@@ -253,9 +253,9 @@ class MemoryService:
         user_id: str,
         context: str,
         limit: int = 10,
-        memory_types: Optional[List[MemoryType]] = None,
+        memory_types: list[MemoryType] | None = None,
         min_relevance: float = 0.3
-    ) -> List[MemorySearchResult]:
+    ) -> list[MemorySearchResult]:
         """Retrieve memories relevant to a context.
 
         Uses Qdrant for fast vector search when available, with MongoDB fallback.
@@ -363,7 +363,7 @@ class MemoryService:
         include_procedures: bool = True,
         include_errors: bool = True,
         limit: int = 15
-    ) -> List[MemorySearchResult]:
+    ) -> list[MemorySearchResult]:
         """Retrieve memories relevant to a task.
 
         Specialized retrieval that combines different memory types
@@ -435,9 +435,9 @@ class MemoryService:
     async def extract_from_conversation(
         self,
         user_id: str,
-        conversation: List[Dict[str, str]],
-        session_id: Optional[str] = None
-    ) -> List[ExtractedMemory]:
+        conversation: list[dict[str, str]],
+        session_id: str | None = None
+    ) -> list[ExtractedMemory]:
         """Extract memorable content from a conversation.
 
         Uses pattern matching and optionally LLM to identify
@@ -514,8 +514,8 @@ class MemoryService:
         task_description: str,
         task_result: str,
         success: bool,
-        session_id: Optional[str] = None
-    ) -> List[ExtractedMemory]:
+        session_id: str | None = None
+    ) -> list[ExtractedMemory]:
         """Extract memories from completed task results.
 
         Args:
@@ -557,7 +557,7 @@ class MemoryService:
     async def consolidate_memories(
         self,
         user_id: str,
-        memory_type: Optional[MemoryType] = None,
+        memory_type: MemoryType | None = None,
         max_to_consolidate: int = 50
     ) -> int:
         """Consolidate similar memories to reduce redundancy.
@@ -626,10 +626,10 @@ class MemoryService:
 
     async def cleanup(
         self,
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
         remove_expired: bool = True,
         consolidate: bool = True
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         """Perform memory cleanup operations.
 
         Args:
@@ -696,7 +696,7 @@ class MemoryService:
 
     async def format_memories_for_context(
         self,
-        memories: List[MemorySearchResult],
+        memories: list[MemorySearchResult],
         max_tokens: int = 500
     ) -> str:
         """Format memories for inclusion in agent context.
@@ -738,7 +738,7 @@ class MemoryService:
         normalized = " ".join(content.lower().split())
         return hashlib.sha256(normalized.encode()).hexdigest()[:16]
 
-    def _extract_keywords(self, text: str) -> List[str]:
+    def _extract_keywords(self, text: str) -> list[str]:
         """Extract keywords from text."""
         # Simple keyword extraction - could be enhanced with NLP
         words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
@@ -756,7 +756,7 @@ class MemoryService:
         # Return unique keywords, limited
         return list(dict.fromkeys(keywords))[:20]
 
-    async def _generate_embedding(self, text: str) -> List[float]:
+    async def _generate_embedding(self, text: str) -> list[float]:
         """Generate embedding vector for text.
 
         Uses dedicated embedding client (OpenAI-compatible) if available.
@@ -793,7 +793,7 @@ class MemoryService:
         # Note: Uses 1536 dimensions to match Qdrant collection config
         return self._compute_simple_embedding(text, dim=1536)
 
-    def _compute_simple_embedding(self, text: str, dim: int = 256) -> List[float]:
+    def _compute_simple_embedding(self, text: str, dim: int = 256) -> list[float]:
         """Compute a simple hash-based embedding for fallback.
 
         Creates a deterministic vector based on word hashing.
@@ -839,7 +839,7 @@ class MemoryService:
 
         return vector
 
-    async def _llm_extract_memories(self, text: str) -> List[ExtractedMemory]:
+    async def _llm_extract_memories(self, text: str) -> list[ExtractedMemory]:
         """Use LLM to extract memories from text."""
         prompt = f"""Extract memorable information from this conversation that should be remembered for future interactions.
 
@@ -913,7 +913,7 @@ Only extract genuinely useful information. Return empty array if nothing notable
 
         return intersection / union if union > 0 else 0.0
 
-    def _merge_content(self, memories: List[MemoryEntry]) -> str:
+    def _merge_content(self, memories: list[MemoryEntry]) -> str:
         """Merge content from multiple memories."""
         # Simple merge - could be enhanced with LLM summarization
         contents = [m.content for m in memories]
@@ -956,7 +956,7 @@ class ContextChunk:
     message_range: tuple  # (start_idx, end_idx)
     created_at: datetime = field(default_factory=datetime.now)
     token_estimate: int = 0
-    relevance_tags: List[str] = field(default_factory=list)
+    relevance_tags: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -985,8 +985,8 @@ class ContextEngineeringService:
 
     def __init__(
         self,
-        llm: Optional[LLM] = None,
-        config: Optional[ContextServiceConfig] = None
+        llm: LLM | None = None,
+        config: ContextServiceConfig | None = None
     ):
         """Initialize the context engineering service.
 
@@ -998,7 +998,7 @@ class ContextEngineeringService:
         self.config = config or ContextServiceConfig()
 
         # Context storage
-        self._context_chunks: List[ContextChunk] = []
+        self._context_chunks: list[ContextChunk] = []
         self._chunk_counter = 0
 
         # Tracking
@@ -1034,7 +1034,7 @@ class ContextEngineeringService:
         self,
         memory: "Memory",
         preserve_recent: int = 10
-    ) -> Optional[ContextChunk]:
+    ) -> ContextChunk | None:
         """Summarize older messages and store as context chunk.
 
         Args:
@@ -1044,7 +1044,6 @@ class ContextEngineeringService:
         Returns:
             Created ContextChunk or None if summarization failed
         """
-        from app.domain.models.memory import Memory
 
         messages = memory.get_messages()
 
@@ -1195,7 +1194,7 @@ class ContextEngineeringService:
         """Record messages added for trigger tracking."""
         self._messages_since_summary += count
 
-    def _format_messages(self, messages: List[Dict[str, Any]]) -> str:
+    def _format_messages(self, messages: list[dict[str, Any]]) -> str:
         """Format messages for summarization."""
         lines = []
         for msg in messages:
@@ -1206,7 +1205,7 @@ class ContextEngineeringService:
             lines.append(f"{role.upper()}: {content}")
         return "\n\n".join(lines)
 
-    async def _generate_summary(self, conversation: str) -> Optional[str]:
+    async def _generate_summary(self, conversation: str) -> str | None:
         """Generate summary using LLM."""
         if not self._llm:
             return None
@@ -1223,7 +1222,7 @@ class ContextEngineeringService:
         self,
         step_description: str,
         max_chunks: int
-    ) -> List[ContextChunk]:
+    ) -> list[ContextChunk]:
         """Retrieve chunks using semantic relevance."""
         if not self._context_chunks or not self._llm:
             return []
@@ -1258,11 +1257,11 @@ class ContextEngineeringService:
 
         return relevant_chunks
 
-    def _get_recent_chunks(self, count: int) -> List[ContextChunk]:
+    def _get_recent_chunks(self, count: int) -> list[ContextChunk]:
         """Get most recent context chunks."""
         return self._context_chunks[-count:] if self._context_chunks else []
 
-    def _extract_tags(self, summary: str) -> List[str]:
+    def _extract_tags(self, summary: str) -> list[str]:
         """Extract relevance tags from summary."""
         keywords = []
         common = [
@@ -1275,7 +1274,7 @@ class ContextEngineeringService:
                 keywords.append(kw)
         return keywords[:5]
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get context engineering statistics."""
         return {
             "context_chunks": len(self._context_chunks),

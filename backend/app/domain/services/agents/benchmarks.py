@@ -9,14 +9,14 @@ Usage:
     print(benchmarks.generate_report(results))
 """
 
-import asyncio
 import logging
+import statistics
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Any, Optional, Callable, Awaitable
 from enum import Enum
-import statistics
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +38,9 @@ class BenchmarkResult:
     category: BenchmarkCategory
     passed: bool
     score: float  # 0.0 - 1.0
-    metrics: Dict[str, Any] = field(default_factory=dict)
+    metrics: dict[str, Any] = field(default_factory=dict)
     duration_ms: float = 0
-    error: Optional[str] = None
+    error: str | None = None
     timestamp: datetime = field(default_factory=datetime.now)
 
 
@@ -48,9 +48,9 @@ class BenchmarkResult:
 class BenchmarkSuite:
     """Collection of benchmark results."""
     name: str
-    results: List[BenchmarkResult] = field(default_factory=list)
+    results: list[BenchmarkResult] = field(default_factory=list)
     started_at: datetime = field(default_factory=datetime.now)
-    completed_at: Optional[datetime] = None
+    completed_at: datetime | None = None
 
     @property
     def passed_count(self) -> int:
@@ -70,7 +70,7 @@ class BenchmarkSuite:
             return 0.0
         return statistics.mean(r.score for r in self.results)
 
-    def by_category(self, category: BenchmarkCategory) -> List[BenchmarkResult]:
+    def by_category(self, category: BenchmarkCategory) -> list[BenchmarkResult]:
         return [r for r in self.results if r.category == category]
 
 
@@ -86,7 +86,7 @@ class AgentBenchmarks:
     """
 
     def __init__(self):
-        self._benchmarks: Dict[str, Callable[[], Awaitable[BenchmarkResult]]] = {}
+        self._benchmarks: dict[str, Callable[[], Awaitable[BenchmarkResult]]] = {}
         self._register_benchmarks()
 
     def _register_benchmarks(self):
@@ -705,7 +705,7 @@ class AgentBenchmarks:
 
     async def _bench_pressure_detection(self) -> BenchmarkResult:
         """Benchmark context pressure detection."""
-        from app.domain.services.agents.token_manager import TokenManager, PressureLevel
+        from app.domain.services.agents.token_manager import PressureLevel, TokenManager
 
         start = time.perf_counter()
 
@@ -822,14 +822,14 @@ class AgentBenchmarks:
         """Generate a markdown report from benchmark results."""
         lines = [
             f"# {suite.name}",
-            f"",
+            "",
             f"**Run Date:** {suite.started_at.strftime('%Y-%m-%d %H:%M:%S')}",
             f"**Duration:** {suite.total_duration_ms:.0f}ms",
             f"**Results:** {suite.passed_count} passed, {suite.failed_count} failed",
             f"**Average Score:** {suite.average_score:.1%}",
-            f"",
-            f"---",
-            f"",
+            "",
+            "---",
+            "",
         ]
 
         # Group by category
@@ -844,7 +844,7 @@ class AgentBenchmarks:
             for r in results:
                 status = "✅" if r.passed else "❌"
                 lines.append(f"### {status} {r.name}")
-                lines.append(f"")
+                lines.append("")
                 lines.append(f"- **Score:** {r.score:.1%}")
                 lines.append(f"- **Duration:** {r.duration_ms:.2f}ms")
 
@@ -852,7 +852,7 @@ class AgentBenchmarks:
                     lines.append(f"- **Error:** {r.error}")
 
                 if r.metrics:
-                    lines.append(f"- **Metrics:**")
+                    lines.append("- **Metrics:**")
                     for k, v in r.metrics.items():
                         lines.append(f"  - {k}: {v}")
 

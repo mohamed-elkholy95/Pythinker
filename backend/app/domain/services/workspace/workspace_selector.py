@@ -1,11 +1,11 @@
 """Workspace template selection based on task analysis."""
-from typing import Optional
-from app.domain.services.workspace.workspace_templates import (
-    get_template,
-    get_all_templates,
-    WorkspaceTemplate,
-)
 import logging
+
+from app.domain.services.workspace.workspace_templates import (
+    WorkspaceTemplate,
+    get_all_templates,
+    get_template,
+)
 
 logger = logging.getLogger(__name__)
 

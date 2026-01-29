@@ -4,10 +4,10 @@ Workspace Tool Implementation
 Provides workspace management capabilities for agents including
 initialization, info retrieval, and directory tree operations.
 """
-from typing import Optional
+
 from app.domain.external.sandbox import Sandbox
-from app.domain.services.tools.base import tool, BaseTool
 from app.domain.models.tool_result import ToolResult
+from app.domain.services.tools.base import BaseTool, tool
 
 
 class WorkspaceTool(BaseTool):
@@ -15,7 +15,7 @@ class WorkspaceTool(BaseTool):
 
     name: str = "workspace"
 
-    def __init__(self, sandbox: Sandbox, max_observe: Optional[int] = None):
+    def __init__(self, sandbox: Sandbox, max_observe: int | None = None):
         """Initialize Workspace tool class
 
         Args:

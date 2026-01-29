@@ -1,12 +1,12 @@
-from typing import Optional
 import logging
-import httpx
 import re
-from urllib.parse import quote
+
+import httpx
 from bs4 import BeautifulSoup
-from app.domain.models.tool_result import ToolResult
-from app.domain.models.search import SearchResults, SearchResultItem
+
 from app.domain.external.search import SearchEngine
+from app.domain.models.search import SearchResultItem, SearchResults
+from app.domain.models.tool_result import ToolResult
 from app.infrastructure.external.search.factory import SearchProviderRegistry
 
 logger = logging.getLogger(__name__)
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 @SearchProviderRegistry.register("bing")
 class BingSearchEngine(SearchEngine):
     """Bing web search engine implementation using web scraping"""
-    
+
     def __init__(self):
         """Initialize Bing search engine"""
         self.base_url = "https://www.bing.com/search"
@@ -29,11 +29,11 @@ class BingSearchEngine(SearchEngine):
         }
         # Initialize cookies to maintain session state
         self.cookies = httpx.Cookies()
-        
+
     async def search(
-        self, 
-        query: str, 
-        date_range: Optional[str] = None
+        self,
+        query: str,
+        date_range: str | None = None
     ) -> ToolResult[SearchResults]:
         """Search web pages using Bing web search
         
@@ -49,43 +49,43 @@ class BingSearchEngine(SearchEngine):
             "count": "20",  # Number of results per page
             "first": "1",   # Starting position (1-based)
         }
-        
+
         # Add time range filter
         if date_range and date_range != "all":
             # Convert date_range to time range parameters supported by Bing
             date_mapping = {
                 "past_hour": "interval%3d%22Hour%22",
-                "past_day": "interval%3d%22Day%22", 
+                "past_day": "interval%3d%22Day%22",
                 "past_week": "interval%3d%22Week%22",
                 "past_month": "interval%3d%22Month%22",
                 "past_year": "interval%3d%22Year%22"
             }
             if date_range in date_mapping:
                 params["filters"] = date_mapping[date_range]
-        
+
         try:
             async with httpx.AsyncClient(headers=self.headers, cookies=self.cookies, timeout=30.0, follow_redirects=True) as client:
                 response = await client.get(self.base_url, params=params)
                 response.raise_for_status()
-                
+
                 # Update cookies with response cookies in memory
                 self.cookies.update(response.cookies)
-                
+
                 # Parse HTML content
                 soup = BeautifulSoup(response.text, 'html.parser')
-                
+
                 # Extract search results
                 search_results = []
-                
+
                 # Bing search results are in li elements with class 'b_algo'
                 result_items = soup.find_all('li', class_='b_algo')
-                
+
                 for item in result_items:
                     try:
                         # Extract title and link
                         title = ""
                         link = ""
-                        
+
                         # Title is usually in h2 > a
                         title_tag = item.find('h2')
                         if title_tag:
@@ -93,7 +93,7 @@ class BingSearchEngine(SearchEngine):
                             if title_a:
                                 title = title_a.get_text(strip=True)
                                 link = title_a.get('href', '')
-                        
+
                         # If not found, try other structures
                         if not title:
                             title_links = item.find_all('a')
@@ -103,18 +103,18 @@ class BingSearchEngine(SearchEngine):
                                     title = text
                                     link = a.get('href', '')
                                     break
-                        
+
                         if not title:
                             continue
-                        
+
                         # Extract snippet
                         snippet = ""
-                        
+
                         # Look for description in p tag with class 'b_lineclamp*' or 'b_descript'
                         snippet_tags = item.find_all(['p', 'div'], class_=re.compile(r'b_lineclamp|b_descript|b_caption'))
                         if snippet_tags:
                             snippet = snippet_tags[0].get_text(strip=True)
-                        
+
                         # If not found, look for any p tag with substantial text
                         if not snippet:
                             all_p_tags = item.find_all('p')
@@ -123,7 +123,7 @@ class BingSearchEngine(SearchEngine):
                                 if len(text) > 20:
                                     snippet = text
                                     break
-                        
+
                         # If still not found, get any substantial text from the item
                         if not snippet:
                             all_text = item.get_text(strip=True)
@@ -134,14 +134,14 @@ class BingSearchEngine(SearchEngine):
                                 if len(clean_sentence) > 20 and clean_sentence != title:
                                     snippet = clean_sentence
                                     break
-                        
+
                         # Clean up link if needed
                         if link and not link.startswith('http'):
                             if link.startswith('//'):
                                 link = 'https:' + link
                             elif link.startswith('/'):
                                 link = 'https://www.bing.com' + link
-                        
+
                         if title and link:
                             search_results.append(SearchResultItem(
                                 title=title,
@@ -151,7 +151,7 @@ class BingSearchEngine(SearchEngine):
                     except Exception as e:
                         logger.warning(f"Failed to parse Bing search result: {e}")
                         continue
-                
+
                 # Extract total results count
                 total_results = 0
                 # Bing shows result count in various places, try to find it
@@ -165,7 +165,7 @@ class BingSearchEngine(SearchEngine):
                                 break
                             except ValueError:
                                 continue
-                
+
                 # Also try looking in the search results count area
                 if total_results == 0:
                     count_elements = soup.find_all(['span', 'div'], class_=re.compile(r'sb_count|b_focusTextMedium'))
@@ -178,7 +178,7 @@ class BingSearchEngine(SearchEngine):
                                 break
                             except ValueError:
                                 continue
-                
+
                 # Build return result
                 results = SearchResults(
                     query=query,
@@ -186,9 +186,9 @@ class BingSearchEngine(SearchEngine):
                     total_results=total_results,
                     results=search_results
                 )
-                
+
                 return ToolResult(success=True, data=results)
-                
+
         except Exception as e:
             logger.error(f"Bing Search failed: {e}")
             error_results = SearchResults(
@@ -197,7 +197,7 @@ class BingSearchEngine(SearchEngine):
                 total_results=0,
                 results=[]
             )
-            
+
             return ToolResult(
                 success=False,
                 message=f"Bing Search failed: {e}",
@@ -208,11 +208,11 @@ class BingSearchEngine(SearchEngine):
 # Simple test
 if __name__ == "__main__":
     import asyncio
-    
+
     async def test():
         search_engine = BingSearchEngine()
         result = await search_engine.search("Python programming")
-        
+
         if result.success:
             print(f"Search successful! Found {len(result.data.results)} results")
             for i, item in enumerate(result.data.results[:3]):
@@ -222,5 +222,5 @@ if __name__ == "__main__":
                 print()
         else:
             print(f"Search failed: {result.message}")
-    
+
     asyncio.run(test())

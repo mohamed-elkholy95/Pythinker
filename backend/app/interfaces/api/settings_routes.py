@@ -1,18 +1,18 @@
-from fastapi import APIRouter, Depends
 import logging
 
-from app.application.errors.exceptions import NotFoundError
+from fastapi import APIRouter, Depends
+
+from app.core.config import get_settings
+from app.core.config import get_settings as get_app_settings
+from app.domain.models.user import User
+from app.infrastructure.storage.mongodb import get_mongodb
 from app.interfaces.dependencies import get_current_user
 from app.interfaces.schemas.base import APIResponse
 from app.interfaces.schemas.settings import (
-    UserSettingsResponse,
-    UpdateUserSettingsRequest,
     ProvidersResponse,
+    UpdateUserSettingsRequest,
+    UserSettingsResponse,
 )
-from app.core.config import get_settings
-from app.domain.models.user import User
-from app.infrastructure.storage.mongodb import get_mongodb
-from app.core.config import get_settings as get_app_settings
 
 logger = logging.getLogger(__name__)
 

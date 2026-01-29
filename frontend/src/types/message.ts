@@ -1,6 +1,6 @@
 import type { FileInfo } from '../api/file';
 
-export type MessageType = "user" | "assistant" | "tool" | "step" | "attachments" | "report";
+export type MessageType = "user" | "assistant" | "tool" | "step" | "attachments" | "report" | "deep_research";
 
 // Source citation for report bibliography
 export interface SourceCitation {
@@ -76,4 +76,32 @@ export interface ReportContent extends BaseContent {
   sections?: ReportSection[];
   attachments?: FileInfo[];
   sources?: SourceCitation[];
+}
+
+// Deep Research types
+export type DeepResearchStatus = 'pending' | 'awaiting_approval' | 'started' | 'completed' | 'cancelled';
+export type DeepResearchQueryStatus = 'pending' | 'searching' | 'completed' | 'skipped' | 'failed';
+
+export interface SearchResultItem {
+  title: string;
+  link: string;
+  snippet: string;
+}
+
+export interface DeepResearchQuery {
+  id: string;
+  query: string;
+  status: DeepResearchQueryStatus;
+  result?: SearchResultItem[];
+  started_at?: number;
+  completed_at?: number;
+}
+
+export interface DeepResearchContent extends BaseContent {
+  research_id: string;
+  status: DeepResearchStatus;
+  queries: DeepResearchQuery[];
+  completed_count: number;
+  total_count: number;
+  auto_run: boolean;
 }

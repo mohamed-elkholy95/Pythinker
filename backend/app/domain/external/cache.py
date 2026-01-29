@@ -1,9 +1,10 @@
-from typing import Protocol, Optional, Any
+from typing import Any, Protocol
+
 
 class Cache(Protocol):
     """Cache storage interface for temporary data storage"""
-    
-    async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
+
+    async def set(self, key: str, value: Any, ttl: int | None = None) -> bool:
         """Store a value with optional TTL (time to live)
         
         Args:
@@ -15,8 +16,8 @@ class Cache(Protocol):
             bool: True if stored successfully, False otherwise
         """
         ...
-    
-    async def get(self, key: str) -> Optional[Any]:
+
+    async def get(self, key: str) -> Any | None:
         """Retrieve a value from cache
         
         Args:
@@ -26,7 +27,7 @@ class Cache(Protocol):
             Any: The stored value (JSON deserialized), None if not found or expired
         """
         ...
-    
+
     async def delete(self, key: str) -> bool:
         """Delete a value from cache
         
@@ -37,7 +38,7 @@ class Cache(Protocol):
             bool: True if deleted successfully, False if key didn't exist
         """
         ...
-    
+
     async def exists(self, key: str) -> bool:
         """Check if a key exists in cache
         
@@ -48,8 +49,8 @@ class Cache(Protocol):
             bool: True if key exists and not expired, False otherwise
         """
         ...
-    
-    async def get_ttl(self, key: str) -> Optional[int]:
+
+    async def get_ttl(self, key: str) -> int | None:
         """Get the remaining TTL of a key
         
         Args:
@@ -59,7 +60,7 @@ class Cache(Protocol):
             int: Remaining TTL in seconds, None if key doesn't exist or has no expiration
         """
         ...
-    
+
     async def keys(self, pattern: str) -> list[str]:
         """Get all keys matching a pattern
         
@@ -70,7 +71,7 @@ class Cache(Protocol):
             list[str]: List of matching keys
         """
         ...
-    
+
     async def clear_pattern(self, pattern: str) -> int:
         """Clear all keys matching a pattern
         

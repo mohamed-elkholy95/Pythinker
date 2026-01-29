@@ -7,24 +7,22 @@ Provides persistent storage for long-term memories with support for:
 """
 
 import logging
-from typing import List, Optional, Dict, Any
-from datetime import datetime
 import uuid
+from datetime import datetime
+from typing import Any
 
-from motor.motor_asyncio import AsyncIOMotorDatabase, AsyncIOMotorCollection
+from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING, TEXT
 
-from app.domain.repositories.memory_repository import MemoryRepository
 from app.domain.models.long_term_memory import (
     MemoryEntry,
     MemoryQuery,
     MemorySearchResult,
     MemoryStats,
-    MemoryUpdate,
     MemoryType,
-    MemoryImportance,
+    MemoryUpdate,
 )
-
+from app.domain.repositories.memory_repository import MemoryRepository
 
 logger = logging.getLogger(__name__)
 
@@ -108,14 +106,14 @@ class MongoMemoryRepository(MemoryRepository):
             logger.error(f"Failed to create indexes: {e}")
             # Continue without indexes - queries will be slower but work
 
-    def _to_document(self, memory: MemoryEntry) -> Dict[str, Any]:
+    def _to_document(self, memory: MemoryEntry) -> dict[str, Any]:
         """Convert memory entry to MongoDB document."""
         doc = memory.model_dump()
         doc["_id"] = memory.id
         doc["content_hash"] = memory.content_hash()
         return doc
 
-    def _from_document(self, doc: Dict[str, Any]) -> MemoryEntry:
+    def _from_document(self, doc: dict[str, Any]) -> MemoryEntry:
         """Convert MongoDB document to memory entry."""
         if "_id" in doc:
             doc["id"] = str(doc.pop("_id"))
@@ -140,7 +138,7 @@ class MongoMemoryRepository(MemoryRepository):
             logger.error(f"Failed to create memory: {e}")
             raise
 
-    async def create_many(self, memories: List[MemoryEntry]) -> List[MemoryEntry]:
+    async def create_many(self, memories: list[MemoryEntry]) -> list[MemoryEntry]:
         """Create multiple memories in batch."""
         await self.ensure_indexes()
 
@@ -158,14 +156,14 @@ class MongoMemoryRepository(MemoryRepository):
             logger.error(f"Failed to create memories batch: {e}")
             raise
 
-    async def get_by_id(self, memory_id: str) -> Optional[MemoryEntry]:
+    async def get_by_id(self, memory_id: str) -> MemoryEntry | None:
         """Get memory by ID."""
         doc = await self._collection.find_one({"_id": memory_id})
         if doc:
             return self._from_document(doc)
         return None
 
-    async def get_by_ids(self, memory_ids: List[str]) -> List[MemoryEntry]:
+    async def get_by_ids(self, memory_ids: list[str]) -> list[MemoryEntry]:
         """Get multiple memories by IDs.
 
         Args:
@@ -188,7 +186,7 @@ class MongoMemoryRepository(MemoryRepository):
         # Return in original order, excluding missing
         return [id_to_memory[mid] for mid in memory_ids if mid in id_to_memory]
 
-    async def update(self, memory_id: str, update: MemoryUpdate) -> Optional[MemoryEntry]:
+    async def update(self, memory_id: str, update: MemoryUpdate) -> MemoryEntry | None:
         """Update an existing memory."""
         update_data = update.model_dump(exclude_unset=True)
         if not update_data:
@@ -224,12 +222,12 @@ class MongoMemoryRepository(MemoryRepository):
         logger.info(f"Deleted {result.deleted_count} memories for user {user_id}")
         return result.deleted_count
 
-    async def search(self, query: MemoryQuery) -> List[MemorySearchResult]:
+    async def search(self, query: MemoryQuery) -> list[MemorySearchResult]:
         """Search memories with various criteria."""
         await self.ensure_indexes()
 
         # Build MongoDB query
-        mongo_query: Dict[str, Any] = {"user_id": query.user_id}
+        mongo_query: dict[str, Any] = {"user_id": query.user_id}
 
         if not query.include_expired:
             mongo_query["is_active"] = True
@@ -325,11 +323,11 @@ class MongoMemoryRepository(MemoryRepository):
     async def vector_search(
         self,
         user_id: str,
-        embedding: List[float],
+        embedding: list[float],
         limit: int = 10,
         min_score: float = 0.0,
-        memory_types: Optional[List[MemoryType]] = None
-    ) -> List[MemorySearchResult]:
+        memory_types: list[MemoryType] | None = None
+    ) -> list[MemorySearchResult]:
         """Search by vector similarity.
 
         Uses local cosine similarity computation. For production scale,
@@ -338,7 +336,7 @@ class MongoMemoryRepository(MemoryRepository):
         await self.ensure_indexes()
 
         # Build base query
-        query: Dict[str, Any] = {
+        query: dict[str, Any] = {
             "user_id": user_id,
             "is_active": True,
             "embedding": {"$exists": True, "$ne": None}
@@ -361,7 +359,7 @@ class MongoMemoryRepository(MemoryRepository):
         # Compute cosine similarity
         import math
 
-        def cosine_similarity(a: List[float], b: List[float]) -> float:
+        def cosine_similarity(a: list[float], b: list[float]) -> float:
             dot = sum(x * y for x, y in zip(a, b))
             norm_a = math.sqrt(sum(x * x for x in a))
             norm_b = math.sqrt(sum(x * x for x in b))
@@ -395,7 +393,7 @@ class MongoMemoryRepository(MemoryRepository):
         self,
         user_id: str,
         content_hash: str
-    ) -> List[MemoryEntry]:
+    ) -> list[MemoryEntry]:
         """Find memories with matching content hash."""
         cursor = self._collection.find({
             "user_id": user_id,
@@ -410,9 +408,9 @@ class MongoMemoryRepository(MemoryRepository):
     async def get_by_entities(
         self,
         user_id: str,
-        entities: List[str],
+        entities: list[str],
         limit: int = 20
-    ) -> List[MemoryEntry]:
+    ) -> list[MemoryEntry]:
         """Get memories mentioning specific entities."""
         cursor = self._collection.find({
             "user_id": user_id,
@@ -429,10 +427,10 @@ class MongoMemoryRepository(MemoryRepository):
         self,
         user_id: str,
         limit: int = 10,
-        memory_types: Optional[List[MemoryType]] = None
-    ) -> List[MemoryEntry]:
+        memory_types: list[MemoryType] | None = None
+    ) -> list[MemoryEntry]:
         """Get most recently created memories."""
-        query: Dict[str, Any] = {
+        query: dict[str, Any] = {
             "user_id": user_id,
             "is_active": True
         }
@@ -453,10 +451,10 @@ class MongoMemoryRepository(MemoryRepository):
         self,
         user_id: str,
         limit: int = 10,
-        since: Optional[datetime] = None
-    ) -> List[MemoryEntry]:
+        since: datetime | None = None
+    ) -> list[MemoryEntry]:
         """Get most frequently accessed memories."""
-        query: Dict[str, Any] = {
+        query: dict[str, Any] = {
             "user_id": user_id,
             "is_active": True
         }
@@ -523,9 +521,9 @@ class MongoMemoryRepository(MemoryRepository):
             most_accessed=most_accessed_doc.get("_id") if most_accessed_doc else None
         )
 
-    async def cleanup_expired(self, user_id: Optional[str] = None) -> int:
+    async def cleanup_expired(self, user_id: str | None = None) -> int:
         """Remove expired memories."""
-        query: Dict[str, Any] = {
+        query: dict[str, Any] = {
             "expires_at": {"$lt": datetime.utcnow()}
         }
 
@@ -548,7 +546,7 @@ class MongoMemoryRepository(MemoryRepository):
 
     async def merge_memories(
         self,
-        memory_ids: List[str],
+        memory_ids: list[str],
         merged_content: str,
         keep_original: bool = False
     ) -> MemoryEntry:

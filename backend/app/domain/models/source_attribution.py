@@ -15,7 +15,7 @@ Usage:
 """
 
 from enum import Enum
-from typing import Optional, List
+
 from pydantic import BaseModel, Field
 
 
@@ -45,7 +45,7 @@ class SourceAttribution(BaseModel):
     """
     claim: str = Field(description="The claim or piece of information")
     source_type: SourceType = Field(description="How this information was obtained")
-    source_url: Optional[str] = Field(default=None, description="URL of the source")
+    source_url: str | None = Field(default=None, description="URL of the source")
     access_status: AccessStatus = Field(
         default=AccessStatus.FULL,
         description="Access status when retrieving this information"
@@ -56,7 +56,7 @@ class SourceAttribution(BaseModel):
         default=1.0,
         description="Confidence in this attribution (0.0-1.0)"
     )
-    raw_excerpt: Optional[str] = Field(
+    raw_excerpt: str | None = Field(
         default=None,
         description="Actual text excerpt from source supporting this claim"
     )
@@ -85,13 +85,13 @@ class SourceAttribution(BaseModel):
         """
         if self.source_type == SourceType.INFERRED:
             return "[Inferred] "
-        elif self.access_status == AccessStatus.PARTIAL:
+        if self.access_status == AccessStatus.PARTIAL:
             return "[Partial access] "
-        elif self.access_status == AccessStatus.PAYWALL:
+        if self.access_status == AccessStatus.PAYWALL:
             return "[Behind paywall] "
-        elif self.source_type == SourceType.UNAVAILABLE:
+        if self.source_type == SourceType.UNAVAILABLE:
             return "[Not accessible] "
-        elif self.source_url:
+        if self.source_url:
             return f"According to {self.source_url}: "
         return ""
 
@@ -115,11 +115,11 @@ class ContentAccessResult(BaseModel):
         default=False,
         description="Whether content was truncated"
     )
-    original_length: Optional[int] = Field(
+    original_length: int | None = Field(
         default=None,
         description="Original content length before truncation"
     )
-    paywall_indicators: List[str] = Field(
+    paywall_indicators: list[str] = Field(
         default_factory=list,
         description="Detected paywall indicators"
     )
@@ -128,15 +128,14 @@ class ContentAccessResult(BaseModel):
         """Get a human-readable access status message."""
         if self.access_status == AccessStatus.FULL:
             return "Full content accessible"
-        elif self.access_status == AccessStatus.PARTIAL:
+        if self.access_status == AccessStatus.PARTIAL:
             return "Only partial content accessible (preview)"
-        elif self.access_status == AccessStatus.PAYWALL:
+        if self.access_status == AccessStatus.PAYWALL:
             indicators = ", ".join(self.paywall_indicators[:3]) if self.paywall_indicators else "subscription required"
             return f"Content behind paywall ({indicators})"
-        elif self.access_status == AccessStatus.LOGIN_REQUIRED:
+        if self.access_status == AccessStatus.LOGIN_REQUIRED:
             return "Login required to access content"
-        else:
-            return "Error accessing content"
+        return "Error accessing content"
 
 
 class AttributionSummary(BaseModel):
@@ -159,7 +158,7 @@ class AttributionSummary(BaseModel):
         default=False,
         description="Whether any sources were paywalled"
     )
-    attributions: List[SourceAttribution] = Field(
+    attributions: list[SourceAttribution] = Field(
         default_factory=list,
         description="Individual attribution records"
     )

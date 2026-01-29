@@ -3,11 +3,10 @@
 Registry pattern for dynamically selecting search providers based on configuration.
 Supports: bing, google, baidu, searxng, whoogle, duckduckgo, brave, tavily
 """
-from typing import Dict, Type, Optional
 import logging
 
-from app.domain.external.search import SearchEngine
 from app.core.config import get_settings
+from app.domain.external.search import SearchEngine
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +17,7 @@ class SearchProviderRegistry:
     Allows dynamic registration and retrieval of search engines
     based on provider name configuration.
     """
-    _providers: Dict[str, Type[SearchEngine]] = {}
+    _providers: dict[str, type[SearchEngine]] = {}
 
     @classmethod
     def register(cls, name: str):
@@ -35,14 +34,14 @@ class SearchProviderRegistry:
             class DuckDuckGoSearchEngine(SearchEngine):
                 ...
         """
-        def decorator(provider_class: Type[SearchEngine]) -> Type[SearchEngine]:
+        def decorator(provider_class: type[SearchEngine]) -> type[SearchEngine]:
             cls._providers[name.lower()] = provider_class
             logger.debug(f"Registered search provider: {name}")
             return provider_class
         return decorator
 
     @classmethod
-    def get(cls, name: str, **kwargs) -> Optional[SearchEngine]:
+    def get(cls, name: str, **kwargs) -> SearchEngine | None:
         """Get a search engine instance by provider name.
 
         Args:
@@ -69,7 +68,7 @@ class SearchProviderRegistry:
         return list(cls._providers.keys())
 
 
-def get_search_engine_from_factory() -> Optional[SearchEngine]:
+def get_search_engine_from_factory() -> SearchEngine | None:
     """Get search engine instance based on configuration.
 
     This is the main entry point for getting a search engine.
@@ -79,11 +78,6 @@ def get_search_engine_from_factory() -> Optional[SearchEngine]:
         SearchEngine instance or None if configuration is invalid
     """
     # Import providers to register them
-    from app.infrastructure.external.search.bing_search import BingSearchEngine
-    from app.infrastructure.external.search.google_search import GoogleSearchEngine
-    from app.infrastructure.external.search.baidu_search import BaiduSearchEngine
-    from app.infrastructure.external.search.searxng_search import SearXNGSearchEngine
-    from app.infrastructure.external.search.whoogle_search import WhoogleSearchEngine
 
     # Try to import optional providers
     try:

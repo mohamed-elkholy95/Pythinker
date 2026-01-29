@@ -4,12 +4,11 @@ Defines specialized agent types with their capabilities, tool access,
 and routing rules for automatic task delegation.
 """
 
-from enum import Enum
-from typing import List, Dict, Any, Optional, Set, Callable, Type
-from dataclasses import dataclass, field
-from pydantic import BaseModel, Field
 import logging
 import re
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -66,21 +65,21 @@ class AgentSpec:
     agent_type: AgentType
     name: str
     description: str
-    capabilities: Set[AgentCapability]
-    tools: List[str]  # Tool names this agent has access to
+    capabilities: set[AgentCapability]
+    tools: list[str]  # Tool names this agent has access to
     system_prompt_template: str
     max_iterations: int = 50
     priority: int = 0  # Higher = more likely to be selected
 
     # Routing configuration
-    trigger_patterns: List[str] = field(default_factory=list)  # Regex patterns
-    required_context: List[str] = field(default_factory=list)  # Required context keys
+    trigger_patterns: list[str] = field(default_factory=list)  # Regex patterns
+    required_context: list[str] = field(default_factory=list)  # Required context keys
 
     # Resource limits
     max_tokens: int = 100000
     max_concurrent_tasks: int = 1
 
-    def matches_task(self, task_description: str, context: Dict[str, Any]) -> float:
+    def matches_task(self, task_description: str, context: dict[str, Any]) -> float:
         """Calculate how well this agent matches a task.
 
         Returns a score between 0.0 and 1.0, where higher is better.
@@ -139,7 +138,7 @@ class AgentRegistry:
     """
 
     def __init__(self):
-        self._agents: Dict[AgentType, AgentSpec] = {}
+        self._agents: dict[AgentType, AgentSpec] = {}
         self._register_default_agents()
 
     def _register_default_agents(self) -> None:
@@ -442,21 +441,21 @@ Include relevant metrics and outcomes.""",
         self._agents[spec.agent_type] = spec
         logger.debug(f"Registered agent type: {spec.agent_type.value}")
 
-    def get(self, agent_type: AgentType) -> Optional[AgentSpec]:
+    def get(self, agent_type: AgentType) -> AgentSpec | None:
         """Get an agent specification by type."""
         return self._agents.get(agent_type)
 
-    def get_all(self) -> List[AgentSpec]:
+    def get_all(self) -> list[AgentSpec]:
         """Get all registered agent specifications."""
         return list(self._agents.values())
 
     def select_for_task(
         self,
         task_description: str,
-        context: Dict[str, Any],
-        exclude: Optional[Set[AgentType]] = None,
-        required_capabilities: Optional[Set[AgentCapability]] = None,
-    ) -> List[AgentSpec]:
+        context: dict[str, Any],
+        exclude: set[AgentType] | None = None,
+        required_capabilities: set[AgentCapability] | None = None,
+    ) -> list[AgentSpec]:
         """Select the best agents for a given task.
 
         Args:
@@ -491,7 +490,7 @@ Include relevant metrics and outcomes.""",
 
         return [spec for spec, _ in candidates]
 
-    def get_by_capability(self, capability: AgentCapability) -> List[AgentSpec]:
+    def get_by_capability(self, capability: AgentCapability) -> list[AgentSpec]:
         """Get all agents with a specific capability."""
         return [
             spec for spec in self._agents.values()
@@ -500,7 +499,7 @@ Include relevant metrics and outcomes.""",
 
 
 # Global registry instance
-_registry: Optional[AgentRegistry] = None
+_registry: AgentRegistry | None = None
 
 
 def get_agent_registry() -> AgentRegistry:

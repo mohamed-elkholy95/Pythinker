@@ -1,51 +1,37 @@
-from typing import AsyncGenerator, Optional, List, TYPE_CHECKING
+import logging
+import uuid
+from collections.abc import AsyncGenerator
 from datetime import datetime
-from app.domain.models.plan import Plan, Step, ExecutionStatus
-from app.domain.models.file import FileInfo
-from app.domain.models.message import Message
-from app.domain.models.source_citation import SourceCitation
-from app.domain.services.agents.base import BaseAgent
+from typing import TYPE_CHECKING, Optional
+
 from app.domain.external.llm import LLM
-from app.domain.external.sandbox import Sandbox
-from app.domain.external.browser import Browser
-from app.domain.external.search import SearchEngine
-from app.domain.external.file import FileStorage
-from app.domain.repositories.agent_repository import AgentRepository
-from app.domain.services.prompts.system import SYSTEM_PROMPT
-from app.domain.services.prompts.execution import (
-    EXECUTION_SYSTEM_PROMPT,
-    EXECUTION_PROMPT,
-    SUMMARIZE_PROMPT,
-    build_execution_prompt
-)
-from app.domain.services.agents.task_state_manager import get_task_state_manager
-from app.domain.services.agents.token_manager import TokenManager
-from app.domain.services.agents.error_pattern_analyzer import get_error_pattern_analyzer
+from app.domain.models.agent_response import SummarizeResponse
 from app.domain.models.event import (
     BaseEvent,
-    StepEvent,
-    StepStatus,
     ErrorEvent,
     MessageEvent,
-    DoneEvent,
+    ReportEvent,
+    StepEvent,
+    StepStatus,
     ToolEvent,
     ToolStatus,
     WaitEvent,
-    ReportEvent,
 )
-from app.domain.models.agent_response import ExecutionStepResult, SummarizeResponse
-import uuid
-from app.domain.services.tools.base import BaseTool
-from app.domain.services.tools.shell import ShellTool
-from app.domain.services.tools.browser import BrowserTool
-from app.domain.services.tools.search import SearchTool
-from app.domain.services.tools.file import FileTool
-from app.domain.services.tools.message import MessageTool
-from app.domain.utils.json_parser import JsonParser
-from app.domain.services.agents.prompt_adapter import PromptAdapter
-from app.domain.services.agents.critic import CriticAgent, CriticVerdict, CriticConfig
+from app.domain.models.file import FileInfo
+from app.domain.models.message import Message
+from app.domain.models.plan import ExecutionStatus, Plan, Step
+from app.domain.models.source_citation import SourceCitation
+from app.domain.repositories.agent_repository import AgentRepository
+from app.domain.services.agents.base import BaseAgent
 from app.domain.services.agents.context_manager import ContextManager
-import logging
+from app.domain.services.agents.critic import CriticAgent, CriticConfig, CriticVerdict
+from app.domain.services.agents.error_pattern_analyzer import get_error_pattern_analyzer
+from app.domain.services.agents.prompt_adapter import PromptAdapter
+from app.domain.services.agents.task_state_manager import get_task_state_manager
+from app.domain.services.prompts.execution import EXECUTION_SYSTEM_PROMPT, SUMMARIZE_PROMPT, build_execution_prompt
+from app.domain.services.prompts.system import SYSTEM_PROMPT
+from app.domain.services.tools.base import BaseTool
+from app.domain.utils.json_parser import JsonParser
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
@@ -67,11 +53,11 @@ class ExecutionAgent(BaseAgent):
         agent_id: str,
         agent_repository: AgentRepository,
         llm: LLM,
-        tools: List[BaseTool],
+        tools: list[BaseTool],
         json_parser: JsonParser,
-        critic_config: Optional[CriticConfig] = None,
+        critic_config: CriticConfig | None = None,
         memory_service: Optional["MemoryService"] = None,
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
     ):
         super().__init__(
             agent_id=agent_id,
@@ -93,7 +79,7 @@ class ExecutionAgent(BaseAgent):
                 max_revision_attempts=2
             )
         )
-        self._user_request: Optional[str] = None  # Track for critic context
+        self._user_request: str | None = None  # Track for critic context
 
         # Memory service for long-term context (Phase 6: Qdrant integration)
         self._memory_service = memory_service
@@ -103,9 +89,9 @@ class ExecutionAgent(BaseAgent):
         self._context_manager = ContextManager(max_context_tokens=8000)
 
         # Source citation tracking for reports
-        self._collected_sources: List[SourceCitation] = []
+        self._collected_sources: list[SourceCitation] = []
         self._seen_urls: set = set()
-    
+
     async def execute_step(self, plan: Plan, step: Step, message: Message) -> AsyncGenerator[BaseEvent, None]:
         # Store user request for critic context
         self._user_request = message.message
@@ -269,7 +255,7 @@ class ExecutionAgent(BaseAgent):
             summary_response = None
             message_content = ""
             message_title = None
-            message_attachments: List[str] = []
+            message_attachments: list[str] = []
 
             # Try structured output first
             if hasattr(self.llm, 'ask_structured'):
@@ -345,7 +331,7 @@ class ExecutionAgent(BaseAgent):
 
         except Exception as e:
             logger.error(f"Error during summarization: {e}")
-            yield ErrorEvent(error=f"Failed to generate summary: {str(e)}")
+            yield ErrorEvent(error=f"Failed to generate summary: {e!s}")
 
     def _extract_title(self, content: str) -> str:
         """Extract a title from markdown content."""
@@ -378,7 +364,7 @@ class ExecutionAgent(BaseAgent):
     async def _apply_critic_revision(
         self,
         message_content: str,
-        attachments: List[FileInfo]
+        attachments: list[FileInfo]
     ) -> str:
         """Apply critic review with actual revision support.
 
@@ -524,7 +510,7 @@ class ExecutionAgent(BaseAgent):
         self._context_manager.mark_deliverable_complete(file_path)
         logger.info(f"Marked deliverable: {file_path}")
 
-    def get_deliverables(self) -> List[str]:
+    def get_deliverables(self) -> list[str]:
         """Get list of completed deliverables.
 
         Returns:
@@ -634,7 +620,7 @@ class ExecutionAgent(BaseAgent):
         ))
         logger.debug(f"Tracked browser source: {title[:50]}")
 
-    def _extract_title_from_content(self, content: str) -> Optional[str]:
+    def _extract_title_from_content(self, content: str) -> str | None:
         """Extract page title from HTML or text content.
 
         Args:
@@ -662,7 +648,7 @@ class ExecutionAgent(BaseAgent):
 
         return None
 
-    def get_collected_sources(self) -> List[SourceCitation]:
+    def get_collected_sources(self) -> list[SourceCitation]:
         """Get all collected source citations.
 
         Returns:

@@ -1,12 +1,10 @@
 """Unit tests for WorkspaceSelector."""
 
 import pytest
+
 from app.domain.services.workspace.workspace_selector import WorkspaceSelector
 from app.domain.services.workspace.workspace_templates import (
     RESEARCH_TEMPLATE,
-    DATA_ANALYSIS_TEMPLATE,
-    CODE_PROJECT_TEMPLATE,
-    DOCUMENT_GENERATION_TEMPLATE,
 )
 
 

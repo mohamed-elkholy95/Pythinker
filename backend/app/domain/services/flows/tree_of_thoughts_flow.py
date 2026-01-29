@@ -14,50 +14,44 @@ For simple/moderate tasks, falls back to standard linear execution.
 """
 
 import logging
-from typing import AsyncGenerator, Optional, List, Dict, Any
-from dataclasses import dataclass, field
+from collections.abc import AsyncGenerator
 
-from app.domain.services.flows.base import BaseFlow
-from app.domain.models.message import Message
-from app.domain.models.plan import Plan
-from app.domain.models.event import (
-    BaseEvent,
-    PlanEvent,
-    PlanStatus,
-    MessageEvent,
-    DoneEvent,
-    TitleEvent,
-    PathEvent,
-)
-from app.domain.models.path_state import (
-    PathState,
-    PathStatus,
-    TreeOfThoughtsConfig,
-    BranchingDecision,
-)
-from app.domain.services.flows.complexity_analyzer import TaskComplexityAnalyzer
-from app.domain.services.flows.path_explorer import PathExplorer
-from app.domain.services.flows.path_scorer import PathScorer
-from app.domain.services.flows.path_aggregator import PathAggregator
-from app.domain.services.agents.planner import PlannerAgent
-from app.domain.services.agents.execution import ExecutionAgent
+from app.core.config import get_settings
+from app.domain.external.browser import Browser
 from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
-from app.domain.external.browser import Browser
 from app.domain.external.search import SearchEngine
+from app.domain.models.event import (
+    BaseEvent,
+    DoneEvent,
+    MessageEvent,
+    PathEvent,
+    PlanEvent,
+    PlanStatus,
+    TitleEvent,
+)
+from app.domain.models.message import Message
+from app.domain.models.path_state import (
+    TreeOfThoughtsConfig,
+)
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.session_repository import SessionRepository
-from app.domain.utils.json_parser import JsonParser
-from app.domain.services.tools.mcp import MCPTool
-from app.domain.services.tools.shell import ShellTool
+from app.domain.services.agents.execution import ExecutionAgent
+from app.domain.services.agents.planner import PlannerAgent
+from app.domain.services.flows.base import BaseFlow
+from app.domain.services.flows.complexity_analyzer import TaskComplexityAnalyzer
+from app.domain.services.flows.path_aggregator import PathAggregator
+from app.domain.services.flows.path_explorer import PathExplorer
+from app.domain.services.flows.path_scorer import PathScorer
 from app.domain.services.tools.browser import BrowserTool
 from app.domain.services.tools.file import FileTool
+from app.domain.services.tools.idle import IdleTool
+from app.domain.services.tools.mcp import MCPTool
 from app.domain.services.tools.message import MessageTool
 from app.domain.services.tools.search import SearchTool
-from app.domain.services.tools.idle import IdleTool
-from app.core.config import get_settings
+from app.domain.services.tools.shell import ShellTool
+from app.domain.utils.json_parser import JsonParser
 from app.infrastructure.observability import get_tracer
-
 
 logger = logging.getLogger(__name__)
 
@@ -85,9 +79,9 @@ class TreeOfThoughtsFlow(BaseFlow):
         browser: Browser,
         json_parser: JsonParser,
         mcp_tool: MCPTool,
-        search_engine: Optional[SearchEngine] = None,
-        cdp_url: Optional[str] = None,
-        config: Optional[TreeOfThoughtsConfig] = None,
+        search_engine: SearchEngine | None = None,
+        cdp_url: str | None = None,
+        config: TreeOfThoughtsConfig | None = None,
     ):
         self._agent_id = agent_id
         self._repository = agent_repository

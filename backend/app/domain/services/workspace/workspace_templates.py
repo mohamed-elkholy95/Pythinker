@@ -1,5 +1,4 @@
 """Workspace templates for different task types."""
-from typing import Dict, List
 from dataclasses import dataclass
 
 
@@ -8,9 +7,9 @@ class WorkspaceTemplate:
     """Template for workspace structure"""
     name: str
     description: str
-    folders: Dict[str, str]  # folder_name -> purpose
+    folders: dict[str, str]  # folder_name -> purpose
     readme_content: str
-    trigger_keywords: List[str]
+    trigger_keywords: list[str]
 
 
 RESEARCH_TEMPLATE = WorkspaceTemplate(
@@ -141,6 +140,6 @@ def get_template(name: str) -> WorkspaceTemplate:
     return WORKSPACE_TEMPLATES.get(name)
 
 
-def get_all_templates() -> List[WorkspaceTemplate]:
+def get_all_templates() -> list[WorkspaceTemplate]:
     """Get all available templates"""
     return list(WORKSPACE_TEMPLATES.values())

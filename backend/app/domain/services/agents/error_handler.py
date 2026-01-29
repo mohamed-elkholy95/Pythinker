@@ -8,13 +8,14 @@ with error pattern analysis for proactive guidance.
 Enhanced with exponential backoff retry support for recoverable errors.
 """
 
-import logging
 import asyncio
+import logging
 import secrets
-from enum import Enum
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, Callable, Awaitable, List, Tuple, TypeVar
 from datetime import datetime
+from enum import Enum
+from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +45,10 @@ class ErrorContext:
     """Context information for error handling and recovery with backoff support"""
     error_type: ErrorType
     message: str
-    original_exception: Optional[Exception] = None
+    original_exception: Exception | None = None
     recoverable: bool = True
-    recovery_strategy: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    recovery_strategy: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=datetime.now)
     retry_count: int = 0
     max_retries: int = 3
@@ -84,7 +85,7 @@ class ErrorContext:
 
         return max(0.1, delay)  # Minimum 100ms
 
-    def get_backoff_config(self) -> Dict[str, Any]:
+    def get_backoff_config(self) -> dict[str, Any]:
         """Get current backoff configuration for logging/debugging."""
         return {
             "backoff_factor": self.backoff_factor,
@@ -105,15 +106,15 @@ class ErrorHandler:
     """
 
     def __init__(self):
-        self._handlers: Dict[ErrorType, Callable[[ErrorContext], Awaitable[Optional[str]]]] = {}
+        self._handlers: dict[ErrorType, Callable[[ErrorContext], Awaitable[str | None]]] = {}
         self._error_history: list[ErrorContext] = []
         self._max_history = 100
         # Recovery tracking for metrics
-        self._recovery_stats: Dict[ErrorType, Dict[str, int]] = {}
+        self._recovery_stats: dict[ErrorType, dict[str, int]] = {}
         self._total_retry_attempts = 0
         self._successful_recoveries = 0
 
-    def classify_error(self, exception: Exception, context: Optional[Dict[str, Any]] = None) -> ErrorContext:
+    def classify_error(self, exception: Exception, context: dict[str, Any] | None = None) -> ErrorContext:
         """
         Classify an exception into an ErrorContext with appropriate type and recovery strategy.
 
@@ -214,7 +215,7 @@ class ErrorHandler:
 
         return ErrorType.UNKNOWN
 
-    def _get_recovery_strategy(self, error_type: ErrorType, message: str) -> tuple[Optional[str], bool]:
+    def _get_recovery_strategy(self, error_type: ErrorType, message: str) -> tuple[str | None, bool]:
         """
         Get recovery strategy and recoverability for an error type.
 
@@ -276,18 +277,17 @@ class ErrorHandler:
 
         return strategies.get(error_type, ("Unknown error handling", False))
 
-    def _get_llm_api_strategy(self, message: str) -> tuple[Optional[str], bool]:
+    def _get_llm_api_strategy(self, message: str) -> tuple[str | None, bool]:
         """Get specific strategy for LLM API errors"""
         message_lower = message.lower()
 
         if 'rate limit' in message_lower:
             return ("Wait and retry with exponential backoff", True)
-        elif 'authentication' in message_lower or 'api_key' in message_lower:
+        if 'authentication' in message_lower or 'api_key' in message_lower:
             return ("Check API key configuration", False)
-        elif 'insufficient_quota' in message_lower:
+        if 'insufficient_quota' in message_lower:
             return ("API quota exceeded, notify user", False)
-        else:
-            return ("Retry LLM request", True)
+        return ("Retry LLM request", True)
 
     def _record_error(self, error_context: ErrorContext) -> None:
         """Record error in history for analysis"""
@@ -300,8 +300,8 @@ class ErrorHandler:
     def get_recovery_prompt(
         self,
         error_context: ErrorContext,
-        tool_name: Optional[str] = None
-    ) -> Optional[str]:
+        tool_name: str | None = None
+    ) -> str | None:
         """
         Generate a recovery prompt based on error context.
 
@@ -385,7 +385,7 @@ class ErrorHandler:
 
         return base_prompt if base_prompt else None
 
-    def _get_pattern_insights(self, tool_name: Optional[str] = None) -> Optional[str]:
+    def _get_pattern_insights(self, tool_name: str | None = None) -> str | None:
         """Get insights from error pattern analysis"""
         try:
             from app.domain.services.agents.error_pattern_analyzer import get_error_pattern_analyzer
@@ -416,7 +416,7 @@ class ErrorHandler:
         self,
         tool_name: str,
         error_context: ErrorContext,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: dict[str, Any] | None = None
     ) -> None:
         """Record a tool error for pattern analysis"""
         try:
@@ -439,7 +439,7 @@ class ErrorHandler:
         except Exception as e:
             logger.debug(f"Could not record tool success: {e}")
 
-    def get_recent_errors(self, error_type: Optional[ErrorType] = None, limit: int = 10) -> list[ErrorContext]:
+    def get_recent_errors(self, error_type: ErrorType | None = None, limit: int = 10) -> list[ErrorContext]:
         """Get recent errors, optionally filtered by type"""
         errors = self._error_history
 
@@ -457,10 +457,10 @@ class ErrorHandler:
         operation: Callable[..., Awaitable[T]],
         *args,
         max_retries: int = 3,
-        context: Optional[Dict[str, Any]] = None,
-        on_retry: Optional[Callable[[ErrorContext, int], Awaitable[None]]] = None,
+        context: dict[str, Any] | None = None,
+        on_retry: Callable[[ErrorContext, int], Awaitable[None]] | None = None,
         **kwargs
-    ) -> Tuple[bool, T | ErrorContext]:
+    ) -> tuple[bool, T | ErrorContext]:
         """Execute operation with automatic retry and exponential backoff.
 
         Args:
@@ -474,7 +474,7 @@ class ErrorHandler:
         Returns:
             Tuple of (success: bool, result or error_context)
         """
-        last_error_context: Optional[ErrorContext] = None
+        last_error_context: ErrorContext | None = None
 
         for attempt in range(max_retries + 1):
             try:
@@ -553,7 +553,7 @@ class ErrorHandler:
             self._recovery_stats[error_type] = {"success": 0, "failure": 0}
         self._recovery_stats[error_type]["failure"] += 1
 
-    def get_recovery_stats(self) -> Dict[str, Any]:
+    def get_recovery_stats(self) -> dict[str, Any]:
         """Get recovery statistics for monitoring.
 
         Returns:
@@ -587,7 +587,7 @@ class ErrorHandler:
 class TokenLimitExceeded(Exception):
     """Exception raised when token/context limit is exceeded"""
 
-    def __init__(self, message: str, current_tokens: Optional[int] = None, max_tokens: Optional[int] = None):
+    def __init__(self, message: str, current_tokens: int | None = None, max_tokens: int | None = None):
         super().__init__(message)
         self.current_tokens = current_tokens
         self.max_tokens = max_tokens

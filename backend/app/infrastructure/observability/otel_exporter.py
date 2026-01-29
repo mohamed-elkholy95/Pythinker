@@ -19,8 +19,8 @@ Usage:
     )
 """
 import logging
-from typing import Any, Dict, Optional
 from dataclasses import dataclass
+from typing import Any
 
 from app.core.config import get_settings
 
@@ -30,10 +30,10 @@ logger = logging.getLogger(__name__)
 OTEL_AVAILABLE = False
 try:
     from opentelemetry import trace
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.resources import SERVICE_NAME, Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
-    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-    from opentelemetry.sdk.resources import Resource, SERVICE_NAME
     OTEL_AVAILABLE = True
 except ImportError:
     logger.debug("OpenTelemetry packages not installed. OTEL export disabled.")
@@ -46,22 +46,22 @@ class OTELConfig:
     endpoint: str = ""
     service_name: str = "pythinker-agent"
     insecure: bool = True  # Use insecure connection (no TLS)
-    headers: Dict[str, str] = None
+    headers: dict[str, str] = None
 
     def __post_init__(self):
         if self.headers is None:
             self.headers = {}
 
 
-_otel_config: Optional[OTELConfig] = None
+_otel_config: OTELConfig | None = None
 _otel_tracer = None
 
 
 def configure_otel(
-    endpoint: Optional[str] = None,
+    endpoint: str | None = None,
     service_name: str = "pythinker-agent",
     insecure: bool = True,
-    headers: Optional[Dict[str, str]] = None,
+    headers: dict[str, str] | None = None,
 ) -> bool:
     """Configure OpenTelemetry exporter.
 
@@ -143,7 +143,7 @@ def is_otel_enabled() -> bool:
     return _otel_config is not None and _otel_config.enabled
 
 
-def get_otel_config() -> Optional[OTELConfig]:
+def get_otel_config() -> OTELConfig | None:
     """Get the current OTEL configuration."""
     return _otel_config
 
@@ -157,7 +157,7 @@ class OTELSpanContext:
     def __init__(
         self,
         name: str,
-        attributes: Optional[Dict[str, Any]] = None,
+        attributes: dict[str, Any] | None = None,
     ):
         self.name = name
         self.attributes = attributes or {}
@@ -186,13 +186,13 @@ class OTELSpanContext:
         if self._span is not None:
             self._span.set_attribute(key, value)
 
-    def add_event(self, name: str, attributes: Optional[Dict[str, Any]] = None) -> None:
+    def add_event(self, name: str, attributes: dict[str, Any] | None = None) -> None:
         """Add an event to the span."""
         if self._span is not None:
             self._span.add_event(name, attributes=attributes or {})
 
 
-def otel_span(name: str, attributes: Optional[Dict[str, Any]] = None) -> OTELSpanContext:
+def otel_span(name: str, attributes: dict[str, Any] | None = None) -> OTELSpanContext:
     """Create an OTEL span context manager.
 
     Args:

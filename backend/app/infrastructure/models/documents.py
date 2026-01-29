@@ -1,42 +1,44 @@
-from typing import Dict, Optional, List, Type, TypeVar, Generic, get_args, Self, Any
-from datetime import datetime, timezone, UTC, date
+from datetime import UTC, date, datetime
+from typing import Any, Generic, Self, TypeVar
+
 from beanie import Document
 from pydantic import BaseModel
+from pymongo import ASCENDING, DESCENDING, IndexModel
+
 from app.domain.models.agent import Agent
-from app.domain.models.memory import Memory
 from app.domain.models.event import AgentEvent
-from app.domain.models.session import Session, SessionStatus, AgentMode
 from app.domain.models.file import FileInfo
-from app.domain.models.user import User, UserRole
-from app.domain.models.usage import UsageRecord, DailyUsageAggregate, UsageType
+from app.domain.models.memory import Memory
 from app.domain.models.multi_task import MultiTaskChallenge
-from pymongo import IndexModel, ASCENDING, DESCENDING
+from app.domain.models.session import AgentMode, Session, SessionStatus
+from app.domain.models.usage import DailyUsageAggregate, UsageRecord, UsageType
+from app.domain.models.user import User, UserRole
 
 T = TypeVar('T', bound=BaseModel)
 
 class BaseDocument(Document, Generic[T]):
-    def __init_subclass__(cls, id_field="id", domain_model_class: Type[T] = None, **kwargs):
+    def __init_subclass__(cls, id_field="id", domain_model_class: type[T] = None, **kwargs):
         super().__init_subclass__(**kwargs)
         cls._ID_FIELD = id_field
         cls._DOMAIN_MODEL_CLASS = domain_model_class
-    
+
     def update_from_domain(self, domain_obj: T) -> None:
         """Update the document from domain model"""
         data = domain_obj.model_dump(exclude={'id', 'created_at'})
         data[self._ID_FIELD] = domain_obj.id
         if hasattr(self, 'updated_at'):
             data['updated_at'] = datetime.now(UTC)
-        
+
         for field, value in data.items():
             setattr(self, field, value)
-    
+
     def to_domain(self) -> T:
         """Convert MongoDB document to domain model"""
         # Convert to dict and map agent_id to id field
         data = self.model_dump(exclude={'id'})
         data['id'] = data.pop(self._ID_FIELD)
         return self._DOMAIN_MODEL_CLASS.model_validate(data)
-    
+
     @classmethod
     def from_domain(cls, domain_obj: T) -> Self:
         """Create a new MongoDB agent from domain"""
@@ -50,12 +52,12 @@ class UserDocument(BaseDocument[User], id_field="user_id", domain_model_class=Us
     user_id: str
     fullname: str
     email: str  # Now required field for login
-    password_hash: Optional[str] = None
+    password_hash: str | None = None
     role: UserRole = UserRole.USER
     is_active: bool = True
-    created_at: datetime = datetime.now(timezone.utc)
-    updated_at: datetime = datetime.now(timezone.utc)
-    last_login_at: Optional[datetime] = None
+    created_at: datetime = datetime.now(UTC)
+    updated_at: datetime = datetime.now(UTC)
+    last_login_at: datetime | None = None
 
     class Settings:
         name = "users"
@@ -71,9 +73,9 @@ class AgentDocument(BaseDocument[Agent], id_field="agent_id", domain_model_class
     model_name: str
     temperature: float
     max_tokens: int
-    memories: Dict[str, Memory] = {}
-    created_at: datetime = datetime.now(timezone.utc)
-    updated_at: datetime = datetime.now(timezone.utc)
+    memories: dict[str, Memory] = {}
+    created_at: datetime = datetime.now(UTC)
+    updated_at: datetime = datetime.now(UTC)
 
     class Settings:
         name = "agents"
@@ -87,54 +89,54 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
     """MongoDB model for Session"""
     session_id: str
     user_id: str  # User ID that owns this session
-    sandbox_id: Optional[str] = None
+    sandbox_id: str | None = None
     agent_id: str
-    task_id: Optional[str] = None
-    title: Optional[str] = None
+    task_id: str | None = None
+    title: str | None = None
     unread_message_count: int = 0
-    latest_message: Optional[str] = None
-    latest_message_at: Optional[datetime] = None
-    created_at: datetime = datetime.now(timezone.utc)
-    updated_at: datetime = datetime.now(timezone.utc)
-    events: List[AgentEvent]
+    latest_message: str | None = None
+    latest_message_at: datetime | None = None
+    created_at: datetime = datetime.now(UTC)
+    updated_at: datetime = datetime.now(UTC)
+    events: list[AgentEvent]
     status: SessionStatus
-    files: List[FileInfo] = []
-    is_shared: Optional[bool] = False
+    files: list[FileInfo] = []
+    is_shared: bool | None = False
     mode: AgentMode = AgentMode.DISCUSS  # Agent mode: discuss or agent
-    pending_action: Optional[Dict[str, Any]] = None
-    pending_action_status: Optional[str] = None
+    pending_action: dict[str, Any] | None = None
+    pending_action_status: str | None = None
     # Workspace metadata (sanitized)
-    project_name: Optional[str] = None
-    project_path: Optional[str] = None
-    template_id: Optional[str] = None
-    template_used: Optional[str] = None
-    workspace_capabilities: Optional[List[str]] = None
-    dev_command: Optional[str] = None
-    build_command: Optional[str] = None
-    test_command: Optional[str] = None
-    port: Optional[int] = None
-    env_var_keys: Optional[List[str]] = None
-    secret_keys: Optional[List[str]] = None
-    git_remote: Optional[Dict[str, Any]] = None
+    project_name: str | None = None
+    project_path: str | None = None
+    template_id: str | None = None
+    template_used: str | None = None
+    workspace_capabilities: list[str] | None = None
+    dev_command: str | None = None
+    build_command: str | None = None
+    test_command: str | None = None
+    port: int | None = None
+    env_var_keys: list[str] | None = None
+    secret_keys: list[str] | None = None
+    git_remote: dict[str, Any] | None = None
 
     # Multi-task challenge tracking (Phase 1)
-    multi_task_challenge: Optional[MultiTaskChallenge] = None
-    workspace_structure: Optional[Dict[str, str]] = None  # folder -> purpose
+    multi_task_challenge: MultiTaskChallenge | None = None
+    workspace_structure: dict[str, str] | None = None  # folder -> purpose
 
     # Budget tracking (leverages existing usage system)
-    budget_limit: Optional[float] = None  # USD limit
+    budget_limit: float | None = None  # USD limit
     budget_warning_threshold: float = 0.8  # Warn at 80%
     budget_paused: bool = False  # Session paused due to budget
 
     # Execution metadata
-    iteration_limit_override: Optional[int] = None  # Override default iterations
-    complexity_score: Optional[float] = None  # Assessed task complexity (0.0-1.0)
+    iteration_limit_override: int | None = None  # Override default iterations
+    complexity_score: float | None = None  # Assessed task complexity (0.0-1.0)
 
     # Timeline tracking
     event_count: int = 0  # Total number of events for efficient queries
 
     # Browser takeover settings
-    persist_login_state: Optional[bool] = None  # Whether to persist browser login state across tasks
+    persist_login_state: bool | None = None  # Whether to persist browser login state across tasks
 
     class Settings:
         name = "sessions"
@@ -155,24 +157,24 @@ class SnapshotDocument(Document):
     """MongoDB document for StateSnapshot"""
     snapshot_id: str
     session_id: str
-    action_id: Optional[str] = None
+    action_id: str | None = None
     sequence_number: int
 
     # Timing
-    created_at: datetime = datetime.now(timezone.utc)
+    created_at: datetime = datetime.now(UTC)
 
     # Snapshot type
     snapshot_type: str  # SnapshotType enum value
 
     # Resource identification
-    resource_path: Optional[str] = None
+    resource_path: str | None = None
 
     # Snapshot data stored as JSON
-    snapshot_data: Dict = {}
+    snapshot_data: dict = {}
 
     # Compression info
     is_compressed: bool = False
-    compressed_size_bytes: Optional[int] = None
+    compressed_size_bytes: int | None = None
 
     class Settings:
         name = "snapshots"
@@ -207,7 +209,7 @@ class UsageDocument(BaseDocument[UsageRecord], id_field="usage_id", domain_model
 
     # Metadata
     usage_type: str = UsageType.LLM_CALL.value
-    created_at: datetime = datetime.now(timezone.utc)
+    created_at: datetime = datetime.now(UTC)
 
     class Settings:
         name = "usage"
@@ -242,15 +244,15 @@ class DailyUsageDocument(BaseDocument[DailyUsageAggregate], id_field="usage_id",
     session_count: int = 0
 
     # Model breakdown
-    tokens_by_model: Dict[str, int] = {}
-    cost_by_model: Dict[str, float] = {}
+    tokens_by_model: dict[str, int] = {}
+    cost_by_model: dict[str, float] = {}
 
     # Sessions active this day
-    active_sessions: List[str] = []
+    active_sessions: list[str] = []
 
     # Timestamps
-    created_at: datetime = datetime.now(timezone.utc)
-    updated_at: datetime = datetime.now(timezone.utc)
+    created_at: datetime = datetime.now(UTC)
+    updated_at: datetime = datetime.now(UTC)
 
     class Settings:
         name = "daily_usage"

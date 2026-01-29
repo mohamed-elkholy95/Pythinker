@@ -14,9 +14,9 @@ and correction guidance.
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Set, Tuple
-from enum import Enum
 from datetime import datetime
+from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +45,10 @@ class UserIntent:
     """Represents the user's primary intent."""
     intent_type: IntentType
     primary_goal: str
-    explicit_requirements: List[str]
-    implicit_requirements: List[str]
-    constraints: List[str]  # Things user said NOT to do
-    preferences: Dict[str, str]  # Format, style, etc.
+    explicit_requirements: list[str]
+    implicit_requirements: list[str]
+    constraints: list[str]  # Things user said NOT to do
+    preferences: dict[str, str]  # Format, style, etc.
     original_prompt: str
     extracted_at: datetime = field(default_factory=datetime.now)
 
@@ -67,11 +67,11 @@ class DriftAlert:
 class IntentTrackingResult:
     """Result of intent tracking check."""
     coverage_percent: float  # How many requirements addressed
-    unaddressed_requirements: List[str]
-    addressed_requirements: List[str]
-    drift_alerts: List[DriftAlert]
+    unaddressed_requirements: list[str]
+    addressed_requirements: list[str]
+    drift_alerts: list[DriftAlert]
     on_track: bool
-    guidance: Optional[str] = None
+    guidance: str | None = None
     timestamp: datetime = field(default_factory=datetime.now)
 
     @property
@@ -141,9 +141,9 @@ class IntentTracker:
 
     def __init__(self):
         """Initialize the intent tracker."""
-        self._current_intent: Optional[UserIntent] = None
-        self._addressed_requirements: Set[str] = set()
-        self._work_history: List[Dict[str, Any]] = []
+        self._current_intent: UserIntent | None = None
+        self._addressed_requirements: set[str] = set()
+        self._work_history: list[dict[str, Any]] = []
 
         # Compile patterns
         self._intent_re = {
@@ -240,7 +240,7 @@ class IntentTracker:
 
         return first_part
 
-    def _extract_explicit_requirements(self, text: str) -> List[str]:
+    def _extract_explicit_requirements(self, text: str) -> list[str]:
         """Extract explicitly listed requirements."""
         requirements = []
 
@@ -257,8 +257,8 @@ class IntentTracker:
     def _extract_implicit_requirements(
         self,
         text: str,
-        explicit: List[str],
-    ) -> List[str]:
+        explicit: list[str],
+    ) -> list[str]:
         """Extract implicitly mentioned requirements."""
         implicit = []
         explicit_lower = {e.lower() for e in explicit}
@@ -276,7 +276,7 @@ class IntentTracker:
 
         return implicit[:10]  # Limit
 
-    def _extract_constraints(self, text: str) -> List[str]:
+    def _extract_constraints(self, text: str) -> list[str]:
         """Extract constraints (things NOT to do)."""
         constraints = []
 
@@ -286,7 +286,7 @@ class IntentTracker:
 
         return constraints
 
-    def _extract_preferences(self, text: str) -> Dict[str, str]:
+    def _extract_preferences(self, text: str) -> dict[str, str]:
         """Extract user preferences (format, style, etc.)."""
         preferences = {}
 
@@ -301,7 +301,7 @@ class IntentTracker:
         self,
         requirement: str,
         step_id: str,
-        work_summary: Optional[str] = None,
+        work_summary: str | None = None,
     ) -> None:
         """Mark a requirement as addressed.
 
@@ -324,7 +324,7 @@ class IntentTracker:
     def check_alignment(
         self,
         current_work: str,
-        plan_steps: Optional[List[str]] = None,
+        plan_steps: list[str] | None = None,
     ) -> IntentTrackingResult:
         """Check if current work aligns with user intent.
 
@@ -389,8 +389,8 @@ class IntentTracker:
     def _detect_drift(
         self,
         current_work: str,
-        plan_steps: Optional[List[str]],
-    ) -> List[DriftAlert]:
+        plan_steps: list[str] | None,
+    ) -> list[DriftAlert]:
         """Detect scope drift in current work."""
         alerts = []
 
@@ -466,8 +466,8 @@ class IntentTracker:
 
     def _generate_guidance(
         self,
-        unaddressed: List[str],
-        alerts: List[DriftAlert],
+        unaddressed: list[str],
+        alerts: list[DriftAlert],
     ) -> str:
         """Generate correction guidance."""
         lines = ["## Alignment Correction Needed"]
@@ -485,7 +485,7 @@ class IntentTracker:
 
         return "\n".join(lines)
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Get tracking summary."""
         if not self._current_intent:
             return {"status": "no_intent_tracked"}
@@ -512,7 +512,7 @@ class IntentTracker:
 
 
 # Singleton instance
-_tracker: Optional[IntentTracker] = None
+_tracker: IntentTracker | None = None
 
 
 def get_intent_tracker() -> IntentTracker:

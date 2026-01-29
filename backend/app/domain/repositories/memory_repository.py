@@ -5,7 +5,6 @@ supporting both traditional queries and vector similarity search.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional
 from datetime import datetime
 
 from app.domain.models.long_term_memory import (
@@ -13,8 +12,8 @@ from app.domain.models.long_term_memory import (
     MemoryQuery,
     MemorySearchResult,
     MemoryStats,
-    MemoryUpdate,
     MemoryType,
+    MemoryUpdate,
 )
 
 
@@ -42,7 +41,7 @@ class MemoryRepository(ABC):
         ...
 
     @abstractmethod
-    async def create_many(self, memories: List[MemoryEntry]) -> List[MemoryEntry]:
+    async def create_many(self, memories: list[MemoryEntry]) -> list[MemoryEntry]:
         """Create multiple memory entries in batch.
 
         Args:
@@ -54,7 +53,7 @@ class MemoryRepository(ABC):
         ...
 
     @abstractmethod
-    async def get_by_id(self, memory_id: str) -> Optional[MemoryEntry]:
+    async def get_by_id(self, memory_id: str) -> MemoryEntry | None:
         """Get a memory by its ID.
 
         Args:
@@ -66,7 +65,7 @@ class MemoryRepository(ABC):
         ...
 
     @abstractmethod
-    async def update(self, memory_id: str, update: MemoryUpdate) -> Optional[MemoryEntry]:
+    async def update(self, memory_id: str, update: MemoryUpdate) -> MemoryEntry | None:
         """Update an existing memory.
 
         Args:
@@ -103,7 +102,7 @@ class MemoryRepository(ABC):
         ...
 
     @abstractmethod
-    async def search(self, query: MemoryQuery) -> List[MemorySearchResult]:
+    async def search(self, query: MemoryQuery) -> list[MemorySearchResult]:
         """Search memories using various criteria.
 
         Supports:
@@ -124,11 +123,11 @@ class MemoryRepository(ABC):
     async def vector_search(
         self,
         user_id: str,
-        embedding: List[float],
+        embedding: list[float],
         limit: int = 10,
         min_score: float = 0.0,
-        memory_types: Optional[List[MemoryType]] = None
-    ) -> List[MemorySearchResult]:
+        memory_types: list[MemoryType] | None = None
+    ) -> list[MemorySearchResult]:
         """Search memories by vector similarity.
 
         Args:
@@ -148,7 +147,7 @@ class MemoryRepository(ABC):
         self,
         user_id: str,
         content_hash: str
-    ) -> List[MemoryEntry]:
+    ) -> list[MemoryEntry]:
         """Find memories with matching content hash.
 
         Used for deduplication.
@@ -166,9 +165,9 @@ class MemoryRepository(ABC):
     async def get_by_entities(
         self,
         user_id: str,
-        entities: List[str],
+        entities: list[str],
         limit: int = 20
-    ) -> List[MemoryEntry]:
+    ) -> list[MemoryEntry]:
         """Get memories mentioning specific entities.
 
         Args:
@@ -186,8 +185,8 @@ class MemoryRepository(ABC):
         self,
         user_id: str,
         limit: int = 10,
-        memory_types: Optional[List[MemoryType]] = None
-    ) -> List[MemoryEntry]:
+        memory_types: list[MemoryType] | None = None
+    ) -> list[MemoryEntry]:
         """Get most recently created memories.
 
         Args:
@@ -205,8 +204,8 @@ class MemoryRepository(ABC):
         self,
         user_id: str,
         limit: int = 10,
-        since: Optional[datetime] = None
-    ) -> List[MemoryEntry]:
+        since: datetime | None = None
+    ) -> list[MemoryEntry]:
         """Get most frequently accessed memories.
 
         Args:
@@ -232,7 +231,7 @@ class MemoryRepository(ABC):
         ...
 
     @abstractmethod
-    async def cleanup_expired(self, user_id: Optional[str] = None) -> int:
+    async def cleanup_expired(self, user_id: str | None = None) -> int:
         """Remove expired memories.
 
         Args:
@@ -257,7 +256,7 @@ class MemoryRepository(ABC):
     @abstractmethod
     async def merge_memories(
         self,
-        memory_ids: List[str],
+        memory_ids: list[str],
         merged_content: str,
         keep_original: bool = False
     ) -> MemoryEntry:

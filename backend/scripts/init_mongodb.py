@@ -15,9 +15,11 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
-from app.core.config import get_settings
 import logging
+
+from motor.motor_asyncio import AsyncIOMotorClient
+
+from app.core.config import get_settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -241,7 +243,7 @@ async def init_mongodb():
         # ====================================
         collections = await db.list_collection_names()
         logger.info(f"\n{'='*60}")
-        logger.info(f"MongoDB Schema Initialization Complete!")
+        logger.info("MongoDB Schema Initialization Complete!")
         logger.info(f"{'='*60}")
         logger.info(f"Database: {settings.mongodb_database}")
         logger.info(f"Collections created: {len(collections)}")
@@ -255,7 +257,7 @@ async def init_mongodb():
                 indexes = await db[coll_name].list_indexes().to_list(None)
                 logger.info(f"  {coll_name}: {len(indexes)} indexes")
 
-        logger.info(f"\n✅ MongoDB is ready for development!")
+        logger.info("\n✅ MongoDB is ready for development!")
 
     except Exception as e:
         logger.error(f"❌ Failed to initialize MongoDB: {e}")

@@ -13,9 +13,11 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from motor.motor_asyncio import AsyncIOMotorClient
-from app.core.config import get_settings
 import logging
+
+from motor.motor_asyncio import AsyncIOMotorClient
+
+from app.core.config import get_settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

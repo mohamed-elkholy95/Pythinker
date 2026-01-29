@@ -20,10 +20,10 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from app.core.config import get_settings
+from app.infrastructure.repositories.qdrant_memory_repository import QdrantMemoryRepository
 from app.infrastructure.storage.mongodb import get_mongodb
 from app.infrastructure.storage.qdrant import get_qdrant
-from app.infrastructure.repositories.qdrant_memory_repository import QdrantMemoryRepository
-from app.core.config import get_settings
 
 # Configure logging
 logging.basicConfig(

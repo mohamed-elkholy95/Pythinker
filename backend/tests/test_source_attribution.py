@@ -9,24 +9,23 @@ These tests verify the reliability enhancements made to the agent system:
 Run with: pytest tests/test_source_attribution.py -v
 """
 
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from app.domain.models.source_attribution import (
+    AccessStatus,
+    AttributionSummary,
+    ContentAccessResult,
     SourceAttribution,
     SourceType,
-    AccessStatus,
-    ContentAccessResult,
-    AttributionSummary,
-)
-from app.domain.services.tools.paywall_detector import (
-    PaywallDetector,
-    PaywallDetectionResult,
 )
 from app.domain.services.agents.content_hallucination_detector import (
     ContentHallucinationDetector,
     HallucinationRisk,
-    HallucinationAnalysisResult,
+)
+from app.domain.services.tools.paywall_detector import (
+    PaywallDetector,
 )
 
 

@@ -6,30 +6,23 @@ parallel execution, configurable concurrency, timeouts, and resource limits.
 Builds on the ParallelExecutor foundation.
 """
 
-import logging
 import asyncio
+import logging
 import uuid
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import (
-    AsyncGenerator,
-    Callable,
-    Awaitable,
-    Dict,
-    List,
-    Optional,
-    Set,
-    Any,
-    Union,
-)
+from datetime import datetime
 from enum import Enum
-from datetime import datetime, timedelta
+from typing import (
+    Any,
+)
 
-from app.domain.models.plan import Plan, Step, ExecutionStatus
-from app.domain.models.event import BaseEvent, PlanEvent, PlanStatus, ErrorEvent, MessageEvent
+from app.domain.models.event import BaseEvent, ErrorEvent, MessageEvent
+from app.domain.models.plan import ExecutionStatus, Plan, Step
 from app.domain.services.flows.parallel_executor import (
-    ParallelExecutor,
-    ParallelExecutionMode,
     ExecutionStats,
+    ParallelExecutionMode,
+    ParallelExecutor,
     StepResult,
 )
 
@@ -65,16 +58,16 @@ class WorkflowStep:
     id: str
     description: str
     status: ExecutionStatus = ExecutionStatus.PENDING
-    dependencies: List[str] = field(default_factory=list)
-    result: Optional[str] = None
-    error: Optional[str] = None
-    agent_type: Optional[str] = None
+    dependencies: list[str] = field(default_factory=list)
+    result: str | None = None
+    error: str | None = None
+    agent_type: str | None = None
     timeout_seconds: int = 300
     retry_count: int = 0
     max_retries: int = 3
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
     def to_plan_step(self) -> Step:
         """Convert to a Plan Step for execution."""
@@ -88,7 +81,7 @@ class WorkflowStep:
             agent_type=self.agent_type,
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "id": self.id,
@@ -107,7 +100,7 @@ class WorkflowStep:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "WorkflowStep":
+    def from_dict(cls, data: dict[str, Any]) -> "WorkflowStep":
         """Create from dictionary."""
         return cls(
             id=data["id"],
@@ -137,17 +130,17 @@ class WorkflowStage:
     id: str
     name: str
     description: str
-    steps: List[WorkflowStep] = field(default_factory=list)
+    steps: list[WorkflowStep] = field(default_factory=list)
     status: StageStatus = StageStatus.PENDING
-    dependencies: List[str] = field(default_factory=list)  # Stage IDs
+    dependencies: list[str] = field(default_factory=list)  # Stage IDs
     timeout_seconds: int = 1800
     max_concurrency: int = 3
     continue_on_failure: bool = False
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
-    def get_progress(self) -> Dict[str, int]:
+    def get_progress(self) -> dict[str, int]:
         """Get progress of steps in this stage."""
         return {
             "total": len(self.steps),
@@ -157,7 +150,7 @@ class WorkflowStage:
             "running": sum(1 for s in self.steps if s.status == ExecutionStatus.RUNNING),
         }
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "id": self.id,
@@ -175,7 +168,7 @@ class WorkflowStage:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "WorkflowStage":
+    def from_dict(cls, data: dict[str, Any]) -> "WorkflowStage":
         """Create from dictionary."""
         return cls(
             id=data["id"],
@@ -204,16 +197,16 @@ class Workflow:
     id: str
     name: str
     description: str
-    stages: List[WorkflowStage] = field(default_factory=list)
+    stages: list[WorkflowStage] = field(default_factory=list)
     status: WorkflowStatus = WorkflowStatus.PENDING
-    context: Dict[str, Any] = field(default_factory=dict)  # Shared context
+    context: dict[str, Any] = field(default_factory=dict)  # Shared context
     timeout_seconds: int = 3600
     created_at: datetime = field(default_factory=datetime.now)
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def get_progress(self) -> Dict[str, Any]:
+    def get_progress(self) -> dict[str, Any]:
         """Get overall workflow progress."""
         total_steps = sum(len(stage.steps) for stage in self.stages)
         completed_steps = sum(
@@ -235,14 +228,14 @@ class Workflow:
             "progress_percent": (completed_steps / total_steps * 100) if total_steps > 0 else 0,
         }
 
-    def get_current_stage(self) -> Optional[WorkflowStage]:
+    def get_current_stage(self) -> WorkflowStage | None:
         """Get the currently running stage."""
         for stage in self.stages:
             if stage.status == StageStatus.RUNNING:
                 return stage
         return None
 
-    def get_next_stage(self) -> Optional[WorkflowStage]:
+    def get_next_stage(self) -> WorkflowStage | None:
         """Get the next pending stage with satisfied dependencies."""
         completed_ids = {s.id for s in self.stages if s.status == StageStatus.COMPLETED}
 
@@ -256,7 +249,7 @@ class Workflow:
 
         return None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "id": self.id,
@@ -273,7 +266,7 @@ class Workflow:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Workflow":
+    def from_dict(cls, data: dict[str, Any]) -> "Workflow":
         """Create from dictionary."""
         return cls(
             id=data["id"],
@@ -318,8 +311,8 @@ class TaskOrchestrator:
 
     def __init__(
         self,
-        config: Optional[OrchestratorConfig] = None,
-        checkpoint_manager: Optional[Any] = None,  # CheckpointManager instance
+        config: OrchestratorConfig | None = None,
+        checkpoint_manager: Any | None = None,  # CheckpointManager instance
     ):
         """
         Initialize the orchestrator.
@@ -330,17 +323,17 @@ class TaskOrchestrator:
         """
         self.config = config or OrchestratorConfig()
         self._checkpoint_manager = checkpoint_manager
-        self._current_workflow: Optional[Workflow] = None
-        self._execution_stats: Dict[str, ExecutionStats] = {}
-        self._step_results: Dict[str, StepResult] = {}
+        self._current_workflow: Workflow | None = None
+        self._execution_stats: dict[str, ExecutionStats] = {}
+        self._step_results: dict[str, StepResult] = {}
 
     def create_workflow(
         self,
         name: str,
         description: str,
-        stages: Optional[List[WorkflowStage]] = None,
-        context: Optional[Dict[str, Any]] = None,
-        timeout_seconds: Optional[int] = None,
+        stages: list[WorkflowStage] | None = None,
+        context: dict[str, Any] | None = None,
+        timeout_seconds: int | None = None,
     ) -> Workflow:
         """
         Create a new workflow.
@@ -374,10 +367,10 @@ class TaskOrchestrator:
         workflow: Workflow,
         name: str,
         description: str,
-        steps: Optional[List[WorkflowStep]] = None,
-        dependencies: Optional[List[str]] = None,
-        timeout_seconds: Optional[int] = None,
-        max_concurrency: Optional[int] = None,
+        steps: list[WorkflowStep] | None = None,
+        dependencies: list[str] | None = None,
+        timeout_seconds: int | None = None,
+        max_concurrency: int | None = None,
     ) -> WorkflowStage:
         """
         Add a stage to a workflow.
@@ -414,10 +407,10 @@ class TaskOrchestrator:
         self,
         stage: WorkflowStage,
         description: str,
-        dependencies: Optional[List[str]] = None,
-        agent_type: Optional[str] = None,
-        timeout_seconds: Optional[int] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        dependencies: list[str] | None = None,
+        agent_type: str | None = None,
+        timeout_seconds: int | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> WorkflowStep:
         """
         Add a step to a stage.
@@ -450,7 +443,7 @@ class TaskOrchestrator:
     async def execute_workflow(
         self,
         workflow: Workflow,
-        execute_step_func: Callable[[WorkflowStep, Dict[str, Any]], Awaitable[StepResult]],
+        execute_step_func: Callable[[WorkflowStep, dict[str, Any]], Awaitable[StepResult]],
     ) -> AsyncGenerator[BaseEvent, None]:
         """
         Execute a workflow.
@@ -532,7 +525,7 @@ class TaskOrchestrator:
         self,
         workflow: Workflow,
         stage: WorkflowStage,
-        execute_step_func: Callable[[WorkflowStep, Dict[str, Any]], Awaitable[StepResult]],
+        execute_step_func: Callable[[WorkflowStep, dict[str, Any]], Awaitable[StepResult]],
     ) -> AsyncGenerator[BaseEvent, None]:
         """
         Execute a single stage.
@@ -607,7 +600,7 @@ class TaskOrchestrator:
                 async for event in executor.execute_plan(plan, wrapped_execute):
                     yield event
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             stage.status = StageStatus.FAILED
             yield ErrorEvent(
                 error=f"Stage {stage.id} timed out after {stage.timeout_seconds}s"
@@ -656,7 +649,7 @@ class TaskOrchestrator:
     async def resume_workflow(
         self,
         workflow: Workflow,
-        execute_step_func: Callable[[WorkflowStep, Dict[str, Any]], Awaitable[StepResult]],
+        execute_step_func: Callable[[WorkflowStep, dict[str, Any]], Awaitable[StepResult]],
     ) -> AsyncGenerator[BaseEvent, None]:
         """
         Resume a paused workflow.
@@ -679,7 +672,7 @@ class TaskOrchestrator:
         async for event in self.execute_workflow(workflow, execute_step_func):
             yield event
 
-    def get_workflow_stats(self, workflow: Workflow) -> Dict[str, Any]:
+    def get_workflow_stats(self, workflow: Workflow) -> dict[str, Any]:
         """
         Get execution statistics for a workflow.
 

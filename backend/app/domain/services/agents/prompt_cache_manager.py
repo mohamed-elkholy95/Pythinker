@@ -7,9 +7,9 @@ to reduce token costs by ~90% on repeated system prompts.
 
 import hashlib
 import logging
-from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Tuple
+from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -79,8 +79,8 @@ class PromptCacheManager:
         """
         self._provider = self._detect_provider(provider)
         self._metrics = CacheMetrics()
-        self._prompt_versions: Dict[str, str] = {}
-        self._cached_prefix_hash: Optional[str] = None
+        self._prompt_versions: dict[str, str] = {}
+        self._cached_prefix_hash: str | None = None
         logger.info(f"PromptCacheManager initialized for provider: {self._provider.value}")
 
     def _detect_provider(self, provider_name: str) -> LLMProvider:
@@ -89,16 +89,15 @@ class PromptCacheManager:
 
         if any(term in provider_lower for term in ['openai', 'gpt', 'o1', 'o3']):
             return LLMProvider.OPENAI
-        elif any(term in provider_lower for term in ['anthropic', 'claude']):
+        if any(term in provider_lower for term in ['anthropic', 'claude']):
             return LLMProvider.ANTHROPIC
-        else:
-            return LLMProvider.UNKNOWN
+        return LLMProvider.UNKNOWN
 
     def prepare_messages_for_caching(
         self,
-        messages: List[Dict[str, Any]],
-        dynamic_content: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        messages: list[dict[str, Any]],
+        dynamic_content: str | None = None
+    ) -> list[dict[str, Any]]:
         """
         Prepare messages with optimal structure for caching.
 
@@ -111,16 +110,15 @@ class PromptCacheManager:
         """
         if self._provider == LLMProvider.ANTHROPIC:
             return self._prepare_anthropic_caching(messages, dynamic_content)
-        elif self._provider == LLMProvider.OPENAI:
+        if self._provider == LLMProvider.OPENAI:
             return self._prepare_openai_caching(messages, dynamic_content)
-        else:
-            return messages
+        return messages
 
     def _prepare_openai_caching(
         self,
-        messages: List[Dict[str, Any]],
-        dynamic_content: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        messages: list[dict[str, Any]],
+        dynamic_content: str | None = None
+    ) -> list[dict[str, Any]]:
         """
         Prepare messages for OpenAI automatic prefix caching.
 
@@ -169,9 +167,9 @@ class PromptCacheManager:
 
     def _prepare_anthropic_caching(
         self,
-        messages: List[Dict[str, Any]],
-        dynamic_content: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        messages: list[dict[str, Any]],
+        dynamic_content: str | None = None
+    ) -> list[dict[str, Any]]:
         """
         Prepare messages for Anthropic cache_control API.
 
@@ -236,8 +234,8 @@ class PromptCacheManager:
     def split_prompt(
         self,
         full_prompt: str,
-        dynamic_sections: Optional[List[str]] = None
-    ) -> Tuple[str, str]:
+        dynamic_sections: list[str] | None = None
+    ) -> tuple[str, str]:
         """
         Split a prompt into cacheable prefix and dynamic suffix.
 
@@ -287,7 +285,7 @@ class PromptCacheManager:
             return False  # First time seeing this prompt
         return previous_hash != content_hash
 
-    def get_cache_control_params(self) -> Dict[str, Any]:
+    def get_cache_control_params(self) -> dict[str, Any]:
         """
         Get provider-specific cache control parameters.
 
@@ -302,7 +300,7 @@ class PromptCacheManager:
         # OpenAI: automatic caching, no special params needed
         return {}
 
-    def get_metrics(self) -> Dict[str, Any]:
+    def get_metrics(self) -> dict[str, Any]:
         """Get cache performance metrics"""
         return {
             "provider": self._provider.value,
@@ -329,7 +327,7 @@ class CachedResponse:
     prompt_hash: str
     created_at: float
     hit_count: int = 0
-    semantic_key: Optional[str] = None
+    semantic_key: str | None = None
 
 
 class SemanticResponseCache:
@@ -366,8 +364,7 @@ class SemanticResponseCache:
             max_entries: Maximum number of cached entries
             similarity_threshold: Minimum similarity for cache hit (0-1)
         """
-        import time
-        self._cache: Dict[str, CachedResponse] = {}
+        self._cache: dict[str, CachedResponse] = {}
         self._ttl = ttl_seconds
         self._max_entries = max_entries
         self._similarity_threshold = similarity_threshold
@@ -433,7 +430,7 @@ class SemanticResponseCache:
 
         return intersection / union if union > 0 else 0.0
 
-    def get(self, prompt: str) -> Optional[str]:
+    def get(self, prompt: str) -> str | None:
         """Get a cached response for a prompt.
 
         Args:
@@ -461,7 +458,7 @@ class SemanticResponseCache:
 
         # Try semantic match
         semantic_key = self._extract_semantic_key(prompt)
-        best_match: Optional[CachedResponse] = None
+        best_match: CachedResponse | None = None
         best_similarity = 0.0
 
         for entry in self._cache.values():
@@ -545,7 +542,7 @@ class SemanticResponseCache:
         self._cache.clear()
         logger.info("Semantic response cache cleared")
 
-    def get_metrics(self) -> Dict[str, Any]:
+    def get_metrics(self) -> dict[str, Any]:
         """Get cache performance metrics."""
         return {
             "entries": len(self._cache),
@@ -557,8 +554,8 @@ class SemanticResponseCache:
 
 
 # Singleton instances for global access
-_cache_manager: Optional[PromptCacheManager] = None
-_response_cache: Optional[SemanticResponseCache] = None
+_cache_manager: PromptCacheManager | None = None
+_response_cache: SemanticResponseCache | None = None
 
 
 def get_prompt_cache_manager(provider: str = "openai") -> PromptCacheManager:

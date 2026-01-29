@@ -4,11 +4,12 @@ These models support the Enhanced Self-Reflection pattern (Phase 2),
 enabling course correction during execution rather than only at the end.
 """
 
-from enum import Enum
-from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class ReflectionTriggerType(str, Enum):
@@ -56,7 +57,7 @@ class ReflectionTrigger:
         confidence: float = 1.0,
         is_stalled: bool = False,
         last_had_error: bool = False
-    ) -> Optional[ReflectionTriggerType]:
+    ) -> ReflectionTriggerType | None:
         """Determine if reflection should be triggered.
 
         Args:
@@ -109,14 +110,14 @@ class ProgressMetrics:
     failed_actions: int = 0
 
     # Time tracking
-    started_at: Optional[datetime] = None
-    last_progress_at: Optional[datetime] = None
+    started_at: datetime | None = None
+    last_progress_at: datetime | None = None
 
     # Stall detection
     actions_since_progress: int = 0
 
     # Error details
-    errors: List[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
     @property
     def success_rate(self) -> float:
@@ -169,7 +170,7 @@ class ProgressMetrics:
         """Record an action that made no progress."""
         self.actions_since_progress += 1
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for prompt formatting."""
         return {
             "steps_completed": self.steps_completed,
@@ -187,24 +188,24 @@ class ReflectionResult(BaseModel):
     decision: ReflectionDecision = Field(description="The reflection decision")
     confidence: float = Field(ge=0.0, le=1.0, description="Confidence in decision")
     progress_assessment: str = Field(description="Assessment of progress")
-    issues_identified: List[str] = Field(
+    issues_identified: list[str] = Field(
         default_factory=list,
         description="Issues identified during reflection"
     )
-    strategy_adjustment: Optional[str] = Field(
+    strategy_adjustment: str | None = Field(
         default=None,
         description="Strategy adjustment guidance (if decision is ADJUST)"
     )
-    replan_reason: Optional[str] = Field(
+    replan_reason: str | None = Field(
         default=None,
         description="Reason for replanning (if decision is REPLAN)"
     )
-    user_question: Optional[str] = Field(
+    user_question: str | None = Field(
         default=None,
         description="Question for user (if decision is ESCALATE)"
     )
     summary: str = Field(description="Brief summary of reflection")
-    trigger_type: Optional[ReflectionTriggerType] = Field(
+    trigger_type: ReflectionTriggerType | None = Field(
         default=None,
         description="What triggered this reflection"
     )

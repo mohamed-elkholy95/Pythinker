@@ -18,9 +18,8 @@ Usage:
         print(f"Indicators: {result.indicators}")
 """
 
-import re
 import logging
-from typing import List, Set, Tuple
+import re
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -89,7 +88,7 @@ class PaywallDetectionResult:
     """Result of paywall detection analysis."""
     detected: bool = False
     confidence: float = 0.0
-    indicators: List[str] = field(default_factory=list)
+    indicators: list[str] = field(default_factory=list)
     access_type: str = "full"  # full, partial, blocked
 
     def to_dict(self) -> dict:
@@ -114,8 +113,8 @@ class PaywallDetector:
 
     def __init__(
         self,
-        text_patterns: List[Tuple[str, float]] | None = None,
-        css_patterns: List[Tuple[str, float]] | None = None,
+        text_patterns: list[tuple[str, float]] | None = None,
+        css_patterns: list[tuple[str, float]] | None = None,
         confidence_threshold: float = 0.6
     ):
         """Initialize the paywall detector.
@@ -155,8 +154,8 @@ class PaywallDetector:
         Returns:
             PaywallDetectionResult with detection details
         """
-        indicators: List[str] = []
-        weights: List[float] = []
+        indicators: list[str] = []
+        weights: list[float] = []
 
         # Check text patterns
         search_text = text or html
@@ -216,7 +215,7 @@ class PaywallDetector:
             access_type=access_type,
         )
 
-    def _check_text_patterns(self, text: str) -> Tuple[List[str], List[float]]:
+    def _check_text_patterns(self, text: str) -> tuple[list[str], list[float]]:
         """Check text for paywall indicator patterns."""
         indicators = []
         weights = []
@@ -230,11 +229,11 @@ class PaywallDetector:
 
         return indicators, weights
 
-    def _check_css_patterns(self, html: str) -> Tuple[List[str], List[float]]:
+    def _check_css_patterns(self, html: str) -> tuple[list[str], list[float]]:
         """Check HTML for paywall-related CSS classes/IDs."""
         indicators = []
         weights = []
-        seen_patterns: Set[str] = set()
+        seen_patterns: set[str] = set()
 
         # Extract all class and id attributes
         attr_pattern = re.compile(
@@ -300,7 +299,7 @@ class PaywallDetector:
         self,
         url: str,
         html: str
-    ) -> Tuple[List[str], List[float]]:
+    ) -> tuple[list[str], list[float]]:
         """Check domain-specific paywall patterns."""
         indicators = []
         weights = []
@@ -345,8 +344,7 @@ class PaywallDetector:
                 f"Content behind paywall ({result.confidence:.0%} confidence). "
                 f"Only preview available. Indicators: {', '.join(result.indicators[:3])}"
             )
-        else:
-            return (
-                f"Partial content accessible ({result.confidence:.0%} paywall confidence). "
-                f"Some content may be gated."
-            )
+        return (
+            f"Partial content accessible ({result.confidence:.0%} paywall confidence). "
+            f"Some content may be gated."
+        )

@@ -6,24 +6,22 @@ This service handles:
 - Rolling up daily/monthly usage summaries
 - Providing usage statistics for the API layer
 """
-from typing import Optional, List, Dict
-from datetime import datetime, date, timedelta, UTC
-from collections import defaultdict
 import logging
+from collections import defaultdict
+from datetime import UTC, date, datetime, timedelta
 
 from app.domain.models.usage import (
-    UsageRecord,
-    SessionUsage,
     DailyUsageAggregate,
     MonthlyUsageSummary,
+    SessionUsage,
+    UsageRecord,
     UsageType,
 )
 from app.domain.services.usage.pricing import (
     calculate_cost,
     get_provider_from_model,
-    get_model_pricing,
 )
-from app.infrastructure.models.documents import UsageDocument, DailyUsageDocument
+from app.infrastructure.models.documents import DailyUsageDocument, UsageDocument
 
 logger = logging.getLogger(__name__)
 
@@ -202,10 +200,10 @@ class UsageService:
         total_cost = 0.0
         llm_call_count = 0
         tool_call_count = 0
-        tokens_by_model: Dict[str, int] = defaultdict(int)
-        cost_by_model: Dict[str, float] = defaultdict(float)
-        first_activity: Optional[datetime] = None
-        last_activity: Optional[datetime] = None
+        tokens_by_model: dict[str, int] = defaultdict(int)
+        cost_by_model: dict[str, float] = defaultdict(float)
+        first_activity: datetime | None = None
+        last_activity: datetime | None = None
 
         for doc in docs:
             total_prompt_tokens += doc.prompt_tokens
@@ -249,7 +247,7 @@ class UsageService:
         self,
         user_id: str,
         days: int = 30,
-    ) -> List[DailyUsageAggregate]:
+    ) -> list[DailyUsageAggregate]:
         """Get daily usage breakdown for a user.
 
         Args:
@@ -272,7 +270,7 @@ class UsageService:
         self,
         user_id: str,
         months: int = 12,
-    ) -> List[MonthlyUsageSummary]:
+    ) -> list[MonthlyUsageSummary]:
         """Get monthly usage summaries for a user.
 
         Args:
@@ -293,7 +291,7 @@ class UsageService:
         ).to_list()
 
         # Group by year-month
-        monthly_data: Dict[tuple, Dict] = {}
+        monthly_data: dict[tuple, dict] = {}
         for doc in docs:
             key = (doc.date.year, doc.date.month)
             if key not in monthly_data:
@@ -341,7 +339,7 @@ class UsageService:
 
         return summaries
 
-    async def get_usage_summary(self, user_id: str) -> Dict:
+    async def get_usage_summary(self, user_id: str) -> dict:
         """Get a summary of usage for today and this month.
 
         Args:
@@ -398,7 +396,7 @@ class UsageService:
 
 
 # Global singleton instance
-_usage_service: Optional[UsageService] = None
+_usage_service: UsageService | None = None
 
 
 def get_usage_service() -> UsageService:

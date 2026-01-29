@@ -7,8 +7,8 @@ to provide coordinated error management, health assessment, and recovery guidanc
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List
 from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -27,14 +27,14 @@ class AgentHealthStatus:
     level: AgentHealthLevel
     error_count_recent: int = 0
     is_stuck: bool = False
-    stuck_type: Optional[str] = None
-    token_pressure_level: Optional[str] = None
+    stuck_type: str | None = None
+    token_pressure_level: str | None = None
     token_usage_pct: float = 0.0
-    patterns_detected: List[Dict[str, Any]] = field(default_factory=list)
-    recommended_actions: List[str] = field(default_factory=list)
-    details: Dict[str, Any] = field(default_factory=dict)
+    patterns_detected: list[dict[str, Any]] = field(default_factory=list)
+    recommended_actions: list[str] = field(default_factory=list)
+    details: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "level": self.level.value,
@@ -53,11 +53,11 @@ class AgentHealthStatus:
 class IterationGuidance:
     """Guidance for the next iteration based on error state analysis."""
     should_continue: bool = True
-    inject_prompt: Optional[str] = None
+    inject_prompt: str | None = None
     trigger_compaction: bool = False
-    patterns: List[Dict[str, Any]] = field(default_factory=list)
+    patterns: list[dict[str, Any]] = field(default_factory=list)
     health_level: AgentHealthLevel = AgentHealthLevel.HEALTHY
-    warnings: List[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
 
 class ErrorIntegrationBridge:
@@ -94,8 +94,8 @@ class ErrorIntegrationBridge:
 
         # Track iteration state
         self._iteration_count = 0
-        self._last_health_status: Optional[AgentHealthStatus] = None
-        self._compaction_triggered_at: Optional[int] = None
+        self._last_health_status: AgentHealthStatus | None = None
+        self._compaction_triggered_at: int | None = None
 
     def set_error_handler(self, error_handler) -> None:
         """Set the error handler component."""
@@ -119,7 +119,7 @@ class ErrorIntegrationBridge:
 
     def assess_agent_health(
         self,
-        messages: Optional[List[Dict[str, Any]]] = None
+        messages: list[dict[str, Any]] | None = None
     ) -> AgentHealthStatus:
         """Comprehensive health assessment across all systems.
 
@@ -211,8 +211,8 @@ class ErrorIntegrationBridge:
 
     async def handle_iteration_end(
         self,
-        response: Dict[str, Any],
-        messages: Optional[List[Dict[str, Any]]] = None
+        response: dict[str, Any],
+        messages: list[dict[str, Any]] | None = None
     ) -> IterationGuidance:
         """Process end of iteration across all systems.
 
@@ -311,8 +311,8 @@ class ErrorIntegrationBridge:
     def get_unified_recovery_prompt(
         self,
         error_context=None,
-        tool_name: Optional[str] = None
-    ) -> Optional[str]:
+        tool_name: str | None = None
+    ) -> str | None:
         """Get unified recovery prompt combining all sources.
 
         Combines prompts from error handler, stuck detector, and pattern analyzer.
@@ -370,7 +370,7 @@ class ErrorIntegrationBridge:
         if self._stuck_detector and hasattr(self._stuck_detector, 'reset'):
             self._stuck_detector.reset()
 
-    def get_metrics(self) -> Dict[str, Any]:
+    def get_metrics(self) -> dict[str, Any]:
         """Get metrics from all integrated components.
 
         Returns:

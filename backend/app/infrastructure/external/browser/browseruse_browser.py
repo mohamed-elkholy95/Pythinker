@@ -11,15 +11,15 @@ Hardening features:
 - Resource blocking for performance
 """
 
-from typing import Optional, List, Dict, Any, Set
 import asyncio
 import logging
 import re
+from typing import Any
 from urllib.parse import urlparse
 
 try:
     from browser_use import Agent, BrowserSession
-    from browser_use.agent.views import AgentHistory, ActionResult
+    from browser_use.agent.views import ActionResult, AgentHistory
     BROWSER_USE_AVAILABLE = True
 except ImportError:
     BROWSER_USE_AVAILABLE = False
@@ -28,12 +28,11 @@ except ImportError:
     AgentHistory = None
     ActionResult = None
 
-from app.domain.models.tool_result import ToolResult
 
 logger = logging.getLogger(__name__)
 
 # Video domains to skip - these waste time and resources
-VIDEO_DOMAINS: Set[str] = {
+VIDEO_DOMAINS: set[str] = {
     "youtube.com", "www.youtube.com", "youtu.be", "m.youtube.com",
     "vimeo.com", "www.vimeo.com", "player.vimeo.com",
     "dailymotion.com", "www.dailymotion.com",
@@ -57,13 +56,13 @@ VIDEO_DOMAINS: Set[str] = {
 }
 
 # Video file extensions to skip
-VIDEO_EXTENSIONS: Set[str] = {
+VIDEO_EXTENSIONS: set[str] = {
     ".mp4", ".webm", ".avi", ".mov", ".mkv", ".flv",
     ".wmv", ".m4v", ".mpg", ".mpeg", ".3gp", ".ogv",
 }
 
 # URL patterns that indicate video content
-VIDEO_URL_PATTERNS: List[re.Pattern] = [
+VIDEO_URL_PATTERNS: list[re.Pattern] = [
     re.compile(r"/watch\?v=", re.IGNORECASE),
     re.compile(r"/video/", re.IGNORECASE),
     re.compile(r"/videos/", re.IGNORECASE),
@@ -111,7 +110,7 @@ def is_video_url(url: str) -> bool:
     return False
 
 
-def filter_video_urls(urls: List[str]) -> List[str]:
+def filter_video_urls(urls: list[str]) -> list[str]:
     """Filter out video URLs from a list.
 
     Args:
@@ -143,7 +142,7 @@ class BrowserUseService:
     def __init__(
         self,
         cdp_url: str,
-        llm_provider: Optional[Any] = None,
+        llm_provider: Any | None = None,
         skip_video_urls: bool = True,
         auto_dismiss_dialogs: bool = True,
     ):
@@ -163,7 +162,7 @@ class BrowserUseService:
 
         self.cdp_url = cdp_url
         self.llm_provider = llm_provider
-        self.session: Optional[BrowserSession] = None
+        self.session: BrowserSession | None = None
         self._initialized = False
         self._skip_video_urls = skip_video_urls
         self._auto_dismiss_dialogs = auto_dismiss_dialogs
@@ -242,9 +241,9 @@ SMART BROWSING INSTRUCTIONS:
         task: str,
         max_steps: int = 20,
         llm_model: str = "gpt-4o-mini",
-        start_url: Optional[str] = None,
-        on_step: Optional[Any] = None,
-    ) -> Dict[str, Any]:
+        start_url: str | None = None,
+        on_step: Any | None = None,
+    ) -> dict[str, Any]:
         """Execute autonomous browsing task with natural language instruction
 
         Args:
@@ -397,7 +396,7 @@ SMART BROWSING INSTRUCTIONS:
         """
         return self._initialized and self.session is not None
 
-    async def get_current_state(self) -> Dict[str, Any]:
+    async def get_current_state(self) -> dict[str, Any]:
         """Get current browser state for debugging and monitoring.
 
         Returns:
@@ -433,7 +432,7 @@ SMART BROWSING INSTRUCTIONS:
         except Exception as e:
             return {
                 "initialized": True,
-                "error": f"Error getting state: {str(e)}"
+                "error": f"Error getting state: {e!s}"
             }
 
 

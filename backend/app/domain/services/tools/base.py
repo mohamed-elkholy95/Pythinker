@@ -1,11 +1,13 @@
-from typing import Dict, Any, List, Callable, Optional
 import inspect
 import logging
+from collections.abc import Callable
+from typing import Any
+
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.cache_layer import (
     _generate_cache_key,
-    _should_cache_tool,
     _get_tool_ttl,
+    _should_cache_tool,
     get_cache_stats,
 )
 
@@ -55,22 +57,21 @@ def _truncate_output(content: str, max_length: int, preserve_end: bool = True) -
 
         truncated_chars = len(content) - len(start_content) - len(end_content)
         return f"{start_content}\n\n... [{truncated_chars:,} characters truncated] ...\n\n{end_content}"
-    else:
-        # Simple truncation from end
-        truncated = content[:max_length]
-        last_newline = truncated.rfind('\n')
-        if last_newline > max_length * 0.8:
-            truncated = truncated[:last_newline]
+    # Simple truncation from end
+    truncated = content[:max_length]
+    last_newline = truncated.rfind('\n')
+    if last_newline > max_length * 0.8:
+        truncated = truncated[:last_newline]
 
-        truncated_chars = len(content) - len(truncated)
-        return f"{truncated}\n\n... [{truncated_chars:,} characters truncated]"
+    truncated_chars = len(content) - len(truncated)
+    return f"{truncated}\n\n... [{truncated_chars:,} characters truncated]"
 
 
 def tool(
-    name: str, 
+    name: str,
     description: str,
-    parameters: Dict[str, Dict[str, Any]],
-    required: List[str]
+    parameters: dict[str, dict[str, Any]],
+    required: list[str]
 ) -> Callable:
     """Tool registration decorator
     
@@ -91,30 +92,30 @@ def tool(
                 "name": name,
                 "description": description,
                 "parameters": {
-                    "type": "object", 
+                    "type": "object",
                     "properties": parameters,
                     "required": required
                 }
             }
         }
-        
+
         # Store tool information
         func._function_name = name
         func._tool_description = description
         func._tool_schema = schema
-        
+
         return func
-    
+
     return decorator
 
 class BaseTool:
     """Base tool class, providing common tool calling methods with observation limiting and caching"""
 
     name: str = ""
-    max_observe: Optional[int] = None  # Per-tool observation limit (None = use category default)
+    max_observe: int | None = None  # Per-tool observation limit (None = use category default)
     enable_caching: bool = False  # Enable result caching for this tool
 
-    def __init__(self, max_observe: Optional[int] = None, enable_caching: bool = False):
+    def __init__(self, max_observe: int | None = None, enable_caching: bool = False):
         """Initialize base tool class
 
         Args:
@@ -137,8 +138,8 @@ class BaseTool:
                     break
             else:
                 self.max_observe = DEFAULT_MAX_OBSERVE
-    
-    def get_tools(self) -> List[Dict[str, Any]]:
+
+    def get_tools(self) -> list[dict[str, Any]]:
         """Get all registered tools
         
         Returns:
@@ -146,15 +147,15 @@ class BaseTool:
         """
         if self._tools_cache is not None:
             return self._tools_cache
-        
+
         tools = []
         for _, method in inspect.getmembers(self, inspect.ismethod):
             if hasattr(method, '_tool_schema'):
                 tools.append(method._tool_schema)
-        
+
         self._tools_cache = tools
         return tools
-    
+
     def has_function(self, function_name: str) -> bool:
         """Check if specified function exists
         
@@ -168,8 +169,8 @@ class BaseTool:
             if hasattr(method, '_function_name') and method._function_name == function_name:
                 return True
         return False
-    
-    def _filter_parameters(self, method: Callable, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+
+    def _filter_parameters(self, method: Callable, kwargs: dict[str, Any]) -> dict[str, Any]:
         """Filter parameters to match method signature
         
         Args:
@@ -181,15 +182,15 @@ class BaseTool:
         """
         # Get method signature
         sig = inspect.signature(method)
-        
+
         # Filter kwargs to only include parameters that the method accepts
         filtered_kwargs = {}
         for param_name, param_value in kwargs.items():
             if param_name in sig.parameters:
                 filtered_kwargs[param_name] = param_value
-        
+
         return filtered_kwargs
-    
+
     async def _get_result_cache(self):
         """Lazy-load the result cache."""
         if self._result_cache is None and self.enable_caching:
@@ -283,7 +284,7 @@ class BaseTool:
 
         raise ValueError(f"Tool '{function_name}' not found")
 
-    def set_max_observe(self, limit: Optional[int]) -> None:
+    def set_max_observe(self, limit: int | None) -> None:
         """Set custom observation limit for this tool instance.
 
         Args:
@@ -291,7 +292,7 @@ class BaseTool:
         """
         self.max_observe = limit
 
-    def get_observation_stats(self, result: ToolResult) -> Dict[str, Any]:
+    def get_observation_stats(self, result: ToolResult) -> dict[str, Any]:
         """Get statistics about observation limiting for a result.
 
         Args:
@@ -306,4 +307,4 @@ class BaseTool:
             "max_observe": self.max_observe,
             "would_truncate": self.max_observe and message_length > self.max_observe,
             "truncation_amount": max(0, message_length - (self.max_observe or message_length))
-        } 
+        }

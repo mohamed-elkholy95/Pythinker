@@ -16,8 +16,8 @@ This reduces latency, cost, and improves consistency.
 import logging
 import re
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Any, Tuple, Callable
 from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +36,9 @@ class RouteDecision(str, Enum):
 class RoutingResult:
     """Result of smart routing."""
     decision: RouteDecision
-    response: Optional[str] = None      # Direct response if applicable
-    tool_name: Optional[str] = None     # Tool to call if applicable
-    tool_args: Optional[Dict[str, Any]] = None
+    response: str | None = None      # Direct response if applicable
+    tool_name: str | None = None     # Tool to call if applicable
+    tool_args: dict[str, Any] | None = None
     confidence: float = 1.0             # How confident we are in the decision
     reason: str = ""                    # Explanation for the decision
     bypass_llm: bool = False            # Whether to skip LLM entirely
@@ -158,7 +158,7 @@ class SmartRouter:
     def route(
         self,
         message: str,
-        context: Optional[Dict[str, Any]] = None,
+        context: dict[str, Any] | None = None,
     ) -> RoutingResult:
         """Route a message to determine if LLM is needed.
 
@@ -246,7 +246,7 @@ class SmartRouter:
         step_result: str,
         remaining_steps: int,
         user_goal: str,
-    ) -> Tuple[bool, Optional[str]]:
+    ) -> tuple[bool, str | None]:
         """Check if task can be terminated early.
 
         Args:
@@ -295,8 +295,8 @@ class SmartRouter:
     def select_tool_by_task(
         self,
         task_description: str,
-        available_tools: List[str],
-    ) -> Optional[str]:
+        available_tools: list[str],
+    ) -> str | None:
         """Select the most appropriate tool for a task without LLM.
 
         Args:
@@ -341,7 +341,7 @@ class SmartRouter:
         self,
         template_key: str,
         **kwargs: Any,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Generate a response from a template without LLM.
 
         Args:
@@ -370,7 +370,7 @@ class SmartRouter:
 
         return None
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get routing statistics."""
         total = self._stats["total_routes"]
         bypassed = self._stats["llm_bypassed"]
@@ -422,7 +422,7 @@ class ResponseValidator:
             return False
 
     @staticmethod
-    def extract_code_blocks(text: str) -> List[Tuple[str, str]]:
+    def extract_code_blocks(text: str) -> list[tuple[str, str]]:
         """Extract code blocks from markdown without LLM.
 
         Returns:
@@ -434,7 +434,7 @@ class ResponseValidator:
 
 
 # Singleton instance
-_router: Optional[SmartRouter] = None
+_router: SmartRouter | None = None
 
 
 def get_smart_router() -> SmartRouter:
@@ -445,7 +445,7 @@ def get_smart_router() -> SmartRouter:
     return _router
 
 
-def try_bypass_llm(message: str, context: Optional[Dict[str, Any]] = None) -> RoutingResult:
+def try_bypass_llm(message: str, context: dict[str, Any] | None = None) -> RoutingResult:
     """Convenience function to attempt LLM bypass.
 
     Args:

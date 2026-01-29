@@ -5,15 +5,15 @@ This node verifies plans before execution using the VerifierAgent.
 
 import asyncio
 import logging
-from typing import Dict, Any
+from typing import Any
 
-from app.domain.services.langgraph.state import PlanActState
 from app.domain.models.event import VerificationEvent, VerificationStatus
+from app.domain.services.langgraph.state import PlanActState
 
 logger = logging.getLogger(__name__)
 
 
-async def verification_node(state: PlanActState) -> Dict[str, Any]:
+async def verification_node(state: PlanActState) -> dict[str, Any]:
     """Verify the plan before execution.
 
     This node implements the Plan-Verify-Execute pattern by checking

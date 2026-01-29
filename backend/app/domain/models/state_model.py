@@ -6,7 +6,6 @@ consistent agent behavior across the system.
 """
 
 from enum import Enum
-from typing import Dict, List, Set, Optional
 
 
 class AgentStatus(str, Enum):
@@ -23,7 +22,7 @@ class AgentStatus(str, Enum):
 
 
 # Valid state transitions for AgentStatus
-VALID_TRANSITIONS: Dict[AgentStatus, List[AgentStatus]] = {
+VALID_TRANSITIONS: dict[AgentStatus, list[AgentStatus]] = {
     AgentStatus.IDLE: [AgentStatus.PLANNING],
     AgentStatus.PLANNING: [
         AgentStatus.VERIFYING,
@@ -73,7 +72,7 @@ class StateTransitionError(Exception):
         self,
         from_status: AgentStatus,
         to_status: AgentStatus,
-        message: Optional[str] = None
+        message: str | None = None
     ):
         self.from_status = from_status
         self.to_status = to_status
@@ -101,7 +100,7 @@ def validate_transition(from_status: AgentStatus, to_status: AgentStatus) -> boo
     return to_status in valid_targets
 
 
-def get_valid_transitions(status: AgentStatus) -> List[AgentStatus]:
+def get_valid_transitions(status: AgentStatus) -> list[AgentStatus]:
     """Get list of valid transition targets from a given status.
 
     Args:
@@ -137,7 +136,7 @@ def is_error_status(status: AgentStatus) -> bool:
     return status == AgentStatus.ERROR
 
 
-def get_recovery_paths(from_error: bool = True) -> List[AgentStatus]:
+def get_recovery_paths(from_error: bool = True) -> list[AgentStatus]:
     """Get possible recovery paths from error state.
 
     Args:
@@ -169,7 +168,7 @@ class StatusTransitionGuard:
         self.flow = flow
         self.target_status = target_status
         self.validate = validate
-        self.original_status: Optional[AgentStatus] = None
+        self.original_status: AgentStatus | None = None
 
     def __enter__(self):
         self.original_status = self.flow.status

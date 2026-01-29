@@ -1,8 +1,6 @@
 """Task complexity assessment for dynamic iteration limits."""
-from typing import Optional, Dict
-from dataclasses import dataclass
-import re
 import logging
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +47,7 @@ class ComplexityAssessor:
     def assess_task_complexity(
         self,
         task_description: str,
-        plan_steps: Optional[int] = None,
+        plan_steps: int | None = None,
         is_multi_task: bool = False,
     ) -> ComplexityAssessment:
         """Assess task complexity.

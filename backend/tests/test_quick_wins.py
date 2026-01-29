@@ -7,16 +7,15 @@ Tests for:
 4. Parallel Tool Executor - batched tool execution
 """
 
-import pytest
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 # Model Router tests
 from app.domain.services.agents.model_router import (
     ModelRouter,
-    TaskComplexity,
     ModelTier,
-    get_model_router,
+    TaskComplexity,
 )
 
 
@@ -106,9 +105,8 @@ class TestModelRouter:
 
 # Requirement Extractor tests
 from app.domain.services.agents.requirement_extractor import (
-    RequirementExtractor,
-    extract_requirements,
     RequirementPriority,
+    extract_requirements,
 )
 
 
@@ -188,7 +186,6 @@ class TestRequirementExtractor:
 # Semantic Cache tests
 from app.domain.services.agents.prompt_cache_manager import (
     SemanticResponseCache,
-    get_semantic_cache,
 )
 
 
@@ -256,7 +253,6 @@ class TestSemanticCache:
 from app.domain.services.agents.parallel_executor import (
     ParallelToolExecutor,
     ToolCall,
-    execute_tools_parallel,
 )
 
 

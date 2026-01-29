@@ -2,16 +2,16 @@
 Tests for the ContextEngineeringService (Phase 4: Dynamic Context Engineering).
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
+from app.domain.models.memory import Memory, MemoryConfig
 from app.domain.services.memory_service import (
-    ContextEngineeringService,
     ContextChunk,
+    ContextEngineeringService,
     ContextServiceConfig,
 )
-from app.domain.models.memory import Memory, MemoryConfig
 
 
 class TestContextChunk:

@@ -1,13 +1,17 @@
-from typing import Dict, Any, Optional, List, Set, Tuple
-from playwright.async_api import async_playwright, Browser, Page, BrowserContext, TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError
 import asyncio
+import logging
 import random
+import re
+from typing import Any
+
 from markdownify import markdownify
-from app.infrastructure.external.llm.openai_llm import OpenAILLM
+from playwright.async_api import Browser, BrowserContext, Page, async_playwright
+from playwright.async_api import Error as PlaywrightError
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+
 from app.core.config import get_settings
 from app.domain.models.tool_result import ToolResult
-import logging
-import re
+from app.infrastructure.external.llm.openai_llm import OpenAILLM
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
@@ -86,7 +90,7 @@ class PlaywrightBrowser:
         self,
         cdp_url: str,
         block_resources: bool = False,
-        blocked_types: Optional[Set[str]] = None,
+        blocked_types: set[str] | None = None,
         randomize_fingerprint: bool = True
     ):
         """Initialize PlaywrightBrowser
@@ -97,25 +101,25 @@ class PlaywrightBrowser:
             blocked_types: Set of resource types to block (e.g., {"image", "font"})
             randomize_fingerprint: Whether to randomize browser fingerprint (default: True)
         """
-        self.browser: Optional[Browser] = None
-        self.context: Optional[BrowserContext] = None
-        self.page: Optional[Page] = None
+        self.browser: Browser | None = None
+        self.context: BrowserContext | None = None
+        self.page: Page | None = None
         self.playwright = None
         self.llm = OpenAILLM()
         self.settings = get_settings()
         self.cdp_url = cdp_url
         self.block_resources = block_resources
         self.blocked_types = blocked_types or BLOCKABLE_RESOURCE_TYPES if block_resources else set()
-        self._interactive_elements_cache: List[Dict] = []
+        self._interactive_elements_cache: list[dict] = []
         self._connection_healthy = False
         self._randomize_fingerprint = randomize_fingerprint
 
         # Current fingerprint values (randomized on each session)
         self._current_user_agent: str = DEFAULT_USER_AGENT
-        self._current_viewport: Dict[str, int] = DEFAULT_VIEWPORT
+        self._current_viewport: dict[str, int] = DEFAULT_VIEWPORT
         self._current_timezone: str = DEFAULT_TIMEZONE
 
-    def _randomize_browser_fingerprint(self) -> Tuple[str, Dict[str, int], str]:
+    def _randomize_browser_fingerprint(self) -> tuple[str, dict[str, int], str]:
         """Randomize browser fingerprint for anti-detection.
 
         Returns:
@@ -132,7 +136,7 @@ class PlaywrightBrowser:
         )
 
         return user_agent, viewport, timezone
-        
+
     async def _setup_route_interception(self, context: BrowserContext) -> None:
         """Set up network route interception for resource blocking and optimization
 
@@ -649,7 +653,7 @@ class PlaywrightBrowser:
             self.context = None
             self.browser = None
             self.playwright = None
-    
+
     async def _ensure_browser(self) -> None:
         """Ensure browser connection is active and healthy
 
@@ -802,11 +806,11 @@ class PlaywrightBrowser:
         except Exception as e:
             logger.debug(f"Navigation wait error: {e}")
             return False
-    
-    async def _extract_content(self) -> Dict[str, Any]:
+
+    async def _extract_content(self) -> dict[str, Any]:
         """Extract content from the current page"""
 
-        # Execute JavaScript to get elements in the viewport    
+        # Execute JavaScript to get elements in the viewport
         visible_content = await self.page.evaluate("""() => {
             const visibleElements = [];
             const viewportHeight = window.innerHeight;
@@ -853,7 +857,7 @@ class PlaywrightBrowser:
             return '<div>' + visibleElements.join('') + '</div>';
         }""")
 
-        
+
         # Convert to Markdown
         markdown_content = markdownify(visible_content)
 
@@ -867,9 +871,9 @@ class PlaywrightBrowser:
             "content": markdown_content[:max_content_length]
         }
         ])
-        
+
         return response.get("content", "")
-    
+
     async def view_page(self, wait_for_load: bool = True) -> ToolResult:
         """View visible elements within the current page's viewport and convert to Markdown format
 
@@ -912,16 +916,16 @@ class PlaywrightBrowser:
             logger.error(f"Error viewing page: {e}")
             return ToolResult(
                 success=False,
-                message=f"Failed to view page: {str(e)}"
+                message=f"Failed to view page: {e!s}"
             )
-    
-    async def _extract_interactive_elements(self) -> List[str]:
+
+    async def _extract_interactive_elements(self) -> list[str]:
         """Return a list of visible interactive elements on the page, formatted as index:<tag>text</tag>"""
         await self._ensure_page()
 
         # Clear the cache to ensure we get fresh elements
         self._interactive_elements_cache = []
-        
+
         # Execute JavaScript to get interactive elements in the viewport
         interactive_elements = await self.page.evaluate("""() => {
             const interactiveElements = [];
@@ -1062,18 +1066,18 @@ class PlaywrightBrowser:
             
             return interactiveElements;
         }""")
-        
+
         # Update cache
         self._interactive_elements_cache = interactive_elements
-        
+
         # Format element information in specified format
         formatted_elements = []
         for el in interactive_elements:
             formatted_elements.append(f"{el['index']}:<{el['tag']}>{el['text']}</{el['tag']}>")
-        
+
         return formatted_elements
-    
-    async def navigate(self, url: str, timeout: Optional[int] = 30000, wait_until: str = "domcontentloaded", auto_extract: bool = True) -> ToolResult:
+
+    async def navigate(self, url: str, timeout: int | None = 30000, wait_until: str = "domcontentloaded", auto_extract: bool = True) -> ToolResult:
         """Navigate to the specified URL with automatic content loading and extraction
 
         Args:
@@ -1190,14 +1194,14 @@ class PlaywrightBrowser:
 
                 return ToolResult(
                     success=True,
-                    message=f"Navigation timed out but page partially loaded",
+                    message="Navigation timed out but page partially loaded",
                     data=result_data
                 )
             except Exception:
                 return ToolResult(success=False, message=f"Navigation to {url} timed out")
         except Exception as e:
-            return ToolResult(success=False, message=f"Failed to navigate to {url}: {str(e)}")
-    
+            return ToolResult(success=False, message=f"Failed to navigate to {url}: {e!s}")
+
     async def restart(self, url: str) -> ToolResult:
         """Restart the browser and navigate to the specified URL
 
@@ -1215,7 +1219,7 @@ class PlaywrightBrowser:
             )
         return await self.navigate(url)
 
-    async def set_resource_blocking(self, enabled: bool, resource_types: Optional[Set[str]] = None) -> None:
+    async def set_resource_blocking(self, enabled: bool, resource_types: set[str] | None = None) -> None:
         """Enable or disable resource blocking for performance optimization
 
         Args:
@@ -1244,8 +1248,8 @@ class PlaywrightBrowser:
         """
         return self._connection_healthy and self.browser is not None and self.page is not None
 
-    
-    async def _get_element_by_index(self, index: int) -> Optional[Any]:
+
+    async def _get_element_by_index(self, index: int) -> Any | None:
         """Get element by index using data-manus-id selector
 
         Args:
@@ -1273,12 +1277,12 @@ class PlaywrightBrowser:
             logger.debug(f"Error getting element by index {index}: {e}")
 
         return None
-    
+
     async def click(
         self,
-        index: Optional[int] = None,
-        coordinate_x: Optional[float] = None,
-        coordinate_y: Optional[float] = None,
+        index: int | None = None,
+        coordinate_x: float | None = None,
+        coordinate_y: float | None = None,
         wait_for_navigation: bool = True
     ) -> ToolResult:
         """Click an element with proper visibility checking and navigation waiting
@@ -1363,17 +1367,17 @@ class PlaywrightBrowser:
             return ToolResult(success=True)
 
         except PlaywrightError as e:
-            return ToolResult(success=False, message=f"Click failed: {str(e)}")
+            return ToolResult(success=False, message=f"Click failed: {e!s}")
         except Exception as e:
-            return ToolResult(success=False, message=f"Failed to click element: {str(e)}")
-    
+            return ToolResult(success=False, message=f"Failed to click element: {e!s}")
+
     async def input(
         self,
         text: str,
         press_enter: bool,
-        index: Optional[int] = None,
-        coordinate_x: Optional[float] = None,
-        coordinate_y: Optional[float] = None,
+        index: int | None = None,
+        coordinate_x: float | None = None,
+        coordinate_y: float | None = None,
         clear_first: bool = True
     ) -> ToolResult:
         """Input text into an element with proper clearing and error handling
@@ -1445,7 +1449,7 @@ class PlaywrightBrowser:
                     except Exception as e:
                         return ToolResult(
                             success=False,
-                            message=f"Failed to input text using both fill and type methods: {str(e)}"
+                            message=f"Failed to input text using both fill and type methods: {e!s}"
                         )
             else:
                 return ToolResult(
@@ -1461,8 +1465,8 @@ class PlaywrightBrowser:
             return ToolResult(success=True)
 
         except Exception as e:
-            return ToolResult(success=False, message=f"Failed to input text: {str(e)}")
-    
+            return ToolResult(success=False, message=f"Failed to input text: {e!s}")
+
     async def move_mouse(
         self,
         coordinate_x: float,
@@ -1472,13 +1476,13 @@ class PlaywrightBrowser:
         await self._ensure_page()
         await self.page.mouse.move(coordinate_x, coordinate_y)
         return ToolResult(success=True)
-    
+
     async def press_key(self, key: str) -> ToolResult:
         """Simulate key press"""
         await self._ensure_page()
         await self.page.keyboard.press(key)
         return ToolResult(success=True)
-    
+
     async def select_option(
         self,
         index: int,
@@ -1490,16 +1494,16 @@ class PlaywrightBrowser:
             element = await self._get_element_by_index(index)
             if not element:
                 return ToolResult(success=False, message=f"Cannot find selector element with index {index}")
-            
+
             # Try to select the option
             await element.select_option(index=option)
             return ToolResult(success=True)
         except Exception as e:
-            return ToolResult(success=False, message=f"Failed to select option: {str(e)}")
-    
+            return ToolResult(success=False, message=f"Failed to select option: {e!s}")
+
     async def scroll_up(
         self,
-        to_top: Optional[bool] = None
+        to_top: bool | None = None
     ) -> ToolResult:
         """Scroll up on the current page
 
@@ -1544,11 +1548,11 @@ class PlaywrightBrowser:
                 }
             )
         except Exception as e:
-            return ToolResult(success=False, message=f"Scroll up failed: {str(e)}")
+            return ToolResult(success=False, message=f"Scroll up failed: {e!s}")
 
     async def scroll_down(
         self,
-        to_bottom: Optional[bool] = None
+        to_bottom: bool | None = None
     ) -> ToolResult:
         """Scroll down on the current page with smart lazy content detection
 
@@ -1607,11 +1611,11 @@ class PlaywrightBrowser:
                 }
             )
         except Exception as e:
-            return ToolResult(success=False, message=f"Scroll down failed: {str(e)}")
-    
+            return ToolResult(success=False, message=f"Scroll down failed: {e!s}")
+
     async def screenshot(
         self,
-        full_page: Optional[bool] = False
+        full_page: bool | None = False
     ) -> bytes:
         """Take a screenshot of the current page
         
@@ -1622,16 +1626,16 @@ class PlaywrightBrowser:
             bytes: PNG screenshot data
         """
         await self._ensure_page()
-        
+
         # Configure screenshot options
         screenshot_options = {
             "full_page": full_page,
             "type": "png"
         }
-        
+
         # Return bytes data directly
         return await self.page.screenshot(**screenshot_options)
-    
+
     # SECURITY: Dangerous JavaScript patterns that should be blocked
     # unless browser_allow_dangerous_js is explicitly enabled
     _DANGEROUS_JS_PATTERNS = [
@@ -1715,8 +1719,8 @@ class PlaywrightBrowser:
         except Exception as e:
             logger.error(f"JavaScript execution error: {e}")
             return ToolResult(success=False, error=str(e))
-    
-    async def console_view(self, max_lines: Optional[int] = None) -> ToolResult:
+
+    async def console_view(self, max_lines: int | None = None) -> ToolResult:
         """View console output"""
         await self._ensure_page()
         logs = await self.page.evaluate("""() => {

@@ -1,51 +1,49 @@
-from typing import Optional, AsyncGenerator, List, Union, TYPE_CHECKING
 import asyncio
 import logging
 import time
-from pydantic import TypeAdapter
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING, Optional, Union
 
-from app.domain.models.message import Message
+from pydantic import TypeAdapter
+
+from app.application.services.usage_service import get_usage_service
+from app.domain.external.browser import Browser
+from app.domain.external.file import FileStorage
+from app.domain.external.llm import LLM
+from app.domain.external.sandbox import Sandbox
+from app.domain.external.search import SearchEngine
+from app.domain.external.task import Task, TaskRunner
 from app.domain.models.event import (
-    BaseEvent,
-    ErrorEvent,
-    TitleEvent,
-    MessageEvent,
-    DoneEvent,
-    ToolEvent,
-    WaitEvent,
-    FileToolContent,
-    ShellToolContent,
-    SearchToolContent,
-    BrowserToolContent,
-    BrowserAgentToolContent,
-    ToolStatus,
     AgentEvent,
+    BaseEvent,
+    BrowserAgentToolContent,
+    BrowserToolContent,
+    DoneEvent,
+    ErrorEvent,
+    FileToolContent,
     McpToolContent,
+    MessageEvent,
     ModeChangeEvent,
     ReportEvent,
+    SearchToolContent,
+    ShellToolContent,
+    TitleEvent,
+    ToolEvent,
+    ToolStatus,
+    WaitEvent,
 )
-from app.domain.models.session import SessionStatus, AgentMode
 from app.domain.models.file import FileInfo
-from app.domain.models.tool_result import ToolResult
+from app.domain.models.message import Message
 from app.domain.models.search import SearchResults
-
-from app.domain.external.sandbox import Sandbox
-from app.domain.external.browser import Browser
-from app.domain.external.search import SearchEngine
-from app.domain.external.llm import LLM
-from app.domain.external.file import FileStorage
-from app.domain.external.task import TaskRunner, Task
-
+from app.domain.models.session import AgentMode, SessionStatus
+from app.domain.models.tool_result import ToolResult
 from app.domain.repositories.agent_repository import AgentRepository
-from app.domain.repositories.session_repository import SessionRepository
 from app.domain.repositories.mcp_repository import MCPRepository
-
-from app.domain.utils.json_parser import JsonParser
-from app.domain.utils.diff import build_unified_diff
-
-from app.domain.services.flows.plan_act import PlanActFlow
+from app.domain.repositories.session_repository import SessionRepository
+from app.domain.services.agents.usage_context import UsageContextManager
 from app.domain.services.flows.discuss import DiscussFlow
+from app.domain.services.flows.plan_act import PlanActFlow
 from app.domain.services.langgraph import LangGraphPlanActFlow
 from app.domain.services.orchestration.coordinator_flow import (
     CoordinatorFlow,
@@ -53,9 +51,8 @@ from app.domain.services.orchestration.coordinator_flow import (
     create_coordinator_flow,
 )
 from app.domain.services.tools.mcp import MCPTool
-from app.domain.services.agents.usage_context import UsageContextManager
-from app.application.services.usage_service import get_usage_service
-from app.core.config import get_settings
+from app.domain.utils.diff import build_unified_diff
+from app.domain.utils.json_parser import JsonParser
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
@@ -88,7 +85,7 @@ class AgentTaskRunner(TaskRunner):
         json_parser: JsonParser,
         file_storage: FileStorage,
         mcp_repository: MCPRepository,
-        search_engine: Optional[SearchEngine] = None,
+        search_engine: SearchEngine | None = None,
         mode: AgentMode = AgentMode.AGENT,
         enable_multi_agent: bool = True,
         enable_coordinator: bool = False,
@@ -126,10 +123,10 @@ class AgentTaskRunner(TaskRunner):
         self._pending_tool_calls: dict[str, dict] = {}
 
         # Initialize flows based on mode
-        self._plan_act_flow: Optional[PlanActFlow] = None
-        self._langgraph_flow: Optional[LangGraphPlanActFlow] = None
-        self._discuss_flow: Optional[DiscussFlow] = None
-        self._coordinator_flow: Optional[CoordinatorFlow] = None
+        self._plan_act_flow: PlanActFlow | None = None
+        self._langgraph_flow: LangGraphPlanActFlow | None = None
+        self._discuss_flow: DiscussFlow | None = None
+        self._coordinator_flow: CoordinatorFlow | None = None
 
         if mode == AgentMode.AGENT:
             if enable_coordinator:
@@ -255,17 +252,17 @@ class AgentTaskRunner(TaskRunner):
         event_id = await task.output_stream.put(event.model_dump_json())
         event.id = event_id
         await self._session_repository.add_event(self._session_id, event)
-    
+
     async def _pop_event(self, task: Task) -> AgentEvent:
         event_id, event_str = await task.input_stream.pop()
         if event_str is None:
             logger.warning(f"Agent {self._agent_id} received empty message")
-            return
+            return None
         event = TypeAdapter(AgentEvent).validate_json(event_str)
         event.id = event_id
         return event
 
-    async def _sync_file_to_storage(self, file_path: str) -> Optional[FileInfo]:
+    async def _sync_file_to_storage(self, file_path: str) -> FileInfo | None:
         """
         Download a file from the sandbox and upload it to GridFS storage.
 
@@ -370,8 +367,8 @@ class AgentTaskRunner(TaskRunner):
                 f"Agent {self._agent_id}: Failed to sync file '{file_path}': {e}"
             )
             return None
-    
-    async def _sync_file_to_sandbox(self, file_id: str) -> Optional[FileInfo]:
+
+    async def _sync_file_to_sandbox(self, file_id: str) -> FileInfo | None:
         """Download file from storage to sandbox"""
         try:
             file_data, file_info = await self._file_storage.download_file(file_id, self._user_id)
@@ -397,7 +394,7 @@ class AgentTaskRunner(TaskRunner):
         Args:
             event: An event with an attachments field (MessageEvent or ReportEvent)
         """
-        synced_attachments: List[FileInfo] = []
+        synced_attachments: list[FileInfo] = []
         event_type = event.type
 
         try:
@@ -580,10 +577,10 @@ class AgentTaskRunner(TaskRunner):
             None,
             "confirmed",
         )
-    
+
     async def _sync_message_attachments_to_sandbox(self, event: MessageEvent) -> None:
         """Sync message attachments concurrently and update event attachments"""
-        attachments: List[FileInfo] = []
+        attachments: list[FileInfo] = []
         try:
             if event.attachments:
                 # Sync all attachments concurrently
@@ -611,7 +608,7 @@ class AgentTaskRunner(TaskRunner):
             event.attachments = attachments
         except Exception as e:
             logger.exception(f"Agent {self._agent_id} failed to sync attachments to event: {e}")
-    
+
     @asynccontextmanager
     async def _usage_context(self):
         """Ensure LLM usage is attributed to the current user/session."""
@@ -660,9 +657,7 @@ class AgentTaskRunner(TaskRunner):
                     event.action_type = "edit"
                 else:
                     event.action_type = "edit"
-            elif event.tool_name == "browser":
-                event.action_type = "browse"
-            elif event.tool_name == "browser_agent":
+            elif event.tool_name == "browser" or event.tool_name == "browser_agent":
                 event.action_type = "browse"
             elif event.tool_name == "search":
                 event.action_type = "search"
@@ -885,11 +880,11 @@ class AgentTaskRunner(TaskRunner):
                 if isinstance(event, MessageEvent):
                     message = event.message or ""
                     await self._sync_message_attachments_to_sandbox(event)
-                    
+
                 logger.info(f"Agent {self._agent_id} received new message: {message[:50]}...")
 
                 message_obj = Message(message=message, attachments=[attachment.file_path for attachment in event.attachments])
-                
+
                 async for event in self._run_flow(message_obj, task):
                     # Check if task is paused (for user takeover)
                     while task.paused:
@@ -914,11 +909,11 @@ class AgentTaskRunner(TaskRunner):
             await self._put_and_add_event(task, DoneEvent())
             await self._session_repository.update_status(self._session_id, SessionStatus.COMPLETED)
         except Exception as e:
-            logger.exception(f"Agent {self._agent_id} task encountered exception: {str(e)}")
-            await self._put_and_add_event(task, ErrorEvent(error=f"Task error: {str(e)}"))
+            logger.exception(f"Agent {self._agent_id} task encountered exception: {e!s}")
+            await self._put_and_add_event(task, ErrorEvent(error=f"Task error: {e!s}"))
             await self._session_repository.update_status(self._session_id, SessionStatus.COMPLETED)
-    
-    async def _run_flow(self, message: Message, task: Optional[Task] = None) -> AsyncGenerator[BaseEvent, None]:
+
+    async def _run_flow(self, message: Message, task: Task | None = None) -> AsyncGenerator[BaseEvent, None]:
         """Process a single message through the agent's flow and yield events
 
         Args:
@@ -930,7 +925,7 @@ class AgentTaskRunner(TaskRunner):
             yield ErrorEvent(error="No message")
             return
 
-        mode_switch_task: Optional[str] = None
+        mode_switch_task: str | None = None
 
         async with self._usage_context():
             async for event in self._flow.run(message):
@@ -983,7 +978,7 @@ class AgentTaskRunner(TaskRunner):
 
         logger.info(f"Agent {self._agent_id} completed processing one message")
 
-    
+
     async def on_done(self, task: Task) -> None:
         """Called when the task is done"""
         logger.info(f"Agent {self._agent_id} task done")

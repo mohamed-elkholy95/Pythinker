@@ -7,10 +7,10 @@ PlanActFlow for approval checkpoints at critical operations.
 """
 
 import logging
-from enum import Enum
 from dataclasses import dataclass, field
-from typing import Optional, Set, Dict, Any, List
-from datetime import datetime, timedelta
+from datetime import datetime
+from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class ActionCategory(str, Enum):
 
 
 # Actions that require confirmation at each autonomy level
-CONFIRMATION_REQUIRED: Dict[AutonomyLevel, Set[ActionCategory]] = {
+CONFIRMATION_REQUIRED: dict[AutonomyLevel, set[ActionCategory]] = {
     AutonomyLevel.SUPERVISED: set(ActionCategory),  # All actions
     AutonomyLevel.GUIDED: {
         ActionCategory.CREDENTIAL_ACCESS,
@@ -81,8 +81,8 @@ class PermissionFlags:
     allow_system_config: bool = False  # Disabled by default
 
     # Domain/URL restrictions for external requests
-    allowed_domains: Optional[Set[str]] = None  # None = all allowed
-    blocked_domains: Set[str] = field(default_factory=lambda: {
+    allowed_domains: set[str] | None = None  # None = all allowed
+    blocked_domains: set[str] = field(default_factory=lambda: {
         "localhost",
         "127.0.0.1",
         "0.0.0.0",
@@ -90,8 +90,8 @@ class PermissionFlags:
     })
 
     # Path restrictions for file operations
-    allowed_paths: Optional[Set[str]] = None  # None = all allowed
-    blocked_paths: Set[str] = field(default_factory=lambda: {
+    allowed_paths: set[str] | None = None  # None = all allowed
+    blocked_paths: set[str] = field(default_factory=lambda: {
         "/etc",
         "/var",
         "/usr",
@@ -149,12 +149,12 @@ class SafetyLimits:
     max_tool_calls: int = 300  # Maximum tool invocations per run (codebase analysis needs more)
     max_execution_time_seconds: int = 3600  # 60 minutes for complex tasks
     max_tokens_per_run: int = 500000  # Token limit across all LLM calls
-    max_cost_usd: Optional[float] = None  # Optional cost limit
+    max_cost_usd: float | None = None  # Optional cost limit
 
     # Tracking counters (not config, but state)
     current_iterations: int = field(default=0, repr=False)
     current_tool_calls: int = field(default=0, repr=False)
-    start_time: Optional[datetime] = field(default=None, repr=False)
+    start_time: datetime | None = field(default=None, repr=False)
     current_tokens: int = field(default=0, repr=False)
     current_cost: float = field(default=0.0, repr=False)
 
@@ -245,7 +245,7 @@ class SafetyLimits:
             return False
         return True
 
-    def check_all_limits(self) -> tuple[bool, Optional[str]]:
+    def check_all_limits(self) -> tuple[bool, str | None]:
         """
         Check all limits at once.
 
@@ -269,7 +269,7 @@ class SafetyLimits:
 
         return True, None
 
-    def get_remaining(self) -> Dict[str, Any]:
+    def get_remaining(self) -> dict[str, Any]:
         """Get remaining capacity for all limits."""
         elapsed = 0
         if self.start_time:
@@ -292,12 +292,12 @@ class ApprovalRequest:
     """Request for user approval of an action."""
     action_category: ActionCategory
     action_description: str
-    tool_name: Optional[str] = None
-    parameters: Optional[Dict[str, Any]] = None
+    tool_name: str | None = None
+    parameters: dict[str, Any] | None = None
     risk_level: str = "medium"  # low, medium, high, critical
     timestamp: datetime = field(default_factory=datetime.now)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "action_category": self.action_category.value,
@@ -320,8 +320,8 @@ class AutonomyConfig:
     def __init__(
         self,
         level: AutonomyLevel = AutonomyLevel.GUIDED,
-        permissions: Optional[PermissionFlags] = None,
-        limits: Optional[SafetyLimits] = None,
+        permissions: PermissionFlags | None = None,
+        limits: SafetyLimits | None = None,
     ):
         """
         Initialize autonomy configuration.
@@ -336,10 +336,10 @@ class AutonomyConfig:
         self.limits = limits or SafetyLimits()
 
         # Pending approval requests
-        self._pending_approvals: List[ApprovalRequest] = []
+        self._pending_approvals: list[ApprovalRequest] = []
 
         # Approval callback (set by PlanActFlow)
-        self._approval_callback: Optional[callable] = None
+        self._approval_callback: callable | None = None
 
         logger.info(f"Autonomy config initialized: level={level.value}")
 
@@ -406,8 +406,8 @@ class AutonomyConfig:
         self,
         action_category: ActionCategory,
         action_description: str,
-        tool_name: Optional[str] = None,
-        parameters: Optional[Dict[str, Any]] = None,
+        tool_name: str | None = None,
+        parameters: dict[str, Any] | None = None,
         risk_level: str = "medium",
     ) -> bool:
         """
@@ -507,7 +507,7 @@ class AutonomyConfig:
         # Default to external request for unknown tools
         return ActionCategory.NETWORK_REQUEST
 
-    def check_limits(self) -> tuple[bool, Optional[str]]:
+    def check_limits(self) -> tuple[bool, str | None]:
         """
         Check all safety limits.
 
@@ -521,7 +521,7 @@ class AutonomyConfig:
         self.limits.start_run()
         self._pending_approvals.clear()
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Get current autonomy status for monitoring."""
         within_limits, reason = self.check_limits()
         return {
@@ -581,7 +581,7 @@ class AutonomyConfig:
 
 
 # Singleton instance
-_autonomy_config: Optional[AutonomyConfig] = None
+_autonomy_config: AutonomyConfig | None = None
 
 
 def get_autonomy_config() -> AutonomyConfig:

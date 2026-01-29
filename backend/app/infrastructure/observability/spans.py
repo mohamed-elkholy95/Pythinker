@@ -9,15 +9,12 @@ Spans represent units of work within the agent system, providing visibility into
 Designed to be compatible with OpenTelemetry semantics for future integration.
 """
 
+import logging
 import time
 import uuid
-import logging
-from enum import Enum
-from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
-from datetime import datetime
-from contextlib import asynccontextmanager
-
+from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +44,7 @@ class SpanEvent:
     """An event that occurred during a span's lifetime."""
     name: str
     timestamp: float = field(default_factory=time.time)
-    attributes: Dict[str, Any] = field(default_factory=dict)
+    attributes: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -82,33 +79,33 @@ class Span:
     """
     span_id: str = field(default_factory=lambda: str(uuid.uuid4())[:16])
     trace_id: str = ""
-    parent_span_id: Optional[str] = None
+    parent_span_id: str | None = None
     name: str = ""
     kind: SpanKind = SpanKind.INTERNAL
     start_time: float = field(default_factory=time.time)
-    end_time: Optional[float] = None
+    end_time: float | None = None
     status: SpanStatus = SpanStatus.UNSET
-    status_message: Optional[str] = None
-    attributes: Dict[str, Any] = field(default_factory=dict)
-    events: List[SpanEvent] = field(default_factory=list)
-    token_usage: Optional[TokenUsage] = None
+    status_message: str | None = None
+    attributes: dict[str, Any] = field(default_factory=dict)
+    events: list[SpanEvent] = field(default_factory=list)
+    token_usage: TokenUsage | None = None
 
     def set_attribute(self, key: str, value: Any) -> None:
         """Set a single attribute on the span."""
         self.attributes[key] = value
 
-    def set_attributes(self, attributes: Dict[str, Any]) -> None:
+    def set_attributes(self, attributes: dict[str, Any]) -> None:
         """Set multiple attributes on the span."""
         self.attributes.update(attributes)
 
-    def add_event(self, name: str, attributes: Optional[Dict[str, Any]] = None) -> None:
+    def add_event(self, name: str, attributes: dict[str, Any] | None = None) -> None:
         """Add an event to the span timeline."""
         self.events.append(SpanEvent(
             name=name,
             attributes=attributes or {}
         ))
 
-    def set_status(self, status: SpanStatus, message: Optional[str] = None) -> None:
+    def set_status(self, status: SpanStatus, message: str | None = None) -> None:
         """Set the span's final status."""
         self.status = status
         if message:
@@ -128,7 +125,7 @@ class Span:
             cached_tokens=cached_tokens
         )
 
-    def end(self, status: Optional[SpanStatus] = None) -> None:
+    def end(self, status: SpanStatus | None = None) -> None:
         """Mark the span as ended."""
         self.end_time = time.time()
         if status:
@@ -137,13 +134,13 @@ class Span:
             self.status = SpanStatus.OK
 
     @property
-    def duration_ms(self) -> Optional[float]:
+    def duration_ms(self) -> float | None:
         """Get span duration in milliseconds."""
         if self.end_time is None:
             return None
         return (self.end_time - self.start_time) * 1000
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert span to dictionary for serialization."""
         return {
             "span_id": self.span_id,
@@ -174,7 +171,7 @@ def create_llm_span(
     trace_id: str,
     name: str,
     model: str,
-    parent_span_id: Optional[str] = None
+    parent_span_id: str | None = None
 ) -> Span:
     """Create a span for an LLM call."""
     span = Span(
@@ -191,7 +188,7 @@ def create_tool_span(
     trace_id: str,
     tool_name: str,
     function_name: str,
-    parent_span_id: Optional[str] = None
+    parent_span_id: str | None = None
 ) -> Span:
     """Create a span for a tool execution."""
     span = Span(
@@ -210,7 +207,7 @@ def create_tool_span(
 def create_flow_span(
     trace_id: str,
     state: str,
-    parent_span_id: Optional[str] = None
+    parent_span_id: str | None = None
 ) -> Span:
     """Create a span for a flow state transition."""
     span = Span(

@@ -10,13 +10,13 @@ Key Features:
 - Usage-based tool prioritization
 """
 
+import asyncio
 import logging
 import re
-import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional, Set, Tuple
+from datetime import datetime
 from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -90,10 +90,10 @@ class ToolInfo:
     name: str
     description: str
     category: ToolCategory
-    schema: Dict[str, Any]
-    keywords: Set[str] = field(default_factory=set)
+    schema: dict[str, Any]
+    keywords: set[str] = field(default_factory=set)
     usage_count: int = 0
-    last_used: Optional[datetime] = None
+    last_used: datetime | None = None
     average_duration_ms: float = 0
 
 
@@ -102,7 +102,7 @@ class ToolsetConfig:
     """Configuration for dynamic toolset management."""
     enabled: bool = True
     max_tools_per_request: int = 20  # Maximum tools to include
-    always_include: Set[str] = field(default_factory=lambda: {
+    always_include: set[str] = field(default_factory=lambda: {
         "message_ask_user",  # Always need user communication
         "file_read",         # Common operation
         "file_write",        # Common operation
@@ -127,24 +127,24 @@ class DynamicToolsetManager:
         )
     """
 
-    def __init__(self, config: Optional[ToolsetConfig] = None):
+    def __init__(self, config: ToolsetConfig | None = None):
         """Initialize the toolset manager.
 
         Args:
             config: Optional configuration settings
         """
         self.config = config or ToolsetConfig()
-        self._tools: Dict[str, ToolInfo] = {}
-        self._category_index: Dict[ToolCategory, List[str]] = {
+        self._tools: dict[str, ToolInfo] = {}
+        self._category_index: dict[ToolCategory, list[str]] = {
             cat: [] for cat in ToolCategory
         }
-        self._keyword_index: Dict[str, Set[str]] = {}  # keyword -> tool names
+        self._keyword_index: dict[str, set[str]] = {}  # keyword -> tool names
 
         # Task-type based tool cache for prefetching
-        self._task_type_cache: Dict[str, Tuple[List[Dict[str, Any]], datetime]] = {}
-        self._prefetch_in_progress: Dict[str, bool] = {}
+        self._task_type_cache: dict[str, tuple[list[dict[str, Any]], datetime]] = {}
+        self._prefetch_in_progress: dict[str, bool] = {}
 
-    def register_tools(self, tools: List[Dict[str, Any]]) -> None:
+    def register_tools(self, tools: list[dict[str, Any]]) -> None:
         """Register tools for filtering.
 
         Args:
@@ -194,7 +194,7 @@ class DynamicToolsetManager:
 
         return ToolCategory.SYSTEM
 
-    def _extract_keywords(self, name: str, description: str) -> Set[str]:
+    def _extract_keywords(self, name: str, description: str) -> set[str]:
         """Extract searchable keywords from tool name and description."""
         keywords = set()
 
@@ -216,7 +216,7 @@ class DynamicToolsetManager:
 
         return keywords
 
-    def detect_task_type(self, task_description: str) -> List[str]:
+    def detect_task_type(self, task_description: str) -> list[str]:
         """Detect task types from description.
 
         Args:
@@ -240,8 +240,8 @@ class DynamicToolsetManager:
         self,
         task_description: str,
         include_mcp: bool = True,
-        additional_tools: Optional[List[str]] = None
-    ) -> List[Dict[str, Any]]:
+        additional_tools: list[str] | None = None
+    ) -> list[dict[str, Any]]:
         """Get relevant tools for a task.
 
         Args:
@@ -273,7 +273,7 @@ class DynamicToolsetManager:
             relevant_categories.add(ToolCategory.MCP)
 
         # Collect candidate tools
-        candidates: Dict[str, float] = {}  # tool_name -> score
+        candidates: dict[str, float] = {}  # tool_name -> score
 
         # Add category-based tools
         for category in relevant_categories:
@@ -330,7 +330,7 @@ class DynamicToolsetManager:
 
         return result
 
-    def _keyword_search(self, query: str) -> Dict[str, float]:
+    def _keyword_search(self, query: str) -> dict[str, float]:
         """Search tools by keyword matching.
 
         Args:
@@ -343,7 +343,7 @@ class DynamicToolsetManager:
             re.findall(r'\b\w{3,}\b', query.lower())
         )
 
-        scores: Dict[str, float] = {}
+        scores: dict[str, float] = {}
 
         for keyword in query_keywords:
             # Exact matches
@@ -363,8 +363,8 @@ class DynamicToolsetManager:
         self,
         query: str,
         limit: int = 10,
-        category: Optional[ToolCategory] = None
-    ) -> List[Tuple[str, float, str]]:
+        category: ToolCategory | None = None
+    ) -> list[tuple[str, float, str]]:
         """Search for tools semantically.
 
         Args:
@@ -427,7 +427,7 @@ class DynamicToolsetManager:
                     info.average_duration_ms * 0.8 + duration_ms * 0.2
                 )
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get toolset statistics."""
         category_counts = {
             cat.value: len(tools)
@@ -451,7 +451,7 @@ class DynamicToolsetManager:
             }
         }
 
-    def get_all_tools(self) -> List[Dict[str, Any]]:
+    def get_all_tools(self) -> list[dict[str, Any]]:
         """Get all registered tools (bypass filtering)."""
         return [t.schema for t in self._tools.values()]
 
@@ -492,7 +492,7 @@ class DynamicToolsetManager:
         self,
         message: str,
         include_mcp: bool = True
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Prefetch and cache tools based on message/task type.
 
         This method is optimized for speed - uses cached results when available
@@ -528,7 +528,7 @@ class DynamicToolsetManager:
         self,
         message: str,
         include_mcp: bool = True
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Async version of prefetch for use in parallel operations.
 
         Can be run concurrently with other async operations like planning.
@@ -544,7 +544,7 @@ class DynamicToolsetManager:
         cache_key = f"{task_type}_{include_mcp}"
 
         # Check if prefetch is already in progress
-        if cache_key in self._prefetch_in_progress and self._prefetch_in_progress[cache_key]:
+        if self._prefetch_in_progress.get(cache_key):
             # Wait for existing prefetch to complete
             while self._prefetch_in_progress.get(cache_key, False):
                 await asyncio.sleep(0.01)
@@ -586,7 +586,7 @@ class DynamicToolsetManager:
         self._prefetch_in_progress.clear()
         logger.debug("Tool prefetch cache cleared")
 
-    def get_cache_stats(self) -> Dict[str, Any]:
+    def get_cache_stats(self) -> dict[str, Any]:
         """Get statistics about the tool cache."""
         cache_entries = []
         for key, (tools, cached_time) in self._task_type_cache.items():
@@ -614,7 +614,7 @@ class CacheWarmupManager:
     """
 
     def __init__(self):
-        self._warmup_tasks: List[Dict[str, Any]] = []
+        self._warmup_tasks: list[dict[str, Any]] = []
         self._warmed_up = False
 
     def register_warmup_task(
@@ -637,7 +637,7 @@ class CacheWarmupManager:
         })
         self._warmup_tasks.sort(key=lambda x: x["priority"])
 
-    async def warmup(self, max_concurrent: int = 3) -> Dict[str, bool]:
+    async def warmup(self, max_concurrent: int = 3) -> dict[str, bool]:
         """Execute cache warmup tasks.
 
         Args:
@@ -648,10 +648,10 @@ class CacheWarmupManager:
         """
         import asyncio
 
-        results: Dict[str, bool] = {}
+        results: dict[str, bool] = {}
         semaphore = asyncio.Semaphore(max_concurrent)
 
-        async def run_task(task: Dict[str, Any]) -> Tuple[str, bool]:
+        async def run_task(task: dict[str, Any]) -> tuple[str, bool]:
             async with semaphore:
                 try:
                     await task["factory"]()
@@ -683,8 +683,8 @@ class CacheWarmupManager:
 
 
 # Global instances
-_toolset_manager: Optional[DynamicToolsetManager] = None
-_warmup_manager: Optional[CacheWarmupManager] = None
+_toolset_manager: DynamicToolsetManager | None = None
+_warmup_manager: CacheWarmupManager | None = None
 
 
 def get_toolset_manager() -> DynamicToolsetManager:

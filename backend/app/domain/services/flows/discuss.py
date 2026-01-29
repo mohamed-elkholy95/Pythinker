@@ -3,38 +3,38 @@ Discuss Flow
 Simple Q&A conversation flow with search capabilities.
 No task planning - direct responses with optional mode switching to Agent.
 """
+import json
 import logging
 import re
-import json
-from typing import AsyncGenerator, Optional, List
+from collections.abc import AsyncGenerator
 from enum import Enum
 
-from app.domain.services.flows.base import BaseFlow
-from app.domain.models.message import Message
-from app.domain.models.event import (
-    BaseEvent,
-    MessageEvent,
-    DoneEvent,
-    ErrorEvent,
-    ToolEvent,
-    ToolStatus,
-    ModeChangeEvent,
-    SuggestionEvent,
-)
-from app.domain.services.agents.base import BaseAgent
 from app.domain.external.llm import LLM
 from app.domain.external.search import SearchEngine
+from app.domain.models.event import (
+    BaseEvent,
+    DoneEvent,
+    ErrorEvent,
+    MessageEvent,
+    ModeChangeEvent,
+    SuggestionEvent,
+    ToolEvent,
+    ToolStatus,
+)
+from app.domain.models.message import Message
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.session_repository import SessionRepository
-from app.domain.utils.json_parser import JsonParser
-from app.domain.services.prompts.system import CORE_PROMPT
+from app.domain.services.agents.base import BaseAgent
+from app.domain.services.flows.base import BaseFlow
 from app.domain.services.prompts.discuss import (
     DISCUSS_SYSTEM_PROMPT,
     build_discuss_prompt,
 )
+from app.domain.services.prompts.system import CORE_PROMPT
+from app.domain.services.tools.agent_mode import AgentModeTool
 from app.domain.services.tools.base import BaseTool
 from app.domain.services.tools.search import SearchTool
-from app.domain.services.tools.agent_mode import AgentModeTool
+from app.domain.utils.json_parser import JsonParser
 
 logger = logging.getLogger(__name__)
 
@@ -56,14 +56,14 @@ class DiscussAgent(BaseAgent):
 
     name: str = "discuss"
     system_prompt: str = CORE_PROMPT + DISCUSS_SYSTEM_PROMPT
-    format: Optional[str] = None  # No strict JSON format for conversational responses
+    format: str | None = None  # No strict JSON format for conversational responses
 
     def __init__(
         self,
         agent_id: str,
         agent_repository: AgentRepository,
         llm: LLM,
-        tools: List[BaseTool],
+        tools: list[BaseTool],
         json_parser: JsonParser,
     ):
         super().__init__(
@@ -94,7 +94,7 @@ class DiscussFlow(BaseFlow):
         session_repository: SessionRepository,
         llm: LLM,
         json_parser: JsonParser,
-        search_engine: Optional[SearchEngine] = None,
+        search_engine: SearchEngine | None = None,
     ):
         self._agent_id = agent_id
         self._repository = agent_repository
@@ -104,11 +104,11 @@ class DiscussFlow(BaseFlow):
         self._json_parser = json_parser
 
         self.status = DiscussStatus.IDLE
-        self._mode_switch_task: Optional[str] = None
+        self._mode_switch_task: str | None = None
 
         # Initialize tools - limited set for discuss mode
         self._agent_mode_tool = AgentModeTool()
-        tools: List[BaseTool] = [self._agent_mode_tool]
+        tools: list[BaseTool] = [self._agent_mode_tool]
 
         if search_engine:
             tools.append(SearchTool(search_engine))
@@ -130,11 +130,11 @@ class DiscussFlow(BaseFlow):
         return self._agent_mode_tool.mode_switch_requested
 
     @property
-    def mode_switch_task(self) -> Optional[str]:
+    def mode_switch_task(self) -> str | None:
         """Get the task description for Agent mode if switch was requested"""
         return self._agent_mode_tool.task_description
 
-    def _extract_suggestions(self, response: str) -> List[str]:
+    def _extract_suggestions(self, response: str) -> list[str]:
         """
         Extract suggestions from the response JSON block.
 
@@ -206,7 +206,7 @@ class DiscussFlow(BaseFlow):
                         )
 
                         # Break out of the agent loop - mode switch should be handled by caller
-                        logger.info(f"Mode switch requested, breaking out of discuss flow")
+                        logger.info("Mode switch requested, breaking out of discuss flow")
                         break
                     yield event
 

@@ -7,16 +7,17 @@ Provides a structured way for agents to:
 4. Track handoff history for debugging
 """
 
-from enum import Enum
-from typing import List, Dict, Any, Optional, Callable, Awaitable
-from dataclasses import dataclass, field
-from datetime import datetime
-from pydantic import BaseModel, Field
 import logging
 import uuid
-import json
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from typing import Any
 
-from app.domain.services.orchestration.agent_types import AgentType, AgentCapability
+from pydantic import BaseModel, Field
+
+from app.domain.services.orchestration.agent_types import AgentCapability, AgentType
 
 logger = logging.getLogger(__name__)
 
@@ -55,37 +56,37 @@ class HandoffContext:
     current_progress: str
 
     # Context data
-    relevant_files: List[str] = field(default_factory=list)
-    key_findings: List[str] = field(default_factory=list)
-    decisions_made: List[str] = field(default_factory=list)
+    relevant_files: list[str] = field(default_factory=list)
+    key_findings: list[str] = field(default_factory=list)
+    decisions_made: list[str] = field(default_factory=list)
 
     # State transfer
-    memory_summary: Optional[str] = None
-    tool_results: List[Dict[str, Any]] = field(default_factory=list)
+    memory_summary: str | None = None
+    tool_results: list[dict[str, Any]] = field(default_factory=list)
 
     # Enhanced: Previous step results (Phase 3.3)
-    step_results: Dict[str, Any] = field(default_factory=dict)  # step_id -> result
-    step_history: List[Dict[str, Any]] = field(default_factory=list)  # Ordered list of completed steps
+    step_results: dict[str, Any] = field(default_factory=dict)  # step_id -> result
+    step_history: list[dict[str, Any]] = field(default_factory=list)  # Ordered list of completed steps
 
     # Enhanced: Shared resources between agents (Phase 3.3)
-    shared_resources: Dict[str, Any] = field(default_factory=dict)  # Named resources
-    resource_locks: List[str] = field(default_factory=list)  # Resources locked by this handoff
+    shared_resources: dict[str, Any] = field(default_factory=dict)  # Named resources
+    resource_locks: list[str] = field(default_factory=list)  # Resources locked by this handoff
 
     # Enhanced: Rollback support (Phase 3.3)
-    checkpoint_id: Optional[str] = None  # Checkpoint to rollback to on failure
+    checkpoint_id: str | None = None  # Checkpoint to rollback to on failure
     rollback_enabled: bool = True
-    rollback_steps: List[str] = field(default_factory=list)  # Steps to undo on rollback
+    rollback_steps: list[str] = field(default_factory=list)  # Steps to undo on rollback
 
     # Enhanced: Progress tracking (Phase 3.3)
-    workflow_id: Optional[str] = None
-    stage_id: Optional[str] = None
+    workflow_id: str | None = None
+    stage_id: str | None = None
     total_steps: int = 0
     completed_steps: int = 0
 
     # Metadata
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def get_step_result(self, step_id: str) -> Optional[Any]:
+    def get_step_result(self, step_id: str) -> Any | None:
         """Get result from a previous step."""
         return self.step_results.get(step_id)
 
@@ -99,7 +100,7 @@ class HandoffContext:
         })
         self.completed_steps += 1
 
-    def get_shared_resource(self, name: str) -> Optional[Any]:
+    def get_shared_resource(self, name: str) -> Any | None:
         """Get a shared resource by name."""
         return self.shared_resources.get(name)
 
@@ -128,7 +129,7 @@ class HandoffContext:
     def to_prompt(self) -> str:
         """Convert context to a prompt string for the receiving agent."""
         sections = [
-            f"## Handoff Context\n",
+            "## Handoff Context\n",
             f"**Original Request:** {self.original_request}\n",
             f"**Task:** {self.task_description}\n",
             f"**Progress:** {self.current_progress}\n",
@@ -142,30 +143,30 @@ class HandoffContext:
             )
 
         if self.relevant_files:
-            sections.append(f"\n**Relevant Files:**\n")
+            sections.append("\n**Relevant Files:**\n")
             for f in self.relevant_files:
                 sections.append(f"- {f}\n")
 
         if self.key_findings:
-            sections.append(f"\n**Key Findings:**\n")
+            sections.append("\n**Key Findings:**\n")
             for finding in self.key_findings:
                 sections.append(f"- {finding}\n")
 
         if self.decisions_made:
-            sections.append(f"\n**Decisions Made:**\n")
+            sections.append("\n**Decisions Made:**\n")
             for decision in self.decisions_made:
                 sections.append(f"- {decision}\n")
 
         # Previous step results
         if self.step_results:
-            sections.append(f"\n**Previous Step Results:**\n")
+            sections.append("\n**Previous Step Results:**\n")
             for step_id, result in list(self.step_results.items())[-5:]:  # Last 5
                 result_preview = str(result)[:100] if result else "None"
                 sections.append(f"- {step_id}: {result_preview}\n")
 
         # Shared resources
         if self.shared_resources:
-            sections.append(f"\n**Available Shared Resources:**\n")
+            sections.append("\n**Available Shared Resources:**\n")
             for name in self.shared_resources.keys():
                 sections.append(f"- {name}\n")
 
@@ -174,7 +175,7 @@ class HandoffContext:
 
         return "".join(sections)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "task_description": self.task_description,
@@ -200,7 +201,7 @@ class HandoffContext:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "HandoffContext":
+    def from_dict(cls, data: dict[str, Any]) -> "HandoffContext":
         """Create from dictionary."""
         return cls(
             task_description=data.get("task_description", ""),
@@ -237,12 +238,12 @@ class Handoff:
 
     # Source and target
     source_agent: AgentType = AgentType.EXECUTOR
-    target_agent: Optional[AgentType] = None
-    target_capability: Optional[AgentCapability] = None
+    target_agent: AgentType | None = None
+    target_capability: AgentCapability | None = None
 
     # Handoff details
     reason: HandoffReason = HandoffReason.SPECIALIZATION
-    context: Optional[HandoffContext] = None
+    context: HandoffContext | None = None
     priority: int = 0  # Higher = more urgent
 
     # Instructions for target
@@ -251,11 +252,11 @@ class Handoff:
 
     # Status tracking
     status: HandoffStatus = HandoffStatus.PENDING
-    result: Optional[str] = None
-    error: Optional[str] = None
+    result: str | None = None
+    error: str | None = None
 
     # Metadata
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def accept(self) -> None:
         """Mark the handoff as accepted."""
@@ -286,10 +287,10 @@ class HandoffResult(BaseModel):
     handoff_id: str
     success: bool
     output: str = ""
-    artifacts: List[str] = Field(default_factory=list)  # File paths, etc.
+    artifacts: list[str] = Field(default_factory=list)  # File paths, etc.
     summary: str = ""
-    next_steps: List[str] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    next_steps: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class HandoffProtocol:
@@ -303,25 +304,25 @@ class HandoffProtocol:
     """
 
     def __init__(self, max_history: int = 100):
-        self._history: List[Handoff] = []
-        self._pending: Dict[str, Handoff] = {}
+        self._history: list[Handoff] = []
+        self._pending: dict[str, Handoff] = {}
         self._max_history = max_history
 
         # Callbacks for handoff events
-        self._on_handoff_created: List[Callable[[Handoff], Awaitable[None]]] = []
-        self._on_handoff_completed: List[Callable[[Handoff], Awaitable[None]]] = []
+        self._on_handoff_created: list[Callable[[Handoff], Awaitable[None]]] = []
+        self._on_handoff_completed: list[Callable[[Handoff], Awaitable[None]]] = []
 
     def create_handoff(
         self,
         source_agent: AgentType,
         reason: HandoffReason,
         context: HandoffContext,
-        target_agent: Optional[AgentType] = None,
-        target_capability: Optional[AgentCapability] = None,
+        target_agent: AgentType | None = None,
+        target_capability: AgentCapability | None = None,
         instructions: str = "",
         expected_output: str = "",
         priority: int = 0,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Handoff:
         """Create a new handoff request.
 
@@ -369,9 +370,9 @@ class HandoffProtocol:
     def create_parallel_handoffs(
         self,
         source_agent: AgentType,
-        subtasks: List[Dict[str, Any]],
+        subtasks: list[dict[str, Any]],
         shared_context: HandoffContext,
-    ) -> List[Handoff]:
+    ) -> list[Handoff]:
         """Create multiple handoffs for parallel execution.
 
         Args:
@@ -403,7 +404,7 @@ class HandoffProtocol:
         logger.info(f"Created {len(handoffs)} parallel handoffs from {source_agent.value}")
         return handoffs
 
-    def get_pending(self, target_agent: Optional[AgentType] = None) -> List[Handoff]:
+    def get_pending(self, target_agent: AgentType | None = None) -> list[Handoff]:
         """Get pending handoffs, optionally filtered by target agent."""
         pending = list(self._pending.values())
 
@@ -414,7 +415,7 @@ class HandoffProtocol:
         pending.sort(key=lambda h: h.priority, reverse=True)
         return pending
 
-    def get_handoff(self, handoff_id: str) -> Optional[Handoff]:
+    def get_handoff(self, handoff_id: str) -> Handoff | None:
         """Get a handoff by ID."""
         if handoff_id in self._pending:
             return self._pending[handoff_id]
@@ -429,9 +430,9 @@ class HandoffProtocol:
         self,
         handoff_id: str,
         output: str,
-        artifacts: Optional[List[str]] = None,
+        artifacts: list[str] | None = None,
         summary: str = "",
-        next_steps: Optional[List[str]] = None,
+        next_steps: list[str] | None = None,
     ) -> HandoffResult:
         """Mark a handoff as completed and return the result.
 
@@ -488,7 +489,7 @@ class HandoffProtocol:
             summary=f"Handoff failed: {error}",
         )
 
-    def aggregate_results(self, handoff_ids: List[str]) -> Dict[str, Any]:
+    def aggregate_results(self, handoff_ids: list[str]) -> dict[str, Any]:
         """Aggregate results from multiple completed handoffs.
 
         Args:
@@ -522,9 +523,9 @@ class HandoffProtocol:
     def get_history(
         self,
         limit: int = 50,
-        source_agent: Optional[AgentType] = None,
-        target_agent: Optional[AgentType] = None,
-    ) -> List[Handoff]:
+        source_agent: AgentType | None = None,
+        target_agent: AgentType | None = None,
+    ) -> list[Handoff]:
         """Get handoff history with optional filters.
 
         Args:
@@ -564,7 +565,7 @@ class HandoffProtocol:
     async def rollback_handoff(
         self,
         handoff_id: str,
-        rollback_func: Optional[Callable[[List[str]], Awaitable[bool]]] = None,
+        rollback_func: Callable[[list[str]], Awaitable[bool]] | None = None,
     ) -> bool:
         """Rollback a failed handoff.
 
@@ -601,9 +602,8 @@ class HandoffProtocol:
                     handoff.metadata["rolled_back"] = True
                     handoff.metadata["rollback_time"] = datetime.utcnow().isoformat()
                     return True
-                else:
-                    logger.error(f"Rollback function failed for handoff {handoff_id}")
-                    return False
+                logger.error(f"Rollback function failed for handoff {handoff_id}")
+                return False
             except Exception as e:
                 logger.error(f"Rollback error for handoff {handoff_id}: {e}")
                 return False
@@ -674,7 +674,7 @@ class HandoffProtocol:
         logger.info(f"Transferred context from handoff {source_handoff_id} to {target_handoff.id}")
         return True
 
-    def get_workflow_progress(self, workflow_id: str) -> Dict[str, Any]:
+    def get_workflow_progress(self, workflow_id: str) -> dict[str, Any]:
         """Get progress tracking across all handoffs in a workflow.
 
         Args:
@@ -746,7 +746,7 @@ class HandoffProtocol:
 
 
 # Global protocol instance
-_protocol: Optional[HandoffProtocol] = None
+_protocol: HandoffProtocol | None = None
 
 
 def get_handoff_protocol() -> HandoffProtocol:

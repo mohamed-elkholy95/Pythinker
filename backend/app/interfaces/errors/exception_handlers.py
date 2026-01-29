@@ -1,6 +1,7 @@
-from fastapi import Request, FastAPI
-from fastapi.responses import JSONResponse
 import logging
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.application.errors.exceptions import AppException
@@ -11,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 def register_exception_handlers(app: FastAPI) -> None:
     """Register all exception handlers"""
-    
+
     @app.exception_handler(AppException)
     async def api_exception_handler(request: Request, exc: AppException) -> JSONResponse:
         """Handle custom API exceptions"""
@@ -24,7 +25,7 @@ def register_exception_handlers(app: FastAPI) -> None:
                 data=None
             ).model_dump(),
         )
-    
+
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         """Handle HTTP exceptions"""
@@ -37,11 +38,11 @@ def register_exception_handlers(app: FastAPI) -> None:
                 data=None
             ).model_dump(),
         )
-    
+
     @app.exception_handler(Exception)
     async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         """Handle all uncaught exceptions"""
-        logger.exception(f"Unhandled exception: {str(exc)}")
+        logger.exception(f"Unhandled exception: {exc!s}")
         return JSONResponse(
             status_code=500,
             content=APIResponse(
@@ -49,4 +50,4 @@ def register_exception_handlers(app: FastAPI) -> None:
                 msg="Internal server error",
                 data=None
             ).model_dump(),
-        ) 
+        )

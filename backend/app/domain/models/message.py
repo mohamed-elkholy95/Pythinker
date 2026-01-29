@@ -1,7 +1,8 @@
-from typing import List, Optional
+
 from pydantic import BaseModel
 
+
 class Message(BaseModel):
-    title: Optional[str] = None
+    title: str | None = None
     message: str = ""
-    attachments: List[str] = []
+    attachments: list[str] = []

@@ -107,7 +107,10 @@
             @reportFileOpen="handleReportFileOpen"
             @showAllFiles="handleFileListShow"
             @reportRate="handleReportRate"
-            @selectSuggestion="handleSuggestionSelect" />
+            @selectSuggestion="handleSuggestionSelect"
+            @deepResearchRun="handleDeepResearchRun"
+            @deepResearchSkip="handleDeepResearchSkip"
+            @toggleAutoRun="handleToggleAutoRun" />
 
           <!-- Loading/Thinking indicators - only show when no tool is actively being called -->
           <!-- Morphing shape thinking indicator - only shown when chat is actively thinking -->
@@ -261,7 +264,9 @@ import {
   ReportEventData,
   StreamEventData,
   ProgressEventData,
+  DeepResearchEventData,
 } from '../types/event';
+import type { DeepResearchContent } from '../types/message';
 import Suggestions from '../components/Suggestions.vue';
 import ToolPanel from '../components/ToolPanel.vue'
 import { ArrowDown, FileSearch, PanelLeft, Lock, Globe, Link, Check } from 'lucide-vue-next';
@@ -837,6 +842,70 @@ const handleReportEvent = (reportData: ReportEventData) => {
   });
 }
 
+// Handle deep research event
+const handleDeepResearchEvent = (data: DeepResearchEventData) => {
+  // Find existing deep research message
+  const idx = messages.value.findIndex(
+    m => m.type === 'deep_research' &&
+         (m.content as DeepResearchContent).research_id === data.research_id
+  );
+
+  if (idx >= 0) {
+    // Update existing message
+    const existingContent = messages.value[idx].content as DeepResearchContent;
+    messages.value[idx].content = {
+      ...existingContent,
+      status: data.status,
+      queries: data.queries,
+      completed_count: data.completed_queries,
+      total_count: data.total_queries,
+      auto_run: data.auto_run
+    } as DeepResearchContent;
+  } else {
+    // Create new message
+    messages.value.push({
+      type: 'deep_research',
+      content: {
+        research_id: data.research_id,
+        status: data.status,
+        queries: data.queries || [],
+        completed_count: data.completed_queries,
+        total_count: data.total_queries,
+        auto_run: data.auto_run,
+        timestamp: data.timestamp
+      } as DeepResearchContent
+    });
+  }
+};
+
+// Handle deep research run (approve)
+const handleDeepResearchRun = async (_researchId: string) => {
+  if (!sessionId.value) return;
+  try {
+    await agentApi.approveDeepResearch(sessionId.value);
+  } catch (error) {
+    console.error('Error approving deep research:', error);
+    showErrorToast(t('Failed to start research'));
+  }
+};
+
+// Handle deep research skip
+const handleDeepResearchSkip = async (_researchId: string, queryId?: string) => {
+  if (!sessionId.value) return;
+  try {
+    await agentApi.skipDeepResearchQuery(sessionId.value, queryId);
+  } catch (error) {
+    console.error('Error skipping deep research query:', error);
+    showErrorToast(t('Failed to skip query'));
+  }
+};
+
+// Handle toggle auto-run preference
+const handleToggleAutoRun = () => {
+  // TODO: Implement settings persistence
+  console.log('Toggle auto-run preference');
+};
+
 // Handle suggestion selection (user clicks a suggestion)
 const handleSuggestionSelect = (suggestion: string) => {
   inputMessage.value = suggestion;
@@ -942,6 +1011,8 @@ const handleEvent = (event: AgentSSEEvent) => {
     handleStreamEvent(event.data as StreamEventData);
   } else if (event.event === 'progress') {
     handleProgressEvent(event.data as ProgressEventData);
+  } else if (event.event === 'deep_research') {
+    handleDeepResearchEvent(event.data as DeepResearchEventData);
   }
   lastEventId.value = event.data.event_id;
 }

@@ -57,40 +57,42 @@ For high-level integration with the flow system:
         yield event
 """
 
-from app.domain.services.orchestration.agent_types import (
-    AgentType,
-    AgentCapability,
-    AgentSpec,
-    AgentRegistry,
-    get_agent_registry,
-)
-from app.domain.services.orchestration.handoff import (
-    Handoff,
-    HandoffContext,
-    HandoffReason,
-    HandoffResult,
-    HandoffStatus,
-    HandoffProtocol,
-    get_handoff_protocol,
-)
-from app.domain.services.orchestration.swarm import (
-    Swarm,
-    SwarmConfig,
-    SwarmTask,
-    SwarmResult,
-    AgentStatus as SwarmAgentStatus,
-    AgentInstance,
-)
 from app.domain.services.orchestration.agent_factory import (
-    SwarmAgent,
     DefaultAgentFactory,
     SpecializedAgentFactory,
+    SwarmAgent,
+)
+from app.domain.services.orchestration.agent_types import (
+    AgentCapability,
+    AgentRegistry,
+    AgentSpec,
+    AgentType,
+    get_agent_registry,
 )
 from app.domain.services.orchestration.coordinator_flow import (
     CoordinatorFlow,
     CoordinatorMode,
     TaskComplexity,
     create_coordinator_flow,
+)
+from app.domain.services.orchestration.handoff import (
+    Handoff,
+    HandoffContext,
+    HandoffProtocol,
+    HandoffReason,
+    HandoffResult,
+    HandoffStatus,
+    get_handoff_protocol,
+)
+from app.domain.services.orchestration.swarm import (
+    AgentInstance,
+    Swarm,
+    SwarmConfig,
+    SwarmResult,
+    SwarmTask,
+)
+from app.domain.services.orchestration.swarm import (
+    AgentStatus as SwarmAgentStatus,
 )
 
 __all__ = [

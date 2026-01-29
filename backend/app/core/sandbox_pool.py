@@ -5,10 +5,10 @@ Maintains a pool of pre-warmed sandboxes for instant allocation,
 reducing session initialization time from 15-20s to 2-5s.
 """
 
-from asyncio import Queue, create_task, sleep, CancelledError
-from typing import Optional, Type, TYPE_CHECKING
 import asyncio
 import logging
+from asyncio import CancelledError, Queue, create_task, sleep
+from typing import TYPE_CHECKING, Optional
 
 from app.core.config import get_settings
 
@@ -37,10 +37,10 @@ class SandboxPool:
 
     def __init__(
         self,
-        sandbox_cls: Type["Sandbox"],
-        min_pool_size: Optional[int] = None,
-        max_pool_size: Optional[int] = None,
-        warmup_interval: Optional[int] = None,
+        sandbox_cls: type["Sandbox"],
+        min_pool_size: int | None = None,
+        max_pool_size: int | None = None,
+        warmup_interval: int | None = None,
     ):
         """Initialize the sandbox pool.
 
@@ -55,8 +55,8 @@ class SandboxPool:
         self._min_size = min_pool_size or settings.sandbox_pool_min_size
         self._max_size = max_pool_size or settings.sandbox_pool_max_size
         self._warmup_interval = warmup_interval or settings.sandbox_pool_warmup_interval
-        self._pool: Queue["Sandbox"] = Queue(maxsize=self._max_size)
-        self._warming_task: Optional[asyncio.Task] = None
+        self._pool: Queue[Sandbox] = Queue(maxsize=self._max_size)
+        self._warming_task: asyncio.Task | None = None
         self._started = False
         self._stopping = False
 
@@ -151,7 +151,7 @@ class SandboxPool:
 
             return sandbox
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # Pool exhausted, create on-demand
             logger.warning(
                 f"Sandbox pool exhausted (size={self._pool.qsize()}), creating on-demand"
@@ -218,10 +218,10 @@ class SandboxPool:
 
 
 # Global singleton instance
-_sandbox_pool: Optional[SandboxPool] = None
+_sandbox_pool: SandboxPool | None = None
 
 
-async def get_sandbox_pool(sandbox_cls: Optional[Type["Sandbox"]] = None) -> SandboxPool:
+async def get_sandbox_pool(sandbox_cls: type["Sandbox"] | None = None) -> SandboxPool:
     """Get or create the global sandbox pool instance.
 
     Args:
@@ -245,7 +245,7 @@ async def get_sandbox_pool(sandbox_cls: Optional[Type["Sandbox"]] = None) -> San
     return _sandbox_pool
 
 
-async def start_sandbox_pool(sandbox_cls: Type["Sandbox"]) -> SandboxPool:
+async def start_sandbox_pool(sandbox_cls: type["Sandbox"]) -> SandboxPool:
     """Initialize and start the global sandbox pool.
 
     Call this during application startup.

@@ -1,9 +1,10 @@
 import logging
-from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
-from app.domain.models.tool_result import ToolResult
+from typing import Any
 
+from pydantic import BaseModel, Field
+
+from app.domain.models.tool_result import ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ class MemoryConfig:
     auto_compact_token_threshold: int = 80000
     # Use token-based compaction instead of message count
     use_token_threshold: bool = True
-    compactable_functions: List[str] = None
+    compactable_functions: list[str] = None
     preserve_recent: int = 10
 
     def __post_init__(self):
@@ -37,7 +38,7 @@ class Memory(BaseModel):
     """
     Memory class, defining the basic behavior of memory
     """
-    messages: List[Dict[str, Any]] = []
+    messages: list[dict[str, Any]] = []
     # Exclude config from serialization - it's runtime-only configuration
     config: MemoryConfig = Field(default_factory=MemoryConfig, exclude=True)
 
@@ -49,16 +50,16 @@ class Memory(BaseModel):
         if self.config is None:
             object.__setattr__(self, 'config', MemoryConfig())
 
-    def get_message_role(self, message: Dict[str, Any]) -> str:
+    def get_message_role(self, message: dict[str, Any]) -> str:
         """Get the role of the message"""
         return message.get("role")
 
-    def add_message(self, message: Dict[str, Any]) -> None:
+    def add_message(self, message: dict[str, Any]) -> None:
         """Add message to memory"""
         self.messages.append(message)
         self._check_auto_compact()
 
-    def add_messages(self, messages: List[Dict[str, Any]]) -> None:
+    def add_messages(self, messages: list[dict[str, Any]]) -> None:
         """Add messages to memory"""
         self.messages.extend(messages)
         self._check_auto_compact()
@@ -80,11 +81,11 @@ class Memory(BaseModel):
                 logger.debug(f"Auto-compacting memory at {len(self.messages)} messages")
                 self.smart_compact()
 
-    def get_messages(self) -> List[Dict[str, Any]]:
+    def get_messages(self) -> list[dict[str, Any]]:
         """Get all message history"""
         return self.messages
 
-    def get_last_message(self) -> Optional[Dict[str, Any]]:
+    def get_last_message(self) -> dict[str, Any] | None:
         """Get the last message"""
         if len(self.messages) > 0:
             return self.messages[-1]
@@ -102,7 +103,7 @@ class Memory(BaseModel):
                     message["content"] = ToolResult(success=True, data='(removed)').model_dump_json()
                     logger.debug(f"Removed tool result from memory: {message['function_name']}")
 
-    def smart_compact(self, preserve_recent: Optional[int] = None) -> int:
+    def smart_compact(self, preserve_recent: int | None = None) -> int:
         """
         Smart compaction with configurable options.
 
@@ -179,7 +180,7 @@ class Memory(BaseModel):
 
         return total_chars // chars_per_token
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get memory statistics"""
         role_counts = {}
         for msg in self.messages:

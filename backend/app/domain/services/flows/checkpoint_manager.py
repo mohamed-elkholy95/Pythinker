@@ -8,9 +8,9 @@ on session restart.
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -35,17 +35,17 @@ class WorkflowCheckpoint:
     workflow_id: str
     session_id: str
     stage_index: int
-    completed_steps: List[str]
-    step_results: Dict[str, Any]
+    completed_steps: list[str]
+    step_results: dict[str, Any]
     status: CheckpointStatus
-    workflow_data: Dict[str, Any]  # Full workflow serialization
-    context: Dict[str, Any]  # Shared context
+    workflow_data: dict[str, Any]  # Full workflow serialization
+    context: dict[str, Any]  # Shared context
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
-    expires_at: Optional[datetime] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    expires_at: datetime | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for MongoDB storage."""
         return {
             "workflow_id": self.workflow_id,
@@ -63,7 +63,7 @@ class WorkflowCheckpoint:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "WorkflowCheckpoint":
+    def from_dict(cls, data: dict[str, Any]) -> "WorkflowCheckpoint":
         """Create from dictionary."""
         return cls(
             workflow_id=data["workflow_id"],
@@ -101,7 +101,7 @@ class CheckpointManager:
 
     def __init__(
         self,
-        mongodb_collection: Optional[Any] = None,
+        mongodb_collection: Any | None = None,
         ttl_hours: int = 24,
         auto_cleanup: bool = True,
     ):
@@ -118,7 +118,7 @@ class CheckpointManager:
         self._auto_cleanup = auto_cleanup
 
         # In-memory fallback storage
-        self._memory_storage: Dict[str, WorkflowCheckpoint] = {}
+        self._memory_storage: dict[str, WorkflowCheckpoint] = {}
 
         logger.info("CheckpointManager initialized")
 
@@ -129,9 +129,9 @@ class CheckpointManager:
     async def save_checkpoint(
         self,
         workflow: Any,  # Workflow instance
-        session_id: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Optional[WorkflowCheckpoint]:
+        session_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> WorkflowCheckpoint | None:
         """
         Save a checkpoint for a workflow.
 
@@ -143,8 +143,9 @@ class CheckpointManager:
         Returns:
             Created WorkflowCheckpoint or None on failure
         """
-        from app.domain.services.flows.task_orchestrator import Workflow, StageStatus
         from datetime import timedelta
+
+        from app.domain.services.flows.task_orchestrator import StageStatus, Workflow
 
         if not isinstance(workflow, Workflow):
             logger.error("Invalid workflow type for checkpoint")
@@ -208,7 +209,7 @@ class CheckpointManager:
         self,
         workflow_id: str,
         session_id: str,
-    ) -> Optional[WorkflowCheckpoint]:
+    ) -> WorkflowCheckpoint | None:
         """
         Load a checkpoint for a workflow.
 
@@ -231,9 +232,8 @@ class CheckpointManager:
                     checkpoint = WorkflowCheckpoint.from_dict(doc)
                     if not checkpoint.is_expired():
                         return checkpoint
-                    else:
-                        logger.debug(f"Checkpoint for {workflow_id} has expired")
-                        await self.delete_checkpoint(workflow_id, session_id)
+                    logger.debug(f"Checkpoint for {workflow_id} has expired")
+                    await self.delete_checkpoint(workflow_id, session_id)
             except Exception as e:
                 logger.error(f"Failed to load checkpoint from MongoDB: {e}")
         else:
@@ -279,10 +279,10 @@ class CheckpointManager:
 
     async def list_checkpoints(
         self,
-        session_id: Optional[str] = None,
-        status: Optional[CheckpointStatus] = None,
+        session_id: str | None = None,
+        status: CheckpointStatus | None = None,
         include_expired: bool = False,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         List checkpoints with optional filters.
 
@@ -298,7 +298,7 @@ class CheckpointManager:
 
         if self._collection:
             try:
-                query: Dict[str, Any] = {}
+                query: dict[str, Any] = {}
                 if session_id:
                     query["session_id"] = session_id
                 if status:
@@ -342,7 +342,7 @@ class CheckpointManager:
     async def has_resumable_checkpoint(
         self,
         session_id: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Check if a session has a resumable checkpoint.
 
@@ -375,7 +375,7 @@ class CheckpointManager:
         self,
         workflow_id: str,
         session_id: str,
-    ) -> Optional[Any]:
+    ) -> Any | None:
         """
         Restore a workflow from checkpoint.
 
@@ -487,7 +487,7 @@ class CheckpointManager:
         workflow_id: str,
         session_id: str,
         step_id: str,
-    ) -> Optional[Any]:
+    ) -> Any | None:
         """
         Get a specific step result from a checkpoint.
 
@@ -507,7 +507,7 @@ class CheckpointManager:
 
 
 # Singleton instance
-_checkpoint_manager: Optional[CheckpointManager] = None
+_checkpoint_manager: CheckpointManager | None = None
 
 
 def get_checkpoint_manager() -> CheckpointManager:

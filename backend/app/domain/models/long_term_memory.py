@@ -8,11 +8,12 @@ memories across agent sessions, enabling:
 - Entity and fact extraction
 """
 
-from datetime import datetime
-from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
-from enum import Enum
 import hashlib
+from datetime import datetime
+from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class MemoryType(str, Enum):
@@ -60,39 +61,39 @@ class MemoryEntry(BaseModel):
     source: MemorySource = Field(default=MemorySource.SYSTEM)
 
     # Semantic search
-    embedding: Optional[List[float]] = Field(
+    embedding: list[float] | None = Field(
         default=None,
         description="Vector embedding for semantic search"
     )
-    keywords: List[str] = Field(
+    keywords: list[str] = Field(
         default_factory=list,
         description="Extracted keywords for keyword search"
     )
 
     # Context and relationships
-    session_id: Optional[str] = Field(
+    session_id: str | None = Field(
         default=None,
         description="Session where memory was created"
     )
-    related_memories: List[str] = Field(
+    related_memories: list[str] = Field(
         default_factory=list,
         description="IDs of related memories"
     )
-    entities: List[str] = Field(
+    entities: list[str] = Field(
         default_factory=list,
         description="Named entities mentioned in this memory"
     )
-    tags: List[str] = Field(
+    tags: list[str] = Field(
         default_factory=list,
         description="User or system tags"
     )
 
     # Metadata
-    metadata: Dict[str, Any] = Field(
+    metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="Additional metadata"
     )
-    context: Optional[str] = Field(
+    context: str | None = Field(
         default=None,
         description="Context in which memory was created"
     )
@@ -100,11 +101,11 @@ class MemoryEntry(BaseModel):
     # Timestamps and lifecycle
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
-    last_accessed: Optional[datetime] = Field(default=None)
+    last_accessed: datetime | None = Field(default=None)
     access_count: int = Field(default=0, description="Times this memory was retrieved")
 
     # Validity
-    expires_at: Optional[datetime] = Field(
+    expires_at: datetime | None = Field(
         default=None,
         description="When this memory expires (None = never)"
     )
@@ -136,37 +137,37 @@ class MemoryQuery(BaseModel):
     user_id: str = Field(description="User to query memories for")
 
     # Search methods (at least one required)
-    query_text: Optional[str] = Field(
+    query_text: str | None = Field(
         default=None,
         description="Semantic search query"
     )
-    keywords: List[str] = Field(
+    keywords: list[str] = Field(
         default_factory=list,
         description="Keyword filter"
     )
-    entity_filter: List[str] = Field(
+    entity_filter: list[str] = Field(
         default_factory=list,
         description="Filter by entities"
     )
-    tag_filter: List[str] = Field(
+    tag_filter: list[str] = Field(
         default_factory=list,
         description="Filter by tags"
     )
 
     # Type filters
-    memory_types: List[MemoryType] = Field(
+    memory_types: list[MemoryType] = Field(
         default_factory=list,
         description="Filter by memory types"
     )
-    min_importance: Optional[MemoryImportance] = Field(
+    min_importance: MemoryImportance | None = Field(
         default=None,
         description="Minimum importance level"
     )
 
     # Time filters
-    created_after: Optional[datetime] = Field(default=None)
-    created_before: Optional[datetime] = Field(default=None)
-    accessed_after: Optional[datetime] = Field(default=None)
+    created_after: datetime | None = Field(default=None)
+    created_before: datetime | None = Field(default=None)
+    accessed_after: datetime | None = Field(default=None)
 
     # Pagination
     limit: int = Field(default=10, ge=1, le=100)
@@ -195,7 +196,7 @@ class MemorySearchResult(BaseModel):
 
 class MemoryBatch(BaseModel):
     """Batch of memories for bulk operations."""
-    memories: List[MemoryEntry] = Field(default_factory=list)
+    memories: list[MemoryEntry] = Field(default_factory=list)
     total_count: int = Field(default=0)
     has_more: bool = Field(default=False)
 
@@ -205,22 +206,22 @@ class MemoryStats(BaseModel):
     user_id: str
     total_memories: int = 0
     active_memories: int = 0
-    by_type: Dict[str, int] = Field(default_factory=dict)
-    by_importance: Dict[str, int] = Field(default_factory=dict)
-    oldest_memory: Optional[datetime] = None
-    newest_memory: Optional[datetime] = None
-    most_accessed: Optional[str] = None  # ID of most accessed memory
+    by_type: dict[str, int] = Field(default_factory=dict)
+    by_importance: dict[str, int] = Field(default_factory=dict)
+    oldest_memory: datetime | None = None
+    newest_memory: datetime | None = None
+    most_accessed: str | None = None  # ID of most accessed memory
 
 
 class MemoryUpdate(BaseModel):
     """Update payload for modifying a memory."""
-    content: Optional[str] = None
-    importance: Optional[MemoryImportance] = None
-    tags: Optional[List[str]] = None
-    metadata: Optional[Dict[str, Any]] = None
-    is_active: Optional[bool] = None
-    confidence: Optional[float] = None
-    expires_at: Optional[datetime] = None
+    content: str | None = None
+    importance: MemoryImportance | None = None
+    tags: list[str] | None = None
+    metadata: dict[str, Any] | None = None
+    is_active: bool | None = None
+    confidence: float | None = None
+    expires_at: datetime | None = None
 
 
 class ExtractedMemory(BaseModel):
@@ -232,7 +233,7 @@ class ExtractedMemory(BaseModel):
     memory_type: MemoryType
     importance: MemoryImportance = MemoryImportance.MEDIUM
     confidence: float = 0.8
-    entities: List[str] = Field(default_factory=list)
-    keywords: List[str] = Field(default_factory=list)
-    source_text: Optional[str] = None  # Original text this was extracted from
-    reasoning: Optional[str] = None    # Why this was deemed memorable
+    entities: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+    source_text: str | None = None  # Original text this was extracted from
+    reasoning: str | None = None    # Why this was deemed memorable

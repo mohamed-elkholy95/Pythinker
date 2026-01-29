@@ -1,9 +1,9 @@
-from pydantic_settings import BaseSettings
-from functools import lru_cache
-import os
+import logging
 import secrets
 import warnings
-import logging
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     embedding_api_key: str | None = None  # Defaults to api_key if not set
     embedding_api_base: str = "https://api.openai.com/v1"  # OpenAI for embeddings
     embedding_model: str = "text-embedding-3-small"  # 1536 dimensions
-    
+
     # MongoDB configuration
     mongodb_uri: str = "mongodb://mongodb:27017"
     mongodb_database: str = "manus"
@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     qdrant_prefer_grpc: bool = True  # 2x faster than REST
     qdrant_collection: str = "agent_memories"
     qdrant_api_key: str | None = None
-    
+
     # Sandbox configuration
     sandbox_address: str | None = None
     sandbox_image: str | None = None
@@ -159,14 +159,14 @@ class Settings(BaseSettings):
     account_lockout_threshold: int = 5  # Failed attempts before lockout
     account_lockout_duration_minutes: int = 15  # Lockout duration
     account_lockout_reset_minutes: int = 60  # Reset failed attempts counter after
-    
+
     # Email configuration
     email_host: str | None = None  # "smtp.gmail.com"
     email_port: int | None = None  # 587
     email_username: str | None = None
     email_password: str | None = None
     email_from: str | None = None
-    
+
     # JWT configuration
     jwt_secret_key: str | None = None  # REQUIRED - must be set via environment
     jwt_algorithm: str = "HS256"
@@ -185,7 +185,7 @@ class Settings(BaseSettings):
     rate_limit_requests_per_minute: int = 300  # Increased for SSE polling (temporary)
     rate_limit_auth_requests_per_minute: int = 10  # Rate limit for auth endpoints (login, register)
     rate_limit_burst: int = 10  # Allow burst of requests
-    
+
     # MCP configuration
     mcp_config_path: str = "/etc/mcp.json"
 
@@ -202,6 +202,17 @@ class Settings(BaseSettings):
     otel_endpoint: str | None = None  # e.g., "http://localhost:4317"
     otel_service_name: str = "pythinker-agent"
     otel_insecure: bool = True  # Use insecure connection (no TLS)
+
+    # LLM Tracing configuration (Phase 1 Enhancement)
+    llm_tracing_provider: str = "none"  # "none", "langfuse", "langsmith", "otel"
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
+    langfuse_host: str = "https://cloud.langfuse.com"
+
+    # Semantic Cache configuration (Phase 3 Enhancement)
+    semantic_cache_enabled: bool = False
+    semantic_cache_threshold: float = 0.92  # Similarity threshold for cache hits
+    semantic_cache_ttl_seconds: int = 3600  # 1 hour default TTL
 
     # Multi-Agent Orchestration configuration
     enable_multi_agent: bool = True  # Enable specialized agent dispatch per step
@@ -426,7 +437,7 @@ class Settings(BaseSettings):
         logger.info(f"Configuration validated successfully (environment: {self.environment})")
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     """Get application settings"""
     settings = Settings()

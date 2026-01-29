@@ -2,9 +2,10 @@
 Security assessor for evaluating agent action risks.
 """
 
-from enum import Enum
 from dataclasses import dataclass
-from typing import Dict, Any
+from enum import Enum
+from typing import Any
+
 
 class ActionSecurityRisk(str, Enum):
     """Risk levels for agent actions."""
@@ -51,7 +52,7 @@ class SecurityAssessor:
         self._blocked_count = 0
         self._high_risk_count = 0
 
-    def assess_action(self, function_name: str, arguments: Dict[str, Any]) -> SecurityAssessment:
+    def assess_action(self, function_name: str, arguments: dict[str, Any]) -> SecurityAssessment:
         """
         Assess the security risk of a proposed action.
 
@@ -74,7 +75,7 @@ class SecurityAssessor:
             requires_confirmation=False
         )
 
-    def get_risk_summary(self) -> Dict[str, Any]:
+    def get_risk_summary(self) -> dict[str, Any]:
         """
         Get summary of risk assessments.
 

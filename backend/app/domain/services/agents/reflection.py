@@ -29,35 +29,33 @@ Usage:
 """
 
 import logging
-from typing import List, Dict, Any, Optional, AsyncGenerator
-from dataclasses import dataclass
+from collections.abc import AsyncGenerator
+from typing import Any
 
 from app.domain.external.llm import LLM
-from app.domain.utils.json_parser import JsonParser
-from app.domain.models.plan import Plan
 from app.domain.models.event import (
     BaseEvent,
     ReflectionEvent,
     ReflectionStatus,
 )
+from app.domain.models.plan import Plan
 from app.domain.models.reflection import (
-    ReflectionTrigger,
-    ReflectionTriggerType,
+    ProgressMetrics,
+    ReflectionConfig,
     ReflectionDecision,
     ReflectionResult,
-    ReflectionConfig,
-    ProgressMetrics,
+    ReflectionTriggerType,
 )
+from app.domain.services.agents.stuck_detector import StuckAnalysis
 from app.domain.services.prompts.reflection import (
-    REFLECTION_SYSTEM_PROMPT,
-    REFLECT_PROGRESS_PROMPT,
+    LOOP_TYPE_CAUSES,
     REFLECT_AFTER_ERROR_PROMPT,
     REFLECT_ON_STALL_PROMPT,
     REFLECT_ON_STUCK_PATTERN_PROMPT,
-    LOOP_TYPE_CAUSES,
+    REFLECT_PROGRESS_PROMPT,
+    REFLECTION_SYSTEM_PROMPT,
 )
-from app.domain.services.agents.stuck_detector import StuckAnalysis, LoopType
-
+from app.domain.utils.json_parser import JsonParser
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +77,7 @@ class ReflectionAgent:
         self,
         llm: LLM,
         json_parser: JsonParser,
-        config: Optional[ReflectionConfig] = None
+        config: ReflectionConfig | None = None
     ):
         """Initialize the ReflectionAgent.
 
@@ -101,7 +99,7 @@ class ReflectionAgent:
         progress: ProgressMetrics,
         last_had_error: bool = False,
         confidence: float = 1.0
-    ) -> Optional[ReflectionTriggerType]:
+    ) -> ReflectionTriggerType | None:
         """Check if reflection should be triggered.
 
         Args:
@@ -143,8 +141,8 @@ class ReflectionAgent:
         plan: Plan,
         progress: ProgressMetrics,
         trigger_type: ReflectionTriggerType,
-        recent_actions: List[Dict[str, Any]] = None,
-        last_error: Optional[str] = None
+        recent_actions: list[dict[str, Any]] = None,
+        last_error: str | None = None
     ) -> AsyncGenerator[BaseEvent, None]:
         """Perform reflection and yield events.
 
@@ -211,8 +209,8 @@ class ReflectionAgent:
         plan: Plan,
         progress: ProgressMetrics,
         trigger_type: ReflectionTriggerType,
-        recent_actions: List[Dict[str, Any]],
-        last_error: Optional[str]
+        recent_actions: list[dict[str, Any]],
+        last_error: str | None
     ) -> ReflectionResult:
         """Perform the actual reflection assessment."""
         # Select appropriate prompt based on trigger type
@@ -264,8 +262,8 @@ class ReflectionAgent:
         plan: Plan,
         progress: ProgressMetrics,
         trigger_type: ReflectionTriggerType,
-        recent_actions: List[Dict[str, Any]],
-        last_error: Optional[str]
+        recent_actions: list[dict[str, Any]],
+        last_error: str | None
     ) -> str:
         """Build the appropriate reflection prompt."""
         # Format recent actions
@@ -305,7 +303,7 @@ class ReflectionAgent:
                 plan_status=plan_summary
             )
 
-        elif trigger_type == ReflectionTriggerType.PROGRESS_STALL:
+        if trigger_type == ReflectionTriggerType.PROGRESS_STALL:
             return REFLECT_ON_STALL_PROMPT.format(
                 goal=goal,
                 repeat_count=progress.actions_since_progress,
@@ -315,28 +313,27 @@ class ReflectionAgent:
                 attempted_actions=actions_text
             )
 
-        else:
-            # Default progress check prompt
-            return REFLECT_PROGRESS_PROMPT.format(
-                goal=goal,
-                plan_summary=plan_summary,
-                steps_completed=progress.steps_completed,
-                total_steps=progress.total_steps,
-                success_rate=round(progress.success_rate * 100, 1),
-                current_step=current_step,
-                recent_actions=actions_text,
-                error_count=progress.error_count,
-                last_error=last_error or "None",
-                is_stalled="Yes" if progress.is_stalled else "No",
-                trigger_reason=trigger_type.value
-            )
+        # Default progress check prompt
+        return REFLECT_PROGRESS_PROMPT.format(
+            goal=goal,
+            plan_summary=plan_summary,
+            steps_completed=progress.steps_completed,
+            total_steps=progress.total_steps,
+            success_rate=round(progress.success_rate * 100, 1),
+            current_step=current_step,
+            recent_actions=actions_text,
+            error_count=progress.error_count,
+            last_error=last_error or "None",
+            is_stalled="Yes" if progress.is_stalled else "No",
+            trigger_reason=trigger_type.value
+        )
 
     def reset(self) -> None:
         """Reset reflection state for a new task."""
         self._reflection_count = 0
         self._last_reflection_step = -1
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get reflection statistics."""
         return {
             "total_reflections": self._reflection_count,
@@ -349,7 +346,7 @@ class ReflectionAgent:
         goal: str,
         plan: Plan,
         stuck_analysis: StuckAnalysis,
-        recent_actions: List[Dict[str, Any]] = None,
+        recent_actions: list[dict[str, Any]] = None,
     ) -> AsyncGenerator[BaseEvent, None]:
         """Perform specialized reflection when a stuck pattern is detected.
 
@@ -445,7 +442,7 @@ class ReflectionAgent:
         goal: str,
         plan: Plan,
         stuck_analysis: StuckAnalysis,
-        recent_actions: List[Dict[str, Any]],
+        recent_actions: list[dict[str, Any]],
     ) -> str:
         """Build prompt for stuck pattern analysis."""
         # Format recent actions

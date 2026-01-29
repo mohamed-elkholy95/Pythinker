@@ -5,8 +5,8 @@ the metric registration and lookup system.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -23,10 +23,10 @@ class MetricScore:
     metric_name: str
     score: float  # 0.0 to 1.0
     passed: bool
-    details: Dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
     message: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "metric_name": self.metric_name,
             "score": self.score,
@@ -69,8 +69,8 @@ class BaseMetric(ABC):
     def evaluate(
         self,
         actual_output: str,
-        expected: Dict[str, Any],
-        context: Dict[str, Any],
+        expected: dict[str, Any],
+        context: dict[str, Any],
     ) -> MetricScore:
         """Evaluate the actual output against expected criteria.
 
@@ -84,7 +84,7 @@ class BaseMetric(ABC):
         """
         ...
 
-    def get_threshold(self, expected: Dict[str, Any], default: float = 0.7) -> float:
+    def get_threshold(self, expected: dict[str, Any], default: float = 0.7) -> float:
         """Get the threshold for this metric from expected values.
 
         Args:
@@ -107,7 +107,7 @@ class BaseMetric(ABC):
 
 
 # Global metric registry
-_metrics: Dict[str, BaseMetric] = {}
+_metrics: dict[str, BaseMetric] = {}
 
 
 def register_metric(metric: BaseMetric) -> None:
@@ -119,7 +119,7 @@ def register_metric(metric: BaseMetric) -> None:
     _metrics[metric.name] = metric
 
 
-def get_metric(name: str) -> Optional[BaseMetric]:
+def get_metric(name: str) -> BaseMetric | None:
     """Get a metric by name from the registry.
 
     Args:
@@ -131,7 +131,7 @@ def get_metric(name: str) -> Optional[BaseMetric]:
     return _metrics.get(name)
 
 
-def get_all_metrics() -> List[BaseMetric]:
+def get_all_metrics() -> list[BaseMetric]:
     """Get all registered metrics.
 
     Returns:

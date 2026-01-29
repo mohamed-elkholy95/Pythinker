@@ -1,7 +1,9 @@
-from pydantic import BaseModel
-from typing import Optional, Dict, Any
-from datetime import datetime
 import logging
+from datetime import datetime
+from typing import Any, Optional
+
+from pydantic import BaseModel
+
 from app.domain.models.file import FileInfo
 
 logger = logging.getLogger(__name__)
@@ -22,11 +24,11 @@ class FileInfoResponse(BaseModel):
     """File info response schema"""
     file_id: str
     filename: str
-    content_type: Optional[str]
+    content_type: str | None
     size: int
-    upload_date: Optional[datetime] = None
-    metadata: Optional[Dict[str, Any]]
-    file_url: Optional[str]
+    upload_date: datetime | None = None
+    metadata: dict[str, Any] | None
+    file_url: str | None
 
     @staticmethod
     async def from_file_info(file_info: FileInfo) -> Optional["FileInfoResponse"]:

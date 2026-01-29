@@ -5,51 +5,46 @@ that integrates seamlessly with the existing PlanActFlow pattern.
 """
 
 import logging
-import asyncio
-from typing import AsyncGenerator, Optional, List, Dict, Any, Set
+from collections.abc import AsyncGenerator
 from enum import Enum
-from datetime import datetime
+from typing import Any
 
-from app.domain.services.flows.base import BaseFlow
-from app.domain.services.orchestration.swarm import (
-    Swarm,
-    SwarmConfig,
-    SwarmTask,
-    AgentStatus,
-)
-from app.domain.services.orchestration.agent_types import (
-    AgentType,
-    AgentCapability,
-    AgentRegistry,
-    get_agent_registry,
-)
-from app.domain.services.orchestration.agent_factory import (
-    DefaultAgentFactory,
-    SpecializedAgentFactory,
-)
-from app.domain.services.orchestration.handoff import (
-    HandoffProtocol,
-    get_handoff_protocol,
-)
-from app.domain.models.message import Message
+from app.domain.external.browser import Browser
+from app.domain.external.llm import LLM
+from app.domain.external.sandbox import Sandbox
+from app.domain.external.search import SearchEngine
 from app.domain.models.event import (
     BaseEvent,
-    MessageEvent,
-    ErrorEvent,
     DoneEvent,
+    ErrorEvent,
     PlanEvent,
     PlanStatus,
     TitleEvent,
 )
-from app.domain.models.plan import Plan, Step, ExecutionStatus
-from app.domain.external.llm import LLM
-from app.domain.external.sandbox import Sandbox
-from app.domain.external.browser import Browser
-from app.domain.external.search import SearchEngine
+from app.domain.models.message import Message
+from app.domain.models.plan import ExecutionStatus, Plan, Step
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.session_repository import SessionRepository
-from app.domain.utils.json_parser import JsonParser
+from app.domain.services.flows.base import BaseFlow
+from app.domain.services.orchestration.agent_factory import (
+    SpecializedAgentFactory,
+)
+from app.domain.services.orchestration.agent_types import (
+    AgentCapability,
+    AgentType,
+    get_agent_registry,
+)
+from app.domain.services.orchestration.handoff import (
+    get_handoff_protocol,
+)
+from app.domain.services.orchestration.swarm import (
+    AgentStatus,
+    Swarm,
+    SwarmConfig,
+    SwarmTask,
+)
 from app.domain.services.tools.mcp import MCPTool
+from app.domain.utils.json_parser import JsonParser
 
 logger = logging.getLogger(__name__)
 
@@ -112,9 +107,9 @@ class CoordinatorFlow(BaseFlow):
         browser: Browser,
         json_parser: JsonParser,
         mcp_tool: MCPTool,
-        search_engine: Optional[SearchEngine] = None,
+        search_engine: SearchEngine | None = None,
         mode: CoordinatorMode = CoordinatorMode.AUTO,
-        swarm_config: Optional[SwarmConfig] = None,
+        swarm_config: SwarmConfig | None = None,
     ):
         self._agent_id = agent_id
         self._repository = agent_repository
@@ -148,8 +143,8 @@ class CoordinatorFlow(BaseFlow):
         )
 
         # Execution state
-        self._current_task: Optional[SwarmTask] = None
-        self._plan: Optional[Plan] = None
+        self._current_task: SwarmTask | None = None
+        self._plan: Plan | None = None
         self._complexity: TaskComplexity = TaskComplexity.SIMPLE
 
     async def run(self, message: Message) -> AsyncGenerator[BaseEvent, None]:
@@ -182,7 +177,7 @@ class CoordinatorFlow(BaseFlow):
 
         except Exception as e:
             logger.error(f"CoordinatorFlow error: {e}")
-            yield ErrorEvent(error=f"Execution failed: {str(e)}")
+            yield ErrorEvent(error=f"Execution failed: {e!s}")
 
         yield DoneEvent()
         logger.info(f"CoordinatorFlow completed for session {self._session_id}")
@@ -354,7 +349,7 @@ class CoordinatorFlow(BaseFlow):
         ):
             yield event
 
-    def _infer_capabilities(self, message: Message) -> Set[AgentCapability]:
+    def _infer_capabilities(self, message: Message) -> set[AgentCapability]:
         """Infer required capabilities from the message.
 
         Args:
@@ -364,7 +359,7 @@ class CoordinatorFlow(BaseFlow):
             Set of inferred capabilities
         """
         text = message.message.lower()
-        capabilities: Set[AgentCapability] = set()
+        capabilities: set[AgentCapability] = set()
 
         # Capability keyword mapping
         keyword_map = {
@@ -406,7 +401,7 @@ class CoordinatorFlow(BaseFlow):
 
         return capabilities
 
-    def get_swarm_stats(self) -> Dict[str, Any]:
+    def get_swarm_stats(self) -> dict[str, Any]:
         """Get statistics from the swarm.
 
         Returns:
@@ -445,7 +440,7 @@ def create_coordinator_flow(
     browser: Browser,
     json_parser: JsonParser,
     mcp_tool: MCPTool,
-    search_engine: Optional[SearchEngine] = None,
+    search_engine: SearchEngine | None = None,
     mode: CoordinatorMode = CoordinatorMode.AUTO,
     **kwargs,
 ) -> CoordinatorFlow:

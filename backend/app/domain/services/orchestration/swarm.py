@@ -13,33 +13,30 @@ delegates tasks to specialized agents based on requirements.
 
 import asyncio
 import logging
-from enum import Enum
-from typing import (
-    List, Dict, Any, Optional, Set, AsyncGenerator,
-    Callable, Awaitable, Protocol, TypeVar
-)
+import uuid
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from datetime import datetime
-from pydantic import BaseModel, Field
-import uuid
+from enum import Enum
+from typing import Any, Protocol
 
+from pydantic import BaseModel, Field
+
+from app.domain.models.event import BaseEvent, ErrorEvent, MessageEvent
 from app.domain.services.orchestration.agent_types import (
-    AgentType,
     AgentCapability,
-    AgentSpec,
     AgentRegistry,
+    AgentSpec,
+    AgentType,
     get_agent_registry,
 )
 from app.domain.services.orchestration.handoff import (
     Handoff,
     HandoffContext,
-    HandoffReason,
-    HandoffResult,
     HandoffProtocol,
-    HandoffStatus,
+    HandoffReason,
     get_handoff_protocol,
 )
-from app.domain.models.event import BaseEvent, MessageEvent, ErrorEvent
 
 logger = logging.getLogger(__name__)
 
@@ -59,23 +56,23 @@ class SwarmTask:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     description: str = ""
     original_request: str = ""
-    context: Dict[str, Any] = field(default_factory=dict)
-    required_capabilities: Set[AgentCapability] = field(default_factory=set)
-    preferred_agent: Optional[AgentType] = None
+    context: dict[str, Any] = field(default_factory=dict)
+    required_capabilities: set[AgentCapability] = field(default_factory=set)
+    preferred_agent: AgentType | None = None
     priority: int = 0
     timeout_seconds: int = 300
     created_at: datetime = field(default_factory=datetime.utcnow)
 
     # Results
     status: AgentStatus = AgentStatus.IDLE
-    result: Optional[str] = None
-    artifacts: List[str] = field(default_factory=list)
-    error: Optional[str] = None
+    result: str | None = None
+    artifacts: list[str] = field(default_factory=list)
+    error: str | None = None
 
     # Execution tracking
-    assigned_agent: Optional[AgentType] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    assigned_agent: AgentType | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
 
 @dataclass
@@ -84,13 +81,13 @@ class SwarmResult:
     task_id: str
     success: bool
     output: str = ""
-    artifacts: List[str] = field(default_factory=list)
+    artifacts: list[str] = field(default_factory=list)
     summary: str = ""
-    agents_used: List[AgentType] = field(default_factory=list)
+    agents_used: list[AgentType] = field(default_factory=list)
     handoffs_performed: int = 0
     total_duration_seconds: float = 0.0
-    errors: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class AgentFactory(Protocol):
@@ -109,7 +106,7 @@ class AgentFactory(Protocol):
         self,
         agent: Any,
         prompt: str,
-        context: Dict[str, Any],
+        context: dict[str, Any],
     ) -> AsyncGenerator[BaseEvent, None]:
         """Execute an agent with the given prompt and context."""
         ...
@@ -146,7 +143,7 @@ class AgentInstance:
     agent_type: AgentType
     spec: AgentSpec
     status: AgentStatus = AgentStatus.IDLE
-    current_task: Optional[SwarmTask] = None
+    current_task: SwarmTask | None = None
     agent: Any = None  # The actual agent object
     created_at: datetime = field(default_factory=datetime.utcnow)
     tasks_completed: int = 0
@@ -168,9 +165,9 @@ class Swarm:
     def __init__(
         self,
         agent_factory: AgentFactory,
-        config: Optional[SwarmConfig] = None,
-        registry: Optional[AgentRegistry] = None,
-        handoff_protocol: Optional[HandoffProtocol] = None,
+        config: SwarmConfig | None = None,
+        registry: AgentRegistry | None = None,
+        handoff_protocol: HandoffProtocol | None = None,
     ):
         self._factory = agent_factory
         self._config = config or SwarmConfig()
@@ -178,12 +175,12 @@ class Swarm:
         self._protocol = handoff_protocol or get_handoff_protocol()
 
         # Active agents
-        self._agents: Dict[str, AgentInstance] = {}
+        self._agents: dict[str, AgentInstance] = {}
         self._agent_semaphore = asyncio.Semaphore(self._config.max_concurrent_agents)
 
         # Task queue
         self._task_queue: asyncio.Queue[SwarmTask] = asyncio.Queue()
-        self._active_tasks: Dict[str, SwarmTask] = {}
+        self._active_tasks: dict[str, SwarmTask] = {}
 
         # Statistics
         self._total_tasks_completed = 0
@@ -221,7 +218,7 @@ class Swarm:
                 # No specialized agent found, use coordinator
                 selected_agents = [self._registry.get(coordinator_type)]
                 if not selected_agents[0]:
-                    raise ValueError(f"No agent found for task and coordinator not available")
+                    raise ValueError("No agent found for task and coordinator not available")
 
             primary_agent_spec = selected_agents[0]
             logger.info(f"Selected primary agent: {primary_agent_spec.agent_type.value}")
@@ -240,7 +237,7 @@ class Swarm:
 
             logger.info(f"Swarm completed task {task.id[:8]}")
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             task.status = AgentStatus.FAILED
             task.error = "Task timed out"
             self._total_errors += 1
@@ -251,7 +248,7 @@ class Swarm:
             task.error = str(e)
             self._total_errors += 1
             logger.error(f"Swarm task {task.id[:8]} failed: {e}")
-            yield ErrorEvent(error=f"Task failed: {str(e)}")
+            yield ErrorEvent(error=f"Task failed: {e!s}")
 
         finally:
             del self._active_tasks[task.id]
@@ -261,7 +258,7 @@ class Swarm:
         task: SwarmTask,
         spec: AgentSpec,
         is_coordinator: bool = False,
-        handoff_context: Optional[HandoffContext] = None,
+        handoff_context: HandoffContext | None = None,
     ) -> AsyncGenerator[BaseEvent, None]:
         """Execute a task with a specific agent.
 
@@ -378,18 +375,18 @@ class Swarm:
             )
             logger.info(f"Handoff {handoff.id[:8]} completed successfully")
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._protocol.fail_handoff(handoff.id, "Handoff timed out")
             yield ErrorEvent(error="Handoff timed out")
 
         except Exception as e:
             self._protocol.fail_handoff(handoff.id, str(e))
-            yield ErrorEvent(error=f"Handoff failed: {str(e)}")
+            yield ErrorEvent(error=f"Handoff failed: {e!s}")
 
     async def execute_parallel(
         self,
-        tasks: List[SwarmTask],
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+        tasks: list[SwarmTask],
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute multiple tasks in parallel.
 
         Args:
@@ -406,7 +403,7 @@ class Swarm:
         logger.info(f"Executing {len(tasks)} tasks in parallel")
 
         # Create tasks for each execution
-        async def collect_events(task: SwarmTask) -> Dict[str, Any]:
+        async def collect_events(task: SwarmTask) -> dict[str, Any]:
             events = []
             result = None
             error = None
@@ -456,7 +453,7 @@ class Swarm:
     async def delegate_subtasks(
         self,
         parent_task: SwarmTask,
-        subtasks: List[Dict[str, Any]],
+        subtasks: list[dict[str, Any]],
     ) -> AsyncGenerator[BaseEvent, None]:
         """Delegate subtasks to specialized agents.
 
@@ -526,7 +523,7 @@ class Swarm:
                 async for event in self.execute(subtask):
                     yield event
 
-    def _select_agents(self, task: SwarmTask) -> List[AgentSpec]:
+    def _select_agents(self, task: SwarmTask) -> list[AgentSpec]:
         """Select the best agents for a task.
 
         Args:
@@ -583,7 +580,7 @@ class Swarm:
         task: SwarmTask,
         spec: AgentSpec,
         is_coordinator: bool,
-        handoff_context: Optional[HandoffContext],
+        handoff_context: HandoffContext | None,
     ) -> str:
         """Build the execution prompt for an agent.
 
@@ -637,7 +634,7 @@ You can delegate multiple tasks in parallel when they are independent.
         self,
         message: str,
         task: SwarmTask,
-    ) -> Optional[Handoff]:
+    ) -> Handoff | None:
         """Detect if an agent is requesting a handoff.
 
         Args:
@@ -704,7 +701,7 @@ You can delegate multiple tasks in parallel when they are independent.
 
         return handoff
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get swarm statistics.
 
         Returns:
@@ -738,7 +735,7 @@ You can delegate multiple tasks in parallel when they are independent.
                 async with asyncio.timeout(30):
                     while self._active_tasks:
                         await asyncio.sleep(0.5)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("Shutdown timeout, some tasks may be incomplete")
 
         # Clear agents

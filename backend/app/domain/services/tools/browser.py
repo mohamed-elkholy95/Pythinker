@@ -1,16 +1,17 @@
 import logging
 import re
-from typing import Optional
+
 import aiohttp
+
 from app.domain.external.browser import Browser
-from app.domain.services.tools.base import tool, BaseTool
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.tools.paywall_detector import PaywallDetector, PaywallDetectionResult
+from app.domain.services.tools.base import BaseTool, tool
+from app.domain.services.tools.paywall_detector import PaywallDetector
 
 logger = logging.getLogger(__name__)
 
 # Singleton paywall detector
-_paywall_detector: Optional[PaywallDetector] = None
+_paywall_detector: PaywallDetector | None = None
 
 
 def get_paywall_detector() -> PaywallDetector:
@@ -21,7 +22,7 @@ def get_paywall_detector() -> PaywallDetector:
     return _paywall_detector
 
 # Singleton HTTP client session for connection pooling
-_http_session: Optional[aiohttp.ClientSession] = None
+_http_session: aiohttp.ClientSession | None = None
 
 
 async def get_http_session() -> aiohttp.ClientSession:
@@ -75,7 +76,7 @@ class BrowserTool(BaseTool):
 
     name: str = "browser"
 
-    def __init__(self, browser: Browser, max_observe: Optional[int] = None):
+    def __init__(self, browser: Browser, max_observe: int | None = None):
         """Initialize browser tool class
 
         Args:
@@ -84,7 +85,7 @@ class BrowserTool(BaseTool):
         """
         super().__init__(max_observe=max_observe)
         self.browser = browser
-    
+
     @tool(
         name="browser_get_content",
         description="""Fast fetch page content as text (no browser rendering).
@@ -170,7 +171,7 @@ Use element indices with browser_click, browser_input, etc.""",
             Browser page content
         """
         return await self.browser.view_page()
-    
+
     @tool(
         name="browser_navigate",
         description="""Navigate browser to URL with automatic content loading.
@@ -199,7 +200,7 @@ Returns: Interactive elements, page content, title, URL - ready to use without a
             Navigation result with interactive elements and page content
         """
         return await self.browser.navigate(url)
-    
+
     @tool(
         name="browser_restart",
         description="Restart browser and navigate to specified URL. Use when browser state needs to be reset.",
@@ -221,7 +222,7 @@ Returns: Interactive elements, page content, title, URL - ready to use without a
             Restart result
         """
         return await self.browser.restart(url)
-    
+
     @tool(
         name="browser_click",
         description="""Click an interactive element on the page.
@@ -251,9 +252,9 @@ RETURNS: Click result. Use browser_view to see updated page state.""",
     )
     async def browser_click(
         self,
-        index: Optional[int] = None,
-        coordinate_x: Optional[float] = None,
-        coordinate_y: Optional[float] = None
+        index: int | None = None,
+        coordinate_x: float | None = None,
+        coordinate_y: float | None = None
     ) -> ToolResult:
         """Click on elements in the current browser page
         
@@ -266,7 +267,7 @@ RETURNS: Click result. Use browser_view to see updated page state.""",
             Click result
         """
         return await self.browser.click(index, coordinate_x, coordinate_y)
-    
+
     @tool(
         name="browser_input",
         description="""Type text into an input field, textarea, or editable element.
@@ -304,9 +305,9 @@ For forms: Set press_enter=false and use browser_click on submit button.""",
         self,
         text: str,
         press_enter: bool,
-        index: Optional[int] = None,
-        coordinate_x: Optional[float] = None,
-        coordinate_y: Optional[float] = None
+        index: int | None = None,
+        coordinate_x: float | None = None,
+        coordinate_y: float | None = None
     ) -> ToolResult:
         """Overwrite text in editable elements on the current browser page
         
@@ -321,7 +322,7 @@ For forms: Set press_enter=false and use browser_click on submit button.""",
             Input result
         """
         return await self.browser.input(text, press_enter, index, coordinate_x, coordinate_y)
-    
+
     @tool(
         name="browser_move_mouse",
         description="Move cursor to specified position on the current browser page. Use when simulating user mouse movement.",
@@ -352,7 +353,7 @@ For forms: Set press_enter=false and use browser_click on submit button.""",
             Move result
         """
         return await self.browser.move_mouse(coordinate_x, coordinate_y)
-    
+
     @tool(
         name="browser_press_key",
         description="Simulate key press in the current browser page. Use when specific keyboard operations are needed.",
@@ -377,7 +378,7 @@ For forms: Set press_enter=false and use browser_click on submit button.""",
             Key press result
         """
         return await self.browser.press_key(key)
-    
+
     @tool(
         name="browser_select_option",
         description="Select specified option from dropdown list element in the current browser page. Use when selecting dropdown menu options.",
@@ -408,7 +409,7 @@ For forms: Set press_enter=false and use browser_click on submit button.""",
             Selection result
         """
         return await self.browser.select_option(index, option)
-    
+
     @tool(
         name="browser_scroll_up",
         description="""Scroll up to view content above current position.
@@ -429,7 +430,7 @@ RETURNS: Updated page state after scroll.""",
     )
     async def browser_scroll_up(
         self,
-        to_top: Optional[bool] = None
+        to_top: bool | None = None
     ) -> ToolResult:
         """Scroll up the current browser page
         
@@ -440,7 +441,7 @@ RETURNS: Updated page state after scroll.""",
             Scroll result
         """
         return await self.browser.scroll_up(to_top)
-    
+
     @tool(
         name="browser_scroll_down",
         description="""Scroll down to view more content and trigger lazy loading.
@@ -465,7 +466,7 @@ RETURNS: Updated page state after scroll. Use browser_view to extract new conten
     )
     async def browser_scroll_down(
         self,
-        to_bottom: Optional[bool] = None
+        to_bottom: bool | None = None
     ) -> ToolResult:
         """Scroll down the current browser page
         
@@ -476,7 +477,7 @@ RETURNS: Updated page state after scroll. Use browser_view to extract new conten
             Scroll result
         """
         return await self.browser.scroll_down(to_bottom)
-    
+
     @tool(
         name="browser_console_exec",
         description="Execute JavaScript code in browser console. Use when custom scripts need to be executed.",
@@ -501,7 +502,7 @@ RETURNS: Updated page state after scroll. Use browser_view to extract new conten
             Execution result
         """
         return await self.browser.console_exec(javascript)
-    
+
     @tool(
         name="browser_console_view",
         description="View browser console output. Use when checking JavaScript logs or debugging page errors.",
@@ -515,7 +516,7 @@ RETURNS: Updated page state after scroll. Use browser_view to extract new conten
     )
     async def browser_console_view(
         self,
-        max_lines: Optional[int] = None
+        max_lines: int | None = None
     ) -> ToolResult:
         """View browser console output
 
@@ -567,7 +568,7 @@ Examples:
     async def browsing(
         self,
         task: str,
-        max_steps: Optional[int] = 20
+        max_steps: int | None = 20
     ) -> ToolResult:
         """Execute autonomous browsing task with natural language instruction
 
@@ -582,7 +583,7 @@ Examples:
             # Lazy import to avoid circular dependencies
             from app.infrastructure.external.browser.browseruse_browser import (
                 BrowserUseService,
-                is_browser_use_available
+                is_browser_use_available,
             )
 
             # Check if browser-use is available
@@ -638,16 +639,15 @@ Examples:
                         "all_actions": result["actions"]  # Full action history
                     }
                 )
-            else:
-                # Task failed
-                return ToolResult(
-                    success=False,
-                    message=f"Autonomous task failed: {result.get('error', 'Unknown error')}"
-                )
+            # Task failed
+            return ToolResult(
+                success=False,
+                message=f"Autonomous task failed: {result.get('error', 'Unknown error')}"
+            )
 
         except Exception as e:
             logger.error(f"browsing failed: {e}", exc_info=True)
             return ToolResult(
                 success=False,
-                message=f"Failed to execute autonomous task: {str(e)}"
-            ) 
+                message=f"Failed to execute autonomous task: {e!s}"
+            )

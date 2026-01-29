@@ -5,7 +5,7 @@ containment checks, and regular expressions.
 """
 
 import re
-from typing import Dict, Any, List
+from typing import Any
 
 from tests.evals.metrics.base import BaseMetric, MetricScore
 
@@ -19,8 +19,8 @@ class ExactMatchMetric(BaseMetric):
     def evaluate(
         self,
         actual_output: str,
-        expected: Dict[str, Any],
-        context: Dict[str, Any],
+        expected: dict[str, Any],
+        context: dict[str, Any],
     ) -> MetricScore:
         expected_output = expected.get("expected_output")
 
@@ -62,8 +62,8 @@ class ContainsMetric(BaseMetric):
     def evaluate(
         self,
         actual_output: str,
-        expected: Dict[str, Any],
-        context: Dict[str, Any],
+        expected: dict[str, Any],
+        context: dict[str, Any],
     ) -> MetricScore:
         required_strings = expected.get("expected_output_contains", [])
 
@@ -115,8 +115,8 @@ class NotContainsMetric(BaseMetric):
     def evaluate(
         self,
         actual_output: str,
-        expected: Dict[str, Any],
-        context: Dict[str, Any],
+        expected: dict[str, Any],
+        context: dict[str, Any],
     ) -> MetricScore:
         forbidden_strings = expected.get("expected_output_not_contains", [])
 
@@ -161,8 +161,8 @@ class RegexMatchMetric(BaseMetric):
     def evaluate(
         self,
         actual_output: str,
-        expected: Dict[str, Any],
-        context: Dict[str, Any],
+        expected: dict[str, Any],
+        context: dict[str, Any],
     ) -> MetricScore:
         patterns = expected.get("expected_regex_patterns", [])
 
@@ -221,8 +221,8 @@ class LengthMetric(BaseMetric):
     def evaluate(
         self,
         actual_output: str,
-        expected: Dict[str, Any],
-        context: Dict[str, Any],
+        expected: dict[str, Any],
+        context: dict[str, Any],
     ) -> MetricScore:
         min_length = expected.get("min_length", 0)
         max_length = expected.get("max_length", float("inf"))

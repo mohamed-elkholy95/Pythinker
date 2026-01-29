@@ -1,36 +1,34 @@
-import logging
 import asyncio
+import logging
 import uuid
 from abc import ABC
-from typing import List, Dict, Any, Optional, AsyncGenerator, Tuple
+from collections.abc import AsyncGenerator
+from typing import Any
+
 from app.domain.external.llm import LLM
 from app.domain.models.agent import Agent
-from app.domain.models.message import Message
-from app.domain.services.tools.base import BaseTool
-from app.domain.models.tool_result import ToolResult
 from app.domain.models.event import (
     BaseEvent,
-    ToolEvent,
-    ToolStatus,
     ErrorEvent,
     MessageEvent,
     StreamEvent,
+    ToolEvent,
+    ToolStatus,
     WaitEvent,
 )
+from app.domain.models.message import Message
+from app.domain.models.tool_result import ToolResult
 from app.domain.repositories.agent_repository import AgentRepository
-from app.domain.utils.json_parser import JsonParser
-from app.domain.services.agents.stuck_detector import StuckDetector, LoopType, RecoveryStrategy
-from app.domain.services.agents.token_manager import TokenManager
-from app.domain.services.agents.error_handler import ErrorHandler, TokenLimitExceeded, ErrorType
+from app.domain.services.agents.error_handler import ErrorHandler, ErrorType, TokenLimitExceeded
 from app.domain.services.agents.hallucination_detector import ToolHallucinationDetector
-from app.domain.services.agents.security_assessor import SecurityAssessor, ActionSecurityRisk
-from app.domain.services.tools.tool_profiler import get_tool_profiler
-from app.domain.services.tools.dynamic_toolset import (
-    DynamicToolsetManager,
-    get_toolset_manager,
-    ToolsetConfig
-)
+from app.domain.services.agents.security_assessor import ActionSecurityRisk, SecurityAssessor
+from app.domain.services.agents.stuck_detector import StuckDetector
+from app.domain.services.agents.token_manager import TokenManager
+from app.domain.services.tools.base import BaseTool
 from app.domain.services.tools.command_formatter import CommandFormatter
+from app.domain.services.tools.dynamic_toolset import get_toolset_manager
+from app.domain.services.tools.tool_profiler import get_tool_profiler
+from app.domain.utils.json_parser import JsonParser
 
 logger = logging.getLogger(__name__)
 
@@ -66,12 +64,12 @@ class BaseAgent(ABC):
 
     name: str = ""
     system_prompt: str = ""
-    format: Optional[str] = None
+    format: str | None = None
     max_iterations: int = 200  # Increased for complex tasks
     max_retries: int = 3
     retry_interval: float = 0.3  # Faster retry with exponential backoff
     retry_backoff: float = 1.5  # Backoff multiplier (0.3s -> 0.45s -> 0.67s)
-    tool_choice: Optional[str] = None
+    tool_choice: str | None = None
 
     # Iteration budget management
     iteration_warning_threshold: float = 0.8  # Warn at 80% of limit
@@ -83,7 +81,7 @@ class BaseAgent(ABC):
         agent_repository: AgentRepository,
         llm: LLM,
         json_parser: JsonParser,
-        tools: List[BaseTool] = []
+        tools: list[BaseTool] = []
     ):
         self._agent_id = agent_id
         self._repository = agent_repository
@@ -107,8 +105,8 @@ class BaseAgent(ABC):
             allow_credential_access=False,
             allow_destructive_operations=False,
         )
-    
-    def get_available_tools(self) -> Optional[List[Dict[str, Any]]]:
+
+    def get_available_tools(self) -> list[dict[str, Any]] | None:
         """Get all available tools list"""
         available_tools = []
         for tool in self.tools:
@@ -119,7 +117,7 @@ class BaseAgent(ABC):
         self,
         task_description: str,
         include_mcp: bool = True
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Get tools filtered by task context for reduced token usage.
 
         Uses semantic matching to provide only relevant tools based on
@@ -152,7 +150,7 @@ class BaseAgent(ABC):
         self._hallucination_detector.update_available_tools(tool_names)
 
         return filtered
-    
+
     def get_tool(self, function_name: str) -> BaseTool:
         """Get specified tool.
 
@@ -202,7 +200,7 @@ class BaseAgent(ABC):
         tool_call_id: str,
         tool_name: str,
         function_name: str,
-        function_args: Dict[str, Any],
+        function_args: dict[str, Any],
         status: ToolStatus,
         **kwargs
     ) -> ToolEvent:
@@ -248,7 +246,7 @@ class BaseAgent(ABC):
         self,
         tool: BaseTool,
         function_name: str,
-        arguments: Dict[str, Any],
+        arguments: dict[str, Any],
         skip_security: bool = False,
     ) -> ToolResult:
         """Invoke specified tool, with retry mechanism and exponential backoff.
@@ -282,7 +280,7 @@ class BaseAgent(ABC):
         retries = 0
         current_interval = self.retry_interval
         last_error = ""
-        result: Optional[ToolResult] = None
+        result: ToolResult | None = None
 
         while retries <= self.max_retries:
             try:
@@ -344,7 +342,7 @@ class BaseAgent(ABC):
 
         return ToolResult(success=False, message=last_error)
 
-    def _can_parallelize_tools(self, tool_calls: List[Dict]) -> bool:
+    def _can_parallelize_tools(self, tool_calls: list[dict]) -> bool:
         """Check if all tool calls in the list can be executed in parallel.
 
         Supports both explicit tool whitelist and MCP read-only patterns.
@@ -372,16 +370,16 @@ class BaseAgent(ABC):
     async def _invoke_tool_with_semaphore(
         self,
         semaphore: asyncio.Semaphore,
-        tool_call: Dict,
-        function_args: Dict[str, Any]
-    ) -> Tuple[Dict, BaseTool, ToolResult]:
+        tool_call: dict,
+        function_args: dict[str, Any]
+    ) -> tuple[dict, BaseTool, ToolResult]:
         """Invoke a single tool with semaphore limiting concurrent executions"""
         async with semaphore:
             function_name = tool_call["function"]["name"]
             tool = self.get_tool(function_name)
             result = await self.invoke_tool(tool, function_name, function_args)
             return tool_call, tool, result
-    
+
     def _is_read_only_tool(self, function_name: str) -> bool:
         """Check if a tool is read-only (doesn't modify state)."""
         read_only_patterns = {
@@ -407,7 +405,7 @@ class BaseAgent(ABC):
         name_lower = function_name.lower()
         return any(pattern in name_lower for pattern in read_only_patterns)
 
-    def _calculate_iteration_cost(self, tool_calls: List[Dict]) -> float:
+    def _calculate_iteration_cost(self, tool_calls: list[dict]) -> float:
         """Calculate weighted iteration cost based on tool types."""
         cost = 0.0
         for tc in tool_calls:
@@ -418,7 +416,7 @@ class BaseAgent(ABC):
                 cost += 1.0
         return max(1.0, cost)  # Minimum 1 iteration per cycle
 
-    async def execute(self, request: str, format: Optional[str] = None) -> AsyncGenerator[BaseEvent, None]:
+    async def execute(self, request: str, format: str | None = None) -> AsyncGenerator[BaseEvent, None]:
         format = format or self.format
         # Don't use json_object format when tools are available - causes empty responses
         # Only enforce JSON format after tool calling is complete
@@ -676,13 +674,13 @@ class BaseAgent(ABC):
         semaphore: asyncio.Semaphore,
         tool: BaseTool,
         function_name: str,
-        function_args: Dict[str, Any],
+        function_args: dict[str, Any],
         tool_call_id: str
     ) -> ToolResult:
         """Execute a single tool with semaphore limiting concurrent executions"""
         async with semaphore:
             return await self.invoke_tool(tool, function_name, function_args)
-    
+
     async def _ensure_memory(self):
         """Ensure the agent has initialized memory.
 
@@ -705,8 +703,8 @@ class BaseAgent(ABC):
                     self.memory = await self._repository.get_memory(self._agent_id, self.name)
                 else:
                     raise
-    
-    async def _add_to_memory(self, messages: List[Dict[str, Any]]) -> None:
+
+    async def _add_to_memory(self, messages: list[dict[str, Any]]) -> None:
         """Update memory and save to repository"""
         await self._ensure_memory()
         if self.memory.empty:
@@ -715,13 +713,13 @@ class BaseAgent(ABC):
             })
         self.memory.add_messages(messages)
         await self._repository.save_memory(self._agent_id, self.name, self.memory)
-    
+
     async def _roll_back_memory(self) -> None:
         await self._ensure_memory()
         self.memory.roll_back()
         await self._repository.save_memory(self._agent_id, self.name, self.memory)
 
-    async def ask_with_messages(self, messages: List[Dict[str, Any]], format: Optional[str] = None) -> Dict[str, Any]:
+    async def ask_with_messages(self, messages: list[dict[str, Any]], format: str | None = None) -> dict[str, Any]:
         await self._add_to_memory(messages)
 
         # Check and handle token limits before making LLM call
@@ -838,18 +836,18 @@ class BaseAgent(ABC):
         await self._repository.save_memory(self._agent_id, self.name, self.memory)
         logger.info(f"Handled token limit by trimming {tokens_removed} tokens")
 
-    async def ask(self, request: str, format: Optional[str] = None) -> Dict[str, Any]:
+    async def ask(self, request: str, format: str | None = None) -> dict[str, Any]:
         return await self.ask_with_messages([
             {
                 "role": "user", "content": request
             }
         ], format)
-    
+
     async def roll_back(self, message: Message):
         await self._ensure_memory()
         last_message = self.memory.get_last_message()
-        if (not last_message or 
-            not last_message.get("tool_calls") or 
+        if (not last_message or
+            not last_message.get("tool_calls") or
             len(last_message.get("tool_calls")) == 0):
             return
         tool_call = last_message.get("tool_calls")[0]
@@ -865,7 +863,7 @@ class BaseAgent(ABC):
         else:
             self.memory.roll_back()
         await self._repository.save_memory(self._agent_id, self.name, self.memory)
-    
+
     async def compact_memory(self) -> None:
         await self._ensure_memory()
         self.memory.compact()
@@ -876,7 +874,7 @@ class BaseAgent(ABC):
         autonomy_level: str = "autonomous",
         allow_credential_access: bool = False,
         allow_destructive_operations: bool = False,
-        blocked_patterns: Optional[List[str]] = None,
+        blocked_patterns: list[str] | None = None,
     ) -> None:
         """Configure the security assessor for this agent.
 
@@ -897,7 +895,7 @@ class BaseAgent(ABC):
             f"credentials={allow_credential_access}, destructive={allow_destructive_operations}"
         )
 
-    def get_reliability_stats(self) -> Dict[str, Any]:
+    def get_reliability_stats(self) -> dict[str, Any]:
         """Get comprehensive reliability statistics.
 
         Returns:
@@ -922,7 +920,7 @@ class BaseAgent(ABC):
     async def ask_streaming(
         self,
         request: str,
-        format: Optional[str] = None
+        format: str | None = None
     ) -> AsyncGenerator[BaseEvent, None]:
         """Execute a request with streaming LLM response.
 

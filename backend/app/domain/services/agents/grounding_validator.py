@@ -16,9 +16,9 @@ Key concepts:
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Tuple
-from enum import Enum
 from datetime import datetime
+from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class GroundingLevel(str, Enum):
 class Claim:
     """A single claim extracted from a response."""
     text: str
-    source_support: Optional[str] = None  # Supporting text from source
+    source_support: str | None = None  # Supporting text from source
     grounding_score: float = 0.0
     is_factual: bool = True  # False for opinions/hedged statements
 
@@ -45,10 +45,10 @@ class GroundingResult:
     """Result of grounding validation."""
     overall_score: float  # 0.0 to 1.0
     level: GroundingLevel
-    claims: List[Claim]
-    ungrounded_claims: List[str]
-    grounded_claims: List[str]
-    warnings: List[str] = field(default_factory=list)
+    claims: list[Claim]
+    ungrounded_claims: list[str]
+    grounded_claims: list[str]
+    warnings: list[str] = field(default_factory=list)
     timestamp: datetime = field(default_factory=datetime.now)
 
     @property
@@ -236,7 +236,7 @@ class GroundingValidator:
             warnings=warnings,
         )
 
-    def _extract_claims(self, text: str) -> List[Claim]:
+    def _extract_claims(self, text: str) -> list[Claim]:
         """Extract factual claims from text.
 
         Args:
@@ -288,7 +288,7 @@ class GroundingValidator:
         self,
         claim: str,
         source: str,
-    ) -> Tuple[float, Optional[str]]:
+    ) -> tuple[float, str | None]:
         """Calculate how well a claim is grounded in the source.
 
         Args:
@@ -369,14 +369,13 @@ class GroundingValidator:
 
         if score >= 0.7 and grounded_ratio >= 0.8:
             return GroundingLevel.FULLY_GROUNDED
-        elif score >= 0.5 and grounded_ratio >= 0.5:
+        if score >= 0.5 and grounded_ratio >= 0.5:
             return GroundingLevel.PARTIALLY_GROUNDED
-        elif score >= 0.3 or grounded_ratio >= 0.3:
+        if score >= 0.3 or grounded_ratio >= 0.3:
             return GroundingLevel.WEAKLY_GROUNDED
-        else:
-            return GroundingLevel.UNGROUNDED
+        return GroundingLevel.UNGROUNDED
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get validation statistics."""
         total = self._stats["validations"]
         return {
@@ -391,7 +390,7 @@ class GroundingValidator:
 
 
 # Convenience functions
-_validator: Optional[GroundingValidator] = None
+_validator: GroundingValidator | None = None
 
 
 def get_grounding_validator() -> GroundingValidator:

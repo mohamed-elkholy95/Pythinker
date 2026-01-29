@@ -1,29 +1,29 @@
-import os
-import logging
 import hashlib
+import logging
+import os
 import time
-from typing import Dict, Any, List, Optional, Set
 from contextlib import AsyncExitStack
-from datetime import datetime
 from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
 from mcp.client.sse import sse_client
+from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.types import Tool as MCPToolType
 
-from app.domain.services.tools.base import BaseTool, tool
-from app.domain.models.tool_result import ToolResult
 from app.domain.models.mcp_config import MCPConfig, MCPServerConfig
 from app.domain.models.mcp_resource import (
     MCPResource,
     MCPResourceContent,
-    ResourceTemplate,
     ResourceListResult,
     ResourceReadResult,
+    ResourceTemplate,
     ResourceType,
 )
+from app.domain.models.tool_result import ToolResult
+from app.domain.services.tools.base import BaseTool
 from app.domain.services.tools.dynamic_toolset import get_warmup_manager
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ class ServerHealth:
     server_name: str
     healthy: bool = True
     last_check: datetime = field(default_factory=datetime.now)
-    last_error: Optional[str] = None
+    last_error: str | None = None
     consecutive_failures: int = 0
     tools_count: int = 0
 
@@ -43,7 +43,7 @@ class ServerHealth:
 @dataclass
 class CachedToolSchema:
     """Tool schema with TTL-based caching"""
-    tools: List[MCPToolType]
+    tools: list[MCPToolType]
     cached_at: datetime = field(default_factory=datetime.now)
     ttl_seconds: int = 300  # 5 minutes default
 
@@ -61,7 +61,7 @@ class ToolUsageStats:
     success_count: int = 0
     failure_count: int = 0
     total_duration_ms: float = 0
-    last_used: Optional[datetime] = None
+    last_used: datetime | None = None
 
 
 class MCPClientManager:
@@ -76,23 +76,23 @@ class MCPClientManager:
     # Default TTL for tool schema cache (seconds)
     TOOL_SCHEMA_TTL = 300  # 5 minutes
 
-    def __init__(self, config: Optional[MCPConfig] = None):
-        self._clients: Dict[str, ClientSession] = {}
+    def __init__(self, config: MCPConfig | None = None):
+        self._clients: dict[str, ClientSession] = {}
         self._exit_stack = AsyncExitStack()
-        self._tools_cache: Dict[str, CachedToolSchema] = {}  # Now uses TTL-based caching
+        self._tools_cache: dict[str, CachedToolSchema] = {}  # Now uses TTL-based caching
         self._initialized = False
         self._config = config
 
         # Health tracking
-        self._server_health: Dict[str, ServerHealth] = {}
-        self._tool_usage: Dict[str, ToolUsageStats] = {}
-        self._config_hash: Optional[str] = None
+        self._server_health: dict[str, ServerHealth] = {}
+        self._tool_usage: dict[str, ToolUsageStats] = {}
+        self._config_hash: str | None = None
         self._max_consecutive_failures = 3
 
         # Resource management
-        self._resources_cache: Dict[str, List[MCPResource]] = {}
-        self._templates_cache: Dict[str, List[ResourceTemplate]] = {}
-        self._resource_subscriptions: Dict[str, Set[str]] = {}  # server -> set of URIs
+        self._resources_cache: dict[str, list[MCPResource]] = {}
+        self._templates_cache: dict[str, list[ResourceTemplate]] = {}
+        self._resource_subscriptions: dict[str, set[str]] = {}  # server -> set of URIs
 
     async def initialize(self):
         """Initialize MCP client manager"""
@@ -142,7 +142,7 @@ class MCPClientManager:
 
         return False
 
-    async def health_check(self) -> Dict[str, ServerHealth]:
+    async def health_check(self) -> dict[str, ServerHealth]:
         """
         Perform health check on all connected servers.
 
@@ -173,7 +173,7 @@ class MCPClientManager:
 
         return self._server_health
 
-    async def reconnect_unhealthy(self) -> List[str]:
+    async def reconnect_unhealthy(self) -> list[str]:
         """
         Attempt to reconnect unhealthy servers.
 
@@ -216,11 +216,11 @@ class MCPClientManager:
         else:
             stats.failure_count += 1
 
-    def get_tool_stats(self) -> Dict[str, ToolUsageStats]:
+    def get_tool_stats(self) -> dict[str, ToolUsageStats]:
         """Get tool usage statistics"""
         return self._tool_usage
 
-    def get_health_status(self) -> Dict[str, ServerHealth]:
+    def get_health_status(self) -> dict[str, ServerHealth]:
         """Get current health status of all servers"""
         return self._server_health
 
@@ -422,7 +422,7 @@ class MCPClientManager:
                 consecutive_failures=1
             )
 
-    async def _refresh_tools_if_expired(self, server_name: str) -> List[MCPToolType]:
+    async def _refresh_tools_if_expired(self, server_name: str) -> list[MCPToolType]:
         """Refresh tool cache if TTL expired, otherwise return cached tools"""
         cached = self._tools_cache.get(server_name)
 
@@ -439,7 +439,7 @@ class MCPClientManager:
 
         return []
 
-    def invalidate_tool_cache(self, server_name: Optional[str] = None):
+    def invalidate_tool_cache(self, server_name: str | None = None):
         """Invalidate tool cache for a specific server or all servers.
 
         Args:
@@ -531,7 +531,7 @@ class MCPClientManager:
             errors=errors
         )
 
-    async def read_resource(self, uri: str, server_name: Optional[str] = None) -> ResourceReadResult:
+    async def read_resource(self, uri: str, server_name: str | None = None) -> ResourceReadResult:
         """Read content from an MCP resource.
 
         Args:
@@ -609,7 +609,7 @@ class MCPClientManager:
                 read_time_ms=(time.time() - start_time) * 1000
             )
 
-    def _find_resource_server(self, uri: str) -> Optional[str]:
+    def _find_resource_server(self, uri: str) -> str | None:
         """Find which server provides a given resource URI."""
         for server_name, resources in self._resources_cache.items():
             for resource in resources:
@@ -639,7 +639,7 @@ class MCPClientManager:
         except re.error:
             return False
 
-    async def subscribe_resource(self, uri: str, server_name: Optional[str] = None) -> bool:
+    async def subscribe_resource(self, uri: str, server_name: str | None = None) -> bool:
         """Subscribe to updates for a resource.
 
         Args:
@@ -672,7 +672,7 @@ class MCPClientManager:
             logger.warning(f"Failed to subscribe to {uri}: {e}")
             return False
 
-    async def unsubscribe_resource(self, uri: str, server_name: Optional[str] = None) -> bool:
+    async def unsubscribe_resource(self, uri: str, server_name: str | None = None) -> bool:
         """Unsubscribe from resource updates.
 
         Args:
@@ -703,7 +703,7 @@ class MCPClientManager:
             logger.warning(f"Failed to unsubscribe from {uri}: {e}")
             return False
 
-    def get_cached_resources(self, server_name: Optional[str] = None) -> List[MCPResource]:
+    def get_cached_resources(self, server_name: str | None = None) -> list[MCPResource]:
         """Get cached resources without refreshing.
 
         Args:
@@ -720,7 +720,7 @@ class MCPClientManager:
             all_resources.extend(resources)
         return all_resources
 
-    def get_cached_templates(self, server_name: Optional[str] = None) -> List[ResourceTemplate]:
+    def get_cached_templates(self, server_name: str | None = None) -> list[ResourceTemplate]:
         """Get cached resource templates without refreshing.
 
         Args:
@@ -737,7 +737,7 @@ class MCPClientManager:
             all_templates.extend(templates)
         return all_templates
 
-    async def get_all_tools(self) -> List[Dict[str, Any]]:
+    async def get_all_tools(self) -> list[dict[str, Any]]:
         """Get all MCP tools, refreshing expired caches as needed"""
         all_tools = []
 
@@ -764,7 +764,7 @@ class MCPClientManager:
 
         return all_tools
 
-    async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> ToolResult:
+    async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> ToolResult:
         """Call MCP tool with health tracking and usage statistics"""
         import time
         start_time = time.time()
@@ -828,11 +828,10 @@ class MCPClientManager:
                     success=True,
                     data='\n'.join(content) if content else "Tool executed successfully"
                 )
-            else:
-                return ToolResult(
-                    success=True,
-                    data="Tool executed successfully"
-                )
+            return ToolResult(
+                success=True,
+                data="Tool executed successfully"
+            )
 
         except Exception as e:
             # Record failed call
@@ -850,7 +849,7 @@ class MCPClientManager:
             logger.error(f"Failed to call MCP tool {tool_name}: {e}")
             return ToolResult(
                 success=False,
-                message=f"Failed to call MCP tool: {str(e)}"
+                message=f"Failed to call MCP tool: {e!s}"
             )
 
     async def cleanup(self):
@@ -938,11 +937,11 @@ class MCPTool(BaseTool):
         super().__init__()
         self._initialized = False
         self._tools = []
-        self.manager: Optional[MCPClientManager] = None
-        self._config: Optional[MCPConfig] = None
+        self.manager: MCPClientManager | None = None
+        self._config: MCPConfig | None = None
         self._lazy_init_pending = False  # Phase 5: Track if lazy init is pending
 
-    async def initialized(self, config: Optional[MCPConfig] = None):
+    async def initialized(self, config: MCPConfig | None = None):
         """Ensure manager is initialized.
 
         Phase 5: When mcp_lazy_init is enabled, this method stores the config
@@ -987,7 +986,7 @@ class MCPTool(BaseTool):
             logger.info("MCP lazy initialization triggered by first use")
             await self._do_initialize()
 
-    def get_tools(self) -> List[Dict[str, Any]]:
+    def get_tools(self) -> list[dict[str, Any]]:
         """Get all tool definitions including resource management tools.
 
         Phase 5: When lazy init is pending, returns resource tools only.
@@ -1043,7 +1042,7 @@ class MCPTool(BaseTool):
             return ToolResult(success=False, message="MCP manager not initialized")
         return await self.manager.call_tool(function_name, kwargs)
 
-    async def _list_resources(self, server_name: Optional[str] = None) -> ToolResult:
+    async def _list_resources(self, server_name: str | None = None) -> ToolResult:
         """List available MCP resources."""
         if not self.manager:
             return ToolResult(success=False, message="MCP manager not initialized")
@@ -1076,7 +1075,7 @@ class MCPTool(BaseTool):
                     output_parts.append(f"- `{tmpl.uri_template}`: {tmpl.name}{desc}")
 
             if result.errors:
-                output_parts.append(f"\n**Errors:**")
+                output_parts.append("\n**Errors:**")
                 for srv, err in result.errors.items():
                     output_parts.append(f"- {srv}: {err}")
 
@@ -1090,9 +1089,9 @@ class MCPTool(BaseTool):
 
         except Exception as e:
             logger.error(f"Failed to list resources: {e}")
-            return ToolResult(success=False, message=f"Failed to list resources: {str(e)}")
+            return ToolResult(success=False, message=f"Failed to list resources: {e!s}")
 
-    async def _read_resource(self, uri: str, server_name: Optional[str] = None) -> ToolResult:
+    async def _read_resource(self, uri: str, server_name: str | None = None) -> ToolResult:
         """Read content from an MCP resource."""
         if not self.manager:
             return ToolResult(success=False, message="MCP manager not initialized")
@@ -1119,16 +1118,15 @@ class MCPTool(BaseTool):
                     success=True,
                     data=f"{metadata}\n\n---\n\n{data}"
                 )
-            else:
-                # Binary content - provide info only
-                return ToolResult(
-                    success=True,
-                    data=f"Binary resource read successfully.\nURI: {uri}\nMIME Type: {result.content.mime_type or 'unknown'}\nSize: {len(result.content.blob or b'')} bytes"
-                )
+            # Binary content - provide info only
+            return ToolResult(
+                success=True,
+                data=f"Binary resource read successfully.\nURI: {uri}\nMIME Type: {result.content.mime_type or 'unknown'}\nSize: {len(result.content.blob or b'')} bytes"
+            )
 
         except Exception as e:
             logger.error(f"Failed to read resource {uri}: {e}")
-            return ToolResult(success=False, message=f"Failed to read resource: {str(e)}")
+            return ToolResult(success=False, message=f"Failed to read resource: {e!s}")
 
     async def _get_server_status(self) -> ToolResult:
         """Get status of all MCP servers."""
@@ -1172,14 +1170,14 @@ class MCPTool(BaseTool):
 
         except Exception as e:
             logger.error(f"Failed to get server status: {e}")
-            return ToolResult(success=False, message=f"Failed to get status: {str(e)}")
+            return ToolResult(success=False, message=f"Failed to get status: {e!s}")
 
     async def refresh_resources(self) -> None:
         """Refresh the resource cache from all servers."""
         if self.manager:
             await self.manager.list_all_resources()
 
-    async def warmup_caches(self) -> Dict[str, bool]:
+    async def warmup_caches(self) -> dict[str, bool]:
         """Perform cache warmup for MCP resources.
 
         Pre-populates caches with tool schemas and resource lists

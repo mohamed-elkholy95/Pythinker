@@ -1,34 +1,39 @@
-from fastapi import FastAPI, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from contextlib import asynccontextmanager
-import logging
 import asyncio
+import logging
 import time
 import uuid
-from typing import Callable
+from collections.abc import Callable
+from contextlib import asynccontextmanager
+
+from beanie import init_beanie
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
 from app.core.sandbox_pool import start_sandbox_pool, stop_sandbox_pool
-from app.infrastructure.storage.mongodb import get_mongodb
-from app.infrastructure.storage.redis import get_redis
-from app.infrastructure.storage.qdrant import get_qdrant
-from app.interfaces.dependencies import get_agent_service
-from app.interfaces.api.routes import router
-from app.infrastructure.logging import setup_logging
-from app.interfaces.errors.exception_handlers import register_exception_handlers
 from app.infrastructure.models.documents import (
     AgentDocument,
-    SessionDocument,
-    UserDocument,
-    UsageDocument,
     DailyUsageDocument,
+    SessionDocument,
+    UsageDocument,
+    UserDocument,
 )
-from beanie import init_beanie
+from app.infrastructure.storage.mongodb import get_mongodb
+from app.infrastructure.storage.qdrant import get_qdrant
+from app.infrastructure.storage.redis import get_redis
+from app.infrastructure.structured_logging import (
+    get_logger,
+    set_request_id,
+    setup_structured_logging,
+)
+from app.interfaces.api.routes import router
+from app.interfaces.dependencies import get_agent_service
+from app.interfaces.errors.exception_handlers import register_exception_handlers
 
-# Initialize logging system
-setup_logging()
-logger = logging.getLogger(__name__)
+# Initialize structured logging system
+setup_structured_logging()
+logger = get_logger(__name__)
 
 # Load configuration
 settings = get_settings()
@@ -69,6 +74,9 @@ class RequestLoggingMiddleware:
         # Store request_id in state for access in handlers
         scope["state"] = scope.get("state", {})
         scope["state"]["request_id"] = request_id
+
+        # Propagate request_id to structlog for correlation
+        set_request_id(request_id)
 
         # Log request (sanitized)
         client_ip = request.client.host if request.client else "unknown"
@@ -154,15 +162,13 @@ class RateLimitMiddleware:
                 # Start new window
                 self._fallback_storage[key] = (1, current_time)
                 return True, 1
-            else:
-                # Increment count in current window
-                new_count = count + 1
-                self._fallback_storage[key] = (new_count, window_start)
-                return new_count <= max_requests, new_count
-        else:
-            # New key, start window
-            self._fallback_storage[key] = (1, current_time)
-            return True, 1
+            # Increment count in current window
+            new_count = count + 1
+            self._fallback_storage[key] = (new_count, window_start)
+            return new_count <= max_requests, new_count
+        # New key, start window
+        self._fallback_storage[key] = (1, current_time)
+        return True, 1
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or not settings.rate_limit_enabled:
@@ -348,7 +354,7 @@ async def lifespan(app: FastAPI):
                     await asyncio.wait_for(stop_sandbox_pool(), timeout=30.0)
                     _health_state["sandbox_pool"] = False
                     logger.info("Sandbox pool shutdown completed")
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.warning("Sandbox pool shutdown timed out")
                 except Exception as e:
                     logger.error(f"Sandbox pool shutdown error: {e}")
@@ -357,7 +363,7 @@ async def lifespan(app: FastAPI):
             try:
                 await asyncio.wait_for(system_integrator.shutdown(), timeout=15.0)
                 logger.info("Enhanced components shutdown completed")
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("Enhanced components shutdown timed out")
             except Exception as e:
                 logger.error(f"Enhanced components shutdown error: {e}")
@@ -366,7 +372,7 @@ async def lifespan(app: FastAPI):
             try:
                 await asyncio.wait_for(get_mongodb().shutdown(), timeout=10.0)
                 _health_state["mongodb"] = False
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("MongoDB shutdown timed out")
             except Exception as e:
                 logger.error(f"MongoDB shutdown error: {e}")
@@ -375,7 +381,7 @@ async def lifespan(app: FastAPI):
             try:
                 await asyncio.wait_for(get_redis().shutdown(), timeout=10.0)
                 _health_state["redis"] = False
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("Redis shutdown timed out")
             except Exception as e:
                 logger.error(f"Redis shutdown error: {e}")
@@ -384,7 +390,7 @@ async def lifespan(app: FastAPI):
             try:
                 await asyncio.wait_for(get_qdrant().shutdown(), timeout=10.0)
                 _health_state["qdrant"] = False
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("Qdrant shutdown timed out")
             except Exception:
                 pass  # Already logged or never initialized
@@ -393,10 +399,10 @@ async def lifespan(app: FastAPI):
             try:
                 await asyncio.wait_for(get_agent_service().shutdown(), timeout=30.0)
                 logger.info("AgentService shutdown completed successfully")
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("AgentService shutdown timed out after 30 seconds")
             except Exception as e:
-                logger.error(f"Error during AgentService cleanup: {str(e)}")
+                logger.error(f"Error during AgentService cleanup: {e!s}")
 
             logger.info("Application shutdown complete")
 

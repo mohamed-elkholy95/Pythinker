@@ -1,12 +1,11 @@
-from typing import Optional, List, Dict, Any, Tuple
-from datetime import datetime, UTC
 import asyncio
+import logging
+from datetime import UTC, datetime
+
 from app.domain.models.agent import Agent
 from app.domain.models.memory import Memory
 from app.domain.repositories.agent_repository import AgentRepository
 from app.infrastructure.models.documents import AgentDocument
-import logging
-
 
 logger = logging.getLogger(__name__)
 
@@ -15,9 +14,9 @@ class WriteCoalescer:
     """Coalesces rapid writes into single DB operations for better performance"""
 
     def __init__(self, delay_ms: int = 100):
-        self._pending: Dict[str, Tuple[str, Memory]] = {}  # key -> (agent_id, name, memory)
+        self._pending: dict[str, tuple[str, Memory]] = {}  # key -> (agent_id, name, memory)
         self._delay = delay_ms / 1000
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
 
     async def schedule_write(self, agent_id: str, name: str, memory: Memory) -> None:
@@ -55,7 +54,7 @@ class WriteCoalescer:
 
 
 # Global write coalescer instance
-_write_coalescer: Optional[WriteCoalescer] = None
+_write_coalescer: WriteCoalescer | None = None
 
 
 def get_write_coalescer() -> WriteCoalescer:
@@ -82,17 +81,17 @@ class MongoAgentRepository(AgentRepository):
         mongo_agent = await AgentDocument.find_one(
             AgentDocument.agent_id == agent.id
         )
-        
+
         if not mongo_agent:
             mongo_agent = AgentDocument.from_domain(agent)
             await mongo_agent.save()
             return
-        
+
         # Update fields from agent domain model
         mongo_agent.update_from_domain(agent)
         await mongo_agent.save()
 
-    async def find_by_id(self, agent_id: str) -> Optional[Agent]:
+    async def find_by_id(self, agent_id: str) -> Agent | None:
         """Find an agent by its ID"""
         mongo_agent = await AgentDocument.find_one(
             AgentDocument.agent_id == agent_id
@@ -119,7 +118,7 @@ class MongoAgentRepository(AgentRepository):
         if not mongo_agent:
             raise ValueError(f"Agent {agent_id} not found")
         return mongo_agent.memories.get(name, Memory(messages=[]))
-    
+
     async def save_memory(self, agent_id: str, name: str, memory: Memory) -> None:
         """Update the messages of a memory with optional write coalescing"""
         if self._use_coalescing:

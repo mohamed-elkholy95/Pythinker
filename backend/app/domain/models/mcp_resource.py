@@ -11,10 +11,11 @@ Per MCP specification, resources:
 - Can be subscribed to for real-time updates
 """
 
-from typing import Optional, List, Dict, Any, Union
-from pydantic import BaseModel, Field
 from datetime import datetime
 from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class ResourceType(str, Enum):
@@ -31,14 +32,14 @@ class MCPResource(BaseModel):
     """
     uri: str = Field(description="Unique identifier for the resource (URI format)")
     name: str = Field(description="Human-readable name for the resource")
-    description: Optional[str] = Field(default=None, description="Description of the resource")
-    mime_type: Optional[str] = Field(default=None, description="MIME type of the resource content")
+    description: str | None = Field(default=None, description="Description of the resource")
+    mime_type: str | None = Field(default=None, description="MIME type of the resource content")
     server_name: str = Field(description="Name of the MCP server providing this resource")
 
     # Extended metadata
-    size_bytes: Optional[int] = Field(default=None, description="Size of resource in bytes if known")
-    last_modified: Optional[datetime] = Field(default=None, description="Last modification time")
-    annotations: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    size_bytes: int | None = Field(default=None, description="Size of resource in bytes if known")
+    last_modified: datetime | None = Field(default=None, description="Last modification time")
+    annotations: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
 
 class MCPResourceContent(BaseModel):
@@ -48,12 +49,12 @@ class MCPResourceContent(BaseModel):
     """
     uri: str = Field(description="URI of the resource that was read")
     resource_type: ResourceType = Field(description="Type of content (text or blob)")
-    text: Optional[str] = Field(default=None, description="Text content if resource_type is text")
-    blob: Optional[bytes] = Field(default=None, description="Binary content if resource_type is blob")
-    mime_type: Optional[str] = Field(default=None, description="MIME type of the content")
+    text: str | None = Field(default=None, description="Text content if resource_type is text")
+    blob: bytes | None = Field(default=None, description="Binary content if resource_type is blob")
+    mime_type: str | None = Field(default=None, description="MIME type of the content")
 
     @property
-    def content(self) -> Union[str, bytes, None]:
+    def content(self) -> str | bytes | None:
         """Get the content regardless of type."""
         return self.text if self.resource_type == ResourceType.TEXT else self.blob
 
@@ -71,8 +72,8 @@ class ResourceTemplate(BaseModel):
     """
     uri_template: str = Field(description="URI template with placeholders")
     name: str = Field(description="Human-readable name for the template")
-    description: Optional[str] = Field(default=None, description="Description of the template")
-    mime_type: Optional[str] = Field(default=None, description="Expected MIME type of generated resources")
+    description: str | None = Field(default=None, description="Description of the template")
+    mime_type: str | None = Field(default=None, description="Expected MIME type of generated resources")
     server_name: str = Field(description="Name of the MCP server providing this template")
 
 
@@ -89,16 +90,16 @@ class ResourceSubscription(BaseModel):
 
 class ResourceListResult(BaseModel):
     """Result of listing resources from MCP servers."""
-    resources: List[MCPResource] = Field(default_factory=list)
-    templates: List[ResourceTemplate] = Field(default_factory=list)
+    resources: list[MCPResource] = Field(default_factory=list)
+    templates: list[ResourceTemplate] = Field(default_factory=list)
     total_count: int = Field(default=0)
-    servers_queried: List[str] = Field(default_factory=list)
-    errors: Dict[str, str] = Field(default_factory=dict, description="Errors by server name")
+    servers_queried: list[str] = Field(default_factory=list)
+    errors: dict[str, str] = Field(default_factory=dict, description="Errors by server name")
 
 
 class ResourceReadResult(BaseModel):
     """Result of reading a resource."""
     success: bool = Field(description="Whether the read was successful")
-    content: Optional[MCPResourceContent] = Field(default=None)
-    error: Optional[str] = Field(default=None, description="Error message if read failed")
+    content: MCPResourceContent | None = Field(default=None)
+    error: str | None = Field(default=None, description="Error message if read failed")
     read_time_ms: float = Field(default=0, description="Time taken to read in milliseconds")

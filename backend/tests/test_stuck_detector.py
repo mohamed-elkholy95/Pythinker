@@ -2,12 +2,10 @@
 Tests for the stuck detector module.
 """
 
-import pytest
 from app.domain.services.agents.stuck_detector import (
-    StuckDetector,
-    ResponseRecord,
     LoopType,
-    StuckAnalysis,
+    ResponseRecord,
+    StuckDetector,
 )
 
 

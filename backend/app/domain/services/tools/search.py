@@ -1,16 +1,17 @@
 import asyncio
+import logging
 import re
 import time
-import logging
-from typing import Optional, Dict, Tuple, Any, List, Set
+from typing import Any
+
 from app.domain.external.search import SearchEngine
-from app.domain.services.tools.base import tool, BaseTool
 from app.domain.models.tool_result import ToolResult
+from app.domain.services.tools.base import BaseTool, tool
 
 logger = logging.getLogger(__name__)
 
 # Common stopwords to remove for query normalization
-STOPWORDS: Set[str] = {
+STOPWORDS: set[str] = {
     "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
     "have", "has", "had", "do", "does", "did", "will", "would", "could",
     "should", "may", "might", "must", "shall", "can", "need", "dare",
@@ -23,7 +24,7 @@ STOPWORDS: Set[str] = {
     "and", "or", "but", "if", "what", "which", "who", "whom", "this",
     "that", "these", "those", "am", "i", "you", "he", "she", "it", "we",
     "they", "my", "your", "his", "her", "its", "our", "their", "me",
-    "him", "her", "us", "them", "best", "top", "good", "new", "latest"
+    "him", "us", "them", "best", "top", "good", "new", "latest"
 }
 
 # Domains that are typically authoritative sources
@@ -47,11 +48,11 @@ class SearchTool(BaseTool):
     name: str = "search"
 
     # Class-level cache shared across instances
-    _cache: Dict[str, Tuple[float, Any]] = {}
+    _cache: dict[str, tuple[float, Any]] = {}
     _cache_ttl: int = 3600  # 1 hour cache TTL
     _cache_max_size: int = 100  # Maximum cache entries
 
-    def __init__(self, search_engine: SearchEngine, max_observe: Optional[int] = None):
+    def __init__(self, search_engine: SearchEngine, max_observe: int | None = None):
         """Initialize search tool class
 
         Args:
@@ -91,7 +92,7 @@ class SearchTool(BaseTool):
         # Join back
         return ' '.join(words)
 
-    def _get_cache_key(self, query: str, date_range: Optional[str] = None) -> str:
+    def _get_cache_key(self, query: str, date_range: str | None = None) -> str:
         """Generate cache key from normalized query parameters.
 
         Uses semantic normalization to catch equivalent queries.
@@ -99,16 +100,15 @@ class SearchTool(BaseTool):
         normalized = self._normalize_query(query)
         return f"{normalized}:{date_range or 'all'}"
 
-    def _get_from_cache(self, cache_key: str) -> Optional[ToolResult]:
+    def _get_from_cache(self, cache_key: str) -> ToolResult | None:
         """Get cached result if valid"""
         if cache_key in self._cache:
             timestamp, data = self._cache[cache_key]
             if time.time() - timestamp < self._cache_ttl:
                 logger.debug(f"Search cache hit for: {cache_key[:50]}")
                 return data
-            else:
-                # Cache expired, remove it
-                del self._cache[cache_key]
+            # Cache expired, remove it
+            del self._cache[cache_key]
         return None
 
     def _save_to_cache(self, cache_key: str, result: ToolResult) -> None:
@@ -123,10 +123,10 @@ class SearchTool(BaseTool):
 
     async def batch_search(
         self,
-        queries: List[str],
-        date_range: Optional[str] = None,
+        queries: list[str],
+        date_range: str | None = None,
         max_concurrent: int = 5
-    ) -> List[ToolResult]:
+    ) -> list[ToolResult]:
         """Execute multiple searches concurrently with caching
 
         Args:
@@ -201,7 +201,7 @@ RECENCY BEST PRACTICES:
     async def info_search_web(
         self,
         query: str,
-        date_range: Optional[str] = None
+        date_range: str | None = None
     ) -> ToolResult:
         """Search webpages using search engine with caching
 

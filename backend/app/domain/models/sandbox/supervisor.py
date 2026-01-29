@@ -1,7 +1,7 @@
 """
 Supervisor business model definitions
 """
-from typing import Optional, List
+
 from pydantic import BaseModel, Field
 
 
@@ -26,16 +26,16 @@ class ProcessInfo(BaseModel):
 class SupervisorActionResult(BaseModel):
     """Supervisor operation result model"""
     status: str = Field(..., description="Operation status")
-    result: Optional[List[str]] = Field(None, description="Operation result")
-    stop_result: Optional[List[str]] = Field(None, description="Stop result")
-    start_result: Optional[List[str]] = Field(None, description="Start result")
-    shutdown_result: Optional[List[str]] = Field(None, description="Shutdown result")
+    result: list[str] | None = Field(None, description="Operation result")
+    stop_result: list[str] | None = Field(None, description="Stop result")
+    start_result: list[str] | None = Field(None, description="Start result")
+    shutdown_result: list[str] | None = Field(None, description="Shutdown result")
 
 
 class SupervisorTimeout(BaseModel):
     """Supervisor timeout model"""
-    status: Optional[str] = Field(None, description="Timeout setting status")
+    status: str | None = Field(None, description="Timeout setting status")
     active: bool = Field(False, description="Whether timeout is active")
-    shutdown_time: Optional[str] = Field(None, description="Shutdown time")
-    timeout_minutes: Optional[float] = Field(None, description="Timeout duration (minutes)")
-    remaining_seconds: Optional[float] = Field(None, description="Remaining seconds") 
+    shutdown_time: str | None = Field(None, description="Shutdown time")
+    timeout_minutes: float | None = Field(None, description="Timeout duration (minutes)")
+    remaining_seconds: float | None = Field(None, description="Remaining seconds")

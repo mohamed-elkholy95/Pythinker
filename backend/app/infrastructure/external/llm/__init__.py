@@ -7,9 +7,9 @@ Supported providers:
 - anthropic: Anthropic Claude models (requires anthropic package)
 - ollama: Local Ollama models
 """
+import logging
 from functools import lru_cache
 from typing import Optional
-import logging
 
 from app.domain.external.llm import LLM
 from app.infrastructure.external.llm.factory import (
@@ -20,8 +20,8 @@ from app.infrastructure.external.llm.factory import (
 logger = logging.getLogger(__name__)
 
 
-@lru_cache()
-def get_llm() -> Optional[LLM]:
+@lru_cache
+def get_llm() -> LLM | None:
     """Get LLM instance based on configuration.
 
     Uses the LLMProviderRegistry to dynamically select and instantiate
@@ -34,6 +34,6 @@ def get_llm() -> Optional[LLM]:
 
 
 __all__ = [
-    "get_llm",
     "LLMProviderRegistry",
+    "get_llm",
 ]

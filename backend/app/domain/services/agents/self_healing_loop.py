@@ -6,20 +6,18 @@ and learning from error patterns to improve resilience. Integrates
 with error_handler.py for error classification and pattern analysis.
 """
 
-import logging
 import asyncio
+import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import (
-    Optional, Dict, Any, List, Callable, Awaitable,
-    TypeVar, Generic, AsyncGenerator, Tuple
-)
+from datetime import datetime
 from enum import Enum
-from datetime import datetime, timedelta
+from typing import Any, TypeVar
 
 from app.domain.services.agents.error_handler import (
+    ErrorContext,
     ErrorHandler,
     ErrorType,
-    ErrorContext,
 )
 
 logger = logging.getLogger(__name__)
@@ -48,10 +46,10 @@ class RecoveryAttempt:
     original_error: str
     timestamp: datetime = field(default_factory=datetime.now)
     success: bool = False
-    result: Optional[str] = None
-    duration_ms: Optional[int] = None
+    result: str | None = None
+    duration_ms: int | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "strategy": self.strategy.value,
@@ -68,16 +66,16 @@ class RecoveryAttempt:
 class SelfReflectionResult:
     """Result of a self-reflection cycle."""
     iteration: int
-    observations: List[str]
-    issues_identified: List[str]
-    recommendations: List[str]
+    observations: list[str]
+    issues_identified: list[str]
+    recommendations: list[str]
     should_adjust_strategy: bool = False
-    suggested_strategy: Optional[RecoveryStrategy] = None
+    suggested_strategy: RecoveryStrategy | None = None
     timestamp: datetime = field(default_factory=datetime.now)
 
 
 # Strategy selection based on error type
-ERROR_STRATEGY_MAP: Dict[ErrorType, List[RecoveryStrategy]] = {
+ERROR_STRATEGY_MAP: dict[ErrorType, list[RecoveryStrategy]] = {
     ErrorType.JSON_PARSE: [
         RecoveryStrategy.RETRY_WITH_CONTEXT,
         RecoveryStrategy.SIMPLIFY,
@@ -126,7 +124,7 @@ ERROR_STRATEGY_MAP: Dict[ErrorType, List[RecoveryStrategy]] = {
 }
 
 # Tool alternatives for common failures
-TOOL_ALTERNATIVES: Dict[str, List[str]] = {
+TOOL_ALTERNATIVES: dict[str, list[str]] = {
     "browser_navigate": ["browser_view", "browser_get_content"],
     "browser_click": ["browser_type", "shell_exec"],
     "shell_exec": ["file_write", "browser_navigate"],
@@ -146,7 +144,7 @@ class SelfHealingLoop:
 
     def __init__(
         self,
-        error_handler: Optional[ErrorHandler] = None,
+        error_handler: ErrorHandler | None = None,
         max_recovery_attempts: int = 3,
         reflection_interval: int = 5,  # Iterations between reflections
     ):
@@ -163,20 +161,20 @@ class SelfHealingLoop:
         self._reflection_interval = reflection_interval
 
         # Recovery tracking
-        self._recovery_attempts: List[RecoveryAttempt] = []
+        self._recovery_attempts: list[RecoveryAttempt] = []
         self._current_attempt_count: int = 0
-        self._last_error_type: Optional[ErrorType] = None
+        self._last_error_type: ErrorType | None = None
 
         # Strategy tracking
-        self._tried_strategies: Dict[str, List[RecoveryStrategy]] = {}
-        self._successful_strategies: Dict[str, RecoveryStrategy] = {}
+        self._tried_strategies: dict[str, list[RecoveryStrategy]] = {}
+        self._successful_strategies: dict[str, RecoveryStrategy] = {}
 
         # Iteration tracking for reflection
         self._iteration_count: int = 0
-        self._reflections: List[SelfReflectionResult] = []
+        self._reflections: list[SelfReflectionResult] = []
 
         # Learning from patterns
-        self._error_patterns: Dict[str, int] = {}  # error_signature -> count
+        self._error_patterns: dict[str, int] = {}  # error_signature -> count
         self._pattern_threshold: int = 3  # Trigger learning after N occurrences
 
         logger.debug("SelfHealingLoop initialized")
@@ -199,7 +197,7 @@ class SelfHealingLoop:
     def select_recovery_strategy(
         self,
         error_context: ErrorContext,
-        tool_name: Optional[str] = None,
+        tool_name: str | None = None,
     ) -> RecoveryStrategy:
         """
         Select the best recovery strategy for an error.
@@ -241,7 +239,7 @@ class SelfHealingLoop:
         logger.info(f"Selected recovery strategy: {selected.value} for {error_key}")
         return selected
 
-    def get_alternative_tools(self, failing_tool: str) -> List[str]:
+    def get_alternative_tools(self, failing_tool: str) -> list[str]:
         """Get alternative tools for a failing tool."""
         # Check direct alternatives
         if failing_tool in TOOL_ALTERNATIVES:
@@ -259,7 +257,7 @@ class SelfHealingLoop:
         error_context: ErrorContext,
         strategy: RecoveryStrategy,
         original_task: str,
-        tool_name: Optional[str] = None,
+        tool_name: str | None = None,
     ) -> str:
         """
         Generate a recovery prompt based on strategy.
@@ -342,8 +340,8 @@ class SelfHealingLoop:
         self,
         error_context: ErrorContext,
         recovery_action: Callable[[], Awaitable[T]],
-        tool_name: Optional[str] = None,
-    ) -> Tuple[bool, Optional[T], RecoveryAttempt]:
+        tool_name: str | None = None,
+    ) -> tuple[bool, T | None, RecoveryAttempt]:
         """
         Attempt to recover from an error.
 
@@ -466,7 +464,7 @@ class SelfHealingLoop:
             recommendations.append("Address recurring error patterns before proceeding")
 
         # Analyze strategy effectiveness
-        strategy_success: Dict[RecoveryStrategy, Tuple[int, int]] = {}
+        strategy_success: dict[RecoveryStrategy, tuple[int, int]] = {}
         for attempt in recent_attempts:
             if attempt.strategy not in strategy_success:
                 strategy_success[attempt.strategy] = (0, 0)
@@ -532,12 +530,12 @@ class SelfHealingLoop:
         """Increment the current recovery attempt counter."""
         self._current_attempt_count += 1
 
-    def get_recovery_stats(self) -> Dict[str, Any]:
+    def get_recovery_stats(self) -> dict[str, Any]:
         """Get recovery statistics for monitoring."""
         total_attempts = len(self._recovery_attempts)
         successful = sum(1 for a in self._recovery_attempts if a.success)
 
-        strategy_breakdown: Dict[str, Dict[str, int]] = {}
+        strategy_breakdown: dict[str, dict[str, int]] = {}
         for attempt in self._recovery_attempts:
             strategy = attempt.strategy.value
             if strategy not in strategy_breakdown:
@@ -578,7 +576,7 @@ class HealingLoopConfig:
     pattern_threshold: int = 3
     escalation_after_failures: int = 3  # Escalate after N consecutive failures
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "max_recovery_attempts": self.max_recovery_attempts,
@@ -590,7 +588,7 @@ class HealingLoopConfig:
 
 
 # Singleton instance
-_self_healing_loop: Optional[SelfHealingLoop] = None
+_self_healing_loop: SelfHealingLoop | None = None
 
 
 def get_self_healing_loop() -> SelfHealingLoop:

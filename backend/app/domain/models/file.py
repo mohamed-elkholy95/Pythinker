@@ -1,15 +1,16 @@
-from typing import Optional, Dict, Any
 from datetime import datetime
+from typing import Any
+
 from pydantic import BaseModel
 
 
 class FileInfo(BaseModel):
-    file_id: Optional[str] = None
-    filename: Optional[str] = None
-    file_path: Optional[str] = None
-    content_type: Optional[str] = None
-    size: Optional[int] = None
-    upload_date: Optional[datetime] = None
-    metadata: Optional[Dict[str, Any]] = None
-    user_id: Optional[str] = None
-    file_url: Optional[str] = None
+    file_id: str | None = None
+    filename: str | None = None
+    file_path: str | None = None
+    content_type: str | None = None
+    size: int | None = None
+    upload_date: datetime | None = None
+    metadata: dict[str, Any] | None = None
+    user_id: str | None = None
+    file_url: str | None = None

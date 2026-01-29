@@ -9,6 +9,7 @@ export interface UserSettings {
   browser_agent_max_steps: number
   browser_agent_timeout: number
   browser_agent_use_vision: boolean
+  deep_research_auto_run: boolean
 }
 
 export interface LLMProviderInfo {
@@ -38,6 +39,7 @@ export interface UpdateSettingsRequest {
   browser_agent_max_steps?: number
   browser_agent_timeout?: number
   browser_agent_use_vision?: boolean
+  deep_research_auto_run?: boolean
 }
 
 /**

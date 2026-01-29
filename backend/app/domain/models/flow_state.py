@@ -4,10 +4,11 @@ Flow state persistence models for checkpoint/recovery.
 Enables resumption of agent flows after crashes or interruptions.
 """
 
-from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, List
 from datetime import datetime
 from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class FlowStatus(str, Enum):
@@ -36,16 +37,16 @@ class FlowStateSnapshot(BaseModel):
 
     # State information
     status: FlowStatus = FlowStatus.IDLE
-    previous_status: Optional[FlowStatus] = None
+    previous_status: FlowStatus | None = None
 
     # Plan state
-    plan_id: Optional[str] = None
-    current_step_id: Optional[str] = None
-    completed_steps: List[str] = Field(default_factory=list)
+    plan_id: str | None = None
+    current_step_id: str | None = None
+    completed_steps: list[str] = Field(default_factory=list)
 
     # Error state
-    error_message: Optional[str] = None
-    error_type: Optional[str] = None
+    error_message: str | None = None
+    error_type: str | None = None
     recovery_attempts: int = 0
 
     # Iteration tracking
@@ -58,7 +59,7 @@ class FlowStateSnapshot(BaseModel):
     last_activity_at: datetime = Field(default_factory=datetime.now)
 
     # Additional metadata
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def update(self, **kwargs) -> "FlowStateSnapshot":
         """Create updated snapshot with new values"""
@@ -78,7 +79,7 @@ class FlowStateSnapshot(BaseModel):
             current_step_id=None
         )
 
-    def enter_error_state(self, error_message: str, error_type: Optional[str] = None) -> "FlowStateSnapshot":
+    def enter_error_state(self, error_message: str, error_type: str | None = None) -> "FlowStateSnapshot":
         """Transition to error state"""
         return self.update(
             previous_status=self.status,

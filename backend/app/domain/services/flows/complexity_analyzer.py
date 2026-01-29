@@ -9,18 +9,16 @@ This enables intelligent routing between linear execution and ToT exploration.
 """
 
 import logging
-from typing import List, Dict, Any, Optional
-from dataclasses import dataclass
+from typing import Any
 
 from app.domain.external.llm import LLM
-from app.domain.utils.json_parser import JsonParser
 from app.domain.models.path_state import (
-    TaskComplexity,
     BranchingDecision,
     ComplexityAnalysis,
+    TaskComplexity,
     TreeOfThoughtsConfig,
 )
-
+from app.domain.utils.json_parser import JsonParser
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +99,7 @@ class TaskComplexityAnalyzer:
         self,
         llm: LLM,
         json_parser: JsonParser,
-        config: Optional[TreeOfThoughtsConfig] = None
+        config: TreeOfThoughtsConfig | None = None
     ):
         """Initialize the analyzer.
 
@@ -114,7 +112,7 @@ class TaskComplexityAnalyzer:
         self.json_parser = json_parser
         self.config = config or TreeOfThoughtsConfig()
 
-    def quick_analyze(self, task: str) -> Optional[ComplexityAnalysis]:
+    def quick_analyze(self, task: str) -> ComplexityAnalysis | None:
         """Quick heuristic analysis without LLM call.
 
         Args:
@@ -289,7 +287,7 @@ class TaskComplexityAnalyzer:
         self,
         analysis: ComplexityAnalysis,
         max_strategies: int = None
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Generate plan templates for each suggested strategy.
 
         Args:

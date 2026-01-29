@@ -4,10 +4,9 @@ Solves the problem where ExecutionAgent loses context between steps,
 requiring re-reading of files created in previous steps.
 """
 
-from typing import Dict, List, Optional, Any, Set
-from dataclasses import dataclass, field
-from datetime import datetime, UTC
 import logging
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +17,8 @@ class FileContext:
     path: str
     operation: str  # "created", "read", "modified"
     timestamp: datetime
-    size_bytes: Optional[int] = None
-    content_summary: Optional[str] = None  # Brief description
+    size_bytes: int | None = None
+    content_summary: str | None = None  # Brief description
     is_deliverable: bool = False
 
 
@@ -29,18 +28,18 @@ class ToolContext:
     tool_name: str
     timestamp: datetime
     summary: str  # Brief result summary
-    key_findings: List[str] = field(default_factory=list)
-    urls_visited: List[str] = field(default_factory=list)
-    files_affected: List[str] = field(default_factory=list)
+    key_findings: list[str] = field(default_factory=list)
+    urls_visited: list[str] = field(default_factory=list)
+    files_affected: list[str] = field(default_factory=list)
 
 
 @dataclass
 class WorkingContext:
     """Accumulated context during execution"""
-    files: Dict[str, FileContext] = field(default_factory=dict)  # path -> context
-    tools: List[ToolContext] = field(default_factory=list)
-    key_facts: List[str] = field(default_factory=list)  # Important discoveries
-    deliverables: List[str] = field(default_factory=list)  # Completed deliverables
+    files: dict[str, FileContext] = field(default_factory=dict)  # path -> context
+    tools: list[ToolContext] = field(default_factory=list)
+    key_facts: list[str] = field(default_factory=list)  # Important discoveries
+    deliverables: list[str] = field(default_factory=list)  # Completed deliverables
     total_tokens: int = 0  # Estimated context size
 
 
@@ -63,8 +62,8 @@ class ContextManager:
         self,
         path: str,
         operation: str,
-        size_bytes: Optional[int] = None,
-        content_summary: Optional[str] = None,
+        size_bytes: int | None = None,
+        content_summary: str | None = None,
         is_deliverable: bool = False,
     ):
         """Track file creation/read/modification"""
@@ -82,9 +81,9 @@ class ContextManager:
         self,
         tool_name: str,
         summary: str,
-        key_findings: List[str] = None,
-        urls_visited: List[str] = None,
-        files_affected: List[str] = None,
+        key_findings: list[str] = None,
+        urls_visited: list[str] = None,
+        files_affected: list[str] = None,
     ):
         """Track tool execution results"""
         self._context.tools.append(ToolContext(
@@ -110,7 +109,7 @@ class ContextManager:
             if deliverable_path in self._context.files:
                 self._context.files[deliverable_path].is_deliverable = True
 
-    def get_context_summary(self, max_tokens: Optional[int] = None) -> str:
+    def get_context_summary(self, max_tokens: int | None = None) -> str:
         """Generate token-aware context summary for prompt injection.
 
         Prioritizes:
@@ -169,14 +168,14 @@ class ContextManager:
 
         return full_summary
 
-    def get_files_created(self) -> List[str]:
+    def get_files_created(self) -> list[str]:
         """Get list of files created in this session"""
         return [
             path for path, ctx in self._context.files.items()
             if ctx.operation == "created"
         ]
 
-    def get_deliverables(self) -> List[str]:
+    def get_deliverables(self) -> list[str]:
         """Get list of completed deliverables"""
         return self._context.deliverables.copy()
 

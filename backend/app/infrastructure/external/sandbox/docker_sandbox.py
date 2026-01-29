@@ -1,20 +1,20 @@
-from typing import Dict, Any, Optional, List, BinaryIO
-import uuid
-import httpx
-import docker
-from docker.types import Ulimit
-import socket
-import logging
 import asyncio
 import io
-import json
+import logging
+import socket
+import uuid
+from typing import BinaryIO
+
+import docker
+import httpx
 from async_lru import alru_cache
+from docker.types import Ulimit
+
 from app.core.config import get_settings
-from app.domain.models.tool_result import ToolResult
-from app.domain.external.sandbox import Sandbox
-from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
 from app.domain.external.browser import Browser
-from app.domain.external.llm import LLM
+from app.domain.external.sandbox import Sandbox
+from app.domain.models.tool_result import ToolResult
+from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
 
 logger = logging.getLogger(__name__)
 
@@ -60,15 +60,15 @@ class DockerSandbox(Sandbox):
         except Exception as e:
             logger.warning(f"Failed to resolve {address}, using as-is: {e}")
             return address
-    
+
     @property
     def id(self) -> str:
         """Sandbox ID"""
         if not self._container_name:
             return "dev-sandbox"
         return self._container_name
-    
-    
+
+
     @property
     def cdp_url(self) -> str:
         return self._cdp_url
@@ -123,7 +123,7 @@ class DockerSandbox(Sandbox):
         image = settings.sandbox_image
         name_prefix = settings.sandbox_name_prefix
         container_name = f"{name_prefix}-{str(uuid.uuid4())[:8]}"
-        
+
         try:
             # Create Docker client
             docker_client = docker.from_env()
@@ -165,26 +165,26 @@ class DockerSandbox(Sandbox):
             # Optional seccomp profile (host path)
             if settings.sandbox_seccomp_profile:
                 container_config["security_opt"].append(f"seccomp={settings.sandbox_seccomp_profile}")
-            
+
             # Add network to container config if configured
             if settings.sandbox_network:
                 container_config["network"] = settings.sandbox_network
 
             # Create container
             container = docker_client.containers.run(**container_config)
-            
+
             # Get container IP address
             container.reload()  # Refresh container info
             ip_address = DockerSandbox._get_container_ip(container)
-            
+
             # Create and return DockerSandbox instance
             return DockerSandbox(
                 ip=ip_address,
                 container_name=container_name
             )
-            
+
         except Exception as e:
-            raise Exception(f"Failed to create Docker sandbox: {str(e)}")
+            raise Exception(f"Failed to create Docker sandbox: {e!s}")
 
     async def _verify_cdp_connection(self) -> bool:
         """Verify Chrome DevTools Protocol connection is working
@@ -338,7 +338,7 @@ class DockerSandbox(Sandbox):
                 return  # Success - all checks passed
 
             except Exception as e:
-                logger.warning(f"Failed to check sandbox status (attempt {attempt + 1}/{max_retries}): {str(e)}")
+                logger.warning(f"Failed to check sandbox status (attempt {attempt + 1}/{max_retries}): {e!s}")
                 await asyncio.sleep(retry_interval)
 
         # If we reach here, we've exhausted all retries
@@ -385,7 +385,7 @@ class DockerSandbox(Sandbox):
         )
         return ToolResult(**response.json())
 
-    async def wait_for_process(self, session_id: str, seconds: Optional[int] = None) -> ToolResult:
+    async def wait_for_process(self, session_id: str, seconds: int | None = None) -> ToolResult:
         response = await self.client.post(
             f"{self.base_url}/api/v1/shell/wait",
             json={
@@ -413,8 +413,8 @@ class DockerSandbox(Sandbox):
         )
         return ToolResult(**response.json())
 
-    async def file_write(self, file: str, content: str, append: bool = False, 
-                        leading_newline: bool = False, trailing_newline: bool = False, 
+    async def file_write(self, file: str, content: str, append: bool = False,
+                        leading_newline: bool = False, trailing_newline: bool = False,
                         sudo: bool = False) -> ToolResult:
         """Write content to file
         
@@ -442,7 +442,7 @@ class DockerSandbox(Sandbox):
         )
         return ToolResult(**response.json())
 
-    async def file_read(self, file: str, start_line: int = None, 
+    async def file_read(self, file: str, start_line: int = None,
                         end_line: int = None, sudo: bool = False) -> ToolResult:
         """Read file content
         
@@ -465,7 +465,7 @@ class DockerSandbox(Sandbox):
             }
         )
         return ToolResult(**response.json())
-        
+
     async def file_exists(self, path: str) -> ToolResult:
         """Check if file exists
         
@@ -480,7 +480,7 @@ class DockerSandbox(Sandbox):
             json={"path": path}
         )
         return ToolResult(**response.json())
-        
+
     async def file_delete(self, path: str) -> ToolResult:
         """Delete file
         
@@ -495,7 +495,7 @@ class DockerSandbox(Sandbox):
             json={"path": path}
         )
         return ToolResult(**response.json())
-        
+
     async def file_list(self, path: str) -> ToolResult:
         """List directory contents
         
@@ -588,7 +588,7 @@ class DockerSandbox(Sandbox):
         # Prepare form data for upload
         files = {"file": (filename or "upload", file_data, "application/octet-stream")}
         data = {"path": path}
-        
+
         response = await self.client.post(
             f"{self.base_url}/api/v1/file/upload",
             files=files,
@@ -952,7 +952,7 @@ class DockerSandbox(Sandbox):
             json={"session_id": session_id}
         )
         return ToolResult(**response.json())
-    
+
     @staticmethod
     @alru_cache(maxsize=128, typed=True)
     async def _resolve_hostname_to_ip(hostname: str) -> str:
@@ -977,7 +977,7 @@ class DockerSandbox(Sandbox):
             except OSError:
                 # Not a valid IP address format, proceed with DNS resolution
                 pass
-                
+
             # Use socket.getaddrinfo for DNS resolution
             addr_info = socket.getaddrinfo(hostname, None, family=socket.AF_INET)
             # Return the first IPv4 address found
@@ -986,9 +986,9 @@ class DockerSandbox(Sandbox):
             return None
         except Exception as e:
             # Log error and return None on failure
-            logger.error(f"Failed to resolve hostname {hostname}: {str(e)}")
+            logger.error(f"Failed to resolve hostname {hostname}: {e!s}")
             return None
-    
+
     async def destroy(self) -> bool:
         """Destroy Docker sandbox"""
         try:
@@ -999,9 +999,9 @@ class DockerSandbox(Sandbox):
                 docker_client.containers.get(self._container_name).remove(force=True)
             return True
         except Exception as e:
-            logger.error(f"Failed to destroy Docker sandbox: {str(e)}")
+            logger.error(f"Failed to destroy Docker sandbox: {e!s}")
             return False
-    
+
     async def get_screenshot(
         self,
         quality: int = 75,
@@ -1086,9 +1086,9 @@ class DockerSandbox(Sandbox):
             # Chrome CDP needs IP address
             ip = await cls._resolve_hostname_to_ip(settings.sandbox_address)
             return DockerSandbox(ip=ip)
-    
+
         return await asyncio.to_thread(DockerSandbox._create_task)
-    
+
     @classmethod
     @alru_cache(maxsize=128, typed=True)
     async def get(cls, id: str) -> Sandbox:
@@ -1108,7 +1108,7 @@ class DockerSandbox(Sandbox):
         docker_client = docker.from_env()
         container = docker_client.containers.get(id)
         container.reload()
-        
+
         ip_address = cls._get_container_ip(container)
         logger.info(f"IP address: {ip_address}")
         return DockerSandbox(ip=ip_address, container_name=id)

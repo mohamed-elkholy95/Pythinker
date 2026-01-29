@@ -5,9 +5,9 @@ enabling native JSON schema validation instead of fallback parsing strategies.
 Use with OpenAI's structured output feature for type-safe responses.
 """
 
-from typing import List, Optional
-from pydantic import BaseModel, Field
 from enum import Enum
+
+from pydantic import BaseModel, Field
 
 
 class StepResponse(BaseModel):
@@ -27,11 +27,11 @@ class PlanResponse(BaseModel):
         default="en",
         description="ISO language code for responses (e.g., 'en', 'zh', 'ja')"
     )
-    message: Optional[str] = Field(
+    message: str | None = Field(
         default=None,
         description="Optional message to user about the plan"
     )
-    steps: List[StepResponse] = Field(
+    steps: list[StepResponse] = Field(
         description="Ordered list of steps to execute"
     )
 
@@ -41,7 +41,7 @@ class PlanUpdateResponse(BaseModel):
 
     Contains remaining steps to execute after current step completes.
     """
-    steps: List[StepResponse] = Field(
+    steps: list[StepResponse] = Field(
         description="Remaining steps to execute (may be modified based on progress)"
     )
 
@@ -52,11 +52,11 @@ class ExecutionStepResult(BaseModel):
     Used by ExecutionAgent after completing a step.
     """
     success: bool = Field(description="Whether the step completed successfully")
-    result: Optional[str] = Field(
+    result: str | None = Field(
         default=None,
         description="Summary of what was accomplished in this step"
     )
-    attachments: List[str] = Field(
+    attachments: list[str] = Field(
         default_factory=list,
         description="List of file paths created or modified"
     )
@@ -68,11 +68,11 @@ class SummarizeResponse(BaseModel):
     Used by ExecutionAgent when summarizing completed tasks.
     """
     message: str = Field(description="Summary of completed work")
-    title: Optional[str] = Field(
+    title: str | None = Field(
         default=None,
         description="Optional title for the report"
     )
-    attachments: List[str] = Field(
+    attachments: list[str] = Field(
         default_factory=list,
         description="List of deliverable file paths"
     )
@@ -88,7 +88,7 @@ class DiscussResponse(BaseModel):
         default=False,
         description="Whether this query requires agent mode execution"
     )
-    reason: Optional[str] = Field(
+    reason: str | None = Field(
         default=None,
         description="Reason for mode switch recommendation"
     )
@@ -137,19 +137,19 @@ class VerificationResponse(BaseModel):
         ge=0.0, le=1.0,
         description="Confidence in the verdict (0.0-1.0)"
     )
-    tool_feasibility: List[ToolFeasibility] = Field(
+    tool_feasibility: list[ToolFeasibility] = Field(
         default_factory=list,
         description="Tool feasibility assessments for each step"
     )
-    prerequisite_checks: List[PrerequisiteCheck] = Field(
+    prerequisite_checks: list[PrerequisiteCheck] = Field(
         default_factory=list,
         description="Results of prerequisite checks"
     )
-    dependency_issues: List[DependencyIssue] = Field(
+    dependency_issues: list[DependencyIssue] = Field(
         default_factory=list,
         description="Identified dependency issues"
     )
-    revision_feedback: Optional[str] = Field(
+    revision_feedback: str | None = Field(
         default=None,
         description="Specific guidance for replanning (if verdict is 'revise')"
     )
@@ -204,19 +204,19 @@ class ReflectionResponse(BaseModel):
     progress_assessment: str = Field(
         description="Assessment of current progress toward goal"
     )
-    issues_identified: List[str] = Field(
+    issues_identified: list[str] = Field(
         default_factory=list,
         description="Issues identified during reflection"
     )
-    strategy_adjustment: Optional[str] = Field(
+    strategy_adjustment: str | None = Field(
         default=None,
         description="Suggested strategy adjustment (if decision is 'adjust')"
     )
-    replan_reason: Optional[str] = Field(
+    replan_reason: str | None = Field(
         default=None,
         description="Reason for replanning (if decision is 'replan')"
     )
-    user_question: Optional[str] = Field(
+    user_question: str | None = Field(
         default=None,
         description="Question for user (if decision is 'escalate')"
     )

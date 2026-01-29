@@ -3,15 +3,14 @@
 Privacy-focused search engine using DuckDuckGo's instant answer API
 and web scraping fallback.
 """
-from typing import Optional
 import logging
+
 import httpx
-import re
 from bs4 import BeautifulSoup
 
-from app.domain.models.tool_result import ToolResult
-from app.domain.models.search import SearchResults, SearchResultItem
 from app.domain.external.search import SearchEngine
+from app.domain.models.search import SearchResultItem, SearchResults
+from app.domain.models.tool_result import ToolResult
 from app.infrastructure.external.search.factory import SearchProviderRegistry
 
 logger = logging.getLogger(__name__)
@@ -39,7 +38,7 @@ class DuckDuckGoSearchEngine(SearchEngine):
     async def search(
         self,
         query: str,
-        date_range: Optional[str] = None
+        date_range: str | None = None
     ) -> ToolResult[SearchResults]:
         """Search web pages using DuckDuckGo.
 

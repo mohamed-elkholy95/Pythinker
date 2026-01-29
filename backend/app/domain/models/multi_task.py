@@ -1,9 +1,9 @@
 """Multi-task challenge domain models."""
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
-from datetime import datetime, UTC
-from enum import Enum
 import uuid
+from datetime import datetime
+from enum import Enum
+
+from pydantic import BaseModel, Field
 
 
 class TaskStatus(str, Enum):
@@ -32,7 +32,7 @@ class Deliverable(BaseModel):
     path: str  # Expected path in workspace
     description: str
     required: bool = True
-    validation_criteria: Optional[str] = None
+    validation_criteria: str | None = None
 
 
 class TaskDefinition(BaseModel):
@@ -40,17 +40,17 @@ class TaskDefinition(BaseModel):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
     title: str
     description: str
-    deliverables: List[Deliverable] = []
-    workspace_folder: Optional[str] = None  # e.g., "task_1_research"
-    validation_criteria: Optional[str] = None
+    deliverables: list[Deliverable] = []
+    workspace_folder: str | None = None  # e.g., "task_1_research"
+    validation_criteria: str | None = None
     estimated_complexity: float = 0.5  # 0.0-1.0
-    depends_on: List[str] = []  # Task IDs this depends on
+    depends_on: list[str] = []  # Task IDs this depends on
     status: TaskStatus = TaskStatus.PENDING
 
     # Execution tracking
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    duration_seconds: Optional[float] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    duration_seconds: float | None = None
     iterations_used: int = 0
 
 
@@ -58,10 +58,10 @@ class TaskResult(BaseModel):
     """Result of task execution"""
     task_id: str
     status: TaskStatus
-    deliverables_created: List[str] = []  # File paths
+    deliverables_created: list[str] = []  # File paths
     validation_passed: bool = False
-    validation_report: Optional[str] = None
-    error_message: Optional[str] = None
+    validation_report: str | None = None
+    error_message: str | None = None
     duration_seconds: float
     iterations_used: int
 
@@ -71,27 +71,27 @@ class MultiTaskChallenge(BaseModel):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:16])
     title: str
     description: str
-    tasks: List[TaskDefinition] = []
+    tasks: list[TaskDefinition] = []
 
     # Workspace configuration
     workspace_root: str = "/workspace"
-    workspace_template: Optional[str] = None  # "research", "data_analysis", "code_project"
+    workspace_template: str | None = None  # "research", "data_analysis", "code_project"
 
     # Progress tracking
     current_task_index: int = 0
-    completed_tasks: List[str] = []  # Task IDs
-    failed_tasks: List[str] = []  # Task IDs
+    completed_tasks: list[str] = []  # Task IDs
+    failed_tasks: list[str] = []  # Task IDs
 
     # Execution metadata
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    total_duration_seconds: Optional[float] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    total_duration_seconds: float | None = None
 
     # Results
-    task_results: List[TaskResult] = []
+    task_results: list[TaskResult] = []
     overall_success: bool = False
 
-    def get_current_task(self) -> Optional[TaskDefinition]:
+    def get_current_task(self) -> TaskDefinition | None:
         """Get currently active task"""
         if 0 <= self.current_task_index < len(self.tasks):
             return self.tasks[self.current_task_index]

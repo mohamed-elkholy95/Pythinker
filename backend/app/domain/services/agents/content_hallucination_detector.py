@@ -18,9 +18,8 @@ Usage:
             print(f"Warning: {issue.description}")
 """
 
-import re
 import logging
-from typing import List, Optional, Set
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -43,13 +42,13 @@ class HallucinationIssue:
     description: str
     risk: HallucinationRisk
     suggestion: str
-    line_context: Optional[str] = None
+    line_context: str | None = None
 
 
 @dataclass
 class HallucinationAnalysisResult:
     """Result of hallucination analysis."""
-    issues: List[HallucinationIssue] = field(default_factory=list)
+    issues: list[HallucinationIssue] = field(default_factory=list)
     total_patterns_checked: int = 0
     high_risk_count: int = 0
     medium_risk_count: int = 0
@@ -233,7 +232,7 @@ class ContentHallucinationDetector:
 
     def __init__(
         self,
-        patterns: List[tuple] | None = None,
+        patterns: list[tuple] | None = None,
         check_attribution: bool = True
     ):
         """Initialize the hallucination detector.
@@ -260,7 +259,7 @@ class ContentHallucinationDetector:
     def analyze(
         self,
         text: str,
-        verified_claims: Set[str] | None = None
+        verified_claims: set[str] | None = None
     ) -> HallucinationAnalysisResult:
         """Analyze text for potential hallucinations.
 
@@ -275,7 +274,7 @@ class ContentHallucinationDetector:
         verified = verified_claims or set()
 
         # Track matched positions to avoid duplicate issues
-        matched_positions: Set[tuple] = set()
+        matched_positions: set[tuple] = set()
 
         for compiled, pattern_type, risk, description, suggestion in self._compiled_patterns:
             result.total_patterns_checked += 1
@@ -335,7 +334,7 @@ class ContentHallucinationDetector:
 
         return result
 
-    def _is_verified(self, matched_text: str, verified: Set[str]) -> bool:
+    def _is_verified(self, matched_text: str, verified: set[str]) -> bool:
         """Check if the matched text corresponds to a verified claim."""
         # Normalize for comparison
         normalized = matched_text.lower().strip()
@@ -423,7 +422,7 @@ class ContentHallucinationDetector:
 
         return "\n".join(lines)
 
-    def extract_quantitative_claims(self, text: str) -> List[str]:
+    def extract_quantitative_claims(self, text: str) -> list[str]:
         """Extract all quantitative claims from text for verification.
 
         Useful for the CriticAgent to get a list of claims that

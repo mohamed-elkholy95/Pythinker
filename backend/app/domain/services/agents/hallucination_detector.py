@@ -8,7 +8,6 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from difflib import SequenceMatcher
-from typing import List, Optional, Set, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +16,9 @@ logger = logging.getLogger(__name__)
 class HallucinationEvent:
     """Record of a tool hallucination attempt"""
     attempted_tool: str
-    suggested_tools: List[str]
+    suggested_tools: list[str]
     timestamp: datetime = field(default_factory=datetime.now)
-    context: Optional[str] = None
+    context: str | None = None
 
 
 class ToolHallucinationDetector:
@@ -40,7 +39,7 @@ class ToolHallucinationDetector:
 
     def __init__(
         self,
-        available_tools: List[str],
+        available_tools: list[str],
         similarity_threshold: float = 0.6,
         max_suggestions: int = 3,
         hallucination_threshold: int = 3
@@ -53,23 +52,23 @@ class ToolHallucinationDetector:
             max_suggestions: Maximum number of similar tools to suggest
             hallucination_threshold: Number of hallucinations before injecting correction prompt
         """
-        self.available_tools: Set[str] = set(available_tools)
+        self.available_tools: set[str] = set(available_tools)
         self.similarity_threshold = similarity_threshold
         self.max_suggestions = max_suggestions
         self.hallucination_threshold = hallucination_threshold
 
         # Track hallucination history
         self.hallucination_count = 0
-        self.hallucination_history: List[HallucinationEvent] = []
+        self.hallucination_history: list[HallucinationEvent] = []
 
-    def update_available_tools(self, tools: List[str]) -> None:
+    def update_available_tools(self, tools: list[str]) -> None:
         """Update the set of available tools.
 
         Call this when MCP tools are loaded or refreshed.
         """
         self.available_tools = set(tools)
 
-    def detect(self, tool_name: str, context: Optional[str] = None) -> Optional[str]:
+    def detect(self, tool_name: str, context: str | None = None) -> str | None:
         """Detect if a tool call is a hallucination and return correction message.
 
         Args:
@@ -108,7 +107,7 @@ class ToolHallucinationDetector:
         # Generate correction message
         return self._generate_correction(tool_name, similar)
 
-    def _find_similar_tools(self, name: str) -> List[str]:
+    def _find_similar_tools(self, name: str) -> list[str]:
         """Find tools with similar names using sequence matching.
 
         Args:
@@ -117,7 +116,7 @@ class ToolHallucinationDetector:
         Returns:
             List of similar valid tool names, sorted by similarity
         """
-        similarities: Dict[str, float] = {}
+        similarities: dict[str, float] = {}
 
         name_lower = name.lower()
 
@@ -141,7 +140,7 @@ class ToolHallucinationDetector:
 
         return sorted_tools[:self.max_suggestions]
 
-    def _generate_correction(self, tool_name: str, similar: List[str]) -> str:
+    def _generate_correction(self, tool_name: str, similar: list[str]) -> str:
         """Generate a helpful correction message.
 
         Args:
@@ -199,7 +198,7 @@ class ToolHallucinationDetector:
         """
         self.hallucination_count = 0
 
-    def get_statistics(self) -> Dict[str, any]:
+    def get_statistics(self) -> dict[str, any]:
         """Get hallucination statistics.
 
         Returns:

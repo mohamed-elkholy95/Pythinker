@@ -12,10 +12,9 @@ Research shows agents commonly:
 This module helps maintain focus on user intent throughout execution.
 """
 
-import re
 import logging
+import re
 from dataclasses import dataclass, field
-from typing import List, Optional, Set
 from enum import Enum
 
 logger = logging.getLogger(__name__)
@@ -36,7 +35,7 @@ class Requirement:
     priority: RequirementPriority
     source_text: str  # Original text this was extracted from
     addressed: bool = False
-    addressed_by_step: Optional[str] = None
+    addressed_by_step: str | None = None
 
     def mark_addressed(self, step_id: str) -> None:
         """Mark this requirement as addressed by a step."""
@@ -47,16 +46,16 @@ class Requirement:
 @dataclass
 class RequirementSet:
     """Collection of requirements extracted from a user prompt."""
-    requirements: List[Requirement] = field(default_factory=list)
+    requirements: list[Requirement] = field(default_factory=list)
     original_prompt: str = ""
 
     @property
-    def must_haves(self) -> List[Requirement]:
+    def must_haves(self) -> list[Requirement]:
         """Get all must-have requirements."""
         return [r for r in self.requirements if r.priority == RequirementPriority.MUST_HAVE]
 
     @property
-    def unaddressed(self) -> List[Requirement]:
+    def unaddressed(self) -> list[Requirement]:
         """Get all unaddressed requirements."""
         return [r for r in self.requirements if not r.addressed]
 
@@ -90,7 +89,7 @@ class RequirementSet:
 
         return "\n".join(lines)
 
-    def get_unaddressed_reminder(self) -> Optional[str]:
+    def get_unaddressed_reminder(self) -> str | None:
         """Get a reminder about unaddressed requirements."""
         unaddressed = self.unaddressed
         if not unaddressed:
@@ -191,7 +190,7 @@ class RequirementExtractor:
             original_prompt=prompt
         )
 
-    def _extract_numbered_items(self, text: str) -> List[Requirement]:
+    def _extract_numbered_items(self, text: str) -> list[Requirement]:
         """Extract requirements from numbered lists."""
         requirements = []
 
@@ -208,7 +207,7 @@ class RequirementExtractor:
 
         return requirements
 
-    def _extract_bullet_items(self, text: str) -> List[Requirement]:
+    def _extract_bullet_items(self, text: str) -> list[Requirement]:
         """Extract requirements from bullet lists."""
         requirements = []
 
@@ -225,7 +224,7 @@ class RequirementExtractor:
 
         return requirements
 
-    def _extract_conjunction_items(self, text: str) -> List[Requirement]:
+    def _extract_conjunction_items(self, text: str) -> list[Requirement]:
         """Extract requirements from conjunction phrases (X and Y and Z)."""
         requirements = []
 
@@ -280,12 +279,12 @@ class RequirementExtractor:
             text = text[0].upper() + text[1:]
         return text
 
-    def _deduplicate(self, requirements: List[Requirement]) -> List[Requirement]:
+    def _deduplicate(self, requirements: list[Requirement]) -> list[Requirement]:
         """Remove duplicate or very similar requirements."""
         if len(requirements) <= 1:
             return requirements
 
-        seen_descriptions: Set[str] = set()
+        seen_descriptions: set[str] = set()
         unique = []
 
         for req in requirements:
@@ -333,7 +332,7 @@ class RequirementExtractor:
 
 
 # Singleton instance
-_extractor: Optional[RequirementExtractor] = None
+_extractor: RequirementExtractor | None = None
 
 
 def get_requirement_extractor() -> RequirementExtractor:

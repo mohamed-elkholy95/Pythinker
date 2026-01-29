@@ -4,7 +4,7 @@ Security analyzer for detecting vulnerabilities in code.
 
 import logging
 from dataclasses import dataclass
-from typing import List, Dict, Any
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ class Vulnerability:
     file_path: str
     line_number: int
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "type": self.type,
@@ -43,7 +43,7 @@ class SecurityAnalyzer:
         """
         self.strict_mode = strict_mode
 
-    def analyze(self, code: str, file_path: str, language: str) -> List[Vulnerability]:
+    def analyze(self, code: str, file_path: str, language: str) -> list[Vulnerability]:
         """
         Analyze code for security vulnerabilities.
 
@@ -59,7 +59,7 @@ class SecurityAnalyzer:
         # For now, return an empty list to satisfy the interface and fix the crash.
         return []
 
-    def get_summary(self, vulnerabilities: List[Vulnerability]) -> Dict[str, Any]:
+    def get_summary(self, vulnerabilities: list[Vulnerability]) -> dict[str, Any]:
         """
         Get summary of vulnerabilities.
 

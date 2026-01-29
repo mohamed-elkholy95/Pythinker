@@ -13,8 +13,8 @@ tokens by 40-60% without significant quality loss.
 import logging
 import re
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional, Tuple
 from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -137,8 +137,8 @@ class PromptCompressor:
         self,
         output: str,
         max_tokens: int = 500,
-        tool_name: Optional[str] = None,
-        level: Optional[CompressionLevel] = None,
+        tool_name: str | None = None,
+        level: CompressionLevel | None = None,
     ) -> CompressionResult:
         """Compress tool output to fit within token limit.
 
@@ -204,11 +204,11 @@ class PromptCompressor:
 
     def compress_history(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         keep_recent: int = 5,
         max_tokens: int = 4000,
         preserve_system: bool = True,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Compress message history to fit within token limit.
 
         Args:
@@ -288,7 +288,7 @@ class PromptCompressor:
         self,
         context: str,
         max_tokens: int = 2000,
-        preserve_sections: Optional[List[str]] = None,
+        preserve_sections: list[str] | None = None,
     ) -> str:
         """Compress execution context.
 
@@ -318,9 +318,7 @@ class PromptCompressor:
             header_match = re.match(r'^(##?\s*)(.+)', section)
             header = header_match.group(2).lower() if header_match else ""
 
-            if preserve_sections and any(p in header for p in preserve_sections):
-                preserved.append(section)
-            elif self._is_important(section):
+            if (preserve_sections and any(p in header for p in preserve_sections)) or self._is_important(section):
                 preserved.append(section)
             else:
                 compressible.append(section)
@@ -360,7 +358,7 @@ class PromptCompressor:
 
         return text
 
-    def _apply_pattern_compression(self, text: str) -> Tuple[str, int]:
+    def _apply_pattern_compression(self, text: str) -> tuple[str, int]:
         """Apply pattern-based compression."""
         items_removed = 0
 
@@ -380,8 +378,8 @@ class PromptCompressor:
         self,
         text: str,
         max_tokens: int,
-        tool_name: Optional[str],
-    ) -> Tuple[str, bool]:
+        tool_name: str | None,
+    ) -> tuple[str, bool]:
         """Truncate text with a summary header."""
         max_chars = int(max_tokens / self.TOKENS_PER_CHAR)
 
@@ -414,15 +412,14 @@ class PromptCompressor:
 
         if omitted > 0:
             return f"{first_content}\n\n[...{omitted} lines omitted...]\n\n{last_content}", True
-        else:
-            return text[:max_chars], True
+        return text[:max_chars], True
 
     def _is_important(self, text: str) -> bool:
         """Check if text contains important markers."""
         text_lower = text.lower()
         return any(marker in text_lower for marker in self.IMPORTANT_MARKERS)
 
-    def _summarize_section(self, section: str, max_tokens: int) -> Optional[str]:
+    def _summarize_section(self, section: str, max_tokens: int) -> str | None:
         """Generate a brief summary of a section."""
         max_chars = int(max_tokens / self.TOKENS_PER_CHAR)
 
@@ -471,7 +468,7 @@ class PromptCompressor:
             summary_generated=summary_generated,
         )
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get compression statistics."""
         return {
             **self._stats,
@@ -494,7 +491,7 @@ def _summarize_traceback(traceback: str) -> str:
 
 
 # Singleton instance
-_compressor: Optional[PromptCompressor] = None
+_compressor: PromptCompressor | None = None
 
 
 def get_prompt_compressor() -> PromptCompressor:

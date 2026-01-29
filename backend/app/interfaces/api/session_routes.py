@@ -1,30 +1,51 @@
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, Query, HTTPException
-from sse_starlette.sse import EventSourceResponse
-from typing import AsyncGenerator, List, Optional, Type
-from sse_starlette.event import ServerSentEvent
-from datetime import datetime
 import asyncio
-import websockets
 import logging
-from app.interfaces.dependencies import get_file_service
+from collections.abc import AsyncGenerator
+from datetime import datetime
 
+import websockets
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from sse_starlette.event import ServerSentEvent
+from sse_starlette.sse import EventSourceResponse
+
+from app.application.errors.exceptions import NotFoundError, UnauthorizedError
 from app.application.services.agent_service import AgentService
 from app.application.services.token_service import TokenService
-from app.application.errors.exceptions import NotFoundError, UnauthorizedError
-from app.interfaces.dependencies import get_agent_service, get_current_user, get_optional_current_user, get_token_service, verify_signature_websocket, get_sandbox_cls
-from app.interfaces.schemas.base import APIResponse
+from app.core.deep_research_manager import get_deep_research_manager
 from app.domain.external.sandbox import Sandbox
-from app.interfaces.schemas.session import (
-    ChatRequest, ShellViewRequest, CreateSessionRequest, CreateSessionResponse, GetSessionResponse,
-    ListSessionItem, ListSessionResponse, ShellViewResponse, ConfirmActionRequest,
-    ShareSessionResponse, SharedSessionResponse, ResumeSessionRequest, SandboxInfo
-)
-from app.interfaces.schemas.workspace import WorkspaceManifest, WorkspaceManifestResponse
-from app.interfaces.schemas.file import FileViewRequest, FileViewResponse
-from app.interfaces.schemas.resource import AccessTokenRequest, SignedUrlResponse
-from app.interfaces.schemas.event import EventMapper
 from app.domain.models.file import FileInfo
 from app.domain.models.user import User
+from app.interfaces.dependencies import (
+    get_agent_service,
+    get_current_user,
+    get_file_service,
+    get_optional_current_user,
+    get_sandbox_cls,
+    get_token_service,
+    verify_signature_websocket,
+)
+from app.interfaces.schemas.base import APIResponse
+from app.interfaces.schemas.event import EventMapper
+from app.interfaces.schemas.file import FileViewRequest, FileViewResponse
+from app.interfaces.schemas.resource import AccessTokenRequest, SignedUrlResponse
+from app.interfaces.schemas.session import (
+    ChatRequest,
+    ConfirmActionRequest,
+    CreateSessionRequest,
+    CreateSessionResponse,
+    DeepResearchSkipRequest,
+    DeepResearchStatusResponse,
+    GetSessionResponse,
+    ListSessionItem,
+    ListSessionResponse,
+    ResumeSessionRequest,
+    SandboxInfo,
+    SharedSessionResponse,
+    ShareSessionResponse,
+    ShellViewRequest,
+    ShellViewResponse,
+)
+from app.interfaces.schemas.workspace import WorkspaceManifest, WorkspaceManifestResponse
 
 logger = logging.getLogger(__name__)
 SESSION_POLL_INTERVAL = 10
@@ -36,7 +57,7 @@ async def create_session(
     request: CreateSessionRequest = CreateSessionRequest(),
     current_user: User = Depends(get_current_user),
     agent_service: AgentService = Depends(get_agent_service),
-    sandbox_cls: Type[Sandbox] = Depends(get_sandbox_cls)
+    sandbox_cls: type[Sandbox] = Depends(get_sandbox_cls)
 ) -> APIResponse[CreateSessionResponse]:
     session = await agent_service.create_session(current_user.id, mode=request.mode)
 
@@ -304,10 +325,10 @@ async def vnc_websocket(
         session_id: Session ID
         signature: Verified signature from dependency injection
     """
-    
+
     await websocket.accept(subprotocol="binary")
     logger.info(f"Accepted WebSocket connection for session {session_id}")
-    
+
     try:
         # Get sandbox environment address with user validation
         sandbox_ws_url = await agent_service.get_vnc_url(session_id)
@@ -328,7 +349,7 @@ async def vnc_websocket(
                     pass
                 except Exception as e:
                     logger.error(f"Error forwarding data to sandbox: {e}")
-            
+
             async def forward_from_sandbox():
                 try:
                     while True:
@@ -339,11 +360,11 @@ async def vnc_websocket(
                     pass
                 except Exception as e:
                     logger.error(f"Error forwarding data from sandbox: {e}")
-            
+
             # Run two forwarding tasks concurrently
             forward_task1 = asyncio.create_task(forward_to_sandbox())
             forward_task2 = asyncio.create_task(forward_from_sandbox())
-            
+
             # Wait for either task to complete (meaning connection has closed)
             done, pending = await asyncio.wait(
                 [forward_task1, forward_task2],
@@ -351,24 +372,24 @@ async def vnc_websocket(
             )
 
             logger.info("WebSocket connection closed")
-            
+
             # Cancel pending tasks
             for task in pending:
                 task.cancel()
-    
+
     except ConnectionError as e:
-        logger.error(f"Unable to connect to sandbox environment: {str(e)}")
-        await websocket.close(code=1011, reason=f"Unable to connect to sandbox environment: {str(e)}")
+        logger.error(f"Unable to connect to sandbox environment: {e!s}")
+        await websocket.close(code=1011, reason=f"Unable to connect to sandbox environment: {e!s}")
     except Exception as e:
-        logger.error(f"WebSocket error: {str(e)}")
-        await websocket.close(code=1011, reason=f"WebSocket error: {str(e)}")
+        logger.error(f"WebSocket error: {e!s}")
+        await websocket.close(code=1011, reason=f"WebSocket error: {e!s}")
 
 @router.get("/{session_id}/files")
 async def get_session_files(
     session_id: str,
-    current_user: Optional[User] = Depends(get_optional_current_user),
+    current_user: User | None = Depends(get_optional_current_user),
     agent_service: AgentService = Depends(get_agent_service)
-) -> APIResponse[List[FileInfo]]:
+) -> APIResponse[list[FileInfo]]:
     if not current_user and not await agent_service.is_session_shared(session_id):
         raise UnauthorizedError()
     files = await agent_service.get_session_files(session_id, current_user.id if current_user else None)
@@ -388,26 +409,26 @@ async def create_vnc_signed_url(
     This endpoint creates a signed URL that allows temporary access to the VNC
     WebSocket for a specific session without requiring authentication headers.
     """
-    
+
     # Validate expiration time (max 15 minutes)
     expire_minutes = request_data.expire_minutes
     if expire_minutes > 15:
         expire_minutes = 15
-    
+
     # Check if session exists and belongs to user
     session = await agent_service.get_session(session_id, current_user.id)
     if not session:
         raise NotFoundError("Session not found")
-    
+
     # Create signed URL for VNC WebSocket
     ws_base_url = f"/api/v1/sessions/{session_id}/vnc"
     signed_url = token_service.create_signed_url(
         base_url=ws_base_url,
         expire_minutes=expire_minutes
     )
-    
+
     logger.info(f"Created signed URL for VNC access for user {current_user.id}, session {session_id}")
-    
+
     return APIResponse.success(SignedUrlResponse(
         signed_url=signed_url,
         expires_in=expire_minutes * 60,
@@ -421,11 +442,11 @@ async def get_vnc_screenshot(
     scale: float = Query(default=0.5, ge=0.1, le=1.0, description="Scale factor (0.1-1.0)"),
     current_user: User = Depends(get_current_user),
     agent_service: AgentService = Depends(get_agent_service),
-    sandbox_cls: Type[Sandbox] = Depends(get_sandbox_cls)
+    sandbox_cls: type[Sandbox] = Depends(get_sandbox_cls)
 ):
     """Get VNC screenshot from sandbox"""
-    from fastapi.responses import Response
     import httpx
+    from fastapi.responses import Response
 
     # Check if session exists and belongs to user
     session = await agent_service.get_session(session_id, current_user.id)
@@ -476,7 +497,7 @@ async def get_vnc_screenshot(
         logger.error(f"Failed to fetch VNC screenshot: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to fetch screenshot: {str(e)}"
+            detail=f"Failed to fetch screenshot: {e!s}"
         )
 
 
@@ -517,11 +538,96 @@ async def share_session(
 async def get_shared_session_files(
     session_id: str,
     agent_service: AgentService = Depends(get_agent_service)
-) -> APIResponse[List[FileInfo]]:
+) -> APIResponse[list[FileInfo]]:
     files = await agent_service.get_shared_session_files(session_id)
     for file in files:
         await get_file_service().enrich_with_file_url(file)
     return APIResponse.success(files)
+
+
+@router.post("/{session_id}/deep-research/approve", response_model=APIResponse[None])
+async def approve_deep_research(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service)
+) -> APIResponse[None]:
+    """Approve a pending deep research session to start execution.
+
+    This endpoint signals the deep research flow to begin executing
+    queries that were waiting for user approval.
+    """
+    # Verify session ownership
+    session = await agent_service.get_session(session_id, current_user.id)
+    if not session:
+        raise NotFoundError("Session not found")
+
+    # Approve the research
+    manager = get_deep_research_manager()
+    if await manager.approve(session_id):
+        logger.info(f"Deep research approved for session {session_id}")
+        return APIResponse.success()
+    raise HTTPException(
+        status_code=404,
+        detail="No active deep research found for this session"
+    )
+
+
+@router.post("/{session_id}/deep-research/skip", response_model=APIResponse[None])
+async def skip_deep_research_query(
+    session_id: str,
+    request: DeepResearchSkipRequest,
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service)
+) -> APIResponse[None]:
+    """Skip a specific query or all pending queries in deep research.
+
+    If query_id is provided, skips only that query.
+    If query_id is None, skips all pending/searching queries.
+    """
+    # Verify session ownership
+    session = await agent_service.get_session(session_id, current_user.id)
+    if not session:
+        raise NotFoundError("Session not found")
+
+    # Skip the query(s)
+    manager = get_deep_research_manager()
+    if await manager.skip_query(session_id, request.query_id):
+        logger.info(f"Deep research query skipped for session {session_id}: {request.query_id or 'all'}")
+        return APIResponse.success()
+    raise HTTPException(
+        status_code=404,
+        detail="No active deep research found for this session"
+    )
+
+
+@router.get("/{session_id}/deep-research/status", response_model=APIResponse[DeepResearchStatusResponse])
+async def get_deep_research_status(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service)
+) -> APIResponse[DeepResearchStatusResponse]:
+    """Get the current status of deep research for a session."""
+    # Verify session ownership
+    session = await agent_service.get_session(session_id, current_user.id)
+    if not session:
+        raise NotFoundError("Session not found")
+
+    manager = get_deep_research_manager()
+    flow = manager.get(session_id)
+
+    if not flow or not flow.get_session():
+        raise HTTPException(
+            status_code=404,
+            detail="No active deep research found for this session"
+        )
+
+    research_session = flow.get_session()
+    return APIResponse.success(DeepResearchStatusResponse(
+        research_id=research_session.research_id,
+        status=research_session.status,
+        total_queries=research_session.total_count,
+        completed_queries=research_session.completed_count
+    ))
 
 
 @router.delete("/{session_id}/share", response_model=APIResponse[ShareSessionResponse])
@@ -554,7 +660,7 @@ async def get_shared_session(
     session = await agent_service.get_shared_session(session_id)
     if not session:
         raise NotFoundError("Shared session not found")
-    
+
     return APIResponse.success(SharedSessionResponse(
         session_id=session.id,
         title=session.title,

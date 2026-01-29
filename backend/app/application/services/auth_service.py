@@ -1,17 +1,17 @@
 import hashlib
 import hmac
-import secrets
+import logging
 import re
-from typing import Optional
+import secrets
 from datetime import datetime
+
+from app.application.errors.exceptions import BadRequestError, UnauthorizedError, ValidationError
+from app.application.services.token_service import TokenService
+from app.core.config import get_settings
+from app.domain.models.auth import AuthToken
 from app.domain.models.user import User, UserRole
 from app.domain.repositories.user_repository import UserRepository
-from app.application.errors.exceptions import UnauthorizedError, ValidationError, BadRequestError
-from app.core.config import get_settings
-from app.application.services.token_service import TokenService
-from app.domain.models.auth import AuthToken
 from app.infrastructure.storage.redis import get_redis
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +183,7 @@ class AuthService:
     def _generate_user_id(self) -> str:
         """Generate unique user ID"""
         return secrets.token_urlsafe(16)
-    
+
     async def register_user(self, fullname: str, password: str, email: str, role: UserRole = UserRole.USER) -> User:
         """Register a new user"""
         logger.info(f"Registering user: {email}")
@@ -230,8 +230,8 @@ class AuthService:
 
         logger.info(f"User registered successfully: {created_user.id}")
         return created_user
-    
-    async def authenticate_user(self, email: str, password: str) -> Optional[User]:
+
+    async def authenticate_user(self, email: str, password: str) -> User | None:
         """Authenticate user by email and password with account lockout protection"""
         logger.debug(f"Authenticating user: {email}")
 
@@ -246,7 +246,7 @@ class AuthService:
                 is_active=True
             )
 
-        elif self.settings.auth_provider == "local":
+        if self.settings.auth_provider == "local":
             # Check account lockout for local auth
             is_locked, remaining = await self._is_account_locked(email)
             if is_locked:
@@ -268,15 +268,14 @@ class AuthService:
                     role=UserRole.ADMIN,
                     is_active=True
                 )
-            else:
-                # Track failed attempt
-                attempts = await self._increment_failed_attempts(email)
-                if attempts >= self.settings.account_lockout_threshold:
-                    await self._lock_account(email)
-                logger.warning(f"Local authentication failed for user: {email} (attempt {attempts})")
-                return None
+            # Track failed attempt
+            attempts = await self._increment_failed_attempts(email)
+            if attempts >= self.settings.account_lockout_threshold:
+                await self._lock_account(email)
+            logger.warning(f"Local authentication failed for user: {email} (attempt {attempts})")
+            return None
 
-        elif self.settings.auth_provider == "password":
+        if self.settings.auth_provider == "password":
             # Check account lockout
             is_locked, remaining = await self._is_account_locked(email)
             if is_locked:
@@ -321,66 +320,65 @@ class AuthService:
             logger.info(f"User authenticated successfully: {email}")
             return user
 
-        else:
-            raise ValueError(f"Unsupported auth provider: {self.settings.auth_provider}")
-    
+        raise ValueError(f"Unsupported auth provider: {self.settings.auth_provider}")
+
     async def login_with_tokens(self, email: str, password: str) -> AuthToken:
         """Authenticate user and return JWT tokens"""
         user = await self.authenticate_user(email, password)
-        
+
         if not user:
             raise UnauthorizedError("Invalid email or password")
-        
+
         # Generate JWT tokens
         access_token = self.token_service.create_access_token(user)
         refresh_token = self.token_service.create_refresh_token(user)
-        
+
         return AuthToken(
             access_token=access_token,
             refresh_token=refresh_token,
             token_type="bearer",
             user=user
         )
-    
+
     async def refresh_access_token(self, refresh_token: str) -> AuthToken:
         """Refresh access token using refresh token"""
         payload = self.token_service.verify_token(refresh_token)
-        
+
         if not payload:
             raise UnauthorizedError("Invalid refresh token")
-        
+
         if payload.get("type") != "refresh":
             raise UnauthorizedError("Invalid token type")
-        
+
         # Get user from database
         user_id = payload.get("sub")
         user = await self.user_repository.get_user_by_id(user_id)
-        
+
         if not user or not user.is_active:
             raise UnauthorizedError("User not found or inactive")
-        
+
         # Generate new access token
         new_access_token = self.token_service.create_access_token(user)
-        
+
         return AuthToken(
             access_token=new_access_token,
             token_type="bearer"
         )
-    
-    async def verify_token(self, token: str) -> Optional[User]:
+
+    async def verify_token(self, token: str) -> User | None:
         """Verify JWT token and return user"""
         user_info = self.token_service.get_user_from_token(token)
-        
+
         if not user_info:
             return None
-        
+
         # For database users, verify user still exists and is active
         if self.settings.auth_provider == "password":
             user = await self.user_repository.get_user_by_id(user_info["id"])
             if not user or not user.is_active:
                 return None
             return user
-        
+
         # For local/none authentication, create user from token info
         return User(
             id=user_info["id"],
@@ -389,7 +387,7 @@ class AuthService:
             role=UserRole(user_info.get("role", "user")),
             is_active=user_info.get("is_active", True)
         )
-    
+
     async def logout(self, token: str) -> bool:
         """Logout user by revoking token"""
         if self.settings.auth_provider == "none":
@@ -401,7 +399,7 @@ class AuthService:
         if self.settings.auth_provider == "none":
             raise BadRequestError("Logout is not allowed")
         return await self.token_service.revoke_all_user_tokens(user_id)
-    
+
     async def change_password(self, user_id: str, old_password: str, new_password: str) -> bool:
         """Change user password"""
         logger.info(f"Changing password for user: {user_id}")
@@ -440,64 +438,64 @@ class AuthService:
 
         logger.info(f"Password changed successfully for user: {user_id}")
         return True
-    
+
     async def change_fullname(self, user_id: str, new_fullname: str) -> User:
         """Change user fullname"""
         logger.info(f"Changing fullname for user: {user_id}")
-        
+
         # Get user
         user = await self.user_repository.get_user_by_id(user_id)
         if not user:
             raise ValidationError("User not found")
-        
+
         if not user.is_active:
             raise UnauthorizedError("User account is inactive")
-        
+
         # Validate new fullname
         if not new_fullname or len(new_fullname.strip()) < 2:
             raise ValidationError("Full name must be at least 2 characters long")
-        
+
         # Update user fullname
         user.fullname = new_fullname.strip()
         user.updated_at = datetime.utcnow()
-        
+
         updated_user = await self.user_repository.update_user(user)
-        
+
         logger.info(f"Fullname changed successfully for user: {user_id}")
         return updated_user
-    
-    async def get_user_by_id(self, user_id: str) -> Optional[User]:
+
+    async def get_user_by_id(self, user_id: str) -> User | None:
         """Get user by ID"""
         return await self.user_repository.get_user_by_id(user_id)
-    
+
     async def deactivate_user(self, user_id: str) -> bool:
         """Deactivate user account"""
         logger.info(f"Deactivating user: {user_id}")
-        
+
         user = await self.user_repository.get_user_by_id(user_id)
         if not user:
             raise ValidationError("User not found")
-        
+
         user.deactivate()
         await self.user_repository.update_user(user)
-        
+
         logger.info(f"User deactivated successfully: {user_id}")
         return True
-    
+
     async def activate_user(self, user_id: str) -> bool:
         """Activate user account"""
         logger.info(f"Activating user: {user_id}")
-        
+
         user = await self.user_repository.get_user_by_id(user_id)
         if not user:
             raise ValidationError("User not found")
-        
+
         user.activate()
         await self.user_repository.update_user(user)
-        
+
         logger.info(f"User activated successfully: {user_id}")
         return True
-    
+
     async def reset_password(self, email: str, new_password: str) -> bool:
         """Reset user password with email"""
         logger.info(f"Resetting password for user: {email}")
