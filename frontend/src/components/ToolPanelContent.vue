@@ -757,5 +757,17 @@ const onNewTerminalContent = () => {
   markNewOutput();
 };
 
-// Confirmation action handler removed
+// Capture VNC screenshot from the live canvas
+function captureVncScreenshot(quality?: number, scale?: number): string | null {
+  return vncContentRef.value?.captureScreenshot(quality, scale) ?? null;
+}
+
+function isVncConnected(): boolean {
+  return vncContentRef.value?.isConnected() ?? false;
+}
+
+defineExpose({
+  captureVncScreenshot,
+  isVncConnected
+});
 </script>
