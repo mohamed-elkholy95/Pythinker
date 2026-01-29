@@ -438,11 +438,19 @@ const checkStaleConnection = () => {
   }
 };
 
-// ===== VNC Thumbnail Management (Centralized) =====
-// Computed: enable VNC polling when there's an active session
-const enableVncPolling = computed(() => !!sessionId.value);
+// Track if ToolPanel is open (needed for VNC thumbnail management)
+const isToolPanelOpen = ref(false);
 
-// Use the live VNC thumbnail composable (single source of truth for VNC screenshots)
+// ===== VNC Thumbnail Management (Centralized) =====
+// Live canvas thumbnail (captured from ToolPanel's VNC connection)
+const canvasThumbnailUrl = ref<string>('');
+let canvasPollingInterval: ReturnType<typeof setInterval> | null = null;
+
+// Computed: enable VNC polling when there's an active session and panel is NOT open
+// (When panel is open, we capture from canvas instead)
+const enableVncPolling = computed(() => !!sessionId.value && !isToolPanelOpen.value);
+
+// Use the live VNC thumbnail composable (fallback when panel is closed)
 const {
   thumbnailUrl: vncThumbnailUrl,
   forceRefresh: refreshVncThumbnail
@@ -454,8 +462,35 @@ const {
   scale: 0.3               // 30% scale for performance
 });
 
+// Capture thumbnail from VNC canvas (when ToolPanel is open)
+const captureCanvasThumbnail = () => {
+  if (!toolPanel.value?.isVncConnected()) return;
+  const dataUrl = toolPanel.value?.captureVncScreenshot(0.5, 0.3);
+  if (dataUrl) {
+    canvasThumbnailUrl.value = dataUrl;
+  }
+};
+
+// Start/stop canvas polling based on panel state
+watch(isToolPanelOpen, (isOpen) => {
+  if (isOpen) {
+    // Start capturing from canvas when panel is open
+    // Small delay to let VNC connect first
+    setTimeout(captureCanvasThumbnail, 500);
+    canvasPollingInterval = setInterval(captureCanvasThumbnail, 1000);
+  } else {
+    // Capture final state before stopping polling
+    captureCanvasThumbnail();
+    if (canvasPollingInterval) {
+      clearInterval(canvasPollingInterval);
+      canvasPollingInterval = null;
+    }
+  }
+});
+
 // Handler for TaskProgressBar's requestRefresh event (captures final screenshot on completion)
 const handleThumbnailRefresh = () => {
+  captureCanvasThumbnail();
   refreshVncThumbnail();
 };
 
@@ -481,6 +516,10 @@ onUnmounted(() => {
     clearInterval(staleCheckInterval);
     staleCheckInterval = null;
   }
+  if (canvasPollingInterval) {
+    clearInterval(canvasPollingInterval);
+    canvasPollingInterval = null;
+  }
 });
 
 const getLastStep = (): StepContent | undefined => {
@@ -491,9 +530,6 @@ const getLastStep = (): StepContent | undefined => {
 const hasReportMessage = computed(() => {
   return messages.value.some(message => message.type === 'report');
 });
-
-// Track if ToolPanel is open (for TaskProgressBar positioning)
-const isToolPanelOpen = ref(false);
 
 // Track if user has explicitly closed the panel (don't auto-reopen)
 const userClosedPanel = ref(false);
@@ -526,13 +562,14 @@ const isPlanCompleted = computed(() => {
   return !!plan.value?.steps?.length && plan.value.steps.every(step => step.status === 'completed');
 });
 
-// Get current thumbnail URL - prefer live VNC over stale tool screenshots
+// Get current thumbnail URL - prefer live sources over stale tool screenshots
 const currentThumbnailUrl = computed(() => {
-  // Always prefer live VNC thumbnail (real-time desktop state)
+  // 1. Canvas capture (most accurate when panel is open/was open)
+  if (canvasThumbnailUrl.value) return canvasThumbnailUrl.value;
+  // 2. HTTP polling (when panel is closed)
   if (vncThumbnailUrl.value) return vncThumbnailUrl.value;
-  // Fall back to tool screenshot only if VNC not available
-  const tool = lastNoMessageTool.value;
-  return tool?.content?.screenshot || '';
+  // 3. No fallback to stale tool screenshots - return empty to show placeholder
+  return '';
 });
 
 // Get current tool info for display

@@ -103,7 +103,18 @@ const initEditor = () => {
     scrollbar: {
       vertical: "auto",
       horizontal: "auto",
+      verticalScrollbarSize: 8,
+      horizontalScrollbarSize: 8,
+      useShadows: false,
+      verticalHasArrows: false,
+      horizontalHasArrows: false,
+      alwaysConsumeMouseWheel: false,
     },
+    overviewRulerBorder: false,
+    overviewRulerLanes: 0,
+    hideCursorInOverviewRuler: true,
+    renderLineHighlight: 'none',
+    padding: { top: 12, bottom: 12 },
   });
 
   // Emit ready event
@@ -171,4 +182,101 @@ onBeforeUnmount(() => {
     editor = null;
   }
 });
-</script> 
+</script>
+
+<style>
+/* Monaco Editor Scrollbar Enhancement */
+.monaco-editor .scrollbar {
+  transition: opacity 0.2s ease;
+}
+
+.monaco-editor .scrollbar.fade {
+  opacity: 0;
+}
+
+.monaco-editor:hover .scrollbar.fade {
+  opacity: 1;
+}
+
+/* Vertical scrollbar */
+.monaco-editor .scrollbar.vertical {
+  width: 8px !important;
+  right: 2px !important;
+}
+
+.monaco-editor .scrollbar.vertical .slider {
+  width: 6px !important;
+  left: 1px !important;
+  border-radius: 6px !important;
+  background: rgba(0, 0, 0, 0.12) !important;
+  transition: background 0.15s ease, width 0.15s ease !important;
+}
+
+.monaco-editor .scrollbar.vertical:hover .slider,
+.monaco-editor .scrollbar.vertical .slider:hover {
+  width: 8px !important;
+  left: 0 !important;
+  background: rgba(0, 0, 0, 0.22) !important;
+}
+
+.monaco-editor .scrollbar.vertical .slider.active {
+  background: rgba(0, 0, 0, 0.32) !important;
+}
+
+/* Horizontal scrollbar */
+.monaco-editor .scrollbar.horizontal {
+  height: 8px !important;
+  bottom: 2px !important;
+}
+
+.monaco-editor .scrollbar.horizontal .slider {
+  height: 6px !important;
+  top: 1px !important;
+  border-radius: 6px !important;
+  background: rgba(0, 0, 0, 0.12) !important;
+  transition: background 0.15s ease, height 0.15s ease !important;
+}
+
+.monaco-editor .scrollbar.horizontal:hover .slider,
+.monaco-editor .scrollbar.horizontal .slider:hover {
+  height: 8px !important;
+  top: 0 !important;
+  background: rgba(0, 0, 0, 0.22) !important;
+}
+
+.monaco-editor .scrollbar.horizontal .slider.active {
+  background: rgba(0, 0, 0, 0.32) !important;
+}
+
+/* Dark theme adjustments */
+.dark .monaco-editor .scrollbar.vertical .slider {
+  background: rgba(255, 255, 255, 0.12) !important;
+}
+
+.dark .monaco-editor .scrollbar.vertical:hover .slider,
+.dark .monaco-editor .scrollbar.vertical .slider:hover {
+  background: rgba(255, 255, 255, 0.22) !important;
+}
+
+.dark .monaco-editor .scrollbar.vertical .slider.active {
+  background: rgba(255, 255, 255, 0.35) !important;
+}
+
+.dark .monaco-editor .scrollbar.horizontal .slider {
+  background: rgba(255, 255, 255, 0.12) !important;
+}
+
+.dark .monaco-editor .scrollbar.horizontal:hover .slider,
+.dark .monaco-editor .scrollbar.horizontal .slider:hover {
+  background: rgba(255, 255, 255, 0.22) !important;
+}
+
+.dark .monaco-editor .scrollbar.horizontal .slider.active {
+  background: rgba(255, 255, 255, 0.35) !important;
+}
+
+/* Remove decorations overview ruler for cleaner look */
+.monaco-editor .decorationsOverviewRuler {
+  display: none !important;
+}
+</style> 

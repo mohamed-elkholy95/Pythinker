@@ -1,6 +1,6 @@
 <template>
   <ContentContainer :scrollable="false" padding="none" class="terminal-view">
-    <div class="terminal-shell">
+    <div class="terminal-shell" :class="{ 'dark-mode': isDarkMode }">
       <div ref="terminalRef" class="terminal-surface"></div>
       <EmptyState
         v-if="!content"
@@ -36,7 +36,71 @@ const terminalRef = ref<HTMLElement>();
 const terminal = ref<Terminal | null>(null);
 const fitAddon = ref<FitAddon | null>(null);
 const lastContent = ref('');
+const isDarkMode = ref(false);
 let resizeObserver: ResizeObserver | null = null;
+
+// Light theme (matching the reference design)
+const lightTheme = {
+  background: '#f8f9fa',
+  foreground: '#1f2937',
+  cursor: '#1f2937',
+  cursorAccent: '#f8f9fa',
+  selectionBackground: 'rgba(59, 130, 246, 0.2)',
+  selectionForeground: '#1f2937',
+  black: '#1f2937',
+  red: '#dc2626',
+  green: '#16a34a',
+  yellow: '#ca8a04',
+  blue: '#2563eb',
+  magenta: '#9333ea',
+  cyan: '#0891b2',
+  white: '#f8f9fa',
+  brightBlack: '#6b7280',
+  brightRed: '#ef4444',
+  brightGreen: '#22c55e',
+  brightYellow: '#eab308',
+  brightBlue: '#3b82f6',
+  brightMagenta: '#a855f7',
+  brightCyan: '#06b6d4',
+  brightWhite: '#ffffff',
+};
+
+// Dark theme
+const darkTheme = {
+  background: '#1a1a1a',
+  foreground: '#e5e7eb',
+  cursor: '#e5e7eb',
+  cursorAccent: '#1a1a1a',
+  selectionBackground: 'rgba(59, 130, 246, 0.3)',
+  selectionForeground: '#e5e7eb',
+  black: '#1f2937',
+  red: '#f87171',
+  green: '#4ade80',
+  yellow: '#facc15',
+  blue: '#60a5fa',
+  magenta: '#c084fc',
+  cyan: '#22d3ee',
+  white: '#f8f9fa',
+  brightBlack: '#9ca3af',
+  brightRed: '#fca5a5',
+  brightGreen: '#86efac',
+  brightYellow: '#fde047',
+  brightBlue: '#93c5fd',
+  brightMagenta: '#d8b4fe',
+  brightCyan: '#67e8f9',
+  brightWhite: '#ffffff',
+};
+
+// Detect system/app dark mode
+const checkDarkMode = () => {
+  isDarkMode.value = document.documentElement.classList.contains('dark');
+  if (terminal.value) {
+    terminal.value.options.theme = isDarkMode.value ? darkTheme : lightTheme;
+  }
+};
+
+// Watch for theme changes
+let themeObserver: MutationObserver | null = null;
 
 const emptyLabel = computed(() => {
   if (props.contentType === 'shell' || props.contentType === 'code') {
@@ -90,19 +154,24 @@ const writeContent = async (nextContent: string) => {
 onMounted(() => {
   if (!terminalRef.value) return;
 
+  // Check initial dark mode
+  checkDarkMode();
+
   // Initialize FitAddon
   fitAddon.value = new FitAddon();
 
   terminal.value = new Terminal({
     disableStdin: true,
     convertEol: true,
-    fontFamily: "Menlo, Monaco, 'Courier New', monospace",
+    fontFamily: "'SF Mono', Menlo, Monaco, 'Cascadia Code', 'Courier New', monospace",
     fontSize: 13,
+    lineHeight: 1.5,
+    letterSpacing: 0,
     scrollback: 5000,
-    theme: {
-      background: '#1e1e1e',
-      foreground: '#e5e7eb',
-    },
+    cursorBlink: false,
+    cursorStyle: 'block',
+    theme: isDarkMode.value ? darkTheme : lightTheme,
+    scrollOnUserInput: true,
   });
   terminal.value.loadAddon(fitAddon.value);
   terminal.value.open(terminalRef.value);
@@ -117,9 +186,22 @@ onMounted(() => {
     });
   });
   resizeObserver.observe(terminalRef.value);
+
+  // Watch for theme changes
+  themeObserver = new MutationObserver(checkDarkMode);
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class'],
+  });
 });
 
 onUnmounted(() => {
+  // Disconnect theme observer
+  if (themeObserver) {
+    themeObserver.disconnect();
+    themeObserver = null;
+  }
+
   // Disconnect resize observer
   if (resizeObserver) {
     resizeObserver.disconnect();
@@ -165,24 +247,94 @@ watch(
   position: relative;
   width: 100%;
   height: 100%;
-  background: #1e1e1e;
-  color: #e5e7eb;
-  font-family: Menlo, Monaco, 'Courier New', monospace;
+  background: #f8f9fa;
+  color: #1f2937;
+  font-family: 'SF Mono', Menlo, Monaco, 'Cascadia Code', 'Courier New', monospace;
   font-size: 13px;
   overflow: hidden;
+  border-radius: 0 0 10px 10px;
+}
+
+.terminal-shell.dark-mode {
+  background: #1a1a1a;
+  color: #e5e7eb;
 }
 
 .terminal-surface {
   width: 100%;
   height: 100%;
+  padding: 12px 16px;
 }
 
+/* xterm.js customization */
+.terminal-shell :deep(.xterm) {
+  padding: 0;
+}
+
+.terminal-shell :deep(.xterm-viewport) {
+  overflow-y: auto !important;
+}
+
+/* Enhanced scrollbar for terminal */
+.terminal-shell :deep(.xterm-viewport::-webkit-scrollbar) {
+  width: 8px;
+}
+
+.terminal-shell :deep(.xterm-viewport::-webkit-scrollbar-track) {
+  background: transparent;
+  margin: 8px 0;
+}
+
+.terminal-shell :deep(.xterm-viewport::-webkit-scrollbar-thumb) {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background 0.15s ease;
+}
+
+.terminal-shell :deep(.xterm-viewport::-webkit-scrollbar-thumb:hover) {
+  background: rgba(0, 0, 0, 0.22);
+  background-clip: padding-box;
+}
+
+.terminal-shell.dark-mode :deep(.xterm-viewport::-webkit-scrollbar-thumb) {
+  background: rgba(255, 255, 255, 0.12);
+  background-clip: padding-box;
+}
+
+.terminal-shell.dark-mode :deep(.xterm-viewport::-webkit-scrollbar-thumb:hover) {
+  background: rgba(255, 255, 255, 0.22);
+  background-clip: padding-box;
+}
+
+/* Selection styling */
+.terminal-shell :deep(.xterm-selection div) {
+  background: rgba(59, 130, 246, 0.2) !important;
+}
+
+.terminal-shell.dark-mode :deep(.xterm-selection div) {
+  background: rgba(59, 130, 246, 0.3) !important;
+}
+
+/* Empty state overlay */
 .terminal-view :deep(.empty-state.overlay) {
-  background: rgba(30, 30, 30, 0.85);
+  background: rgba(248, 249, 250, 0.9);
+  backdrop-filter: blur(4px);
+}
+
+.terminal-shell.dark-mode + :deep(.empty-state.overlay),
+.terminal-view:has(.dark-mode) :deep(.empty-state.overlay) {
+  background: rgba(26, 26, 26, 0.9);
 }
 
 .terminal-view :deep(.empty-icon),
 .terminal-view :deep(.empty-message) {
-  color: rgba(229, 231, 235, 0.65);
+  color: rgba(31, 41, 55, 0.6);
+}
+
+.terminal-shell.dark-mode ~ :deep(.empty-icon),
+.terminal-shell.dark-mode ~ :deep(.empty-message) {
+  color: rgba(229, 231, 235, 0.6);
 }
 </style>
