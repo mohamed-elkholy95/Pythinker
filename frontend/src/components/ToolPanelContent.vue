@@ -29,30 +29,19 @@
         </div>
       </div>
 
-      <!-- Activity Bar: Tool icon + "Pythinker is using X | Action" -->
-      <div v-if="toolInfo" class="flex items-center gap-2 mt-2">
-        <div
-          class="w-[40px] h-[40px] bg-[var(--fill-tsp-gray-main)] rounded-lg flex items-center justify-center flex-shrink-0">
-          <component :is="toolInfo.icon" :size="28" />
-        </div>
-        <div class="flex-1 flex flex-col gap-1 min-w-0">
-          <div class="text-[12px] text-[var(--text-tertiary)]">
-            {{ $t('Pythinker is using') }}
-            <span class="text-[var(--text-secondary)]">{{ toolInfo.name }}</span>
-          </div>
-          <div class="flex items-center gap-2 min-w-0">
-            <div v-if="toolSubtitle" class="text-[12px] text-[var(--text-tertiary)] truncate">
-              {{ toolSubtitle }}
-            </div>
-          </div>
-        </div>
+      <!-- Activity Bar: Icon + "Pythinker is using X" | Action -->
+      <div v-if="toolInfo" class="flex items-center gap-2 mt-2 text-[13px] text-[var(--text-tertiary)]">
+        <component :is="toolInfo.icon" :size="18" class="flex-shrink-0 text-[var(--icon-secondary)]" />
+        <span>{{ $t('Pythinker is using') }} <span class="text-[var(--text-secondary)] font-medium">{{ toolInfo.name }}</span></span>
+        <span v-if="toolSubtitle" class="text-[var(--text-quaternary)]">|</span>
+        <span v-if="toolSubtitle" class="truncate">{{ toolSubtitle }}</span>
       </div>
 
       <!-- Confirmation banner removed -->
 
       <!-- Content Container with rounded frame -->
       <div
-        class="flex flex-col rounded-[12px] overflow-hidden bg-[var(--background-gray-main)] border border-[var(--border-dark)] dark:border-black/30 shadow-[0px_4px_32px_0px_rgba(0,0,0,0.04)] flex-1 min-h-0 mt-[16px]">
+        class="relative flex flex-col rounded-[12px] overflow-hidden bg-[var(--background-gray-main)] border border-[var(--border-dark)] dark:border-black/30 shadow-[0px_4px_32px_0px_rgba(0,0,0,0.04)] flex-1 min-h-0 mt-[16px]">
 
         <!-- Content Header: Resource indicator + View mode tabs -->
         <div
@@ -112,6 +101,7 @@
 
           <!-- VNC View (for non-text-only operations) -->
           <VNCContentView
+            ref="vncContentRef"
             v-else-if="currentViewType === 'vnc'"
             :key="'vnc-main-' + (sessionId || 'none')"
             :session-id="sessionId || ''"
@@ -198,6 +188,25 @@
           />
         </div>
       </div>
+
+      <!-- Task Progress Bar - outside content container, at bottom -->
+      <div
+        v-if="plan && plan.steps.length > 0"
+        class="relative z-10 mt-3"
+      >
+        <TaskProgressBar
+          :plan="plan"
+          :isLoading="isLoading"
+          :isThinking="isThinking"
+          :showThumbnail="false"
+          :defaultExpanded="false"
+          :compact="true"
+          :thumbnailUrl="thumbnailUrl"
+          :currentTool="currentToolForProgress"
+          :toolContent="toolContent"
+          :hideExpandedHeader="true"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -206,11 +215,13 @@
 import { toRef, computed, watch, ref, onMounted, onUnmounted } from 'vue';
 import { Minimize2, MonitorUp, X } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
+import type { PlanEventData } from '@/types/event';
 import { useToolInfo } from '@/composables/useTool';
 import { useContentConfig } from '@/composables/useContentConfig';
 import { viewFile, viewShellSession } from '@/api/agent';
 import TimelineControls from '@/components/timeline/TimelineControls.vue';
 import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';
+import TaskProgressBar from '@/components/TaskProgressBar.vue';
 
 // Content views
 import VNCContentView from '@/components/toolViews/VNCContentView.vue';
@@ -230,7 +241,22 @@ const props = defineProps<{
   timelineTimestamp?: number;
   timelineCanStepForward?: boolean;
   timelineCanStepBackward?: boolean;
+  plan?: PlanEventData;
+  isLoading?: boolean;
+  isThinking?: boolean;
+  thumbnailUrl?: string;
 }>();
+
+// Computed for TaskProgressBar current tool
+const currentToolForProgress = computed(() => {
+  if (!props.toolContent) return null;
+  return {
+    name: props.toolContent.name || '',
+    function: props.toolContent.function || '',
+    functionArg: props.toolContent.args ? Object.values(props.toolContent.args)[0]?.toString() : undefined,
+    status: props.toolContent.status
+  };
+});
 
 // Get tool info (icon, name, etc.)
 const { toolInfo } = useToolInfo(toRef(props, 'toolContent'));
@@ -337,6 +363,9 @@ const placeholderDetail = computed(() => {
   if (args.code) return `${args.code.slice(0, 30)}...`;
   return '';
 });
+
+// VNC Content ref for screenshot capture
+const vncContentRef = ref<InstanceType<typeof VNCContentView> | null>(null);
 
 // Screenshot
 const screenshot = ref('');

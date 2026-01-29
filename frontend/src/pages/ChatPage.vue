@@ -526,12 +526,13 @@ const isPlanCompleted = computed(() => {
   return !!plan.value?.steps?.length && plan.value.steps.every(step => step.status === 'completed');
 });
 
-// Get current thumbnail URL from tool content screenshot
+// Get current thumbnail URL - prefer live VNC over stale tool screenshots
 const currentThumbnailUrl = computed(() => {
+  // Always prefer live VNC thumbnail (real-time desktop state)
+  if (vncThumbnailUrl.value) return vncThumbnailUrl.value;
+  // Fall back to tool screenshot only if VNC not available
   const tool = lastNoMessageTool.value;
-  // Prefer tool screenshot if available, otherwise use VNC thumbnail from composable
-  if (tool?.content?.screenshot) return tool.content.screenshot;
-  return vncThumbnailUrl.value;
+  return tool?.content?.screenshot || '';
 });
 
 // Get current tool info for display

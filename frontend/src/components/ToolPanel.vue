@@ -20,6 +20,10 @@
         :timelineTimestamp="timelineTimestamp"
         :timelineCanStepForward="timelineCanStepForward"
         :timelineCanStepBackward="timelineCanStepBackward"
+        :plan="plan"
+        :isLoading="isLoading"
+        :isThinking="isThinking"
+        :thumbnailUrl="thumbnailUrl"
         @hide="() => hideToolPanel(true)"
         @jumpToRealTime="jumpToRealTime"
         @stepForward="handleTimelineStepForward"
@@ -27,24 +31,6 @@
         @seekByProgress="handleTimelineSeek"
         class="flex-1 min-h-0"
       />
-      <!-- Task Progress Bar - positioned below timeline controls -->
-      <div
-        v-if="isShow && plan && plan.steps.length > 0"
-        class="border-t border-black/8 dark:border-[var(--border-main)] bg-[var(--background-white-main)]"
-      >
-        <TaskProgressBar
-          :plan="plan"
-          :isLoading="isLoading"
-          :isThinking="isThinking"
-          :showThumbnail="false"
-          :defaultExpanded="false"
-          :compact="true"
-          :thumbnailUrl="thumbnailUrl"
-          :currentTool="currentTool"
-          :toolContent="toolContent"
-          :hideExpandedHeader="true"
-        />
-      </div>
     </div>
   </div>
 </template>
@@ -54,7 +40,6 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 import type { ToolContent } from '../types/message'
 import type { PlanEventData } from '../types/event'
 import ToolPanelContent from './ToolPanelContent.vue'
-import TaskProgressBar from './TaskProgressBar.vue'
 import { useResizeObserver } from '../composables/useResizeObserver'
 import { eventBus } from '../utils/eventBus'
 import { EVENT_SHOW_FILE_PANEL, EVENT_SHOW_TOOL_PANEL, EVENT_TOOL_PANEL_STATE_CHANGE } from '../constants/event'
@@ -87,7 +72,6 @@ defineProps<{
   isLoading?: boolean
   isThinking?: boolean
   thumbnailUrl?: string
-  currentTool?: { name: string; function: string; functionArg?: string; status?: string } | null
   showTimeline?: boolean
   timelineProgress?: number
   timelineTimestamp?: number

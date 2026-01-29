@@ -1,7 +1,129 @@
 <template>
-  <div v-if="isVisible" class="task-progress-bar">
-    <!-- Collapsed View -->
-    <div v-if="!isExpanded" class="collapsed-wrapper" :class="showCollapsedThumbnail && displayThumbnailUrl ? 'has-thumbnail' : ''">
+  <div v-if="isVisible" class="task-progress-bar" :class="{ 'is-expanded': isExpanded }">
+    <!-- Expanded View - positioned absolutely to overlay upward -->
+    <Transition name="expand-up">
+      <div v-if="isExpanded" class="progress-bar-expanded">
+        <!-- Header (hidden when panel is open above) -->
+        <div v-if="!hideExpandedHeader" class="expanded-header">
+          <div class="flex items-start gap-4">
+            <!-- Live VNC thumbnail -->
+            <div
+              v-if="showExpandedThumbnail && displayThumbnailUrl"
+              class="vnc-thumbnail-expanded"
+              @click.stop="emit('openPanel')"
+            >
+              <img
+                :src="displayThumbnailUrl"
+                alt="Screenshot"
+                class="w-full h-full object-cover"
+              />
+              <div class="vnc-thumbnail-overlay">
+                <MonitorPlay class="w-5 h-5 text-white opacity-90" />
+              </div>
+            </div>
+
+            <!-- Title and Tool Info -->
+            <div class="flex-1 min-w-0">
+              <h2 class="text-[16px] font-semibold text-gray-900 dark:text-[#f0f0f0] mb-2.5">
+                {{ $t("Pythinker's computer") }}
+              </h2>
+
+              <div class="flex items-center gap-2.5">
+                <div class="tool-icon-badge">
+                  <component :is="currentToolIcon" class="w-3.5 h-3.5" />
+                </div>
+                <span class="text-[13px] text-gray-500 dark:text-[#909090]">
+                  Using <span class="text-gray-800 dark:text-[#d0d0d0] font-medium">{{ currentToolName }}</span>
+                </span>
+              </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex items-center gap-1 flex-shrink-0">
+              <button
+                type="button"
+                @click.stop="emit('openPanel')"
+                class="action-btn"
+              >
+                <MonitorPlay class="w-4 h-4" />
+              </button>
+              <button @click="toggleExpand" class="action-btn">
+                <ChevronDown class="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Task Progress Section -->
+        <div class="expanded-content">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-[13px] font-semibold text-gray-700 dark:text-[#a0a0a0] uppercase tracking-wide">{{ $t('Task progress') }}</h3>
+            <div class="flex items-center gap-2">
+              <div class="progress-pill-lg">
+                <span class="text-[13px] font-semibold tabular-nums">{{ completedCount }}</span>
+                <span class="text-[11px] text-gray-400 dark:text-[#505050] mx-0.5">/</span>
+                <span class="text-[13px] font-semibold tabular-nums">{{ totalCount }}</span>
+              </div>
+              <button v-if="hideExpandedHeader" @click="toggleExpand" class="action-btn">
+                <ChevronDown class="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          <!-- Task List -->
+          <div class="task-list custom-scrollbar">
+            <div
+              v-for="(step, index) in steps"
+              :key="step.id"
+              class="task-item"
+              :class="{
+                'task-completed': step.status === 'completed',
+                'task-running': step.status === 'running',
+                'task-pending': step.status === 'pending'
+              }"
+            >
+              <!-- Connector line -->
+              <div v-if="index < steps.length - 1" class="task-connector" :class="{ 'connector-active': step.status === 'completed' }"></div>
+
+              <div class="task-indicator">
+                <div v-if="step.status === 'completed'" class="indicator-complete">
+                  <Check class="w-3 h-3 text-white" :stroke-width="3" />
+                </div>
+                <div
+                  v-else-if="step.status === 'running'"
+                  class="indicator-running"
+                  :class="`shape-${currentShape}`"
+                ></div>
+                <div v-else class="indicator-pending">
+                  <span class="text-[10px] font-medium">{{ index + 1 }}</span>
+                </div>
+              </div>
+
+              <span class="task-description">
+                {{ step.description }}
+              </span>
+            </div>
+          </div>
+
+          <!-- Timer -->
+          <div v-if="taskStartTime" class="timer-section">
+            <div class="flex items-center gap-2">
+              <div class="timer-icon">
+                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M12 6v6l4 2" />
+                </svg>
+              </div>
+              <span class="text-[11px] text-gray-500 dark:text-[#707070] uppercase tracking-wider">Elapsed</span>
+            </div>
+            <span class="timer-value">{{ formattedElapsedTime }}</span>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- Collapsed View - always in DOM to maintain space -->
+    <div class="collapsed-wrapper" :class="[showCollapsedThumbnail && displayThumbnailUrl ? 'has-thumbnail' : '', { 'invisible': isExpanded }]">
       <!-- Floating VNC thumbnail -->
       <div
         v-if="showCollapsedThumbnail && displayThumbnailUrl"
@@ -70,125 +192,6 @@
       </div>
     </div>
 
-    <!-- Expanded View -->
-    <div v-else class="progress-bar-expanded">
-      <!-- Header (hidden when panel is open above) -->
-      <div v-if="!hideExpandedHeader" class="expanded-header">
-        <div class="flex items-start gap-4">
-          <!-- Live VNC thumbnail -->
-          <div
-            v-if="showExpandedThumbnail && displayThumbnailUrl"
-            class="vnc-thumbnail-expanded"
-            @click.stop="emit('openPanel')"
-          >
-            <img
-              :src="displayThumbnailUrl"
-              alt="Screenshot"
-              class="w-full h-full object-cover"
-            />
-            <div class="vnc-thumbnail-overlay">
-              <MonitorPlay class="w-5 h-5 text-white opacity-90" />
-            </div>
-          </div>
-
-          <!-- Title and Tool Info -->
-          <div class="flex-1 min-w-0">
-            <h2 class="text-[16px] font-semibold text-gray-900 dark:text-[#f0f0f0] mb-2.5">
-              {{ $t("Pythinker's computer") }}
-            </h2>
-
-            <div class="flex items-center gap-2.5">
-              <div class="tool-icon-badge">
-                <component :is="currentToolIcon" class="w-3.5 h-3.5" />
-              </div>
-              <span class="text-[13px] text-gray-500 dark:text-[#909090]">
-                Using <span class="text-gray-800 dark:text-[#d0d0d0] font-medium">{{ currentToolName }}</span>
-              </span>
-            </div>
-          </div>
-
-          <!-- Action Buttons -->
-          <div class="flex items-center gap-1 flex-shrink-0">
-            <button
-              type="button"
-              @click.stop="emit('openPanel')"
-              class="action-btn"
-            >
-              <MonitorPlay class="w-4 h-4" />
-            </button>
-            <button @click="toggleExpand" class="action-btn">
-              <ChevronDown class="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Task Progress Section -->
-      <div class="expanded-content">
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="text-[13px] font-semibold text-gray-700 dark:text-[#a0a0a0] uppercase tracking-wide">{{ $t('Task progress') }}</h3>
-          <div class="flex items-center gap-2">
-            <div class="progress-pill-lg">
-              <span class="text-[13px] font-semibold tabular-nums">{{ completedCount }}</span>
-              <span class="text-[11px] text-gray-400 dark:text-[#505050] mx-0.5">/</span>
-              <span class="text-[13px] font-semibold tabular-nums">{{ totalCount }}</span>
-            </div>
-            <button v-if="hideExpandedHeader" @click="toggleExpand" class="action-btn">
-              <ChevronDown class="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        <!-- Task List -->
-        <div class="task-list custom-scrollbar">
-          <div
-            v-for="(step, index) in steps"
-            :key="step.id"
-            class="task-item"
-            :class="{
-              'task-completed': step.status === 'completed',
-              'task-running': step.status === 'running',
-              'task-pending': step.status === 'pending'
-            }"
-          >
-            <!-- Connector line -->
-            <div v-if="index < steps.length - 1" class="task-connector" :class="{ 'connector-active': step.status === 'completed' }"></div>
-
-            <div class="task-indicator">
-              <div v-if="step.status === 'completed'" class="indicator-complete">
-                <Check class="w-3 h-3 text-white" :stroke-width="3" />
-              </div>
-              <div
-                v-else-if="step.status === 'running'"
-                class="indicator-running"
-                :class="`shape-${currentShape}`"
-              ></div>
-              <div v-else class="indicator-pending">
-                <span class="text-[10px] font-medium">{{ index + 1 }}</span>
-              </div>
-            </div>
-
-            <span class="task-description">
-              {{ step.description }}
-            </span>
-          </div>
-        </div>
-
-        <!-- Timer -->
-        <div v-if="taskStartTime" class="timer-section">
-          <div class="flex items-center gap-2">
-            <div class="timer-icon">
-              <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M12 6v6l4 2" />
-              </svg>
-            </div>
-            <span class="text-[11px] text-gray-500 dark:text-[#707070] uppercase tracking-wider">Elapsed</span>
-          </div>
-          <span class="timer-value">{{ formattedElapsedTime }}</span>
-        </div>
-      </div>
-    </div>
 
     <Teleport to="body">
       <Transition name="tooltip">
@@ -451,6 +454,15 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* ===== BASE CONTAINER ===== */
+.task-progress-bar {
+  position: relative;
+}
+
+.task-progress-bar.is-expanded {
+  position: relative;
+}
+
 /* ===== COLLAPSED VIEW ===== */
 .collapsed-wrapper {
   position: relative;
@@ -637,12 +649,18 @@ onUnmounted(() => {
 
 /* ===== EXPANDED VIEW ===== */
 .progress-bar-expanded {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
   display: flex;
   flex-direction: column;
   border-radius: 16px;
   border: 1px solid var(--bolt-elements-borderColor);
   background: var(--bolt-elements-bg-depth-1);
   overflow: hidden;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.12);
+  max-height: 70vh;
 }
 
 .expanded-header {
@@ -911,5 +929,23 @@ onUnmounted(() => {
 :global(.dark) .custom-scrollbar::-webkit-scrollbar-thumb:hover,
 :global([data-theme='dark']) .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.15);
+}
+
+/* ===== EXPAND TRANSITION ===== */
+.expand-up-enter-active,
+.expand-up-leave-active {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.expand-up-enter-from,
+.expand-up-leave-to {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+.expand-up-enter-to,
+.expand-up-leave-from {
+  opacity: 1;
+  transform: translateY(0);
 }
 </style>
