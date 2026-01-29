@@ -15,6 +15,10 @@ from app.domain.services.prompts.planner import (
     build_create_plan_prompt,
 )
 from app.domain.models.long_term_memory import MemoryType
+from app.domain.services.agents.requirement_extractor import (
+    extract_requirements,
+    RequirementSet,
+)
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
@@ -145,6 +149,9 @@ class PlannerAgent(BaseAgent):
         self._memory_service = memory_service
         self._user_id = user_id
 
+        # Requirement tracking for user prompt adherence
+        self._current_requirements: Optional[RequirementSet] = None
+
     async def _stream_thinking(
         self,
         message: str
@@ -216,6 +223,14 @@ class PlannerAgent(BaseAgent):
             message="Message received, starting to process...",
             progress_percent=10
         )
+
+        # Extract user requirements for tracking (Quick Win: User Prompt Adherence)
+        self._current_requirements = extract_requirements(message.message)
+        if self._current_requirements.requirements:
+            logger.info(
+                f"Extracted {len(self._current_requirements.requirements)} requirements "
+                f"({len(self._current_requirements.must_haves)} must-haves)"
+            )
 
         # Stream thinking phase for initial plans (skip on replans for speed)
         if not replan_context:
@@ -511,6 +526,54 @@ class PlannerAgent(BaseAgent):
             s.id = str(id_offset + i + 1)
 
         return normalized
+
+    def get_requirements(self) -> Optional[RequirementSet]:
+        """Get the current requirement set.
+
+        Returns:
+            RequirementSet if requirements were extracted, None otherwise
+        """
+        return self._current_requirements
+
+    def get_requirements_summary(self) -> str:
+        """Get a summary of requirements for injection into prompts.
+
+        Returns:
+            Formatted requirements summary, or empty string if none
+        """
+        if self._current_requirements:
+            return self._current_requirements.get_summary()
+        return ""
+
+    def get_unaddressed_reminder(self) -> Optional[str]:
+        """Get a reminder about unaddressed requirements.
+
+        Returns:
+            Reminder string if there are unaddressed requirements, None otherwise
+        """
+        if self._current_requirements:
+            return self._current_requirements.get_unaddressed_reminder()
+        return None
+
+    def mark_requirement_addressed(self, step_id: str, step_description: str) -> None:
+        """Mark requirements addressed by a completed step.
+
+        Args:
+            step_id: The ID of the completed step
+            step_description: Description of the completed step
+        """
+        if not self._current_requirements:
+            return
+
+        from app.domain.services.agents.requirement_extractor import get_requirement_extractor
+        extractor = get_requirement_extractor()
+
+        for req in self._current_requirements.requirements:
+            if not req.addressed:
+                score = extractor.match_requirement_to_step(req, step_description)
+                if score >= 0.3:  # 30% match threshold
+                    req.mark_addressed(step_id)
+                    logger.debug(f"Requirement {req.id} addressed by step {step_id} (score: {score:.2f})")
 
     def _format_task_memory(self, memories) -> str:
         """Format task memories for planning context.
