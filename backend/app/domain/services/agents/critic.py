@@ -39,6 +39,11 @@ from app.domain.services.prompts.critic import (
     QUICK_VALIDATE_PROMPT,
 )
 from app.domain.models.event import BaseEvent, MessageEvent
+from app.domain.models.source_attribution import SourceAttribution, AttributionSummary
+from app.domain.services.agents.content_hallucination_detector import (
+    ContentHallucinationDetector,
+    HallucinationAnalysisResult,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -183,6 +188,9 @@ class CriticAgent:
         # Track review history for learning
         self._review_history: List[CriticReview] = []
         self._revision_count: int = 0
+
+        # Initialize hallucination detector
+        self._hallucination_detector = ContentHallucinationDetector()
 
     def _detect_review_type(self, output: str, task_context: str) -> ReviewType:
         """Automatically detect the type of content being reviewed."""
@@ -530,16 +538,23 @@ class CriticAgent:
     async def fact_check(
         self,
         output: str,
-        task_context: str = ""
+        task_context: str = "",
+        source_attributions: Optional[List[SourceAttribution]] = None
     ) -> FactCheckResult:
         """Perform pre-delivery fact checking to detect potential hallucinations.
 
         This is a lightweight check focused on identifying claims that may be
         hallucinated and providing recommendations for delivery.
 
+        Enhanced with:
+        - Content hallucination detection for engagement metrics
+        - Source attribution validation
+        - Cross-referencing claims against verified sources
+
         Args:
             output: The output to fact-check
             task_context: Context about what the task was
+            source_attributions: Optional list of source attributions for cross-referencing
 
         Returns:
             FactCheckResult with analysis and recommendations
@@ -557,11 +572,67 @@ class CriticAgent:
                 recommendation=FactCheckRecommendation.DELIVER
             )
 
+        red_flags: List[str] = []
+        caveats_to_add: List[str] = []
+
+        # Step 1: Run hallucination pattern detection
+        verified_claims = set()
+        if source_attributions:
+            verified_claims = {
+                attr.claim for attr in source_attributions
+                if attr.is_verified()
+            }
+
+        hallucination_result = self._hallucination_detector.analyze(output, verified_claims)
+
+        if hallucination_result.has_high_risk_patterns:
+            for issue in hallucination_result.issues:
+                red_flags.append(f"{issue.description}: '{issue.matched_text[:50]}'")
+            logger.warning(
+                f"Hallucination detection: {hallucination_result.high_risk_count} high-risk patterns found"
+            )
+
+        # Step 2: Check source attribution quality
+        if source_attributions:
+            summary = AttributionSummary()
+            for attr in source_attributions:
+                summary.add_attribution(attr)
+
+            if summary.needs_caveats():
+                if summary.has_paywall_sources:
+                    caveats_to_add.append("Some sources were behind paywalls; information may be incomplete")
+                if summary.inferred_claims > summary.verified_claims:
+                    caveats_to_add.append("Some information is inferred from context, not directly stated")
+                if summary.average_confidence < 0.7:
+                    caveats_to_add.append("Source verification confidence is below threshold")
+
+        # Step 3: Determine initial recommendation based on pattern detection
+        if hallucination_result.high_risk_count > 2:
+            # Multiple high-risk patterns - needs verification
+            initial_recommendation = FactCheckRecommendation.NEEDS_VERIFICATION
+            initial_confidence = 0.4
+        elif hallucination_result.high_risk_count > 0:
+            # Some high-risk patterns - add caveats
+            initial_recommendation = FactCheckRecommendation.ADD_CAVEATS
+            initial_confidence = 0.6
+        elif hallucination_result.medium_risk_count > 3:
+            # Multiple medium-risk patterns
+            initial_recommendation = FactCheckRecommendation.ADD_CAVEATS
+            initial_confidence = 0.7
+        else:
+            initial_recommendation = FactCheckRecommendation.DELIVER
+            initial_confidence = 0.9
+
         try:
             prompt = FACT_CHECK_PROMPT.format(
                 output=output,
                 task_context=task_context or "No additional context"
             )
+
+            # Add hallucination context to prompt if issues found
+            if hallucination_result.issues:
+                hallucination_summary = self._hallucination_detector.get_risk_summary(hallucination_result)
+                prompt += f"\n\nAutomated Pattern Detection Results:\n{hallucination_summary}"
 
             messages = [
                 {"role": "system", "content": CRITIC_SYSTEM_PROMPT},
@@ -575,9 +646,20 @@ class CriticAgent:
                         messages=messages,
                         response_model=FactCheckResult
                     )
+                    # Merge in our pattern detection results
+                    result.red_flags.extend(red_flags)
+                    result.caveats_to_add.extend(caveats_to_add)
+
+                    # Adjust recommendation if pattern detection found issues
+                    if hallucination_result.has_high_risk_patterns:
+                        if result.recommendation == FactCheckRecommendation.DELIVER:
+                            result.recommendation = initial_recommendation
+                        result.confidence_score = min(result.confidence_score, initial_confidence)
+
                     logger.info(
                         f"Fact check: {result.claims_analyzed} claims, "
                         f"{result.verified} verified, "
+                        f"{hallucination_result.high_risk_count} hallucination risks, "
                         f"recommendation: {result.recommendation.value}"
                     )
                     return result
@@ -602,25 +684,67 @@ class CriticAgent:
                 "reject": FactCheckRecommendation.REJECT
             }
 
+            llm_recommendation = rec_map.get(rec_str, FactCheckRecommendation.DELIVER)
+
+            # Use stricter of LLM vs pattern detection recommendation
+            if hallucination_result.has_high_risk_patterns:
+                if initial_recommendation == FactCheckRecommendation.NEEDS_VERIFICATION:
+                    final_recommendation = FactCheckRecommendation.NEEDS_VERIFICATION
+                elif llm_recommendation == FactCheckRecommendation.DELIVER:
+                    final_recommendation = initial_recommendation
+                else:
+                    final_recommendation = llm_recommendation
+            else:
+                final_recommendation = llm_recommendation
+
+            # Merge red flags and caveats
+            all_red_flags = parsed.get("red_flags", []) + red_flags
+            all_caveats = parsed.get("caveats_to_add", []) + caveats_to_add
+
             return FactCheckResult(
                 claims_analyzed=int(parsed.get("claims_analyzed", 0)),
                 verified=int(parsed.get("verified", 0)),
-                unverified=int(parsed.get("unverified", 0)),
+                unverified=int(parsed.get("unverified", 0)) + hallucination_result.high_risk_count,
                 contradicted=int(parsed.get("contradicted", 0)),
-                red_flags=parsed.get("red_flags", []),
-                confidence_score=float(parsed.get("confidence_score", 0.8)),
-                recommendation=rec_map.get(rec_str, FactCheckRecommendation.DELIVER),
-                caveats_to_add=parsed.get("caveats_to_add", [])
+                red_flags=all_red_flags,
+                confidence_score=min(float(parsed.get("confidence_score", 0.8)), initial_confidence),
+                recommendation=final_recommendation,
+                caveats_to_add=all_caveats
             )
 
         except Exception as e:
             logger.error(f"Fact check failed: {e}")
-            # Fail-open with lower confidence
+            # Fail-open but include pattern detection results
             return FactCheckResult(
-                confidence_score=0.5,
-                recommendation=FactCheckRecommendation.DELIVER,
-                red_flags=[f"Fact check error: {str(e)}"]
+                confidence_score=initial_confidence,
+                recommendation=initial_recommendation,
+                red_flags=red_flags + [f"Fact check error: {str(e)}"],
+                caveats_to_add=caveats_to_add
             )
+
+    def detect_content_hallucinations(self, output: str) -> HallucinationAnalysisResult:
+        """Run standalone hallucination detection on output.
+
+        Useful for quick validation without full LLM fact-checking.
+
+        Args:
+            output: Text to analyze
+
+        Returns:
+            HallucinationAnalysisResult with detected issues
+        """
+        return self._hallucination_detector.analyze(output)
+
+    def extract_quantitative_claims(self, output: str) -> List[str]:
+        """Extract quantitative claims from output for verification.
+
+        Args:
+            output: Text to extract claims from
+
+        Returns:
+            List of quantitative claim strings
+        """
+        return self._hallucination_detector.extract_quantitative_claims(output)
 
     async def get_structured_feedback(
         self,
