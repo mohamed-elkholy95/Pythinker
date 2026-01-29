@@ -108,14 +108,25 @@ export async function getVNCScreenshot(
 }
 
 /**
+ * Attachment info for chat request
+ */
+export interface ChatAttachment {
+  file_id: string;
+  filename: string;
+  content_type: string;
+  size: number;
+  upload_date: string;
+}
+
+/**
  * Chat with Session (using SSE to receive streaming responses)
  * @returns A function to cancel the SSE connection
  */
 export const chatWithSession = async (
-  sessionId: string, 
+  sessionId: string,
   message: string = '',
   eventId?: string,
-  attachments?: string[],
+  attachments?: ChatAttachment[],
   callbacks?: SSECallbacks<AgentSSEEvent['data']>
 ): Promise<() => void> => {
   return createSSEConnection<AgentSSEEvent['data']>(

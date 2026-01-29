@@ -161,7 +161,7 @@
         </div>
 
         <div class="flex flex-col sticky bottom-0">
-          <div class="absolute inset-0 bg-[var(--background-white-main)] -z-10" style="mask-image: linear-gradient(to top, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to top, black 85%, transparent 100%);"></div>
+          <div class="absolute inset-0 bg-[var(--background-white-main)] dark:bg-[var(--bolt-elements-bg-depth-2)] -z-10" style="mask-image: linear-gradient(to top, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to top, black 85%, transparent 100%);"></div>
           <button @click="handleFollow" v-if="!follow"
             class="flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[var(--background-white-main)] hover:bg-[var(--background-gray-main)] clickable border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)] absolute -top-20 left-1/2 -translate-x-1/2">
             <ArrowDown class="text-[var(--icon-primary)]" :size="20" />
@@ -191,9 +191,8 @@
             :thumbnailUrl="currentThumbnailUrl"
             :currentTool="currentToolInfo"
             :toolContent="lastNoMessageTool"
-            :sessionId="sessionId"
-            :liveVnc="shouldEnableVnc"
             @openPanel="handleOpenPanel"
+            @requestRefresh="handleThumbnailRefresh"
             class="mb-2"
           />
           <ChatBox v-model="inputMessage" :rows="1" @submit="handleSubmit" :isRunning="isLoading" @stop="handleStop"
@@ -206,10 +205,8 @@
       :plan="plan"
       :isLoading="isLoading"
       :isThinking="isThinking"
-      :showThumbnail="shouldShowPanelThumbnail"
       :thumbnailUrl="currentThumbnailUrl"
       :currentTool="currentToolInfo"
-      :liveVnc="shouldEnableVnc"
       @jumpToRealTime="jumpToRealTime"
       :showTimeline="showTimelineControls"
       :timelineProgress="toolTimelineProgress"
@@ -287,6 +284,7 @@ import { ReportModal } from '@/components/report';
 import FilePanelContent from '@/components/FilePanelContent.vue';
 import type { ReportData } from '@/components/report';
 import { useReport, extractSectionsFromMarkdown } from '@/composables/useReport';
+import { useLiveVncThumbnail } from '@/composables/useLiveVncThumbnail';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
 
@@ -443,40 +441,25 @@ const checkStaleConnection = () => {
   }
 };
 
-// VNC screenshot state for thumbnail
-const vncScreenshotUrl = ref<string>('');
-let screenshotIntervalId: ReturnType<typeof setInterval> | null = null;
+// ===== VNC Thumbnail Management (Centralized) =====
+// Computed: enable VNC polling when there's an active session
+const enableVncPolling = computed(() => !!sessionId.value);
 
-// Fetch VNC screenshot from sandbox
-const fetchVNCScreenshot = async () => {
-  if (!sessionId.value) return;
-  try {
-    const response = await agentApi.getVNCScreenshot(sessionId.value);
-    // Revoke previous URL to avoid memory leaks
-    if (vncScreenshotUrl.value) {
-      URL.revokeObjectURL(vncScreenshotUrl.value);
-    }
-    vncScreenshotUrl.value = URL.createObjectURL(response);
-  } catch (error) {
-    console.warn('[Screenshot] Failed to fetch VNC screenshot:', error);
-  }
-};
+// Use the live VNC thumbnail composable (single source of truth for VNC screenshots)
+const {
+  thumbnailUrl: vncThumbnailUrl,
+  forceRefresh: refreshVncThumbnail
+} = useLiveVncThumbnail({
+  sessionId: sessionId,
+  enabled: enableVncPolling,
+  updateIntervalMs: 1000,  // 1 FPS for smooth updates
+  quality: 50,             // Optimized for thumbnails
+  scale: 0.3               // 30% scale for performance
+});
 
-// Start periodic screenshot fetching
-const startScreenshotFetching = () => {
-  if (screenshotIntervalId) return;
-  // Fetch immediately
-  fetchVNCScreenshot();
-  // Then fetch every 5 seconds (background sync - TaskProgressBar handles fast updates)
-  screenshotIntervalId = setInterval(fetchVNCScreenshot, 5000);
-};
-
-// Stop screenshot fetching
-const stopScreenshotFetching = () => {
-  if (screenshotIntervalId) {
-    clearInterval(screenshotIntervalId);
-    screenshotIntervalId = null;
-  }
+// Handler for TaskProgressBar's requestRefresh event (captures final screenshot on completion)
+const handleThumbnailRefresh = () => {
+  refreshVncThumbnail();
 };
 
 // Start stale detection when loading starts
@@ -486,52 +469,20 @@ watch(isLoading, (loading) => {
     if (!staleCheckInterval) {
       staleCheckInterval = setInterval(checkStaleConnection, STALE_CHECK_INTERVAL_MS);
     }
-    // Start fetching VNC screenshots when agent starts thinking
-    startScreenshotFetching();
   } else {
     isStale.value = false;
     if (staleCheckInterval) {
       clearInterval(staleCheckInterval);
       staleCheckInterval = null;
     }
-    // Keep screenshot fetching running even after loading stops
-    // as user wants thumbnail to stay showing
   }
 });
-
-// Start screenshot fetching when session loads
-watch(sessionId, (newSessionId, oldSessionId) => {
-  // Clear old screenshot when switching sessions
-  if (oldSessionId && newSessionId !== oldSessionId) {
-    stopScreenshotFetching();
-    if (vncScreenshotUrl.value) {
-      URL.revokeObjectURL(vncScreenshotUrl.value);
-      vncScreenshotUrl.value = '';
-    }
-  }
-
-  if (newSessionId) {
-    // Start fetching screenshots when session is available
-    startScreenshotFetching();
-  } else {
-    // Stop and cleanup when session is cleared
-    stopScreenshotFetching();
-    if (vncScreenshotUrl.value) {
-      URL.revokeObjectURL(vncScreenshotUrl.value);
-      vncScreenshotUrl.value = '';
-    }
-  }
-}, { immediate: true });
 
 // Cleanup on unmount
 onUnmounted(() => {
   if (staleCheckInterval) {
     clearInterval(staleCheckInterval);
     staleCheckInterval = null;
-  }
-  stopScreenshotFetching();
-  if (vncScreenshotUrl.value) {
-    URL.revokeObjectURL(vncScreenshotUrl.value);
   }
 });
 
@@ -574,27 +525,16 @@ const shouldShowThumbnail = computed(() => {
   return !!currentThumbnailUrl.value || !!plan.value?.steps?.length || isLoading.value || isPlanCompleted.value;
 });
 
-const shouldShowPanelThumbnail = computed(() => {
-  if (!sessionId.value) return false;
-  // Show thumbnail when there's a screenshot URL available or when there's an active plan/loading
-  return !!currentThumbnailUrl.value || !!plan.value?.steps?.length || isLoading.value || isPlanCompleted.value;
-});
-
 const isPlanCompleted = computed(() => {
   return !!plan.value?.steps?.length && plan.value.steps.every(step => step.status === 'completed');
-});
-
-const shouldEnableVnc = computed(() => {
-  // Always enable VNC when there's an active session to show Pythinker's PC
-  return !!sessionId.value;
 });
 
 // Get current thumbnail URL from tool content or VNC screenshot
 const currentThumbnailUrl = computed(() => {
   const tool = lastNoMessageTool.value;
-  // Prefer tool screenshot if available, otherwise use VNC screenshot
+  // Prefer tool screenshot if available, otherwise use VNC thumbnail from composable
   if (tool?.content?.screenshot) return tool.content.screenshot;
-  return vncScreenshotUrl.value;
+  return vncThumbnailUrl.value;
 });
 
 // Get current tool info for display

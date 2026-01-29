@@ -110,6 +110,7 @@ import { Bot } from 'lucide-vue-next';
 import AttachmentsMessage from './AttachmentsMessage.vue';
 import { ReportCard, AttachmentsInlineGrid, TaskCompletedFooter } from './report';
 import type { ReportData } from './report';
+import type { FileInfo } from '../api/file';
 
 
 const props = defineProps<{
@@ -121,7 +122,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'toolClick', tool: ToolContent): void;
   (e: 'reportOpen', report: ReportData): void;
-  (e: 'reportFileOpen', file: any): void;
+  (e: 'reportFileOpen', file: FileInfo): void;
   (e: 'showAllFiles'): void;
   (e: 'reportRate', rating: number): void;
   (e: 'selectSuggestion', suggestion: string): void;
@@ -135,7 +136,7 @@ const handleReportOpen = (report: ReportData) => {
   emit('reportOpen', report);
 };
 
-const handleReportFileOpen = (file: any) => {
+const handleReportFileOpen = (file: FileInfo) => {
   emit('reportFileOpen', file);
 };
 
