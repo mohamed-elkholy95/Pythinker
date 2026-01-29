@@ -16,7 +16,8 @@ logger = logging.getLogger(__name__)
 async def capture_screenshot(
     quality: int = Query(default=75, ge=1, le=100, description="JPEG quality (1-100)"),
     scale: float = Query(default=0.5, ge=0.1, le=1.0, description="Scale factor (0.1-1.0)"),
-    format: Literal["jpeg", "png"] = Query(default="jpeg", description="Image format")
+    format: Literal["jpeg", "png"] = Query(default="jpeg", description="Image format"),
+    _t: int = Query(default=0, description="Cache-busting timestamp")
 ):
     """
     Capture desktop screenshot optimized for thumbnails.
@@ -32,6 +33,10 @@ async def capture_screenshot(
     Returns:
         Image bytes in specified format
     """
+    import time
+    start_time = time.time()
+    logger.info(f"[Screenshot] Request received: quality={quality}, scale={scale}, format={format}, _t={_t}")
+
     try:
         # Build ImageMagick convert command
         # xwd captures raw X11 display, convert processes it
@@ -44,6 +49,8 @@ async def capture_screenshot(
             "sh", "-c",
             f"DISPLAY=:1 xwd -root | {convert_cmd}"
         ]
+
+        logger.info(f"[Screenshot] Executing: DISPLAY=:1 xwd -root | {convert_cmd}")
 
         # Execute with timeout
         proc = await asyncio.create_subprocess_exec(
@@ -60,6 +67,7 @@ async def capture_screenshot(
         except asyncio.TimeoutError:
             proc.kill()
             await proc.wait()
+            logger.error("[Screenshot] Capture timed out after 5 seconds")
             raise HTTPException(
                 status_code=504,
                 detail="Screenshot capture timed out after 5 seconds"
@@ -67,11 +75,14 @@ async def capture_screenshot(
 
         if proc.returncode != 0:
             error_msg = stderr.decode() if stderr else "Unknown error"
-            logger.error(f"Screenshot command failed: {error_msg}")
+            logger.error(f"[Screenshot] Command failed: {error_msg}")
             raise HTTPException(
                 status_code=500,
                 detail=f"Screenshot capture failed: {error_msg}"
             )
+
+        elapsed = time.time() - start_time
+        logger.info(f"[Screenshot] Captured {len(stdout)} bytes in {elapsed:.3f}s")
 
         # Return image with appropriate headers
         media_type = f"image/{format}"
@@ -84,14 +95,16 @@ async def capture_screenshot(
                 "Expires": "0",
                 "X-Screenshot-Size": str(len(stdout)),
                 "X-Screenshot-Scale": str(scale),
-                "X-Screenshot-Quality": str(quality) if format == "jpeg" else "N/A"
+                "X-Screenshot-Quality": str(quality) if format == "jpeg" else "N/A",
+                "X-Screenshot-Timestamp": str(int(time.time() * 1000)),
+                "X-Screenshot-Elapsed-Ms": str(int(elapsed * 1000))
             }
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Unexpected error capturing screenshot: {e}", exc_info=True)
+        logger.error(f"[Screenshot] Unexpected error: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Screenshot capture error: {str(e)}"

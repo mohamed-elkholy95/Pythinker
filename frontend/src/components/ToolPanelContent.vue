@@ -101,7 +101,6 @@
 
           <!-- VNC View (for non-text-only operations) -->
           <VNCContentView
-            ref="vncContentRef"
             v-else-if="currentViewType === 'vnc'"
             :key="'vnc-main-' + (sessionId || 'none')"
             :session-id="sessionId || ''"
@@ -201,7 +200,6 @@
           :showThumbnail="false"
           :defaultExpanded="false"
           :compact="true"
-          :thumbnailUrl="thumbnailUrl"
           :currentTool="currentToolForProgress"
           :toolContent="toolContent"
           :hideExpandedHeader="true"
@@ -244,7 +242,6 @@ const props = defineProps<{
   plan?: PlanEventData;
   isLoading?: boolean;
   isThinking?: boolean;
-  thumbnailUrl?: string;
 }>();
 
 // Computed for TaskProgressBar current tool
@@ -364,8 +361,6 @@ const placeholderDetail = computed(() => {
   return '';
 });
 
-// VNC Content ref for screenshot capture
-const vncContentRef = ref<InstanceType<typeof VNCContentView> | null>(null);
 
 // Screenshot
 const screenshot = ref('');
@@ -757,17 +752,4 @@ const onNewTerminalContent = () => {
   markNewOutput();
 };
 
-// Capture VNC screenshot from the live canvas
-function captureVncScreenshot(quality?: number, scale?: number): string | null {
-  return vncContentRef.value?.captureScreenshot(quality, scale) ?? null;
-}
-
-function isVncConnected(): boolean {
-  return vncContentRef.value?.isConnected() ?? false;
-}
-
-defineExpose({
-  captureVncScreenshot,
-  isVncConnected
-});
 </script>

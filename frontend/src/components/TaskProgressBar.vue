@@ -6,21 +6,14 @@
         <!-- Header (hidden when panel is open above) -->
         <div v-if="!hideExpandedHeader" class="expanded-header">
           <div class="flex items-start gap-4">
-            <!-- Live VNC thumbnail -->
-            <div
-              v-if="showExpandedThumbnail && displayThumbnailUrl"
-              class="vnc-thumbnail-expanded"
-              @click.stop="emit('openPanel')"
-            >
-              <img
-                :src="displayThumbnailUrl"
-                alt="Screenshot"
-                class="w-full h-full object-cover"
-              />
-              <div class="vnc-thumbnail-overlay">
-                <MonitorPlay class="w-5 h-5 text-white opacity-90" />
-              </div>
-            </div>
+            <!-- Live VNC Mini Preview -->
+            <VncMiniPreview
+              v-if="showExpandedThumbnail && sessionId"
+              :session-id="sessionId"
+              :enabled="true"
+              size="lg"
+              @click="emit('openPanel')"
+            />
 
             <!-- Title and Tool Info -->
             <div class="flex-1 min-w-0">
@@ -123,29 +116,26 @@
     </Transition>
 
     <!-- Collapsed View - always in DOM to maintain space -->
-    <div class="collapsed-wrapper" :class="[showCollapsedThumbnail && displayThumbnailUrl ? 'has-thumbnail' : '', { 'invisible': isExpanded }]">
-      <!-- Floating VNC thumbnail -->
+    <div class="collapsed-wrapper" :class="[showCollapsedThumbnail && sessionId ? 'has-thumbnail' : '', { 'invisible': isExpanded }]">
+      <!-- Floating Live VNC Mini Preview -->
       <div
-        v-if="showCollapsedThumbnail && displayThumbnailUrl"
+        v-if="showCollapsedThumbnail && sessionId"
         class="vnc-thumbnail-floating"
-        @click.stop="emit('openPanel')"
         @mouseenter="showTooltip"
         @mouseleave="hideTooltip"
       >
-        <img
-          :src="displayThumbnailUrl"
-          alt="Screenshot"
-          class="w-full h-full object-cover"
+        <VncMiniPreview
+          :session-id="sessionId"
+          :enabled="true"
+          size="md"
+          @click="emit('openPanel')"
         />
-        <div class="vnc-thumbnail-overlay">
-          <MonitorPlay class="w-4 h-4 text-white opacity-90" />
-        </div>
       </div>
 
       <!-- Compact Progress Bar -->
       <div
         class="progress-bar-collapsed"
-        :class="showCollapsedThumbnail && displayThumbnailUrl ? 'has-thumbnail' : ''"
+        :class="showCollapsedThumbnail && sessionId ? 'has-thumbnail' : ''"
         @click="toggleExpand"
       >
         <!-- Status indicator -->
@@ -211,6 +201,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { ChevronUp, ChevronDown, Check, MonitorPlay, Terminal, Globe, FolderOpen } from 'lucide-vue-next'
+import VncMiniPreview from './VncMiniPreview.vue'
 import type { PlanEventData } from '@/types/event'
 import type { ToolContent } from '@/types/message'
 
@@ -222,8 +213,8 @@ interface Props {
   showThumbnail?: boolean
   defaultExpanded?: boolean
   compact?: boolean
-  /** VNC thumbnail URL (managed by parent via useLiveVncThumbnail composable) */
-  thumbnailUrl?: string
+  /** Session ID for live VNC mini preview */
+  sessionId?: string
   currentTool?: { name: string; function: string; functionArg?: string; status?: string } | null
   toolContent?: ToolContent | null
   /** Hide the expanded header (when panel is already showing above) */
@@ -234,7 +225,7 @@ const props = withDefaults(defineProps<Props>(), {
   showThumbnail: false,
   defaultExpanded: false,
   compact: false,
-  thumbnailUrl: '',
+  sessionId: '',
   currentTool: null,
   hideExpandedHeader: false
 })
@@ -259,8 +250,6 @@ const isAllCompleted = computed(() => {
   return props.plan.steps.every(step => step.status === 'completed')
 })
 
-// Use the thumbnail URL directly from props (parent manages VNC polling)
-const displayThumbnailUrl = computed(() => props.thumbnailUrl)
 
 const isExpanded = ref(props.defaultExpanded)
 const tooltipVisible = ref(false)
