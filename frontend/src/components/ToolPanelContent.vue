@@ -43,26 +43,27 @@
       <div
         class="relative flex flex-col rounded-[12px] overflow-hidden bg-[var(--background-gray-main)] border border-[var(--border-dark)] dark:border-black/30 shadow-[0px_4px_32px_0px_rgba(0,0,0,0.04)] flex-1 min-h-0 mt-[16px]">
 
-        <!-- Content Header: Resource indicator + View mode tabs -->
+        <!-- Content Header: Centered operation label + View mode tabs -->
         <div
           v-if="contentConfig"
-          class="h-[36px] flex items-center px-3 w-full bg-[var(--background-gray-main)] border-b border-[var(--border-main)] rounded-t-[12px] shadow-[inset_0px_1px_0px_0px_#FFFFFF] dark:shadow-[inset_0px_1px_0px_0px_#FFFFFF30]">
+          class="h-[36px] flex items-center justify-center px-3 w-full bg-[var(--background-gray-main)] border-b border-[var(--border-main)] rounded-t-[12px] shadow-[inset_0px_1px_0px_0px_#FFFFFF] dark:shadow-[inset_0px_1px_0px_0px_#FFFFFF30] relative">
 
-          <!-- Left: Activity indicator + resource name -->
-          <div class="flex-1 min-w-0 flex items-center gap-2">
-            <div v-if="isActiveOperation" class="w-2 h-2 bg-green-500 rounded-full animate-pulse flex-shrink-0"></div>
-            <div class="max-w-[200px] truncate text-[var(--text-tertiary)] text-sm font-medium">
-              {{ resourceDisplay }}
-            </div>
-            <!-- Writing indicator for file operations -->
-            <div v-if="isFileWriting" class="flex items-center gap-1.5 ml-2">
+          <!-- Left: Activity indicator (absolute positioned) -->
+          <div v-if="isActiveOperation || isFileWriting" class="absolute left-3 flex items-center gap-2">
+            <div v-if="isActiveOperation" class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            <div v-if="isFileWriting" class="flex items-center gap-1.5">
               <div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
               <span class="text-xs text-blue-500 font-medium">Writing</span>
             </div>
           </div>
 
-          <!-- Right: View mode tabs (hidden for text-only operations) -->
-          <div v-if="contentConfig.showTabs && !shouldUseTextOnly" class="flex items-center gap-1 bg-[var(--fill-tsp-gray-main)] rounded-lg p-0.5">
+          <!-- Center: Operation label or resource -->
+          <div class="text-[var(--text-tertiary)] text-sm font-medium truncate max-w-[300px]">
+            {{ contentHeaderLabel }}
+          </div>
+
+          <!-- Right: View mode tabs (absolute positioned) -->
+          <div v-if="contentConfig.showTabs && !shouldUseTextOnly" class="absolute right-3 flex items-center gap-1 bg-[var(--fill-tsp-gray-main)] rounded-lg p-0.5">
             <button
               v-for="(label, idx) in contentConfig.tabLabels"
               :key="idx"
@@ -311,7 +312,7 @@ const toolSubtitle = computed(() => {
   return '';
 });
 
-// Resource display for content header
+// Resource display for content header (only show specific resources, not generic tool names)
 const resourceDisplay = computed(() => {
   const url = props.toolContent?.args?.url;
   if (url) return url;
@@ -319,17 +320,21 @@ const resourceDisplay = computed(() => {
   const file = props.toolContent?.args?.file || props.toolContent?.file_path;
   if (file) return String(file).replace(/^\/home\/ubuntu\//, '');
 
-  const nameMap: Record<string, string> = {
-    'shell': 'Terminal',
-    'file': 'File System',
-    'code_executor': 'Code Execution',
-    'browser': 'Browser',
-    'browser_agent': 'Browser Agent',
-    'search': 'Web Search',
-    'info': 'Information',
-    'mcp': 'MCP Tool'
-  };
-  return nameMap[toolName.value] || 'Sandbox';
+  // Return empty for generic tool names - they're already shown in activity bar
+  return '';
+});
+
+// Content header label - shows function name or specific resource (centered)
+const contentHeaderLabel = computed(() => {
+  // If there's a specific resource (file/url), show that
+  if (resourceDisplay.value) return resourceDisplay.value;
+
+  // Otherwise show the function name (like "shell_exec", "file_write", etc.)
+  const func = props.toolContent?.function;
+  if (func) return func;
+
+  // Fallback to tool name
+  return toolName.value || '';
 });
 
 // Placeholder label for text-only operations
