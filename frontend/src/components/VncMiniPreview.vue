@@ -4,8 +4,31 @@
     :class="sizeClass"
     @click="emit('click')"
   >
-    <!-- Live VNC for browser tools -->
-    <div v-if="isVisualTool && sessionId && enabled" class="vnc-container">
+    <!-- Initializing state - sandbox environment starting up -->
+    <div v-if="isInitializing" class="init-preview">
+      <div class="init-container">
+        <!-- Animated monitor icon with boot sequence effect -->
+        <div class="init-monitor">
+          <div class="monitor-frame">
+            <div class="monitor-screen">
+              <div class="scan-line"></div>
+              <div class="boot-dots">
+                <span class="boot-dot"></span>
+                <span class="boot-dot"></span>
+                <span class="boot-dot"></span>
+              </div>
+            </div>
+            <div class="monitor-stand"></div>
+          </div>
+        </div>
+        <span class="init-label">Initializing<span class="init-ellipsis"></span></span>
+      </div>
+      <!-- Subtle grid pattern background -->
+      <div class="init-grid"></div>
+    </div>
+
+    <!-- Live VNC for visual tools (browser, shell, search, etc.) -->
+    <div v-else-if="isVisualTool && sessionId && enabled" class="vnc-container">
       <VNCViewer
         :session-id="sessionId"
         :enabled="enabled"
@@ -62,7 +85,16 @@
       <div class="activity-indicator"></div>
     </div>
 
-    <!-- Generic tool indicator (fallback) -->
+    <!-- Default: Show VNC for any tool when session is available -->
+    <div v-else-if="sessionId && enabled" class="vnc-container">
+      <VNCViewer
+        :session-id="sessionId"
+        :enabled="enabled"
+        :view-only="true"
+      />
+    </div>
+
+    <!-- Generic tool indicator (fallback when no session) -->
     <div v-else class="tool-preview">
       <div class="tool-preview-content">
         <component :is="toolIcon" class="tool-preview-icon" />
@@ -80,7 +112,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import { Monitor, Terminal, FileText, Globe, Search, Code, Wrench } from 'lucide-vue-next';
+import { Monitor, Terminal, FileText, Globe, Code, Wrench } from 'lucide-vue-next';
 import VNCViewer from '@/components/VNCViewer.vue';
 
 const props = withDefaults(defineProps<{
@@ -94,6 +126,8 @@ const props = withDefaults(defineProps<{
   contentPreview?: string;
   /** File path for file operations */
   filePath?: string;
+  /** Whether the sandbox environment is initializing */
+  isInitializing?: boolean;
 }>(), {
   enabled: true,
   size: 'md',
@@ -101,15 +135,17 @@ const props = withDefaults(defineProps<{
   toolFunction: '',
   isActive: false,
   contentPreview: '',
-  filePath: ''
+  filePath: '',
+  isInitializing: false
 });
 
 const emit = defineEmits<{
   click: [];
 }>();
 
-// Tool type detection
-const VISUAL_TOOLS = ['browser', 'browser_agent'];
+// Tool type detection - tools that show live VNC preview
+// Include all tools that perform visual operations the user should see
+const VISUAL_TOOLS = ['browser', 'browser_agent', 'shell', 'info', 'search'];
 
 const isVisualTool = computed(() => {
   if (!props.toolName) return false;
@@ -145,7 +181,7 @@ const toolIcon = computed(() => {
   if (name.includes('browser') || name.includes('web')) return Globe;
   if (name.includes('file') || func.includes('file')) return FileText;
   if (name.includes('shell') || func.includes('shell')) return Terminal;
-  if (name.includes('search') || name.includes('info')) return Search;
+  if (name.includes('search') || name.includes('info')) return Globe;
   if (name.includes('code') || func.includes('code')) return Code;
   if (name.includes('mcp')) return Wrench;
   return Monitor;
@@ -345,37 +381,6 @@ const sizeClass = computed(() => {
   color: #6b7280;
 }
 
-.preview-header {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 6px;
-  background: rgba(0, 0, 0, 0.05);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-}
-
-.preview-header-icon {
-  width: 10px;
-  height: 10px;
-  color: #64748b;
-  flex-shrink: 0;
-}
-
-.preview-filename {
-  font-size: 8px;
-  font-weight: 500;
-  color: #475569;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.preview-content {
-  flex: 1;
-  overflow: hidden;
-  padding: 4px 6px;
-}
-
 .preview-text {
   font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
   font-size: 6px;
@@ -450,6 +455,184 @@ const sizeClass = computed(() => {
 @keyframes pulse {
   0%, 100% { opacity: 0.6; transform: scale(0.8); }
   50% { opacity: 1; transform: scale(1.2); }
+}
+
+/* ===== Initialization State ===== */
+.init-preview {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, #f0f4f8 0%, #e2e8f0 100%);
+  overflow: hidden;
+}
+
+.init-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 2;
+}
+
+.init-monitor {
+  position: relative;
+}
+
+.monitor-frame {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.monitor-screen {
+  width: 28px;
+  height: 20px;
+  background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+  border-radius: 3px;
+  border: 2px solid #475569;
+  position: relative;
+  overflow: hidden;
+  box-shadow:
+    inset 0 0 8px rgba(59, 130, 246, 0.15),
+    0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.scan-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(59, 130, 246, 0.4) 20%,
+    rgba(59, 130, 246, 0.6) 50%,
+    rgba(59, 130, 246, 0.4) 80%,
+    transparent 100%
+  );
+  animation: scan 1.8s ease-in-out infinite;
+}
+
+@keyframes scan {
+  0% { top: -2px; opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { top: calc(100% + 2px); opacity: 0; }
+}
+
+.boot-dots {
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 3px;
+}
+
+.boot-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #3b82f6;
+  animation: boot-pulse 1.2s ease-in-out infinite;
+}
+
+.boot-dot:nth-child(2) { animation-delay: 0.2s; }
+.boot-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes boot-pulse {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 4px 1px rgba(59, 130, 246, 0.4);
+  }
+}
+
+.monitor-stand {
+  width: 8px;
+  height: 4px;
+  background: linear-gradient(180deg, #64748b 0%, #475569 100%);
+  border-radius: 0 0 2px 2px;
+  margin-top: -1px;
+}
+
+.init-label {
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', ui-monospace, monospace;
+  font-size: 8px;
+  font-weight: 500;
+  color: #475569;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.init-ellipsis::after {
+  content: '';
+  animation: ellipsis 1.5s steps(4, end) infinite;
+}
+
+@keyframes ellipsis {
+  0% { content: ''; }
+  25% { content: '.'; }
+  50% { content: '..'; }
+  75% { content: '...'; }
+  100% { content: ''; }
+}
+
+.init-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(71, 85, 105, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(71, 85, 105, 0.03) 1px, transparent 1px);
+  background-size: 8px 8px;
+  pointer-events: none;
+}
+
+/* Dark mode for init state */
+:global(.dark) .init-preview {
+  background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
+}
+
+:global(.dark) .monitor-screen {
+  background: linear-gradient(180deg, #0f172a 0%, #020617 100%);
+  border-color: #334155;
+  box-shadow:
+    inset 0 0 12px rgba(59, 130, 246, 0.2),
+    0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+:global(.dark) .scan-line {
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(96, 165, 250, 0.3) 20%,
+    rgba(96, 165, 250, 0.5) 50%,
+    rgba(96, 165, 250, 0.3) 80%,
+    transparent 100%
+  );
+}
+
+:global(.dark) .boot-dot {
+  background: #60a5fa;
+}
+
+:global(.dark) .monitor-stand {
+  background: linear-gradient(180deg, #475569 0%, #334155 100%);
+}
+
+:global(.dark) .init-label {
+  color: #94a3b8;
+}
+
+:global(.dark) .init-grid {
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.04) 1px, transparent 1px);
 }
 
 /* Hover overlay */
@@ -541,15 +724,6 @@ const sizeClass = computed(() => {
 
 :global(.dark) .terminal-text {
   color: #e5e7eb;
-}
-
-:global(.dark) .preview-header {
-  background: rgba(0, 0, 0, 0.3);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-:global(.dark) .preview-filename {
-  color: #94a3b8;
 }
 
 :global(.dark) .preview-text {

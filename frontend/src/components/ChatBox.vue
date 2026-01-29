@@ -1,7 +1,7 @@
 <template>
     <div class="chatbox-wrapper">
         <div class="chatbox-container">
-            <ChatBoxFiles ref="chatBoxFileListRef" :attachments="attachments" />
+            <ChatBoxFiles ref="chatBoxFileListRef" :attachments="attachments" @fileClick="$emit('fileClick', $event)" />
             <div class="chatbox-input-area">
                 <textarea
                     ref="textareaRef"
@@ -70,6 +70,7 @@ const emit = defineEmits<{
     (e: 'update:modelValue', value: string): void;
     (e: 'submit'): void;
     (e: 'stop'): void;
+    (e: 'fileClick', file: FileInfo): void;
 }>();
 
 /**
@@ -138,7 +139,7 @@ const handlePaste = async (event: ClipboardEvent) => {
 
         // If textarea is empty, add a vague prompt so user can decide what to do
         if (!props.modelValue.trim()) {
-            emit('update:modelValue', t('Process this file:'));
+            emit('update:modelValue', t('Process this file'));
         }
     }
     // Otherwise, let normal paste happen

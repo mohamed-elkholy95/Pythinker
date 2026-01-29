@@ -12,6 +12,7 @@ from app.domain.models.multi_task import MultiTaskChallenge
 class SessionStatus(str, Enum):
     """Session status enum"""
     PENDING = "pending"
+    INITIALIZING = "initializing"  # Sandbox being prepared (Phase 2: Eager init)
     RUNNING = "running"
     WAITING = "waiting"
     COMPLETED = "completed"
@@ -70,6 +71,9 @@ class Session(BaseModel):
     # Execution metadata
     iteration_limit_override: Optional[int] = None  # Override default iterations
     complexity_score: Optional[float] = None  # Assessed task complexity (0.0-1.0)
+
+    # Browser takeover settings
+    persist_login_state: Optional[bool] = None  # Whether to persist browser login state across tasks
 
     def get_last_plan(self) -> Optional[Plan]:
         """Get the last plan from the events"""

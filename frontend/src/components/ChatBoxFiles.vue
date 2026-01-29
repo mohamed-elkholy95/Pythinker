@@ -76,13 +76,14 @@ import { ref, nextTick, watch, onMounted, computed } from 'vue';
 import { X, RefreshCcw } from 'lucide-vue-next';
 import LoadingSpinnerIcon from './icons/LoadingSpinnerIcon.vue';
 const { t } = useI18n();
-import { useFilePanel } from '../composables/useFilePanel';
 
 const props = defineProps<{
     attachments: FileInfo[];
 }>();
 
-const { showFilePanel } = useFilePanel();
+const emit = defineEmits<{
+    (e: 'fileClick', file: FileInfo): void;
+}>();
 
 // Extended FileInfo type to include upload status
 interface ExtendedFileInfo extends FileInfo {
@@ -262,7 +263,7 @@ const isAllUploaded = computed(() => {
 
 const handleFileClick = (file: ExtendedFileInfo) => {
     if (file.status === 'success') {
-        showFilePanel(file);
+        emit('fileClick', file);
     }
 };
 

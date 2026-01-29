@@ -59,12 +59,21 @@ export async function pauseSession(sessionId: string): Promise<void> {
 }
 
 /**
+ * Resume session request options
+ */
+export interface ResumeSessionOptions {
+  context?: string;
+  persist_login_state?: boolean;
+}
+
+/**
  * Resume a paused session after user takeover
  * This resumes agent execution after the user finishes their takeover session
  * @param sessionId Session ID to resume
+ * @param options Optional context and persist_login_state settings
  */
-export async function resumeSession(sessionId: string): Promise<void> {
-  await apiClient.post<ApiResponse<void>>(`/sessions/${sessionId}/resume`);
+export async function resumeSession(sessionId: string, options?: ResumeSessionOptions): Promise<void> {
+  await apiClient.post<ApiResponse<void>>(`/sessions/${sessionId}/resume`, options || {});
 }
 
 export async function renameSession(sessionId: string, title: string): Promise<void> {

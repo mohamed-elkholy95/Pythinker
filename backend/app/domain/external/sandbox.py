@@ -626,9 +626,12 @@ class Sandbox(Protocol):
         """
         ...
     
-    async def get_browser(self) -> Browser:
+    async def get_browser(self, clear_session: bool = False) -> Browser:
         """Get browser instance
-        
+
+        Args:
+            clear_session: If True, clear all existing tabs for a fresh session
+
         Returns:
             Browser: Returns a configured browser instance for web automation
         """

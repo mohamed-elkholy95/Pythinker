@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 # CDP health check timeout
 CDP_HEALTH_CHECK_TIMEOUT = 10  # seconds
+# Legacy constant - now configurable via settings
 CDP_CONNECTION_RETRIES = 15
 
 class DockerSandbox(Sandbox):
@@ -227,6 +228,40 @@ class DockerSandbox(Sandbox):
         except Exception as e:
             logger.debug(f"Browser responsiveness check failed: {e}")
             return False
+
+    async def _verify_cdp_with_backoff(self) -> bool:
+        """Verify CDP connection with exponential backoff
+
+        Uses configurable retry parameters for faster initial checks
+        while still allowing for longer delays if needed.
+
+        Returns:
+            bool: True if CDP connection is healthy, False otherwise
+        """
+        settings = get_settings()
+        delay = settings.sandbox_cdp_initial_delay
+        max_delay = settings.sandbox_cdp_max_delay
+        retries = settings.sandbox_cdp_retries
+
+        for attempt in range(retries):
+            if await self._verify_cdp_connection():
+                logger.debug(f"CDP connection verified on attempt {attempt + 1}")
+                return True
+            if attempt < retries - 1:
+                logger.debug(f"CDP connection attempt {attempt + 1} failed, retrying in {delay:.1f}s...")
+                await asyncio.sleep(delay)
+                delay = min(delay * 1.5, max_delay)  # Exponential backoff with cap
+        return False
+
+    async def verify_browser_ready(self) -> bool:
+        """Lightweight health check to verify browser is ready
+
+        This can be run in parallel with other initialization tasks.
+
+        Returns:
+            bool: True if browser is ready, False otherwise
+        """
+        return await self._verify_cdp_with_backoff() and await self._verify_browser_responsive()
 
     async def ensure_sandbox(self) -> None:
         """Ensure sandbox is ready by checking all services and browser health
@@ -999,12 +1034,18 @@ class DockerSandbox(Sandbox):
             logger.debug(f"Screenshot capture failed: {e}")
             raise
 
-    async def get_browser(self, block_resources: bool = False, verify_connection: bool = True) -> Browser:
+    async def get_browser(
+        self,
+        block_resources: bool = False,
+        verify_connection: bool = True,
+        clear_session: bool = False
+    ) -> Browser:
         """Get browser instance with optional connection verification
 
         Args:
             block_resources: Whether to enable resource blocking for faster page loads
             verify_connection: Whether to verify CDP connection before returning (default: True)
+            clear_session: If True, clear all existing tabs for a fresh session
 
         Returns:
             Browser: Returns a configured PlaywrightBrowser instance
@@ -1015,19 +1056,20 @@ class DockerSandbox(Sandbox):
         """
         if verify_connection:
             # Verify CDP is accessible before creating browser instance
-            for attempt in range(CDP_CONNECTION_RETRIES):
-                if await self._verify_cdp_connection():
-                    break
-                if attempt < CDP_CONNECTION_RETRIES - 1:
-                    logger.warning(f"CDP connection attempt {attempt + 1} failed, retrying...")
-                    await asyncio.sleep(2)
-            else:
-                raise Exception(f"Failed to verify CDP connection after {CDP_CONNECTION_RETRIES} attempts")
+            # Uses exponential backoff for faster initial checks
+            settings = get_settings()
+            if not await self._verify_cdp_with_backoff():
+                raise Exception(f"Failed to verify CDP connection after {settings.sandbox_cdp_retries} attempts")
 
         browser = PlaywrightBrowser(
             cdp_url=self.cdp_url,
             block_resources=block_resources
         )
+
+        # Protocol: Clear browser state for new sessions
+        if clear_session and browser:
+            await browser.clear_session()
+            logger.info("Browser session cleared for new chat")
 
         return browser
 

@@ -90,6 +90,22 @@ class Settings(BaseSettings):
     sandbox_framework_enabled: bool = True
     sandbox_framework_required: bool = False
 
+    # Session initialization optimization (Phase 1-5)
+    sandbox_cdp_initial_delay: float = 0.5  # Initial delay for CDP retry backoff
+    sandbox_cdp_max_delay: float = 2.0  # Maximum delay for CDP retry backoff
+    sandbox_cdp_retries: int = 10  # Number of CDP connection retries
+    sandbox_eager_init: bool = True  # Start sandbox creation on session create
+    workspace_lazy_init: bool = True  # Defer workspace init until needed
+
+    # Sandbox Pool Pre-warming (Phase 3)
+    sandbox_pool_enabled: bool = False  # Enable sandbox pool for instant allocation
+    sandbox_pool_min_size: int = 2  # Minimum sandboxes to maintain in pool
+    sandbox_pool_max_size: int = 5  # Maximum sandboxes in pool
+    sandbox_pool_warmup_interval: int = 30  # Seconds between pool maintenance checks
+
+    # Lazy initialization (Phase 5)
+    mcp_lazy_init: bool = True  # Defer MCP initialization until first use
+
     # Search engine configuration
     search_provider: str | None = "bing"  #  "google", "bing", "searxng", "whoogle", "duckduckgo", "brave", "tavily"
     google_search_api_key: str | None = None

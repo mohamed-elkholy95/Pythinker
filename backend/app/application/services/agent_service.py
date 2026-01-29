@@ -1,10 +1,11 @@
 from typing import AsyncGenerator, Optional, List, TYPE_CHECKING, Dict, Tuple
+import asyncio
 import logging
 from datetime import datetime
 from pathlib import PurePosixPath
 import posixpath
 import shlex
-from app.domain.models.session import Session
+from app.domain.models.session import Session, SessionStatus
 from app.domain.repositories.session_repository import SessionRepository
 
 from app.interfaces.schemas.session import ShellViewResponse
@@ -77,7 +78,50 @@ class AgentService:
         session = Session(agent_id=agent.id, user_id=user_id, mode=mode)
         logger.info(f"Created new Session with ID: {session.id} for user: {user_id} with mode: {mode}")
         await self._session_repository.save(session)
+
+        # Phase 2: Start sandbox creation in background for faster first chat
+        settings = get_settings()
+        if settings.sandbox_eager_init:
+            asyncio.create_task(self._warm_sandbox_for_session(session.id))
+            logger.info(f"Started background sandbox warm-up for session {session.id}")
+
         return session
+
+    async def _warm_sandbox_for_session(self, session_id: str) -> None:
+        """Background task to pre-warm sandbox for session.
+
+        Phase 2 optimization: Creates sandbox in background so it's ready
+        when the user sends their first chat message.
+        """
+        try:
+            # Update session status to INITIALIZING
+            await self._session_repository.update_status(session_id, SessionStatus.INITIALIZING)
+
+            # Create the sandbox
+            sandbox = await self._sandbox_cls.create()
+
+            # Update session with sandbox_id
+            session = await self._session_repository.find_by_id(session_id)
+            if session and not session.sandbox_id:
+                session.sandbox_id = sandbox.id
+                await self._session_repository.save(session)
+                logger.info(f"Pre-warmed sandbox {sandbox.id} for session {session_id}")
+
+                # Run ensure_sandbox for full health check (includes browser verification)
+                if hasattr(sandbox, 'ensure_sandbox'):
+                    await sandbox.ensure_sandbox()
+                    logger.info(f"Sandbox {sandbox.id} fully ready for session {session_id}")
+
+            # Reset status to PENDING (ready for first chat)
+            await self._session_repository.update_status(session_id, SessionStatus.PENDING)
+
+        except Exception as e:
+            logger.warning(f"Failed to pre-warm sandbox for session {session_id}: {e}")
+            # Reset status to PENDING even on failure - first chat will create sandbox
+            try:
+                await self._session_repository.update_status(session_id, SessionStatus.PENDING)
+            except Exception:
+                pass
 
     async def _create_agent(self) -> Agent:
         logger.info("Creating new agent")
@@ -165,15 +209,32 @@ class AgentService:
             logger.info(f"Session {session_id} paused successfully")
         return result
 
-    async def resume_session(self, session_id: str, user_id: str) -> bool:
-        """Resume a paused session after user takeover, ensuring it belongs to the user"""
+    async def resume_session(
+        self,
+        session_id: str,
+        user_id: str,
+        context: Optional[str] = None,
+        persist_login_state: Optional[bool] = None
+    ) -> bool:
+        """Resume a paused session after user takeover, ensuring it belongs to the user
+
+        Args:
+            session_id: Session ID to resume
+            user_id: User ID for ownership verification
+            context: Optional context about changes made during takeover
+            persist_login_state: Optional flag to persist browser login state
+        """
         logger.info(f"Resuming session {session_id} for user {user_id}")
         # First verify the session belongs to the user
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
             raise RuntimeError("Session not found")
-        result = await self._agent_domain_service.resume_session(session_id)
+        result = await self._agent_domain_service.resume_session(
+            session_id,
+            context=context,
+            persist_login_state=persist_login_state
+        )
         if result:
             logger.info(f"Session {session_id} resumed successfully")
         return result

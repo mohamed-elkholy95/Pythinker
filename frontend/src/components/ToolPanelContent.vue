@@ -49,9 +49,8 @@
           class="h-[36px] flex items-center justify-center px-3 w-full bg-[var(--background-gray-main)] border-b border-[var(--border-main)] rounded-t-[12px] shadow-[inset_0px_1px_0px_0px_#FFFFFF] dark:shadow-[inset_0px_1px_0px_0px_#FFFFFF30] relative">
 
           <!-- Left: Activity indicator (absolute positioned) -->
-          <div v-if="isActiveOperation || isFileWriting" class="absolute left-3 flex items-center gap-2">
-            <div v-if="isActiveOperation" class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-            <div v-if="isFileWriting" class="flex items-center gap-1.5">
+          <div v-if="isFileWriting" class="absolute left-3 flex items-center gap-2">
+            <div class="flex items-center gap-1.5">
               <div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
               <span class="text-xs text-blue-500 font-medium">Writing</span>
             </div>

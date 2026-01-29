@@ -17,7 +17,7 @@ from app.domain.external.sandbox import Sandbox
 from app.interfaces.schemas.session import (
     ChatRequest, ShellViewRequest, CreateSessionRequest, CreateSessionResponse, GetSessionResponse,
     ListSessionItem, ListSessionResponse, ShellViewResponse, ConfirmActionRequest,
-    ShareSessionResponse, SharedSessionResponse
+    ShareSessionResponse, SharedSessionResponse, ResumeSessionRequest, SandboxInfo
 )
 from app.interfaces.schemas.workspace import WorkspaceManifest, WorkspaceManifestResponse
 from app.interfaces.schemas.file import FileViewRequest, FileViewResponse
@@ -35,13 +35,31 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 async def create_session(
     request: CreateSessionRequest = CreateSessionRequest(),
     current_user: User = Depends(get_current_user),
-    agent_service: AgentService = Depends(get_agent_service)
+    agent_service: AgentService = Depends(get_agent_service),
+    sandbox_cls: Type[Sandbox] = Depends(get_sandbox_cls)
 ) -> APIResponse[CreateSessionResponse]:
     session = await agent_service.create_session(current_user.id, mode=request.mode)
+
+    # Phase 4: Include sandbox info if available for optimistic VNC connection
+    sandbox_info = None
+    if session.sandbox_id:
+        try:
+            sandbox = await sandbox_cls.get(session.sandbox_id)
+            if sandbox:
+                sandbox_info = SandboxInfo(
+                    sandbox_id=sandbox.id,
+                    vnc_url=sandbox.vnc_url,
+                    status="initializing"
+                )
+        except Exception as e:
+            logger.debug(f"Could not fetch sandbox info for optimistic VNC: {e}")
+
     return APIResponse.success(
         CreateSessionResponse(
             session_id=session.id,
             mode=session.mode,
+            sandbox=sandbox_info,
+            status=session.status
         )
     )
 
@@ -99,15 +117,22 @@ async def pause_session(
 @router.post("/{session_id}/resume", response_model=APIResponse[None])
 async def resume_session(
     session_id: str,
+    request: ResumeSessionRequest = ResumeSessionRequest(),
     current_user: User = Depends(get_current_user),
     agent_service: AgentService = Depends(get_agent_service)
 ) -> APIResponse[None]:
     """Resume a paused session after user takeover
 
     This endpoint resumes the agent execution after the user finishes
-    their takeover session.
+    their takeover session. Optionally accepts context about changes
+    made during takeover and persist_login_state flag.
     """
-    await agent_service.resume_session(session_id, current_user.id)
+    await agent_service.resume_session(
+        session_id,
+        current_user.id,
+        context=request.context,
+        persist_login_state=request.persist_login_state
+    )
     return APIResponse.success()
 
 @router.patch("/{session_id}/rename", response_model=APIResponse[None])
