@@ -90,13 +90,6 @@ class Settings(BaseSettings):
     sandbox_framework_enabled: bool = True
     sandbox_framework_required: bool = False
 
-    # VNC Screenshot configuration (for desktop thumbnail previews)
-    vnc_screenshot_enabled: bool = True  # Enable VNC desktop screenshots
-    vnc_screenshot_quality: int = 75  # JPEG quality (1-100)
-    vnc_screenshot_scale: float = 0.5  # Scale factor (0.1-1.0, 50% by default)
-    vnc_screenshot_format: str = "jpeg"  # Image format (jpeg or png)
-    vnc_screenshot_timeout: float = 5.0  # Timeout in seconds for screenshot capture
-
     # Search engine configuration
     search_provider: str | None = "bing"  #  "google", "bing", "searxng", "whoogle", "duckduckgo", "brave", "tavily"
     google_search_api_key: str | None = None

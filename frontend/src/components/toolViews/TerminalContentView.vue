@@ -129,29 +129,40 @@ const emptyIcon = computed(() => {
 
 const writeContent = async (nextContent: string) => {
   if (!terminal.value) return;
-  emit('newContent');
 
   const normalized = (nextContent || '').replace(/\r?\n/g, '\r\n');
+  let hasNewContent = false;
 
   if (!lastContent.value) {
+    // Initial content - write and scroll
     terminal.value.clear();
     terminal.value.write(normalized);
     lastContent.value = nextContent;
+    hasNewContent = true;
   } else if (nextContent.startsWith(lastContent.value)) {
+    // Delta update - append new content
     const delta = nextContent.slice(lastContent.value.length);
     if (delta) {
       terminal.value.write(delta.replace(/\r?\n/g, '\r\n'));
+      hasNewContent = true;
     }
     lastContent.value = nextContent;
-  } else {
+  } else if (nextContent !== lastContent.value) {
+    // Content changed completely - rewrite but don't auto-scroll for full rewrites
     terminal.value.clear();
     terminal.value.write(normalized);
     lastContent.value = nextContent;
+    // Note: no hasNewContent = true here to prevent scroll on full rewrites
   }
+  // If content is identical, do nothing
 
-  if (props.autoScroll !== false) {
-    await nextTick();
-    terminal.value.scrollToBottom();
+  // Only emit and scroll when there's actually new content
+  if (hasNewContent) {
+    emit('newContent');
+    if (props.autoScroll !== false) {
+      await nextTick();
+      terminal.value.scrollToBottom();
+    }
   }
 };
 
@@ -354,13 +365,23 @@ watch(
   background: rgba(26, 26, 26, 0.9);
 }
 
-.terminal-view :deep(.empty-icon),
+.terminal-view :deep(.empty-icon) {
+  color: rgba(31, 41, 55, 0.5);
+}
+
 .terminal-view :deep(.empty-message) {
-  color: rgba(31, 41, 55, 0.6);
+  color: rgba(31, 41, 55, 0.8);
+  font-weight: 500;
 }
 
 .terminal-shell.dark-mode ~ :deep(.empty-icon),
-.terminal-shell.dark-mode ~ :deep(.empty-message) {
-  color: rgba(229, 231, 235, 0.6);
+:global(.dark) .terminal-view :deep(.empty-icon) {
+  color: rgba(229, 231, 235, 0.5);
+}
+
+.terminal-shell.dark-mode ~ :deep(.empty-message),
+:global(.dark) .terminal-view :deep(.empty-message) {
+  color: rgba(229, 231, 235, 0.8);
+  font-weight: 500;
 }
 </style>

@@ -5,6 +5,7 @@ Enhanced with:
 - Grounding validation for hallucination prevention
 - Intent tracking for user prompt adherence
 - Drift detection for scope management
+- Stuck pattern analysis for targeted recovery guidance
 """
 
 import asyncio
@@ -20,6 +21,7 @@ from app.domain.services.agents.grounding_validator import (
     GroundingLevel,
 )
 from app.domain.services.agents.intent_tracker import get_intent_tracker
+from app.domain.services.agents.stuck_detector import StuckAnalysis, LoopType
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +88,32 @@ async def reflection_node(state: PlanActState) -> Dict[str, Any]:
     decision = "continue"
     feedback = None
     additional_guidance = []
+
+    # === P0: Stuck Pattern Analysis ===
+    # Check if execution detected any stuck patterns
+    stuck_analysis: Optional[StuckAnalysis] = state.get("stuck_analysis")
+
+    if stuck_analysis:
+        logger.warning(
+            f"Reflection received stuck analysis: {stuck_analysis.loop_type.value} "
+            f"(confidence: {stuck_analysis.confidence:.2f})"
+        )
+
+        # Add stuck-specific guidance
+        stuck_guidance = _get_stuck_recovery_guidance(stuck_analysis)
+        if stuck_guidance:
+            additional_guidance.append(stuck_guidance)
+
+        # Severe stuck patterns may require replanning
+        severe_patterns = {
+            LoopType.TOOL_FAILURE_CASCADE,
+            LoopType.REPEATING_ACTION_ERROR,
+            LoopType.BROWSER_CLICK_FAILURES,
+        }
+
+        if stuck_analysis.loop_type in severe_patterns and stuck_analysis.confidence > 0.8:
+            decision = "replan"
+            feedback = f"Stuck in {stuck_analysis.loop_type.value}: {stuck_analysis.details}"
 
     # === P0: Grounding Validation ===
     # Check if recent execution results are grounded in context
@@ -200,4 +228,62 @@ async def reflection_node(state: PlanActState) -> Dict[str, Any]:
         "pending_events": pending_events,
         "grounding_checked": True,  # Flag that grounding was validated
         "intent_checked": True,     # Flag that intent was verified
+        "stuck_analysis": None,    # Clear stuck analysis after reflection
     }
+
+
+def _get_stuck_recovery_guidance(analysis: StuckAnalysis) -> str:
+    """Generate recovery guidance based on stuck analysis.
+
+    Provides targeted advice for breaking out of different stuck patterns,
+    especially browser-specific issues.
+
+    Args:
+        analysis: The stuck analysis from execution
+
+    Returns:
+        Recovery guidance string
+    """
+    guidance_map = {
+        LoopType.BROWSER_SAME_PAGE_LOOP: (
+            "BROWSER STUCK: Navigating to the same page repeatedly.\n"
+            "RECOVERY: The page is already loaded. Use browser_view to see content, "
+            "or interact with elements (click, input) instead of re-navigating."
+        ),
+        LoopType.BROWSER_SCROLL_NO_PROGRESS: (
+            "BROWSER STUCK: Scrolling without extracting content.\n"
+            "RECOVERY: After scrolling, use browser_view to see the newly loaded content. "
+            "Then extract the information you need."
+        ),
+        LoopType.BROWSER_CLICK_FAILURES: (
+            "BROWSER STUCK: Click attempts failing repeatedly.\n"
+            "RECOVERY: Element indices may have changed. Use browser_view to get fresh "
+            "interactive element indices before clicking."
+        ),
+        LoopType.REPEATING_ACTION_OBSERVATION: (
+            "STUCK: Same action producing same result repeatedly.\n"
+            "RECOVERY: Process the data you already have instead of re-fetching. "
+            "Move on to the next step."
+        ),
+        LoopType.REPEATING_ACTION_ERROR: (
+            "STUCK: Same action failing repeatedly.\n"
+            "RECOVERY: Analyze the error message. Fix the root cause or try an "
+            "alternative approach instead of retrying."
+        ),
+        LoopType.ALTERNATING_PATTERN: (
+            "STUCK: Oscillating between two approaches without progress.\n"
+            "RECOVERY: Commit to ONE approach, or try a completely different strategy."
+        ),
+        LoopType.TOOL_FAILURE_CASCADE: (
+            "STUCK: Multiple tools failing - possible systemic issue.\n"
+            "RECOVERY: Check environment setup. Try simpler operations to diagnose. "
+            "May need to escalate to user."
+        ),
+    }
+
+    base_guidance = guidance_map.get(analysis.loop_type, "")
+
+    if base_guidance:
+        return f"{base_guidance}\nDetails: {analysis.details}"
+
+    return f"Stuck pattern detected: {analysis.loop_type.value}. {analysis.details}"

@@ -63,7 +63,7 @@
           </div>
 
           <!-- Right: View mode tabs (absolute positioned) -->
-          <div v-if="contentConfig.showTabs && !shouldUseTextOnly" class="absolute right-3 flex items-center gap-1 bg-[var(--fill-tsp-gray-main)] rounded-lg p-0.5">
+          <div v-if="contentConfig.showTabs" class="absolute right-3 flex items-center gap-1 bg-[var(--fill-tsp-gray-main)] rounded-lg p-0.5">
             <button
               v-for="(label, idx) in contentConfig.tabLabels"
               :key="idx"
@@ -79,30 +79,9 @@
 
         <!-- Content Area: Dynamic content rendering -->
         <div class="flex-1 min-h-0 w-full overflow-hidden relative">
-          <!-- Text-only operation: Show placeholder while active, terminal when complete -->
+          <!-- VNC View -->
           <VNCContentView
-            v-if="shouldUseTextOnly && isActiveOperation"
-            :session-id="sessionId || ''"
-            :enabled="false"
-            :view-only="true"
-            :show-placeholder="true"
-            :placeholder-label="placeholderLabel"
-            :placeholder-detail="placeholderDetail"
-            :is-active="true"
-          />
-
-          <!-- Text-only operation complete: Show terminal output -->
-          <TerminalContentView
-            v-else-if="shouldUseTextOnly && !isActiveOperation"
-            :content="terminalContent"
-            :content-type="terminalContentType"
-            :is-live="false"
-            :auto-scroll="true"
-          />
-
-          <!-- VNC View (for non-text-only operations) -->
-          <VNCContentView
-            v-else-if="currentViewType === 'vnc'"
+            v-if="currentViewType === 'vnc'"
             :key="'vnc-main-' + (sessionId || 'none')"
             :session-id="sessionId || ''"
             :enabled="vncEnabled"
@@ -110,8 +89,8 @@
             :show-placeholder="showVncPlaceholder"
             :placeholder-label="vncPlaceholderLabel"
             :placeholder-detail="vncPlaceholderDetail"
+            :placeholder-animation="vncPlaceholderAnimation"
             :is-active="isActiveOperation"
-            :screenshot="screenshot"
             @connected="onVNCConnected"
             @disconnected="onVNCDisconnected"
           >
@@ -367,33 +346,60 @@ const placeholderDetail = computed(() => {
 });
 
 
-// Screenshot
-const screenshot = ref('');
-watch(() => props.toolContent?.content?.screenshot, (newScreenshot) => {
-  if (newScreenshot) screenshot.value = newScreenshot;
-}, { immediate: true });
-
 const showVncPlaceholder = computed(() => {
-  if (!props.sessionId && !screenshot.value) return true;
-  if (vncDisconnected.value && !screenshot.value) return true;
+  // For text-only operations (like browser_get_content which uses HTTP, not browser),
+  // ALWAYS show placeholder - never show VNC since browser isn't being used
+  if (isTextOnlyOperation.value) return true;
+  if (!props.sessionId) return true;
+  if (vncDisconnected.value) return true;
   return false;
 });
 
 const vncPlaceholderLabel = computed(() => {
+  // Text-only operations (e.g., browser_get_content uses HTTP, not browser)
+  if (isTextOnlyOperation.value) {
+    if (isActiveOperation.value) {
+      return placeholderLabel.value;
+    }
+    // Operation completed - show success state
+    return 'Content fetched';
+  }
   if (!props.sessionId) return 'No live session';
   if (vncDisconnected.value) return 'Reconnecting';
   return 'Connecting';
 });
 
 const vncPlaceholderDetail = computed(() => {
+  // Text-only operations
+  if (isTextOnlyOperation.value) {
+    if (isActiveOperation.value) {
+      return placeholderDetail.value;
+    }
+    // Show truncated URL for completed operation
+    const url = props.toolContent?.args?.url;
+    if (url) {
+      try {
+        const u = new URL(url);
+        return u.hostname + u.pathname.slice(0, 30) + (u.pathname.length > 30 ? '...' : '');
+      } catch {
+        return url.slice(0, 50);
+      }
+    }
+    return 'Data ready for processing';
+  }
   if (!props.sessionId) return 'Open a session to view the screen.';
   if (vncDisconnected.value) return 'Waiting for the VNC stream.';
   return '';
 });
 
-const shouldUseTextOnly = computed(() => {
-  if (!isTextOnlyOperation.value) return false;
-  return !screenshot.value;
+// Animation type for VNC placeholder
+const vncPlaceholderAnimation = computed<'globe' | 'check' | 'spinner'>(() => {
+  // Text-only operations: show check when completed, globe when active
+  if (isTextOnlyOperation.value) {
+    return isActiveOperation.value ? 'globe' : 'check';
+  }
+  // Default animation for other cases
+  return 'globe';
 });
 
 const vncEnabled = computed(() => {
@@ -417,29 +423,43 @@ const terminalContent = computed(() => {
   if (toolName.value === 'shell' || toolName.value === 'code_executor') {
     if (shellOutput.value) return shellOutput.value;
 
-    const command = props.toolContent?.command || props.toolContent?.args?.command;
+    // Get command from multiple sources - prefer args.command for shell tools
+    const argsCommand = props.toolContent?.args?.command;
+    const directCommand = props.toolContent?.command;
+    const command = argsCommand || directCommand;
+
     const stdout = props.toolContent?.stdout;
     const stderr = props.toolContent?.stderr;
     const exitCode = props.toolContent?.exit_code;
-    if (command || stdout || stderr || exitCode !== undefined) {
-      let output = '';
-      if (command) {
-        output += `$ ${command}\n`;
-      }
-      if (stdout) {
-        output += `${stdout}\n`;
-      }
-      if (stderr) {
-        output += `[stderr]\n${stderr}\n`;
-      }
-      if (exitCode !== undefined && exitCode !== null) {
-        output += `[exit code: ${exitCode}]\n`;
-      }
+
+    // Build output - always show command if available (even during execution)
+    let output = '';
+    if (command) {
+      output += `$ ${command}\n`;
+    }
+    if (stdout) {
+      output += `${stdout}\n`;
+    }
+    if (stderr) {
+      output += `[stderr]\n${stderr}\n`;
+    }
+    if (exitCode !== undefined && exitCode !== null) {
+      output += `[exit code: ${exitCode}]\n`;
+    }
+
+    // Return if we have any output
+    if (output.trim()) {
       return output.trimEnd();
     }
 
     const content = props.toolContent?.content;
-    if (!content) return '';
+    if (!content) {
+      // During execution, show a message indicating the command is running
+      if (isActiveOperation.value && command) {
+        return `$ ${command}\n[executing...]`;
+      }
+      return '';
+    }
 
     // Shell console output (array format)
     if (content.console && Array.isArray(content.console)) {

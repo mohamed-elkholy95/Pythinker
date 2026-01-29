@@ -1,12 +1,12 @@
 <template>
   <div class="vnc-content-wrapper">
-    <!-- Text-only operation placeholder -->
+    <!-- Placeholder for loading/text-only operations -->
     <LoadingState
       v-if="showPlaceholder"
       :label="placeholderLabel || 'Loading'"
       :detail="placeholderDetail"
       :is-active="isActive"
-      animation="globe"
+      :animation="placeholderAnimation || 'globe'"
     />
 
     <!-- Live VNC - use absolute positioning to fill parent -->
@@ -21,14 +21,17 @@
       />
     </div>
 
-    <!-- Static screenshot -->
-    <img
-      v-else-if="screenshot"
-      :src="screenshot"
-      alt="Screenshot"
-      class="vnc-screenshot"
-      referrerpolicy="no-referrer"
-    />
+    <!-- Fallback when no session -->
+    <div v-else class="vnc-empty">
+      <div class="vnc-empty-icon">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+          <line x1="8" y1="21" x2="16" y2="21"/>
+          <line x1="12" y1="17" x2="12" y2="21"/>
+        </svg>
+      </div>
+      <span class="vnc-empty-text">No live session</span>
+    </div>
 
     <!-- Take over button slot -->
     <slot name="takeover"></slot>
@@ -47,8 +50,8 @@ defineProps<{
   showPlaceholder?: boolean;
   placeholderLabel?: string;
   placeholderDetail?: string;
+  placeholderAnimation?: 'globe' | 'search' | 'file' | 'terminal' | 'code' | 'spinner' | 'check';
   isActive?: boolean;
-  screenshot?: string;
 }>();
 
 const emit = defineEmits<{
@@ -78,9 +81,22 @@ const vncViewerRef = ref<InstanceType<typeof VNCViewer> | null>(null);
   bottom: 0;
 }
 
-.vnc-screenshot {
+.vnc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  color: var(--text-tertiary);
+  gap: 12px;
+}
+
+.vnc-empty-icon {
+  opacity: 0.5;
+}
+
+.vnc-empty-text {
+  font-size: 14px;
 }
 </style>

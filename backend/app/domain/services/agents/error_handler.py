@@ -31,6 +31,11 @@ class ErrorType(str, Enum):
     MCP_CONNECTION = "mcp_connection"
     TIMEOUT = "timeout"
     STUCK_LOOP = "stuck_loop"
+    # Browser-specific errors
+    BROWSER_NAVIGATION = "browser_navigation"
+    BROWSER_ELEMENT_NOT_FOUND = "browser_element_not_found"
+    BROWSER_CONNECTION = "browser_connection"
+    BROWSER_TIMEOUT = "browser_timeout"
     UNKNOWN = "unknown"
 
 
@@ -156,7 +161,34 @@ class ErrorHandler:
         ]):
             return ErrorType.TOKEN_LIMIT
 
-        # Timeout errors
+        # Browser-specific errors (check before generic timeout)
+        if any(term in message_lower for term in [
+            'browser', 'playwright', 'page', 'navigate', 'cdp'
+        ]):
+            # Browser element not found
+            if any(term in message_lower for term in [
+                'element', 'selector', 'not found', 'cannot find', 'no such element',
+                'interactive element', 'index'
+            ]):
+                return ErrorType.BROWSER_ELEMENT_NOT_FOUND
+
+            # Browser connection errors
+            if any(term in message_lower for term in [
+                'connection', 'disconnect', 'closed', 'cdp', 'chrome'
+            ]):
+                return ErrorType.BROWSER_CONNECTION
+
+            # Browser navigation errors
+            if any(term in message_lower for term in [
+                'navigate', 'navigation', 'goto', 'url', 'load'
+            ]):
+                return ErrorType.BROWSER_NAVIGATION
+
+            # Browser timeout
+            if any(term in message_lower for term in ['timeout', 'timed out']):
+                return ErrorType.BROWSER_TIMEOUT
+
+        # Timeout errors (generic)
         if any(term in message_lower for term in ['timeout', 'timed out']) or \
            'timeout' in exception_type:
             return ErrorType.TIMEOUT
@@ -217,6 +249,23 @@ class ErrorHandler:
             ),
             ErrorType.LLM_EMPTY_RESPONSE: (
                 "Retry with simplified prompt or different approach",
+                True
+            ),
+            # Browser-specific strategies
+            ErrorType.BROWSER_NAVIGATION: (
+                "Verify URL format and retry navigation, or try alternative URL",
+                True
+            ),
+            ErrorType.BROWSER_ELEMENT_NOT_FOUND: (
+                "Refresh element indices with browser_view before retry",
+                True
+            ),
+            ErrorType.BROWSER_CONNECTION: (
+                "Reinitialize browser connection with browser_restart",
+                True
+            ),
+            ErrorType.BROWSER_TIMEOUT: (
+                "Page may still be usable - check with browser_view",
                 True
             ),
             ErrorType.UNKNOWN: (
@@ -292,7 +341,37 @@ class ErrorHandler:
                 "1. Using a tool to accomplish the task, OR\n"
                 "2. Providing a text response if the task is complete.\n"
                 "You must respond with either a tool call or content."
-            )
+            ),
+            # Browser-specific recovery prompts
+            ErrorType.BROWSER_NAVIGATION: (
+                f"Browser navigation failed: {error_context.message[:150]}\n"
+                "RECOVERY STEPS:\n"
+                "1. Verify the URL is complete with protocol (https://)\n"
+                "2. Try an alternative URL or search engine\n"
+                "3. If persistent, use browser_restart then retry"
+            ),
+            ErrorType.BROWSER_ELEMENT_NOT_FOUND: (
+                f"Browser element not found: {error_context.message[:150]}\n"
+                "RECOVERY STEPS:\n"
+                "1. Use browser_view to get FRESH interactive element indices\n"
+                "2. Element indices change after page updates - always refresh\n"
+                "3. The element may be off-screen - try browser_scroll_down first\n"
+                "4. The page may have changed - verify you're on the right page"
+            ),
+            ErrorType.BROWSER_CONNECTION: (
+                f"Browser connection issue: {error_context.message[:150]}\n"
+                "RECOVERY STEPS:\n"
+                "1. Use browser_restart to reinitialize the browser\n"
+                "2. Then navigate to your target URL\n"
+                "3. If persistent, the sandbox may need restart"
+            ),
+            ErrorType.BROWSER_TIMEOUT: (
+                f"Browser operation timed out: {error_context.message[:150]}\n"
+                "RECOVERY STEPS:\n"
+                "1. The page may still be partially loaded - use browser_view to check\n"
+                "2. For slow pages, give them time and retry\n"
+                "3. Try a simpler page or alternative source"
+            ),
         }
 
         base_prompt = prompts.get(error_context.error_type, "")

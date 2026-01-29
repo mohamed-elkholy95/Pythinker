@@ -34,6 +34,10 @@ class LoopType(Enum):
     ALTERNATING_PATTERN = "alternating_pattern"
     MONOLOGUE = "monologue"
     TOOL_FAILURE_CASCADE = "tool_failure_cascade"
+    # Browser-specific patterns
+    BROWSER_SAME_PAGE_LOOP = "browser_same_page_loop"
+    BROWSER_SCROLL_NO_PROGRESS = "browser_scroll_no_progress"
+    BROWSER_CLICK_FAILURES = "browser_click_failures"
 
 
 class RecoveryStrategy(Enum):
@@ -523,6 +527,16 @@ class StuckDetector:
         if analysis := self._detect_tool_failure_cascade():
             return analysis
 
+        # Browser-specific patterns
+        if analysis := self._detect_browser_same_page_loop():
+            return analysis
+
+        if analysis := self._detect_browser_scroll_no_progress():
+            return analysis
+
+        if analysis := self._detect_browser_click_failures():
+            return analysis
+
         return None
 
     def _detect_action_error_loop(self) -> Optional[StuckAnalysis]:
@@ -656,6 +670,120 @@ class StuckDetector:
 
         return None
 
+    # =========================================================================
+    # Browser-Specific Stuck Detection
+    # =========================================================================
+
+    def _detect_browser_same_page_loop(self) -> Optional[StuckAnalysis]:
+        """
+        Detect: Navigating to the same URL repeatedly.
+
+        Pattern: browser_navigate(url) → browser_navigate(same_url) → ...
+        """
+        browser_nav_tools = {"browser_navigate", "browsing"}
+
+        recent = [r for r in self._tool_action_history if r.tool_name in browser_nav_tools]
+
+        if len(recent) < 3:
+            return None
+
+        # Check last 4 browser navigations
+        recent = recent[-4:]
+
+        # Check if all have the same args hash (same URL)
+        first_hash = recent[0].args_hash
+        same_url_count = sum(1 for r in recent if r.args_hash == first_hash)
+
+        if same_url_count >= 3:
+            return StuckAnalysis(
+                loop_type=LoopType.BROWSER_SAME_PAGE_LOOP,
+                confidence=0.90,
+                repeat_count=same_url_count,
+                recovery_strategy=RecoveryStrategy.TRY_ALTERNATIVE_APPROACH,
+                details="Navigating to the same URL repeatedly - page content won't change",
+                affected_tools=["browser_navigate"],
+            )
+
+        return None
+
+    def _detect_browser_scroll_no_progress(self) -> Optional[StuckAnalysis]:
+        """
+        Detect: Repeated scrolling without extracting or processing content.
+
+        Pattern: scroll_down → scroll_down → scroll_down (without browser_view/content extraction)
+        """
+        scroll_tools = {"browser_scroll_down", "browser_scroll_up"}
+        content_tools = {"browser_view", "browser_get_content", "browsing"}
+
+        recent = list(self._tool_action_history)[-8:]
+
+        if len(recent) < 5:
+            return None
+
+        # Count consecutive scrolls without content extraction
+        consecutive_scrolls = 0
+        for record in reversed(recent):
+            if record.tool_name in scroll_tools:
+                consecutive_scrolls += 1
+            elif record.tool_name in content_tools:
+                break  # Content was extracted, reset
+            else:
+                # Other tool used, continue checking
+                pass
+
+        if consecutive_scrolls >= 4:
+            return StuckAnalysis(
+                loop_type=LoopType.BROWSER_SCROLL_NO_PROGRESS,
+                confidence=0.85,
+                repeat_count=consecutive_scrolls,
+                recovery_strategy=RecoveryStrategy.TAKE_CONCRETE_ACTION,
+                details=f"Scrolled {consecutive_scrolls} times without extracting content - use browser_view to see results",
+                affected_tools=["browser_scroll_down", "browser_scroll_up"],
+            )
+
+        return None
+
+    def _detect_browser_click_failures(self) -> Optional[StuckAnalysis]:
+        """
+        Detect: Repeated failed click attempts.
+
+        Pattern: browser_click(index) → fail → browser_click(same_index) → fail
+        """
+        if len(self._tool_action_history) < 3:
+            return None
+
+        click_actions = [
+            r for r in self._tool_action_history
+            if r.tool_name == "browser_click"
+        ]
+
+        if len(click_actions) < 3:
+            return None
+
+        # Check last 4 click attempts
+        recent_clicks = click_actions[-4:]
+        failed_clicks = [r for r in recent_clicks if not r.success]
+
+        if len(failed_clicks) >= 3:
+            # Check if same element being clicked
+            same_target = len(set(r.args_hash for r in failed_clicks)) == 1
+
+            return StuckAnalysis(
+                loop_type=LoopType.BROWSER_CLICK_FAILURES,
+                confidence=0.90 if same_target else 0.75,
+                repeat_count=len(failed_clicks),
+                recovery_strategy=RecoveryStrategy.TRY_ALTERNATIVE_APPROACH,
+                details=(
+                    "Clicking the same missing element repeatedly - "
+                    "use browser_view to get fresh element indices"
+                    if same_target else
+                    "Multiple click failures - elements may have changed, refresh with browser_view"
+                ),
+                affected_tools=["browser_click"],
+            )
+
+        return None
+
     def get_recovery_guidance(self) -> str:
         """
         Get detailed recovery guidance based on current stuck analysis.
@@ -725,6 +853,31 @@ class StuckDetector:
                 "2. Use tools to make concrete progress\n"
                 "3. Users want results, not descriptions of what you'll do\n"
                 "4. Execute the next logical action immediately"
+            ),
+            # Browser-specific recovery
+            LoopType.BROWSER_SAME_PAGE_LOOP: (
+                "You're navigating to the same URL repeatedly.\n"
+                "RECOVERY STEPS:\n"
+                "1. The page content is already loaded - don't re-navigate\n"
+                "2. Use browser_view to see current page content\n"
+                "3. Interact with elements (click, input) instead of reloading\n"
+                "4. If page is stale, use browser_restart for a fresh session"
+            ),
+            LoopType.BROWSER_SCROLL_NO_PROGRESS: (
+                "You're scrolling repeatedly without extracting content.\n"
+                "RECOVERY STEPS:\n"
+                "1. Use browser_view after scrolling to see new content\n"
+                "2. Extract the information you need from the visible elements\n"
+                "3. Scrolling loads content but you must VIEW it to use it\n"
+                "4. Check scroll position - you may have reached the bottom already"
+            ),
+            LoopType.BROWSER_CLICK_FAILURES: (
+                "Click attempts are failing - elements may not exist.\n"
+                "RECOVERY STEPS:\n"
+                "1. Use browser_view to get FRESH interactive element indices\n"
+                "2. Element indices change after page updates - always refresh\n"
+                "3. The element may be off-screen - try scrolling first\n"
+                "4. Consider using browser_scroll_down if element is below viewport"
             ),
         }
 
