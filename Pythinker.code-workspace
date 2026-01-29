@@ -19,7 +19,34 @@
 			"path": "docs"
 		}
 	],
-	"settings": {},
+	"settings": {
+		"files.exclude": {
+			"**/__pycache__": true,
+			"**/.pytest_cache": true,
+			"**/node_modules": true,
+			"**/.vite": true,
+			"**/dist": true
+		},
+		"editor.formatOnSave": true,
+		"editor.codeActionsOnSave": {
+			"source.fixAll.eslint": "explicit",
+			"source.organizeImports": "explicit"
+		},
+		"typescript.preferences.importModuleSpecifier": "relative",
+		"python.analysis.typeCheckingMode": "basic",
+		"[python]": {
+			"editor.defaultFormatter": "ms-python.black-formatter",
+			"editor.tabSize": 4
+		},
+		"[typescript]": {
+			"editor.defaultFormatter": "esbenp.prettier-vscode",
+			"editor.tabSize": 2
+		},
+		"[vue]": {
+			"editor.defaultFormatter": "esbenp.prettier-vscode",
+			"editor.tabSize": 2
+		}
+	},
 	"tasks": {
 		"version": "2.0.0",
 		"tasks": [
@@ -27,6 +54,13 @@
 				"label": "dev",
 				"type": "shell",
 				"command": "./dev.sh up -d",
+				"problemMatcher": [],
+				"group": "build"
+			},
+			{
+				"label": "dev:down",
+				"type": "shell",
+				"command": "./dev.sh down -v",
 				"problemMatcher": []
 			},
 			{
@@ -58,7 +92,242 @@
 				"type": "shell",
 				"command": "./dev.sh logs -f backend",
 				"problemMatcher": []
+			},
+			{
+				"label": "frontend: lint & type-check",
+				"type": "shell",
+				"command": "cd frontend && bun run lint && bun run type-check",
+				"problemMatcher": ["$eslint-stylish", "$tsc"],
+				"group": "test"
+			},
+			{
+				"label": "backend: pytest",
+				"type": "shell",
+				"command": "conda activate pythinker && cd backend && pytest tests/",
+				"problemMatcher": [],
+				"group": "test"
+			},
+			{
+				"label": "frontend: dev server",
+				"type": "shell",
+				"command": "cd frontend && bun run dev",
+				"problemMatcher": []
+			},
+			{
+				"label": "backend: uvicorn",
+				"type": "shell",
+				"command": "conda activate pythinker && cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload",
+				"problemMatcher": []
 			}
 		]
+	},
+	"launch": {
+		"version": "0.2.0",
+		"configurations": [
+			{
+				"name": "Backend: FastAPI",
+				"type": "debugpy",
+				"request": "launch",
+				"module": "uvicorn",
+				"args": ["app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"],
+				"cwd": "${workspaceFolder}/backend",
+				"console": "integratedTerminal",
+				"justMyCode": true
+			},
+			{
+				"name": "Backend: Pytest",
+				"type": "debugpy",
+				"request": "launch",
+				"module": "pytest",
+				"args": ["tests/", "-v"],
+				"cwd": "${workspaceFolder}/backend",
+				"console": "integratedTerminal",
+				"justMyCode": true
+			}
+		]
+	},
+	"extensions": {
+		"recommendations": [
+			"ms-python.python",
+			"ms-python.vscode-pylance",
+			"ms-python.black-formatter",
+			"ms-python.debugpy",
+			"Vue.volar",
+			"dbaeumer.vscode-eslint",
+			"esbenp.prettier-vscode",
+			"bradlc.vscode-tailwindcss",
+			"ms-azuretools.vscode-docker"
+		]
+	},
+	"pythinker": {
+		"_comment": "Project architecture documentation for AI assistants and developers",
+		"overview": "AI Agent system with browser, terminal, files, and search tools in isolated Docker sandboxes",
+		"architecture": {
+			"pattern": "Domain-Driven Design (DDD) with Clean Architecture",
+			"principles": [
+				"Dependency Rule: Dependencies point inward (Domain ← Application ← Infrastructure ← Interfaces)",
+				"SOLID: Single responsibility, Interface segregation, Dependency inversion",
+				"Event Sourcing: All session events persisted to MongoDB",
+				"SSE Streaming: Real-time event propagation to frontend"
+			]
+		},
+		"backend": {
+			"framework": "FastAPI",
+			"language": "Python 3.11+",
+			"layers": {
+				"domain": {
+					"path": "backend/app/domain/",
+					"description": "Core business logic with NO external dependencies",
+					"modules": {
+						"models": ["Agent", "Session", "Event", "DeepResearch"],
+						"services/agents": ["Critic", "Planner", "Executor"],
+						"services/flows": ["PlanActFlow", "TreeOfThoughtsFlow", "DiscussFlow", "DeepResearchFlow"],
+						"services/tools": "30+ tool definitions",
+						"services/langgraph": "LangGraph state management",
+						"repositories": "Abstract data access interfaces (ABCs)"
+					}
+				},
+				"application": {
+					"path": "backend/app/application/",
+					"description": "Use case orchestration and DTOs"
+				},
+				"infrastructure": {
+					"path": "backend/app/infrastructure/",
+					"description": "External adapters and implementations",
+					"modules": {
+						"repositories": "MongoDB/Redis concrete implementations",
+						"storage": ["MongoDB", "Redis", "Qdrant"],
+						"external": ["LLM adapters", "Search adapters", "Browser adapters"]
+					}
+				},
+				"interfaces": {
+					"path": "backend/app/interfaces/",
+					"description": "API routes and request/response schemas",
+					"modules": {
+						"api": "REST endpoints",
+						"schemas": "Pydantic request/response models"
+					}
+				},
+				"core": {
+					"path": "backend/app/core/",
+					"description": "Cross-cutting concerns",
+					"modules": ["config.py", "sandbox_manager.py", "workflow_manager.py", "deep_research_manager.py"]
+				}
+			}
+		},
+		"frontend": {
+			"framework": "Vue 3 (Composition API)",
+			"language": "TypeScript",
+			"bundler": "Vite",
+			"styling": "Tailwind CSS",
+			"layers": {
+				"pages": {
+					"path": "frontend/src/pages/",
+					"description": "Route-level components",
+					"components": ["ChatPage", "HomePage"]
+				},
+				"components": {
+					"path": "frontend/src/components/",
+					"description": "Reusable UI components",
+					"modules": {
+						"chat": ["ChatInput", "ChatMessage", "ChatHistory"],
+						"tools": ["ToolPanel", "BrowserPreview", "TerminalView"],
+						"deep_research": ["DeepResearchCard", "DeepResearchQueryItem", "RunButtonDropdown"],
+						"report": ["ReportCard", "ReportViewer"]
+					}
+				},
+				"composables": {
+					"path": "frontend/src/composables/",
+					"description": "Shared stateful logic (Vue Composition API)",
+					"modules": ["useChat", "useSession", "useFilePanel", "useDeepResearch"]
+				},
+				"api": {
+					"path": "frontend/src/api/",
+					"description": "Axios HTTP client with SSE support"
+				},
+				"types": {
+					"path": "frontend/src/types/",
+					"description": "TypeScript definitions"
+				}
+			}
+		},
+		"features": {
+			"deep_research": {
+				"description": "Parallel search execution with user approval workflow",
+				"components": {
+					"backend": {
+						"models": "DeepResearchConfig, ResearchQuery, DeepResearchSession",
+						"flow": "DeepResearchFlow with approval/skip/cancel",
+						"manager": "DeepResearchManager (singleton session registry)",
+						"events": "DeepResearchEvent with real-time status updates",
+						"endpoints": [
+							"POST /sessions/{id}/deep-research/approve",
+							"POST /sessions/{id}/deep-research/skip",
+							"GET /sessions/{id}/deep-research/status"
+						]
+					},
+					"frontend": {
+						"components": ["DeepResearchCard", "DeepResearchQueryItem", "RunButtonDropdown"],
+						"composables": ["useDeepResearch"],
+						"types": ["DeepResearchContent", "DeepResearchQuery", "DeepResearchStatus"]
+					}
+				},
+				"workflow": [
+					"1. Agent generates search queries",
+					"2. User approves or auto-run enabled",
+					"3. Parallel execution with configurable concurrency",
+					"4. Real-time SSE progress updates",
+					"5. User can skip individual queries or all",
+					"6. Results compiled to JSON/markdown"
+				]
+			},
+			"workflows": {
+				"plan_act": "Planning → Execution → Reflection → Verification",
+				"tree_of_thoughts": "Multi-path reasoning with evaluation",
+				"discussion": "Multi-agent collaborative discussion"
+			},
+			"sandbox_isolation": {
+				"description": "Each task runs in isolated Docker container",
+				"features": ["VNC access", "Browser automation", "Terminal access", "File system isolation"]
+			}
+		},
+		"api": {
+			"base_url": "/api/v1",
+			"key_endpoints": {
+				"sessions": {
+					"PUT /sessions": "Create session",
+					"POST /sessions/{id}/chat": "Chat (SSE stream)",
+					"WS /sessions/{id}/vnc": "VNC WebSocket tunnel"
+				},
+				"deep_research": {
+					"POST /sessions/{id}/deep-research/approve": "Approve pending research",
+					"POST /sessions/{id}/deep-research/skip": "Skip query or all queries",
+					"GET /sessions/{id}/deep-research/status": "Get research status"
+				}
+			}
+		},
+		"ports": {
+			"frontend": 5173,
+			"backend": 8000,
+			"sandbox": 8080,
+			"sandbox_vnc": 5902,
+			"mongodb": 27017,
+			"redis": 6379
+		},
+		"conventions": {
+			"python": {
+				"indent": "4 spaces",
+				"functions": "snake_case",
+				"classes": "PascalCase",
+				"constants": "UPPER_SNAKE_CASE",
+				"private": "_prefix"
+			},
+			"typescript": {
+				"indent": "2 spaces",
+				"components": "PascalCase",
+				"composables": "useXxx.ts",
+				"types": "PascalCase"
+			}
+		}
 	}
 }
