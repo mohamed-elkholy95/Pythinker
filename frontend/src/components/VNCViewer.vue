@@ -243,7 +243,7 @@ defineExpose({
   width: 12px;
   height: 12px;
   border: 2px solid #666;
-  border-top-color: #9c7dff;
+  border-top-color: #3b82f6;
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }

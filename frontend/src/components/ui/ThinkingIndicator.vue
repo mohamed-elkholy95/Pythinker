@@ -40,7 +40,7 @@ onUnmounted(() => {
 .thinking-shape {
   width: 10px;
   height: 10px;
-  background: linear-gradient(135deg, #9c7dff 0%, #b69eff 50%, #9c7dff 100%);
+  background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 50%, #3b82f6 100%);
   background-size: 200% 200%;
   animation: shimmer 1.5s ease-in-out infinite;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -77,7 +77,7 @@ onUnmounted(() => {
     120deg,
     #262626 0%,
     #262626 40%,
-    #9c7dff 50%,
+    #3b82f6 50%,
     #262626 60%,
     #262626 100%
   );
@@ -95,7 +95,7 @@ onUnmounted(() => {
     120deg,
     #e5e5e5 0%,
     #e5e5e5 40%,
-    #9c7dff 50%,
+    #60a5fa 50%,
     #e5e5e5 60%,
     #e5e5e5 100%
   );

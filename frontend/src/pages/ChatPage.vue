@@ -172,18 +172,12 @@
             class="mb-2 bg-white dark:bg-[#2a2a2a] rounded-lg border border-gray-200 dark:border-[#3a3a3a] px-4 py-2.5 flex items-center gap-3 shadow-sm"
           >
             <div class="flex-shrink-0">
-              <div class="w-4 h-4 rounded-full border-2 border-[#7c3aed] border-t-transparent animate-spin"></div>
+              <ThinkingIndicator :showText="false" />
             </div>
-            <div class="flex-1 min-w-0 flex flex-col gap-1">
+            <div class="flex-1 min-w-0">
               <span class="text-[15px] font-normal text-gray-900 dark:text-[#e5e5e5]">
                 {{ planningProgress.message }}
               </span>
-              <div class="w-full bg-gray-200 dark:bg-[#3a3a3a] rounded-full h-1.5 overflow-hidden">
-                <div
-                  class="h-full bg-[#7c3aed] rounded-full transition-all duration-300"
-                  :style="{ width: `${planningProgress.percent}%` }"
-                ></div>
-              </div>
             </div>
           </div>
 
