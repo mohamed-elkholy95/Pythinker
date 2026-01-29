@@ -442,27 +442,25 @@ const checkStaleConnection = () => {
 const isToolPanelOpen = ref(false);
 
 // ===== VNC Thumbnail Management (Centralized) =====
-// Live canvas thumbnail (captured from ToolPanel's VNC connection)
+// Live canvas thumbnail (captured from ToolPanel's VNC connection - ALWAYS accurate)
 const canvasThumbnailUrl = ref<string>('');
 let canvasPollingInterval: ReturnType<typeof setInterval> | null = null;
 
-// Computed: enable VNC polling when there's an active session and panel is NOT open
-// (When panel is open, we capture from canvas instead)
-const enableVncPolling = computed(() => !!sessionId.value && !isToolPanelOpen.value);
+// HTTP polling as secondary source (used when panel hasn't been opened yet)
+const enableVncPolling = computed(() => !!sessionId.value && !canvasThumbnailUrl.value);
 
-// Use the live VNC thumbnail composable (fallback when panel is closed)
 const {
   thumbnailUrl: vncThumbnailUrl,
   forceRefresh: refreshVncThumbnail
 } = useLiveVncThumbnail({
   sessionId: sessionId,
   enabled: enableVncPolling,
-  updateIntervalMs: 1000,  // 1 FPS for smooth updates
-  quality: 50,             // Optimized for thumbnails
-  scale: 0.3               // 30% scale for performance
+  updateIntervalMs: 1000,
+  quality: 50,
+  scale: 0.3
 });
 
-// Capture thumbnail from VNC canvas (when ToolPanel is open)
+// Capture thumbnail from VNC canvas (most reliable source)
 const captureCanvasThumbnail = () => {
   if (!toolPanel.value?.isVncConnected()) return;
   const dataUrl = toolPanel.value?.captureVncScreenshot(0.5, 0.3);
@@ -474,13 +472,12 @@ const captureCanvasThumbnail = () => {
 // Start/stop canvas polling based on panel state
 watch(isToolPanelOpen, (isOpen) => {
   if (isOpen) {
-    // Start capturing from canvas when panel is open
-    // Small delay to let VNC connect first
+    // Small delay to let VNC connect first, then capture every second
     setTimeout(captureCanvasThumbnail, 500);
     canvasPollingInterval = setInterval(captureCanvasThumbnail, 1000);
   } else {
-    // Capture final state before stopping polling
-    captureCanvasThumbnail();
+    // Capture final state when closing, keep polling briefly to get final state
+    setTimeout(captureCanvasThumbnail, 100);
     if (canvasPollingInterval) {
       clearInterval(canvasPollingInterval);
       canvasPollingInterval = null;
@@ -488,7 +485,7 @@ watch(isToolPanelOpen, (isOpen) => {
   }
 });
 
-// Handler for TaskProgressBar's requestRefresh event (captures final screenshot on completion)
+// Handler for TaskProgressBar's requestRefresh event
 const handleThumbnailRefresh = () => {
   captureCanvasThumbnail();
   refreshVncThumbnail();
