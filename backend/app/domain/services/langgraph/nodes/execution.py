@@ -129,12 +129,26 @@ async def execution_node(state: PlanActState) -> Dict[str, Any]:
 
                 # Track action details for stuck analysis
                 if event.function_result:
-                    recent_actions.append({
+                    action_record = {
                         "function_name": event.function_name,
                         "success": event.function_result.success if event.function_result else True,
                         "result": str(event.function_result.message)[:200] if event.function_result else "",
                         "error": event.function_result.message if event.function_result and not event.function_result.success else None,
-                    })
+                    }
+                    recent_actions.append(action_record)
+
+                    # Feed tool action to stuck detector for pattern analysis
+                    if hasattr(executor, '_stuck_detector'):
+                        tool_args = event.function_args or {}
+                        analysis = executor._stuck_detector.track_tool_action(
+                            tool_name=event.function_name,
+                            tool_args=tool_args,
+                            success=event.function_result.success if event.function_result else True,
+                            result=str(event.function_result.data)[:500] if event.function_result and event.function_result.data else None,
+                            error=action_record["error"],
+                        )
+                        if analysis and not stuck_analysis:
+                            stuck_analysis = analysis
 
                 # Periodically check for stuck patterns
                 if step_tool_calls % STUCK_CHECK_INTERVAL == 0:
@@ -149,10 +163,13 @@ async def execution_node(state: PlanActState) -> Dict[str, Any]:
                             stuck_analysis = analysis
 
                             # For severe stuck patterns, break early
-                            if analysis.loop_type in (
+                            severe_patterns = {
                                 LoopType.TOOL_FAILURE_CASCADE,
                                 LoopType.REPEATING_ACTION_ERROR,
-                            ) and analysis.repeat_count >= 5:
+                                LoopType.BROWSER_CLICK_FAILURES,
+                                LoopType.BROWSER_SAME_PAGE_LOOP,
+                            }
+                            if analysis.loop_type in severe_patterns and analysis.repeat_count >= 4:
                                 logger.warning(
                                     f"Severe stuck pattern ({analysis.loop_type.value}), "
                                     "breaking execution for recovery"

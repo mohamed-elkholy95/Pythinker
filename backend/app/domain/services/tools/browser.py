@@ -151,7 +151,15 @@ Much faster than browser_navigate for read-only pages. Falls back to browser_nav
 
     @tool(
         name="browser_view",
-        description="View content of the current browser page. Use for checking the latest state of previously opened pages.",
+        description="""View current browser page content and interactive elements.
+
+USE WHEN:
+- Checking latest page state after clicks, scrolls, or other interactions
+- Verifying page content has loaded after waiting
+- Re-extracting interactive elements after page updates
+
+RETURNS: Page content, interactive elements list with indices, current URL, title.
+Use element indices with browser_click, browser_input, etc.""",
         parameters={},
         required=[]
     )
@@ -216,19 +224,27 @@ Returns: Interactive elements, page content, title, URL - ready to use without a
     
     @tool(
         name="browser_click",
-        description="Click on elements in the current browser page. Use when clicking page elements is needed.",
+        description="""Click an interactive element on the page.
+
+PREFERRED: Use element index from browser_navigate or browser_view results.
+Alternative: Use coordinates for elements not in the interactive list.
+
+AUTO-SCROLLS into view if element is off-screen.
+AUTO-WAITS for potential navigation after click.
+
+RETURNS: Click result. Use browser_view to see updated page state.""",
         parameters={
             "index": {
                 "type": "integer",
-                "description": "(Optional) Index number of the element to click"
+                "description": "Element index from interactive elements list (preferred method)"
             },
             "coordinate_x": {
                 "type": "number",
-                "description": "(Optional) X coordinate of click position"
+                "description": "X coordinate for coordinate-based click (fallback)"
             },
             "coordinate_y": {
                 "type": "number",
-                "description": "(Optional) Y coordinate of click position"
+                "description": "Y coordinate for coordinate-based click (fallback)"
             }
         },
         required=[]
@@ -253,27 +269,33 @@ Returns: Interactive elements, page content, title, URL - ready to use without a
     
     @tool(
         name="browser_input",
-        description="Overwrite text in editable elements on the current browser page. Use when filling content in input fields.",
+        description="""Type text into an input field, textarea, or editable element.
+
+AUTO-CLEARS existing content before typing (replaces, doesn't append).
+Use element index from browser_navigate/browser_view for reliable targeting.
+
+For search boxes: Set press_enter=true to submit.
+For forms: Set press_enter=false and use browser_click on submit button.""",
         parameters={
             "index": {
                 "type": "integer",
-                "description": "(Optional) Index number of the element to overwrite text"
+                "description": "Element index from interactive elements list (preferred)"
             },
             "coordinate_x": {
                 "type": "number",
-                "description": "(Optional) X coordinate of the element to overwrite text"
+                "description": "X coordinate for coordinate-based input (fallback)"
             },
             "coordinate_y": {
                 "type": "number",
-                "description": "(Optional) Y coordinate of the element to overwrite text"
+                "description": "Y coordinate for coordinate-based input (fallback)"
             },
             "text": {
                 "type": "string",
-                "description": "Complete text content to overwrite"
+                "description": "Text to type (replaces existing content)"
             },
             "press_enter": {
                 "type": "boolean",
-                "description": "Whether to press Enter key after input"
+                "description": "Press Enter after typing (true for search, false for multi-field forms)"
             }
         },
         required=["text", "press_enter"]
@@ -389,11 +411,18 @@ Returns: Interactive elements, page content, title, URL - ready to use without a
     
     @tool(
         name="browser_scroll_up",
-        description="Scroll up the current browser page. Use when viewing content above or returning to page top.",
+        description="""Scroll up to view content above current position.
+
+USE WHEN:
+- Returning to content seen earlier
+- Going back to page header/navigation
+- Reaching top of page after scrolling down
+
+RETURNS: Updated page state after scroll.""",
         parameters={
             "to_top": {
                 "type": "boolean",
-                "description": "(Optional) Whether to scroll directly to page top instead of one viewport up."
+                "description": "(Optional) Jump directly to page top instead of one viewport up."
             }
         },
         required=[]
@@ -414,11 +443,22 @@ Returns: Interactive elements, page content, title, URL - ready to use without a
     
     @tool(
         name="browser_scroll_down",
-        description="Scroll down the current browser page. Use when viewing content below or jumping to page bottom.",
+        description="""Scroll down to view more content and trigger lazy loading.
+
+LAZY CONTENT: Many sites load content as you scroll (infinite scroll, lazy images).
+Scrolling reveals hidden content that wasn't in the initial view.
+
+USE WHEN:
+- Need to see content below the fold
+- Loading more items in lists/feeds (infinite scroll)
+- Triggering lazy-loaded images and content
+- Navigating through long pages
+
+RETURNS: Updated page state after scroll. Use browser_view to extract new content.""",
         parameters={
             "to_bottom": {
                 "type": "boolean",
-                "description": "(Optional) Whether to scroll directly to page bottom instead of one viewport down."
+                "description": "(Optional) Scroll to page bottom. Use for short pages or when you need the footer."
             }
         },
         required=[]

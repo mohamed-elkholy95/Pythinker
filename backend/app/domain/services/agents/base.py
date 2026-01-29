@@ -45,7 +45,6 @@ SAFE_PARALLEL_TOOLS = {
     # Browser read operations
     "browser_get_content",  # Fast text-only fetch
     "browser_view",
-    "browser_screenshot",
     # Code executor read-only operations
     "code_list_artifacts",
     "code_read_artifact",
@@ -197,52 +196,6 @@ class BaseAgent(ABC):
             manager.record_tool_usage(tool_name, success, duration_ms)
         except Exception:
             pass  # Non-critical, don't fail on recording errors
-
-    async def _capture_screenshot_if_needed(
-        self,
-        function_name: str
-    ) -> Optional[str]:
-        """Capture desktop screenshot for visual tools.
-
-        Only captures screenshots for tools that interact with the desktop
-        (shell, code execution, etc.) to show what the agent is doing.
-
-        Args:
-            function_name: Name of the function that was called
-
-        Returns:
-            Screenshot data URL or None if capture failed/not needed
-        """
-        # Tools that benefit from desktop screenshots
-        VISUAL_TOOLS = {
-            'shell_exec', 'shell_view', 'shell_write_to_process',
-            'code_run', 'code_execute', 'code_submit',
-            'code_dev_run', 'code_dev_test',
-            'browsing', 'browser_agent_run',  # Always show screenshots for browsing
-            'browser_navigate', 'browser_click'  # Legacy browser tools
-        }
-
-        if function_name not in VISUAL_TOOLS:
-            return None
-
-        try:
-            # Capture screenshot (JPEG, scaled 50%, ~20-40KB)
-            response = await self.sandbox.get_screenshot(
-                quality=75,
-                scale=0.5,
-                format="jpeg"
-            )
-
-            if response.status_code == 200:
-                # Embed as data URL for portability
-                import base64
-                b64_data = base64.b64encode(response.content).decode()
-                return f"data:image/jpeg;base64,{b64_data}"
-
-        except Exception as e:
-            logger.debug(f"Screenshot capture failed for {function_name}: {e}")
-
-        return None
 
     def _create_tool_event(
         self,
@@ -587,27 +540,6 @@ class BaseAgent(ABC):
                     if isinstance(result, Exception):
                         result = ToolResult(success=False, message=str(result))
 
-                    # Capture screenshot after tool execution
-                    screenshot_url = await self._capture_screenshot_if_needed(function_name)
-
-                    # Create tool_content with screenshot for visual tools
-                    tool_content = None
-                    if tool.name == "shell" and screenshot_url:
-                        tool_content = ShellToolContent(
-                            console=result.model_dump() if result else None,
-                            screenshot=screenshot_url
-                        )
-                    elif tool.name == "browser" and screenshot_url:
-                        tool_content = BrowserToolContent(
-                            content=result.model_dump() if result else None,
-                            screenshot=screenshot_url
-                        )
-                    elif tool.name == "browser_agent" and screenshot_url:
-                        tool_content = BrowserAgentToolContent(
-                            result=result.model_dump() if result else None,
-                            screenshot=screenshot_url
-                        )
-
                     yield self._create_tool_event(
                         tool_call_id=tool_call_id,
                         tool_name=tool.name,
@@ -615,7 +547,6 @@ class BaseAgent(ABC):
                         function_args=function_args,
                         status=ToolStatus.CALLED,
                         function_result=result,
-                        tool_content=tool_content,
                         security_risk=security_assessment.risk_level.value,
                         security_reason=security_assessment.reason,
                         security_suggestions=security_assessment.suggestions,
@@ -690,27 +621,6 @@ class BaseAgent(ABC):
                         else None
                     )
 
-                    # Capture screenshot after tool execution
-                    screenshot_url = await self._capture_screenshot_if_needed(function_name)
-
-                    # Create tool_content with screenshot for visual tools
-                    tool_content = None
-                    if tool.name == "shell" and screenshot_url:
-                        tool_content = ShellToolContent(
-                            console=result.model_dump() if result else None,
-                            screenshot=screenshot_url
-                        )
-                    elif tool.name == "browser" and screenshot_url:
-                        tool_content = BrowserToolContent(
-                            content=result.model_dump() if result else None,
-                            screenshot=screenshot_url
-                        )
-                    elif tool.name == "browser_agent" and screenshot_url:
-                        tool_content = BrowserAgentToolContent(
-                            result=result.model_dump() if result else None,
-                            screenshot=screenshot_url
-                        )
-
                     # Generate event after tool call
                     yield self._create_tool_event(
                         tool_call_id=tool_call_id,
@@ -719,7 +629,6 @@ class BaseAgent(ABC):
                         function_args=function_args,
                         status=ToolStatus.CALLED,
                         function_result=result,
-                        tool_content=tool_content,
                         security_risk=security_assessment.risk_level.value,
                         security_reason=security_assessment.reason,
                         security_suggestions=security_assessment.suggestions,

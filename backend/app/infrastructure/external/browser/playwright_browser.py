@@ -509,11 +509,50 @@ class PlaywrightBrowser:
                     # Ensure the page is brought to front and visible in VNC
                     try:
                         await self.page.bring_to_front()
-                        logger.info("Brought page to front for VNC visibility")
+                        # Also try CDP-level activation for VNC visibility
+                        try:
+                            cdp_session = await self.context.new_cdp_session(self.page)
+                            await cdp_session.send("Page.bringToFront")
+                            await cdp_session.detach()
+                            logger.info("Brought page to front via CDP for VNC visibility")
+                        except Exception as cdp_error:
+                            logger.debug(f"CDP bring_to_front: {cdp_error}")
                     except Exception as e:
                         logger.debug(f"Could not bring page to front: {e}")
                 else:
-                    # Randomize fingerprint for anti-detection
+                    # No contexts exist yet - wait for Chrome to create default context
+                    # IMPORTANT: Do NOT use browser.new_context() as it creates an isolated
+                    # context that is NOT visible in VNC. VNC only shows the default Chrome window.
+                    logger.warning("No browser contexts found, waiting for Chrome default context...")
+
+                    # Wait up to 5 seconds for Chrome to create its default context
+                    for i in range(10):
+                        await asyncio.sleep(0.5)
+                        contexts = self.browser.contexts
+                        if contexts:
+                            logger.info(f"Default context appeared after {(i+1)*0.5}s")
+                            break
+
+                    if contexts:
+                        # Use the default context that appeared
+                        self.context = contexts[0]
+                        pages = self.context.pages
+                        if pages:
+                            self.page = pages[0]
+                            logger.info("Using default context's existing page")
+                        else:
+                            self.page = await self.context.new_page()
+                            logger.info("Created new page in default context")
+                    else:
+                        # Last resort: Still no contexts, this shouldn't happen with a running Chrome
+                        # Create page via CDP's default mechanism instead of isolated context
+                        logger.error("No contexts after waiting - Chrome may not be properly initialized")
+                        # Try to create a page directly, which will use default context
+                        self.context = await self.browser.new_context()
+                        self.page = await self.context.new_page()
+                        logger.warning("Created new context as fallback - VNC may show different content")
+
+                    # Set fingerprint values for consistency
                     if self._randomize_fingerprint:
                         self._current_user_agent, self._current_viewport, self._current_timezone = \
                             self._randomize_browser_fingerprint()
@@ -521,25 +560,6 @@ class PlaywrightBrowser:
                         self._current_user_agent = DEFAULT_USER_AGENT
                         self._current_viewport = DEFAULT_VIEWPORT
                         self._current_timezone = DEFAULT_TIMEZONE
-
-                    # Create new context with proper configuration
-                    # SECURITY: Use settings-based ignore_https_errors (False in production)
-                    self.context = await self.browser.new_context(
-                        viewport=self._current_viewport,
-                        user_agent=self._current_user_agent,
-                        timezone_id=self._current_timezone,
-                        locale="en-US",
-                        ignore_https_errors=self.settings.should_ignore_https_errors,
-                        # Additional anti-detection settings
-                        java_script_enabled=True,
-                        has_touch=False,
-                        is_mobile=False,
-                        device_scale_factor=1,
-                    )
-                    self.page = await self.context.new_page()
-
-                    # Inject anti-detection scripts
-                    await self._inject_anti_detection_scripts()
 
                 # Set up network interception if enabled
                 await self._setup_route_interception(self.context)
@@ -675,6 +695,66 @@ class PlaywrightBrowser:
                 rightmost_page = pages[-1]
                 if self.page != rightmost_page and not rightmost_page.is_closed():
                     self.page = rightmost_page
+
+    async def _smart_scroll_for_lazy_content(self, max_scrolls: int = 3, scroll_delay: float = 0.4) -> None:
+        """Smart scroll through page to trigger lazy-loaded content.
+
+        This method scrolls incrementally through the page to trigger
+        lazy loading of images, infinite scroll content, and other
+        dynamically loaded elements.
+
+        Args:
+            max_scrolls: Maximum number of scroll iterations (default: 3)
+            scroll_delay: Delay in seconds between scrolls for content to load (default: 0.4)
+        """
+        await self._ensure_page()
+
+        try:
+            # Get initial page height
+            initial_height = await self.page.evaluate("document.body.scrollHeight")
+            viewport_height = await self.page.evaluate("window.innerHeight")
+
+            # Calculate scroll increments (scroll by 80% of viewport each time)
+            scroll_increment = int(viewport_height * 0.8)
+            current_position = 0
+
+            for i in range(max_scrolls):
+                # Calculate target scroll position
+                target_position = current_position + scroll_increment
+
+                # Scroll to target position
+                await self.page.evaluate(f"window.scrollTo({{top: {target_position}, behavior: 'smooth'}})")
+                await asyncio.sleep(scroll_delay)
+
+                # Check if we've reached the bottom
+                current_scroll = await self.page.evaluate("window.scrollY")
+                page_height = await self.page.evaluate("document.body.scrollHeight")
+
+                # If page height increased (infinite scroll), continue
+                if page_height > initial_height:
+                    logger.debug(f"Page height increased from {initial_height} to {page_height} (lazy content loaded)")
+                    initial_height = page_height
+
+                # Check if we've reached the bottom
+                if current_scroll + viewport_height >= page_height - 50:
+                    logger.debug(f"Reached page bottom after {i + 1} scrolls")
+                    break
+
+                current_position = target_position
+
+            # Scroll back to top for initial view
+            await self.page.evaluate("window.scrollTo({top: 0, behavior: 'smooth'})")
+            await asyncio.sleep(0.2)
+
+        except Exception as e:
+            logger.debug(f"Smart scroll error (non-critical): {e}")
+            # Fallback to simple scroll
+            try:
+                await self.page.evaluate("window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'})")
+                await asyncio.sleep(0.3)
+                await self.page.evaluate("window.scrollTo({top: 0, behavior: 'smooth'})")
+            except Exception:
+                pass
 
     async def wait_for_page_load(self, timeout: int = 15000, wait_until: str = "domcontentloaded") -> bool:
         """Wait for page to reach specified load state using Playwright's native methods
@@ -1022,20 +1102,13 @@ class PlaywrightBrowser:
             if response and response.status >= 400:
                 logger.warning(f"Navigation to {url} returned status {response.status}")
 
-            # AUTOMATIC BEHAVIOR: Scroll page to load lazy content and trigger any scroll-based loading
+            # AUTOMATIC BEHAVIOR: Smart scroll to load lazy content comprehensively
             if auto_extract:
                 try:
-                    # Scroll to bottom to trigger lazy loading
-                    await self.page.evaluate("window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'})")
-                    await asyncio.sleep(0.5)  # Wait for lazy content to load
-
-                    # Scroll back to top for initial view
-                    await self.page.evaluate("window.scrollTo({top: 0, behavior: 'smooth'})")
-                    await asyncio.sleep(0.3)  # Brief wait for smooth scroll
-
-                    logger.debug("Auto-scrolled page to load lazy content")
+                    await self._smart_scroll_for_lazy_content()
+                    logger.debug("Smart-scrolled page to load lazy content")
                 except Exception as e:
-                    logger.debug(f"Auto-scroll failed (non-critical): {e}")
+                    logger.debug(f"Smart scroll failed (non-critical): {e}")
 
             # Extract interactive elements after page loads
             interactive_elements = await self._extract_interactive_elements()
@@ -1043,7 +1116,15 @@ class PlaywrightBrowser:
             # Ensure page is visible in VNC after navigation
             try:
                 await self.page.bring_to_front()
-                logger.info("Brought page to front after navigation for VNC visibility")
+                # Also try to activate the window via CDP for VNC visibility
+                try:
+                    cdp_session = await self.page.context.new_cdp_session(self.page)
+                    # Bring window to front at the browser level
+                    await cdp_session.send("Page.bringToFront")
+                    await cdp_session.detach()
+                    logger.info("Brought page to front via CDP for VNC visibility")
+                except Exception as cdp_error:
+                    logger.debug(f"CDP bring_to_front fallback: {cdp_error}")
             except Exception as e:
                 logger.debug(f"Could not bring page to front: {e}")
 
@@ -1076,13 +1157,10 @@ class PlaywrightBrowser:
             # Page might still be usable even after timeout
             logger.warning(f"Navigation to {url} timed out, attempting to extract elements anyway")
             try:
-                # Auto-scroll even after timeout
+                # Smart scroll even after timeout to load lazy content
                 if auto_extract:
                     try:
-                        await self.page.evaluate("window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'})")
-                        await asyncio.sleep(0.3)
-                        await self.page.evaluate("window.scrollTo({top: 0, behavior: 'smooth'})")
-                        await asyncio.sleep(0.2)
+                        await self._smart_scroll_for_lazy_content(max_scrolls=2, scroll_delay=0.3)
                     except Exception:
                         pass
 
@@ -1429,7 +1507,7 @@ class PlaywrightBrowser:
             to_top: If True, scroll to page top; otherwise scroll one viewport up
 
         Returns:
-            ToolResult indicating success
+            ToolResult indicating success with scroll metrics
         """
         await self._ensure_page()
         try:
@@ -1444,9 +1522,27 @@ class PlaywrightBrowser:
                 await self.page.evaluate("window.scrollTo({top: 0, behavior: 'smooth'})")
             else:
                 await self.page.evaluate("window.scrollBy({top: -window.innerHeight, behavior: 'smooth'})")
-            # Brief wait for smooth scroll to complete
+
+            # Wait for smooth scroll animation
             await asyncio.sleep(0.3)
-            return ToolResult(success=True)
+
+            # Get scroll position info
+            new_scroll = await self.page.evaluate("window.scrollY")
+            page_height = await self.page.evaluate("document.body.scrollHeight")
+            viewport_height = await self.page.evaluate("window.innerHeight")
+            at_top = new_scroll <= 10
+            scroll_percentage = int((new_scroll + viewport_height) / page_height * 100) if page_height > 0 else 0
+
+            return ToolResult(
+                success=True,
+                message=f"Scrolled {'to top' if to_top else 'up'}. Position: {scroll_percentage}% of page",
+                data={
+                    "scroll_position": new_scroll,
+                    "page_height": page_height,
+                    "at_top": at_top,
+                    "scroll_percentage": scroll_percentage
+                }
+            )
         except Exception as e:
             return ToolResult(success=False, message=f"Scroll up failed: {str(e)}")
 
@@ -1454,13 +1550,13 @@ class PlaywrightBrowser:
         self,
         to_bottom: Optional[bool] = None
     ) -> ToolResult:
-        """Scroll down on the current page
+        """Scroll down on the current page with smart lazy content detection
 
         Args:
             to_bottom: If True, scroll to page bottom; otherwise scroll one viewport down
 
         Returns:
-            ToolResult indicating success
+            ToolResult indicating success with scroll metrics
         """
         await self._ensure_page()
         try:
@@ -1471,13 +1567,45 @@ class PlaywrightBrowser:
             except Exception as e:
                 logger.debug(f"Could not bring page to front: {e}")
 
+            # Get initial metrics for lazy loading detection
+            initial_height = await self.page.evaluate("document.body.scrollHeight")
+            initial_scroll = await self.page.evaluate("window.scrollY")
+            viewport_height = await self.page.evaluate("window.innerHeight")
+
             if to_bottom:
                 await self.page.evaluate("window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'})")
             else:
                 await self.page.evaluate("window.scrollBy({top: window.innerHeight, behavior: 'smooth'})")
-            # Brief wait for smooth scroll and potential lazy loading
-            await asyncio.sleep(0.3)
-            return ToolResult(success=True)
+
+            # Wait for smooth scroll animation
+            await asyncio.sleep(0.35)
+
+            # Check if lazy content loaded (page got taller)
+            new_height = await self.page.evaluate("document.body.scrollHeight")
+            new_scroll = await self.page.evaluate("window.scrollY")
+            lazy_content_loaded = new_height > initial_height
+
+            if lazy_content_loaded:
+                # Wait a bit more for lazy content to fully render
+                await asyncio.sleep(0.2)
+                logger.debug(f"Lazy content detected: page grew from {initial_height} to {new_height}px")
+
+            # Calculate scroll position info
+            at_bottom = (new_scroll + viewport_height) >= (new_height - 50)
+            scroll_percentage = int((new_scroll + viewport_height) / new_height * 100) if new_height > 0 else 0
+
+            return ToolResult(
+                success=True,
+                message=f"Scrolled {'to bottom' if to_bottom else 'down'}. Position: {scroll_percentage}% of page{' (more content loaded)' if lazy_content_loaded else ''}",
+                data={
+                    "scroll_position": new_scroll,
+                    "page_height": new_height,
+                    "viewport_height": viewport_height,
+                    "at_bottom": at_bottom,
+                    "lazy_content_loaded": lazy_content_loaded,
+                    "scroll_percentage": scroll_percentage
+                }
+            )
         except Exception as e:
             return ToolResult(success=False, message=f"Scroll down failed: {str(e)}")
     

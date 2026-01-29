@@ -166,65 +166,67 @@ Research approach:
 # Browser-specific rules - include when browsing needed
 BROWSER_RULES = """
 <browser_rules>
-🌐 STANDARDIZED BROWSING - ONE TOOL, ONE CALL
+🌐 SMART BROWSER USAGE
 
-CRITICAL RULE: Use the "browsing" tool for ALL web tasks - DO NOT break browsing tasks into multiple steps.
+DECISION GUIDE - Choose the right approach:
 
-⚡ SINGLE CALL SOLUTION:
-The "browsing" tool handles EVERYTHING autonomously:
-- Navigation, searching, clicking, scrolling, extracting
-- Multi-page workflows, form filling, data collection
-- Research, comparisons, complex web tasks
+1️⃣ AUTONOMOUS BROWSING (browsing tool) - DEFAULT FOR MOST TASKS:
+   - Standard web tasks (search, navigate, extract information)
+   - Any task where user might want to watch progress in VNC
+   - Shopping, comparisons, product research
+   - Form filling and interactive workflows
+   - Single-page content extraction
 
-❌ DO NOT:
-- Break browsing into multiple sub-tasks
-- Use separate calls for search → click → extract
-- Create plans with multiple browsing steps
-- Use manual browser tools (browser_navigate, browser_click, etc.)
+   Example: "Find the price of iPhone 16 on Apple's website"
+   → ONE call to "browsing" tool - user can watch the process
 
-✅ DO:
-- Pass the ENTIRE browsing task in ONE natural language description
-- Let the autonomous browser handle ALL steps
+2️⃣ FAST TEXT FETCH (browser_get_content) - USE ONLY FOR:
+   - Complex multi-source research requiring 5+ pages quickly
+   - Bulk extraction from many URLs (e.g., comparing specs from 10 product pages)
+   - API documentation or technical references where speed matters
+   - When explicitly asked to work faster without VNC visibility
 
-HOW TO USE - Single natural language description:
+   Example: Deep research comparing 8 different products from official pages
+   → browser_get_content for bulk extraction, then synthesize results
 
-Examples:
-- "Go to example.com and tell me what's on the page"
-- "Search Google for FastAPI tutorials and summarize the top result"
-- "Visit Amazon, search for wireless keyboards, filter by 4+ stars, extract top 3"
-- "Go to httpbin.org/forms/post and fill the form with test data"
-- "Research Python async programming, visit top 3 sites, compare their approaches"
+3️⃣ MANUAL BROWSER TOOLS - USE SPARINGLY FOR:
+   - Precise single-step interactions after autonomous browsing
+   - Debugging when autonomous browsing fails
+   - Taking screenshots of specific states
+   - Following up on autonomous task results
 
-The browsing tool will autonomously:
-- Navigate to pages
-- Search and type in forms
-- Click buttons and links
-- Scroll to find content
-- Extract and process data
-- Handle multi-page workflows
-- Complete complex research tasks
+SMART SCROLLING:
+- browser_navigate auto-scrolls to load lazy content
+- browser_scroll_down detects new content loading
+- After scrolling, use browser_view to see what loaded
+- Check scroll_percentage in results to know position
 
-DO NOT use manual browser tools (browser_navigate, browser_click, browser_view, etc.)
-The "browsing" tool is the ONLY tool you need for all web browsing.
+ELEMENT INTERACTION:
+- browser_navigate returns interactive element indices
+- Use indices with browser_click/browser_input
+- Elements indices change after page updates - refresh with browser_view
+- If click fails, scroll element into view first
 
-Exception - Fast text fetch ONLY:
-- browser_get_content: Only for simple text extraction without rendering (API docs, static pages)
+AVOIDING STUCK PATTERNS:
+- Don't navigate to the same URL repeatedly (content is already there)
+- Don't scroll endlessly - use browser_view to extract content
+- Don't retry failed clicks - refresh element indices first
+- If stuck, try browser_restart for a fresh session
 
-Source Verification:
-- CHECK DATES in auto-extracted content
+SOURCE VERIFICATION:
+- CHECK DATES in extracted content
 - Flag content older than 6 months
-- Search for recent sources if outdated
 - Cross-reference multiple authoritative sources
 
-Security and Sensitive Operations:
+SECURITY:
 - Suggest user takeover for login, payment, credentials
-- Never enter sensitive information
+- Never enter sensitive information (passwords, credit cards)
 - Avoid suspicious links or downloads
 
-Error Handling:
-- If page fails, retry once before reporting
-- For timeouts, try alternative URLs
-- Report blocked content clearly
+ERROR HANDLING:
+- If page fails, retry once then try alternative URL
+- For timeouts, the page may still be usable - check with browser_view
+- Report blocked/paywalled content clearly
 </browser_rules>
 """
 
@@ -412,10 +414,10 @@ When you catch yourself about to make an unverified claim:
 # Efficiency rules (OpenHands-inspired)
 EFFICIENCY_RULES = """
 <efficiency>
-Optimize for cost and speed:
+Optimize for user experience and reliability:
+- Default to autonomous browsing for web tasks (visible in VNC)
+- Use browser_get_content only for bulk extraction (5+ pages)
 - Combine multiple operations when possible
-- Use efficient search patterns (grep, find with filters)
-- Prefer browser_get_content over full navigation for text extraction
 - Batch file operations instead of individual calls
 - Avoid unnecessary tool calls - plan before acting
 </efficiency>

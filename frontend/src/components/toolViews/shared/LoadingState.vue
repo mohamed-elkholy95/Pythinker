@@ -22,6 +22,7 @@ import FileAnimation from './animations/FileAnimation.vue';
 import TerminalAnimation from './animations/TerminalAnimation.vue';
 import CodeAnimation from './animations/CodeAnimation.vue';
 import SpinnerAnimation from './animations/SpinnerAnimation.vue';
+import CheckAnimation from './animations/CheckAnimation.vue';
 
 export interface LoadingStateProps {
   /**
@@ -42,8 +43,9 @@ export interface LoadingStateProps {
    * - terminal: Shell/command operations
    * - code: Code execution
    * - spinner: Generic loading
+   * - check: Completed/success state
    */
-  animation?: 'globe' | 'search' | 'file' | 'terminal' | 'code' | 'spinner';
+  animation?: 'globe' | 'search' | 'file' | 'terminal' | 'code' | 'spinner' | 'check';
 
   /**
    * Whether to show animated dots after label
@@ -68,6 +70,8 @@ const animationComponent = computed(() => {
       return TerminalAnimation;
     case 'code':
       return CodeAnimation;
+    case 'check':
+      return CheckAnimation;
     default:
       return SpinnerAnimation;
   }

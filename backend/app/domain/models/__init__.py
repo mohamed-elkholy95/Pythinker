@@ -12,7 +12,6 @@ from .event import (
     AgentEvent,
     MultiTaskEvent,
     WorkspaceEvent,
-    ScreenshotEvent,
     BudgetEvent,
 )
 from .usage import SessionMetrics
@@ -30,7 +29,6 @@ __all__ = [
     "AgentEvent",
     "MultiTaskEvent",
     "WorkspaceEvent",
-    "ScreenshotEvent",
     "BudgetEvent",
     "SessionMetrics",
 ]

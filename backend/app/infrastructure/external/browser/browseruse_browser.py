@@ -189,25 +189,53 @@ class BrowserUseService:
             return False
 
     def _enhance_task_prompt(self, task: str) -> str:
-        """Enhance task prompt with hardening instructions.
+        """Enhance task prompt with smart browsing instructions.
 
         Args:
             task: Original task
 
         Returns:
-            Enhanced task with safety instructions
+            Enhanced task with smart browsing instructions
         """
-        safety_suffix = """
+        smart_browsing_instructions = """
 
-IMPORTANT INSTRUCTIONS:
-- Skip video sites (YouTube, Vimeo, TikTok, etc.) - they waste time
-- Close any popups, cookie banners, or modal dialogs immediately
-- If a page asks for notifications, deny them
-- Do not play any videos or audio content
-- If stuck on a page, try scrolling or pressing Escape
-- Keep responses concise and output valid JSON only."""
+SMART BROWSING INSTRUCTIONS:
 
-        return task + safety_suffix
+1. PAGE LOADING:
+   - Wait for pages to fully load before interacting (look for loading spinners to disappear)
+   - If content seems incomplete, scroll down to trigger lazy loading
+   - Scroll through the ENTIRE page to load all dynamic content before extracting data
+
+2. CONTENT EXTRACTION:
+   - Always scroll down to see ALL content before concluding what's on a page
+   - For lists/search results, scroll to load more items if pagination exists
+   - Extract text content, not just what's visible in the initial viewport
+   - Look for "Load More", "Show More", or infinite scroll patterns
+
+3. INTERACTION:
+   - Click buttons/links and WAIT for the result before next action
+   - If a click doesn't work, try scrolling the element into view first
+   - For forms, fill all required fields before submitting
+   - Close any popups, cookie banners, or modal dialogs immediately
+
+4. ERROR HANDLING:
+   - If a page fails to load, wait 2 seconds and retry once
+   - If an element is not found, scroll and look again
+   - If stuck, press Escape and try an alternative approach
+   - Report errors clearly rather than guessing
+
+5. RESTRICTIONS:
+   - Skip video sites (YouTube, Vimeo, TikTok, etc.) - they waste time
+   - Do not play videos or audio content
+   - Deny notification requests
+   - Do not enter sensitive information (passwords, credit cards)
+
+6. OUTPUT:
+   - Provide complete, accurate information from what you observe
+   - Include URLs of pages visited for verification
+   - Be specific about what you found vs what you couldn't find"""
+
+        return task + smart_browsing_instructions
 
     async def execute_autonomous_task(
         self,
@@ -215,6 +243,7 @@ IMPORTANT INSTRUCTIONS:
         max_steps: int = 20,
         llm_model: str = "gpt-4o-mini",
         start_url: Optional[str] = None,
+        on_step: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Execute autonomous browsing task with natural language instruction
 
@@ -227,6 +256,7 @@ IMPORTANT INSTRUCTIONS:
             max_steps: Maximum autonomous actions before stopping (default: 20)
             llm_model: LLM model for decision-making (default: gpt-4o-mini)
             start_url: Optional URL to start from
+            on_step: Optional async callback(step_num, action_desc) for progress updates
 
         Returns:
             Dictionary containing:
@@ -304,6 +334,16 @@ IMPORTANT INSTRUCTIONS:
                 }
                 actions_taken.append(action_info)
 
+                # Call progress callback if provided
+                if on_step:
+                    try:
+                        if asyncio.iscoroutinefunction(on_step):
+                            await on_step(i + 1, action_str[:200])
+                        else:
+                            on_step(i + 1, action_str[:200])
+                    except Exception as callback_error:
+                        logger.debug(f"Progress callback error: {callback_error}")
+
             logger.info(f"Autonomous task completed in {len(actions_taken)} steps")
 
             # Get URLs visited and filter out video URLs for reporting
@@ -356,6 +396,45 @@ IMPORTANT INSTRUCTIONS:
             True if initialized, False otherwise
         """
         return self._initialized and self.session is not None
+
+    async def get_current_state(self) -> Dict[str, Any]:
+        """Get current browser state for debugging and monitoring.
+
+        Returns:
+            Dictionary with current URL, page title, and session status
+        """
+        if not self._initialized or not self.session:
+            return {
+                "initialized": False,
+                "error": "Browser session not initialized"
+            }
+
+        try:
+            # Get browser state from session if available
+            state = {
+                "initialized": True,
+                "cdp_url": self.cdp_url,
+                "session_active": self.session is not None,
+            }
+
+            # Try to get current page info
+            if hasattr(self.session, 'browser') and self.session.browser:
+                contexts = self.session.browser.contexts
+                if contexts:
+                    pages = contexts[0].pages
+                    if pages:
+                        current_page = pages[-1]
+                        state["current_url"] = current_page.url
+                        state["page_title"] = await current_page.title()
+                        state["page_count"] = len(pages)
+
+            return state
+
+        except Exception as e:
+            return {
+                "initialized": True,
+                "error": f"Error getting state: {str(e)}"
+            }
 
 
 def is_browser_use_available() -> bool:

@@ -3,7 +3,12 @@ Tests for the stuck detector module.
 """
 
 import pytest
-from app.domain.services.agents.stuck_detector import StuckDetector, ResponseRecord
+from app.domain.services.agents.stuck_detector import (
+    StuckDetector,
+    ResponseRecord,
+    LoopType,
+    StuckAnalysis,
+)
 
 
 class TestResponseRecord:
@@ -183,3 +188,122 @@ class TestStuckDetector:
 
         # Should only keep last 3 responses
         assert len(detector._response_history) == 3
+
+
+class TestBrowserStuckPatterns:
+    """Tests for browser-specific stuck pattern detection"""
+
+    def test_detect_browser_same_page_loop(self):
+        """Test detection of navigating to same URL repeatedly"""
+        detector = StuckDetector()
+
+        # Simulate repeated navigation to same URL
+        same_url_args = {"url": "https://example.com/page"}
+        for _ in range(4):
+            analysis = detector.track_tool_action(
+                tool_name="browser_navigate",
+                tool_args=same_url_args,
+                success=True,
+                result="Page loaded"
+            )
+
+        # Should detect browser same page loop
+        assert analysis is not None
+        assert analysis.loop_type == LoopType.BROWSER_SAME_PAGE_LOOP
+
+    def test_detect_browser_scroll_no_progress(self):
+        """Test detection of scrolling without content extraction"""
+        detector = StuckDetector()
+
+        # Simulate repeated scrolling without browser_view
+        for _ in range(5):
+            analysis = detector.track_tool_action(
+                tool_name="browser_scroll_down",
+                tool_args={},
+                success=True,
+                result="Scrolled down"
+            )
+
+        # Should detect scroll without progress
+        assert analysis is not None
+        assert analysis.loop_type == LoopType.BROWSER_SCROLL_NO_PROGRESS
+
+    def test_detect_browser_click_failures(self):
+        """Test detection of repeated click failures"""
+        detector = StuckDetector()
+
+        # Simulate repeated failed clicks on same element
+        click_args = {"index": 5}
+        for _ in range(4):
+            analysis = detector.track_tool_action(
+                tool_name="browser_click",
+                tool_args=click_args,
+                success=False,
+                error="Element not found"
+            )
+
+        # Should detect click failures
+        assert analysis is not None
+        assert analysis.loop_type == LoopType.BROWSER_CLICK_FAILURES
+
+    def test_no_detection_with_browser_view_between_scrolls(self):
+        """Test that browser_view breaks scroll stuck pattern"""
+        detector = StuckDetector()
+
+        # Scroll, view, scroll, view - should not trigger
+        for _ in range(3):
+            detector.track_tool_action(
+                tool_name="browser_scroll_down",
+                tool_args={},
+                success=True,
+                result="Scrolled"
+            )
+            analysis = detector.track_tool_action(
+                tool_name="browser_view",
+                tool_args={},
+                success=True,
+                result="Page content extracted"
+            )
+
+        # Should NOT detect stuck pattern
+        assert analysis is None or analysis.loop_type != LoopType.BROWSER_SCROLL_NO_PROGRESS
+
+    def test_different_urls_no_detection(self):
+        """Test that navigating to different URLs doesn't trigger"""
+        detector = StuckDetector()
+
+        urls = [
+            "https://example.com/page1",
+            "https://example.com/page2",
+            "https://example.com/page3",
+            "https://example.com/page4",
+        ]
+
+        for url in urls:
+            analysis = detector.track_tool_action(
+                tool_name="browser_navigate",
+                tool_args={"url": url},
+                success=True,
+                result="Page loaded"
+            )
+
+        # Should NOT detect same page loop
+        assert analysis is None or analysis.loop_type != LoopType.BROWSER_SAME_PAGE_LOOP
+
+    def test_recovery_guidance_for_browser_patterns(self):
+        """Test that browser patterns have proper recovery guidance"""
+        detector = StuckDetector()
+
+        # Trigger browser click failures
+        for _ in range(4):
+            detector.track_tool_action(
+                tool_name="browser_click",
+                tool_args={"index": 5},
+                success=False,
+                error="Element not found"
+            )
+
+        guidance = detector.get_recovery_guidance()
+
+        # Should contain browser-specific guidance
+        assert "browser_view" in guidance.lower() or "element" in guidance.lower()

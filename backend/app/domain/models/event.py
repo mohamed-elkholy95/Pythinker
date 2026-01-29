@@ -50,34 +50,28 @@ class PlanEvent(BaseEvent):
 
 class BrowserToolContent(BaseModel):
     """Browser tool content"""
-    screenshot: Optional[str] = None
     content: Optional[str] = None  # Page content (text or HTML)
 
 class SearchToolContent(BaseModel):
     """Search tool content"""
     results: List[SearchResultItem]
-    screenshot: Optional[str] = None
 
 class ShellToolContent(BaseModel):
     """Shell tool content"""
     console: Any
-    screenshot: Optional[str] = None
 
 class FileToolContent(BaseModel):
     """File tool content"""
     content: str
-    screenshot: Optional[str] = None
 
 class McpToolContent(BaseModel):
     """MCP tool content"""
     result: Any
-    screenshot: Optional[str] = None
 
 class BrowserAgentToolContent(BaseModel):
     """Browser agent tool content"""
     result: Any
     steps_taken: int = 0
-    screenshot: Optional[str] = None
 
 ToolContent = Union[
     BrowserToolContent,
@@ -127,9 +121,6 @@ class ToolEvent(BaseEvent):
     display_command: Optional[str] = None  # "Searching 'machine learning'"
     command_category: Optional[str] = None  # "search", "browse", "file", "shell", "code"
     command_summary: Optional[str] = None  # Short summary for UI badges
-
-    # Screenshot association (Phase 2)
-    screenshot_id: Optional[str] = None  # Link to screenshot if captured
 
 class TitleEvent(BaseEvent):
     """Title event"""
@@ -304,17 +295,6 @@ class WorkspaceEvent(BaseEvent):
     manifest_path: Optional[str] = None
 
 
-class ScreenshotEvent(BaseEvent):
-    """Screenshot capture event"""
-    type: Literal["screenshot"] = "screenshot"
-    screenshot_id: str
-    action: str  # "captured", "annotated", "thumbnail_generated"
-    capture_reason: str  # "step_start", "step_complete", "error", "verification"
-    tool_name: Optional[str] = None
-    thumbnail_url: Optional[str] = None  # GridFS URL or base64
-    full_image_url: Optional[str] = None
-
-
 class BudgetEvent(BaseEvent):
     """Budget threshold and exhaustion events"""
     type: Literal["budget"] = "budget"
@@ -349,7 +329,6 @@ AgentEvent = Union[
     PathEvent,
     MultiTaskEvent,
     WorkspaceEvent,
-    ScreenshotEvent,
     BudgetEvent,
     ProgressEvent,
 ]
