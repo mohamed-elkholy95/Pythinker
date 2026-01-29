@@ -216,6 +216,42 @@ class AgentDomainService:
             task.cancel()
         await self._session_repository.update_status(session_id, SessionStatus.COMPLETED)
 
+    async def pause_session(self, session_id: str) -> bool:
+        """Pause a session (for user takeover)
+
+        Returns:
+            bool: True if the session was paused, False otherwise
+        """
+        session = await self._session_repository.find_by_id(session_id)
+        if not session:
+            logger.error(f"Attempted to pause non-existent Session {session_id}")
+            raise RuntimeError("Session not found")
+        task = await self._get_task(session)
+        if task:
+            result = task.pause()
+            if result:
+                logger.info(f"Session {session_id} paused for user takeover")
+            return result
+        return False
+
+    async def resume_session(self, session_id: str) -> bool:
+        """Resume a paused session (after user takeover)
+
+        Returns:
+            bool: True if the session was resumed, False otherwise
+        """
+        session = await self._session_repository.find_by_id(session_id)
+        if not session:
+            logger.error(f"Attempted to resume non-existent Session {session_id}")
+            raise RuntimeError("Session not found")
+        task = await self._get_task(session)
+        if task:
+            result = task.resume()
+            if result:
+                logger.info(f"Session {session_id} resumed after user takeover")
+            return result
+        return False
+
     async def enqueue_user_message(
         self,
         session_id: str,

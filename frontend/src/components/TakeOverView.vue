@@ -59,6 +59,7 @@ import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { MousePointer, X } from 'lucide-vue-next';
 import VNCViewer from './VNCViewer.vue';
+import { resumeSession } from '@/api/agent';
 
 const route = useRoute();
 const { t } = useI18n();
@@ -135,13 +136,24 @@ const sessionId = computed(() => {
 });
 
 // Exit takeover functionality
-const exitTakeOver = () => {
+const exitTakeOver = async () => {
+    const currentSession = sessionId.value;
+
     // Update local state
     takeOverActive.value = false;
     currentSessionId.value = '';
     window.dispatchEvent(new CustomEvent('takeover', {
-        detail: { sessionId: sessionId.value, active: false }
+        detail: { sessionId: currentSession, active: false }
     }));
+
+    // Resume the agent after takeover
+    if (currentSession) {
+        try {
+            await resumeSession(currentSession);
+        } catch (error) {
+            console.error('Failed to resume session:', error);
+        }
+    }
 };
 
 // Expose sessionId for parent component to use

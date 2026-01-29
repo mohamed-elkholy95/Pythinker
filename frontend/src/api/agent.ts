@@ -49,6 +49,24 @@ export async function stopSession(sessionId: string): Promise<void> {
   await apiClient.post<ApiResponse<void>>(`/sessions/${sessionId}/stop`);
 }
 
+/**
+ * Pause a session for user takeover
+ * This pauses agent execution so the user can control the browser via VNC
+ * @param sessionId Session ID to pause
+ */
+export async function pauseSession(sessionId: string): Promise<void> {
+  await apiClient.post<ApiResponse<void>>(`/sessions/${sessionId}/pause`);
+}
+
+/**
+ * Resume a paused session after user takeover
+ * This resumes agent execution after the user finishes their takeover session
+ * @param sessionId Session ID to resume
+ */
+export async function resumeSession(sessionId: string): Promise<void> {
+  await apiClient.post<ApiResponse<void>>(`/sessions/${sessionId}/resume`);
+}
+
 export async function renameSession(sessionId: string, title: string): Promise<void> {
   await apiClient.patch<ApiResponse<void>>(`/sessions/${sessionId}/rename`, { title });
 }

@@ -217,7 +217,7 @@ import type { ToolContent } from '@/types/message';
 import type { PlanEventData } from '@/types/event';
 import { useToolInfo } from '@/composables/useTool';
 import { useContentConfig } from '@/composables/useContentConfig';
-import { viewFile, viewShellSession } from '@/api/agent';
+import { viewFile, viewShellSession, pauseSession } from '@/api/agent';
 import TimelineControls from '@/components/timeline/TimelineControls.vue';
 import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';
 import TaskProgressBar from '@/components/TaskProgressBar.vue';
@@ -721,8 +721,17 @@ const hide = () => {
   emit('hide');
 };
 
-const takeOver = () => {
+const takeOver = async () => {
   if (!props.sessionId) return;
+
+  // Pause the agent before takeover
+  try {
+    await pauseSession(props.sessionId);
+  } catch (error) {
+    console.error('Failed to pause session:', error);
+    // Continue with takeover even if pause fails
+  }
+
   window.dispatchEvent(new CustomEvent('takeover', {
     detail: { sessionId: props.sessionId, active: true }
   }));

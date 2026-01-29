@@ -56,6 +56,28 @@ class Task(Protocol):
         Returns:
             bool: True if the task is cancelled, False otherwise
         """
+
+    def pause(self) -> bool:
+        """Pause a task.
+
+        Returns:
+            bool: True if the task is paused, False otherwise
+        """
+
+    def resume(self) -> bool:
+        """Resume a paused task.
+
+        Returns:
+            bool: True if the task is resumed, False otherwise
+        """
+
+    @property
+    def paused(self) -> bool:
+        """Check if the task is paused.
+
+        Returns:
+            bool: True if the task is paused, False otherwise
+        """
         ...
     
     @property

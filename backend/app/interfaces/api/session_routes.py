@@ -80,6 +80,36 @@ async def stop_session(
     await agent_service.stop_session(session_id, current_user.id)
     return APIResponse.success()
 
+
+@router.post("/{session_id}/pause", response_model=APIResponse[None])
+async def pause_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service)
+) -> APIResponse[None]:
+    """Pause a session for user takeover
+
+    This endpoint pauses the agent execution so the user can take control
+    of the browser via VNC without conflicts.
+    """
+    await agent_service.pause_session(session_id, current_user.id)
+    return APIResponse.success()
+
+
+@router.post("/{session_id}/resume", response_model=APIResponse[None])
+async def resume_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service)
+) -> APIResponse[None]:
+    """Resume a paused session after user takeover
+
+    This endpoint resumes the agent execution after the user finishes
+    their takeover session.
+    """
+    await agent_service.resume_session(session_id, current_user.id)
+    return APIResponse.success()
+
 @router.patch("/{session_id}/rename", response_model=APIResponse[None])
 async def rename_session(
     session_id: str,

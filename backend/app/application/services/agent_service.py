@@ -152,6 +152,32 @@ class AgentService:
         await self._agent_domain_service.stop_session(session_id)
         logger.info(f"Session {session_id} stopped successfully")
 
+    async def pause_session(self, session_id: str, user_id: str) -> bool:
+        """Pause a session for user takeover, ensuring it belongs to the user"""
+        logger.info(f"Pausing session {session_id} for user {user_id}")
+        # First verify the session belongs to the user
+        session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
+        if not session:
+            logger.error(f"Session {session_id} not found for user {user_id}")
+            raise RuntimeError("Session not found")
+        result = await self._agent_domain_service.pause_session(session_id)
+        if result:
+            logger.info(f"Session {session_id} paused successfully")
+        return result
+
+    async def resume_session(self, session_id: str, user_id: str) -> bool:
+        """Resume a paused session after user takeover, ensuring it belongs to the user"""
+        logger.info(f"Resuming session {session_id} for user {user_id}")
+        # First verify the session belongs to the user
+        session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
+        if not session:
+            logger.error(f"Session {session_id} not found for user {user_id}")
+            raise RuntimeError("Session not found")
+        result = await self._agent_domain_service.resume_session(session_id)
+        if result:
+            logger.info(f"Session {session_id} resumed successfully")
+        return result
+
     async def rename_session(self, session_id: str, user_id: str, title: str) -> None:
         """Rename a session, ensuring it belongs to the user"""
         logger.info(f"Renaming session {session_id} for user {user_id} to '{title}'")
