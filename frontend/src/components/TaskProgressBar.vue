@@ -584,19 +584,7 @@ onUnmounted(() => {
   position: absolute;
   left: 12px;
   bottom: 8px;
-  width: 130px;
-  height: 80px;
-  border-radius: 10px;
-  overflow: hidden;
-  border: 1px solid var(--bolt-elements-borderColor);
-  background: var(--bolt-elements-bg-depth-2);
-  cursor: pointer;
-  transition: all 0.2s ease;
   z-index: 10;
-}
-
-.vnc-thumbnail-floating:hover {
-  border-color: var(--bolt-elements-borderColorActive);
 }
 
 .progress-bar-collapsed.has-thumbnail {
