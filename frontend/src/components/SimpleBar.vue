@@ -205,28 +205,39 @@ defineExpose({
 .simplebar-scrollbar:before {
     position: absolute;
     content: "";
-    background: #000;
-    border-radius: 7px;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 9999px;
     opacity: 0;
-    transition: opacity .2s linear .5s
+    transition: opacity .2s ease, background .2s ease
+}
+
+:global(.dark) .simplebar-scrollbar:before {
+    background: rgba(255, 255, 255, 0.15);
 }
 
 .simplebar-scrollbar.simplebar-visible:before {
-    opacity: .5;
+    opacity: 1;
     transition-delay: 0s;
-    transition-duration: 0s
+}
+
+.simplebar-scrollbar:hover:before {
+    background: rgba(0, 0, 0, 0.25);
+}
+
+:global(.dark) .simplebar-scrollbar:hover:before {
+    background: rgba(255, 255, 255, 0.25);
 }
 
 .simplebar-track.simplebar-vertical {
     top: 0;
-    width: 11px
+    width: 8px
 }
 
 .simplebar-scrollbar:before {
     top: 2px;
     bottom: 2px;
-    left: 2px;
-    right: 2px
+    left: 1px;
+    right: 1px
 }
 
 .simplebar-track.simplebar-horizontal {

@@ -4,7 +4,15 @@ from datetime import datetime
 from dataclasses import dataclass
 from app.domain.models.plan import ExecutionStatus, Step
 from app.interfaces.schemas.file import FileInfoResponse
-from app.domain.models.event import ToolStatus, ToolContent, BrowserToolContent
+from app.domain.models.event import (
+    ToolStatus,
+    ToolContent,
+    BrowserToolContent,
+    FileToolContent,
+    ShellToolContent,
+    SearchToolContent,
+    BrowserAgentToolContent,
+)
 from app.domain.models.event import (
     AgentEvent,
     ErrorEvent,
@@ -120,12 +128,36 @@ class ToolSSEEvent(BaseSSEEvent):
     @classmethod
     async def from_event_async(cls, event: ToolEvent) -> Self:
         content = event.tool_content
-        if isinstance(content, BrowserToolContent):
+        # Convert screenshot file IDs to signed URLs for all tool types
+        if content and hasattr(content, 'screenshot') and content.screenshot:
             from app.interfaces.dependencies import get_file_service
-            if content.screenshot:
+            signed_url = await get_file_service().create_signed_url(content.screenshot)
+            # Create new content with signed URL
+            if isinstance(content, BrowserToolContent):
                 content = BrowserToolContent(
-                    screenshot=await get_file_service().create_signed_url(content.screenshot),
-                    content=content.content  # Preserve page content
+                    screenshot=signed_url,
+                    content=content.content
+                )
+            elif isinstance(content, FileToolContent):
+                content = FileToolContent(
+                    content=content.content,
+                    screenshot=signed_url
+                )
+            elif isinstance(content, ShellToolContent):
+                content = ShellToolContent(
+                    console=content.console,
+                    screenshot=signed_url
+                )
+            elif isinstance(content, SearchToolContent):
+                content = SearchToolContent(
+                    results=content.results,
+                    screenshot=signed_url
+                )
+            elif isinstance(content, BrowserAgentToolContent):
+                content = BrowserAgentToolContent(
+                    result=content.result,
+                    steps_taken=content.steps_taken,
+                    screenshot=signed_url
                 )
         return cls(
             data=ToolEventData(

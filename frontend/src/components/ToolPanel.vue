@@ -42,6 +42,7 @@
           :thumbnailUrl="thumbnailUrl"
           :currentTool="currentTool"
           :toolContent="toolContent"
+          :hideExpandedHeader="true"
         />
       </div>
     </div>

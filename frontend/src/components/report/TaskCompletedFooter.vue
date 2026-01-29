@@ -1,9 +1,12 @@
 <template>
-  <div class="task-completed-footer w-[600px] flex items-center justify-between px-4 py-3 mt-2 rounded-xl bg-[var(--fill-tsp-white-main)] border border-[var(--border-light)]">
-    <div class="flex items-center gap-2 flex-shrink-0">
+  <div class="task-completed-footer-wrapper w-full flex items-center justify-between mt-2 gap-4">
+    <!-- Task completed indicator -->
+    <div class="flex items-center gap-2">
       <Check class="w-4 h-4 text-[var(--function-success)]" />
       <span class="text-sm text-[var(--function-success)] font-medium whitespace-nowrap">{{ $t('Task completed') }}</span>
     </div>
+
+    <!-- Rating section - positioned at far right -->
     <div class="flex items-center gap-1 flex-shrink-0">
       <span class="text-xs text-[var(--text-tertiary)] mr-2 whitespace-nowrap">{{ $t('How was this result?') }}</span>
       <div class="flex items-center">
