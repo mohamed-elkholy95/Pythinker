@@ -3,15 +3,13 @@
     class="report-card"
     @click="openReport"
   >
-    <!-- Header -->
-    <div class="report-header">
-      <div class="report-icon">
-        <FileText class="w-5 h-5 text-white" />
-      </div>
-      <div class="flex-1 min-w-0">
-        <h3 class="report-title">
-          {{ report.title }}
-        </h3>
+    <!-- Header Bar -->
+    <div class="report-header-bar">
+      <div class="header-left">
+        <div class="report-icon-small">
+          <FileText class="w-4 h-4 text-white" />
+        </div>
+        <span class="header-title">{{ report.title }}</span>
       </div>
       <!-- More Options Dropdown -->
       <Popover v-model:open="showMenu">
@@ -24,72 +22,68 @@
           </button>
         </PopoverTrigger>
         <PopoverContent
-          :side-offset="8"
+          :side-offset="4"
           align="end"
-          class="w-56 p-1.5"
+          class="menu-popover"
+          :style="{ width: '110px', minWidth: 'unset' }"
           @click.stop
         >
-          <div class="flex flex-col">
+          <div class="menu-list">
             <!-- Preview -->
-            <button
-              class="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-lg transition-colors"
-              @click="handlePreview"
-            >
-              <Sparkles class="w-5 h-5 text-[var(--icon-secondary)]" />
-              Preview
+            <button class="menu-item" @click="handlePreview">
+              <MousePointer2 class="menu-icon" />
+              <span>Preview</span>
             </button>
 
             <!-- Share -->
-            <button
-              class="flex items-center gap-3 px-3 py-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-lg transition-colors"
-              @click="handleShare"
-            >
-              <Share2 class="w-5 h-5 text-[var(--icon-secondary)]" />
-              Share
+            <button class="menu-item" @click="handleShare">
+              <Share2 class="menu-icon" />
+              <span>Share</span>
             </button>
+
+            <div class="menu-divider" />
 
             <!-- Download with submenu -->
             <Popover v-model:open="showDownloadMenu">
               <PopoverTrigger as-child>
                 <button
-                  class="flex items-center justify-between gap-3 px-3 py-2.5 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-lg transition-colors w-full"
+                  class="menu-item menu-item-expandable"
                   @click.stop
                   @mouseenter="showDownloadMenu = true"
                 >
-                  <div class="flex items-center gap-3">
-                    <Download class="w-5 h-5 text-[var(--icon-secondary)]" />
-                    Download
-                  </div>
-                  <ChevronRight class="w-4 h-4 text-[var(--icon-tertiary)]" />
+                  <Download class="menu-icon" />
+                  <span>Download</span>
+                  <ChevronRight class="menu-chevron" />
                 </button>
               </PopoverTrigger>
               <PopoverContent
                 side="right"
-                :side-offset="4"
+                :side-offset="2"
                 align="start"
-                class="w-48 p-1.5"
+                class="submenu-popover"
+                :style="{ width: '100px', minWidth: 'unset' }"
               >
-                <div class="flex flex-col">
-                  <button
-                    class="flex items-center gap-3 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-lg transition-colors"
-                    @click="handleDownloadMarkdown"
-                  >
-                    <FileText class="w-4 h-4 text-[var(--icon-secondary)]" />
-                    Markdown (.md)
+                <div class="menu-list">
+                  <button class="menu-item" @click="handleDownloadMarkdown">
+                    <div class="file-icon file-icon-md">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="8" y1="10" x2="16" y2="10" />
+                        <line x1="8" y1="14" x2="14" y2="14" />
+                      </svg>
+                    </div>
+                    <span>Markdown</span>
                   </button>
-                  <button
-                    class="flex items-center gap-3 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-lg transition-colors"
-                    @click="handleDownloadPdf"
-                  >
-                    <FileDown class="w-4 h-4 text-[#ea4335]" />
-                    PDF Document
+                  <button class="menu-item" @click="handleDownloadPdf">
+                    <div class="file-icon file-icon-pdf">
+                      <span class="file-icon-text">A</span>
+                    </div>
+                    <span>PDF</span>
                   </button>
-                  <button
-                    class="flex items-center gap-3 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-lg transition-colors"
-                    @click="handleDownloadDocx"
-                  >
-                    <FileType class="w-4 h-4 text-[#4285f4]" />
-                    Word (.docx)
+                  <button class="menu-item" @click="handleDownloadDocx">
+                    <div class="file-icon file-icon-docx">
+                      <span class="file-icon-text">W</span>
+                    </div>
+                    <span>Docx</span>
                   </button>
                 </div>
               </PopoverContent>
@@ -99,13 +93,31 @@
       </Popover>
     </div>
 
-    <!-- Content Preview - Rendered Markdown -->
-    <div class="report-content" v-if="report.content">
-      <div
-        class="report-preview"
-        v-html="renderedPreview"
-      ></div>
-      <div class="report-fade"></div>
+    <!-- Document Content Area with Left Border Accent -->
+    <div class="document-content">
+      <div class="content-inner">
+        <!-- Metadata: Author and Date stacked -->
+        <div class="document-meta">
+          <div class="meta-item">
+            <span class="meta-label">Author:</span>
+            <span class="meta-value">{{ report.author || 'Pythinker AI' }}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Date:</span>
+            <span class="meta-value">{{ formatDateLong(report.lastModified) }}</span>
+          </div>
+        </div>
+
+        <!-- Content Preview using Tiptap -->
+        <div class="content-preview-container">
+          <TiptapReportEditor
+            v-if="report.content"
+            :content="processedContent"
+            :compact="true"
+          />
+          <div class="content-fade"></div>
+        </div>
+      </div>
     </div>
 
     <!-- Suggested Follow-ups Section -->
@@ -142,22 +154,19 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { marked } from 'marked';
-import DOMPurify from 'dompurify';
 import { saveAs } from 'file-saver';
 import {
   FileText,
   MoreHorizontal,
   MessageSquare,
   ArrowRight,
-  Sparkles,
+  MousePointer2,
   Share2,
   Download,
-  ChevronRight,
-  FileDown,
-  FileType
+  ChevronRight
 } from 'lucide-vue-next';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import TiptapReportEditor from './TiptapReportEditor.vue';
 import type { ReportData, ReportSection } from './types';
 
 export type { ReportData, ReportSection };
@@ -183,39 +192,40 @@ const getSuggestionIcon = (index: number) => {
   return icons[index % icons.length];
 };
 
-// Render preview markdown content (limited to first few sections)
-const renderedPreview = computed(() => {
+// Process content for preview - limit to first ~1500 chars for compact card
+const processedContent = computed(() => {
   if (!props.report.content) return '';
 
-  // Take first ~2500 chars or until we have enough content
   const lines = props.report.content.split('\n');
   let preview = '';
   let charCount = 0;
 
   for (const line of lines) {
-    // Skip the title (h1)
+    // Skip the title (h1) - shown in header
     if (line.startsWith('# ')) continue;
     preview += line + '\n';
     charCount += line.length;
-    if (charCount > 2500) break;
+    if (charCount > 1500) break;
   }
 
-  try {
-    const html = marked.parse(preview, { breaks: true, gfm: true });
-    return DOMPurify.sanitize(html as string);
-  } catch {
-    return preview;
-  }
+  return preview;
 });
 
-const _formatDate = (timestamp: number) => {
+const formatDate = (timestamp: number) => {
   const date = new Date(timestamp);
   return date.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit'
+    year: 'numeric'
+  });
+};
+
+const formatDateLong = (timestamp: number) => {
+  const date = new Date(timestamp);
+  return date.toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric'
   });
 };
 
@@ -296,65 +306,67 @@ const _handleSaveToOneDriveWork = () => {
 /* ===== CARD CONTAINER ===== */
 .report-card {
   width: 100%;
-  max-width: 600px;
+  max-width: 520px;
   min-width: 0;
-  border-radius: 16px;
+  border-radius: 10px;
   overflow: hidden;
   cursor: pointer;
-  background: var(--background-card);
-  border: 1px solid var(--bolt-elements-borderColor);
+  background: var(--background-white-main);
+  border: 1px solid var(--border-main);
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .report-card:hover {
   border-color: var(--bolt-elements-borderColorActive);
-  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
-/* ===== HEADER ===== */
-.report-header {
+/* ===== HEADER BAR ===== */
+.report-header-bar {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 16px;
-  transition: background-color 0.15s ease;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--fill-tsp-gray-main);
 }
 
-.report-card:hover .report-header {
-  background: var(--bolt-elements-item-backgroundActive);
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
 }
 
-.report-icon {
+.report-icon-small {
   flex-shrink: 0;
-  width: 42px;
-  height: 42px;
-  border-radius: 10px;
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
   background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
 }
 
-.report-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
-  line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+.header-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .report-menu-btn {
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: 6px;
   color: var(--icon-tertiary);
   transition: all 0.15s ease;
   opacity: 0;
@@ -369,23 +381,61 @@ const _handleSaveToOneDriveWork = () => {
   color: var(--icon-secondary);
 }
 
-/* ===== CONTENT ===== */
-.report-content {
-  padding: 0 16px 16px;
+/* ===== DOCUMENT CONTENT ===== */
+.document-content {
+  padding: 14px 16px;
   position: relative;
 }
 
-.report-fade {
-  height: 32px;
-  background: linear-gradient(to top, var(--background-card) 0%, transparent 100%);
-  margin-top: -32px;
+.content-inner {
+  padding-left: 14px;
+  border-left: 3px solid #3b82f6;
+}
+
+.document-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-bottom: 12px;
+}
+
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.meta-label {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.meta-value {
+  color: var(--text-secondary);
+}
+
+/* ===== CONTENT PREVIEW ===== */
+.content-preview-container {
   position: relative;
+  max-height: 180px;
+  overflow: hidden;
+}
+
+.content-fade {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: linear-gradient(to top, var(--background-white-main) 0%, transparent 100%);
   pointer-events: none;
 }
 
 /* ===== SUGGESTIONS ===== */
 .suggestions-section {
-  border-top: 1px solid var(--bolt-elements-borderColor);
+  border-top: 1px solid var(--border-main);
 }
 
 .suggestions-header {
@@ -408,7 +458,7 @@ const _handleSaveToOneDriveWork = () => {
   gap: 12px;
   padding: 14px 16px;
   cursor: pointer;
-  border-top: 1px solid var(--bolt-elements-borderColor);
+  border-top: 1px solid var(--border-light);
   transition: all 0.15s ease;
 }
 
@@ -425,7 +475,7 @@ const _handleSaveToOneDriveWork = () => {
   justify-content: center;
   border-radius: 50%;
   background: var(--bolt-elements-bg-depth-4);
-  border: 1px solid var(--bolt-elements-borderColor);
+  border: 1px solid var(--border-light);
   transition: all 0.15s ease;
 }
 
@@ -467,80 +517,114 @@ const _handleSaveToOneDriveWork = () => {
   color: #3b82f6;
 }
 
-/* ===== LINE CLAMP ===== */
-.line-clamp-2 {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+/* ===== MENU POPOVER ===== */
+:deep(.menu-popover),
+:deep(.submenu-popover) {
+  padding: 4px !important;
+  background: var(--background-white-main) !important;
+  border: 1px solid var(--border-light) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1) !important;
 }
 
-/* ===== REPORT PREVIEW MARKDOWN ===== */
-.report-preview {
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--text-secondary);
-  max-height: 320px;
-  overflow: hidden;
+.menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 450;
+  color: var(--text-primary);
+  border-radius: 5px;
+  transition: background 0.15s ease;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.menu-item:hover {
+  background: var(--fill-tsp-gray-main);
+}
+
+.menu-item-expandable {
+  justify-content: flex-start;
+}
+
+.menu-item-expandable span {
+  flex: 1;
+}
+
+.menu-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--icon-secondary);
+  flex-shrink: 0;
+}
+
+.menu-chevron {
+  width: 12px;
+  height: 12px;
+  color: var(--icon-tertiary);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.menu-divider {
+  height: 1px;
+  background: var(--border-light);
+  margin: 3px 0;
+}
+
+/* ===== FILE TYPE ICONS ===== */
+.file-icon {
+  width: 18px;
+  height: 22px;
+  border-radius: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
   position: relative;
 }
 
-.report-preview :deep(h2),
-.report-preview :deep(h3),
-.report-preview :deep(h4) {
-  @apply text-[var(--text-primary)] font-semibold mt-4 mb-2;
+.file-icon::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 5px;
+  height: 5px;
+  background: var(--background-white-main);
+  border-bottom-left-radius: 1px;
 }
 
-.report-preview :deep(h2) {
-  @apply text-[18px];
+.file-icon-md {
+  background: #4285f4;
+  color: white;
 }
 
-.report-preview :deep(h3) {
-  @apply text-[16px];
+.file-icon-md svg {
+  width: 10px;
+  height: 10px;
 }
 
-.report-preview :deep(h4) {
-  @apply text-[14px];
+.file-icon-pdf {
+  background: #ea4335;
 }
 
-.report-preview :deep(p) {
-  @apply my-2 leading-relaxed;
+.file-icon-docx {
+  background: #4285f4;
 }
 
-.report-preview :deep(strong) {
-  @apply text-[var(--text-primary)] font-semibold;
-}
-
-.report-preview :deep(table) {
-  @apply w-full border-collapse my-3 text-xs;
-}
-
-.report-preview :deep(th) {
-  @apply bg-[var(--fill-tsp-white-main)] text-left px-2 py-1.5 text-[var(--text-tertiary)] font-medium border-b border-[var(--border-main)];
-}
-
-.report-preview :deep(td) {
-  @apply px-2 py-1.5 text-[var(--text-secondary)] border-b border-[var(--border-main)];
-}
-
-.report-preview :deep(ul),
-.report-preview :deep(ol) {
-  @apply my-2 pl-5;
-}
-
-.report-preview :deep(li) {
-  @apply my-1;
-}
-
-.report-preview :deep(code) {
-  @apply bg-[var(--fill-tsp-white-main)] px-1 py-0.5 rounded text-xs;
-}
-
-.report-preview :deep(pre) {
-  @apply bg-[var(--fill-tsp-white-main)] p-2 rounded my-2 overflow-hidden;
-}
-
-.report-preview :deep(a) {
-  @apply text-[#1a73e8] no-underline hover:underline;
+.file-icon-text {
+  font-size: 9px;
+  font-weight: 700;
+  color: white;
+  line-height: 1;
 }
 </style>
