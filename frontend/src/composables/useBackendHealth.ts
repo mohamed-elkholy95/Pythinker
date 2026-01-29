@@ -1,5 +1,5 @@
-import { ref, onMounted, onUnmounted } from 'vue';
-import { apiClient, BASE_URL } from '@/api/client';
+import { ref, onUnmounted } from 'vue';
+import { apiClient } from '@/api/client';
 
 interface HealthStatus {
   isHealthy: boolean;

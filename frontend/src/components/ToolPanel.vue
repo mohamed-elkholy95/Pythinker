@@ -123,6 +123,12 @@ const hideToolPanel = (userTriggered: boolean = false) => {
   isShow.value = false
 }
 
+const clearContent = () => {
+  toolContent.value = undefined
+  live.value = false
+  isShow.value = false
+}
+
 const jumpToRealTime = () => {
   emit('jumpToRealTime')
 }
@@ -153,6 +159,7 @@ onUnmounted(() => {
 defineExpose({
   showToolPanel,
   hideToolPanel,
+  clearContent,
   isShow
 })
 </script>

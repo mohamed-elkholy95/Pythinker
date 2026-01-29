@@ -207,20 +207,20 @@ class TestSessionWorkspaceInitializer:
         self, initializer, test_session, mock_sandbox, mock_session_repository
     ):
         """Test workspace initialization handles selector errors gracefully."""
-        with patch("app.domain.services.workspace.session_workspace_initializer.WorkspaceSelector") as mock_selector_class:
-            mock_selector_class.return_value.select_template.side_effect = Exception("Selector error")
+        # Patch the selector instance's method directly
+        initializer._selector.select_template = MagicMock(side_effect=Exception("Selector error"))
 
-            result = await initializer.initialize_workspace_if_needed(
-                session=test_session,
-                sandbox=mock_sandbox,
-                task_description="Some task",
-            )
+        result = await initializer.initialize_workspace_if_needed(
+            session=test_session,
+            sandbox=mock_sandbox,
+            task_description="Some task",
+        )
 
-            # Should return None on error
-            assert result is None
+        # Should return None on error
+        assert result is None
 
-            # Session should not be updated
-            assert test_session.workspace_structure is None
+        # Session should not be updated
+        assert test_session.workspace_structure is None
 
     @pytest.mark.asyncio
     async def test_initialize_workspace_handles_organizer_error(

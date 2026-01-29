@@ -211,7 +211,6 @@ import { useContentConfig } from '@/composables/useContentConfig';
 import { viewFile, viewShellSession } from '@/api/agent';
 import TimelineControls from '@/components/timeline/TimelineControls.vue';
 import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';
-import { showErrorToast, showSuccessToast } from '@/utils/toast';
 
 // Content views
 import VNCContentView from '@/components/toolViews/VNCContentView.vue';

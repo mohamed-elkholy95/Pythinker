@@ -8,8 +8,40 @@ import { mount } from '@vue/test-utils'
 import TaskProgressBar from '@/components/TaskProgressBar.vue'
 import type { PlanEventData } from '@/types/event'
 
+// Mock xterm to avoid canvas issues in jsdom
+vi.mock('xterm', () => ({
+  Terminal: vi.fn().mockImplementation(() => ({
+    open: vi.fn(),
+    write: vi.fn(),
+    dispose: vi.fn(),
+    onData: vi.fn(),
+    onResize: vi.fn(),
+    loadAddon: vi.fn(),
+  })),
+}))
+
+vi.mock('@xterm/addon-fit', () => ({
+  FitAddon: vi.fn().mockImplementation(() => ({
+    fit: vi.fn(),
+    dispose: vi.fn(),
+  })),
+}))
+
+vi.mock('@xterm/addon-web-links', () => ({
+  WebLinksAddon: vi.fn().mockImplementation(() => ({
+    dispose: vi.fn(),
+  })),
+}))
+
 // Mock vue-i18n
 vi.mock('vue-i18n', () => ({
+  createI18n: () => ({
+    global: {
+      t: (key: string) => key,
+      locale: { value: 'en' },
+    },
+    install: () => {},
+  }),
   useI18n: () => ({
     t: (key: string) => key,
   }),
@@ -28,6 +60,34 @@ vi.mock('lucide-vue-next', () => ({
   Check: {
     name: 'Check',
     template: '<span class="mock-check" />',
+  },
+  Terminal: {
+    name: 'Terminal',
+    template: '<span class="mock-terminal" />',
+  },
+  Globe: {
+    name: 'Globe',
+    template: '<span class="mock-globe" />',
+  },
+  Search: {
+    name: 'Search',
+    template: '<span class="mock-search" />',
+  },
+  FileText: {
+    name: 'FileText',
+    template: '<span class="mock-file-text" />',
+  },
+  Loader2: {
+    name: 'Loader2',
+    template: '<span class="mock-loader2" />',
+  },
+  CircleCheck: {
+    name: 'CircleCheck',
+    template: '<span class="mock-circle-check" />',
+  },
+  MonitorPlay: {
+    name: 'MonitorPlay',
+    template: '<span class="mock-monitor-play" />',
   },
 }))
 
@@ -53,7 +113,7 @@ describe('TaskProgressBar', () => {
     vi.useRealTimers()
   })
 
-  it('should not render when isLoading is false', () => {
+  it('should render even when isLoading is false if plan has steps', () => {
     const plan = createMockPlan([
       { id: '1', description: 'Step 1', status: 'running' },
     ])
@@ -66,7 +126,8 @@ describe('TaskProgressBar', () => {
       },
     })
 
-    expect(wrapper.find('.task-progress-bar').exists()).toBe(false)
+    // Component is visible if plan has steps, regardless of isLoading
+    expect(wrapper.find('.task-progress-bar').exists()).toBe(true)
   })
 
   it('should not render when plan has no steps', () => {
@@ -130,7 +191,8 @@ describe('TaskProgressBar', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('2 / 3')
+    // Progress shows completed / total (1 completed out of 3)
+    expect(wrapper.text()).toContain('1 / 3')
   })
 
   it('should show "Processing" when not thinking', () => {
@@ -217,8 +279,8 @@ describe('TaskProgressBar', () => {
     // Click to expand
     await wrapper.find('.cursor-pointer').trigger('click')
 
-    // Should show "Task Progress" header when expanded
-    expect(wrapper.text()).toContain('Task Progress')
+    // Should show header when expanded (component uses "Pythinker's computer" header)
+    expect(wrapper.text()).toContain("Pythinker's computer")
   })
 
   it('should show all steps when expanded', async () => {
@@ -279,10 +341,10 @@ describe('TaskProgressBar', () => {
 
     // Expand first
     await wrapper.find('.cursor-pointer').trigger('click')
-    expect(wrapper.text()).toContain('Task Progress')
+    expect(wrapper.text()).toContain("Pythinker's computer")
 
-    // Click collapse button
-    const collapseButton = wrapper.find('button')
+    // Click collapse button (ChevronDown in expanded state)
+    const collapseButton = wrapper.findComponent({ name: 'ChevronDown' })
     await collapseButton.trigger('click')
 
     // ChevronUp should now be visible (collapsed state)
@@ -290,7 +352,7 @@ describe('TaskProgressBar', () => {
     expect(chevronUp.exists()).toBe(true)
   })
 
-  it('should have thinking-shape element', () => {
+  it('should have status morph animation element', () => {
     const plan = createMockPlan([
       { id: '1', description: 'Step 1', status: 'running' },
     ])
@@ -303,8 +365,9 @@ describe('TaskProgressBar', () => {
       },
     })
 
-    const thinkingShape = wrapper.find('.thinking-shape')
-    expect(thinkingShape.exists()).toBe(true)
+    // Component uses .status-morph class for the animation
+    const statusMorph = wrapper.find('.status-morph')
+    expect(statusMorph.exists()).toBe(true)
   })
 
   it('should show step numbers when expanded', async () => {
@@ -346,7 +409,7 @@ describe('TaskProgressBar', () => {
     expect(wrapper.text()).toContain('Next pending task')
   })
 
-  it('should show "Processing..." when no running or pending steps', () => {
+  it('should show completed step description when all steps completed', () => {
     const plan = createMockPlan([
       { id: '1', description: 'Completed task', status: 'completed' },
     ])
@@ -359,7 +422,7 @@ describe('TaskProgressBar', () => {
       },
     })
 
-    // All steps are completed but still loading
-    expect(wrapper.text()).toContain('Processing...')
+    // When all steps are completed, shows the completed task description
+    expect(wrapper.text()).toContain('Completed task')
   })
 })

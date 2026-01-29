@@ -2,7 +2,8 @@ import asyncio
 import json
 import logging
 import re
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Set, List
+from urllib.parse import urlparse
 
 # browser_use is an optional dependency
 try:
@@ -19,6 +20,42 @@ from app.domain.models.tool_result import ToolResult
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# URL FILTERING - Skip video sites and heavy media content
+# =============================================================================
+
+VIDEO_DOMAINS: Set[str] = {
+    "youtube.com", "youtu.be", "vimeo.com", "dailymotion.com",
+    "twitch.tv", "tiktok.com", "netflix.com", "hulu.com",
+    "disneyplus.com", "primevideo.com", "hbomax.com", "max.com",
+    "crunchyroll.com", "rumble.com", "bitchute.com", "odysee.com",
+    "bilibili.com", "nicovideo.jp", "pornhub.com", "xvideos.com",
+}
+
+VIDEO_EXTENSIONS: Set[str] = {".mp4", ".webm", ".avi", ".mov", ".mkv", ".flv", ".m3u8"}
+
+
+def is_video_url(url: str) -> bool:
+    """Check if URL is a video URL that should be skipped."""
+    if not url:
+        return False
+    try:
+        parsed = urlparse(url.lower())
+        domain = parsed.netloc.replace("www.", "")
+        # Check domain
+        if domain in VIDEO_DOMAINS:
+            return True
+        # Check extension
+        for ext in VIDEO_EXTENSIONS:
+            if parsed.path.endswith(ext):
+                return True
+        # Check patterns
+        if "/watch?v=" in url or "/video/" in url or "/embed/" in url:
+            return True
+    except Exception:
+        pass
+    return False
 
 
 def extract_first_json(text: str) -> str:
@@ -229,14 +266,28 @@ class BrowserAgentTool(BaseTool):
     def _sanitize_task_prompt(self, task: str) -> str:
         """Sanitize and optimize task prompt for better LLM compliance
 
+        Adds hardening instructions to:
+        - Skip video sites
+        - Close popups/dialogs
+        - Handle cookie banners
+        - Maintain efficiency
+
         Args:
             task: Original task description
 
         Returns:
-            Optimized task prompt
+            Optimized task prompt with safety instructions
         """
-        # Add instruction for clean JSON output
-        suffix = "\n\nIMPORTANT: Keep responses concise and output valid JSON only."
+        suffix = """
+
+CRITICAL INSTRUCTIONS:
+1. SKIP video sites (YouTube, Vimeo, TikTok, Netflix, etc.) - navigate away immediately
+2. CLOSE popups, modal dialogs, and cookie consent banners immediately when they appear
+3. DENY notification requests - click "Block" or "No thanks"
+4. DO NOT play videos or audio - skip media content entirely
+5. If a page loads slowly or is stuck, press Escape and try an alternative
+6. If you encounter a CAPTCHA, report it and move on
+7. Keep responses concise and output valid JSON only."""
         return task + suffix
 
     async def _run_agent_task(
@@ -247,6 +298,12 @@ class BrowserAgentTool(BaseTool):
     ) -> Dict[str, Any]:
         """Execute browser agent task with comprehensive error handling and timeout protection
 
+        Features:
+        - Video URL filtering (auto-skip)
+        - Popup/dialog handling instructions
+        - Timeout protection at multiple levels
+        - Graceful error recovery
+
         Args:
             task: Natural language task description
             start_url: Optional URL to start from
@@ -255,6 +312,16 @@ class BrowserAgentTool(BaseTool):
         Returns:
             Task execution result dictionary
         """
+        # Check if start_url is a video URL - skip immediately
+        if start_url and is_video_url(start_url):
+            logger.info(f"Skipping video URL: {start_url}")
+            return {
+                "success": False,
+                "error": f"Skipped video URL (not supported): {start_url}",
+                "result": None,
+                "skipped_reason": "video_url",
+            }
+
         browser = await self._get_browser()
         llm = self._get_llm()
 
@@ -265,7 +332,7 @@ class BrowserAgentTool(BaseTool):
         if start_url:
             task = f"First navigate to {start_url}, then: {task}"
 
-        # Sanitize task prompt
+        # Sanitize task prompt (adds hardening instructions)
         task = self._sanitize_task_prompt(task)
 
         # Create agent with robust configuration
@@ -294,21 +361,37 @@ class BrowserAgentTool(BaseTool):
             is_successful = history.is_successful() if history else False
             has_errors = history.has_errors() if history else False
 
-            # Get URLs visited (simplified - no granular actions)
-            urls_visited = history.urls() if history else []
+            # Get URLs visited and filter out video URLs
+            all_urls = history.urls() if history else []
+            urls_visited = []
+            skipped_video_urls = []
+
+            for url in (all_urls or []):
+                if is_video_url(url):
+                    skipped_video_urls.append(url)
+                    logger.debug(f"Filtered video URL from results: {url}")
+                else:
+                    urls_visited.append(url)
 
             # Clean up the final result if it contains markdown fences
             if final_result:
                 final_result = self._clean_llm_response(final_result)
 
             # Simplified response - no granular action details
-            return {
+            result = {
                 "success": is_successful if is_successful is not None else (not has_errors),
                 "result": final_result,
                 "steps_taken": steps_taken,
                 "has_errors": has_errors,
-                "urls_visited": urls_visited[:5] if urls_visited else [],  # Only show URLs visited
+                "urls_visited": urls_visited[:5] if urls_visited else [],
             }
+
+            # Include skipped URLs if any were filtered
+            if skipped_video_urls:
+                result["skipped_video_urls"] = skipped_video_urls[:3]
+                logger.info(f"Skipped {len(skipped_video_urls)} video URL(s) during task")
+
+            return result
 
         except asyncio.TimeoutError:
             logger.warning(f"Browser agent task timed out after {timeout}s: {task[:50]}...")

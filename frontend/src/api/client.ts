@@ -319,7 +319,6 @@ export const createSSEConnection = async <T = any>(
   const baseDelay = 1000; // 1 second
   const maxDelay = 30000; // 30 seconds
   let reconnectTimeout: NodeJS.Timeout | null = null;
-  let isConnected = false;
 
   // Calculate exponential backoff delay
   const getRetryDelay = (attempt: number): number => {
@@ -386,8 +385,6 @@ export const createSSEConnection = async <T = any>(
 
           // Connection successful - reset retry counter
           retryCount = 0;
-          isConnected = true;
-
           if (onOpen) {
             onOpen();
           }
@@ -403,7 +400,6 @@ export const createSSEConnection = async <T = any>(
           }
         },
         onclose() {
-          isConnected = false;
           if (onClose) {
             onClose();
           }
@@ -425,7 +421,6 @@ export const createSSEConnection = async <T = any>(
           }
         },
         onerror(err: any) {
-          isConnected = false;
           const error = err instanceof Error ? err : new Error(String(err));
           console.error('EventSource error:', error);
 
