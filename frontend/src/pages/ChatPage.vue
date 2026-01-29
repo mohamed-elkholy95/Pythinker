@@ -520,6 +520,7 @@ onUnmounted(() => {
     clearInterval(canvasPollingInterval);
     canvasPollingInterval = null;
   }
+  stopPlanningMessageCycle();
 });
 
 const getLastStep = (): StepContent | undefined => {
@@ -1228,6 +1229,7 @@ const handleStop = () => {
   isThinkingStreaming.value = false;
   isInitializing.value = false;
   planningProgress.value = null;
+  stopPlanningMessageCycle();
 }
 
 const handleFileListShow = () => {
@@ -1368,6 +1370,56 @@ const handleCopyLink = async () => {
   }
   100% {
     background-position: 0% 100%;
+  }
+}
+
+/* ===== PLANNING PROGRESS SHIMMER ===== */
+.planning-progress-indicator {
+  transition: all 0.3s ease;
+}
+
+.planning-text-shimmer {
+  background: linear-gradient(
+    120deg,
+    #374151 0%,
+    #374151 35%,
+    #3b82f6 50%,
+    #374151 65%,
+    #374151 100%
+  );
+  background-size: 300% 300%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: planning-shimmer 2.5s ease-in-out infinite;
+}
+
+/* Dark mode - planning shimmer */
+:deep(.dark) .planning-text-shimmer,
+.dark .planning-text-shimmer {
+  background: linear-gradient(
+    120deg,
+    #e5e7eb 0%,
+    #e5e7eb 35%,
+    #60a5fa 50%,
+    #e5e7eb 65%,
+    #e5e7eb 100%
+  );
+  background-size: 300% 300%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+@keyframes planning-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  50% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 100% 50%;
   }
 }
 </style>
