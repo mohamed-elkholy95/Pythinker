@@ -15,6 +15,7 @@ Usage:
     record_llm_call(model="claude-sonnet-4", status="success", latency=1.5, tokens=500)
     record_tool_call(tool="file_read", status="success", latency=0.1)
 """
+
 import logging
 import time
 from collections import defaultdict
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Counter:
     """Prometheus-style counter metric."""
+
     name: str
     help_text: str
     labels: list[str]
@@ -51,18 +53,21 @@ class Counter:
         with self._lock:
             for label_tuple, value in self._values.items():
                 label_dict = dict(zip(self.labels, label_tuple))
-                result.append({
-                    "name": self.name,
-                    "type": "counter",
-                    "labels": label_dict,
-                    "value": value,
-                })
+                result.append(
+                    {
+                        "name": self.name,
+                        "type": "counter",
+                        "labels": label_dict,
+                        "value": value,
+                    }
+                )
         return result
 
 
 @dataclass
 class Gauge:
     """Prometheus-style gauge metric."""
+
     name: str
     help_text: str
     labels: list[str]
@@ -98,18 +103,21 @@ class Gauge:
         with self._lock:
             for label_tuple, value in self._values.items():
                 label_dict = dict(zip(self.labels, label_tuple))
-                result.append({
-                    "name": self.name,
-                    "type": "gauge",
-                    "labels": label_dict,
-                    "value": value,
-                })
+                result.append(
+                    {
+                        "name": self.name,
+                        "type": "gauge",
+                        "labels": label_dict,
+                        "value": value,
+                    }
+                )
         return result
 
 
 @dataclass
 class Histogram:
     """Prometheus-style histogram metric."""
+
     name: str
     help_text: str
     labels: list[str]
@@ -134,20 +142,22 @@ class Histogram:
                 bucket_counts = {}
                 for bucket in self.buckets:
                     bucket_counts[bucket] = sum(1 for v in values if v <= bucket)
-                bucket_counts[float('inf')] = len(values)
+                bucket_counts[float("inf")] = len(values)
 
                 # Calculate sum and count
                 total_sum = sum(values)
                 total_count = len(values)
 
-                result.append({
-                    "name": self.name,
-                    "type": "histogram",
-                    "labels": label_dict,
-                    "buckets": bucket_counts,
-                    "sum": total_sum,
-                    "count": total_count,
-                })
+                result.append(
+                    {
+                        "name": self.name,
+                        "type": "histogram",
+                        "labels": label_dict,
+                        "buckets": bucket_counts,
+                        "sum": total_sum,
+                        "count": total_count,
+                    }
+                )
         return result
 
 
@@ -202,6 +212,70 @@ errors_total = Counter(
     labels=["type", "component"],
 )
 
+# Phase 6: Circuit Breaker Metrics
+circuit_breaker_state = Gauge(
+    name="pythinker_circuit_breaker_state",
+    help_text="Circuit breaker state (0=closed, 1=half_open, 2=open)",
+    labels=["name"],
+)
+
+circuit_breaker_calls = Counter(
+    name="pythinker_circuit_breaker_calls_total",
+    help_text="Total circuit breaker calls",
+    labels=["name", "result"],  # result: success, failure, rejected
+)
+
+circuit_breaker_state_changes = Counter(
+    name="pythinker_circuit_breaker_state_changes_total",
+    help_text="Total circuit breaker state changes",
+    labels=["name", "from_state", "to_state"],
+)
+
+# Phase 6: LLM Concurrency Metrics
+llm_concurrent_requests = Gauge(
+    name="pythinker_llm_concurrent_requests",
+    help_text="Current number of concurrent LLM requests",
+    labels=[],
+)
+
+llm_queue_waiting = Gauge(
+    name="pythinker_llm_queue_waiting",
+    help_text="Number of LLM requests waiting in queue",
+    labels=[],
+)
+
+# Phase 6: Token Budget Metrics
+token_budget_used = Gauge(
+    name="pythinker_token_budget_used",
+    help_text="Tokens used in current session",
+    labels=["session_id"],
+)
+
+token_budget_remaining = Gauge(
+    name="pythinker_token_budget_remaining",
+    help_text="Tokens remaining in current session budget",
+    labels=["session_id"],
+)
+
+# Phase 6: Cache Metrics
+cache_hits = Counter(
+    name="pythinker_cache_hits_total",
+    help_text="Total cache hits",
+    labels=["cache_type"],  # embedding, reasoning, tool_result
+)
+
+cache_misses = Counter(
+    name="pythinker_cache_misses_total",
+    help_text="Total cache misses",
+    labels=["cache_type"],
+)
+
+cache_size = Gauge(
+    name="pythinker_cache_size",
+    help_text="Current cache size (entries)",
+    labels=["cache_type"],
+)
+
 
 # Registry of all metrics
 _metrics_registry = [
@@ -213,6 +287,20 @@ _metrics_registry = [
     active_sessions,
     active_agents,
     errors_total,
+    # Phase 6: Circuit Breaker
+    circuit_breaker_state,
+    circuit_breaker_calls,
+    circuit_breaker_state_changes,
+    # Phase 6: Concurrency
+    llm_concurrent_requests,
+    llm_queue_waiting,
+    # Phase 6: Token Budget
+    token_budget_used,
+    token_budget_remaining,
+    # Phase 6: Cache
+    cache_hits,
+    cache_misses,
+    cache_size,
 ]
 
 
@@ -281,6 +369,92 @@ def update_active_agents(count: int) -> None:
     active_agents.set({}, count)
 
 
+# Phase 6: Circuit Breaker Metric Functions
+def record_circuit_breaker_state(name: str, state: str) -> None:
+    """Record circuit breaker state.
+
+    Args:
+        name: Circuit breaker name
+        state: State string ("closed", "half_open", "open")
+    """
+    state_map = {"closed": 0, "half_open": 1, "open": 2}
+    circuit_breaker_state.set({"name": name}, state_map.get(state, 0))
+
+
+def record_circuit_breaker_call(name: str, result: str) -> None:
+    """Record a circuit breaker call result.
+
+    Args:
+        name: Circuit breaker name
+        result: "success", "failure", or "rejected"
+    """
+    circuit_breaker_calls.inc({"name": name, "result": result})
+
+
+def record_circuit_breaker_state_change(name: str, from_state: str, to_state: str) -> None:
+    """Record a circuit breaker state transition.
+
+    Args:
+        name: Circuit breaker name
+        from_state: Previous state
+        to_state: New state
+    """
+    circuit_breaker_state_changes.inc({"name": name, "from_state": from_state, "to_state": to_state})
+
+
+# Phase 6: LLM Concurrency Metric Functions
+def update_llm_concurrent_requests(count: int) -> None:
+    """Update the count of concurrent LLM requests."""
+    llm_concurrent_requests.set({}, count)
+
+
+def update_llm_queue_waiting(count: int) -> None:
+    """Update the count of LLM requests waiting in queue."""
+    llm_queue_waiting.set({}, count)
+
+
+# Phase 6: Token Budget Metric Functions
+def update_token_budget(session_id: str, used: int, remaining: int) -> None:
+    """Update token budget metrics for a session.
+
+    Args:
+        session_id: Session identifier
+        used: Tokens used so far
+        remaining: Tokens remaining in budget
+    """
+    token_budget_used.set({"session_id": session_id}, used)
+    token_budget_remaining.set({"session_id": session_id}, remaining)
+
+
+# Phase 6: Cache Metric Functions
+def record_cache_hit(cache_type: str) -> None:
+    """Record a cache hit.
+
+    Args:
+        cache_type: Type of cache ("embedding", "reasoning", "tool_result")
+    """
+    cache_hits.inc({"cache_type": cache_type})
+
+
+def record_cache_miss(cache_type: str) -> None:
+    """Record a cache miss.
+
+    Args:
+        cache_type: Type of cache ("embedding", "reasoning", "tool_result")
+    """
+    cache_misses.inc({"cache_type": cache_type})
+
+
+def update_cache_size(cache_type: str, size: int) -> None:
+    """Update cache size metric.
+
+    Args:
+        cache_type: Type of cache
+        size: Current number of entries in cache
+    """
+    cache_size.set({"cache_type": cache_type}, size)
+
+
 def collect_all_metrics() -> dict[str, Any]:
     """Collect all metrics for JSON export.
 
@@ -328,7 +502,7 @@ def format_prometheus() -> str:
             if item["type"] == "histogram":
                 # Format histogram buckets
                 for bucket, count in item["buckets"].items():
-                    bucket_str = "+Inf" if bucket == float('inf') else str(bucket)
+                    bucket_str = "+Inf" if bucket == float("inf") else str(bucket)
                     if label_str:
                         lines.append(f'{metric.name}_bucket{{{label_str},le="{bucket_str}"}} {count}')
                     else:
@@ -336,17 +510,17 @@ def format_prometheus() -> str:
 
                 # Add sum and count
                 if label_str:
-                    lines.append(f'{metric.name}_sum{{{label_str}}} {item["sum"]}')
-                    lines.append(f'{metric.name}_count{{{label_str}}} {item["count"]}')
+                    lines.append(f"{metric.name}_sum{{{label_str}}} {item['sum']}")
+                    lines.append(f"{metric.name}_count{{{label_str}}} {item['count']}")
                 else:
-                    lines.append(f'{metric.name}_sum {item["sum"]}')
-                    lines.append(f'{metric.name}_count {item["count"]}')
+                    lines.append(f"{metric.name}_sum {item['sum']}")
+                    lines.append(f"{metric.name}_count {item['count']}")
             else:
                 # Counter or Gauge
                 if label_str:
-                    lines.append(f'{metric.name}{{{label_str}}} {item["value"]}')
+                    lines.append(f"{metric.name}{{{label_str}}} {item['value']}")
                 else:
-                    lines.append(f'{metric.name} {item["value"]}')
+                    lines.append(f"{metric.name} {item['value']}")
 
     return "\n".join(lines) + "\n"
 
@@ -355,7 +529,7 @@ def reset_all_metrics() -> None:
     """Reset all metrics (for testing)."""
     for metric in _metrics_registry:
         with metric._lock:
-            if hasattr(metric, '_values'):
+            if hasattr(metric, "_values"):
                 metric._values.clear()
-            if hasattr(metric, '_observations'):
+            if hasattr(metric, "_observations"):
                 metric._observations.clear()

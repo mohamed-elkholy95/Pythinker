@@ -18,7 +18,9 @@ logger = logging.getLogger(__name__)
 
 # Default browser configuration for realistic browsing
 DEFAULT_VIEWPORT = {"width": 1280, "height": 1029}
-DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
 DEFAULT_TIMEZONE = "America/New_York"
 
 # Professional browsing: User agent rotation pool for anti-detection
@@ -91,7 +93,7 @@ class PlaywrightBrowser:
         cdp_url: str,
         block_resources: bool = False,
         blocked_types: set[str] | None = None,
-        randomize_fingerprint: bool = True
+        randomize_fingerprint: bool = True,
     ):
         """Initialize PlaywrightBrowser
 
@@ -196,6 +198,7 @@ class PlaywrightBrowser:
         Args:
             page: Page to configure handlers on
         """
+
         async def handle_dialog(dialog):
             dialog_type = dialog.type
             message = dialog.message[:100] if dialog.message else ""
@@ -472,7 +475,7 @@ class PlaywrightBrowser:
                 # Connect to existing Chrome instance via CDP
                 self.browser = await self.playwright.chromium.connect_over_cdp(
                     self.cdp_url,
-                    timeout=30000  # 30 second connection timeout
+                    timeout=30000,  # 30 second connection timeout
                 )
 
                 # Clear existing pages for fresh session
@@ -534,7 +537,7 @@ class PlaywrightBrowser:
                         await asyncio.sleep(0.5)
                         contexts = self.browser.contexts
                         if contexts:
-                            logger.info(f"Default context appeared after {(i+1)*0.5}s")
+                            logger.info(f"Default context appeared after {(i + 1) * 0.5}s")
                             break
 
                     if contexts:
@@ -558,8 +561,9 @@ class PlaywrightBrowser:
 
                     # Set fingerprint values for consistency
                     if self._randomize_fingerprint:
-                        self._current_user_agent, self._current_viewport, self._current_timezone = \
+                        self._current_user_agent, self._current_viewport, self._current_timezone = (
                             self._randomize_browser_fingerprint()
+                        )
                     else:
                         self._current_user_agent = DEFAULT_USER_AGENT
                         self._current_viewport = DEFAULT_VIEWPORT
@@ -661,11 +665,7 @@ class PlaywrightBrowser:
             Exception: If browser cannot be initialized
         """
         # Check if we need to reinitialize
-        needs_init = (
-            not self.browser or
-            not self.page or
-            not self._connection_healthy
-        )
+        needs_init = not self.browser or not self.page or not self._connection_healthy
 
         if needs_init:
             # Verify existing connection if we have one
@@ -857,20 +857,19 @@ class PlaywrightBrowser:
             return '<div>' + visibleElements.join('') + '</div>';
         }""")
 
-
         # Convert to Markdown
         markdown_content = markdownify(visible_content)
 
         max_content_length = min(50000, len(markdown_content))
-        response = await self.llm.ask([{
-            "role": "system",
-            "content": "You are a professional web page information extraction assistant. Please extract all information from the current page content and convert it to Markdown format."
-        },
-        {
-            "role": "user",
-            "content": markdown_content[:max_content_length]
-        }
-        ])
+        response = await self.llm.ask(
+            [
+                {
+                    "role": "system",
+                    "content": "You are a professional web page information extraction assistant. Please extract all information from the current page content and convert it to Markdown format.",
+                },
+                {"role": "user", "content": markdown_content[:max_content_length]},
+            ]
+        )
 
         return response.get("content", "")
 
@@ -910,14 +909,11 @@ class PlaywrightBrowser:
                     "content": content,
                     "url": self.page.url,
                     "title": await self.page.title(),
-                }
+                },
             )
         except Exception as e:
             logger.error(f"Error viewing page: {e}")
-            return ToolResult(
-                success=False,
-                message=f"Failed to view page: {e!s}"
-            )
+            return ToolResult(success=False, message=f"Failed to view page: {e!s}")
 
     async def _extract_interactive_elements(self) -> list[str]:
         """Return a list of visible interactive elements on the page, formatted as index:<tag>text</tag>"""
@@ -1077,7 +1073,9 @@ class PlaywrightBrowser:
 
         return formatted_elements
 
-    async def navigate(self, url: str, timeout: int | None = 30000, wait_until: str = "domcontentloaded", auto_extract: bool = True) -> ToolResult:
+    async def navigate(
+        self, url: str, timeout: int | None = 30000, wait_until: str = "domcontentloaded", auto_extract: bool = True
+    ) -> ToolResult:
         """Navigate to the specified URL with automatic content loading and extraction
 
         Args:
@@ -1096,11 +1094,7 @@ class PlaywrightBrowser:
 
         try:
             # Navigate with proper wait_until parameter
-            response = await self.page.goto(
-                url,
-                timeout=timeout,
-                wait_until=wait_until
-            )
+            response = await self.page.goto(url, timeout=timeout, wait_until=wait_until)
 
             # Check if navigation was successful
             if response and response.status >= 400:
@@ -1153,10 +1147,7 @@ class PlaywrightBrowser:
                     logger.warning(f"Auto-extract content failed: {e}")
                     # Continue without content - non-critical
 
-            return ToolResult(
-                success=True,
-                data=result_data
-            )
+            return ToolResult(success=True, data=result_data)
         except PlaywrightTimeoutError:
             # Page might still be usable even after timeout
             logger.warning(f"Navigation to {url} timed out, attempting to extract elements anyway")
@@ -1193,9 +1184,7 @@ class PlaywrightBrowser:
                         pass  # Skip content if extraction fails
 
                 return ToolResult(
-                    success=True,
-                    message="Navigation timed out but page partially loaded",
-                    data=result_data
+                    success=True, message="Navigation timed out but page partially loaded", data=result_data
                 )
             except Exception:
                 return ToolResult(success=False, message=f"Navigation to {url} timed out")
@@ -1213,10 +1202,7 @@ class PlaywrightBrowser:
         """
         await self.cleanup()
         if not await self.initialize():
-            return ToolResult(
-                success=False,
-                message="Failed to reinitialize browser after restart"
-            )
+            return ToolResult(success=False, message="Failed to reinitialize browser after restart")
         return await self.navigate(url)
 
     async def set_resource_blocking(self, enabled: bool, resource_types: set[str] | None = None) -> None:
@@ -1248,34 +1234,76 @@ class PlaywrightBrowser:
         """
         return self._connection_healthy and self.browser is not None and self.page is not None
 
+    async def _get_element_by_index(self, index: int, retry_with_refresh: bool = True) -> Any | None:
+        """Get element by index using multiple fallback strategies.
 
-    async def _get_element_by_index(self, index: int) -> Any | None:
-        """Get element by index using data-manus-id selector
+        Phase 5: Enhanced element targeting with fallbacks:
+        1. Primary: data-manus-id selector
+        2. Fallback 1: Original selector from cache
+        3. Fallback 2: Text-based matching from cache
+        4. Fallback 3: Refresh element list and retry
 
         Args:
             index: Element index
+            retry_with_refresh: Whether to retry with refreshed element list (default: True)
 
         Returns:
             The found element, or None if not found
         """
         # Check if there are cached elements
         if not self._interactive_elements_cache or index >= len(self._interactive_elements_cache):
+            # If cache is empty/invalid and retry is enabled, refresh and try again
+            if retry_with_refresh:
+                logger.debug(f"Element cache miss for index {index}, refreshing...")
+                await self._extract_interactive_elements()
+                return await self._get_element_by_index(index, retry_with_refresh=False)
             return None
 
-        # Use data-manus-id selector with Playwright's locator for better reliability
+        cached_element = self._interactive_elements_cache[index]
+
+        # Strategy 1: Use data-manus-id selector (most reliable)
         selector = f'[data-manus-id="manus-element-{index}"]'
         try:
             element = await self.page.query_selector(selector)
             if element:
                 return element
-
-            # Fallback: try to find by original selector from cache if available
-            cached_element = self._interactive_elements_cache[index]
-            if 'selector' in cached_element:
-                return await self.page.query_selector(cached_element['selector'])
         except Exception as e:
-            logger.debug(f"Error getting element by index {index}: {e}")
+            logger.debug(f"Strategy 1 (data-manus-id) failed for index {index}: {e}")
 
+        # Strategy 2: Try original selector from cache
+        if "selector" in cached_element:
+            try:
+                element = await self.page.query_selector(cached_element["selector"])
+                if element:
+                    logger.debug(f"Found element via fallback selector: {cached_element['selector']}")
+                    return element
+            except Exception as e:
+                logger.debug(f"Strategy 2 (cached selector) failed: {e}")
+
+        # Strategy 3: Text-based matching (for elements with unique text)
+        if "text" in cached_element and cached_element["text"] and "tag" in cached_element:
+            text = cached_element["text"]
+            tag = cached_element["tag"]
+            # Clean up text for matching (remove prefixes like [Label:...])
+            clean_text = text.strip()
+            if clean_text and len(clean_text) > 3:
+                try:
+                    # Try exact text match first
+                    text_selector = f"{tag}:has-text('{clean_text[:50]}')"
+                    element = await self.page.query_selector(text_selector)
+                    if element:
+                        logger.debug(f"Found element via text match: {clean_text[:30]}...")
+                        return element
+                except Exception as e:
+                    logger.debug(f"Strategy 3 (text matching) failed: {e}")
+
+        # Strategy 4: Refresh element list and retry once
+        if retry_with_refresh:
+            logger.debug(f"All strategies failed for index {index}, refreshing element list...")
+            await self._extract_interactive_elements()
+            return await self._get_element_by_index(index, retry_with_refresh=False)
+
+        logger.warning(f"Could not find element with index {index} after all fallback strategies")
         return None
 
     async def click(
@@ -1283,7 +1311,7 @@ class PlaywrightBrowser:
         index: int | None = None,
         coordinate_x: float | None = None,
         coordinate_y: float | None = None,
-        wait_for_navigation: bool = True
+        wait_for_navigation: bool = True,
     ) -> ToolResult:
         """Click an element with proper visibility checking and navigation waiting
 
@@ -1313,13 +1341,20 @@ class PlaywrightBrowser:
             elif index is not None:
                 element = await self._get_element_by_index(index)
                 if not element:
+                    # Phase 5: Enhanced error message with suggestions
+                    cache_info = ""
+                    if self._interactive_elements_cache and index < len(self._interactive_elements_cache):
+                        cached = self._interactive_elements_cache[index]
+                        cache_info = f" (was: {cached.get('tag', '?')} '{cached.get('text', '')[:30]}')"
                     return ToolResult(
                         success=False,
-                        message=f"Cannot find interactive element with index {index}"
+                        message=f"Cannot find element index {index}{cache_info}. "
+                        f"Use browser_view to get fresh element indices - page content may have changed.",
                     )
 
                 # Check if element is visible and scroll if needed
-                is_visible = await self.page.evaluate("""(element) => {
+                is_visible = await self.page.evaluate(
+                    """(element) => {
                     if (!element) return false;
                     const rect = element.getBoundingClientRect();
                     const style = window.getComputedStyle(element);
@@ -1330,7 +1365,9 @@ class PlaywrightBrowser:
                         style.visibility === 'hidden' ||
                         style.opacity === '0'
                     );
-                }""", element)
+                }""",
+                    element,
+                )
 
                 if not is_visible:
                     # Scroll element into view
@@ -1355,10 +1392,7 @@ class PlaywrightBrowser:
                     # Try force click if normal click times out
                     await element.click(force=True, timeout=5000)
             else:
-                return ToolResult(
-                    success=False,
-                    message="Either index or coordinates must be provided"
-                )
+                return ToolResult(success=False, message="Either index or coordinates must be provided")
 
             # Wait briefly for any navigation that might occur
             if wait_for_navigation:
@@ -1378,7 +1412,7 @@ class PlaywrightBrowser:
         index: int | None = None,
         coordinate_x: float | None = None,
         coordinate_y: float | None = None,
-        clear_first: bool = True
+        clear_first: bool = True,
     ) -> ToolResult:
         """Input text into an element with proper clearing and error handling
 
@@ -1415,9 +1449,15 @@ class PlaywrightBrowser:
             elif index is not None:
                 element = await self._get_element_by_index(index)
                 if not element:
+                    # Phase 5: Enhanced error message with suggestions
+                    cache_info = ""
+                    if self._interactive_elements_cache and index < len(self._interactive_elements_cache):
+                        cached = self._interactive_elements_cache[index]
+                        cache_info = f" (was: {cached.get('tag', '?')} '{cached.get('text', '')[:30]}')"
                     return ToolResult(
                         success=False,
-                        message=f"Cannot find interactive element with index {index}"
+                        message=f"Cannot find input element index {index}{cache_info}. "
+                        f"Use browser_view to get fresh element indices - page content may have changed.",
                     )
 
                 # Scroll into view if needed
@@ -1448,14 +1488,10 @@ class PlaywrightBrowser:
                         await self.page.keyboard.type(text, delay=10)
                     except Exception as e:
                         return ToolResult(
-                            success=False,
-                            message=f"Failed to input text using both fill and type methods: {e!s}"
+                            success=False, message=f"Failed to input text using both fill and type methods: {e!s}"
                         )
             else:
-                return ToolResult(
-                    success=False,
-                    message="Either index or coordinates must be provided"
-                )
+                return ToolResult(success=False, message="Either index or coordinates must be provided")
 
             if press_enter:
                 await self.page.keyboard.press("Enter")
@@ -1467,11 +1503,7 @@ class PlaywrightBrowser:
         except Exception as e:
             return ToolResult(success=False, message=f"Failed to input text: {e!s}")
 
-    async def move_mouse(
-        self,
-        coordinate_x: float,
-        coordinate_y: float
-    ) -> ToolResult:
+    async def move_mouse(self, coordinate_x: float, coordinate_y: float) -> ToolResult:
         """Move the mouse"""
         await self._ensure_page()
         await self.page.mouse.move(coordinate_x, coordinate_y)
@@ -1483,11 +1515,7 @@ class PlaywrightBrowser:
         await self.page.keyboard.press(key)
         return ToolResult(success=True)
 
-    async def select_option(
-        self,
-        index: int,
-        option: int
-    ) -> ToolResult:
+    async def select_option(self, index: int, option: int) -> ToolResult:
         """Select dropdown option"""
         await self._ensure_page()
         try:
@@ -1501,10 +1529,7 @@ class PlaywrightBrowser:
         except Exception as e:
             return ToolResult(success=False, message=f"Failed to select option: {e!s}")
 
-    async def scroll_up(
-        self,
-        to_top: bool | None = None
-    ) -> ToolResult:
+    async def scroll_up(self, to_top: bool | None = None) -> ToolResult:
         """Scroll up on the current page
 
         Args:
@@ -1544,16 +1569,13 @@ class PlaywrightBrowser:
                     "scroll_position": new_scroll,
                     "page_height": page_height,
                     "at_top": at_top,
-                    "scroll_percentage": scroll_percentage
-                }
+                    "scroll_percentage": scroll_percentage,
+                },
             )
         except Exception as e:
             return ToolResult(success=False, message=f"Scroll up failed: {e!s}")
 
-    async def scroll_down(
-        self,
-        to_bottom: bool | None = None
-    ) -> ToolResult:
+    async def scroll_down(self, to_bottom: bool | None = None) -> ToolResult:
         """Scroll down on the current page with smart lazy content detection
 
         Args:
@@ -1607,31 +1629,25 @@ class PlaywrightBrowser:
                     "viewport_height": viewport_height,
                     "at_bottom": at_bottom,
                     "lazy_content_loaded": lazy_content_loaded,
-                    "scroll_percentage": scroll_percentage
-                }
+                    "scroll_percentage": scroll_percentage,
+                },
             )
         except Exception as e:
             return ToolResult(success=False, message=f"Scroll down failed: {e!s}")
 
-    async def screenshot(
-        self,
-        full_page: bool | None = False
-    ) -> bytes:
+    async def screenshot(self, full_page: bool | None = False) -> bytes:
         """Take a screenshot of the current page
-        
+
         Args:
             full_page: Whether to capture the full page or just the viewport
-            
+
         Returns:
             bytes: PNG screenshot data
         """
         await self._ensure_page()
 
         # Configure screenshot options
-        screenshot_options = {
-            "full_page": full_page,
-            "type": "png"
-        }
+        screenshot_options = {"full_page": full_page, "type": "png"}
 
         # Return bytes data directly
         return await self.page.screenshot(**screenshot_options)
@@ -1641,29 +1657,29 @@ class PlaywrightBrowser:
     _DANGEROUS_JS_PATTERNS = [
         # Network exfiltration
         (r'\bfetch\s*\(\s*["\']https?://(?!localhost|127\.0\.0\.1)', "External fetch requests"),
-        (r'\bnew\s+XMLHttpRequest\b', "XMLHttpRequest usage"),
-        (r'\bnew\s+WebSocket\b', "WebSocket connections"),
-        (r'\bnavigator\.sendBeacon\b', "Data beaconing"),
+        (r"\bnew\s+XMLHttpRequest\b", "XMLHttpRequest usage"),
+        (r"\bnew\s+WebSocket\b", "WebSocket connections"),
+        (r"\bnavigator\.sendBeacon\b", "Data beaconing"),
         # Cookie/credential theft
-        (r'\bdocument\.cookie\b', "Cookie access"),
-        (r'\blocalStorage\b', "localStorage access"),
-        (r'\bsessionStorage\b', "sessionStorage access"),
-        (r'\bindexedDB\b', "IndexedDB access"),
+        (r"\bdocument\.cookie\b", "Cookie access"),
+        (r"\blocalStorage\b", "localStorage access"),
+        (r"\bsessionStorage\b", "sessionStorage access"),
+        (r"\bindexedDB\b", "IndexedDB access"),
         # Code injection vectors
-        (r'\beval\s*\(', "eval() usage"),
-        (r'\bnew\s+Function\s*\(', "Function constructor"),
+        (r"\beval\s*\(", "eval() usage"),
+        (r"\bnew\s+Function\s*\(", "Function constructor"),
         (r'\bsetTimeout\s*\(\s*["\']', "setTimeout with string"),
         (r'\bsetInterval\s*\(\s*["\']', "setInterval with string"),
         # DOM manipulation that could enable XSS
-        (r'\.innerHTML\s*=', "innerHTML assignment"),
-        (r'\.outerHTML\s*=', "outerHTML assignment"),
-        (r'\bdocument\.write\b', "document.write"),
-        (r'\bdocument\.writeln\b', "document.writeln"),
+        (r"\.innerHTML\s*=", "innerHTML assignment"),
+        (r"\.outerHTML\s*=", "outerHTML assignment"),
+        (r"\bdocument\.write\b", "document.write"),
+        (r"\bdocument\.writeln\b", "document.writeln"),
         # Window manipulation
-        (r'\bwindow\.open\s*\(', "window.open"),
-        (r'\bwindow\.location\s*=', "window.location assignment"),
-        (r'\blocation\.href\s*=', "location.href assignment"),
-        (r'\blocation\.replace\s*\(', "location.replace"),
+        (r"\bwindow\.open\s*\(", "window.open"),
+        (r"\bwindow\.location\s*=", "window.location assignment"),
+        (r"\blocation\.href\s*=", "location.href assignment"),
+        (r"\blocation\.replace\s*\(", "location.replace"),
         # Script injection
         (r'createElement\s*\(\s*["\']script', "Script element creation"),
         (r'\.src\s*=\s*["\']https?://', "External script source"),
@@ -1710,7 +1726,7 @@ class PlaywrightBrowser:
             return ToolResult(
                 success=False,
                 error=f"JavaScript blocked for security reasons: {error_msg}",
-                data={"blocked": True, "reason": error_msg}
+                data={"blocked": True, "reason": error_msg},
             )
 
         try:

@@ -71,7 +71,7 @@
         <div class="border-l border-dashed border-[var(--border-dark)] absolute start-[8px] top-0 bottom-0"></div>
       </div>
       <div class="flex flex-col gap-[10px] flex-1 min-w-0 overflow-hidden pt-3 pb-1">
-        <ToolUse v-for="(tool, index) in stepContent.tools" :key="index" :tool="tool" @click="handleToolClick(tool)" />
+        <ToolUse v-for="tool in stepContent.tools" :key="tool.tool_call_id" :tool="tool" @click="handleToolClick(tool)" />
       </div>
     </div>
   </div>
@@ -219,11 +219,34 @@ watch(
   { immediate: true }
 );
 
-// Render Markdown to HTML and sanitize
-const renderMarkdown = (text: string) => {
+// Memoized markdown rendering cache (WeakMap-like behavior using Map with limited size)
+const markdownCache = new Map<string, string>();
+const MAX_CACHE_SIZE = 100;
+
+// Render Markdown to HTML and sanitize (with memoization for performance)
+const renderMarkdown = (text: string): string => {
   if (typeof text !== 'string') return '';
+
+  // Check cache first
+  const cached = markdownCache.get(text);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  // Render and sanitize
   const html = marked(text) as string;
-  return DOMPurify.sanitize(html);
+  const sanitized = DOMPurify.sanitize(html);
+
+  // Store in cache with size limit (evict oldest entries)
+  if (markdownCache.size >= MAX_CACHE_SIZE) {
+    const firstKey = markdownCache.keys().next().value;
+    if (firstKey !== undefined) {
+      markdownCache.delete(firstKey);
+    }
+  }
+  markdownCache.set(text, sanitized);
+
+  return sanitized;
 };
 </script>
 

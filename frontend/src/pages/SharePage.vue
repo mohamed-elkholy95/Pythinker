@@ -29,7 +29,7 @@
       </header>
       <div class="mx-auto w-full max-w-full sm:max-w-[768px] sm:min-w-[390px] flex flex-col flex-1">
         <div class="flex flex-col w-full gap-[12px] pb-[80px] pt-[12px] flex-1 overflow-y-auto">
-          <ChatMessage v-for="(message, index) in messages" :key="index" :message="message"
+          <ChatMessage v-for="message in messages" :key="message.id" :message="message"
             @toolClick="handleToolClick" />
 
           <!-- Loading indicator -->
@@ -188,6 +188,10 @@ const {
   replayCompleted,
 } = toRefs(state);
 
+// Message ID counter for generating unique keys (avoids crypto overhead)
+let messageIdCounter = 0;
+const generateMessageId = () => `msg_${Date.now()}_${++messageIdCounter}`;
+
 // Non-state refs that don't need reset
 const toolPanel = ref<InstanceType<typeof ToolPanel>>()
 const simpleBarRef = ref<InstanceType<typeof SimpleBar>>();
@@ -276,13 +280,16 @@ const handleTimelineStepBackward = () => {
   timeline.stepBackward();
 };
 
-// Watch message changes and automatically scroll to bottom
-watch(messages, async () => {
-  await nextTick();
-  if (follow.value) {
-    simpleBarRef.value?.scrollToBottom();
+// Watch message length changes for scroll (avoids deep watching which re-triggers on nested changes)
+watch(
+  () => messages.value.length,
+  async () => {
+    await nextTick();
+    if (follow.value) {
+      simpleBarRef.value?.scrollToBottom();
+    }
   }
-}, { deep: true });
+);
 
 
 
@@ -293,6 +300,7 @@ const getLastStep = (): StepContent | undefined => {
 // Handle message event
 const handleMessageEvent = (messageData: MessageEventData) => {
   messages.value.push({
+    id: generateMessageId(),
     type: messageData.role,
     content: {
       ...messageData
@@ -301,6 +309,7 @@ const handleMessageEvent = (messageData: MessageEventData) => {
 
   if (messageData.attachments?.length > 0) {
     messages.value.push({
+      id: generateMessageId(),
       type: 'attachments',
       content: {
         ...messageData
@@ -322,6 +331,7 @@ const handleToolEvent = (toolData: ToolEventData) => {
       lastStep.tools.push(toolContent);
     } else {
       messages.value.push({
+        id: generateMessageId(),
         type: 'tool',
         content: toolContent,
       });
@@ -341,6 +351,7 @@ const handleStepEvent = (stepData: StepEventData) => {
   const lastStep = getLastStep();
   if (stepData.status === 'running') {
     messages.value.push({
+      id: generateMessageId(),
       type: 'step',
       content: {
         ...stepData,
@@ -360,6 +371,7 @@ const handleStepEvent = (stepData: StepEventData) => {
 const handleErrorEvent = (errorData: ErrorEventData) => {
   isLoading.value = false;
   messages.value.push({
+    id: generateMessageId(),
     type: 'assistant',
     content: {
       content: errorData.error,
