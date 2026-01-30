@@ -28,6 +28,7 @@ except ImportError:
     AgentHistory = None
     ActionResult = None
 
+from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +241,7 @@ SMART BROWSING INSTRUCTIONS:
         self,
         task: str,
         max_steps: int = 20,
-        llm_model: str = "gpt-4o-mini",
+        llm_model: str | None = None,
         start_url: str | None = None,
         on_step: Any | None = None,
     ) -> dict[str, Any]:
@@ -253,7 +254,7 @@ SMART BROWSING INSTRUCTIONS:
                 - "Go to Amazon, search for wireless keyboards, filter by 4+ stars"
                 - "Fill out the contact form with my information"
             max_steps: Maximum autonomous actions before stopping (default: 20)
-            llm_model: LLM model for decision-making (default: gpt-4o-mini)
+            llm_model: LLM model for decision-making (default: from settings.model_name)
             start_url: Optional URL to start from
             on_step: Optional async callback(step_num, action_desc) for progress updates
 
@@ -291,10 +292,26 @@ SMART BROWSING INSTRUCTIONS:
 
         try:
             # Import here to avoid circular dependencies
+            # Use browser-use's built-in ChatOpenAI
             from browser_use import ChatOpenAI
 
-            # Create LLM provider if not provided
-            llm = self.llm_provider or ChatOpenAI(model=llm_model)
+            # Get settings
+            settings = get_settings()
+
+            # Use model from settings if not specified
+            model_name = llm_model or settings.model_name or "deepseek-chat"
+
+            # Create LLM provider using settings (DeepSeek-compatible via OpenAI API)
+            if self.llm_provider:
+                llm = self.llm_provider
+            else:
+                llm = ChatOpenAI(
+                    model=model_name,
+                    api_key=settings.api_key,
+                    base_url=settings.api_base,
+                    temperature=settings.temperature,
+                )
+                logger.info(f"Browser agent using LLM: {model_name} via {settings.api_base}")
 
             # Enhance task with safety instructions
             enhanced_task = self._enhance_task_prompt(task)
@@ -361,7 +378,7 @@ SMART BROWSING INSTRUCTIONS:
                 "actions": actions_taken,
                 "final_result": history.final_result() if hasattr(history, 'final_result') else str(history),
                 "total_steps": len(actions_taken),
-                "model_used": llm_model,
+                "model_used": model_name,
                 "urls_visited": urls_visited[:10],
                 "skipped_video_urls": skipped_urls,
             }

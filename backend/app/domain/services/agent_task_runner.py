@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Optional, Union
 from pydantic import TypeAdapter
 
 from app.application.services.usage_service import get_usage_service
+from app.core.config import get_settings
 from app.domain.external.browser import Browser
 from app.domain.external.file import FileStorage
 from app.domain.external.llm import LLM
@@ -62,6 +63,7 @@ logger = logging.getLogger(__name__)
 # Type alias for events that contain attachments requiring storage sync
 # Both MessageEvent and ReportEvent have an 'attachments' field of type Optional[List[FileInfo]]
 EventWithAttachments = Union[MessageEvent, ReportEvent]
+
 
 class AgentTaskRunner(TaskRunner):
     """Agent task that can be cancelled.
@@ -141,6 +143,7 @@ class AgentTaskRunner(TaskRunner):
     def _init_plan_act_flow(self) -> None:
         """Initialize PlanActFlow for Agent mode"""
         if self._plan_act_flow is None:
+            settings = get_settings()
             self._plan_act_flow = PlanActFlow(
                 self._agent_id,
                 self._repository,
@@ -153,13 +156,17 @@ class AgentTaskRunner(TaskRunner):
                 self._mcp_tool,
                 self._search_engine,
                 cdp_url=self._sandbox.cdp_url,
+                enable_verification=settings.enable_plan_verification,  # Disabled by default for speed
                 enable_multi_agent=self._enable_multi_agent,
+                enable_parallel_execution=settings.enable_parallel_execution,
+                parallel_max_concurrency=settings.parallel_max_concurrency,
                 memory_service=self._memory_service,
                 user_id=self._user_id,
             )
             logger.debug(
                 f"Initialized PlanActFlow for agent {self._agent_id} "
-                f"(multi_agent={self._enable_multi_agent}, memory_service={'enabled' if self._memory_service else 'disabled'})"
+                f"(verification={settings.enable_plan_verification}, multi_agent={self._enable_multi_agent}, "
+                f"parallel={settings.enable_parallel_execution}, memory_service={'enabled' if self._memory_service else 'disabled'})"
             )
 
     def _init_langgraph_flow(self) -> None:
@@ -287,24 +294,18 @@ class AgentTaskRunner(TaskRunner):
 
         try:
             # Check if file already exists in session
-            existing_file = await self._session_repository.get_file_by_path(
-                self._session_id, file_path
-            )
+            existing_file = await self._session_repository.get_file_by_path(self._session_id, file_path)
 
             # Download file from sandbox
             file_data = await self._sandbox.file_download(file_path)
 
             # Validate file content
             if file_data is None:
-                logger.warning(
-                    f"Agent {self._agent_id}: File download returned None for '{file_path}'"
-                )
+                logger.warning(f"Agent {self._agent_id}: File download returned None for '{file_path}'")
                 return None
 
             if file_data.getbuffer().nbytes == 0:
-                logger.warning(
-                    f"Agent {self._agent_id}: File '{file_path}' is empty (0 bytes)"
-                )
+                logger.warning(f"Agent {self._agent_id}: File '{file_path}' is empty (0 bytes)")
                 # Still allow empty files - some use cases may need them
 
             # Remove existing file if present (to handle file updates)
@@ -313,35 +314,26 @@ class AgentTaskRunner(TaskRunner):
                     f"Agent {self._agent_id}: Removing existing file for path '{file_path}' "
                     f"(file_id={existing_file.file_id})"
                 )
-                await self._session_repository.remove_file(
-                    self._session_id, existing_file.file_id
-                )
+                await self._session_repository.remove_file(self._session_id, existing_file.file_id)
 
             # Extract filename from path
             file_name = file_path.split("/")[-1]
             if not file_name:
                 file_name = "unnamed_file"
                 logger.warning(
-                    f"Agent {self._agent_id}: Could not extract filename from '{file_path}', "
-                    f"using '{file_name}'"
+                    f"Agent {self._agent_id}: Could not extract filename from '{file_path}', using '{file_name}'"
                 )
 
             # Upload to GridFS storage
-            file_info = await self._file_storage.upload_file(
-                file_data, file_name, self._user_id
-            )
+            file_info = await self._file_storage.upload_file(file_data, file_name, self._user_id)
 
             # Validate upload result
             if not file_info:
-                logger.error(
-                    f"Agent {self._agent_id}: File storage returned None for '{file_path}'"
-                )
+                logger.error(f"Agent {self._agent_id}: File storage returned None for '{file_path}'")
                 return None
 
             if not file_info.file_id:
-                logger.error(
-                    f"Agent {self._agent_id}: Uploaded file has no file_id for '{file_path}'"
-                )
+                logger.error(f"Agent {self._agent_id}: Uploaded file has no file_id for '{file_path}'")
                 return None
 
             # Set the file_path for reference
@@ -358,14 +350,10 @@ class AgentTaskRunner(TaskRunner):
             return file_info
 
         except FileNotFoundError as e:
-            logger.warning(
-                f"Agent {self._agent_id}: File not found in sandbox: '{file_path}' - {e}"
-            )
+            logger.warning(f"Agent {self._agent_id}: File not found in sandbox: '{file_path}' - {e}")
             return None
         except Exception as e:
-            logger.exception(
-                f"Agent {self._agent_id}: Failed to sync file '{file_path}': {e}"
-            )
+            logger.exception(f"Agent {self._agent_id}: Failed to sync file '{file_path}': {e}")
             return None
 
     async def _sync_file_to_sandbox(self, file_id: str) -> FileInfo | None:
@@ -424,27 +412,18 @@ class AgentTaskRunner(TaskRunner):
             )
 
             # Sync all valid attachments concurrently
-            sync_tasks = [
-                self._sync_file_to_storage(attachment.file_path)
-                for attachment in valid_attachments
-            ]
+            sync_tasks = [self._sync_file_to_storage(attachment.file_path) for attachment in valid_attachments]
             results = await asyncio.gather(*sync_tasks, return_exceptions=True)
 
             # Process results, collecting successfully synced attachments
             for i, result in enumerate(results):
                 file_path = valid_attachments[i].file_path
                 if isinstance(result, Exception):
-                    logger.warning(
-                        f"Agent {self._agent_id}: Failed to sync attachment '{file_path}': {result}"
-                    )
+                    logger.warning(f"Agent {self._agent_id}: Failed to sync attachment '{file_path}': {result}")
                 elif result is None:
-                    logger.warning(
-                        f"Agent {self._agent_id}: Sync returned None for attachment '{file_path}'"
-                    )
+                    logger.warning(f"Agent {self._agent_id}: Sync returned None for attachment '{file_path}'")
                 elif not result.file_id:
-                    logger.warning(
-                        f"Agent {self._agent_id}: Synced attachment '{file_path}' has no file_id"
-                    )
+                    logger.warning(f"Agent {self._agent_id}: Synced attachment '{file_path}' has no file_id")
                 else:
                     synced_attachments.append(result)
                     logger.debug(
@@ -584,10 +563,7 @@ class AgentTaskRunner(TaskRunner):
         try:
             if event.attachments:
                 # Sync all attachments concurrently
-                sync_tasks = [
-                    self._sync_file_to_sandbox(attachment.file_id)
-                    for attachment in event.attachments
-                ]
+                sync_tasks = [self._sync_file_to_sandbox(attachment.file_id) for attachment in event.attachments]
                 results = await asyncio.gather(*sync_tasks, return_exceptions=True)
 
                 # Process results and add to session
@@ -597,9 +573,7 @@ class AgentTaskRunner(TaskRunner):
                         logger.warning(f"Sandbox sync failed: {result}")
                     elif result:
                         attachments.append(result)
-                        add_file_tasks.append(
-                            self._session_repository.add_file(self._session_id, result)
-                        )
+                        add_file_tasks.append(self._session_repository.add_file(self._session_id, result))
 
                 # Add files to session concurrently
                 if add_file_tasks:
@@ -633,7 +607,6 @@ class AgentTaskRunner(TaskRunner):
             )
         except Exception as e:
             logger.debug(f"Failed to record tool usage for Agent {self._agent_id}: {e}")
-
 
     # TODO: refactor this function
     async def _handle_tool_event(self, event: ToolEvent):
@@ -723,16 +696,16 @@ class AgentTaskRunner(TaskRunner):
                         result_data = event.function_result.data
                         if isinstance(result_data, dict):
                             # Try to get content from various possible fields
-                            page_content = result_data.get("content") or result_data.get("text") or result_data.get("data")
+                            page_content = (
+                                result_data.get("content") or result_data.get("text") or result_data.get("data")
+                            )
                         elif isinstance(result_data, str):
                             page_content = result_data
                     event.tool_content = BrowserToolContent(content=page_content)
                 elif event.tool_name == "search":
                     search_results: ToolResult[SearchResults] = event.function_result
                     logger.debug(f"Search tool results: {search_results}")
-                    event.tool_content = SearchToolContent(
-                        results=search_results.data.results
-                    )
+                    event.tool_content = SearchToolContent(results=search_results.data.results)
                 elif event.tool_name == "shell":
                     event.observation_type = "run"
                     if event.function_result and hasattr(event.function_result, "data"):
@@ -742,13 +715,9 @@ class AgentTaskRunner(TaskRunner):
                             event.exit_code = data.get("returncode")
                     if "id" in event.function_args:
                         shell_result = await self._sandbox.view_shell(event.function_args["id"], console=True)
-                        event.tool_content = ShellToolContent(
-                            console=shell_result.data.get("console", [])
-                        )
+                        event.tool_content = ShellToolContent(console=shell_result.data.get("console", []))
                     else:
-                        event.tool_content = ShellToolContent(
-                            console="(No Console)"
-                        )
+                        event.tool_content = ShellToolContent(console="(No Console)")
                 elif event.tool_name == "file":
                     event.observation_type = "edit"
                     if "file" in event.function_args:
@@ -756,49 +725,39 @@ class AgentTaskRunner(TaskRunner):
                         # Read file and sync to storage concurrently
                         file_read_task = self._sandbox.file_read(file_path)
                         sync_task = self._sync_file_to_storage(file_path)
-                        file_read_result, _ = await asyncio.gather(
-                            file_read_task, sync_task, return_exceptions=True
-                        )
+                        file_read_result, _ = await asyncio.gather(file_read_task, sync_task, return_exceptions=True)
                         if isinstance(file_read_result, Exception):
                             file_content = f"(Error: {file_read_result})"
                         else:
                             file_content = file_read_result.data.get("content", "")
-                        event.tool_content = FileToolContent(
-                            content=file_content
-                        )
+                        event.tool_content = FileToolContent(content=file_content)
 
                         before_content = self._file_before_cache.pop(event.tool_call_id, "")
                         diff_text = build_unified_diff(before_content, file_content, file_path)
                         if diff_text:
                             event.diff = diff_text
                     else:
-                        event.tool_content = FileToolContent(
-                            content="(No Content)"
-                        )
+                        event.tool_content = FileToolContent(content="(No Content)")
                 elif event.tool_name == "mcp":
                     logger.debug(f"Processing MCP tool event: function_result={event.function_result}")
                     if event.function_result:
-                        if hasattr(event.function_result, 'data') and event.function_result.data:
+                        if hasattr(event.function_result, "data") and event.function_result.data:
                             logger.debug(f"MCP tool result data: {event.function_result.data}")
-                            event.tool_content = McpToolContent(
-                                result=event.function_result.data
-                            )
-                        elif hasattr(event.function_result, 'success') and event.function_result.success:
+                            event.tool_content = McpToolContent(result=event.function_result.data)
+                        elif hasattr(event.function_result, "success") and event.function_result.success:
                             logger.debug(f"MCP tool result (success, no data): {event.function_result}")
-                            result_data = event.function_result.model_dump() if hasattr(event.function_result, 'model_dump') else str(event.function_result)
-                            event.tool_content = McpToolContent(
-                                result=result_data
+                            result_data = (
+                                event.function_result.model_dump()
+                                if hasattr(event.function_result, "model_dump")
+                                else str(event.function_result)
                             )
+                            event.tool_content = McpToolContent(result=result_data)
                         else:
                             logger.debug(f"MCP tool result (fallback): {event.function_result}")
-                            event.tool_content = McpToolContent(
-                                result=str(event.function_result)
-                            )
+                            event.tool_content = McpToolContent(result=str(event.function_result))
                     else:
                         logger.warning("MCP tool: No function_result found")
-                        event.tool_content = McpToolContent(
-                            result="No result available"
-                        )
+                        event.tool_content = McpToolContent(result="No result available")
 
                     logger.debug(f"MCP tool_content set to: {event.tool_content}")
                     if event.tool_content:
@@ -807,18 +766,16 @@ class AgentTaskRunner(TaskRunner):
                 elif event.tool_name == "browser_agent":
                     logger.debug(f"Processing browser_agent tool event: function_result={event.function_result}")
                     if event.function_result:
-                        result_data = event.function_result.data if hasattr(event.function_result, 'data') else {}
-                        steps_taken = result_data.get('steps_taken', 0) if isinstance(result_data, dict) else 0
-                        result = result_data.get('result', str(result_data)) if isinstance(result_data, dict) else str(result_data)
-                        event.tool_content = BrowserAgentToolContent(
-                            result=result,
-                            steps_taken=steps_taken
+                        result_data = event.function_result.data if hasattr(event.function_result, "data") else {}
+                        steps_taken = result_data.get("steps_taken", 0) if isinstance(result_data, dict) else 0
+                        result = (
+                            result_data.get("result", str(result_data))
+                            if isinstance(result_data, dict)
+                            else str(result_data)
                         )
+                        event.tool_content = BrowserAgentToolContent(result=result, steps_taken=steps_taken)
                     else:
-                        event.tool_content = BrowserAgentToolContent(
-                            result="No result available",
-                            steps_taken=0
-                        )
+                        event.tool_content = BrowserAgentToolContent(result="No result available", steps_taken=0)
                 elif event.tool_name == "agent_mode":
                     # agent_mode is a control tool, no special content needed
                     logger.debug("Processing agent_mode tool event")
@@ -828,16 +785,16 @@ class AgentTaskRunner(TaskRunner):
                 elif event.tool_name == "code_executor":
                     event.observation_type = "run"
                     # Code execution output shown in terminal-like view
-                    if event.function_result and hasattr(event.function_result, 'data'):
+                    if event.function_result and hasattr(event.function_result, "data"):
                         data = event.function_result.data
                         if isinstance(data, dict):
                             # Extract stdout/stderr for console display
                             console_output = []
-                            if data.get('stdout'):
-                                console_output.append(data['stdout'])
-                            if data.get('stderr'):
+                            if data.get("stdout"):
+                                console_output.append(data["stdout"])
+                            if data.get("stderr"):
                                 console_output.append(f"[stderr] {data['stderr']}")
-                            if data.get('exit_code') is not None:
+                            if data.get("exit_code") is not None:
                                 console_output.append(f"[exit code: {data['exit_code']}]")
                             event.stdout = data.get("stdout")
                             event.stderr = data.get("stderr")
@@ -846,13 +803,9 @@ class AgentTaskRunner(TaskRunner):
                                 console="\n".join(console_output) if console_output else "(No output)"
                             )
                         else:
-                            event.tool_content = ShellToolContent(
-                                console=str(data) if data else "(No output)"
-                            )
+                            event.tool_content = ShellToolContent(console=str(data) if data else "(No output)")
                     else:
-                        event.tool_content = ShellToolContent(
-                            console="(No output)"
-                        )
+                        event.tool_content = ShellToolContent(console="(No output)")
                 else:
                     logger.warning(f"Agent {self._agent_id} received unknown tool event: {event.tool_name}")
         except Exception as e:
@@ -868,11 +821,7 @@ class AgentTaskRunner(TaskRunner):
                 config = await self._mcp_repository.get_mcp_config()
                 await self._mcp_tool.initialized(config)
 
-            await asyncio.gather(
-                self._sandbox.ensure_sandbox(),
-                init_mcp(),
-                return_exceptions=True
-            )
+            await asyncio.gather(self._sandbox.ensure_sandbox(), init_mcp(), return_exceptions=True)
             logger.debug(f"Agent {self._agent_id} concurrent initialization completed")
             while not await task.input_stream.is_empty():
                 event = await self._pop_event(task)
@@ -883,7 +832,9 @@ class AgentTaskRunner(TaskRunner):
 
                 logger.info(f"Agent {self._agent_id} received new message: {message[:50]}...")
 
-                message_obj = Message(message=message, attachments=[attachment.file_path for attachment in event.attachments])
+                message_obj = Message(
+                    message=message, attachments=[attachment.file_path for attachment in event.attachments]
+                )
 
                 async for event in self._run_flow(message_obj, task):
                     # Check if task is paused (for user takeover)
@@ -895,7 +846,9 @@ class AgentTaskRunner(TaskRunner):
                     if isinstance(event, TitleEvent):
                         await self._session_repository.update_title(self._session_id, event.title)
                     elif isinstance(event, MessageEvent):
-                        await self._session_repository.update_latest_message(self._session_id, event.message, event.timestamp)
+                        await self._session_repository.update_latest_message(
+                            self._session_id, event.message, event.timestamp
+                        )
                         await self._session_repository.increment_unread_message_count(self._session_id)
                     elif isinstance(event, WaitEvent):
                         await self._session_repository.update_status(self._session_id, SessionStatus.WAITING)
@@ -930,7 +883,7 @@ class AgentTaskRunner(TaskRunner):
         async with self._usage_context():
             async for event in self._flow.run(message):
                 # Check if task is paused (for user takeover) before processing each event
-                if task and hasattr(task, 'paused'):
+                if task and hasattr(task, "paused"):
                     while task.paused:
                         logger.debug(f"Agent {self._agent_id} paused in flow, waiting for resume...")
                         await asyncio.sleep(0.5)
@@ -964,7 +917,7 @@ class AgentTaskRunner(TaskRunner):
             async with self._usage_context():
                 async for event in self._flow.run(task_message):
                     # Check if task is paused (for user takeover)
-                    if task and hasattr(task, 'paused'):
+                    if task and hasattr(task, "paused"):
                         while task.paused:
                             logger.debug(f"Agent {self._agent_id} paused in mode switch flow, waiting for resume...")
                             await asyncio.sleep(0.5)
@@ -978,11 +931,9 @@ class AgentTaskRunner(TaskRunner):
 
         logger.info(f"Agent {self._agent_id} completed processing one message")
 
-
     async def on_done(self, task: Task) -> None:
         """Called when the task is done"""
         logger.info(f"Agent {self._agent_id} task done")
-
 
     async def destroy(self) -> None:
         """Destroy the task and release resources"""

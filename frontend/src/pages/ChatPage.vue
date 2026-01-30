@@ -100,7 +100,7 @@
       </div>
       <div class="mx-auto w-full max-w-full sm:max-w-[768px] sm:min-w-[390px] flex flex-col flex-1 min-h-[calc(100vh-60px)]">
         <div class="flex flex-col w-full gap-[12px] pb-[80px] pt-[12px] flex-1">
-          <ChatMessage v-for="(message, index) in messages" :key="index" :message="message"
+          <ChatMessage v-for="message in messages" :key="message.id" :message="message"
             :suggestions="message.type === 'report' ? suggestions : undefined"
             @toolClick="handleToolClick"
             @reportOpen="handleReportOpen"
@@ -371,6 +371,34 @@ const {
   planningProgress,
 } = toRefs(state);
 
+// Message ID counter for generating unique keys (avoids crypto overhead)
+let messageIdCounter = 0;
+const generateMessageId = () => `msg_${Date.now()}_${++messageIdCounter}`;
+
+// Phase 5: Event ID set size limit to prevent unbounded memory growth
+const MAX_SEEN_EVENT_IDS = 1000;
+
+/**
+ * Add an event ID to the seen set with automatic cleanup.
+ * Uses LRU-like eviction by clearing oldest half when limit is reached.
+ * This prevents the Set from growing unboundedly during long sessions.
+ */
+const addSeenEventId = (eventId: string) => {
+  // Check if cleanup is needed before adding
+  if (seenEventIds.value.size >= MAX_SEEN_EVENT_IDS) {
+    // Clear the oldest half by converting to array and keeping recent entries
+    const entries = Array.from(seenEventIds.value);
+    const keepCount = Math.floor(MAX_SEEN_EVENT_IDS / 2);
+    seenEventIds.value.clear();
+    // Keep the most recent entries (at the end of the array)
+    for (let i = entries.length - keepCount; i < entries.length; i++) {
+      if (entries[i]) seenEventIds.value.add(entries[i]);
+    }
+    console.debug(`Cleaned up seenEventIds: kept ${keepCount} of ${entries.length}`);
+  }
+  seenEventIds.value.add(eventId);
+};
+
 // Non-state refs that don't need reset
 const toolPanel = ref<InstanceType<typeof ToolPanel>>()
 const simpleBarRef = ref<InstanceType<typeof SimpleBar>>();
@@ -388,21 +416,27 @@ const resetState = () => {
   Object.assign(state, createInitialState());
 };
 
-// Watch message changes and automatically scroll to bottom
-watch(messages, async () => {
-  await nextTick();
-  if (follow.value) {
-    simpleBarRef.value?.scrollToBottom();
+// Watch message length changes for scroll (avoids deep watching which re-triggers on nested changes)
+watch(
+  () => messages.value.length,
+  async () => {
+    await nextTick();
+    if (follow.value) {
+      simpleBarRef.value?.scrollToBottom();
+    }
   }
-}, { deep: true });
+);
 
-// Scroll to bottom when agent starts (loading begins) or plan updates
-watch([isLoading, plan], async () => {
-  await nextTick();
-  if (follow.value) {
-    simpleBarRef.value?.scrollToBottom();
+// Scroll to bottom when agent starts (loading begins) or plan step count changes
+watch(
+  [isLoading, () => plan.value?.steps?.length ?? 0],
+  async () => {
+    await nextTick();
+    if (follow.value) {
+      simpleBarRef.value?.scrollToBottom();
+    }
   }
-}, { deep: true });
+);
 
 // Scroll to bottom when streaming thinking text updates
 watch(thinkingText, async () => {
@@ -626,6 +660,7 @@ const handleMessageEvent = (messageData: MessageEventData) => {
   }
 
   messages.value.push({
+    id: generateMessageId(),
     type: messageData.role,
     content: {
       ...messageData
@@ -634,6 +669,7 @@ const handleMessageEvent = (messageData: MessageEventData) => {
 
   if (messageData.attachments?.length > 0) {
     messages.value.push({
+      id: generateMessageId(),
       type: 'attachments',
       content: {
         ...messageData
@@ -660,6 +696,7 @@ const handleToolEvent = (toolData: ToolEventData) => {
       lastStep.tools.push(toolContent);
     } else {
       messages.value.push({
+        id: generateMessageId(),
         type: 'tool',
         content: toolContent,
       });
@@ -682,6 +719,7 @@ const handleStepEvent = (stepData: StepEventData) => {
   if (stepData.status === 'running') {
     isThinking.value = true;
     messages.value.push({
+      id: generateMessageId(),
       type: 'step',
       content: {
         ...stepData,
@@ -708,6 +746,7 @@ const handleErrorEvent = (errorData: ErrorEventData) => {
   isLoading.value = false;
   isThinking.value = false;
   messages.value.push({
+    id: generateMessageId(),
     type: 'assistant',
     content: {
       content: errorData.error,
@@ -827,6 +866,7 @@ const handleSuggestionEvent = (suggestionData: SuggestionEventData) => {
 const handleReportEvent = (reportData: ReportEventData) => {
   const sections = extractSectionsFromMarkdown(reportData.content);
   messages.value.push({
+    id: generateMessageId(),
     type: 'report',
     content: {
       id: reportData.id,
@@ -864,6 +904,7 @@ const handleDeepResearchEvent = (data: DeepResearchEventData) => {
   } else {
     // Create new message
     messages.value.push({
+      id: generateMessageId(),
       type: 'deep_research',
       content: {
         research_id: data.research_id,
@@ -958,8 +999,32 @@ const handleReportDownload = () => {
   URL.revokeObjectURL(url);
 }
 
-// Main event handler function
-const handleEvent = (event: AgentSSEEvent) => {
+// ===== Event Batching for Performance =====
+// Batch rapid SSE events and process them together to reduce re-renders
+let eventBatchQueue: AgentSSEEvent[] = [];
+let batchFrameId: number | null = null;
+
+const flushEventBatch = () => {
+  batchFrameId = null;
+  const eventsToProcess = eventBatchQueue;
+  eventBatchQueue = [];
+
+  for (const event of eventsToProcess) {
+    processEvent(event);
+  }
+};
+
+const queueEvent = (event: AgentSSEEvent) => {
+  eventBatchQueue.push(event);
+
+  // Schedule batch processing on next animation frame if not already scheduled
+  if (batchFrameId === null) {
+    batchFrameId = requestAnimationFrame(flushEventBatch);
+  }
+};
+
+// Process a single event (extracted from handleEvent for batching)
+const processEvent = (event: AgentSSEEvent) => {
   // Deduplicate events based on event_id to prevent duplicate messages
   const eventId = event.data?.event_id;
   if (eventId && seenEventIds.value.has(eventId)) {
@@ -967,7 +1032,8 @@ const handleEvent = (event: AgentSSEEvent) => {
     return;
   }
   if (eventId) {
-    seenEventIds.value.add(eventId);
+    // Phase 5: Use addSeenEventId for automatic cleanup when set grows too large
+    addSeenEventId(eventId);
   }
 
   // End initialization phase when first event arrives
@@ -1016,6 +1082,11 @@ const handleEvent = (event: AgentSSEEvent) => {
   }
   lastEventId.value = event.data.event_id;
 }
+
+// Public event handler - queues events for batched processing
+const handleEvent = (event: AgentSSEEvent) => {
+  queueEvent(event);
+};
 
 const handleSubmit = () => {
   chat(inputMessage.value, attachments.value);
@@ -1185,6 +1256,11 @@ onUnmounted(() => {
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value();
     cancelCurrentChat.value = null;
+  }
+  // Cancel any pending event batch processing
+  if (batchFrameId !== null) {
+    cancelAnimationFrame(batchFrameId);
+    batchFrameId = null;
   }
 })
 

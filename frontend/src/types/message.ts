@@ -12,6 +12,7 @@ export interface SourceCitation {
 }
 
 export interface Message {
+  id: string;  // Unique ID for efficient Vue rendering (prevents re-renders on array changes)
   type: MessageType;
   content: BaseContent;
 }
