@@ -77,6 +77,118 @@ BLOCKED_URL_PATTERNS = [
     r".*optimizely\.com.*",
 ]
 
+# Video domains to skip - these waste agent time and resources
+VIDEO_DOMAINS: set[str] = {
+    "youtube.com",
+    "www.youtube.com",
+    "youtu.be",
+    "m.youtube.com",
+    "vimeo.com",
+    "www.vimeo.com",
+    "player.vimeo.com",
+    "dailymotion.com",
+    "www.dailymotion.com",
+    "twitch.tv",
+    "www.twitch.tv",
+    "clips.twitch.tv",
+    "tiktok.com",
+    "www.tiktok.com",
+    "vm.tiktok.com",
+    "netflix.com",
+    "www.netflix.com",
+    "hulu.com",
+    "www.hulu.com",
+    "disneyplus.com",
+    "www.disneyplus.com",
+    "primevideo.com",
+    "www.primevideo.com",
+    "hbomax.com",
+    "www.hbomax.com",
+    "max.com",
+    "peacocktv.com",
+    "www.peacocktv.com",
+    "crunchyroll.com",
+    "www.crunchyroll.com",
+    "funimation.com",
+    "www.funimation.com",
+    "rumble.com",
+    "www.rumble.com",
+    "bitchute.com",
+    "www.bitchute.com",
+    "odysee.com",
+    "www.odysee.com",
+    "bilibili.com",
+    "www.bilibili.com",
+    "nicovideo.jp",
+    "www.nicovideo.jp",
+}
+
+# Video file extensions to skip
+VIDEO_EXTENSIONS: set[str] = {
+    ".mp4",
+    ".webm",
+    ".avi",
+    ".mov",
+    ".mkv",
+    ".flv",
+    ".wmv",
+    ".m4v",
+    ".mpg",
+    ".mpeg",
+    ".3gp",
+    ".ogv",
+}
+
+# URL patterns that indicate video content
+VIDEO_URL_PATTERNS: list[re.Pattern] = [
+    re.compile(r"/watch\?v=", re.IGNORECASE),
+    re.compile(r"/video/", re.IGNORECASE),
+    re.compile(r"/videos/", re.IGNORECASE),
+    re.compile(r"/embed/", re.IGNORECASE),
+    re.compile(r"/player/", re.IGNORECASE),
+    re.compile(r"\.m3u8", re.IGNORECASE),
+    re.compile(r"/stream/", re.IGNORECASE),
+]
+
+
+def is_video_url(url: str) -> bool:
+    """Check if URL is a video URL that should be skipped.
+
+    Args:
+        url: URL to check
+
+    Returns:
+        True if URL is a video URL, False otherwise
+    """
+    if not url:
+        return False
+
+    try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url.lower())
+        domain = parsed.netloc.replace("www.", "")
+
+        # Check domain
+        if domain in VIDEO_DOMAINS or f"www.{domain}" in VIDEO_DOMAINS:
+            return True
+
+        # Check file extension
+        path = parsed.path.lower()
+        for ext in VIDEO_EXTENSIONS:
+            if path.endswith(ext):
+                return True
+
+        # Check URL patterns
+        for pattern in VIDEO_URL_PATTERNS:
+            if pattern.search(url):
+                return True
+
+    except Exception:
+        pass
+
+    return False
+
 
 class PlaywrightBrowser:
     """Playwright client that provides specific implementation of browser operations
@@ -422,10 +534,17 @@ class PlaywrightBrowser:
             return False
 
     async def clear_session(self) -> None:
-        """Clear all existing pages and tabs for a fresh session.
+        """Clear browser state while preserving the original window position.
 
-        This should be called when starting a new agent session to prevent
-        leftover tabs from previous sessions from persisting.
+        This method clears browser state for a fresh session, but PRESERVES the first
+        window to avoid VNC positioning issues. When context.new_page() is called,
+        Chrome creates a NEW WINDOW (not a tab), which may appear shifted right
+        since only the first window respects --window-position=0,0.
+
+        Strategy:
+        1. Keep the first page (original window at position 0,0)
+        2. Navigate it to about:blank to clear state
+        3. Close all additional pages/windows
         """
         if not self.browser:
             return
@@ -433,20 +552,39 @@ class PlaywrightBrowser:
         try:
             for context in self.browser.contexts:
                 pages = context.pages
-                logger.info(f"Clearing {len(pages)} existing pages from browser session")
+                if not pages:
+                    continue
 
-                for page in pages:
+                logger.info(f"Clearing browser session: {len(pages)} pages found")
+
+                # Keep the first page (original window) - just clear its content
+                first_page = pages[0]
+                try:
+                    if not first_page.is_closed():
+                        try:
+                            await first_page.goto("about:blank", timeout=5000)
+                            logger.debug("Cleared first page (preserved original window)")
+                        except Exception as e:
+                            logger.debug(f"Error navigating first page to blank: {e}")
+                except Exception as e:
+                    logger.debug(f"Error clearing first page: {e}")
+
+                # Close all additional pages (they create new windows which shift right)
+                for page in pages[1:]:
                     try:
                         if not page.is_closed():
-                            # Navigate to blank first to clear any dialogs
                             try:
                                 await page.goto("about:blank", timeout=5000)
                             except Exception:
                                 pass
                             await page.close()
-                            logger.debug("Closed existing page")
+                            logger.debug("Closed additional page/window")
                     except Exception as e:
                         logger.debug(f"Error closing page during session clear: {e}")
+
+                # Update our page reference to the preserved first page
+                if not first_page.is_closed():
+                    self.page = first_page
         except Exception as e:
             logger.warning(f"Error during session clear: {e}")
 
@@ -492,24 +630,35 @@ class PlaywrightBrowser:
 
                     logger.info(f"Using existing default context with {len(pages)} page(s) - will be visible in VNC")
 
-                    # After clearing, check if we can reuse remaining blank page
+                    # CRITICAL: Reuse ANY existing page to avoid creating new windows
+                    # New windows may not be positioned correctly by openbox, causing VNC display issues
                     reuse_page = None
-                    if len(pages) == 1:
+                    if len(pages) > 0:
+                        # Prefer to reuse the FIRST page (original Chrome window at position 0,0)
                         try:
-                            page_url = await pages[0].evaluate("window.location.href")
-                            if page_url in ("about:blank", "chrome://newtab/", "chrome://new-tab-page/", ""):
-                                reuse_page = pages[0]
-                                logger.info("Reusing existing blank page in visible context")
+                            candidate_page = pages[0]
+                            # Check if page is usable
+                            if not candidate_page.is_closed():
+                                reuse_page = candidate_page
+                                page_url = await candidate_page.evaluate("window.location.href")
+                                logger.info(f"Reusing existing page (URL: {page_url[:100]}) to avoid creating new window")
                         except Exception as e:
-                            logger.debug(f"Could not check page URL for reuse: {e}")
-                    elif len(pages) == 0:
-                        # No pages exist, create one in the visible context
-                        logger.info("No pages in default context, creating new visible page")
+                            logger.debug(f"Could not reuse page[0]: {e}")
+                            # Try other pages if first one failed
+                            for page in pages[1:]:
+                                try:
+                                    if not page.is_closed():
+                                        reuse_page = page
+                                        logger.info("Reusing alternate existing page")
+                                        break
+                                except Exception:
+                                    continue
 
                     if reuse_page:
                         self.page = reuse_page
                     else:
-                        # Create new page in the DEFAULT (visible) context
+                        # Last resort: Create new page (will create new window - may shift in VNC)
+                        logger.warning("No existing pages available, creating new page (may cause VNC positioning issue)")
                         self.page = await self.context.new_page()
                         logger.info(f"Created new page in visible context (total pages: {len(self.context.pages)})")
 
@@ -682,14 +831,29 @@ class PlaywrightBrowser:
 
         This method ensures we're working with an active page, preferring
         the most recently opened tab in multi-tab scenarios.
+
+        IMPORTANT: Avoids creating new pages when possible to prevent VNC positioning issues.
         """
         await self._ensure_browser()
 
         if not self.page or self.page.is_closed():
-            if self.context:
-                self.page = await self.context.new_page()
-            else:
+            if not self.context:
                 raise Exception("No browser context available")
+
+            # CRITICAL: Try to reuse any existing page before creating a new one
+            # New pages create new windows which may shift in VNC display
+            pages = self.context.pages
+            if pages:
+                # Reuse the first available page
+                for page in pages:
+                    if not page.is_closed():
+                        self.page = page
+                        logger.info("Reused existing page in _ensure_page to avoid creating new window")
+                        return
+
+            # Last resort: Create new page (will create new window)
+            logger.warning("No existing pages in _ensure_page, creating new (may cause VNC shift)")
+            self.page = await self.context.new_page()
             return
 
         # Switch to the most recent (rightmost) tab if there are multiple
@@ -1089,6 +1253,15 @@ class PlaywrightBrowser:
         """
         await self._ensure_page()
 
+        # Check if URL is a video URL - skip to save agent time
+        if is_video_url(url):
+            logger.info(f"Skipping video URL: {url}")
+            return ToolResult(
+                success=False,
+                message=f"Skipped video URL (YouTube, TikTok, etc. are blocked to save time): {url}",
+                data={"skipped_video_url": url, "reason": "Video sites are blocked for efficiency"},
+            )
+
         # Clear cache as the page is about to change
         self._interactive_elements_cache = []
 
@@ -1191,8 +1364,126 @@ class PlaywrightBrowser:
         except Exception as e:
             return ToolResult(success=False, message=f"Failed to navigate to {url}: {e!s}")
 
+    async def navigate_fast(self, url: str, timeout: int = 15000) -> ToolResult:
+        """Fast navigation optimized for quick page loads without heavy extraction.
+
+        This method is designed for fast-path queries where we want to get to
+        a page quickly without the overhead of:
+        - Smart scrolling for lazy content
+        - Full interactive element extraction
+        - Extended content analysis
+
+        Args:
+            url: URL to navigate to
+            timeout: Navigation timeout in milliseconds (default: 15000, shorter than regular)
+
+        Returns:
+            ToolResult with basic page info (title, URL, truncated content)
+        """
+        await self._ensure_page()
+
+        # Check if URL is a video URL - skip to save agent time
+        if is_video_url(url):
+            logger.info(f"Skipping video URL in fast mode: {url}")
+            return ToolResult(
+                success=False,
+                message=f"Skipped video URL: {url}",
+                data={"skipped_video_url": url, "reason": "Video sites are blocked"},
+            )
+
+        try:
+            # Navigate with shorter timeout and domcontentloaded (faster than load/networkidle)
+            response = await self.page.goto(url, timeout=timeout, wait_until="domcontentloaded")
+
+            status_code = response.status if response else None
+
+            # Log warning for error status codes but continue
+            if response and response.status >= 400:
+                logger.warning(f"Fast navigation to {url} returned status {response.status}")
+
+            # Bring page to front for VNC visibility
+            try:
+                await self.page.bring_to_front()
+                cdp_session = await self.page.context.new_cdp_session(self.page)
+                await cdp_session.send("Page.bringToFront")
+                await cdp_session.detach()
+                logger.info("Brought page to front via CDP for VNC visibility")
+            except Exception as e:
+                logger.debug(f"Could not bring page to front: {e}")
+
+            # Extract basic content quickly (no scrolling, no full element extraction)
+            try:
+                title = await self.page.title()
+
+                # Get text content directly - faster than full extraction
+                content = await self.page.evaluate("""() => {
+                    // Get main content areas first
+                    const mainSelectors = ['main', 'article', '[role="main"]', '.content', '#content'];
+                    for (const selector of mainSelectors) {
+                        const el = document.querySelector(selector);
+                        if (el && el.innerText && el.innerText.length > 100) {
+                            return el.innerText.slice(0, 8000);
+                        }
+                    }
+                    // Fallback to body text
+                    return document.body ? document.body.innerText.slice(0, 8000) : '';
+                }""")
+
+                # Truncate for response
+                if len(content) > 5000:
+                    content = content[:5000] + "\n\n... (content truncated)"
+
+                return ToolResult(
+                    success=True,
+                    data={
+                        "url": self.page.url,
+                        "title": title,
+                        "content": content,
+                        "status": status_code,
+                        "fast_mode": True,
+                    },
+                )
+
+            except Exception as e:
+                logger.warning(f"Fast content extraction failed: {e}")
+                # Return success with minimal info
+                return ToolResult(
+                    success=True,
+                    data={
+                        "url": self.page.url,
+                        "title": await self.page.title() if self.page else "",
+                        "status": status_code,
+                        "fast_mode": True,
+                    },
+                )
+
+        except PlaywrightTimeoutError:
+            logger.warning(f"Fast navigation to {url} timed out after {timeout}ms")
+            # Try to get whatever loaded
+            try:
+                return ToolResult(
+                    success=True,
+                    message="Page timed out but partially loaded",
+                    data={
+                        "url": self.page.url if self.page else url,
+                        "title": await self.page.title() if self.page else "",
+                        "fast_mode": True,
+                        "timed_out": True,
+                    },
+                )
+            except Exception:
+                return ToolResult(success=False, message=f"Fast navigation to {url} timed out")
+
+        except Exception as e:
+            logger.error(f"Fast navigation failed: {e}")
+            return ToolResult(success=False, message=f"Failed to navigate to {url}: {e!s}")
+
     async def restart(self, url: str) -> ToolResult:
         """Restart the browser and navigate to the specified URL
+
+        IMPORTANT: This does NOT restart Chrome itself (which runs continuously).
+        It only refreshes Playwright's connection and navigates to a new URL.
+        Reuses existing browser windows to avoid VNC positioning issues.
 
         Args:
             url: URL to navigate to after restart
@@ -1200,9 +1491,36 @@ class PlaywrightBrowser:
         Returns:
             ToolResult with navigation result
         """
-        await self.cleanup()
-        if not await self.initialize():
-            return ToolResult(success=False, message="Failed to reinitialize browser after restart")
+        # Don't call cleanup() - it closes pages which creates new windows when reinitializing
+        # Instead, just reinitialize the connection if needed and navigate
+        # This reuses the existing browser window and avoids VNC positioning issues
+
+        # Verify connection is healthy, reinitialize only if necessary
+        try:
+            self._connection_healthy = await self._verify_connection_health()
+            if not self._connection_healthy:
+                # Connection is dead, need to reinitialize
+                logger.info("Browser connection unhealthy, reinitializing without closing pages")
+                # Set references to None without closing (Chrome stays running)
+                self.page = None
+                self.context = None
+                self.browser = None
+                self.playwright = None
+
+                if not await self.initialize():
+                    return ToolResult(success=False, message="Failed to reinitialize browser after restart")
+        except Exception as e:
+            logger.warning(f"Health check failed: {e}, reinitializing")
+            # Set references to None without closing
+            self.page = None
+            self.context = None
+            self.browser = None
+            self.playwright = None
+
+            if not await self.initialize():
+                return ToolResult(success=False, message="Failed to reinitialize browser after restart")
+
+        # Navigate to the target URL (reuses existing page/window)
         return await self.navigate(url)
 
     async def set_resource_blocking(self, enabled: bool, resource_types: set[str] | None = None) -> None:

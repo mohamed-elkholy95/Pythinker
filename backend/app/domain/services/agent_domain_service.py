@@ -47,7 +47,7 @@ class AgentDomainService:
         memory_service: Optional["MemoryService"] = None,
     ):
         self._repository = agent_repository
-        self._session_repository =session_repository
+        self._session_repository = session_repository
         self._llm = llm
         self._sandbox_cls = sandbox_cls
         self._search_engine = search_engine
@@ -56,7 +56,16 @@ class AgentDomainService:
         self._file_storage = file_storage
         self._mcp_repository = mcp_repository
         self._memory_service = memory_service
+        # Session-level locks to prevent concurrent task creation for the same session
+        # This prevents race conditions when fast prompts arrive in quick succession
+        self._task_creation_locks: dict[str, asyncio.Lock] = {}
         logger.info("AgentDomainService initialization completed")
+
+    def _get_task_creation_lock(self, session_id: str) -> asyncio.Lock:
+        """Get or create a lock for task creation for a specific session."""
+        if session_id not in self._task_creation_locks:
+            self._task_creation_locks[session_id] = asyncio.Lock()
+        return self._task_creation_locks[session_id]
 
     async def shutdown(self) -> None:
         """Clean up all Agent's resources"""
@@ -141,14 +150,18 @@ class AgentDomainService:
         # Run all initialization tasks in parallel
         await asyncio.gather(*parallel_tasks, return_exceptions=True)
 
-        # NEW CHAT PROTOCOL: Clear browser for fresh start
-        # Triggers when:
-        # 1. New sandbox created (is_new_sandbox=True)
-        # 2. Session has no previous task (session.task_id is None) - handles shared sandbox
-        is_new_chat = is_new_sandbox or session.task_id is None
+        # BROWSER SESSION PROTOCOL: Only clear browser for brand new sandboxes
+        # Previously, this also triggered when session.task_id was None, but that caused
+        # browser restarts on every new task (fast prompts issue). Now we only clear for:
+        # 1. New sandbox created (is_new_sandbox=True) - browser has no user state
+        # For existing sandboxes with running tasks, preserve browser state to:
+        # - Avoid VNC positioning issues (new windows shift right)
+        # - Preserve ongoing browser work and navigation
+        # - Allow smooth handling of fast/consecutive prompts
+        should_clear_browser = is_new_sandbox
 
         # Browser connection is faster after parallel health check
-        browser = await sandbox.get_browser(clear_session=is_new_chat, verify_connection=False)
+        browser = await sandbox.get_browser(clear_session=should_clear_browser, verify_connection=False)
         if not browser:
             logger.error(f"Failed to get browser for Sandbox {sandbox_id}")
             raise RuntimeError(f"Failed to get browser for Sandbox {sandbox_id}")
@@ -355,11 +368,18 @@ IMPORTANT: The browser state may have changed. Before continuing:
             logger.error(f"Attempted to enqueue message for non-existent Session {session_id}")
             raise RuntimeError("Session not found")
 
-        task = await self._get_task(session)
-        if session.status != SessionStatus.RUNNING or task is None:
-            task = await self._create_task(session)
-            if not task:
-                raise RuntimeError("Failed to create task")
+        # Use session-level lock to prevent concurrent task creation
+        task_lock = self._get_task_creation_lock(session_id)
+        async with task_lock:
+            # Re-fetch session to get latest state
+            session = await self._session_repository.find_by_id(session_id)
+            if not session:
+                raise RuntimeError("Session not found")
+            task = await self._get_task(session)
+            if session.status != SessionStatus.RUNNING or task is None:
+                task = await self._create_task(session)
+                if not task:
+                    raise RuntimeError("Failed to create task")
 
         await self._session_repository.update_latest_message(session_id, message, datetime.now())
 
@@ -422,31 +442,42 @@ IMPORTANT: The browser state may have changed. Before continuing:
                         )
                         return
                 else:
-                    if session.status != SessionStatus.RUNNING or task is None:
-                        task = await self._create_task(session)
-                        if not task:
-                            raise RuntimeError("Failed to create task")
+                    # Use session-level lock to prevent concurrent task creation
+                    # This prevents race conditions when fast prompts arrive before
+                    # the first task is fully initialized
+                    task_lock = self._get_task_creation_lock(session_id)
+                    async with task_lock:
+                        # Re-check task status inside the lock - another request may have
+                        # already created the task while we were waiting for the lock
+                        session = await self._session_repository.find_by_id(session_id)
+                        if session:
+                            task = await self._get_task(session)
 
-                        # Initialize workspace with template selection on first message
-                        # (Phase 1: Multi-task workspace integration)
-                        try:
-                            if not session.workspace_structure and session.sandbox_id:
-                                sandbox = await self._sandbox_cls.get(session.sandbox_id)
-                                if sandbox:
-                                    initializer = get_session_workspace_initializer(self._session_repository)
-                                    workspace_structure = await initializer.initialize_workspace_if_needed(
-                                        session=session,
-                                        sandbox=sandbox,
-                                        task_description=message
-                                    )
-                                    if workspace_structure:
-                                        logger.info(
-                                            f"Initialized workspace for session {session_id}: "
-                                            f"{len(workspace_structure)} folders created"
+                        if session and (session.status != SessionStatus.RUNNING or task is None):
+                            task = await self._create_task(session)
+                            if not task:
+                                raise RuntimeError("Failed to create task")
+
+                            # Initialize workspace with template selection on first message
+                            # (Phase 1: Multi-task workspace integration)
+                            try:
+                                if not session.workspace_structure and session.sandbox_id:
+                                    sandbox = await self._sandbox_cls.get(session.sandbox_id)
+                                    if sandbox:
+                                        initializer = get_session_workspace_initializer(self._session_repository)
+                                        workspace_structure = await initializer.initialize_workspace_if_needed(
+                                            session=session,
+                                            sandbox=sandbox,
+                                            task_description=message
                                         )
-                        except Exception as e:
-                            # Non-critical - log and continue
-                            logger.warning(f"Workspace initialization error (non-fatal): {e}")
+                                        if workspace_structure:
+                                            logger.info(
+                                                f"Initialized workspace for session {session_id}: "
+                                                f"{len(workspace_structure)} folders created"
+                                            )
+                            except Exception as e:
+                                # Non-critical - log and continue
+                                logger.warning(f"Workspace initialization error (non-fatal): {e}")
 
                     await self._session_repository.update_latest_message(session_id, message, timestamp or datetime.now())
 
@@ -508,9 +539,16 @@ IMPORTANT: The browser state may have changed. Before continuing:
             logger.error(f"Attempted to confirm action for non-existent Session {session_id}")
             raise RuntimeError("Session not found")
 
-        task = await self._get_task(session)
-        if not task or task.done:
-            task = await self._create_task(session)
+        # Use session-level lock to prevent concurrent task creation
+        task_lock = self._get_task_creation_lock(session_id)
+        async with task_lock:
+            # Re-fetch session to get latest state
+            session = await self._session_repository.find_by_id(session_id)
+            if not session:
+                raise RuntimeError("Session not found")
+            task = await self._get_task(session)
+            if not task or task.done:
+                task = await self._create_task(session)
 
         runner = getattr(task, "runner", None) or getattr(task, "_runner", None)
         if not runner or not hasattr(runner, "execute_pending_action"):

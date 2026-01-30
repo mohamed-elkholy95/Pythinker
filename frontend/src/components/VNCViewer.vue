@@ -13,6 +13,7 @@
 <script setup lang="ts">
 import { ref, onBeforeUnmount, watch, onMounted } from 'vue';
 import { getVNCUrl } from '@/api/agent';
+import { getPreconnectedVNCUrl, cacheVNCUrl } from '@/composables/useVNCPreconnect';
 
 const props = defineProps<{
   sessionId: string;
@@ -75,7 +76,15 @@ async function initVNCConnection() {
   statusText.value = 'Connecting...';
 
   try {
-    const wsUrl = await getVNCUrl(props.sessionId);
+    // Phase 4: Try to use pre-cached URL first for faster connection
+    let wsUrl = getPreconnectedVNCUrl(props.sessionId);
+    if (wsUrl) {
+      console.log('[VNC] Using pre-cached URL');
+    } else {
+      wsUrl = await getVNCUrl(props.sessionId);
+      // Cache for future use
+      cacheVNCUrl(props.sessionId, wsUrl);
+    }
 
     if (thisConnectionId !== connectionId) {
       console.log('[VNC] Connection attempt superseded');
@@ -106,6 +115,12 @@ async function initVNCConnection() {
     rfb.scaleViewport = true;
     rfb.clipViewport = true;  // Must be true to prevent weird tiling artifacts
     rfb.resizeSession = false;
+
+    // Performance settings for real-time updates
+    // qualityLevel: 0-9, higher = better quality but more bandwidth (6 is good balance)
+    // compressionLevel: 0-9, higher = more compression/CPU usage (2 is good for LAN)
+    rfb.qualityLevel = 6;
+    rfb.compressionLevel = 2;
 
     rfb.addEventListener('connect', () => {
       console.log('[VNC] Connected');
