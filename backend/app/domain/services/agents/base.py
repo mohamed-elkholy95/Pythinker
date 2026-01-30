@@ -57,6 +57,8 @@ SAFE_MCP_PREFIXES = {"mcp_get_", "mcp_list_", "mcp_search_", "mcp_read_", "mcp_f
 
 # Maximum number of concurrent tool executions (increased for better throughput)
 MAX_CONCURRENT_TOOLS = 5
+
+
 class BaseAgent(ABC):
     """
     Base agent class, defining the basic behavior of the agent
@@ -65,7 +67,7 @@ class BaseAgent(ABC):
     name: str = ""
     system_prompt: str = ""
     format: str | None = None
-    max_iterations: int = 200  # Increased for complex tasks
+    max_iterations: int = 400  # Doubled for complex tasks
     max_retries: int = 3
     retry_interval: float = 0.3  # Faster retry with exponential backoff
     retry_backoff: float = 1.5  # Backoff multiplier (0.3s -> 0.45s -> 0.67s)
@@ -73,7 +75,7 @@ class BaseAgent(ABC):
 
     # Iteration budget management
     iteration_warning_threshold: float = 0.8  # Warn at 80% of limit
-    read_only_iteration_weight: float = 0.5  # Read-only ops count as half
+    read_only_iteration_weight: float = 0.3  # Read-only ops count as 30% (reduced from 50%)
 
     def __init__(
         self,
@@ -81,7 +83,7 @@ class BaseAgent(ABC):
         agent_repository: AgentRepository,
         llm: LLM,
         json_parser: JsonParser,
-        tools: list[BaseTool] = []
+        tools: list[BaseTool] = [],
     ):
         self._agent_id = agent_id
         self._repository = agent_repository
@@ -92,7 +94,7 @@ class BaseAgent(ABC):
 
         # Initialize reliability components
         self._stuck_detector = StuckDetector(window_size=5, threshold=3)
-        self._token_manager = TokenManager(model_name=getattr(llm, 'model_name', 'gpt-4'))
+        self._token_manager = TokenManager(model_name=getattr(llm, "model_name", "gpt-4"))
         self._error_handler = ErrorHandler()
 
         # Initialize hallucination detector with available tool names
@@ -113,11 +115,7 @@ class BaseAgent(ABC):
             available_tools.extend(tool.get_tools())
         return available_tools
 
-    def get_filtered_tools(
-        self,
-        task_description: str,
-        include_mcp: bool = True
-    ) -> list[dict[str, Any]]:
+    def get_filtered_tools(self, task_description: str, include_mcp: bool = True) -> list[dict[str, Any]]:
         """Get tools filtered by task context for reduced token usage.
 
         Uses semantic matching to provide only relevant tools based on
@@ -140,10 +138,7 @@ class BaseAgent(ABC):
             manager.register_tools(all_tools)
 
         # Get filtered tools for this task
-        filtered = manager.get_tools_for_task(
-            task_description,
-            include_mcp=include_mcp
-        )
+        filtered = manager.get_tools_for_task(task_description, include_mcp=include_mcp)
 
         # Update hallucination detector with filtered tools
         tool_names = [t.get("function", {}).get("name", "") for t in filtered]
@@ -176,12 +171,7 @@ class BaseAgent(ABC):
         tool_names = [t.get("function", {}).get("name", "") for t in self.get_available_tools() or []]
         self._hallucination_detector.update_available_tools(tool_names)
 
-    def _record_tool_usage(
-        self,
-        tool_name: str,
-        success: bool,
-        duration_ms: float
-    ) -> None:
+    def _record_tool_usage(self, tool_name: str, success: bool, duration_ms: float) -> None:
         """Record tool usage for dynamic toolset prioritization.
 
         Args:
@@ -202,7 +192,7 @@ class BaseAgent(ABC):
         function_name: str,
         function_args: dict[str, Any],
         status: ToolStatus,
-        **kwargs
+        **kwargs,
     ) -> ToolEvent:
         """Create ToolEvent with command formatting applied.
 
@@ -239,7 +229,7 @@ class BaseAgent(ABC):
             display_command=display_command,
             command_category=command_category,
             command_summary=command_summary,
-            **kwargs
+            **kwargs,
         )
 
     async def invoke_tool(
@@ -257,6 +247,7 @@ class BaseAgent(ABC):
         - StuckDetector for action pattern detection
         """
         import time
+
         profiler = get_tool_profiler()
         start_time = time.perf_counter()
 
@@ -264,18 +255,11 @@ class BaseAgent(ABC):
         if not skip_security:
             security_assessment = self._security_assessor.assess_action(function_name, arguments)
             if security_assessment.blocked:
-                logger.warning(
-                    f"Security blocked tool '{function_name}': {security_assessment.reason}"
-                )
-                return ToolResult(
-                    success=False,
-                    message=f"Action blocked for security: {security_assessment.reason}"
-                )
+                logger.warning(f"Security blocked tool '{function_name}': {security_assessment.reason}")
+                return ToolResult(success=False, message=f"Action blocked for security: {security_assessment.reason}")
 
             if security_assessment.risk_level == ActionSecurityRisk.HIGH:
-                logger.info(
-                    f"High-risk tool call: {function_name} - {security_assessment.reason}"
-                )
+                logger.info(f"High-risk tool call: {function_name} - {security_assessment.reason}")
 
         retries = 0
         current_interval = self.retry_interval
@@ -292,14 +276,12 @@ class BaseAgent(ABC):
                     tool_name=function_name,
                     duration_ms=duration_ms,
                     success=result.success if result else False,
-                    error=result.message if result and not result.success else None
+                    error=result.message if result and not result.success else None,
                 )
 
                 # Record for dynamic toolset prioritization
                 self._record_tool_usage(
-                    function_name,
-                    success=result.success if result else False,
-                    duration_ms=duration_ms
+                    function_name, success=result.success if result else False, duration_ms=duration_ms
                 )
 
                 # Track tool action for stuck detection
@@ -326,10 +308,7 @@ class BaseAgent(ABC):
         # Record failed execution with profiler
         duration_ms = (time.perf_counter() - start_time) * 1000
         profiler.record_execution(
-            tool_name=function_name,
-            duration_ms=duration_ms,
-            success=False,
-            error=last_error[:200]
+            tool_name=function_name, duration_ms=duration_ms, success=False, error=last_error[:200]
         )
 
         # Track failed action for stuck detection
@@ -358,8 +337,9 @@ class BaseAgent(ABC):
                 continue
 
             # Check MCP read-only prefixes (dynamic tools from MCP servers)
-            if any(tool_name.startswith(prefix) or f"_{prefix.split('_')[-1]}" in tool_name
-                   for prefix in SAFE_MCP_PREFIXES):
+            if any(
+                tool_name.startswith(prefix) or f"_{prefix.split('_')[-1]}" in tool_name for prefix in SAFE_MCP_PREFIXES
+            ):
                 continue
 
             # Tool not in safe list
@@ -368,10 +348,7 @@ class BaseAgent(ABC):
         return True
 
     async def _invoke_tool_with_semaphore(
-        self,
-        semaphore: asyncio.Semaphore,
-        tool_call: dict,
-        function_args: dict[str, Any]
+        self, semaphore: asyncio.Semaphore, tool_call: dict, function_args: dict[str, Any]
     ) -> tuple[dict, BaseTool, ToolResult]:
         """Invoke a single tool with semaphore limiting concurrent executions"""
         async with semaphore:
@@ -384,19 +361,30 @@ class BaseAgent(ABC):
         """Check if a tool is read-only (doesn't modify state)."""
         read_only_patterns = {
             # File operations
-            "file_read", "file_search", "file_list", "file_info",
+            "file_read",
+            "file_search",
+            "file_list",
+            "file_info",
             # Shell read operations
             "shell_exec",  # Will check command content separately
             # Browser read operations
-            "browser_view", "browser_screenshot", "browser_get_content",
+            "browser_view",
+            "browser_screenshot",
+            "browser_get_content",
             # Search
-            "info_search", "search",
+            "info_search",
+            "search",
             # Code read operations
-            "code_list", "code_read",
+            "code_list",
+            "code_read",
             # Git read operations
-            "git_status", "git_diff", "git_log", "git_branches",
+            "git_status",
+            "git_diff",
+            "git_log",
+            "git_branches",
             # Workspace info
-            "workspace_info", "workspace_tree",
+            "workspace_info",
+            "workspace_tree",
             # Test list
             "test_list",
             # Export list
@@ -449,15 +437,14 @@ class BaseAgent(ABC):
             if budget_ratio >= self.iteration_warning_threshold and not warning_emitted:
                 logger.warning(
                     f"Approaching iteration limit: {iteration_spent:.1f}/{iteration_budget} "
-                    f"({budget_ratio*100:.0f}% used)"
+                    f"({budget_ratio * 100:.0f}% used)"
                 )
                 warning_emitted = True
 
             # Request graceful completion when near limit
             if remaining_budget < 10 and not graceful_completion_requested:
                 logger.warning(
-                    f"Low iteration budget ({remaining_budget:.1f} remaining), "
-                    "requesting completion on next cycle"
+                    f"Low iteration budget ({remaining_budget:.1f} remaining), requesting completion on next cycle"
                 )
                 graceful_completion_requested = True
 
@@ -472,14 +459,8 @@ class BaseAgent(ABC):
                     tool_call_id = tool_call["id"] or str(uuid.uuid4())
                     function_args = await self.json_parser.parse(tool_call["function"]["arguments"])
                     tool = self.get_tool(function_name)
-                    security_assessment = self._security_assessor.assess_action(
-                        function_name, function_args
-                    )
-                    confirmation_state = (
-                        "awaiting_confirmation"
-                        if security_assessment.requires_confirmation
-                        else None
-                    )
+                    security_assessment = self._security_assessor.assess_action(function_name, function_args)
+                    confirmation_state = "awaiting_confirmation" if security_assessment.requires_confirmation else None
 
                     if security_assessment.requires_confirmation:
                         yield self._create_tool_event(
@@ -524,16 +505,15 @@ class BaseAgent(ABC):
                 for tool_call, tool_call_id, function_args, tool in parsed_calls:
                     function_name = tool_call["function"]["name"]
                     tasks.append(
-                        self._execute_parallel_tool(
-                            semaphore, tool, function_name, function_args,
-                            tool_call_id
-                        )
+                        self._execute_parallel_tool(semaphore, tool, function_name, function_args, tool_call_id)
                     )
 
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
                 # Process results and emit CALLED events
-                for (tool_call, tool_call_id, function_args, tool, security_assessment), result in zip(parsed_calls, results):
+                for (tool_call, tool_call_id, function_args, tool, security_assessment), result in zip(
+                    parsed_calls, results
+                ):
                     function_name = tool_call["function"]["name"]
                     if isinstance(result, Exception):
                         result = ToolResult(success=False, message=str(result))
@@ -549,18 +529,18 @@ class BaseAgent(ABC):
                         security_reason=security_assessment.reason,
                         security_suggestions=security_assessment.suggestions,
                         confirmation_state=(
-                            "awaiting_confirmation"
-                            if security_assessment.requires_confirmation
-                            else None
+                            "awaiting_confirmation" if security_assessment.requires_confirmation else None
                         ),
                     )
 
-                    tool_responses.append({
-                        "role": "tool",
-                        "function_name": function_name,
-                        "tool_call_id": tool_call_id,
-                        "content": result.model_dump_json() if hasattr(result, 'model_dump_json') else str(result)
-                    })
+                    tool_responses.append(
+                        {
+                            "role": "tool",
+                            "function_name": function_name,
+                            "tool_call_id": tool_call_id,
+                            "content": result.model_dump_json() if hasattr(result, "model_dump_json") else str(result),
+                        }
+                    )
             else:
                 # Sequential execution for non-parallelizable tools (original behavior)
                 for tool_call in tool_calls:
@@ -574,14 +554,8 @@ class BaseAgent(ABC):
                     tool = self.get_tool(function_name)
 
                     # Generate event before tool call
-                    security_assessment = self._security_assessor.assess_action(
-                        function_name, function_args
-                    )
-                    confirmation_state = (
-                        "awaiting_confirmation"
-                        if security_assessment.requires_confirmation
-                        else None
-                    )
+                    security_assessment = self._security_assessor.assess_action(function_name, function_args)
+                    confirmation_state = "awaiting_confirmation" if security_assessment.requires_confirmation else None
                     if security_assessment.requires_confirmation:
                         yield self._create_tool_event(
                             tool_call_id=tool_call_id,
@@ -610,14 +584,8 @@ class BaseAgent(ABC):
 
                     result = await self.invoke_tool(tool, function_name, function_args)
 
-                    security_assessment = self._security_assessor.assess_action(
-                        function_name, function_args
-                    )
-                    confirmation_state = (
-                        "awaiting_confirmation"
-                        if security_assessment.requires_confirmation
-                        else None
-                    )
+                    security_assessment = self._security_assessor.assess_action(function_name, function_args)
+                    confirmation_state = "awaiting_confirmation" if security_assessment.requires_confirmation else None
 
                     # Generate event after tool call
                     yield self._create_tool_event(
@@ -633,31 +601,34 @@ class BaseAgent(ABC):
                         confirmation_state=confirmation_state,
                     )
 
-                    tool_responses.append({
-                        "role": "tool",
-                        "function_name": function_name,
-                        "tool_call_id": tool_call_id,
-                        "content": result.model_dump_json()
-                    })
+                    tool_responses.append(
+                        {
+                            "role": "tool",
+                            "function_name": function_name,
+                            "tool_call_id": tool_call_id,
+                            "content": result.model_dump_json(),
+                        }
+                    )
 
             # If graceful completion was requested, add a hint to wrap up
             if graceful_completion_requested:
-                tool_responses.append({
-                    "role": "system",
-                    "content": (
-                        "[SYSTEM: Approaching execution limit. Please complete the current task "
-                        "and provide a summary of your findings. If the task is not complete, "
-                        "summarize what was accomplished and what remains to be done.]"
-                    )
-                })
+                tool_responses.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            "[SYSTEM: Approaching execution limit. Please complete the current task "
+                            "and provide a summary of your findings. If the task is not complete, "
+                            "summarize what was accomplished and what remains to be done.]"
+                        ),
+                    }
+                )
                 graceful_completion_requested = False  # Only inject once
 
             message = await self.ask_with_messages(tool_responses)
         else:
             # Budget exhausted - provide informative error with context
             logger.error(
-                f"Iteration budget exhausted: {iteration_spent:.1f}/{iteration_budget} "
-                f"after processing tool calls"
+                f"Iteration budget exhausted: {iteration_spent:.1f}/{iteration_budget} after processing tool calls"
             )
             yield ErrorEvent(
                 error=(
@@ -675,7 +646,7 @@ class BaseAgent(ABC):
         tool: BaseTool,
         function_name: str,
         function_args: dict[str, Any],
-        tool_call_id: str
+        tool_call_id: str,
     ) -> ToolResult:
         """Execute a single tool with semaphore limiting concurrent executions"""
         async with semaphore:
@@ -695,9 +666,7 @@ class BaseAgent(ABC):
                 # This should not normally happen as the factory creates the document,
                 # but we handle it defensively for robustness
                 if "not found" in str(e).lower():
-                    logger.warning(
-                        f"Agent {self._agent_id} not found in database, creating document defensively"
-                    )
+                    logger.warning(f"Agent {self._agent_id} not found in database, creating document defensively")
                     agent_model = Agent(id=self._agent_id)
                     await self._repository.save(agent_model)
                     self.memory = await self._repository.get_memory(self._agent_id, self.name)
@@ -708,9 +677,12 @@ class BaseAgent(ABC):
         """Update memory and save to repository"""
         await self._ensure_memory()
         if self.memory.empty:
-            self.memory.add_message({
-                "role": "system", "content": self.system_prompt,
-            })
+            self.memory.add_message(
+                {
+                    "role": "system",
+                    "content": self.system_prompt,
+                }
+            )
         self.memory.add_messages(messages)
         await self._repository.save_memory(self._agent_id, self.name, self.memory)
 
@@ -731,10 +703,12 @@ class BaseAgent(ABC):
 
         for retry in range(self.max_retries):
             try:
-                message = await self.llm.ask(self.memory.get_messages(),
-                                                tools=self.get_available_tools(),
-                                                response_format=response_format,
-                                                tool_choice=self.tool_choice)
+                message = await self.llm.ask(
+                    self.memory.get_messages(),
+                    tools=self.get_available_tools(),
+                    response_format=response_format,
+                    tool_choice=self.tool_choice,
+                )
             except TokenLimitExceeded as e:
                 logger.warning(f"Token limit exceeded, trimming context: {e}")
                 await self._handle_token_limit_exceeded()
@@ -750,10 +724,12 @@ class BaseAgent(ABC):
             if message.get("role") == "assistant":
                 if not message.get("content") and not message.get("tool_calls"):
                     logger.warning("Assistant message has no content, retry")
-                    await self._add_to_memory([
-                        {"role": "assistant", "content": ""},
-                        {"role": "user", "content": "no thinking, please continue"}
-                    ])
+                    await self._add_to_memory(
+                        [
+                            {"role": "assistant", "content": ""},
+                            {"role": "user", "content": "no thinking, please continue"},
+                        ]
+                    )
                     continue
                 filtered_message = {
                     "role": "assistant",
@@ -793,10 +769,7 @@ class BaseAgent(ABC):
                     recovery_prompt = self._stuck_detector.get_recovery_prompt()
                     logger.warning("Agent stuck detected (response-level), injecting recovery prompt")
 
-                await self._add_to_memory([
-                    filtered_message,
-                    {"role": "user", "content": recovery_prompt}
-                ])
+                await self._add_to_memory([filtered_message, {"role": "user", "content": recovery_prompt}])
                 continue
 
             await self._add_to_memory([filtered_message])
@@ -811,55 +784,62 @@ class BaseAgent(ABC):
         if not self._token_manager.is_within_limit(current_messages):
             logger.warning("Memory exceeds token limit, trimming...")
             trimmed_messages, tokens_removed = self._token_manager.trim_messages(
-                current_messages,
-                preserve_system=True,
-                preserve_recent=6
+                current_messages, preserve_system=True, preserve_recent=6
             )
             self.memory.messages = trimmed_messages
             await self._repository.save_memory(self._agent_id, self.name, self.memory)
             logger.info(f"Trimmed memory, removed {tokens_removed} tokens")
 
     async def _handle_token_limit_exceeded(self) -> None:
-        """Handle token limit exceeded error by aggressively trimming context"""
+        """Handle token limit exceeded error by aggressively trimming context.
+
+        Memory compaction and trimming are done synchronously (fast, in-memory),
+        but the MongoDB save is done in the background to avoid blocking the retry loop.
+        """
         await self._ensure_memory()
 
-        # First compact verbose tool results
+        # First compact verbose tool results (fast, in-memory)
         self.memory.smart_compact()
 
-        # Then trim messages
+        # Then trim messages (fast, in-memory)
         trimmed_messages, tokens_removed = self._token_manager.trim_messages(
             self.memory.get_messages(),
             preserve_system=True,
-            preserve_recent=4  # More aggressive trim
+            preserve_recent=4,  # More aggressive trim
         )
         self.memory.messages = trimmed_messages
-        await self._repository.save_memory(self._agent_id, self.name, self.memory)
-        logger.info(f"Handled token limit by trimming {tokens_removed} tokens")
+
+        # Save to MongoDB in background (non-blocking) to avoid delaying retry
+        async def _save_background():
+            try:
+                await self._repository.save_memory(self._agent_id, self.name, self.memory)
+                logger.debug(f"Background memory save completed after token limit handling")
+            except Exception as e:
+                logger.warning(f"Background memory save failed after token limit handling: {e}")
+
+        asyncio.create_task(_save_background())
+        logger.info(f"Handled token limit by trimming {tokens_removed} tokens (save in background)")
 
     async def ask(self, request: str, format: str | None = None) -> dict[str, Any]:
-        return await self.ask_with_messages([
-            {
-                "role": "user", "content": request
-            }
-        ], format)
+        return await self.ask_with_messages([{"role": "user", "content": request}], format)
 
     async def roll_back(self, message: Message):
         await self._ensure_memory()
         last_message = self.memory.get_last_message()
-        if (not last_message or
-            not last_message.get("tool_calls") or
-            len(last_message.get("tool_calls")) == 0):
+        if not last_message or not last_message.get("tool_calls") or len(last_message.get("tool_calls")) == 0:
             return
         tool_call = last_message.get("tool_calls")[0]
         function_name = tool_call.get("function", {}).get("name")
         tool_call_id = tool_call.get("id")
         if function_name == "message_ask_user":
-            self.memory.add_message({
-                "role": "tool",
-                "tool_call_id": tool_call_id,
-                "function_name": function_name,
-                "content": message.model_dump_json()
-            })
+            self.memory.add_message(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "function_name": function_name,
+                    "content": message.model_dump_json(),
+                }
+            )
         else:
             self.memory.roll_back()
         await self._repository.save_memory(self._agent_id, self.name, self.memory)
@@ -917,11 +897,7 @@ class BaseAgent(ABC):
         self._stuck_detector.reset()
         logger.debug("Reliability state reset")
 
-    async def ask_streaming(
-        self,
-        request: str,
-        format: str | None = None
-    ) -> AsyncGenerator[BaseEvent, None]:
+    async def ask_streaming(self, request: str, format: str | None = None) -> AsyncGenerator[BaseEvent, None]:
         """Execute a request with streaming LLM response.
 
         Yields StreamEvents as content chunks arrive, then MessageEvent for full response.
@@ -939,7 +915,7 @@ class BaseAgent(ABC):
         await self._ensure_within_token_limit()
 
         # Check if LLM supports streaming
-        if not hasattr(self.llm, 'ask_stream'):
+        if not hasattr(self.llm, "ask_stream"):
             # Fall back to non-streaming
             response = await self.ask(request, format)
             yield MessageEvent(message=response.get("content", ""))
@@ -952,7 +928,7 @@ class BaseAgent(ABC):
             async for chunk in self.llm.ask_stream(
                 self.memory.get_messages(),
                 tools=None,  # Streaming typically used without tools
-                response_format=response_format
+                response_format=response_format,
             ):
                 full_content += chunk
                 yield StreamEvent(content=chunk, is_final=False)

@@ -3,6 +3,7 @@ import logging
 import re
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Any, Optional
 
 from app.domain.external.browser import Browser
@@ -94,6 +95,7 @@ from app.domain.services.agents.complexity_assessor import ComplexityAssessor
 
 logger = logging.getLogger(__name__)
 
+
 class PlanActFlow(BaseFlow):
     """Plan-Act flow with optional multi-agent step dispatch.
 
@@ -151,16 +153,9 @@ class PlanActFlow(BaseFlow):
         self._verification_verdict: str | None = None
         self._verification_feedback: str | None = None
         self._verification_loops = 0
-        self._max_verification_loops = 2
+        self._max_verification_loops = 1  # Reduced from 2 to 1 for faster response
 
-        tools = [
-            ShellTool(sandbox),
-            BrowserTool(browser),
-            FileTool(sandbox),
-            MessageTool(),
-            IdleTool(),
-            mcp_tool
-        ]
+        tools = [ShellTool(sandbox), BrowserTool(browser), FileTool(sandbox), MessageTool(), IdleTool(), mcp_tool]
 
         # Only add search tool when search_engine is not None
         if search_engine:
@@ -208,14 +203,20 @@ class PlanActFlow(BaseFlow):
                 config=VerifierConfig(
                     enabled=True,
                     skip_simple_plans=True,
-                    simple_plan_max_steps=2,
-                    max_revision_loops=2,
-                )
+                    simple_plan_max_steps=3,  # Increased from 2 to skip verification for more plans
+                    max_revision_loops=1,  # Reduced from 2 for faster response
+                ),
             )
             logger.info(f"VerifierAgent enabled for Agent {agent_id}")
 
         # Track background tasks for cleanup
         self._background_tasks: set = set()
+
+        # Debouncing for background tasks (P1.4: reduce event loop contention)
+        self._last_compact_time: datetime | None = None
+        self._compact_debounce_seconds = 10  # Min seconds between compactions
+        self._last_save_time: datetime | None = None
+        self._save_debounce_seconds = 5  # Min seconds between saves
 
         # Task state manager for todo recitation
         self._task_state_manager = TaskStateManager(sandbox)
@@ -247,6 +248,9 @@ class PlanActFlow(BaseFlow):
         self._iteration_count = 0
         self._recent_tools: list[str] = []
         self._max_recent_tools = 10
+
+        # Cache complexity score for skip-update optimization
+        self._cached_complexity: float | None = None
 
         # Error Integration Bridge for coordinated health assessment
         self._error_bridge = ErrorIntegrationBridge(
@@ -285,30 +289,14 @@ class PlanActFlow(BaseFlow):
 
         # Map keywords to capabilities
         capability_keywords = {
-            AgentCapability.WEB_BROWSING: [
-                "browse", "website", "page", "click", "navigate", "visit"
-            ],
-            AgentCapability.WEB_SEARCH: [
-                "search", "find", "lookup", "query", "google"
-            ],
-            AgentCapability.CODE_WRITING: [
-                "code", "implement", "write", "function", "class", "script", "program"
-            ],
-            AgentCapability.CODE_REVIEW: [
-                "review", "check", "audit", "verify code", "find bugs"
-            ],
-            AgentCapability.FILE_OPERATIONS: [
-                "file", "read", "write", "save", "create file", "modify"
-            ],
-            AgentCapability.SHELL_COMMANDS: [
-                "run", "execute", "shell", "command", "terminal", "bash"
-            ],
-            AgentCapability.RESEARCH: [
-                "research", "investigate", "study", "analyze", "gather"
-            ],
-            AgentCapability.SUMMARIZATION: [
-                "summarize", "summary", "brief", "overview", "condense"
-            ],
+            AgentCapability.WEB_BROWSING: ["browse", "website", "page", "click", "navigate", "visit"],
+            AgentCapability.WEB_SEARCH: ["search", "find", "lookup", "query", "google"],
+            AgentCapability.CODE_WRITING: ["code", "implement", "write", "function", "class", "script", "program"],
+            AgentCapability.CODE_REVIEW: ["review", "check", "audit", "verify code", "find bugs"],
+            AgentCapability.FILE_OPERATIONS: ["file", "read", "write", "save", "create file", "modify"],
+            AgentCapability.SHELL_COMMANDS: ["run", "execute", "shell", "command", "terminal", "bash"],
+            AgentCapability.RESEARCH: ["research", "investigate", "study", "analyze", "gather"],
+            AgentCapability.SUMMARIZATION: ["summarize", "summary", "brief", "overview", "condense"],
         }
 
         for capability, keywords in capability_keywords.items():
@@ -391,15 +379,28 @@ class PlanActFlow(BaseFlow):
         return self.executor
 
     def _background_compact_memory(self, force: bool = False, reason: str = "") -> None:
-        """Schedule memory compaction as a non-blocking background task.
+        """Schedule memory compaction as a non-blocking background task with debouncing.
 
         Uses Phase 3 proactive compaction triggers to determine if compaction
-        is needed before actually performing it.
+        is needed before actually performing it. Debouncing prevents excessive
+        compaction calls that could contend for event loop resources.
 
         Args:
-            force: Force compaction regardless of trigger rules
+            force: Force compaction regardless of trigger rules and debounce
             reason: Reason for forced compaction (logged)
         """
+        # Debounce check (skip if compacted recently, unless forced)
+        now = datetime.now()
+        if not force and self._last_compact_time:
+            elapsed = (now - self._last_compact_time).total_seconds()
+            if elapsed < self._compact_debounce_seconds:
+                logger.debug(
+                    f"Skipping compaction, last was {elapsed:.1f}s ago (debounce: {self._compact_debounce_seconds}s)"
+                )
+                return
+
+        self._last_compact_time = now
+
         async def _compact():
             try:
                 # Estimate current tokens from executor memory
@@ -414,9 +415,7 @@ class PlanActFlow(BaseFlow):
 
                 # Check if compaction should be triggered
                 should_compact, trigger_reason = self._memory_manager.should_trigger_compaction(
-                    pressure=pressure,
-                    recent_tools=self._recent_tools,
-                    iteration_count=self._iteration_count
+                    pressure=pressure, recent_tools=self._recent_tools, iteration_count=self._iteration_count
                 )
 
                 if force or should_compact:
@@ -431,18 +430,14 @@ class PlanActFlow(BaseFlow):
                     compacted_messages, tokens_saved = self._memory_manager.compact_messages_batch(
                         messages,
                         preserve_recent=10,
-                        token_threshold=int(pressure.max_tokens * 0.7)  # Compact when at 70%
+                        token_threshold=int(pressure.max_tokens * 0.7),  # Compact when at 70%
                     )
 
                     if tokens_saved > 0:
                         # Update memory with compacted messages
                         self.executor.memory.messages = compacted_messages
-                        await self._repository.save_memory(
-                            self._agent_id, self.executor.name, self.executor.memory
-                        )
-                        logger.info(
-                            f"Agent {self._agent_id} compaction saved {tokens_saved} tokens"
-                        )
+                        await self._repository.save_memory(self._agent_id, self.executor.name, self.executor.memory)
+                        logger.info(f"Agent {self._agent_id} compaction saved {tokens_saved} tokens")
                     else:
                         # Fallback to simple compact if no savings from smart compaction
                         await self.executor.compact_memory()
@@ -464,7 +459,7 @@ class PlanActFlow(BaseFlow):
         """Track recent tool usage for proactive compaction decisions."""
         self._recent_tools.append(tool_name)
         if len(self._recent_tools) > self._max_recent_tools:
-            self._recent_tools = self._recent_tools[-self._max_recent_tools:]
+            self._recent_tools = self._recent_tools[-self._max_recent_tools :]
 
     def _transition_to(self, new_status: AgentStatus, *, force: bool = False, reason: str = "") -> None:
         """Transition to a new status with optional validation."""
@@ -494,15 +489,11 @@ class PlanActFlow(BaseFlow):
             error_summary = "; ".join(validation.errors[:3])
             logger.warning(f"Plan validation failed: {error_summary}")
             self._verification_verdict = "revise"
-            self._verification_feedback = (
-                "Plan validation failed:\n- " + "\n- ".join(validation.errors[:5])
-            )
+            self._verification_feedback = "Plan validation failed:\n- " + "\n- ".join(validation.errors[:5])
             return False
 
         if validation.warnings:
-            logger.info(
-                f"Plan validation warnings: {', '.join(validation.warnings[:3])}"
-            )
+            logger.info(f"Plan validation warnings: {', '.join(validation.warnings[:3])}")
         return True
 
     def _run_compliance_gates(self, content: str, attachments: list[Any] | None = None) -> ComplianceReport:
@@ -514,8 +505,24 @@ class PlanActFlow(BaseFlow):
                 artifacts.append({"path": path, "type": "file"})
         return self._compliance_gates.check_all(content, artifacts=artifacts, sources=[])
 
-    def _background_save_task_state(self) -> None:
-        """Schedule task state save as a non-blocking background task."""
+    def _background_save_task_state(self, force: bool = False) -> None:
+        """Schedule task state save as a non-blocking background task with debouncing.
+
+        Args:
+            force: Force save regardless of debounce timer
+        """
+        # Debounce check (skip if saved recently, unless forced)
+        now = datetime.now()
+        if not force and self._last_save_time:
+            elapsed = (now - self._last_save_time).total_seconds()
+            if elapsed < self._save_debounce_seconds:
+                logger.debug(
+                    f"Skipping task state save, last was {elapsed:.1f}s ago (debounce: {self._save_debounce_seconds}s)"
+                )
+                return
+
+        self._last_save_time = now
+
         async def _save():
             try:
                 await self._task_state_manager.save_to_sandbox()
@@ -545,7 +552,7 @@ class PlanActFlow(BaseFlow):
         # Mark dependent steps as blocked using cascade
         blocked_ids = self.plan.mark_blocked_cascade(
             blocked_step_id=failed_step.id,
-            reason=reason[:200]  # Limit reason length
+            reason=reason[:200],  # Limit reason length
         )
 
         return blocked_ids
@@ -586,8 +593,7 @@ class PlanActFlow(BaseFlow):
         if is_optional:
             # Check if we already have successful steps that might make this redundant
             completed_count = sum(
-                1 for s in self.plan.steps
-                if s.status == ExecutionStatus.COMPLETED and s.id != step.id
+                1 for s in self.plan.steps if s.status == ExecutionStatus.COMPLETED and s.id != step.id
             )
             if completed_count > 0:
                 # Could potentially skip - but be conservative
@@ -615,6 +621,123 @@ class PlanActFlow(BaseFlow):
 
         return skipped_ids
 
+    def _is_read_only_step(self, step: Step) -> bool:
+        """Check if a step is likely read-only (doesn't modify state).
+
+        Read-only steps don't require plan updates after completion since they
+        don't change the execution context significantly.
+
+        Args:
+            step: The step to check
+
+        Returns:
+            True if the step appears to be read-only
+        """
+        if not step or not step.description:
+            return False
+
+        desc_lower = step.description.lower()
+
+        # Read-only action patterns
+        read_only_patterns = [
+            "read",
+            "view",
+            "list",
+            "search",
+            "find",
+            "check",
+            "verify",
+            "inspect",
+            "examine",
+            "analyze",
+            "review",
+            "look",
+            "browse",
+            "fetch",
+            "get",
+            "retrieve",
+            "show",
+            "display",
+            "print",
+            "understand",
+            "learn",
+            "research",
+            "investigate",
+            "explore",
+        ]
+
+        # Write action patterns (if present, NOT read-only)
+        write_patterns = [
+            "write",
+            "create",
+            "modify",
+            "update",
+            "delete",
+            "remove",
+            "install",
+            "execute",
+            "run",
+            "build",
+            "compile",
+            "deploy",
+            "change",
+            "edit",
+            "save",
+            "store",
+            "set",
+            "configure",
+        ]
+
+        has_read_pattern = any(pattern in desc_lower for pattern in read_only_patterns)
+        has_write_pattern = any(pattern in desc_lower for pattern in write_patterns)
+
+        # Read-only if has read patterns but no write patterns
+        return has_read_pattern and not has_write_pattern
+
+    def _should_skip_plan_update(self, step: Step, remaining_steps: int) -> tuple[bool, str]:
+        """Determine if plan update phase should be skipped for faster execution.
+
+        Skipping plan updates saves 2-5 seconds per step by avoiding an LLM call.
+        Safe to skip when the plan state is predictable.
+
+        Args:
+            step: The step that just completed
+            remaining_steps: Number of pending steps remaining
+
+        Returns:
+            Tuple of (should_skip, reason)
+        """
+        # Always skip for last step or near completion
+        if remaining_steps <= 1:
+            return True, f"last step or near completion ({remaining_steps} remaining)"
+
+        # Skip if step failed (will trigger replanning anyway)
+        if not step.success:
+            return True, "step failed"
+
+        # Skip for simple tasks (complexity-based optimization)
+        try:
+            # Use cached complexity score if available
+            if (
+                hasattr(self, "_cached_complexity")
+                and self._cached_complexity is not None
+                and self._cached_complexity < 0.4  # Simple task threshold
+            ):
+                return True, f"simple task (complexity={self._cached_complexity:.2f})"
+        except Exception:
+            pass
+
+        # Skip for read-only steps (they don't change execution context)
+        if self._is_read_only_step(step):
+            return True, "read-only step"
+
+        # Skip if we have few remaining steps (< 3) - plan is nearly complete
+        if remaining_steps <= 2:
+            return True, f"few steps remaining ({remaining_steps})"
+
+        # Default: don't skip
+        return False, ""
+
     def _check_step_dependencies(self, step: Step) -> bool:
         """Check if a step's dependencies are satisfied.
 
@@ -641,10 +764,7 @@ class PlanActFlow(BaseFlow):
                 # Dependency not yet satisfied
                 if dep_step.status in [ExecutionStatus.FAILED, ExecutionStatus.BLOCKED]:
                     # Dependency failed - this step should be blocked
-                    step.mark_blocked(
-                        f"Dependency {dep_id} failed",
-                        blocked_by=dep_id
-                    )
+                    step.mark_blocked(f"Dependency {dep_id} failed", blocked_by=dep_id)
                     return False
                 if dep_step.status in [ExecutionStatus.PENDING, ExecutionStatus.RUNNING]:
                     # Dependency not yet complete - shouldn't happen if get_next_step works correctly
@@ -718,7 +838,7 @@ class PlanActFlow(BaseFlow):
             "agent-run",
             agent_id=self._agent_id,
             session_id=self._session_id,
-            attributes={"message.preview": message.message[:100]}
+            attributes={"message.preview": message.message[:100]},
         ) as trace_ctx:
             async for event in self._run_with_trace(message, trace_ctx):
                 yield event
@@ -734,13 +854,15 @@ class PlanActFlow(BaseFlow):
         if session.complexity_score is None and session.status == SessionStatus.PENDING:
             assessor = ComplexityAssessor()
             assessment = assessor.assess_task_complexity(
-                task_description=message.message,
-                is_multi_task=session.multi_task_challenge is not None
+                task_description=message.message, is_multi_task=session.multi_task_challenge is not None
             )
 
             # Store complexity score and iteration limit in session
             session.complexity_score = assessment.score
             session.iteration_limit_override = assessment.recommended_iterations
+
+            # Cache complexity for skip-update optimization
+            self._cached_complexity = assessment.score
 
             # Apply iteration limit to executor
             self.executor.max_iterations = assessment.recommended_iterations
@@ -753,11 +875,14 @@ class PlanActFlow(BaseFlow):
             # Update session with complexity info
             await self._session_repository.update_by_id(
                 self._session_id,
-                {"complexity_score": assessment.score, "iteration_limit_override": assessment.recommended_iterations}
+                {"complexity_score": assessment.score, "iteration_limit_override": assessment.recommended_iterations},
             )
         elif session.iteration_limit_override:
             # Reuse existing iteration limit override
             self.executor.max_iterations = session.iteration_limit_override
+            # Cache existing complexity score
+            if session.complexity_score is not None:
+                self._cached_complexity = session.complexity_score
             logger.debug(f"Applying existing iteration limit: {session.iteration_limit_override}")
 
         if session.status != SessionStatus.PENDING:
@@ -795,7 +920,9 @@ class PlanActFlow(BaseFlow):
                         break
 
                 if self.status == AgentStatus.IDLE:
-                    logger.info(f"Agent {self._agent_id} state changed from {AgentStatus.IDLE} to {AgentStatus.PLANNING}")
+                    logger.info(
+                        f"Agent {self._agent_id} state changed from {AgentStatus.IDLE} to {AgentStatus.PLANNING}"
+                    )
                     self._transition_to(AgentStatus.PLANNING)
                 elif self.status == AgentStatus.PLANNING:
                     # Create plan with tracing
@@ -812,12 +939,14 @@ class PlanActFlow(BaseFlow):
 
                                 plan_span.set_attribute("plan.steps", len(event.plan.steps))
                                 plan_span.set_attribute("plan.title", event.plan.title)
-                                logger.info(f"Agent {self._agent_id} created plan successfully with {len(event.plan.steps)} steps")
+                                logger.info(
+                                    f"Agent {self._agent_id} created plan successfully with {len(event.plan.steps)} steps"
+                                )
 
                                 # Initialize task state for recitation
                                 self._task_state_manager.initialize_from_plan(
                                     objective=message.message,
-                                    steps=[{"id": s.id, "description": s.description} for s in event.plan.steps]
+                                    steps=[{"id": s.id, "description": s.description} for s in event.plan.steps],
                                 )
 
                                 yield TitleEvent(title=event.plan.title)
@@ -838,10 +967,14 @@ class PlanActFlow(BaseFlow):
                         self._transition_to(AgentStatus.COMPLETED)
                     elif self.verifier:
                         # Transition to verification if verifier is enabled
-                        logger.info(f"Agent {self._agent_id} state changed from {AgentStatus.PLANNING} to {AgentStatus.VERIFYING}")
+                        logger.info(
+                            f"Agent {self._agent_id} state changed from {AgentStatus.PLANNING} to {AgentStatus.VERIFYING}"
+                        )
                         self._transition_to(AgentStatus.VERIFYING)
                     else:
-                        logger.info(f"Agent {self._agent_id} state changed from {AgentStatus.PLANNING} to {AgentStatus.EXECUTING}")
+                        logger.info(
+                            f"Agent {self._agent_id} state changed from {AgentStatus.PLANNING} to {AgentStatus.EXECUTING}"
+                        )
                         self._transition_to(AgentStatus.EXECUTING)
 
                 elif self.status == AgentStatus.VERIFYING:
@@ -849,9 +982,7 @@ class PlanActFlow(BaseFlow):
                     logger.info(f"Agent {self._agent_id} started verifying plan")
                     with trace_ctx.span("verifying", SpanKind.AGENT_STEP) as verify_span:
                         async for event in self.verifier.verify_plan(
-                            plan=self.plan,
-                            user_request=message.message,
-                            task_context=""
+                            plan=self.plan, user_request=message.message, task_context=""
                         ):
                             yield event
 
@@ -880,8 +1011,7 @@ class PlanActFlow(BaseFlow):
                     elif self._verification_verdict == "revise":
                         if self._verification_loops >= self._max_verification_loops:
                             logger.warning(
-                                f"Agent {self._agent_id} max verification loops reached, "
-                                "proceeding with execution"
+                                f"Agent {self._agent_id} max verification loops reached, proceeding with execution"
                             )
                             if not self._validate_plan_before_execution():
                                 logger.info(f"Agent {self._agent_id} plan failed validation after verification")
@@ -911,15 +1041,15 @@ class PlanActFlow(BaseFlow):
                     self.plan.status = ExecutionStatus.RUNNING
                     step = self.plan.get_next_step()
                     if not step:
-                        logger.info(f"Agent {self._agent_id} has no more steps, state changed from {AgentStatus.EXECUTING} to {AgentStatus.COMPLETED}")
+                        logger.info(
+                            f"Agent {self._agent_id} has no more steps, state changed from {AgentStatus.EXECUTING} to {AgentStatus.COMPLETED}"
+                        )
                         self._transition_to(AgentStatus.SUMMARIZING)
                         continue
 
                     # Check if step should be skipped (blocked by previous failures)
                     if step.status == ExecutionStatus.BLOCKED:
-                        logger.info(
-                            f"Skipping blocked step {step.id}: {step.notes or 'blocked by dependency'}"
-                        )
+                        logger.info(f"Skipping blocked step {step.id}: {step.notes or 'blocked by dependency'}")
                         self._task_state_manager.update_step_status(str(step.id), "blocked")
                         continue
 
@@ -936,15 +1066,23 @@ class PlanActFlow(BaseFlow):
                     with trace_ctx.span(
                         f"step:{step.id}",
                         SpanKind.AGENT_STEP,
-                        {"step.id": step.id, "step.description": step.description[:100]}
+                        {"step.id": step.id, "step.description": step.description[:100]},
                     ) as step_span:
-                        # Mark step as in progress for task state
+                        # Mark step as in progress BEFORE execution starts
+                        # This fixes "0/4" stall by updating progress immediately
+                        step.status = ExecutionStatus.RUNNING
                         self._task_state_manager.update_step_status(str(step.id), "in_progress")
+
+                        # Emit PlanEvent so frontend sees updated progress immediately
+                        yield PlanEvent(status=PlanStatus.UPDATED, plan=self.plan)
 
                         # Select appropriate executor for this step (multi-agent dispatch)
                         step_executor = await self._get_executor_for_step(step)
                         if step_executor != self.executor:
-                            step_span.set_attribute("step.executor", step_executor.name if hasattr(step_executor, 'name') else type(step_executor).__name__)
+                            step_span.set_attribute(
+                                "step.executor",
+                                step_executor.name if hasattr(step_executor, "name") else type(step_executor).__name__,
+                            )
                             logger.info(f"Using specialized executor for step {step.id}")
 
                         async for event in step_executor.execute_step(self.plan, step, message):
@@ -970,20 +1108,36 @@ class PlanActFlow(BaseFlow):
                                     f"{blocked_step_ids}"
                                 )
 
-                    logger.info(f"Agent {self._agent_id} completed step {step.id}, state changed from {AgentStatus.EXECUTING} to {AgentStatus.UPDATING}")
-                    # Non-blocking background memory compaction
-                    self._background_compact_memory()
-                    # Non-blocking background task state save to sandbox
-                    self._background_save_task_state()
-                    self._transition_to(AgentStatus.UPDATING)
+                    # Check if we can skip plan update phase for faster response
+                    # Skipping saves 2-5 seconds by avoiding an LLM call
+                    remaining_steps = [s for s in self.plan.steps if not s.is_done()]
+                    skip_update, skip_reason = self._should_skip_plan_update(step, len(remaining_steps))
+
+                    if skip_update:
+                        logger.debug(f"Skipping plan update: {skip_reason}")
+                        # Go directly to EXECUTING (or will exit loop if no more steps)
+                        self._transition_to(AgentStatus.EXECUTING)
+                    else:
+                        logger.info(
+                            f"Agent {self._agent_id} completed step {step.id}, state changed from {AgentStatus.EXECUTING} to {AgentStatus.UPDATING}"
+                        )
+                        # Non-blocking background memory compaction
+                        self._background_compact_memory()
+                        # Non-blocking background task state save to sandbox
+                        self._background_save_task_state()
+                        self._transition_to(AgentStatus.UPDATING)
                 elif self.status == AgentStatus.UPDATING:
                     # Update plan with tracing
                     logger.info(f"Agent {self._agent_id} started updating plan")
                     with trace_ctx.span("plan-update", SpanKind.PLAN_UPDATE) as update_span:
                         async for event in self.planner.update_plan(self.plan, step):
                             yield event
-                        update_span.set_attribute("plan.remaining_steps", len([s for s in self.plan.steps if not s.is_done()]))
-                    logger.info(f"Agent {self._agent_id} plan update completed, state changed from {AgentStatus.UPDATING} to {AgentStatus.EXECUTING}")
+                        update_span.set_attribute(
+                            "plan.remaining_steps", len([s for s in self.plan.steps if not s.is_done()])
+                        )
+                    logger.info(
+                        f"Agent {self._agent_id} plan update completed, state changed from {AgentStatus.UPDATING} to {AgentStatus.EXECUTING}"
+                    )
                     if not self._validate_plan_before_execution():
                         logger.info(f"Agent {self._agent_id} plan update failed validation, replanning")
                         self._transition_to(AgentStatus.PLANNING, force=True, reason="plan update validation failed")
@@ -1001,26 +1155,24 @@ class PlanActFlow(BaseFlow):
                                 compliance_report = self._run_compliance_gates(content, attachments)
                                 summary_span.set_attribute("compliance.passed", compliance_report.passed)
                                 if compliance_report.blocking_issues:
-                                    summary_span.set_attribute("compliance.blocking", len(compliance_report.blocking_issues))
+                                    summary_span.set_attribute(
+                                        "compliance.blocking", len(compliance_report.blocking_issues)
+                                    )
                                 if not compliance_report.passed:
                                     logger.warning(
-                                        "Compliance gates failed: "
-                                        + "; ".join(compliance_report.blocking_issues)
+                                        "Compliance gates failed: " + "; ".join(compliance_report.blocking_issues)
                                     )
                                     yield ErrorEvent(
-                                        error="Compliance gates failed: "
-                                        + "; ".join(compliance_report.blocking_issues)
+                                        error="Compliance gates failed: " + "; ".join(compliance_report.blocking_issues)
                                     )
-                                    self._transition_to(
-                                        AgentStatus.ERROR,
-                                        force=True,
-                                        reason="compliance gates failed"
-                                    )
+                                    self._transition_to(AgentStatus.ERROR, force=True, reason="compliance gates failed")
                                     break
                             yield event
                     if self.status == AgentStatus.ERROR:
                         continue
-                    logger.info(f"Agent {self._agent_id} summarizing completed, state changed from {AgentStatus.SUMMARIZING} to {AgentStatus.COMPLETED}")
+                    logger.info(
+                        f"Agent {self._agent_id} summarizing completed, state changed from {AgentStatus.SUMMARIZING} to {AgentStatus.COMPLETED}"
+                    )
                     self._transition_to(AgentStatus.COMPLETED)
                 elif self.status == AgentStatus.COMPLETED:
                     self.plan.status = ExecutionStatus.COMPLETED
@@ -1050,8 +1202,7 @@ class PlanActFlow(BaseFlow):
 
                         if health.level == AgentHealthLevel.CRITICAL:
                             logger.warning(
-                                f"Agent {self._agent_id} health CRITICAL: "
-                                f"{', '.join(health.recommended_actions)}"
+                                f"Agent {self._agent_id} health CRITICAL: {', '.join(health.recommended_actions)}"
                             )
                     except Exception as health_err:
                         logger.debug(f"Health assessment failed: {health_err}")

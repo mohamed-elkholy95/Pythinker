@@ -9,7 +9,6 @@ logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
-
     # Environment configuration
     environment: str = "development"  # "development", "staging", "production"
     debug: bool = False
@@ -141,6 +140,22 @@ class Settings(BaseSettings):
     browser_auto_dismiss_dialogs: bool = True  # Auto-dismiss popups, alerts, confirms
     browser_show_cursor: bool = True  # Show visual cursor indicator for agent actions
 
+    # Browser HTTP Fetch Configuration (P3.1: faster failure detection)
+    browser_fetch_timeout: float = 15.0  # Total timeout for HTTP fetch (reduced from 30s)
+    browser_fetch_connect_timeout: float = 5.0  # Connection timeout (reduced from 10s)
+
+    # Browser Connection Pool Configuration (Phase 3: connection reuse)
+    browser_pool_enabled: bool = True  # Enable browser connection pooling
+    browser_pool_max_per_url: int = 3  # Max connections per CDP URL
+    browser_pool_timeout: float = 30.0  # Timeout waiting for available connection
+    browser_pool_max_idle: float = 300.0  # Max idle time before cleanup (5 min)
+    browser_pool_health_interval: float = 60.0  # Health check interval (1 min)
+
+    # Stuck Detection Configuration (P3.2/P3.3: faster loop detection)
+    stuck_detection_window: int = 5  # Response window size (reduced from 10)
+    stuck_detection_threshold: int = 3  # Threshold for stuck detection (reduced from 5)
+    browser_loop_detection_count: int = 2  # Same-URL navigations before flagging (reduced from 3)
+
     # Auth configuration
     auth_provider: str = "password"  # "password", "none", "local"
     password_salt: str | None = None
@@ -175,7 +190,9 @@ class Settings(BaseSettings):
     jwt_token_blacklist_enabled: bool = True  # Enable token revocation
 
     # CORS configuration
-    cors_origins: str = ""  # Comma-separated list of allowed origins (e.g., "http://localhost:5173,https://app.example.com")
+    cors_origins: str = (
+        ""  # Comma-separated list of allowed origins (e.g., "http://localhost:5173,https://app.example.com")
+    )
     cors_allow_credentials: bool = True
     cors_allow_methods: str = "GET,POST,PUT,DELETE,OPTIONS,PATCH"
     cors_allow_headers: str = "Authorization,Content-Type,X-Request-ID"
@@ -223,6 +240,9 @@ class Settings(BaseSettings):
     enable_parallel_execution: bool = False  # Execute independent steps in parallel
     parallel_max_concurrency: int = 3  # Max concurrent step executions
 
+    # Plan Verification configuration (Performance optimization)
+    enable_plan_verification: bool = False  # Skip verification phase for faster execution
+
     # LangGraph Flow configuration
     use_langgraph_flow: bool = False  # Use LangGraph-based PlanActFlow instead of custom
 
@@ -237,11 +257,17 @@ class Settings(BaseSettings):
     allow_payment_operations: bool = False  # Disabled by default
 
     # Safety Limits
-    max_iterations: int = 200  # Maximum loop iterations per run (increased for complex tasks)
-    max_tool_calls: int = 300  # Maximum tool invocations per run (increased for codebase analysis)
+    max_iterations: int = 400  # Maximum loop iterations per run (doubled for complex tasks)
+    max_tool_calls: int = 500  # Maximum tool invocations per run (increased for codebase analysis)
     max_execution_time_seconds: int = 3600  # 60 minutes for complex tasks
     max_tokens_per_run: int = 500000  # Token limit across all LLM calls
     max_cost_usd: float | None = None  # Optional cost limit
+
+    # Phase 6: LLM Concurrency Control
+    llm_max_concurrent: int = 5  # Maximum concurrent LLM API requests
+    llm_queue_timeout: float = 120.0  # Timeout waiting in LLM queue (seconds)
+    llm_concurrency_enabled: bool = True  # Enable LLM concurrency limiting
+    token_budget_warn_threshold: float = 0.8  # Warn when budget reaches this utilization (0-1)
 
     # Self-Healing Configuration (Enhancement Phase 1)
     max_recovery_attempts: int = 3  # Max recovery attempts per error
@@ -297,11 +323,11 @@ class Settings(BaseSettings):
             if self.is_development:
                 # Allow common frontend dev server ports in development
                 return [
-                    "http://localhost:5173",     # Vite default
-                    "http://localhost:5174",     # Pythinker frontend
-                    "http://localhost:3000",     # Common React/Next.js
+                    "http://localhost:5173",  # Vite default
+                    "http://localhost:5174",  # Pythinker frontend
+                    "http://localhost:3000",  # Common React/Next.js
                     "http://127.0.0.1:5173",
-                    "http://127.0.0.1:5174"
+                    "http://127.0.0.1:5174",
                 ]
             return []
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
@@ -326,11 +352,11 @@ class Settings(BaseSettings):
             if self.is_production:
                 errors.append(
                     "JWT_SECRET_KEY is required in production. "
-                    "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+                    'Generate one with: python -c "import secrets; print(secrets.token_urlsafe(32))"'
                 )
             else:
                 # Auto-generate for development (will be different each restart)
-                object.__setattr__(self, 'jwt_secret_key', self._generate_jwt_secret())
+                object.__setattr__(self, "jwt_secret_key", self._generate_jwt_secret())
                 security_warnings.append(
                     "JWT_SECRET_KEY not set - using auto-generated key. "
                     "Sessions will be invalidated on restart. Set JWT_SECRET_KEY for persistence."
@@ -346,10 +372,10 @@ class Settings(BaseSettings):
             if self.is_production and self.auth_provider == "password":
                 errors.append(
                     "PASSWORD_SALT is required for password authentication in production. "
-                    "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(16))\""
+                    'Generate one with: python -c "import secrets; print(secrets.token_urlsafe(16))"'
                 )
             else:
-                object.__setattr__(self, 'password_salt', self._generate_password_salt())
+                object.__setattr__(self, "password_salt", self._generate_password_salt())
                 if self.auth_provider == "password":
                     security_warnings.append(
                         "PASSWORD_SALT not set - using auto-generated salt. "
@@ -366,9 +392,7 @@ class Settings(BaseSettings):
         # Local auth credentials validation
         if self.auth_provider == "local":
             if not self.local_auth_email or not self.local_auth_password:
-                errors.append(
-                    "LOCAL_AUTH_EMAIL and LOCAL_AUTH_PASSWORD are required when auth_provider is 'local'"
-                )
+                errors.append("LOCAL_AUTH_EMAIL and LOCAL_AUTH_PASSWORD are required when auth_provider is 'local'")
             elif self.is_production:
                 if self.local_auth_email == "admin@example.com":
                     errors.append("LOCAL_AUTH_EMAIL must not use default value in production")

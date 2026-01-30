@@ -164,13 +164,25 @@ class Plan(BaseModel):
         }
 
     def format_progress_text(self) -> str:
-        """Format plan progress as human-readable text."""
+        """Format plan progress as human-readable text.
+
+        Includes running steps count to provide accurate progress even when
+        steps are actively being executed (fixes "0/4" stall issue).
+        """
         progress = self.get_progress()
         marks = ExecutionStatus.get_status_marks()
 
+        # Build progress string with running indicator for better visibility
+        progress_parts = []
+        if progress['running'] > 0:
+            progress_parts.append(f"{progress['running']} running")
+        progress_parts.append(f"{progress['completed']}/{progress['total']} completed")
+        if progress['failed'] > 0:
+            progress_parts.append(f"{progress['failed']} failed")
+
         lines = [
             f"Plan: {self.title or self.goal[:50]}",
-            f"Progress: {progress['completed']}/{progress['total']} completed ({progress['progress_pct']:.1f}%)",
+            f"Progress: {', '.join(progress_parts)} ({progress['progress_pct']:.1f}%)",
             ""
         ]
 

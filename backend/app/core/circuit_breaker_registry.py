@@ -37,11 +37,39 @@ from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T')
+# Lazy import for metrics to avoid circular dependency
+_metrics_imported = False
+_record_circuit_breaker_state = None
+_record_circuit_breaker_call = None
+_record_circuit_breaker_state_change = None
+
+
+def _import_metrics() -> None:
+    """Lazy import metrics to avoid circular imports."""
+    global _metrics_imported, _record_circuit_breaker_state
+    global _record_circuit_breaker_call, _record_circuit_breaker_state_change
+    if not _metrics_imported:
+        try:
+            from app.infrastructure.observability.prometheus_metrics import (
+                record_circuit_breaker_call,
+                record_circuit_breaker_state,
+                record_circuit_breaker_state_change,
+            )
+
+            _record_circuit_breaker_state = record_circuit_breaker_state
+            _record_circuit_breaker_call = record_circuit_breaker_call
+            _record_circuit_breaker_state_change = record_circuit_breaker_state_change
+        except ImportError:
+            pass
+        _metrics_imported = True
+
+
+T = TypeVar("T")
 
 
 class CircuitState(str, Enum):
     """Circuit breaker states."""
+
     CLOSED = "closed"  # Normal operation, allowing calls
     OPEN = "open"  # Blocking calls due to failures
     HALF_OPEN = "half_open"  # Testing if service recovered
@@ -170,6 +198,11 @@ class CircuitBreaker:
         self._stats.last_success_time = datetime.now()
         self._stats.record_result(True, self.config.sliding_window_size)
 
+        # Phase 6: Record metric
+        _import_metrics()
+        if _record_circuit_breaker_call:
+            _record_circuit_breaker_call(self.name, "success")
+
         if self._state == CircuitState.HALF_OPEN:
             self._success_count += 1
             self._half_open_calls -= 1
@@ -189,6 +222,11 @@ class CircuitBreaker:
         self._last_failure_time = datetime.now()
         self._stats.record_result(False, self.config.sliding_window_size)
 
+        # Phase 6: Record metric
+        _import_metrics()
+        if _record_circuit_breaker_call:
+            _record_circuit_breaker_call(self.name, "failure")
+
         if self._state == CircuitState.HALF_OPEN:
             # Any failure in half-open goes back to open
             self._half_open_calls -= 1
@@ -198,8 +236,8 @@ class CircuitBreaker:
 
             # Check if we should open the circuit
             should_open = (
-                self._failure_count >= self.config.failure_threshold or
-                self._stats.failure_rate >= self.config.failure_rate_threshold
+                self._failure_count >= self.config.failure_threshold
+                or self._stats.failure_rate >= self.config.failure_rate_threshold
             )
 
             if should_open:
@@ -208,6 +246,11 @@ class CircuitBreaker:
     def reject_call(self) -> None:
         """Record a rejected call (circuit open)."""
         self._stats.rejected_calls += 1
+
+        # Phase 6: Record metric
+        _import_metrics()
+        if _record_circuit_breaker_call:
+            _record_circuit_breaker_call(self.name, "rejected")
 
     def _should_attempt_recovery(self) -> bool:
         """Check if we should attempt recovery from open state."""
@@ -223,6 +266,13 @@ class CircuitBreaker:
         self._state = new_state
         self._stats.state_changes += 1
         self._stats.last_state_change = datetime.now()
+
+        # Phase 6: Record metrics
+        _import_metrics()
+        if _record_circuit_breaker_state:
+            _record_circuit_breaker_state(self.name, new_state.value)
+        if _record_circuit_breaker_state_change:
+            _record_circuit_breaker_state_change(self.name, old_state.value, new_state.value)
 
         if new_state == CircuitState.CLOSED:
             self._failure_count = 0
@@ -240,7 +290,7 @@ class CircuitBreaker:
                 "old_state": old_state.value,
                 "new_state": new_state.value,
                 "failure_count": self._failure_count,
-            }
+            },
         )
 
     def reset(self) -> None:
@@ -265,9 +315,7 @@ class CircuitBreaker:
         """
         if not self.can_execute():
             self.reject_call()
-            raise CircuitOpenError(
-                f"Circuit breaker '{self.name}' is {self._state.value}"
-            )
+            raise CircuitOpenError(f"Circuit breaker '{self.name}' is {self._state.value}")
 
         if self._state == CircuitState.HALF_OPEN:
             self._half_open_calls += 1
@@ -303,6 +351,7 @@ class CircuitBreaker:
 
 class CircuitOpenError(Exception):
     """Raised when trying to execute through an open circuit."""
+
     pass
 
 
@@ -357,7 +406,7 @@ class CircuitBreakerRegistry:
                 "circuit_breaker": name,
                 "failure_threshold": config.failure_threshold,
                 "recovery_timeout": config.recovery_timeout,
-            }
+            },
         )
 
         return breaker
@@ -381,10 +430,7 @@ class CircuitBreakerRegistry:
         Returns:
             Dict mapping breaker names to their states
         """
-        return {
-            name: breaker.state.value
-            for name, breaker in cls._breakers.items()
-        }
+        return {name: breaker.state.value for name, breaker in cls._breakers.items()}
 
     @classmethod
     def get_all_status(cls) -> dict[str, dict[str, Any]]:
@@ -393,10 +439,7 @@ class CircuitBreakerRegistry:
         Returns:
             Dict mapping breaker names to their full status
         """
-        return {
-            name: breaker.get_status()
-            for name, breaker in cls._breakers.items()
-        }
+        return {name: breaker.get_status() for name, breaker in cls._breakers.items()}
 
     @classmethod
     def reset_all(cls) -> None:
@@ -443,10 +486,7 @@ class CircuitBreakerRegistry:
 
 
 # Convenience function for use without explicit registry access
-def get_circuit_breaker(
-    name: str,
-    **kwargs
-) -> CircuitBreaker:
+def get_circuit_breaker(name: str, **kwargs) -> CircuitBreaker:
     """Get or create a circuit breaker by name.
 
     Convenience wrapper for CircuitBreakerRegistry.get_or_create.

@@ -72,23 +72,41 @@ class TaskState:
         self,
         step_id: str,
         result: str | None = None
-    ) -> None:
-        """Mark a step as completed"""
+    ) -> bool:
+        """Mark a step as completed.
+
+        Returns:
+            True if step was found and updated, False otherwise
+        """
+        # Normalize step_id to string for consistent matching
+        step_id = str(step_id)
+        found = False
         for step in self.steps:
-            if step["id"] == step_id:
+            if str(step["id"]) == step_id:
                 step["status"] = "completed"
                 if result:
                     step["result"] = result
+                found = True
                 break
         self.last_updated = datetime.now()
+        return found
 
-    def mark_step_in_progress(self, step_id: str) -> None:
-        """Mark a step as in progress"""
+    def mark_step_in_progress(self, step_id: str) -> bool:
+        """Mark a step as in progress.
+
+        Returns:
+            True if step was found and updated, False otherwise
+        """
+        # Normalize step_id to string for consistent matching
+        step_id = str(step_id)
+        found = False
         for step in self.steps:
-            if step["id"] == step_id:
+            if str(step["id"]) == step_id:
                 step["status"] = "in_progress"
+                found = True
                 break
         self.last_updated = datetime.now()
+        return found
 
     def add_finding(self, finding: str) -> None:
         """Add a key finding"""
@@ -139,16 +157,29 @@ class TaskState:
         )
 
     def to_context_signal(self) -> str:
-        """Generate a compact context signal for prompt injection"""
-        # Create a more compact version for context injection
+        """Generate a compact context signal for prompt injection.
+
+        Shows running steps count to provide accurate progress even when
+        steps are actively being executed.
+        """
         completed = sum(1 for s in self.steps if s["status"] == "completed")
+        running = sum(1 for s in self.steps if s["status"] == "in_progress")
+        failed = sum(1 for s in self.steps if s["status"] == "failed")
         total = len(self.steps)
         current = self.get_current_step()
 
         lines = [
             f"OBJECTIVE: {self.objective[:100]}..." if len(self.objective) > 100 else f"OBJECTIVE: {self.objective}",
-            f"PROGRESS: {completed}/{total} steps completed",
         ]
+
+        # Build progress string with running indicator for better visibility
+        progress_parts = []
+        if running > 0:
+            progress_parts.append(f"{running} running")
+        progress_parts.append(f"{completed}/{total} completed")
+        if failed > 0:
+            progress_parts.append(f"{failed} failed")
+        lines.append(f"PROGRESS: {', '.join(progress_parts)}")
 
         if current:
             lines.append(f"CURRENT: Step {current['id']} - {current['description'][:80]}")
@@ -243,16 +274,37 @@ class TaskStateManager:
             logger.warning("TaskStateManager not initialized")
             return
 
+        # Normalize step_id for consistent matching
+        step_id = str(step_id)
+        found = False
+
         if status == "completed":
-            self._state.mark_step_completed(step_id, result)
+            found = self._state.mark_step_completed(step_id, result)
         elif status == "in_progress":
-            self._state.mark_step_in_progress(step_id)
+            found = self._state.mark_step_in_progress(step_id)
+        elif status == "failed":
+            # Handle failed status by marking step
+            for step in self._state.steps:
+                if str(step["id"]) == step_id:
+                    step["status"] = "failed"
+                    if result:
+                        step["result"] = result
+                    found = True
+                    break
+            self._state.last_updated = datetime.now()
+
+        if not found:
+            available_ids = [str(s["id"]) for s in self._state.steps]
+            logger.warning(
+                f"Step {step_id} not found in task state. "
+                f"Available step IDs: {available_ids}"
+            )
 
         if findings:
             for finding in findings:
                 self._state.add_finding(finding)
 
-        logger.debug(f"Step {step_id} updated to {status}")
+        logger.debug(f"Step {step_id} updated to {status} (found={found})")
 
     def add_finding(self, finding: str) -> None:
         """Add a key finding to the task state"""
