@@ -88,13 +88,17 @@ class RedisStreamQueue(MessageQueue):
         message_id = await self._redis.client.xadd(self._stream_name, {"data": message})
         return message_id
 
+    # Maximum block time to stay below Redis socket timeout (30s default)
+    MAX_BLOCK_MS = 25000  # 25 seconds - safe margin below socket timeout
+
     async def get(self, start_id: str = "0", block_ms: int | None = None) -> tuple[str, Any]:
-        """Get a message from the stream
-        
+        """Get a message from the stream with bounded blocking.
+
         Args:
             start_id: Message ID to start reading from, defaults to "0" meaning from the earliest message
-            block_ms: Block time in milliseconds, defaults to None meaning no blocking
-            
+            block_ms: Block time in milliseconds. Capped at MAX_BLOCK_MS (25s) to stay
+                      below socket timeout. Use None for no blocking.
+
         Returns:
             Tuple[str, Any]: (Message ID, Message content), returns (None, None) if no message
         """
@@ -103,12 +107,26 @@ class RedisStreamQueue(MessageQueue):
         if start_id is None:
             start_id = "0"
 
+        # Cap block_ms to stay well below socket timeout (30s)
+        # This prevents "Timeout reading from redis" errors
+        effective_block_ms = block_ms
+        if block_ms is not None and block_ms > self.MAX_BLOCK_MS:
+            logger.debug(f"Capping xread block time from {block_ms}ms to {self.MAX_BLOCK_MS}ms")
+            effective_block_ms = self.MAX_BLOCK_MS
+
         # Read new messages
-        messages = await self._redis.client.xread(
-            {self._stream_name: start_id},
-            count=1,
-            block=block_ms
-        )
+        try:
+            messages = await self._redis.client.xread(
+                {self._stream_name: start_id},
+                count=1,
+                block=effective_block_ms
+            )
+        except TimeoutError:
+            logger.debug(f"xread timed out for stream {self._stream_name}")
+            return None, None
+        except Exception as e:
+            logger.warning(f"xread error for stream {self._stream_name}: {e}")
+            return None, None
 
         if not messages:
             return None, None

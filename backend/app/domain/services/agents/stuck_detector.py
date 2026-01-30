@@ -16,7 +16,7 @@ Enhanced with OpenHands-inspired patterns:
 import hashlib
 import logging
 import math
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -25,8 +25,42 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+class LRUCache:
+    """Simple LRU cache using OrderedDict for O(1) operations."""
+
+    __slots__ = ("_cache", "_maxsize")
+
+    def __init__(self, maxsize: int = 100):
+        self._cache: OrderedDict[str, Any] = OrderedDict()
+        self._maxsize = maxsize
+
+    def get(self, key: str) -> Any | None:
+        """Get item and move to end (most recently used)."""
+        if key not in self._cache:
+            return None
+        self._cache.move_to_end(key)
+        return self._cache[key]
+
+    def put(self, key: str, value: Any) -> None:
+        """Put item, evicting oldest if at capacity."""
+        if key in self._cache:
+            self._cache.move_to_end(key)
+        else:
+            if len(self._cache) >= self._maxsize:
+                self._cache.popitem(last=False)  # Remove oldest
+        self._cache[key] = value
+
+    def clear(self) -> None:
+        """Clear the cache."""
+        self._cache.clear()
+
+    def __len__(self) -> int:
+        return len(self._cache)
+
+
 class LoopType(Enum):
     """Types of stuck loops that can be detected."""
+
     RESPONSE_REPETITION = "response_repetition"
     SEMANTIC_SIMILARITY = "semantic_similarity"
     REPEATING_ACTION_OBSERVATION = "repeating_action_observation"
@@ -42,6 +76,7 @@ class LoopType(Enum):
 
 class RecoveryStrategy(Enum):
     """Recovery strategies for stuck states."""
+
     PROMPT_VARIATION = "prompt_variation"
     TRY_ALTERNATIVE_APPROACH = "try_alternative_approach"
     ANALYZE_ERROR_PATTERN = "analyze_error_pattern"
@@ -54,6 +89,7 @@ class RecoveryStrategy(Enum):
 @dataclass
 class StuckAnalysis:
     """Detailed analysis of a stuck state."""
+
     loop_type: LoopType
     confidence: float
     repeat_count: int
@@ -65,6 +101,7 @@ class StuckAnalysis:
 @dataclass
 class ToolActionRecord:
     """Record of a tool action for pattern detection."""
+
     tool_name: str
     args_hash: str
     success: bool
@@ -78,7 +115,7 @@ def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
     if not vec1 or not vec2 or len(vec1) != len(vec2):
         return 0.0
 
-    dot_product = sum(a * b for a, b in zip(vec1, vec2))
+    dot_product = sum(a * b for a, b in zip(vec1, vec2, strict=True))
     norm1 = math.sqrt(sum(a * a for a in vec1))
     norm2 = math.sqrt(sum(b * b for b in vec2))
 
@@ -91,6 +128,7 @@ def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
 @dataclass
 class ResponseRecord:
     """Record of an LLM response for stuck detection"""
+
     content_hash: str
     timestamp: datetime
     tool_calls: list[str] | None = None
@@ -110,18 +148,18 @@ class StuckDetector:
 
     def __init__(
         self,
-        window_size: int = 10,
-        threshold: int = 5,
+        window_size: int = 5,  # Reduced from 10 for faster loop detection
+        threshold: int = 3,  # Reduced from 5 for faster loop detection
         similarity_threshold: float = 0.95,
         semantic_threshold: float = 0.90,
-        enable_semantic: bool = True
+        enable_semantic: bool = True,
     ):
         """
         Initialize the stuck detector.
 
         Args:
-            window_size: Number of recent responses to track
-            threshold: Number of IDENTICAL responses to trigger stuck detection
+            window_size: Number of recent responses to track (default reduced for faster detection)
+            threshold: Number of IDENTICAL responses to trigger stuck detection (default reduced)
             similarity_threshold: Minimum similarity ratio to consider responses similar
             semantic_threshold: Threshold for semantic similarity detection (0-1)
             enable_semantic: Whether to enable semantic similarity checking
@@ -137,8 +175,8 @@ class StuckDetector:
         self._max_recovery_attempts = 5  # More recovery attempts before giving up
         self._semantic_stuck_detected = False
 
-        # Lightweight embedding cache for efficiency
-        self._embedding_cache: dict[str, list[float]] = {}
+        # LRU embedding cache for efficiency (proper eviction instead of clear-all)
+        self._embedding_cache: LRUCache = LRUCache(maxsize=100)
 
         # Enhanced: Tool action tracking for OpenHands-style pattern detection
         self._tool_action_history: deque[ToolActionRecord] = deque(maxlen=50)
@@ -165,10 +203,7 @@ class StuckDetector:
         # Extract tool function names for tracking
         tool_names = []
         if tool_calls:
-            tool_names = [
-                tc.get("function", {}).get("name", "")
-                for tc in tool_calls
-            ]
+            tool_names = [tc.get("function", {}).get("name", "") for tc in tool_calls]
 
         # Get embedding for semantic comparison if enabled
         embedding = None
@@ -180,7 +215,7 @@ class StuckDetector:
             timestamp=datetime.now(),
             tool_calls=tool_names,
             content_preview=content[:100] if content else "",
-            embedding=embedding
+            embedding=embedding,
         )
 
         self._response_history.append(record)
@@ -188,14 +223,10 @@ class StuckDetector:
         # Check for hash-based stuck pattern
         is_hash_stuck = self._detect_stuck_pattern()
 
-        # Check for semantic stuck pattern
+        # Check for semantic stuck pattern (uses embeddings from response history)
         is_semantic_stuck = False
         if self._enable_semantic and not is_hash_stuck:
-            recent_texts = [
-                r.content_preview for r in self._response_history
-                if r.content_preview
-            ]
-            is_semantic_stuck, _ = self.check_semantic_similarity(recent_texts)
+            is_semantic_stuck, _ = self.check_semantic_similarity()
 
         is_stuck = is_hash_stuck or is_semantic_stuck
 
@@ -240,9 +271,12 @@ class StuckDetector:
                 if isinstance(args, str):
                     try:
                         import json
+
                         args_dict = json.loads(args)
                         # Include key=value pairs, sorted for consistency
-                        arg_pairs = sorted(f"{k}={v}" for k, v in args_dict.items()) if isinstance(args_dict, dict) else [args]
+                        arg_pairs = (
+                            sorted(f"{k}={v}" for k, v in args_dict.items()) if isinstance(args_dict, dict) else [args]
+                        )
                     except (json.JSONDecodeError, TypeError, ValueError):
                         arg_pairs = [args] if args else []
                 else:
@@ -288,68 +322,85 @@ class StuckDetector:
 
         Uses character n-gram frequencies as a fast, local embedding.
         This avoids API calls while still capturing semantic similarity.
+
+        Performance optimizations:
+        - LRU cache with proper eviction (no full clear)
+        - Pre-computed hash for cache key
+        - Optimized trigram computation
         """
         if not text:
             return []
 
-        # Check cache
+        # Check LRU cache first
         cache_key = hashlib.md5(text.encode(), usedforsecurity=False).hexdigest()[:16]
-        if cache_key in self._embedding_cache:
-            return self._embedding_cache[cache_key]
+        cached = self._embedding_cache.get(cache_key)
+        if cached is not None:
+            return cached
 
         # Simple character trigram frequency embedding
-        # More sophisticated: could use sentence transformers or API
         text_lower = text.lower()
-        trigrams = {}
+        text_len = len(text_lower)
 
-        for i in range(len(text_lower) - 2):
-            trigram = text_lower[i:i+3]
+        # Early exit for very short text
+        if text_len < 3:
+            return []
+
+        # Optimized trigram counting with dict.get default
+        trigrams: dict[str, int] = {}
+        for i in range(text_len - 2):
+            trigram = text_lower[i : i + 3]
             trigrams[trigram] = trigrams.get(trigram, 0) + 1
 
         # Create fixed-size embedding from trigram frequencies
-        # Use a simple hash-based approach for consistent dimensions
         embedding_dim = 128
         embedding = [0.0] * embedding_dim
 
         total = sum(trigrams.values())
         if total > 0:
+            inv_total = 1.0 / total  # Compute inverse once
             for trigram, count in trigrams.items():
                 # Hash trigram to embedding dimension
                 idx = hash(trigram) % embedding_dim
-                embedding[idx] += count / total
+                embedding[idx] += count * inv_total
 
         # Normalize
-        norm = math.sqrt(sum(x * x for x in embedding))
-        if norm > 0:
-            embedding = [x / norm for x in embedding]
+        norm_sq = sum(x * x for x in embedding)
+        if norm_sq > 0:
+            inv_norm = 1.0 / math.sqrt(norm_sq)
+            embedding = [x * inv_norm for x in embedding]
 
-        # Cache result
-        if len(self._embedding_cache) > 100:  # Limit cache size
-            self._embedding_cache.clear()
-        self._embedding_cache[cache_key] = embedding
+        # Cache result with LRU eviction
+        self._embedding_cache.put(cache_key, embedding)
 
         return embedding
 
-    def check_semantic_similarity(self, recent_responses: list[str]) -> tuple[bool, float]:
+    def check_semantic_similarity(self, recent_responses: list[str] | None = None) -> tuple[bool, float]:
         """
         Check if recent responses are semantically similar.
 
         Uses lightweight embeddings to detect when responses are
         similar in meaning even if they differ textually.
 
+        Performance optimizations:
+        - Reuses embeddings already computed and stored in ResponseRecord
+        - Early exit when threshold can't be reached
+        - Only computes new embeddings for records that don't have them
+
         Args:
-            recent_responses: List of recent response texts
+            recent_responses: Optional list of response texts (deprecated, uses history instead)
 
         Returns:
             Tuple of (is_semantically_stuck, max_similarity_score)
         """
-        if not self._enable_semantic or len(recent_responses) < 3:
+        if not self._enable_semantic or len(self._response_history) < 3:
             return False, 0.0
 
-        # Get embeddings for recent responses
-        embeddings = [self._get_simple_embedding(r) for r in recent_responses[-5:]]
+        # Use embeddings from response history (already computed during track_response)
+        recent_records = list(self._response_history)[-5:]
 
-        # Check similarity between last response and previous ones
+        # Filter records with valid embeddings
+        embeddings = [r.embedding for r in recent_records if r.embedding]
+
         if len(embeddings) < 2:
             return False, 0.0
 
@@ -357,11 +408,16 @@ class StuckDetector:
         max_similarity = 0.0
         high_similarity_count = 0
 
+        # Early exit optimization: stop checking once we've found enough similar responses
         for prev in embeddings[:-1]:
             sim = cosine_similarity(latest, prev)
-            max_similarity = max(max_similarity, sim)
+            if sim > max_similarity:
+                max_similarity = sim
             if sim >= self._semantic_threshold:
                 high_similarity_count += 1
+                # Early exit: if we already have enough similar, no need to check more
+                if high_similarity_count >= 2:
+                    break
 
         # Stuck if multiple previous responses are semantically similar
         is_stuck = high_similarity_count >= 2
@@ -502,8 +558,7 @@ class StuckDetector:
             self._stuck_analysis = analysis
             self._stuck_count += 1
             logger.warning(
-                f"Action stuck pattern detected: {analysis.loop_type.value} "
-                f"(confidence: {analysis.confidence:.2f})"
+                f"Action stuck pattern detected: {analysis.loop_type.value} (confidence: {analysis.confidence:.2f})"
             )
 
         return analysis
@@ -553,10 +608,7 @@ class StuckDetector:
         # Check if all are the same action with errors
         first = recent[0]
         all_same_failed = all(
-            r.tool_name == first.tool_name and
-            r.args_hash == first.args_hash and
-            not r.success
-            for r in recent
+            r.tool_name == first.tool_name and r.args_hash == first.args_hash and not r.success for r in recent
         )
 
         if all_same_failed:
@@ -586,10 +638,10 @@ class StuckDetector:
         # Check if all are the same successful action with same result
         first = recent[0]
         all_same = all(
-            r.tool_name == first.tool_name and
-            r.args_hash == first.args_hash and
-            r.success and
-            r.result_hash == first.result_hash
+            r.tool_name == first.tool_name
+            and r.args_hash == first.args_hash
+            and r.success
+            and r.result_hash == first.result_hash
             for r in recent
         )
 
@@ -622,7 +674,7 @@ class StuckDetector:
 
         # Check for A-B-A-B-A-B pattern
         even_sigs = signatures[0::2]  # A positions
-        odd_sigs = signatures[1::2]   # B positions
+        odd_sigs = signatures[1::2]  # B positions
 
         even_same = len(set(even_sigs)) == 1
         odd_same = len(set(odd_sigs)) == 1
@@ -655,7 +707,7 @@ class StuckDetector:
         all_failed = all(not r.success for r in recent)
 
         # And they're different tools
-        unique_tools = set(r.tool_name for r in recent)
+        unique_tools = {r.tool_name for r in recent}
 
         if all_failed and len(unique_tools) >= 3:
             return StuckAnalysis(
@@ -678,25 +730,31 @@ class StuckDetector:
         Detect: Navigating to the same URL repeatedly.
 
         Pattern: browser_navigate(url) → browser_navigate(same_url) → ...
+
+        Detection thresholds reduced for faster detection:
+        - Checks last 3 navigations (was 4)
+        - Triggers on 2 same-URL navigations (was 3)
         """
         browser_nav_tools = {"browser_navigate", "browsing"}
 
         recent = [r for r in self._tool_action_history if r.tool_name in browser_nav_tools]
 
-        if len(recent) < 3:
+        # Reduced from 3 to 2 for faster detection
+        if len(recent) < 2:
             return None
 
-        # Check last 4 browser navigations
-        recent = recent[-4:]
+        # Check last 3 browser navigations (reduced from 4)
+        recent = recent[-3:]
 
-        # Check if all have the same args hash (same URL)
+        # Check if most have the same args hash (same URL)
         first_hash = recent[0].args_hash
         same_url_count = sum(1 for r in recent if r.args_hash == first_hash)
 
-        if same_url_count >= 3:
+        # Reduced from 3 to 2 for faster detection
+        if same_url_count >= 2:
             return StuckAnalysis(
                 loop_type=LoopType.BROWSER_SAME_PAGE_LOOP,
-                confidence=0.90,
+                confidence=0.85,  # Slightly lower confidence due to faster detection
                 repeat_count=same_url_count,
                 recovery_strategy=RecoveryStrategy.TRY_ALTERNATIVE_APPROACH,
                 details="Navigating to the same URL repeatedly - page content won't change",
@@ -751,10 +809,7 @@ class StuckDetector:
         if len(self._tool_action_history) < 3:
             return None
 
-        click_actions = [
-            r for r in self._tool_action_history
-            if r.tool_name == "browser_click"
-        ]
+        click_actions = [r for r in self._tool_action_history if r.tool_name == "browser_click"]
 
         if len(click_actions) < 3:
             return None
@@ -765,7 +820,7 @@ class StuckDetector:
 
         if len(failed_clicks) >= 3:
             # Check if same element being clicked
-            same_target = len(set(r.args_hash for r in failed_clicks)) == 1
+            same_target = len({r.args_hash for r in failed_clicks}) == 1
 
             return StuckAnalysis(
                 loop_type=LoopType.BROWSER_CLICK_FAILURES,
@@ -773,10 +828,9 @@ class StuckDetector:
                 repeat_count=len(failed_clicks),
                 recovery_strategy=RecoveryStrategy.TRY_ALTERNATIVE_APPROACH,
                 details=(
-                    "Clicking the same missing element repeatedly - "
-                    "use browser_view to get fresh element indices"
-                    if same_target else
-                    "Multiple click failures - elements may have changed, refresh with browser_view"
+                    "Clicking the same missing element repeatedly - use browser_view to get fresh element indices"
+                    if same_target
+                    else "Multiple click failures - elements may have changed, refresh with browser_view"
                 ),
                 affected_tools=["browser_click"],
             )
@@ -880,10 +934,7 @@ class StuckDetector:
             ),
         }
 
-        return guidance_map.get(
-            self._stuck_analysis.loop_type,
-            self.get_recovery_prompt()
-        )
+        return guidance_map.get(self._stuck_analysis.loop_type, self.get_recovery_prompt())
 
     def get_analysis(self) -> StuckAnalysis | None:
         """Get the current stuck analysis if available."""
@@ -892,6 +943,7 @@ class StuckDetector:
     def _hash_dict(self, d: dict[str, Any]) -> str:
         """Create a stable hash of a dictionary."""
         import json
+
         try:
             serialized = json.dumps(d, sort_keys=True, default=str)
             return hashlib.md5(serialized.encode(), usedforsecurity=False).hexdigest()[:16]

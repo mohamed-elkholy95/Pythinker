@@ -26,10 +26,15 @@ _http_session: aiohttp.ClientSession | None = None
 
 
 async def get_http_session() -> aiohttp.ClientSession:
-    """Get or create shared HTTP session for connection pooling"""
+    """Get or create shared HTTP session for connection pooling.
+
+    Uses reduced timeouts (15s total, 5s connect) for faster failure detection.
+    """
     global _http_session
     if _http_session is None or _http_session.closed:
-        timeout = aiohttp.ClientTimeout(total=30, connect=10)
+        # Reduced timeout: 15s total, 5s connect for faster failure detection
+        # (was 30s total, 10s connect)
+        timeout = aiohttp.ClientTimeout(total=15, connect=5, sock_read=10)
         _http_session = aiohttp.ClientSession(
             timeout=timeout,
             headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
