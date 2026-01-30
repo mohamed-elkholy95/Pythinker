@@ -121,6 +121,8 @@ RUN apt-get update && apt-get install -y \
     ffmpeg \
     imagemagick \
     x11-apps \
+    xdotool \
+    openbox \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -177,6 +179,11 @@ COPY . .
 
 # Configure supervisor
 COPY supervisord.conf /etc/supervisor/conf.d/app.conf
+
+# Configure openbox window manager
+RUN mkdir -p /home/ubuntu/.config/openbox
+COPY openbox-rc.xml /home/ubuntu/.config/openbox/rc.xml
+RUN chown -R ubuntu:ubuntu /home/ubuntu/.config
 
 # Expose ports
 # 8080: Main sandbox API

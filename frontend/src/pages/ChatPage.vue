@@ -708,6 +708,11 @@ const handleToolEvent = (toolData: ToolEventData) => {
     upsertToolTimeline(toolContent);
     if (realTime.value) {
       panelToolId.value = toolContent.tool_call_id;
+      // Auto-switch panel content when panel is open and new tool starts
+      // This ensures browser/VNC view switches immediately when browser tools are used
+      if (isToolPanelOpen.value) {
+        toolPanel.value?.showToolPanel(toolContent, isLiveTool(toolContent));
+      }
     }
     // Panel no longer auto-opens - user must click thumbnail or button to open
   }
