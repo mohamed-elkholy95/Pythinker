@@ -53,6 +53,9 @@ services:
           - linux/arm64
     hostname: sandbox
     restart: unless-stopped
+    volumes:
+      # Openbox config for proper window management - ensures Chrome stays centered at 0,0
+      - ./sandbox/openbox-rc.xml:/home/ubuntu/.config/openbox/rc.xml:ro
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
