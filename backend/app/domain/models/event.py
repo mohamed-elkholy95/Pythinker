@@ -11,6 +11,13 @@ from app.domain.models.search import SearchResultItem
 from app.domain.models.source_citation import SourceCitation
 
 
+class ThoughtStatus(str, Enum):
+    """Thought event status enum"""
+    THINKING = "thinking"
+    THOUGHT = "thought"
+    CHAIN_COMPLETE = "chain_complete"
+
+
 class PlanStatus(str, Enum):
     """Plan status enum"""
     CREATED = "created"
@@ -351,6 +358,35 @@ class DeepResearchEvent(BaseEvent):
     auto_run: bool = False
 
 
+class ThoughtEvent(BaseEvent):
+    """Thought event for Chain-of-Thought reasoning.
+
+    Exposes the agent's reasoning process for transparency and debugging.
+    """
+    type: Literal["thought"] = "thought"
+    status: ThoughtStatus
+    thought_type: str | None = None  # observation, analysis, hypothesis, etc.
+    content: str | None = None  # The thought content
+    confidence: float | None = None  # 0.0 to 1.0
+    step_name: str | None = None  # Name of the reasoning step
+    chain_id: str | None = None  # ID of the thought chain
+    is_final: bool = False  # Whether this completes the chain
+
+
+class ConfidenceEvent(BaseEvent):
+    """Confidence calibration event for decision transparency.
+
+    Reports calibrated confidence levels for decisions and actions.
+    """
+    type: Literal["confidence"] = "confidence"
+    decision: str  # The decision or action
+    confidence: float  # Calibrated confidence 0.0-1.0
+    level: str  # high, medium, low
+    action_recommendation: str  # proceed, verify, ask_user
+    supporting_factors: list[str] = Field(default_factory=list)
+    risk_factors: list[str] = Field(default_factory=list)
+
+
 AgentEvent = Union[
     ErrorEvent,
     PlanEvent,
@@ -376,4 +412,6 @@ AgentEvent = Union[
     BudgetEvent,
     ProgressEvent,
     DeepResearchEvent,
+    ThoughtEvent,
+    ConfidenceEvent,
 ]
