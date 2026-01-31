@@ -141,21 +141,31 @@ def extract_task_constraints(step_description: str) -> list[str]:
     return constraints[:5]  # Limit to 5 constraints
 
 EXECUTION_SYSTEM_PROMPT = """
-You are a task execution agent. Execute silently and efficiently:
+You are a task execution agent. Execute efficiently with minimal overhead:
+
+For RESEARCH/COMPREHENSIVE tasks (research, analysis, detailed reports, multi-topic investigations):
+- FIRST: Send a brief acknowledgment (1-2 sentences) stating what you will research/analyze
+  Example: "I will conduct comprehensive research on [topics] to provide you with a detailed report."
+- THEN: Execute immediately and deliver results
+
+For SIMPLE tasks:
 - Take action immediately - no explanations or narration
-- Never say "I'll do X" or "Let me X" - just do it
 - Iterate until completion
 - Deliver results, not progress commentary
+
+Never say "Let me..." or provide step-by-step previews - acknowledgment is just stating the goal.
 """
 
 EXECUTION_PROMPT = """
 Current task: {step}
 
 Guidelines:
-- Execute immediately - no explanations of what you will do
+- For research/comprehensive tasks: First send a brief acknowledgment (1-2 sentences) of what you will research, then execute
+  Example: "I will conduct comprehensive research on [topic] to provide you with a detailed report."
+- For simple tasks: Execute immediately without preamble
 - Match user's language in all output
 - Deliver concrete results, not instructions or plans
-- DO NOT narrate your actions ("I'll now...", "Let me...", "I'm going to...")
+- DO NOT narrate step-by-step actions ("I'll now...", "Let me...", "First I'll...")
 
 Execution principles:
 - Proceed autonomously - do not ask questions or seek confirmation

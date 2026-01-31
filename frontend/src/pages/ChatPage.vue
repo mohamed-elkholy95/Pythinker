@@ -134,6 +134,9 @@
           </div>
           <LoadingIndicator v-else-if="isLoading" :text="$t('Loading')" />
 
+          <!-- Waiting for user reply indicator -->
+          <WaitingForReply v-if="isWaitingForReply" />
+
           <!-- Long-running task notice -->
           <div v-if="isStale" class="flex items-center gap-2 px-4 py-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl mx-4 mb-2">
             <div class="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
@@ -287,7 +290,9 @@ import type { ReportData } from '@/components/report';
 import { useReport, extractSectionsFromMarkdown } from '@/composables/useReport';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
+import WaitingForReply from '@/components/WaitingForReply.vue';
 import { useSessionStatus } from '@/composables/useSessionStatus';
+import { useVNCPreconnect } from '@/composables/useVNCPreconnect';
 
 const router = useRouter()
 const { t } = useI18n()
@@ -331,6 +336,7 @@ const createInitialState = () => ({
   panelToolId: undefined as string | undefined,
   isInitializing: false, // True when starting up the sandbox environment
   planningProgress: null as { phase: string; message: string; percent: number } | null, // Planning progress
+  isWaitingForReply: false, // True when agent is waiting for user input
 });
 
 // Create reactive state
@@ -369,6 +375,7 @@ const {
   panelToolId,
   isInitializing,
   planningProgress,
+  isWaitingForReply,
 } = toRefs(state);
 
 // Message ID counter for generating unique keys (avoids crypto overhead)
@@ -404,6 +411,33 @@ const toolPanel = ref<InstanceType<typeof ToolPanel>>()
 const simpleBarRef = ref<InstanceType<typeof SimpleBar>>();
 const observerRef = ref<HTMLDivElement>();
 const chatContainerRef = ref<HTMLDivElement>();
+
+// Phase 4: VNC pre-connection for faster display
+// Track session status for VNC preconnect
+const sessionStatus = ref<SessionStatus | undefined>(undefined);
+
+// Initialize VNC preconnect composable
+const { preconnect: preconnectVNC, isReady: _isVNCPreconnected } = useVNCPreconnect({
+  sessionId,
+  sessionStatus,
+});
+
+// Watch sessionId changes to update status and trigger preconnect
+watch(sessionId, async (newSessionId) => {
+  if (newSessionId) {
+    // Fetch session to get current status
+    try {
+      const session = await agentApi.getSession(newSessionId);
+      sessionStatus.value = session.status as SessionStatus;
+      // Trigger preconnect immediately
+      preconnectVNC();
+    } catch (e) {
+      console.warn('[VNC Preconnect] Failed to get session status:', e);
+    }
+  } else {
+    sessionStatus.value = undefined;
+  }
+}, { immediate: true });
 
 // Reset all refs to their initial values
 const resetState = () => {
@@ -1060,12 +1094,16 @@ const processEvent = (event: AgentSSEEvent) => {
   } else if (event.event === 'done') {
     isLoading.value = false;
     isThinking.value = false;
+    isWaitingForReply.value = false;
     // Notify sidebar that session is no longer running
     if (sessionId.value) {
       emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
     }
   } else if (event.event === 'wait') {
-    // TODO: handle wait event
+    // Agent is waiting for user input - show waiting indicator
+    isWaitingForReply.value = true;
+    isLoading.value = false;
+    isThinking.value = false;
   } else if (event.event === 'error') {
     handleErrorEvent(event.data as ErrorEventData);
   } else if (event.event === 'title') {
@@ -1124,9 +1162,10 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
   // Automatically enable follow mode when sending message
   follow.value = true;
 
-  // Clear input field
+  // Clear input field and reset waiting state
   inputMessage.value = '';
   isLoading.value = true;
+  isWaitingForReply.value = false;
 
   // Set initialization state when starting a new chat
   // (when there are no messages or only 1 message which is the user's first message)

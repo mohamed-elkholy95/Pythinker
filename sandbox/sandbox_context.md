@@ -1,6 +1,6 @@
 # Sandbox Environment Context
 
-**Generated:** 2026-01-30T03:14:57.150811
+**Generated:** 2026-01-30T21:48:16.162463
 **Version:** 1.0.0
 **Checksum:** 2d9f174c1e2b3be0
 
@@ -24,7 +24,7 @@
 - **fastapi:** 0.119.0
 - **uvicorn:** 0.37.0
 - **pydantic:** 2.12.1
-- **playwright:** 1.57.0
+- **playwright:** 1.58.0
 - **playwright-stealth:** 2.0.1
 - **pytest:** 9.0.2
 - **black:** 26.1.0
@@ -181,7 +181,7 @@ Key variables available:
 
 ## Resource Limits
 
-- **Disk Space:** 20G available (74% used)
+- **Disk Space:** 15G available (81% used)
 - **Shared Memory:** 2gb
 
 ---

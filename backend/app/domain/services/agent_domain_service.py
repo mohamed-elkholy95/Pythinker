@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 # Setup logging
 logger = logging.getLogger(__name__)
 
+
 class AgentDomainService:
     """
     Agent domain service, responsible for coordinating the work of planning agent and execution agent
@@ -96,6 +97,7 @@ class AgentDomainService:
             if settings.sandbox_pool_enabled:
                 try:
                     from app.core.sandbox_pool import get_sandbox_pool
+
                     pool = await get_sandbox_pool(self._sandbox_cls)
                     sandbox = await pool.acquire(timeout=5.0)
                     logger.info(f"Acquired sandbox {sandbox.id} from pool for session {session.id}")
@@ -123,7 +125,7 @@ class AgentDomainService:
                         await sandbox.workspace_init(
                             session_id=session.id,
                             project_name=settings.workspace_default_project_name,
-                            template=settings.workspace_default_template
+                            template=settings.workspace_default_template,
                         )
                 except Exception as e:
                     logger.warning(f"Workspace auto-init error (non-fatal): {e}")
@@ -140,7 +142,7 @@ class AgentDomainService:
 
         # Browser health check (verifies CDP connection)
         async def verify_browser():
-            if hasattr(sandbox, 'verify_browser_ready'):
+            if hasattr(sandbox, "verify_browser_ready"):
                 await sandbox.verify_browser_ready()
 
         parallel_tasks.append(init_workspace())
@@ -200,11 +202,7 @@ class AgentDomainService:
 
         return task
 
-    async def _resolve_user_attachments(
-        self,
-        attachments: list[dict] | None,
-        user_id: str
-    ) -> list[FileInfo] | None:
+    async def _resolve_user_attachments(self, attachments: list[dict] | None, user_id: str) -> list[FileInfo] | None:
         """Resolve attachment metadata so UI can display accurate info (size/type)."""
         if not attachments:
             return None
@@ -230,9 +228,7 @@ class AgentDomainService:
                             file_info.upload_date = upload_date
                         return file_info
                 except Exception as exc:
-                    logger.warning(
-                        f"Failed to fetch file info for attachment {file_id}: {exc}"
-                    )
+                    logger.warning(f"Failed to fetch file info for attachment {file_id}: {exc}")
 
             if not file_id and not filename:
                 return None
@@ -243,12 +239,11 @@ class AgentDomainService:
                 content_type=content_type,
                 size=size,
                 upload_date=upload_date,
-                user_id=user_id
+                user_id=user_id,
             )
 
         results = await asyncio.gather(
-            *[resolve_attachment(attachment) for attachment in attachments],
-            return_exceptions=True
+            *[resolve_attachment(attachment) for attachment in attachments], return_exceptions=True
         )
 
         resolved: list[FileInfo] = []
@@ -300,10 +295,7 @@ class AgentDomainService:
         return False
 
     async def resume_session(
-        self,
-        session_id: str,
-        context: str | None = None,
-        persist_login_state: bool | None = None
+        self, session_id: str, context: str | None = None, persist_login_state: bool | None = None
     ) -> bool:
         """Resume a paused session (after user takeover)
 
@@ -326,13 +318,13 @@ class AgentDomainService:
             context_message = MessageEvent(
                 message=f"""[User Browser Takeover Complete]
 The user took control of the browser and made changes.
-User's summary: {context_text if context_text else 'No details provided.'}
+User's summary: {context_text if context_text else "No details provided."}
 
 IMPORTANT: The browser state may have changed. Before continuing:
 1. Take a fresh screenshot to see the current state
 2. Re-evaluate what actions are needed
 3. Continue with the original goal""",
-                role="user"
+                role="user",
             )
             await self._session_repository.add_event(session_id, context_message)
             logger.info(f"Injected user takeover context for session {session_id}")
@@ -397,7 +389,7 @@ IMPORTANT: The browser state may have changed. Before continuing:
         message: str | None = None,
         timestamp: datetime | None = None,
         latest_event_id: str | None = None,
-        attachments: list[dict] | None = None
+        attachments: list[dict] | None = None,
     ) -> AsyncGenerator[BaseEvent, None]:
         """
         Chat with an agent
@@ -426,7 +418,9 @@ IMPORTANT: The browser state may have changed. Before continuing:
                     time_since_last = (now - latest_at).total_seconds()
                     if time_since_last < 300:  # Within 5 minutes (research tasks can take a while)
                         is_duplicate = True
-                        logger.warning(f"Skipping duplicate message for session {session_id} (same message sent {time_since_last:.1f}s ago, status={session.status})")
+                        logger.warning(
+                            f"Skipping duplicate message for session {session_id} (same message sent {time_since_last:.1f}s ago, status={session.status})"
+                        )
 
                 if is_duplicate:
                     # Don't add duplicate message
@@ -435,10 +429,11 @@ IMPORTANT: The browser state may have changed. Before continuing:
                         logger.info(f"Session {session_id} reconnecting to running task (duplicate message skipped)")
                     else:
                         # Session completed or not running - return completed event without reprocessing
-                        logger.info(f"Session {session_id} duplicate after completion - not reprocessing (status={session.status})")
+                        logger.info(
+                            f"Session {session_id} duplicate after completion - not reprocessing (status={session.status})"
+                        )
                         yield DoneEvent(
-                            title=session.title or "Task completed",
-                            summary="This request was already processed."
+                            title=session.title or "Task completed", summary="This request was already processed."
                         )
                         return
                 else:
@@ -466,9 +461,7 @@ IMPORTANT: The browser state may have changed. Before continuing:
                                     if sandbox:
                                         initializer = get_session_workspace_initializer(self._session_repository)
                                         workspace_structure = await initializer.initialize_workspace_if_needed(
-                                            session=session,
-                                            sandbox=sandbox,
-                                            task_description=message
+                                            session=session, sandbox=sandbox, task_description=message
                                         )
                                         if workspace_structure:
                                             logger.info(
@@ -479,14 +472,12 @@ IMPORTANT: The browser state may have changed. Before continuing:
                                 # Non-critical - log and continue
                                 logger.warning(f"Workspace initialization error (non-fatal): {e}")
 
-                    await self._session_repository.update_latest_message(session_id, message, timestamp or datetime.now())
+                    await self._session_repository.update_latest_message(
+                        session_id, message, timestamp or datetime.now()
+                    )
 
                     resolved_attachments = await self._resolve_user_attachments(attachments, user_id)
-                    message_event = MessageEvent(
-                        message=message,
-                        role="user",
-                        attachments=resolved_attachments
-                    )
+                    message_event = MessageEvent(message=message, role="user", attachments=resolved_attachments)
 
                     event_id = await task.input_stream.put(message_event.model_dump_json())
 
@@ -522,7 +513,7 @@ IMPORTANT: The browser state may have changed. Before continuing:
             logger.exception(f"Error in Session {session_id}")
             event = ErrorEvent(error=str(e))
             await self._session_repository.add_event(session_id, event)
-            yield event # TODO: raise api exception
+            yield event  # TODO: raise api exception
         finally:
             await self._session_repository.update_unread_message_count(session_id, 0)
 
@@ -556,3 +547,50 @@ IMPORTANT: The browser state may have changed. Before continuing:
             return
 
         await runner.execute_pending_action(task, action_id, accept)
+
+    async def browse_url(self, session_id: str, url: str) -> AsyncGenerator[BaseEvent, None]:
+        """Navigate browser directly to a URL using fast-path.
+
+        This method provides a quick way to navigate the browser to a specific URL,
+        bypassing the full planning workflow. It's used when users click on search
+        results to view them directly in the browser.
+
+        Args:
+            session_id: Session ID
+            url: URL to navigate to
+
+        Yields:
+            Events for the navigation
+        """
+        from app.domain.services.flows.fast_path import FastPathRouter
+
+        session = await self._session_repository.find_by_id(session_id)
+        if not session:
+            logger.error(f"Session {session_id} not found for browse_url")
+            yield ErrorEvent(error="Session not found")
+            yield DoneEvent()
+            return
+
+        # Get browser from sandbox
+        sandbox = None
+        browser = None
+        if session.sandbox_id:
+            sandbox = await self._sandbox_cls.get(session.sandbox_id)
+            if sandbox:
+                browser = await sandbox.get_browser(clear_session=False, verify_connection=True)
+
+        if not browser:
+            logger.error(f"Browser not available for session {session_id}")
+            yield ErrorEvent(error="Browser not available")
+            yield DoneEvent()
+            return
+
+        # Use fast-path router for direct navigation
+        fast_path = FastPathRouter(browser=browser, search_engine=self._search_engine)
+        logger.info(f"Executing fast browse to {url} for session {session_id}")
+
+        async for event in fast_path.execute_fast_browse(url):
+            # Add events to session history for persistence
+            if isinstance(event, (MessageEvent, DoneEvent, ErrorEvent)):
+                await self._session_repository.add_event(session_id, event)
+            yield event

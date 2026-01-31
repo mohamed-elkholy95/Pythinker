@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1 import shell, supervisor, file, workspace, git, code_dev, test_runner, export, vnc
+from app.api.v1 import shell, supervisor, file, workspace, git, code_dev, test_runner, export, vnc, screencast
 
 api_router = APIRouter()
 api_router.include_router(shell.router, prefix="/shell", tags=["shell"])
@@ -12,3 +12,4 @@ api_router.include_router(code_dev.router, prefix="/code", tags=["code"])
 api_router.include_router(test_runner.router, prefix="/test", tags=["test"])
 api_router.include_router(export.router, prefix="/export", tags=["export"])
 api_router.include_router(vnc.router, prefix="/vnc", tags=["vnc"])
+api_router.include_router(screencast.router, prefix="/screencast", tags=["screencast"])

@@ -83,6 +83,19 @@ services:
       - "8082:8082"
     # Shared memory size for Chrome browser stability (prevents crashes)
     shm_size: '2gb'
+    # Temp filesystem - improves I/O performance for browser temp files
+    tmpfs:
+      - /run:size=100M,nosuid,nodev
+      - /tmp:size=500M,nosuid,nodev
+      - /home/ubuntu/.cache:size=200M,nosuid,nodev
+    # File descriptor limits for browser and node processes
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+      nproc:
+        soft: 4096
+        hard: 8192
     # Resource limits for browser sandbox
     deploy:
       resources:

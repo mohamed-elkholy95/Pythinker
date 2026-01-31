@@ -27,7 +27,32 @@
       <div class="init-grid"></div>
     </div>
 
-    <!-- Live VNC for visual tools (browser, shell, search, etc.) -->
+    <!-- Terminal output preview - prioritize over VNC to show actual command output -->
+    <div v-else-if="isShellTool && contentPreview" class="content-preview terminal-preview">
+      <div class="terminal-window">
+        <div class="terminal-header">
+          <span class="terminal-title">{{ terminalTitle }}</span>
+        </div>
+        <div class="terminal-body">
+          <div class="terminal-accent"></div>
+          <div class="terminal-content-area">
+            <pre class="preview-text terminal-text" v-html="styledTerminalContent"></pre>
+          </div>
+        </div>
+      </div>
+      <div v-if="isActive" class="activity-indicator"></div>
+    </div>
+
+    <!-- Shell tool running without content yet - show VNC to see terminal activity -->
+    <div v-else-if="isShellTool && isActive && sessionId && enabled" class="vnc-container">
+      <VNCViewer
+        :session-id="sessionId"
+        :enabled="enabled"
+        :view-only="true"
+      />
+    </div>
+
+    <!-- Live VNC for visual tools (browser, search, etc.) -->
     <div v-else-if="isVisualTool && sessionId && enabled" class="vnc-container">
       <VNCViewer
         :session-id="sessionId"
@@ -50,39 +75,6 @@
         </div>
       </div>
       <div v-if="isActive" class="activity-indicator"></div>
-    </div>
-
-    <!-- Terminal output preview (decorated window style) -->
-    <div v-else-if="isShellTool && contentPreview" class="content-preview terminal-preview">
-      <div class="terminal-window">
-        <div class="terminal-header">
-          <span class="terminal-title">Terminal</span>
-        </div>
-        <div class="terminal-body">
-          <div class="terminal-accent"></div>
-          <div class="terminal-content-area">
-            <pre class="preview-text terminal-text">{{ contentPreview }}</pre>
-          </div>
-        </div>
-      </div>
-      <div v-if="isActive" class="activity-indicator"></div>
-    </div>
-
-    <!-- Shell tool running without content yet -->
-    <div v-else-if="isShellTool && isActive" class="content-preview terminal-preview">
-      <div class="terminal-window">
-        <div class="terminal-header">
-          <span class="terminal-title">Terminal</span>
-        </div>
-        <div class="terminal-body">
-          <div class="terminal-accent"></div>
-          <div class="terminal-content-area terminal-running">
-            <Terminal class="running-icon" />
-            <span class="running-text">Running...</span>
-          </div>
-        </div>
-      </div>
-      <div class="activity-indicator"></div>
     </div>
 
     <!-- Default: Show VNC for any tool when session is available -->
@@ -144,8 +136,8 @@ const emit = defineEmits<{
 }>();
 
 // Tool type detection - tools that show live VNC preview
-// Include all tools that perform visual operations the user should see
-const VISUAL_TOOLS = ['browser', 'browser_agent', 'shell', 'info', 'search'];
+// Shell tools are handled separately to prioritize terminal content preview
+const VISUAL_TOOLS = ['browser', 'browser_agent', 'info', 'search'];
 
 const isVisualTool = computed(() => {
   if (!props.toolName) return false;
@@ -171,6 +163,34 @@ const fileName = computed(() => {
   const name = parts[parts.length - 1] || 'File';
   // Truncate long names
   return name.length > 20 ? name.slice(0, 17) + '...' : name;
+});
+
+// Terminal title from content or default
+const terminalTitle = computed(() => {
+  // Try to extract a meaningful title from the terminal session name
+  const preview = props.contentPreview || '';
+  // Look for common shell session names in first line
+  const match = preview.match(/^setup_env|^[a-z_]+@[a-z]+:/i);
+  if (match) return match[0].replace(/:$/, '');
+  return 'Terminal';
+});
+
+// Style terminal content with green prompts (ubuntu@sandbox:~ $)
+const styledTerminalContent = computed(() => {
+  const content = props.contentPreview || '';
+  // Escape HTML first
+  const escaped = content
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // Style shell prompts in green (matches patterns like "ubuntu@sandbox:~ $" or "user@host:/path $")
+  const styled = escaped.replace(
+    /^(\s*)([a-z_][a-z0-9_-]*@[a-z0-9_-]+:[^$#]*[$#])/gim,
+    '$1<span class="shell-prompt">$2</span>'
+  );
+
+  return styled;
 });
 
 // Get appropriate icon for fallback
@@ -395,6 +415,12 @@ const sizeClass = computed(() => {
   color: #1f2937;
   font-size: 5px;
   line-height: 1.3;
+}
+
+/* Green shell prompt (ubuntu@sandbox:~ $) */
+.terminal-text :deep(.shell-prompt) {
+  color: #16a34a;
+  font-weight: 500;
 }
 
 /* Activity indicator */
@@ -724,6 +750,10 @@ const sizeClass = computed(() => {
 
 :global(.dark) .terminal-text {
   color: #e5e7eb;
+}
+
+:global(.dark) .terminal-text :deep(.shell-prompt) {
+  color: #4ade80;
 }
 
 :global(.dark) .preview-text {

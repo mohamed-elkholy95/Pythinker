@@ -21,17 +21,11 @@
       />
     </div>
 
-    <!-- Fallback when no session -->
-    <div v-else class="vnc-empty">
-      <div class="vnc-empty-icon">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-          <line x1="8" y1="21" x2="16" y2="21"/>
-          <line x1="12" y1="17" x2="12" y2="21"/>
-        </svg>
-      </div>
-      <span class="vnc-empty-text">No live session</span>
-    </div>
+    <!-- Inactive state when no session - Manus-style design -->
+    <InactiveState
+      v-else
+      :message="inactiveMessage"
+    />
 
     <!-- Take over button slot -->
     <slot name="takeover"></slot>
@@ -42,8 +36,9 @@
 import { ref } from 'vue';
 import VNCViewer from '@/components/VNCViewer.vue';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
+import InactiveState from '@/components/toolViews/shared/InactiveState.vue';
 
-defineProps<{
+withDefaults(defineProps<{
   sessionId: string;
   enabled: boolean;
   viewOnly?: boolean;
@@ -52,7 +47,10 @@ defineProps<{
   placeholderDetail?: string;
   placeholderAnimation?: 'globe' | 'search' | 'file' | 'terminal' | 'code' | 'spinner' | 'check';
   isActive?: boolean;
-}>();
+  inactiveMessage?: string;
+}>(), {
+  inactiveMessage: "Pythinker's computer is inactive"
+});
 
 const emit = defineEmits<{
   connected: [];
@@ -70,7 +68,7 @@ const vncViewerRef = ref<InstanceType<typeof VNCViewer> | null>(null);
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgb(40, 40, 40);
+  background: var(--background-gray-main);
 }
 
 .vnc-content-inner {
@@ -79,24 +77,5 @@ const vncViewerRef = ref<InstanceType<typeof VNCViewer> | null>(null);
   left: 0;
   right: 0;
   bottom: 0;
-}
-
-.vnc-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  color: var(--text-tertiary);
-  gap: 12px;
-}
-
-.vnc-empty-icon {
-  opacity: 0.5;
-}
-
-.vnc-empty-text {
-  font-size: 14px;
 }
 </style>

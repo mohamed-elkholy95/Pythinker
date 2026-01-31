@@ -68,27 +68,93 @@
     <screenEdgeWarpTime>400</screenEdgeWarpTime>
     <screenEdgeWarpMouse>false</screenEdgeWarpMouse>
   </mouse>
-  <!-- Application-specific rules: maximize all Chromium windows -->
+  <!-- Application-specific rules for browser windows -->
+  <!-- NOTE: Do NOT use <maximized>yes</maximized> for Chrome - it conflicts with CDP's windowState: "normal" -->
+  <!-- CDP needs normal state to set explicit bounds; openbox forces position, CDP controls size -->
   <applications>
     <application class="*">
       <decor>no</decor>
-      <maximized>yes</maximized>
     </application>
+    <!-- Chromium class variants -->
     <application class="Chromium*">
       <decor>no</decor>
-      <maximized>yes</maximized>
       <position force="yes">
         <x>0</x>
         <y>0</y>
       </position>
+      <size>
+        <width>1280</width>
+        <height>1024</height>
+      </size>
     </application>
+    <application class="chromium*">
+      <decor>no</decor>
+      <position force="yes">
+        <x>0</x>
+        <y>0</y>
+      </position>
+      <size>
+        <width>1280</width>
+        <height>1024</height>
+      </size>
+    </application>
+    <!-- Chromium name variants -->
     <application name="chromium*">
       <decor>no</decor>
-      <maximized>yes</maximized>
       <position force="yes">
         <x>0</x>
         <y>0</y>
       </position>
+      <size>
+        <width>1280</width>
+        <height>1024</height>
+      </size>
+    </application>
+    <!-- Google Chrome class variants (for chrome-based browsers) -->
+    <application class="Google-chrome*">
+      <decor>no</decor>
+      <position force="yes">
+        <x>0</x>
+        <y>0</y>
+      </position>
+      <size>
+        <width>1280</width>
+        <height>1024</height>
+      </size>
+    </application>
+    <application class="google-chrome*">
+      <decor>no</decor>
+      <position force="yes">
+        <x>0</x>
+        <y>0</y>
+      </position>
+      <size>
+        <width>1280</width>
+        <height>1024</height>
+      </size>
+    </application>
+    <!-- Google Chrome name variants -->
+    <application name="Google-chrome*">
+      <decor>no</decor>
+      <position force="yes">
+        <x>0</x>
+        <y>0</y>
+      </position>
+      <size>
+        <width>1280</width>
+        <height>1024</height>
+      </size>
+    </application>
+    <application name="google-chrome*">
+      <decor>no</decor>
+      <position force="yes">
+        <x>0</x>
+        <y>0</y>
+      </position>
+      <size>
+        <width>1280</width>
+        <height>1024</height>
+      </size>
     </application>
   </applications>
 </openbox_config>

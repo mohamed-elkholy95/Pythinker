@@ -182,6 +182,8 @@ class SandboxPool:
     async def _create_and_verify_sandbox(self) -> Optional["Sandbox"]:
         """Create a sandbox and verify it's ready.
 
+        Phase 1 enhancement: Also pre-warms browser for instant availability.
+
         Returns:
             A verified sandbox, or None if creation/verification failed
         """
@@ -192,11 +194,67 @@ class SandboxPool:
             if hasattr(sandbox, "ensure_sandbox"):
                 await sandbox.ensure_sandbox()
 
+            # Phase 1: Pre-warm browser context for instant use
+            await self._prewarm_browser(sandbox)
+
             return sandbox
 
         except Exception as e:
             logger.error(f"Failed to create/verify sandbox for pool: {e}")
             return None
+
+    async def _prewarm_browser(self, sandbox: "Sandbox") -> None:
+        """Pre-warm browser context in sandbox for instant availability.
+
+        Phase 1 enhancement: Browser is ready immediately when sandbox is acquired.
+
+        Note: This warms the Chrome browser via CDP. We disconnect Playwright
+        but DO NOT close the browser context - it stays ready for later use.
+        """
+        browser = None
+        try:
+            # Get sandbox IP for CDP connection
+            if not hasattr(sandbox, "ip_address") or not sandbox.ip_address:
+                logger.debug(f"Sandbox {sandbox.id} has no IP address, skipping browser pre-warm")
+                return
+
+            # Import here to avoid circular dependency
+            from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
+
+            # Create browser instance with CDP URL
+            cdp_url = f"ws://{sandbox.ip_address}:9222"
+            browser = PlaywrightBrowser(cdp_url=cdp_url)
+
+            # Initialize browser (this connects to Chrome via CDP)
+            if not await browser.initialize():
+                logger.warning(f"Browser pre-warm initialization failed for sandbox {sandbox.id}")
+                return
+
+            # Navigate to blank page to fully initialize rendering pipeline
+            result = await browser.navigate("about:blank", timeout=10000, auto_extract=False)
+
+            if result.success:
+                logger.info(f"Browser pre-warmed for pooled sandbox {sandbox.id}")
+            else:
+                logger.warning(f"Browser pre-warm navigation failed for sandbox {sandbox.id}: {result.message}")
+
+        except Exception as e:
+            # Non-fatal - browser will be initialized on first use
+            logger.warning(f"Browser pre-warm failed (non-fatal) for sandbox {sandbox.id}: {e}")
+        finally:
+            # Disconnect Playwright but DO NOT close the browser context
+            # The context needs to stay open for later use by the agent
+            if browser:
+                try:
+                    # Only disconnect, don't close context/pages
+                    if browser.playwright:
+                        await browser.playwright.stop()
+                    browser.page = None
+                    browser.context = None
+                    browser.browser = None
+                    browser.playwright = None
+                except Exception as cleanup_error:
+                    logger.debug(f"Browser pre-warm disconnect error (non-fatal): {cleanup_error}")
 
     async def _replenish_one(self) -> None:
         """Add one sandbox to pool if below minimum."""

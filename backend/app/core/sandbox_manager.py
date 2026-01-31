@@ -350,18 +350,34 @@ class ManagedSandbox:
         raise Exception(f"Sandbox services did not start within {timeout} seconds")
 
     async def health_check(self) -> bool:
-        """Perform comprehensive health check"""
+        """Perform comprehensive health check with parallel execution.
+
+        Phase 3 enhancement: Run all health checks concurrently to reduce
+        total check time from ~15s (sequential) to ~2-3s (parallel).
+        """
         try:
             self.health.last_check = datetime.now()
 
-            # Check API responsiveness
-            self.health.api_responsive = await self._check_api_health()
+            # Run all health checks in parallel for faster response
+            api_task = asyncio.create_task(self._check_api_health())
+            browser_task = asyncio.create_task(self._check_browser_health())
+            vnc_task = asyncio.create_task(self._check_vnc_health())
 
-            # Check browser responsiveness
-            self.health.browser_responsive = await self._check_browser_health()
+            # Wait for all checks with individual exception handling
+            results = await asyncio.gather(
+                api_task, browser_task, vnc_task, return_exceptions=True
+            )
 
-            # Check VNC (optional)
-            self.health.vnc_responsive = await self._check_vnc_health()
+            # Process results (handle exceptions as False)
+            self.health.api_responsive = results[0] is True
+            self.health.browser_responsive = results[1] is True
+            self.health.vnc_responsive = results[2] is True
+
+            # Log any exceptions that occurred
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    check_names = ["API", "Browser", "VNC"]
+                    logger.debug(f"{check_names[i]} health check exception: {result}")
 
             return self.health.is_healthy
 
@@ -370,29 +386,39 @@ class ManagedSandbox:
             return False
 
     async def _check_api_health(self) -> bool:
-        """Check if sandbox API is responsive"""
+        """Check if sandbox API is responsive.
+
+        Phase 3 enhancement: Reduced timeout from 5s to 2s for faster checks.
+        """
         try:
-            response = await self.api_client.get("/health", timeout=5.0)
+            response = await self.api_client.get("/health", timeout=2.0)
             return response.status_code == 200
         except Exception:
             return False
 
     async def _check_browser_health(self) -> bool:
-        """Check if browser is responsive"""
+        """Check if browser is responsive.
+
+        Phase 3 enhancement: Reduced timeout from 5s to 2s for faster checks.
+        """
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=2.0) as client:
                 response = await client.get(f"http://{self.ip_address}:9222/json/version")
                 return response.status_code == 200
         except Exception:
             return False
 
     async def _check_vnc_health(self) -> bool:
-        """Check if VNC is responsive"""
+        """Check if VNC is responsive.
+
+        Phase 3 enhancement: Reduced timeout from 5s to 2s for faster checks.
+        Note: VNC is optional for health determination.
+        """
         try:
             # Simple TCP connection check
             reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(self.ip_address, 5900),
-                timeout=5.0
+                timeout=2.0
             )
             writer.close()
             await writer.wait_closed()

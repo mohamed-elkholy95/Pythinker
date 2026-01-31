@@ -411,3 +411,32 @@ export async function getDeepResearchStatus(sessionId: string): Promise<DeepRese
   );
   return response.data.data;
 }
+
+// ============================================================================
+// Browse URL API
+// ============================================================================
+
+/**
+ * Request for browsing a URL directly
+ */
+export interface BrowseUrlRequest {
+  url: string;
+}
+
+/**
+ * Navigate browser directly to a URL from search results
+ * This triggers the browser in the sandbox to navigate to the specified URL,
+ * providing a faster workflow than having the agent search again.
+ *
+ * @param sessionId Session ID
+ * @param url URL to navigate to
+ *
+ * @example
+ * ```typescript
+ * // After user clicks a search result
+ * await browseUrl('session123', 'https://example.com/article');
+ * ```
+ */
+export async function browseUrl(sessionId: string, url: string): Promise<void> {
+  await apiClient.post<ApiResponse<void>>(`/sessions/${sessionId}/browse`, { url });
+}

@@ -1,4 +1,3 @@
-
 from pydantic import BaseModel
 
 from app.domain.models.session import AgentMode, SessionStatus
@@ -7,11 +6,13 @@ from app.interfaces.schemas.event import AgentSSEEvent
 
 class CreateSessionRequest(BaseModel):
     """Create session request schema"""
+
     mode: AgentMode | None = AgentMode.AGENT
 
 
 class ChatRequest(BaseModel):
     """Chat request schema"""
+
     timestamp: int | None = None
     message: str | None = None
     attachments: list[dict] | None = None
@@ -20,22 +21,26 @@ class ChatRequest(BaseModel):
 
 class ResumeSessionRequest(BaseModel):
     """Resume session request schema (for user takeover exit)"""
+
     context: str | None = None
     persist_login_state: bool | None = None
 
 
 class ShellViewRequest(BaseModel):
     """Shell view request schema"""
+
     session_id: str
 
 
 class ConfirmActionRequest(BaseModel):
     """Tool action confirmation request"""
+
     accept: bool
 
 
 class SandboxInfo(BaseModel):
     """Sandbox connection info for optimistic VNC connection (Phase 4)"""
+
     sandbox_id: str
     vnc_url: str | None = None
     status: str = "initializing"
@@ -43,6 +48,7 @@ class SandboxInfo(BaseModel):
 
 class CreateSessionResponse(BaseModel):
     """Create session response schema"""
+
     session_id: str
     mode: AgentMode = AgentMode.AGENT
     sandbox: SandboxInfo | None = None  # Phase 4: Early sandbox info for optimistic VNC
@@ -51,6 +57,7 @@ class CreateSessionResponse(BaseModel):
 
 class GetSessionResponse(BaseModel):
     """Get session response schema"""
+
     session_id: str
     title: str | None = None
     status: SessionStatus
@@ -60,6 +67,7 @@ class GetSessionResponse(BaseModel):
 
 class ListSessionItem(BaseModel):
     """List session item schema"""
+
     session_id: str
     title: str | None = None
     latest_message: str | None = None
@@ -71,11 +79,13 @@ class ListSessionItem(BaseModel):
 
 class ListSessionResponse(BaseModel):
     """List session response schema"""
+
     sessions: list[ListSessionItem]
 
 
 class ConsoleRecord(BaseModel):
     """Console record schema"""
+
     ps1: str
     command: str
     output: str
@@ -83,6 +93,7 @@ class ConsoleRecord(BaseModel):
 
 class ShellViewResponse(BaseModel):
     """Shell view response schema"""
+
     output: str
     session_id: str
     console: list[ConsoleRecord] | None = None
@@ -90,12 +101,14 @@ class ShellViewResponse(BaseModel):
 
 class ShareSessionResponse(BaseModel):
     """Share session response schema"""
+
     session_id: str
     is_shared: bool
 
 
 class SharedSessionResponse(BaseModel):
     """Shared session response schema (for public access)"""
+
     session_id: str
     title: str | None = None
     status: SessionStatus
@@ -105,17 +118,26 @@ class SharedSessionResponse(BaseModel):
 
 class DeepResearchApproveRequest(BaseModel):
     """Approve deep research request"""
+
     pass  # No body needed, just the action
 
 
 class DeepResearchSkipRequest(BaseModel):
     """Skip deep research query request"""
+
     query_id: str | None = None  # If None, skip all
 
 
 class DeepResearchStatusResponse(BaseModel):
     """Deep research status response"""
+
     research_id: str
     status: str
     total_queries: int
     completed_queries: int
+
+
+class BrowseUrlRequest(BaseModel):
+    """Browse URL request schema - for direct browser navigation from search results"""
+
+    url: str

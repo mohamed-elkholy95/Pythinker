@@ -168,6 +168,81 @@ class BrowserUseService:
         self._skip_video_urls = skip_video_urls
         self._auto_dismiss_dialogs = auto_dismiss_dialogs
 
+    async def _force_window_to_origin(self) -> bool:
+        """Force all browser windows to position (0,0) using CDP.
+
+        This is critical for VNC display - new windows created by browser-use
+        may not respect the original --window-position=0,0 flag.
+        """
+        try:
+            import aiohttp
+
+            # Get all targets from CDP
+            async with aiohttp.ClientSession() as http_session:
+                async with http_session.get(f"{self.cdp_url}/json") as resp:
+                    if resp.status != 200:
+                        return False
+                    targets = await resp.json()
+
+            # Find page targets and force their window position
+            for target in targets:
+                if target.get("type") != "page":
+                    continue
+
+                ws_url = target.get("webSocketDebuggerUrl")
+                if not ws_url:
+                    continue
+
+                try:
+                    async with aiohttp.ClientSession() as ws_session:
+                        async with ws_session.ws_connect(ws_url) as ws:
+                            # Get window ID
+                            await ws.send_json({
+                                "id": 1,
+                                "method": "Browser.getWindowForTarget"
+                            })
+
+                            response = await ws.receive_json()
+                            window_id = response.get("result", {}).get("windowId")
+
+                            if window_id:
+                                # Set window to normal state first
+                                await ws.send_json({
+                                    "id": 2,
+                                    "method": "Browser.setWindowBounds",
+                                    "params": {
+                                        "windowId": window_id,
+                                        "bounds": {"windowState": "normal"}
+                                    }
+                                })
+                                await ws.receive_json()
+
+                                # Force position to (0,0) and size to match VNC
+                                await ws.send_json({
+                                    "id": 3,
+                                    "method": "Browser.setWindowBounds",
+                                    "params": {
+                                        "windowId": window_id,
+                                        "bounds": {
+                                            "left": 0,
+                                            "top": 0,
+                                            "width": 1280,
+                                            "height": 1024
+                                        }
+                                    }
+                                })
+                                await ws.receive_json()
+
+                            logger.info(f"Forced window {window_id} to position (0,0)")
+                except Exception as e:
+                    logger.debug(f"Failed to position window for target: {e}")
+                    continue
+
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to force window position: {e}")
+            return False
+
     async def initialize(self) -> bool:
         """Connect to existing Chrome instance via CDP
 
@@ -175,9 +250,31 @@ class BrowserUseService:
             True if initialization succeeded, False otherwise
         """
         try:
-            # Create browser session connected to existing Chrome via CDP
-            self.session = BrowserSession(cdp_url=self.cdp_url)
+            # Import BrowserConfig if available for viewport settings
+            try:
+                from browser_use.browser.config import BrowserConfig
+                # Configure viewport to match VNC display (1280x1024)
+                # This prevents browser-use from setting 1920x1080 which causes content cutoff
+                browser_config = BrowserConfig(
+                    viewport_width=1280,
+                    viewport_height=900,  # Account for browser chrome
+                    disable_security=True,
+                )
+                self.session = BrowserSession(
+                    cdp_url=self.cdp_url,
+                    browser_config=browser_config,
+                )
+                logger.info("Browser-use session configured with 1280x900 viewport")
+            except ImportError:
+                # Fallback if BrowserConfig not available
+                self.session = BrowserSession(cdp_url=self.cdp_url)
+                logger.warning("BrowserConfig not available, using default viewport")
+
             await self.session.start()
+
+            # Force window position to (0,0) after browser-use creates/modifies pages
+            # Browser-use may create new windows that aren't positioned correctly
+            await self._force_window_to_origin()
 
             self._initialized = True
             logger.info(f"Browser-use session initialized with CDP: {self.cdp_url}")
@@ -189,58 +286,30 @@ class BrowserUseService:
             return False
 
     def _enhance_task_prompt(self, task: str) -> str:
-        """Enhance task prompt with smart browsing instructions.
+        """Enhance task prompt with efficiency-focused instructions.
 
         Args:
             task: Original task
 
         Returns:
-            Enhanced task with smart browsing instructions
+            Enhanced task with efficiency instructions
         """
-        smart_browsing_instructions = """
+        efficiency_instructions = """
 
-SMART BROWSING INSTRUCTIONS:
+EFFICIENCY RULES (CRITICAL - follow strictly):
+1. Visit ONLY the top 2-3 most relevant sources - do NOT exhaustively browse
+2. Skip video sites (YouTube, TikTok, etc.) and slow-loading pages
+3. Extract key information quickly and move on - don't scroll entire pages
+4. Close popups/banners immediately, deny notifications
+5. If a page takes too long, skip it and try another source
+6. Be CONCISE - gather essential info fast, then stop"""
 
-1. PAGE LOADING:
-   - Wait for pages to fully load before interacting (look for loading spinners to disappear)
-   - If content seems incomplete, scroll down to trigger lazy loading
-   - Scroll through the ENTIRE page to load all dynamic content before extracting data
-
-2. CONTENT EXTRACTION:
-   - Always scroll down to see ALL content before concluding what's on a page
-   - For lists/search results, scroll to load more items if pagination exists
-   - Extract text content, not just what's visible in the initial viewport
-   - Look for "Load More", "Show More", or infinite scroll patterns
-
-3. INTERACTION:
-   - Click buttons/links and WAIT for the result before next action
-   - If a click doesn't work, try scrolling the element into view first
-   - For forms, fill all required fields before submitting
-   - Close any popups, cookie banners, or modal dialogs immediately
-
-4. ERROR HANDLING:
-   - If a page fails to load, wait 2 seconds and retry once
-   - If an element is not found, scroll and look again
-   - If stuck, press Escape and try an alternative approach
-   - Report errors clearly rather than guessing
-
-5. RESTRICTIONS:
-   - Skip video sites (YouTube, Vimeo, TikTok, etc.) - they waste time
-   - Do not play videos or audio content
-   - Deny notification requests
-   - Do not enter sensitive information (passwords, credit cards)
-
-6. OUTPUT:
-   - Provide complete, accurate information from what you observe
-   - Include URLs of pages visited for verification
-   - Be specific about what you found vs what you couldn't find"""
-
-        return task + smart_browsing_instructions
+        return task + efficiency_instructions
 
     async def execute_autonomous_task(
         self,
         task: str,
-        max_steps: int = 20,
+        max_steps: int = 12,
         llm_model: str | None = None,
         start_url: str | None = None,
         on_step: Any | None = None,
@@ -292,8 +361,10 @@ SMART BROWSING INSTRUCTIONS:
 
         try:
             # Import here to avoid circular dependencies
-            # Use browser-use's built-in ChatOpenAI
             from browser_use import ChatOpenAI
+            from langchain_core.language_models.chat_models import BaseChatModel
+            from langchain_core.messages import BaseMessage
+            from langchain_core.outputs import ChatResult
 
             # Get settings
             settings = get_settings()
@@ -301,16 +372,54 @@ SMART BROWSING INSTRUCTIONS:
             # Use model from settings if not specified
             model_name = llm_model or settings.model_name or "deepseek-chat"
 
-            # Create LLM provider using settings (DeepSeek-compatible via OpenAI API)
+            # Check if we need to strip response_format (non-OpenAI providers)
+            is_openai = settings.api_base and ("api.openai.com" in settings.api_base.lower() or "openai.azure.com" in settings.api_base.lower())
+
+            # Create LLM provider
             if self.llm_provider:
                 llm = self.llm_provider
             else:
-                llm = ChatOpenAI(
+                # Create base ChatOpenAI instance
+                base_llm = ChatOpenAI(
                     model=model_name,
                     api_key=settings.api_key,
                     base_url=settings.api_base,
                     temperature=settings.temperature,
                 )
+
+                if not is_openai:
+                    # Create a wrapper class that strips response_format for non-OpenAI providers
+                    class NoResponseFormatLLM(BaseChatModel):
+                        """Wrapper that strips response_format from all calls."""
+
+                        def __init__(self, wrapped_llm):
+                            super().__init__()
+                            object.__setattr__(self, '_wrapped', wrapped_llm)
+
+                        @property
+                        def _llm_type(self) -> str:
+                            return self._wrapped._llm_type
+
+                        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+                            kwargs.pop('response_format', None)
+                            return self._wrapped._generate(messages, stop, run_manager, **kwargs)
+
+                        async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
+                            kwargs.pop('response_format', None)
+                            return await self._wrapped._agenerate(messages, stop, run_manager, **kwargs)
+
+                        def bind(self, **kwargs):
+                            kwargs.pop('response_format', None)
+                            return self._wrapped.bind(**kwargs)
+
+                        def __getattr__(self, name):
+                            return getattr(self._wrapped, name)
+
+                    llm = NoResponseFormatLLM(base_llm)
+                    logger.info(f"Created response_format-stripping wrapper for non-OpenAI provider")
+                else:
+                    llm = base_llm
+
                 logger.info(f"Browser agent using LLM: {model_name} via {settings.api_base}")
 
             # Enhance task with safety instructions

@@ -194,4 +194,9 @@ onUnmounted(() => {
 :global(.dark) .shell-view :deep(.empty-message) {
   color: rgba(229, 231, 235, 0.65);
 }
+
+/* Green prompt in dark mode */
+:global(.dark) .shell-output :deep(.shell-prompt) {
+  color: #4ade80;
+}
 </style>

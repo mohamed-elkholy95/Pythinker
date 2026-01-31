@@ -132,6 +132,7 @@
             :results="searchResults"
             :is-searching="isSearching"
             :query="searchQuery"
+            @browseUrl="handleBrowseUrl"
           />
 
           <!-- Generic/MCP View -->
@@ -195,7 +196,7 @@ import type { ToolContent } from '@/types/message';
 import type { PlanEventData } from '@/types/event';
 import { useToolInfo } from '@/composables/useTool';
 import { useContentConfig } from '@/composables/useContentConfig';
-import { viewFile, viewShellSession, pauseSession } from '@/api/agent';
+import { viewFile, viewShellSession, pauseSession, browseUrl } from '@/api/agent';
 import TimelineControls from '@/components/timeline/TimelineControls.vue';
 import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';
 import TaskProgressBar from '@/components/TaskProgressBar.vue';
@@ -783,6 +784,21 @@ const onVNCDisconnected = () => {
 
 const onNewTerminalContent = () => {
   markNewOutput();
+};
+
+/**
+ * Handle browse URL request from search results
+ * Navigates the browser directly to the clicked URL
+ */
+const handleBrowseUrl = async (url: string) => {
+  if (!props.sessionId || !url) return;
+
+  try {
+    console.log(`[ToolPanelContent] Browsing URL: ${url}`);
+    await browseUrl(props.sessionId, url);
+  } catch (error) {
+    console.error('[ToolPanelContent] Failed to browse URL:', error);
+  }
 };
 
 </script>

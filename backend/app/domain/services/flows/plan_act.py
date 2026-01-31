@@ -33,11 +33,15 @@ from app.domain.services.agents.base import BaseAgent
 from app.domain.services.agents.execution import ExecutionAgent
 from app.domain.services.agents.planner import PlannerAgent
 from app.domain.services.flows.base import BaseFlow
+from app.domain.services.flows.fast_path import FastPathRouter, QueryIntent
 from app.domain.services.tools.browser import BrowserTool
 from app.domain.services.tools.file import FileTool
 from app.domain.services.tools.mcp import MCPTool
 from app.domain.services.tools.shell import ShellTool
 from app.domain.utils.json_parser import JsonParser
+
+# Import research task detection for acknowledgment messages
+from app.domain.services.prompts.research import is_research_task
 
 # BrowserAgentTool is optional (requires browser_use package)
 try:
@@ -272,6 +276,56 @@ class PlanActFlow(BaseFlow):
         )
         logger.info(f"Multi-agent dispatch enabled for Agent {self._agent_id}")
 
+    async def _verify_browser_ready(self, session) -> bool:
+        """Verify browser is ready for fast path operations.
+
+        Phase 2 enhancement: Quick health check to determine if browser
+        can be used for fast path, enabling instant "open X" responses.
+
+        Args:
+            session: Current session object
+
+        Returns:
+            True if browser is verified ready, False otherwise
+        """
+        if not session.sandbox_id:
+            logger.debug("No sandbox_id, browser not ready")
+            return False
+
+        try:
+            # Quick browser health check via sandbox
+            from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
+
+            sandbox = await DockerSandbox.get(session.sandbox_id)
+            if not sandbox:
+                logger.debug(f"Sandbox {session.sandbox_id} not found")
+                return False
+
+            # Check browser health (should be instant if pre-warmed)
+            if hasattr(sandbox, "browser_health_check"):
+                is_healthy = await asyncio.wait_for(sandbox.browser_health_check(), timeout=2.0)
+                if is_healthy:
+                    logger.debug("Browser health check passed")
+                    return True
+                logger.debug("Browser health check failed")
+                return False
+
+            # Fallback: check if browser object is healthy
+            if self._browser and hasattr(self._browser, "is_healthy"):
+                is_healthy = self._browser.is_healthy()
+                logger.debug(f"Browser is_healthy: {is_healthy}")
+                return is_healthy
+
+            # Conservative default: assume ready if we have a browser
+            return self._browser is not None
+
+        except TimeoutError:
+            logger.warning("Browser health check timed out")
+            return False
+        except Exception as e:
+            logger.warning(f"Browser readiness check failed: {e}")
+            return False
+
     def _extract_agent_type(self, step_description: str) -> str | None:
         """Extract [AGENT_TYPE] prefix from step description.
 
@@ -478,6 +532,49 @@ class PlanActFlow(BaseFlow):
             )
         self.status = new_status
 
+    def _generate_research_acknowledgment(self, user_message: str) -> str:
+        """Generate an acknowledgment message for research/comprehensive tasks.
+
+        Args:
+            user_message: The user's original message
+
+        Returns:
+            A brief acknowledgment message describing what will be researched
+        """
+        # Extract key topics from the message
+        message_lower = user_message.lower()
+
+        # Common research indicators to detect the scope
+        topics = []
+
+        # Look for specific research topics mentioned
+        topic_patterns = [
+            ("claude code", "Claude Code features and best practices"),
+            ("mcp", "MCP (Model Context Protocol) integrations"),
+            ("plugin", "plugins and extensions"),
+            ("lsp", "LSP (Language Server Protocol) features"),
+            ("design", "design patterns and skills"),
+            ("integration", "integrations and configurations"),
+            ("api", "API usage and implementation"),
+            ("best practice", "best practices and recommendations"),
+        ]
+
+        for pattern, description in topic_patterns:
+            if pattern in message_lower:
+                topics.append(description)
+
+        # Build acknowledgment message
+        if topics:
+            topics_str = ", ".join(topics[:4])  # Limit to 4 topics
+            return f"I will conduct comprehensive research on {topics_str} to provide you with a detailed report."
+        else:
+            # Generic acknowledgment for research tasks
+            # Extract first ~100 chars of the topic
+            topic_preview = user_message[:100].strip()
+            if len(user_message) > 100:
+                topic_preview += "..."
+            return f"I will conduct comprehensive research on this topic to provide you with a detailed report."
+
     def _validate_plan_before_execution(self) -> bool:
         """Validate plan before execution; returns True if safe to proceed."""
         if not self.plan:
@@ -550,12 +647,10 @@ class PlanActFlow(BaseFlow):
         reason = failed_step.error or failed_step.result or "Step execution failed"
 
         # Mark dependent steps as blocked using cascade
-        blocked_ids = self.plan.mark_blocked_cascade(
+        return self.plan.mark_blocked_cascade(
             blocked_step_id=failed_step.id,
             reason=reason[:200],  # Limit reason length
         )
-
-        return blocked_ids
 
     def _should_skip_step(self, step: Step) -> tuple[bool, str]:
         """Check if a step should be skipped.
@@ -819,14 +914,12 @@ class PlanActFlow(BaseFlow):
         self._error_recovery_attempts += 1
         logger.info(f"Attempting error recovery ({self._error_recovery_attempts}/{self._max_error_recovery_attempts})")
 
-        # Try to recover based on error type
-        if self._error_context.recoverable:
-            # Restore previous status
-            if self._previous_status:
-                self._transition_to(self._previous_status, force=True, reason="error recovery")
-                self._previous_status = None
-                logger.info(f"Recovered to previous state: {self.status}")
-                return True
+        # Try to recover based on error type - restore previous status if recoverable
+        if self._error_context.recoverable and self._previous_status:
+            self._transition_to(self._previous_status, force=True, reason="error recovery")
+            self._previous_status = None
+            logger.info(f"Recovered to previous state: {self.status}")
+            return True
 
         return False
 
@@ -849,6 +942,59 @@ class PlanActFlow(BaseFlow):
         session = await self._session_repository.find_by_id(self._session_id)
         if not session:
             raise ValueError(f"Session {self._session_id} not found")
+
+        # === FAST PATH: Check if this is a simple query that can skip planning ===
+        # Only for PENDING sessions (fully initialized), not INITIALIZING (browser may not be ready)
+        logger.info(f"Fast path check: session.status={session.status}, message={message.message[:50]}")
+        if session.status == SessionStatus.PENDING:
+            fast_path_router = FastPathRouter(
+                browser=self._browser,
+                llm=self._llm,
+                search_engine=self._search_engine,
+            )
+            intent, params = fast_path_router.classify(message.message)
+            logger.info(f"Fast path classification: intent={intent.value}, params={params}")
+
+            # Determine if fast path can be used based on intent
+            use_fast_path = False
+            skip_reason = ""
+
+            if intent == QueryIntent.KNOWLEDGE:
+                # Knowledge queries don't need browser - always safe
+                use_fast_path = True
+            elif intent in (QueryIntent.DIRECT_BROWSE, QueryIntent.WEB_SEARCH):
+                # Browser queries need verified browser readiness (Phase 2)
+                browser_ready = await self._verify_browser_ready(session)
+                if browser_ready:
+                    use_fast_path = True
+                else:
+                    skip_reason = "browser not ready"
+            else:
+                skip_reason = "TASK intent requires full workflow"
+
+            if use_fast_path:
+                logger.info(f"Fast path activated for {intent.value} query: {message.message[:50]}...")
+
+                # Update session status
+                await self._session_repository.update_status(self._session_id, SessionStatus.RUNNING)
+
+                # Execute fast path and yield all events
+                async for event in fast_path_router.execute(intent, params, message):
+                    yield event
+
+                # Mark session as completed
+                await self._session_repository.update_status(self._session_id, SessionStatus.COMPLETED)
+
+                logger.info(f"Fast path completed for session {self._session_id}")
+                return  # Exit early - don't proceed with full workflow
+            elif intent in (QueryIntent.DIRECT_BROWSE, QueryIntent.WEB_SEARCH):
+                logger.info(f"Fast path skipped for {intent.value} - {skip_reason}, using normal workflow")
+            else:
+                logger.debug("Query classified as TASK, proceeding with full workflow")
+        elif session.status == SessionStatus.INITIALIZING:
+            logger.debug("Session still INITIALIZING, skipping fast path check")
+
+        # === END FAST PATH ===
 
         # Assess task complexity and set dynamic iteration limits (Phase 3)
         if session.complexity_score is None and session.status == SessionStatus.PENDING:
@@ -902,6 +1048,13 @@ class PlanActFlow(BaseFlow):
         self.plan = session.get_last_plan()
 
         logger.info(f"Agent {self._agent_id} started processing message: {message.message[:50]}...")
+
+        # Emit acknowledgment for research/comprehensive tasks before planning
+        if is_research_task(message.message) and session.status != SessionStatus.WAITING:
+            acknowledgment = self._generate_research_acknowledgment(message.message)
+            yield MessageEvent(message=acknowledgment)
+            logger.info(f"Emitted research acknowledgment for session {self._session_id}")
+
         step = None
         while True:
             # Phase 3: Track iteration count for proactive compaction

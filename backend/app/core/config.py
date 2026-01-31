@@ -97,9 +97,9 @@ class Settings(BaseSettings):
     workspace_lazy_init: bool = True  # Defer workspace init until needed
 
     # Sandbox Pool Pre-warming (Phase 3)
-    sandbox_pool_enabled: bool = False  # Enable sandbox pool for instant allocation
+    sandbox_pool_enabled: bool = True  # Enable sandbox pool for instant allocation (20-32s → 2-5s cold start)
     sandbox_pool_min_size: int = 2  # Minimum sandboxes to maintain in pool
-    sandbox_pool_max_size: int = 5  # Maximum sandboxes in pool
+    sandbox_pool_max_size: int = 4  # Maximum sandboxes in pool (reduced to limit resource usage)
     sandbox_pool_warmup_interval: int = 30  # Seconds between pool maintenance checks
 
     # Lazy initialization (Phase 5)

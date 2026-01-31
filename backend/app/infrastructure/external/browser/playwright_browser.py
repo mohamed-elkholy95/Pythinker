@@ -17,7 +17,11 @@ from app.infrastructure.external.llm.openai_llm import OpenAILLM
 logger = logging.getLogger(__name__)
 
 # Default browser configuration for realistic browsing
-DEFAULT_VIEWPORT = {"width": 1280, "height": 1029}
+# Viewport is the content area inside the browser window.
+# With Xvfb at 1280x1024 and browser chrome (~90px for tabs/address bar),
+# the actual visible content area is approximately 1280x934.
+# We use the full width to avoid horizontal cutoff.
+DEFAULT_VIEWPORT = {"width": 1280, "height": 900}
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
@@ -39,13 +43,14 @@ USER_AGENT_POOL = [
 ]
 
 # Viewport variations for fingerprint randomization
+# IMPORTANT: All viewports must fit within VNC display (1280x1024 in Xvfb)
+# Wider viewports cause content to render off-screen and get cut off
 VIEWPORT_POOL = [
-    {"width": 1920, "height": 1080},
-    {"width": 1536, "height": 864},
-    {"width": 1440, "height": 900},
-    {"width": 1366, "height": 768},
-    {"width": 1280, "height": 1024},
+    {"width": 1280, "height": 900},
     {"width": 1280, "height": 800},
+    {"width": 1280, "height": 720},
+    {"width": 1024, "height": 768},
+    {"width": 1200, "height": 800},
 ]
 
 # Timezone variations
@@ -251,6 +256,140 @@ class PlaywrightBrowser:
 
         return user_agent, viewport, timezone
 
+    async def _force_window_position(self, page: Page, x: int = 0, y: int = 0, width: int = 1280, height: int = 1024) -> bool:
+        """Force browser window to specific position using CDP.
+
+        This is critical for VNC display - Chrome's --window-position flag only affects
+        the FIRST window. Subsequent windows created by new_page() will be offset.
+        Using CDP Browser.setWindowBounds forces the window to the correct position.
+
+        Args:
+            page: The page whose window to position
+            x: Left position (default 0)
+            y: Top position (default 0)
+            width: Window width (default 1280 to match Xvfb)
+            height: Window height (default 1024 to match Xvfb)
+
+        Returns:
+            bool: True if positioning succeeded, False otherwise
+        """
+        if not self.context or not page:
+            return False
+
+        cdp_session = None
+        try:
+            cdp_session = await self.context.new_cdp_session(page)
+
+            # Get the window ID for this page's target
+            result = await cdp_session.send("Browser.getWindowForTarget")
+            window_id = result.get("windowId")
+
+            if not window_id:
+                logger.warning("Could not get windowId for page")
+                return False
+
+            # First ensure window is in normal state (not maximized) so bounds can be set
+            await cdp_session.send(
+                "Browser.setWindowBounds",
+                {
+                    "windowId": window_id,
+                    "bounds": {"windowState": "normal"},
+                },
+            )
+
+            # Set window bounds to force position at 0,0 and exact size matching Xvfb
+            expected_bounds = {"left": x, "top": y, "width": width, "height": height}
+            await cdp_session.send(
+                "Browser.setWindowBounds",
+                {
+                    "windowId": window_id,
+                    "bounds": expected_bounds,
+                },
+            )
+
+            # Readback bounds to verify they were applied correctly
+            readback = await cdp_session.send("Browser.getWindowBounds", {"windowId": window_id})
+            actual_bounds = readback.get("bounds", {})
+            actual_left = actual_bounds.get("left", -1)
+            actual_top = actual_bounds.get("top", -1)
+
+            # Check if bounds match (allow small tolerance for WM adjustments)
+            if actual_left != x or actual_top != y:
+                logger.warning(
+                    f"Window bounds mismatch after first attempt: expected ({x}, {y}), "
+                    f"got ({actual_left}, {actual_top}). Retrying..."
+                )
+                # Retry once - sometimes WM needs a moment
+                await asyncio.sleep(0.1)
+                await cdp_session.send(
+                    "Browser.setWindowBounds",
+                    {
+                        "windowId": window_id,
+                        "bounds": expected_bounds,
+                    },
+                )
+                # Final readback
+                readback = await cdp_session.send("Browser.getWindowBounds", {"windowId": window_id})
+                actual_bounds = readback.get("bounds", {})
+                actual_left = actual_bounds.get("left", -1)
+                actual_top = actual_bounds.get("top", -1)
+
+                if actual_left != x or actual_top != y:
+                    logger.error(
+                        f"Window bounds still incorrect after retry: expected ({x}, {y}), "
+                        f"got ({actual_left}, {actual_top})"
+                    )
+                    return False
+
+            logger.info(
+                f"Forced window position via CDP: ({actual_left}, {actual_top}) "
+                f"size {actual_bounds.get('width', 0)}x{actual_bounds.get('height', 0)}"
+            )
+            return True
+
+        except Exception as e:
+            logger.warning(f"Failed to force window position via CDP: {e}")
+            return False
+        finally:
+            if cdp_session:
+                try:
+                    await cdp_session.detach()
+                except Exception:
+                    pass
+
+    async def _new_page_with_bounds(self, context: BrowserContext | None = None) -> Page:
+        """Create a new page with proper window positioning for VNC display.
+
+        This is the ONLY correct way to create a new page in this class.
+        It ensures the browser window is positioned at (0,0) to avoid VNC offset issues.
+
+        Args:
+            context: Browser context to create page in. Uses self.context if not provided.
+
+        Returns:
+            Page: The newly created and positioned page
+
+        Raises:
+            Exception: If no context available or page creation fails
+        """
+        ctx = context or self.context
+        if not ctx:
+            raise Exception("No browser context available for creating new page")
+
+        page = await ctx.new_page()
+        logger.info(f"Created new page (total pages in context: {len(ctx.pages)})")
+
+        # CRITICAL: Always force window position after creating new page
+        # New windows may be offset by the WM without this
+        success = await self._force_window_position(page)
+        if not success:
+            logger.warning("Failed to force window position on new page - VNC display may be offset")
+
+        # Small delay to let WM settle after positioning
+        await asyncio.sleep(0.05)
+
+        return page
+
     async def _setup_route_interception(self, context: BrowserContext) -> None:
         """Set up network route interception for resource blocking and optimization
 
@@ -334,6 +473,61 @@ class PlaywrightBrowser:
 
         page.on("dialog", handle_dialog)
         logger.debug("Dialog handlers configured")
+
+    async def _inject_overlay_scrollbar_css(self) -> None:
+        """Inject CSS to make scrollbars overlay content instead of taking width.
+
+        This ensures the full viewport width is available for content rendering,
+        preventing content cutoff on the right side when scrollbars appear.
+        """
+        if not self.page:
+            return
+
+        try:
+            await self.page.add_init_script("""
+                (function() {
+                    // Create style element for overlay scrollbars
+                    const style = document.createElement('style');
+                    style.id = 'agent-overlay-scrollbar';
+                    style.textContent = `
+                        /* Make scrollbars overlay content instead of taking width */
+                        * {
+                            scrollbar-width: thin;
+                        }
+                        *::-webkit-scrollbar {
+                            width: 8px;
+                            height: 8px;
+                        }
+                        *::-webkit-scrollbar-track {
+                            background: transparent;
+                        }
+                        *::-webkit-scrollbar-thumb {
+                            background-color: rgba(155, 155, 155, 0.5);
+                            border-radius: 4px;
+                        }
+                        *::-webkit-scrollbar-thumb:hover {
+                            background-color: rgba(155, 155, 155, 0.7);
+                        }
+                        /* Ensure html and body use overlay scrollbar behavior */
+                        html, body {
+                            overflow: overlay !important;
+                            scrollbar-gutter: auto !important;
+                        }
+                    `;
+
+                    // Inject as soon as possible
+                    if (document.head) {
+                        document.head.appendChild(style);
+                    } else {
+                        document.addEventListener('DOMContentLoaded', () => {
+                            document.head.appendChild(style);
+                        });
+                    }
+                })();
+            """)
+            logger.debug("Overlay scrollbar CSS injected")
+        except Exception as e:
+            logger.debug(f"Failed to inject overlay scrollbar CSS: {e}")
 
     async def _inject_cursor_indicator(self) -> None:
         """Inject visual cursor indicator for agent actions.
@@ -449,6 +643,9 @@ class PlaywrightBrowser:
 
         # First inject cursor indicator
         await self._inject_cursor_indicator()
+
+        # Inject overlay scrollbar CSS to prevent width cutoff
+        await self._inject_overlay_scrollbar_css()
 
         try:
             # Inject scripts before any page loads
@@ -656,11 +853,14 @@ class PlaywrightBrowser:
 
                     if reuse_page:
                         self.page = reuse_page
+                        # NOTE: Do NOT call _force_window_position or set_viewport_size here
+                        # The window is already correctly positioned by Chrome's launch flags
+                        # Calling these can cause the window to shift/resize unexpectedly
+                        logger.info("Reusing existing page - keeping current window position")
                     else:
-                        # Last resort: Create new page (will create new window - may shift in VNC)
-                        logger.warning("No existing pages available, creating new page (may cause VNC positioning issue)")
-                        self.page = await self.context.new_page()
-                        logger.info(f"Created new page in visible context (total pages: {len(self.context.pages)})")
+                        # Last resort: Create new page with proper window positioning
+                        logger.warning("No existing pages available, creating new page with bounds")
+                        self.page = await self._new_page_with_bounds(self.context)
 
                     # Ensure the page is brought to front and visible in VNC
                     try:
@@ -695,17 +895,17 @@ class PlaywrightBrowser:
                         pages = self.context.pages
                         if pages:
                             self.page = pages[0]
-                            logger.info("Using default context's existing page")
+                            logger.info("Using default context's existing page - keeping current window position")
                         else:
-                            self.page = await self.context.new_page()
-                            logger.info("Created new page in default context")
+                            # Create new page with proper window positioning
+                            self.page = await self._new_page_with_bounds(self.context)
                     else:
                         # Last resort: Still no contexts, this shouldn't happen with a running Chrome
                         # Create page via CDP's default mechanism instead of isolated context
                         logger.error("No contexts after waiting - Chrome may not be properly initialized")
                         # Try to create a page directly, which will use default context
                         self.context = await self.browser.new_context()
-                        self.page = await self.context.new_page()
+                        self.page = await self._new_page_with_bounds(self.context)
                         logger.warning("Created new context as fallback - VNC may show different content")
 
                     # Set fingerprint values for consistency
@@ -851,9 +1051,9 @@ class PlaywrightBrowser:
                         logger.info("Reused existing page in _ensure_page to avoid creating new window")
                         return
 
-            # Last resort: Create new page (will create new window)
-            logger.warning("No existing pages in _ensure_page, creating new (may cause VNC shift)")
-            self.page = await self.context.new_page()
+            # Last resort: Create new page with proper positioning
+            logger.warning("No existing pages in _ensure_page, creating new page with bounds")
+            self.page = await self._new_page_with_bounds(self.context)
             return
 
         # Switch to the most recent (rightmost) tab if there are multiple
@@ -1238,7 +1438,7 @@ class PlaywrightBrowser:
         return formatted_elements
 
     async def navigate(
-        self, url: str, timeout: int | None = 30000, wait_until: str = "domcontentloaded", auto_extract: bool = True
+        self, url: str, timeout: int | None = 30000, wait_until: str = "domcontentloaded", auto_extract: bool = False
     ) -> ToolResult:
         """Navigate to the specified URL with automatic content loading and extraction
 

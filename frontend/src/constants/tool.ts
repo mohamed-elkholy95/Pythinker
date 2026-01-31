@@ -231,18 +231,18 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
     showTabs: false
   },
   search: {
-    primaryView: 'vnc',  // Show live VNC to match mini preview
-    secondaryView: 'search',
-    tabLabels: [],
+    primaryView: 'search',  // Show search results directly (Manus-style)
+    secondaryView: 'vnc',
+    tabLabels: ['Results', 'Browser'],
     defaultView: 'primary',
-    showTabs: false
+    showTabs: true  // Allow switching to browser view
   },
   info: {
-    primaryView: 'vnc',  // Show live VNC to match mini preview
-    secondaryView: 'search',
-    tabLabels: [],
+    primaryView: 'search',  // Show search results directly (Manus-style)
+    secondaryView: 'vnc',
+    tabLabels: ['Results', 'Browser'],
     defaultView: 'primary',
-    showTabs: false
+    showTabs: true  // Allow switching to browser view
   },
   mcp: {
     primaryView: 'generic',
