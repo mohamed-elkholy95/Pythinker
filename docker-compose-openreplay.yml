@@ -1,0 +1,211 @@
+# OpenReplay Session Replay Infrastructure
+# This file provides OpenReplay services for session recording and playback
+# Use: docker compose -f docker-compose-development.yml -f docker-compose-openreplay.yml up -d
+
+services:
+  # OpenReplay HTTP Ingestion Service
+  # Receives tracking data from the frontend tracker
+  openreplay-http:
+    image: openreplay/http:v1.18.0
+    container_name: openreplay-http
+    ports:
+      - "9001:9001"  # Ingestion endpoint
+    environment:
+      - REDIS_STRING=redis://redis:6379
+      - POSTGRES_STRING=postgresql://openreplay:openreplay@openreplay-postgres:5432/openreplay
+      - S3_HOST=openreplay-minio
+      - S3_PORT=9000
+      - S3_KEY=openreplay
+      - S3_SECRET=openreplayS3Secret
+      - S3_BUCKET=openreplay
+      - S3_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=openreplay
+      - AWS_SECRET_ACCESS_KEY=openreplayS3Secret
+      - SITE_ID=1
+      - TOPICS_RAW=raw
+      - BEACON_SIZE_LIMIT=3000000
+      - LISTEN_PORT=9001
+    depends_on:
+      openreplay-postgres:
+        condition: service_healthy
+      openreplay-minio:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+
+  # OpenReplay Sink - Event Processing
+  # Processes and stores session data
+  openreplay-sink:
+    image: openreplay/sink:v1.18.0
+    container_name: openreplay-sink
+    environment:
+      - REDIS_STRING=redis://redis:6379
+      - POSTGRES_STRING=postgresql://openreplay:openreplay@openreplay-postgres:5432/openreplay
+      - S3_HOST=openreplay-minio
+      - S3_PORT=9000
+      - S3_KEY=openreplay
+      - S3_SECRET=openreplayS3Secret
+      - S3_BUCKET=openreplay
+      - S3_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=openreplay
+      - AWS_SECRET_ACCESS_KEY=openreplayS3Secret
+      - TOPIC_RAW=raw
+      - GROUP_SINK=sink
+      - FS_ULIMIT=65536
+    depends_on:
+      openreplay-postgres:
+        condition: service_healthy
+      openreplay-minio:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+
+  # OpenReplay Chalice API Server
+  # Provides REST API for session management and replay
+  openreplay-chalice:
+    image: openreplay/chalice:v1.18.0
+    container_name: openreplay-chalice
+    ports:
+      - "8090:8090"  # API endpoint
+    environment:
+      - REDIS_STRING=redis://redis:6379
+      - POSTGRES_STRING=postgresql://openreplay:openreplay@openreplay-postgres:5432/openreplay
+      - S3_HOST=openreplay-minio
+      - S3_PORT=9000
+      - S3_KEY=openreplay
+      - S3_SECRET=openreplayS3Secret
+      - S3_BUCKET=openreplay
+      - S3_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=openreplay
+      - AWS_SECRET_ACCESS_KEY=openreplayS3Secret
+      - JWT_SECRET=${JWT_SECRET_KEY:-openreplay-jwt-secret}
+      - SITE_ID=1
+      - LISTEN_PORT=8090
+    depends_on:
+      openreplay-postgres:
+        condition: service_healthy
+      openreplay-minio:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+
+  # OpenReplay Assets Service
+  # Serves static assets for replay
+  openreplay-assets:
+    image: openreplay/assets:v1.18.0
+    container_name: openreplay-assets
+    ports:
+      - "9002:9002"
+    environment:
+      - S3_HOST=openreplay-minio
+      - S3_PORT=9000
+      - S3_KEY=openreplay
+      - S3_SECRET=openreplayS3Secret
+      - S3_BUCKET=openreplay
+      - S3_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=openreplay
+      - AWS_SECRET_ACCESS_KEY=openreplayS3Secret
+      - LISTEN_PORT=9002
+    depends_on:
+      openreplay-minio:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+
+  # OpenReplay Assist - Live Session and Co-browsing
+  # Enables real-time session viewing and remote control
+  openreplay-assist:
+    image: openreplay/assist:v1.18.0
+    container_name: openreplay-assist
+    ports:
+      - "9003:9003"  # WebSocket for Assist
+    environment:
+      - REDIS_STRING=redis://redis:6379
+      - ASSIST_KEY=${OPENREPLAY_PROJECT_KEY:-pythinker-dev}
+      - LISTEN_PORT=9003
+    depends_on:
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+
+  # PostgreSQL for OpenReplay metadata
+  openreplay-postgres:
+    image: postgres:15-alpine
+    container_name: openreplay-postgres
+    volumes:
+      - openreplay_postgres_data:/var/lib/postgresql/data
+      - ./openreplay/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    environment:
+      - POSTGRES_USER=openreplay
+      - POSTGRES_PASSWORD=openreplay
+      - POSTGRES_DB=openreplay
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openreplay -d openreplay"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MinIO S3-compatible storage for recordings
+  openreplay-minio:
+    image: minio/minio:latest
+    container_name: openreplay-minio
+    ports:
+      - "9000:9000"   # S3 API
+      - "9090:9090"   # Console
+    volumes:
+      - openreplay_minio_data:/data
+    environment:
+      - MINIO_ROOT_USER=openreplay
+      - MINIO_ROOT_PASSWORD=openreplayS3Secret
+    command: server /data --console-address ":9090"
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MinIO bucket initialization
+  openreplay-minio-init:
+    image: minio/mc:latest
+    container_name: openreplay-minio-init
+    depends_on:
+      openreplay-minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set myminio http://openreplay-minio:9000 openreplay openreplayS3Secret;
+      mc mb --ignore-existing myminio/openreplay;
+      mc anonymous set public myminio/openreplay;
+      exit 0;
+      "
+    networks:
+      - pythinker-network
+
+volumes:
+  openreplay_postgres_data:
+    name: pythinker-openreplay-postgres-data
+  openreplay_minio_data:
+    name: pythinker-openreplay-minio-data
+
+networks:
+  pythinker-network:
+    name: pythinker-network
+    external: true

@@ -27,8 +27,8 @@
       <div class="init-grid"></div>
     </div>
 
-    <!-- Terminal output preview - prioritize over VNC to show actual command output -->
-    <div v-else-if="isShellTool && contentPreview" class="content-preview terminal-preview">
+    <!-- Terminal view (shell, code_executor) -->
+    <div v-else-if="currentViewType === 'terminal' && contentPreview" class="content-preview terminal-preview">
       <div class="terminal-window">
         <div class="terminal-header">
           <span class="terminal-title">{{ terminalTitle }}</span>
@@ -43,8 +43,8 @@
       <div v-if="isActive" class="activity-indicator"></div>
     </div>
 
-    <!-- Shell tool running without content yet - show VNC to see terminal activity -->
-    <div v-else-if="isShellTool && isActive && sessionId && enabled" class="vnc-container">
+    <!-- Terminal tool running without content yet - show VNC -->
+    <div v-else-if="currentViewType === 'terminal' && isActive && sessionId && enabled" class="vnc-container">
       <VNCViewer
         :session-id="sessionId"
         :enabled="enabled"
@@ -52,17 +52,52 @@
       />
     </div>
 
-    <!-- Live VNC for visual tools (browser, search, etc.) -->
-    <div v-else-if="isVisualTool && sessionId && enabled" class="vnc-container">
-      <VNCViewer
-        :session-id="sessionId"
-        :enabled="enabled"
-        :view-only="true"
-      />
+    <!-- Search results view (search, info tools) -->
+    <div v-else-if="currentViewType === 'search'" class="content-preview search-preview">
+      <div class="search-window">
+        <div class="search-header">
+          <Search :size="10" class="search-header-icon" />
+          <span class="search-title">{{ truncate(searchQuery || 'Search', 20) }}</span>
+        </div>
+        <div class="search-body">
+          <div class="search-content-area">
+            <div v-if="searchResults.length > 0" class="search-results-mini">
+              <div v-for="(result, idx) in searchResults.slice(0, 3)" :key="idx" class="search-result-item">
+                <img
+                  :src="getFavicon(result.url || result.link)"
+                  alt=""
+                  class="result-favicon"
+                  @error="handleFaviconError"
+                />
+                <div class="result-text">
+                  <span class="result-title">{{ truncate(result.title || result.name || 'Result', 25) }}</span>
+                  <span v-if="result.snippet" class="result-snippet">{{ truncate(result.snippet, 40) }}</span>
+                </div>
+              </div>
+              <div v-if="searchResults.length > 3" class="results-more">
+                +{{ searchResults.length - 3 }} more results
+              </div>
+            </div>
+            <div v-else-if="isActive" class="search-loading">
+              <div class="loading-dots">
+                <span class="dot"></span>
+                <span class="dot"></span>
+                <span class="dot"></span>
+              </div>
+              <span class="loading-text">Searching...</span>
+            </div>
+            <div v-else class="search-empty">
+              <Search :size="14" class="empty-search-icon" />
+              <span>No results</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-if="isActive" class="activity-indicator"></div>
     </div>
 
-    <!-- File content preview (decorated window style) -->
-    <div v-else-if="isFileTool && contentPreview" class="content-preview file-preview">
+    <!-- Editor view (file tools) -->
+    <div v-else-if="currentViewType === 'editor' && contentPreview" class="content-preview file-preview">
       <div class="file-window">
         <div class="file-header">
           <span class="file-title">{{ fileName }}</span>
@@ -77,8 +112,34 @@
       <div v-if="isActive" class="activity-indicator"></div>
     </div>
 
-    <!-- Default: Show VNC for any tool when session is available -->
-    <div v-else-if="sessionId && enabled" class="vnc-container">
+    <!-- Generic/MCP view -->
+    <div v-else-if="currentViewType === 'generic'" class="content-preview generic-preview">
+      <div class="generic-window">
+        <div class="generic-header">
+          <Wrench :size="10" class="generic-header-icon" />
+          <span class="generic-title">{{ toolFunction || toolName || 'Tool' }}</span>
+        </div>
+        <div class="generic-body">
+          <div class="generic-accent"></div>
+          <div class="generic-content-area">
+            <div v-if="genericResult" class="generic-result-mini">
+              <pre class="preview-text">{{ truncate(genericResultText, 100) }}</pre>
+            </div>
+            <div v-else-if="isActive" class="generic-loading">
+              <Loader2 :size="14" class="loading-spinner" />
+              <span class="loading-text">Executing...</span>
+            </div>
+            <div v-else class="generic-empty">
+              <component :is="toolIcon" class="empty-icon" />
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-if="isActive" class="activity-indicator"></div>
+    </div>
+
+    <!-- VNC view (browser, browser_agent, browsing) -->
+    <div v-else-if="currentViewType === 'vnc' && sessionId && enabled" class="vnc-container">
       <VNCViewer
         :session-id="sessionId"
         :enabled="enabled"
@@ -86,7 +147,7 @@
       />
     </div>
 
-    <!-- Generic tool indicator (fallback when no session) -->
+    <!-- Generic tool indicator (fallback when no session or unknown tool) -->
     <div v-else class="tool-preview">
       <div class="tool-preview-content">
         <component :is="toolIcon" class="tool-preview-icon" />
@@ -103,9 +164,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-import { Monitor, Terminal, FileText, Globe, Code, Wrench } from 'lucide-vue-next';
+import { computed, toRef } from 'vue';
+import { Monitor, Terminal, FileText, Globe, Code, Wrench, Search, Loader2 } from 'lucide-vue-next';
 import VNCViewer from '@/components/VNCViewer.vue';
+import { useContentConfig } from '@/composables/useContentConfig';
+import type { ToolContent } from '@/types/message';
 
 const props = withDefaults(defineProps<{
   sessionId?: string;
@@ -120,6 +183,14 @@ const props = withDefaults(defineProps<{
   filePath?: string;
   /** Whether the sandbox environment is initializing */
   isInitializing?: boolean;
+  /** Search results for search/info tools */
+  searchResults?: Array<{ title?: string; name?: string; url?: string; link?: string; snippet?: string }>;
+  /** Search query for search/info tools */
+  searchQuery?: string;
+  /** Generic result for MCP/generic tools */
+  genericResult?: unknown;
+  /** Full tool content for content config */
+  toolContent?: ToolContent;
 }>(), {
   enabled: true,
   size: 'md',
@@ -128,33 +199,66 @@ const props = withDefaults(defineProps<{
   isActive: false,
   contentPreview: '',
   filePath: '',
-  isInitializing: false
+  isInitializing: false,
+  searchResults: () => [],
+  searchQuery: '',
+  genericResult: undefined,
+  toolContent: undefined
 });
 
 const emit = defineEmits<{
   click: [];
 }>();
 
-// Tool type detection - tools that show live VNC preview
-// Shell tools are handled separately to prioritize terminal content preview
-const VISUAL_TOOLS = ['browser', 'browser_agent', 'info', 'search'];
-
-const isVisualTool = computed(() => {
-  if (!props.toolName) return false;
-  return VISUAL_TOOLS.some(t => props.toolName?.includes(t));
+// Build a minimal toolContent object if not provided
+const effectiveToolContent = computed<ToolContent | undefined>(() => {
+  if (props.toolContent) return props.toolContent;
+  if (!props.toolName) return undefined;
+  return {
+    name: props.toolName,
+    function: props.toolFunction,
+    args: {},
+    content: props.genericResult,
+    status: props.isActive ? 'calling' : 'completed'
+  } as ToolContent;
 });
 
-const isFileTool = computed(() => {
-  const name = props.toolName || '';
-  const func = props.toolFunction || '';
-  return name.includes('file') || func.includes('file');
+// Use content config to determine view type
+const { currentViewType } = useContentConfig(toRef(() => effectiveToolContent.value));
+
+// Helper to truncate text
+const truncate = (text: string, maxLength: number): string => {
+  if (!text) return '';
+  return text.length > maxLength ? text.slice(0, maxLength - 3) + '...' : text;
+};
+
+// Convert generic result to displayable text
+const genericResultText = computed(() => {
+  if (!props.genericResult) return '';
+  if (typeof props.genericResult === 'string') return props.genericResult;
+  try {
+    return JSON.stringify(props.genericResult, null, 2);
+  } catch {
+    return String(props.genericResult);
+  }
 });
 
-const isShellTool = computed(() => {
-  const name = props.toolName || '';
-  const func = props.toolFunction || '';
-  return name.includes('shell') || func.includes('shell') || func.includes('exec');
-});
+// Get favicon URL for a given link using Google's favicon service
+const getFavicon = (link: string): string => {
+  if (!link) return '';
+  try {
+    const url = new URL(link);
+    return `https://www.google.com/s2/favicons?domain=${url.hostname}&sz=32`;
+  } catch {
+    return '';
+  }
+};
+
+// Handle favicon load error by hiding the image
+const handleFaviconError = (event: Event) => {
+  const img = event.target as HTMLImageElement;
+  img.style.visibility = 'hidden';
+};
 
 // Extract filename from path
 const fileName = computed(() => {
@@ -332,6 +436,275 @@ const sizeClass = computed(() => {
 
 .terminal-preview {
   background: #ffffff;
+}
+
+/* ===== Search Preview ===== */
+.search-preview {
+  background: #f5f5f4;
+}
+
+.search-window {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #f5f5f4;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.search-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 3px 6px;
+  background: #ebebea;
+  border-bottom: 1px solid #e0e0df;
+  flex-shrink: 0;
+}
+
+.search-header-icon {
+  color: #6366f1;
+  flex-shrink: 0;
+}
+
+.search-title {
+  font-size: 7px;
+  font-weight: 500;
+  color: #374151;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 85%;
+}
+
+.search-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.search-content-area {
+  flex: 1;
+  padding: 3px 4px;
+  overflow: hidden;
+  background: #f5f5f4;
+}
+
+.search-results-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.search-result-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 3px 4px;
+  border-bottom: 1px solid #e5e5e5;
+  overflow: hidden;
+}
+
+.search-result-item:last-child {
+  border-bottom: none;
+}
+
+.result-favicon {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  border-radius: 2px;
+}
+
+.result-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.result-title {
+  font-size: 6px;
+  font-weight: 600;
+  color: #1a1a1a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  line-height: 1.3;
+}
+
+.result-snippet {
+  font-size: 5px;
+  color: #6b6b6b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  line-height: 1.2;
+}
+
+.results-more {
+  font-size: 5px;
+  color: #9a9a9a;
+  text-align: center;
+  padding: 2px 0;
+}
+
+.search-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 4px;
+}
+
+.loading-dots {
+  display: flex;
+  gap: 3px;
+}
+
+.loading-dots .dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #6366f1;
+  animation: bounce 1.4s infinite ease-in-out both;
+}
+
+.loading-dots .dot:nth-child(1) { animation-delay: -0.32s; }
+.loading-dots .dot:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes bounce {
+  0%, 80%, 100% { transform: scale(0); }
+  40% { transform: scale(1); }
+}
+
+.loading-text {
+  font-size: 6px;
+  color: #6b7280;
+}
+
+.search-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 3px;
+  font-size: 6px;
+  color: #9ca3af;
+}
+
+.empty-search-icon {
+  color: #d1d5db;
+}
+
+/* ===== Generic/MCP Preview ===== */
+.generic-preview {
+  background: #ffffff;
+}
+
+.generic-window {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #ffffff;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.generic-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: #fafafa;
+  border-bottom: 1px solid #e5e5e5;
+  flex-shrink: 0;
+}
+
+.generic-header-icon {
+  color: #8b5cf6;
+  flex-shrink: 0;
+}
+
+.generic-title {
+  font-size: 7px;
+  font-weight: 500;
+  color: #374151;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 80%;
+}
+
+.generic-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.generic-accent {
+  width: 2px;
+  background: linear-gradient(180deg, #8b5cf6 0%, #7c3aed 100%);
+  flex-shrink: 0;
+}
+
+.generic-content-area {
+  flex: 1;
+  padding: 4px 6px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.generic-result-mini {
+  height: 100%;
+  overflow: hidden;
+}
+
+.generic-result-mini .preview-text {
+  font-size: 5px;
+  line-height: 1.2;
+}
+
+.generic-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 4px;
+}
+
+.loading-spinner {
+  color: #8b5cf6;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.generic-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+.empty-icon {
+  width: 16px;
+  height: 16px;
+  color: #9ca3af;
 }
 
 /* Decorated terminal window */
@@ -766,5 +1139,102 @@ const sizeClass = computed(() => {
 
 :global(.dark) .tool-preview-icon {
   color: #94a3b8;
+}
+
+/* Dark mode for search preview */
+:global(.dark) .search-preview {
+  background: #1e1e1e;
+}
+
+:global(.dark) .search-window {
+  background: #1e1e1e;
+}
+
+:global(.dark) .search-header {
+  background: #2a2a2a;
+  border-bottom: 1px solid #3a3a3a;
+}
+
+:global(.dark) .search-header-icon {
+  color: #818cf8;
+}
+
+:global(.dark) .search-title {
+  color: #d1d5db;
+}
+
+:global(.dark) .search-content-area {
+  background: #1e1e1e;
+}
+
+:global(.dark) .search-result-item {
+  background: transparent;
+  border-bottom-color: #3a3a3a;
+}
+
+:global(.dark) .result-title {
+  color: #e5e5e5;
+}
+
+:global(.dark) .result-snippet {
+  color: #9a9a9a;
+}
+
+:global(.dark) .results-more {
+  color: #6b6b6b;
+}
+
+:global(.dark) .loading-dots .dot {
+  background: #818cf8;
+}
+
+:global(.dark) .loading-text {
+  color: #9ca3af;
+}
+
+:global(.dark) .search-empty {
+  color: #6b7280;
+}
+
+:global(.dark) .empty-search-icon {
+  color: #4b5563;
+}
+
+/* Dark mode for generic preview */
+:global(.dark) .generic-preview {
+  background: #1a1a1a;
+}
+
+:global(.dark) .generic-window {
+  background: #1a1a1a;
+}
+
+:global(.dark) .generic-header {
+  background: #252525;
+  border-bottom: 1px solid #333333;
+}
+
+:global(.dark) .generic-header-icon {
+  color: #a78bfa;
+}
+
+:global(.dark) .generic-title {
+  color: #d1d5db;
+}
+
+:global(.dark) .generic-content-area {
+  background: #1a1a1a;
+}
+
+:global(.dark) .generic-result-mini .preview-text {
+  color: #e5e7eb;
+}
+
+:global(.dark) .loading-spinner {
+  color: #a78bfa;
+}
+
+:global(.dark) .empty-icon {
+  color: #6b7280;
 }
 </style>

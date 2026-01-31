@@ -116,3 +116,26 @@ body,html {
 .ltr\:border-l {
   border-left-width: 1px;
 }
+
+/* ===== SHIKI SYNTAX HIGHLIGHTING ===== */
+/* Dark theme uses CSS variables from Shiki dual-theme output */
+.dark .shiki,
+.dark .shiki span {
+  color: var(--shiki-dark) !important;
+  background-color: transparent !important;
+}
+
+/* Shiki code block styling */
+.shiki {
+  margin: 0;
+  padding: 0;
+  background: transparent !important;
+  overflow-x: auto;
+}
+
+.shiki code {
+  display: block;
+  font-family: 'SF Mono', Menlo, Monaco, 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}

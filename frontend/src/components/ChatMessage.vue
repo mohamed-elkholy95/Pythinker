@@ -108,7 +108,7 @@
 import PythinkerTextIcon from './icons/PythinkerTextIcon.vue';
 import { Message, MessageContent, AttachmentsContent, ReportContent, DeepResearchContent } from '../types/message';
 import ToolUse from './ToolUse.vue';
-import { marked } from 'marked';
+import { marked, Renderer } from 'marked';
 import DOMPurify from 'dompurify';
 import { CheckIcon } from 'lucide-vue-next';
 import { computed, ref, watch } from 'vue';
@@ -120,6 +120,7 @@ import { ReportCard, AttachmentsInlineGrid, TaskCompletedFooter } from './report
 import type { ReportData } from './report';
 import type { FileInfo } from '../api/file';
 import DeepResearchCard from './DeepResearchCard.vue';
+import { useShiki } from '@/composables/useShiki';
 
 
 const props = defineProps<{
@@ -204,6 +205,62 @@ const userToggled = ref(false);
 
 const { relativeTime } = useRelativeTime();
 
+// Shiki syntax highlighting
+const { highlightDualTheme, normalizeLanguage } = useShiki();
+
+// Cache for async-highlighted code blocks
+const highlightedCodeCache = ref<Map<string, string>>(new Map());
+
+// Generate a cache key for code blocks
+function getCodeCacheKey(code: string, lang: string): string {
+  return `${lang}:${code.slice(0, 50)}:${code.length}`;
+}
+
+// Async highlight code and update cache
+async function highlightCodeBlock(code: string, lang: string): Promise<void> {
+  const key = getCodeCacheKey(code, lang);
+  if (highlightedCodeCache.value.has(key)) return;
+
+  try {
+    const highlighted = await highlightDualTheme(code, lang);
+    highlightedCodeCache.value.set(key, highlighted);
+  } catch (error) {
+    console.error('Failed to highlight code block:', error);
+  }
+}
+
+// Create custom marked renderer with Shiki support
+const createMarkedRenderer = () => {
+  const renderer = new Renderer();
+
+  // Override code block rendering
+  renderer.code = function ({ text, lang }: { text: string; lang?: string }) {
+    const language = normalizeLanguage(lang || 'text');
+    const key = getCodeCacheKey(text, language);
+
+    // Check if we have a cached highlighted version
+    const cached = highlightedCodeCache.value.get(key);
+    if (cached) {
+      return `<div class="shiki-wrapper">${cached}</div>`;
+    }
+
+    // Schedule async highlighting for next render
+    highlightCodeBlock(text, language);
+
+    // Return placeholder that will be replaced on next render
+    const escapedCode = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
+    return `<pre class="shiki-pending" data-lang="${language}"><code>${escapedCode}</code></pre>`;
+  };
+
+  return renderer;
+};
+
 const handleStepToggle = () => {
   userToggled.value = true;
   isExpanded.value = !isExpanded.value;
@@ -223,19 +280,29 @@ watch(
 const markdownCache = new Map<string, string>();
 const MAX_CACHE_SIZE = 100;
 
+// Custom renderer with Shiki support
+const markedRenderer = createMarkedRenderer();
+
 // Render Markdown to HTML and sanitize (with memoization for performance)
 const renderMarkdown = (text: string): string => {
   if (typeof text !== 'string') return '';
 
+  // Create a cache key that includes highlighted code state
+  const highlightedCount = highlightedCodeCache.value.size;
+  const cacheKey = `${text}:${highlightedCount}`;
+
   // Check cache first
-  const cached = markdownCache.get(text);
+  const cached = markdownCache.get(cacheKey);
   if (cached !== undefined) {
     return cached;
   }
 
-  // Render and sanitize
-  const html = marked(text) as string;
-  const sanitized = DOMPurify.sanitize(html);
+  // Render with custom renderer and sanitize
+  const html = marked(text, { renderer: markedRenderer }) as string;
+  const sanitized = DOMPurify.sanitize(html, {
+    ADD_TAGS: ['span'],
+    ADD_ATTR: ['style', 'class', 'data-lang'],
+  });
 
   // Store in cache with size limit (evict oldest entries)
   if (markdownCache.size >= MAX_CACHE_SIZE) {
@@ -244,7 +311,7 @@ const renderMarkdown = (text: string): string => {
       markdownCache.delete(firstKey);
     }
   }
-  markdownCache.set(text, sanitized);
+  markdownCache.set(cacheKey, sanitized);
 
   return sanitized;
 };
@@ -273,5 +340,50 @@ const renderMarkdown = (text: string): string => {
     border-color: var(--text-primary);
     opacity: 1;
   }
+}
+
+/* Shiki code block styling */
+.shiki-wrapper {
+  margin: 1em 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bolt-elements-messages-code-background, #f6f8fa);
+  border: 1px solid var(--border-dark, #e1e4e8);
+}
+
+:global(.dark) .shiki-wrapper {
+  background: #1a1a2e;
+  border-color: #30363d;
+}
+
+.shiki-wrapper :deep(pre) {
+  margin: 0;
+  padding: 12px 16px;
+  overflow-x: auto;
+  background: transparent !important;
+}
+
+.shiki-wrapper :deep(code) {
+  font-family: 'SF Mono', Menlo, Monaco, 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Pending state while code is being highlighted */
+.shiki-pending {
+  margin: 1em 0;
+  padding: 12px 16px;
+  border-radius: 8px;
+  overflow-x: auto;
+  background: var(--bolt-elements-messages-code-background, #f6f8fa);
+  border: 1px solid var(--border-dark, #e1e4e8);
+  font-family: 'SF Mono', Menlo, Monaco, 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+:global(.dark) .shiki-pending {
+  background: #1a1a2e;
+  border-color: #30363d;
 }
 </style>

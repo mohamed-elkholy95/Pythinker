@@ -2,9 +2,9 @@ import asyncio
 import logging
 import random
 import re
+import time
 from typing import Any
 
-from markdownify import markdownify
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -155,6 +155,14 @@ VIDEO_URL_PATTERNS: list[re.Pattern] = [
     re.compile(r"/stream/", re.IGNORECASE),
 ]
 
+# Performance optimization constants (based on Browser-Use patterns from Context7)
+# These limits prevent hangs on heavy documentation sites (e.g., claude.com/docs)
+MAX_INTERACTIVE_ELEMENTS = 100  # Cap interactive elements to prevent 4+ minute extractions
+MAX_CONTENT_ELEMENTS = 200  # Cap content elements for text extraction
+JS_EVAL_TIMEOUT_MS = 5000  # 5 second timeout for JavaScript evaluation
+EXTRACTION_CACHE_TTL_SECONDS = 10  # Cache extraction results for 10 seconds
+HEAVY_PAGE_THRESHOLD = 3000  # Pages with more elements use lightweight extraction
+
 
 def is_video_url(url: str) -> bool:
     """Check if URL is a video URL that should be skipped.
@@ -233,6 +241,14 @@ class PlaywrightBrowser:
         self._connection_healthy = False
         self._randomize_fingerprint = randomize_fingerprint
 
+        # Extraction cache for performance (prevents duplicate extractions)
+        self._extraction_cache: dict[str, Any] = {
+            "url": None,
+            "timestamp": 0.0,
+            "elements": None,
+            "content": None,
+        }
+
         # Current fingerprint values (randomized on each session)
         self._current_user_agent: str = DEFAULT_USER_AGENT
         self._current_viewport: dict[str, int] = DEFAULT_VIEWPORT
@@ -256,7 +272,66 @@ class PlaywrightBrowser:
 
         return user_agent, viewport, timezone
 
-    async def _force_window_position(self, page: Page, x: int = 0, y: int = 0, width: int = 1280, height: int = 1024) -> bool:
+    async def _evaluate_with_timeout(self, script: str, timeout_ms: int = JS_EVAL_TIMEOUT_MS) -> Any:
+        """Execute JavaScript with timeout protection.
+
+        Prevents hangs on heavy pages (e.g., documentation sites with 5000+ elements).
+        Pattern from Playwright best practices (Context7 research).
+
+        Args:
+            script: JavaScript code to execute (should be an expression that returns a value)
+            timeout_ms: Maximum execution time in milliseconds (default: 5000)
+
+        Returns:
+            Result of JavaScript execution, or None if timeout/error
+        """
+        if not self.page:
+            return None
+
+        # Wrap script in Promise.race with timeout
+        timeout_script = f"""
+        Promise.race([
+            (async () => {{ return {script} }})(),
+            new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('JS evaluation timeout after {timeout_ms}ms')), {timeout_ms})
+            )
+        ])
+        """
+        try:
+            return await self.page.evaluate(timeout_script)
+        except PlaywrightTimeoutError:
+            logger.warning(f"JS evaluation timed out after {timeout_ms}ms")
+            return None
+        except Exception as e:
+            # Log but don't fail - return None to allow graceful degradation
+            logger.warning(f"JS evaluation error: {e}")
+            return None
+
+    async def _get_page_complexity(self) -> dict[str, Any] | None:
+        """Quick page complexity check before full extraction.
+
+        Used to detect heavy pages and switch to lightweight extraction mode.
+
+        Returns:
+            Dict with elementCount, interactiveCount, scriptCount, isHeavy
+            or None if check fails
+        """
+        return await self._evaluate_with_timeout(
+            """(() => ({
+                elementCount: document.querySelectorAll('*').length,
+                interactiveCount: document.querySelectorAll('button, a, input, textarea, select').length,
+                scriptCount: document.scripts.length,
+                iframeCount: document.querySelectorAll('iframe').length,
+                isHeavy: document.querySelectorAll('*').length > """
+            + str(HEAVY_PAGE_THRESHOLD)
+            + """
+            }))()""",
+            timeout_ms=1000,  # Very quick check
+        )
+
+    async def _force_window_position(
+        self, page: Page, x: int = 0, y: int = 0, width: int = 1280, height: int = 1024
+    ) -> bool:
         """Force browser window to specific position using CDP.
 
         This is critical for VNC display - Chrome's --window-position flag only affects
@@ -838,7 +913,9 @@ class PlaywrightBrowser:
                             if not candidate_page.is_closed():
                                 reuse_page = candidate_page
                                 page_url = await candidate_page.evaluate("window.location.href")
-                                logger.info(f"Reusing existing page (URL: {page_url[:100]}) to avoid creating new window")
+                                logger.info(
+                                    f"Reusing existing page (URL: {page_url[:100]}) to avoid creating new window"
+                                )
                         except Exception as e:
                             logger.debug(f"Could not reuse page[0]: {e}")
                             # Try other pages if first one failed
@@ -1171,74 +1248,102 @@ class PlaywrightBrowser:
             logger.debug(f"Navigation wait error: {e}")
             return False
 
-    async def _extract_content(self) -> dict[str, Any]:
-        """Extract content from the current page"""
+    async def _extract_content(self) -> str:
+        """Extract page content without LLM call (fast path).
 
-        # Execute JavaScript to get elements in the viewport
-        visible_content = await self.page.evaluate("""() => {
-            const visibleElements = [];
-            const viewportHeight = window.innerHeight;
-            const viewportWidth = window.innerWidth;
-            
-            // Get all potentially relevant elements
-            const elements = document.querySelectorAll('body *');
-            
-            for (const element of elements) {
-                // Check if the element is in the viewport and visible
-                const rect = element.getBoundingClientRect();
-                
-                // Element must have some dimensions
-                if (rect.width === 0 || rect.height === 0) continue;
-                
-                // Element must be within the viewport
-                if (
-                    rect.bottom < 0 || 
-                    rect.top > viewportHeight ||
-                    rect.right < 0 || 
-                    rect.left > viewportWidth
-                ) continue;
-                
-                // Check if the element is visible (not hidden by CSS)
-                const style = window.getComputedStyle(element);
-                if (
-                    style.display === 'none' || 
-                    style.visibility === 'hidden' || 
-                    style.opacity === '0'
-                ) continue;
-                
-                // If it's a text node or meaningful element, add it to the results
-                if (
-                    element.innerText || 
-                    element.tagName === 'IMG' || 
-                    element.tagName === 'INPUT' || 
-                    element.tagName === 'BUTTON'
-                ) {
-                    visibleElements.push(element.outerHTML);
-                }
-            }
-            
-            // Build HTML containing these visible elements
-            return '<div>' + visibleElements.join('') + '</div>';
-        }""")
+        Optimized extraction that:
+        - Uses timeout protection to prevent hangs on heavy pages
+        - Prioritizes semantic HTML elements (main, article) for efficiency
+        - Falls back to TreeWalker for text extraction
+        - Removes LLM call (moved to agent layer per Browser-Use patterns)
 
-        # Convert to Markdown
-        markdown_content = markdownify(visible_content)
+        Returns:
+            Extracted text content or error message
+        """
+        # Use optimized extraction with timeout protection
+        content = await self._evaluate_with_timeout(
+            f"""(() => {{
+                const MAX_CHARS = 30000;
+                const MAX_ELEMENTS = {MAX_CONTENT_ELEMENTS};
 
-        max_content_length = min(50000, len(markdown_content))
-        response = await self.llm.ask(
-            [
-                {
-                    "role": "system",
-                    "content": "You are a professional web page information extraction assistant. Please extract all information from the current page content and convert it to Markdown format.",
-                },
-                {"role": "user", "content": markdown_content[:max_content_length]},
-            ]
+                // Priority 1: Semantic HTML main content areas
+                const mainSelectors = ['main', 'article', '[role="main"]', '.content', '#content', '.post', '.entry'];
+                for (const selector of mainSelectors) {{
+                    const mainContent = document.querySelector(selector);
+                    if (mainContent) {{
+                        const text = mainContent.innerText?.trim();
+                        if (text && text.length > 500) {{
+                            return text.slice(0, MAX_CHARS);
+                        }}
+                    }}
+                }}
+
+                // Priority 2: Visible text in viewport using TreeWalker (more efficient than querySelectorAll)
+                const viewportHeight = window.innerHeight * 2; // Include some below-fold content
+                const texts = [];
+                let charCount = 0;
+                let elementCount = 0;
+
+                const walker = document.createTreeWalker(
+                    document.body,
+                    NodeFilter.SHOW_TEXT,
+                    {{
+                        acceptNode: function(node) {{
+                            // Skip script, style, and hidden elements
+                            const parent = node.parentElement;
+                            if (!parent) return NodeFilter.FILTER_REJECT;
+                            const tag = parent.tagName;
+                            if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') {{
+                                return NodeFilter.FILTER_REJECT;
+                            }}
+                            return NodeFilter.FILTER_ACCEPT;
+                        }}
+                    }}
+                );
+
+                let textNode;
+                while ((textNode = walker.nextNode()) && charCount < MAX_CHARS && elementCount < MAX_ELEMENTS) {{
+                    const text = textNode.textContent?.trim();
+                    if (!text || text.length < 3) continue;
+
+                    // Check if parent is reasonably visible
+                    const parent = textNode.parentElement;
+                    if (parent) {{
+                        const rect = parent.getBoundingClientRect();
+                        // Skip elements way below viewport
+                        if (rect.top > viewportHeight) continue;
+                        // Skip hidden elements (quick check without getComputedStyle)
+                        if (parent.offsetParent === null && parent.tagName !== 'BODY') continue;
+                    }}
+
+                    texts.push(text);
+                    charCount += text.length;
+                    elementCount++;
+                }}
+
+                return texts.join('\\n') || 'No content extracted';
+            }})()""",
+            timeout_ms=3000,  # 3 second timeout for content extraction
         )
 
-        return response.get("content", "")
+        if not content:
+            logger.warning("Content extraction timed out or failed, returning fallback message")
+            return (
+                "Content extraction timed out - page may be too complex. Try browser_get_content for text-only fetch."
+            )
+
+        return content
 
     async def view_page(self, wait_for_load: bool = True) -> ToolResult:
-        """View visible elements within the current page's viewport and convert to Markdown format
+        """View visible elements within the current page's viewport.
+
+        Optimized with:
+        - Extraction caching (10s TTL) to skip duplicate extractions
+        - Parallel extraction of elements and content
+        - Page complexity detection for heavy pages
+        - Timeout protection on all JavaScript evaluation
+
+        Based on LangChain parallel execution patterns (Context7 research).
 
         Args:
             wait_for_load: Whether to wait for page load before extracting (default: True)
@@ -1256,22 +1361,68 @@ class PlaywrightBrowser:
             logger.debug(f"Could not bring page to front: {e}")
 
         try:
+            current_url = self.page.url
+            now = time.time()
+
+            # Check extraction cache (prevents duplicate extractions after navigate)
+            if (
+                self._extraction_cache["url"] == current_url
+                and now - self._extraction_cache["timestamp"] < EXTRACTION_CACHE_TTL_SECONDS
+                and self._extraction_cache["elements"] is not None
+            ):
+                logger.debug(f"Returning cached extraction for {current_url}")
+                return ToolResult(
+                    success=True,
+                    data={
+                        "interactive_elements": self._extraction_cache["elements"],
+                        "content": self._extraction_cache["content"],
+                        "url": current_url,
+                        "title": await self.page.title(),
+                        "cached": True,
+                    },
+                )
+
             # Wait for page to be ready
             if wait_for_load:
                 await self.wait_for_page_load(timeout=15000)
 
-            # Extract interactive elements
-            interactive_elements = await self._extract_interactive_elements()
+            # Check page complexity before full extraction
+            complexity = await self._get_page_complexity()
+            if complexity and complexity.get("isHeavy"):
+                logger.warning(
+                    f"Heavy page detected: {complexity.get('elementCount', 'unknown')} elements, "
+                    f"{complexity.get('interactiveCount', 'unknown')} interactive"
+                )
 
-            # Extract page content
-            content = await self._extract_content()
+            # Parallel extraction of elements and content (LangChain pattern)
+            elements_task = asyncio.create_task(self._extract_interactive_elements())
+            content_task = asyncio.create_task(self._extract_content())
+
+            interactive_elements, content = await asyncio.gather(elements_task, content_task, return_exceptions=True)
+
+            # Handle extraction errors gracefully
+            if isinstance(interactive_elements, Exception):
+                logger.error(f"Element extraction failed: {interactive_elements}")
+                interactive_elements = ["0:<span>Element extraction failed - use coordinates</span>"]
+
+            if isinstance(content, Exception):
+                logger.error(f"Content extraction failed: {content}")
+                content = "Content extraction failed"
+
+            # Update extraction cache
+            self._extraction_cache = {
+                "url": current_url,
+                "timestamp": now,
+                "elements": interactive_elements,
+                "content": content,
+            }
 
             return ToolResult(
                 success=True,
                 data={
                     "interactive_elements": interactive_elements,
                     "content": content,
-                    "url": self.page.url,
+                    "url": current_url,
                     "title": await self.page.title(),
                 },
             )
@@ -1280,162 +1431,127 @@ class PlaywrightBrowser:
             return ToolResult(success=False, message=f"Failed to view page: {e!s}")
 
     async def _extract_interactive_elements(self) -> list[str]:
-        """Return a list of visible interactive elements on the page, formatted as index:<tag>text</tag>"""
+        """Extract visible interactive elements with performance limits.
+
+        Optimized extraction that:
+        - Limits elements to MAX_INTERACTIVE_ELEMENTS (100) to prevent hangs
+        - Uses timeout protection to avoid blocking on heavy pages
+        - Skips expensive getComputedStyle for most elements
+        - Preserves label/placeholder extraction for form elements
+
+        Based on Browser-Use DomService patterns (Context7 research).
+
+        Returns:
+            List of formatted elements: "index:<tag>text</tag>"
+        """
         await self._ensure_page()
 
         # Clear the cache to ensure we get fresh elements
         self._interactive_elements_cache = []
 
-        # Execute JavaScript to get interactive elements in the viewport
-        interactive_elements = await self.page.evaluate("""() => {
-            const interactiveElements = [];
-            const viewportHeight = window.innerHeight;
-            const viewportWidth = window.innerWidth;
-            
-            // Get all potentially relevant interactive elements
-            const elements = document.querySelectorAll('button, a, input, textarea, select, [role="button"], [tabindex]:not([tabindex="-1"])');
-            
-            let validElementIndex = 0; // For generating consecutive indices
-            
-            for (let i = 0; i < elements.length; i++) {
-                const element = elements[i];
-                // Check if the element is in the viewport and visible
-                const rect = element.getBoundingClientRect();
-                
-                // Element must have some dimensions
-                if (rect.width === 0 || rect.height === 0) continue;
-                
-                // Element must be within the viewport
-                if (
-                    rect.bottom < 0 || 
-                    rect.top > viewportHeight ||
-                    rect.right < 0 || 
-                    rect.left > viewportWidth
-                ) continue;
-                
-                // Check if the element is visible (not hidden by CSS)
-                const style = window.getComputedStyle(element);
-                if (
-                    style.display === 'none' || 
-                    style.visibility === 'hidden' || 
-                    style.opacity === '0'
-                ) continue;
-                
-                
-                // Get element type and text
-                let tagName = element.tagName.toLowerCase();
-                let text = '';
-                
-                if (element.value && ['input', 'textarea', 'select'].includes(tagName)) {
-                    text = element.value;
-                    
-                    // Add label and placeholder information for input elements
-                    if (tagName === 'input') {
-                        // Get associated label text
-                        let labelText = '';
-                        if (element.id) {
-                            const label = document.querySelector(`label[for="${element.id}"]`);
-                            if (label) {
-                                labelText = label.innerText.trim();
-                            }
-                        }
-                        
-                        // Look for parent or sibling label
-                        if (!labelText) {
-                            const parentLabel = element.closest('label');
-                            if (parentLabel) {
-                                labelText = parentLabel.innerText.trim().replace(element.value, '').trim();
-                            }
-                        }
-                        
-                        // Add label information
-                        if (labelText) {
-                            text = `[Label: ${labelText}] ${text}`;
-                        }
-                        
-                        // Add placeholder information
-                        if (element.placeholder) {
-                            text = `${text} [Placeholder: ${element.placeholder}]`;
-                        }
-                    }
-                } else if (element.innerText) {
-                    text = element.innerText.trim().replace(/\\s+/g, ' ');
-                } else if (element.alt) { // For image buttons
-                    text = element.alt;
-                } else if (element.title) { // For elements with title
-                    text = element.title;
-                } else if (element.placeholder) { // For placeholder text
-                    text = `[Placeholder: ${element.placeholder}]`;
-                } else if (element.type) { // For input type
-                    text = `[${element.type}]`;
-                    
-                    // Add label and placeholder information for text-less input elements
-                    if (tagName === 'input') {
-                        // Get associated label text
-                        let labelText = '';
-                        if (element.id) {
-                            const label = document.querySelector(`label[for="${element.id}"]`);
-                            if (label) {
-                                labelText = label.innerText.trim();
-                            }
-                        }
-                        
-                        // Look for parent or sibling label
-                        if (!labelText) {
-                            const parentLabel = element.closest('label');
-                            if (parentLabel) {
-                                labelText = parentLabel.innerText.trim();
-                            }
-                        }
-                        
-                        // Add label information
-                        if (labelText) {
-                            text = `[Label: ${labelText}] ${text}`;
-                        }
-                        
-                        // Add placeholder information
-                        if (element.placeholder) {
-                            text = `${text} [Placeholder: ${element.placeholder}]`;
-                        }
-                    }
-                } else {
-                    text = '[No text]';
-                }
-                
-                // Maximum limit on text length to keep it clear
-                if (text.length > 100) {
-                    text = text.substring(0, 97) + '...';
-                }
-                
-                // Only add data-manus-id attribute to elements that meet the conditions
-                element.setAttribute('data-manus-id', `manus-element-${validElementIndex}`);
-                                                        
-                // Build selector - using only data-manus-id
-                const selector = `[data-manus-id="manus-element-${validElementIndex}"]`;
-                
-                // Add element information to the array
-                interactiveElements.push({
-                    index: validElementIndex,  // Use consecutive index
-                    tag: tagName,
-                    text: text,
-                    selector: selector
-                });
-                
-                validElementIndex++; // Increment valid element counter
-            }
-            
-            return interactiveElements;
-        }""")
+        # Execute JavaScript with timeout protection and element limit
+        interactive_elements = await self._evaluate_with_timeout(
+            f"""(() => {{
+                const MAX_ELEMENTS = {MAX_INTERACTIVE_ELEMENTS};
+                const interactiveElements = [];
+                const viewportHeight = window.innerHeight;
+                const viewportWidth = window.innerWidth;
+
+                // Single combined selector for all interactive elements (Browser-Use pattern)
+                const elements = document.querySelectorAll(
+                    'button, a[href], input:not([type="hidden"]), textarea, select, ' +
+                    '[role="button"], [role="link"], [onclick], [tabindex]:not([tabindex="-1"])'
+                );
+
+                let validElementIndex = 0;
+
+                for (let i = 0; i < elements.length && validElementIndex < MAX_ELEMENTS; i++) {{
+                    const element = elements[i];
+                    const rect = element.getBoundingClientRect();
+
+                    // Quick dimension check
+                    if (rect.width < 1 || rect.height < 1) continue;
+
+                    // Viewport bounds check
+                    if (rect.bottom < 0 || rect.top > viewportHeight) continue;
+                    if (rect.right < 0 || rect.left > viewportWidth) continue;
+
+                    // Quick visibility check using offsetParent (faster than getComputedStyle)
+                    // offsetParent is null for hidden elements, but also for <body> and fixed/sticky elements
+                    if (element.offsetParent === null && element.tagName !== 'BODY') {{
+                        // Only do expensive style check for elements that might be fixed/sticky
+                        const style = window.getComputedStyle(element);
+                        if (style.display === 'none' || style.visibility === 'hidden') continue;
+                    }}
+
+                    const tagName = element.tagName.toLowerCase();
+                    let text = '';
+
+                    // Extract text with label/placeholder context for form elements
+                    if (element.value && ['input', 'textarea', 'select'].includes(tagName)) {{
+                        text = element.value;
+
+                        // Add label context for inputs
+                        if (tagName === 'input' || tagName === 'textarea') {{
+                            let labelText = '';
+                            if (element.id) {{
+                                const label = document.querySelector('label[for="' + element.id + '"]');
+                                if (label) labelText = label.innerText?.trim()?.slice(0, 30);
+                            }}
+                            if (!labelText) {{
+                                const parentLabel = element.closest('label');
+                                if (parentLabel) labelText = parentLabel.innerText?.trim()?.slice(0, 30);
+                            }}
+                            if (labelText) text = '[' + labelText + '] ' + text;
+                            if (element.placeholder) text += ' [' + element.placeholder + ']';
+                        }}
+                    }} else if (element.innerText) {{
+                        text = element.innerText.trim().replace(/\\s+/g, ' ');
+                    }} else if (element.alt) {{
+                        text = element.alt;
+                    }} else if (element.title) {{
+                        text = element.title;
+                    }} else if (element.placeholder) {{
+                        text = '[' + element.placeholder + ']';
+                    }} else if (element.type) {{
+                        text = '[' + element.type + ']';
+                    }} else {{
+                        text = '[no text]';
+                    }}
+
+                    // Truncate long text
+                    if (text.length > 80) {{
+                        text = text.substring(0, 77) + '...';
+                    }}
+
+                    // Set data attribute for later selection
+                    element.setAttribute('data-manus-id', 'manus-element-' + validElementIndex);
+
+                    interactiveElements.push({{
+                        index: validElementIndex,
+                        tag: tagName,
+                        text: text,
+                        selector: '[data-manus-id="manus-element-' + validElementIndex + '"]'
+                    }});
+
+                    validElementIndex++;
+                }}
+
+                return interactiveElements;
+            }})()""",
+            timeout_ms=3000,  # 3 second timeout for element extraction
+        )
+
+        # Handle timeout or error
+        if not interactive_elements:
+            logger.warning("Interactive element extraction timed out or returned empty")
+            return ["0:<span>Page too complex or extraction timed out - use browser_click with coordinates</span>"]
 
         # Update cache
         self._interactive_elements_cache = interactive_elements
 
-        # Format element information in specified format
-        formatted_elements = []
-        for el in interactive_elements:
-            formatted_elements.append(f"{el['index']}:<{el['tag']}>{el['text']}</{el['tag']}>")
-
-        return formatted_elements
+        # Format element information
+        return [f"{el['index']}:<{el['tag']}>{el['text']}</{el['tag']}>" for el in interactive_elements]
 
     async def navigate(
         self, url: str, timeout: int | None = 30000, wait_until: str = "domcontentloaded", auto_extract: bool = False

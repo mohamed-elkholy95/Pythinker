@@ -290,6 +290,12 @@ class Settings(BaseSettings):
     workspace_default_template: str = "python"  # Default template: none, python, nodejs, web, fullstack
     workspace_default_project_name: str = "project"  # Default project name
 
+    # OpenReplay Session Recording Configuration
+    openreplay_enabled: bool = True  # Enable OpenReplay integration
+    openreplay_project_key: str = "pythinker-dev"  # OpenReplay project key
+    openreplay_ingest_url: str = "http://localhost:9001"  # OpenReplay ingestion endpoint
+    openreplay_api_url: str = "http://localhost:8090"  # OpenReplay API endpoint
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

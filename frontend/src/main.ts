@@ -1,11 +1,13 @@
 import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
+import VueKonva from 'vue-konva'
 import App from './App.vue'
 import './assets/global.css'
 import './assets/theme.css'
 import './utils/toast'
 import i18n from './composables/useI18n'
 import { getStoredToken, getCachedAuthProvider } from './api/auth'
+import { initializeTracker } from './composables/useOpenReplay'
 
 // Configure Monaco Editor Web Workers
 // This prevents UI freezes by offloading syntax highlighting to web workers
@@ -29,6 +31,7 @@ import MainLayout from './pages/MainLayout.vue'
 import { configure } from "vue-gtag";
 import SharePage from './pages/SharePage.vue';
 import ShareLayout from './pages/ShareLayout.vue';
+import SessionHistoryPage from './pages/SessionHistoryPage.vue';
 
 const storedTheme = localStorage.getItem('bolt_theme')
 const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches
@@ -49,14 +52,19 @@ export const router = createRouter({
       component: MainLayout,
       meta: { requiresAuth: true },
       children: [
-        { 
-          path: '', 
-          component: HomePage, 
+        {
+          path: '',
+          component: HomePage,
           alias: ['/', '/home'],
           meta: { requiresAuth: true }
         },
-        { 
-          path: ':sessionId', 
+        {
+          path: 'history',
+          component: SessionHistoryPage,
+          meta: { requiresAuth: true }
+        },
+        {
+          path: ':sessionId',
           component: ChatPage,
           meta: { requiresAuth: true }
         }
@@ -110,6 +118,11 @@ router.beforeEach(async (to, _, next) => {
 
 const app = createApp(App)
 
+// Initialize OpenReplay tracker before mounting
+// This ensures recording starts as early as possible
+initializeTracker()
+
 app.use(router)
 app.use(i18n)
+app.use(VueKonva)
 app.mount('#app') 

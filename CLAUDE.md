@@ -394,13 +394,28 @@ pytest tests/
 - **infrastructure/**: Technical implementations
   - `repositories/`: MongoDB/Redis implementations
   - `storage/`: Database clients (MongoDB, Redis, Qdrant)
-  - `external/`: LLM, Search, Browser adapters
+  - `models/documents.py`: MongoDB document schemas (Beanie ODM)
+  - `external/`: Third-party service adapters
+    - `llm/`: LLM providers (OpenAI, Anthropic, etc.)
+    - `search/`: Search engines (SearXNG, Whoogle)
+    - `browser/`: Browser automation (Playwright, BrowserUse)
+    - `openreplay/`: OpenReplay client for session tracking
 - **core/**: System components (`config.py`, `sandbox_manager.py`, `workflow_manager.py`)
 
 ### Frontend Structure (`frontend/src/`)
-- **pages/**: Route components (ChatPage, HomePage)
-- **components/**: Reusable UI (ChatInput, ChatMessage, ToolPanel, report/)
-- **composables/**: Shared logic (useChat, useSession, useFilePanel)
+- **pages/**: Route components (ChatPage, HomePage, SessionHistoryPage)
+- **components/**: Reusable UI
+  - `ChatInput.vue`, `ChatMessage.vue` - Chat interface
+  - `ToolPanel*.vue` - Tool execution display
+  - `SandboxViewer.vue` - CDP screencast viewer (replaced VNC)
+  - `SessionReplayPlayer.vue` - OpenReplay embedded player
+  - `ReplayTimeline.vue` - Timeline with event markers
+- **composables/**: Shared logic
+  - `useChat.ts`, `useSession.ts` - Core session management
+  - `useOpenReplay.ts` - Session recording & replay
+  - `useAgentEvents.ts` - SSE to OpenReplay event bridge
+  - `useSandboxInput.ts` - Input forwarding for takeover
+  - `useFilePanel.ts` - File browser logic
 - **api/**: Axios HTTP client with SSE support
 - **types/**: TypeScript definitions
 
@@ -408,7 +423,8 @@ pytest tests/
 - **Event Sourcing**: Session events stored in MongoDB
 - **SSE Streaming**: Real-time event propagation to frontend
 - **LangGraph Workflows**: Planning → Execution → Reflection → Verification
-- **Sandbox Isolation**: Each task gets its own Docker container with VNC
+- **Sandbox Isolation**: Each task gets its own Docker container with CDP screencast
+- **Session Recording**: OpenReplay integration for session replay and live co-browsing
 
 ## API Base URL
 `/api/v1`
@@ -416,17 +432,32 @@ pytest tests/
 Key endpoints:
 - `PUT /sessions` - Create session
 - `POST /sessions/{id}/chat` - Chat (SSE stream)
-- `WS /sessions/{id}/vnc` - VNC WebSocket tunnel
+- `GET /sessions/{id}/sandbox-url` - Get CDP screencast URL
+- `GET /sessions/{id}/vnc/screenshot` - Capture sandbox screenshot
 
 ## Port Mapping (Development)
 | Service | Port |
 |---------|------|
-| Frontend | 5173 |
+| Frontend | 5174 |
 | Backend | 8000 |
-| Sandbox | 8080 |
-| Sandbox VNC | 5902 |
+| Sandbox API | 8083 |
+| Sandbox Framework | 8082 |
 | MongoDB | 27017 |
 | Redis | 6379 |
+| Qdrant REST | 6333 |
+| Qdrant gRPC | 6334 |
+| SearXNG | 8888 |
+| Whoogle | 5001 |
+
+### OpenReplay Services (Optional)
+| Service | Port |
+|---------|------|
+| OpenReplay Ingest | 9001 |
+| OpenReplay API | 8090 |
+| OpenReplay Assist | 9003 |
+| OpenReplay Assets | 9002 |
+| OpenReplay Postgres | 5433 |
+| OpenReplay MinIO | 9100 |
 
 ## Code Style
 - **Python**: 4-space indent, `snake_case` functions, `PascalCase` classes, maintain DDD layers
@@ -504,3 +535,143 @@ GitHub Actions workflows in `.github/workflows/`:
 - Copy `.env.example` to `.env` for local runs
 - MCP integration via `mcp.json.example`
 - Docker socket mount required for sandbox creation: `-v /var/run/docker.sock:/var/run/docker.sock`
+
+---
+
+## OpenReplay Integration
+
+Pythinker uses OpenReplay for session recording, replay, and live co-browsing. This replaces the previous VNC-based visualization.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Frontend (Vue 3 + OpenReplay Tracker)                      │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │  SandboxViewer (Canvas - CDP Screencast)               │ │
+│  │  [Captured by OpenReplay @ 6 FPS]                      │ │
+│  └────────────────────────────────────────────────────────┘ │
+│  ┌──────────────┐ ┌──────────────┐ ┌────────────────────┐   │
+│  │ Chat Panel   │ │ Tool Panel   │ │ Timeline + Events  │   │
+│  │ [DOM capture]│ │ [DOM capture]│ │ [Agent events]     │   │
+│  └──────────────┘ └──────────────┘ └────────────────────┘   │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+              ┌──────────────┼──────────────┐
+              ▼              ▼              ▼
+    ┌──────────────┐ ┌─────────────┐ ┌─────────────┐
+    │ OpenReplay   │ │ Backend     │ │ Sandbox     │
+    │ (Optional)   │ │ ────────────│ │ ────────────│
+    │ • PostgreSQL │ │ • MongoDB   │ │ • Chrome    │
+    │ • Redis      │ │ • Redis     │ │ • CDP 9222  │
+    │ • MinIO      │ │ • Qdrant    │ │ • Screencast│
+    └──────────────┘ └─────────────┘ └─────────────┘
+```
+
+### Key Components
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| `useOpenReplay` | `frontend/src/composables/useOpenReplay.ts` | Tracker initialization, session recording |
+| `useAgentEvents` | `frontend/src/composables/useAgentEvents.ts` | Bridge SSE events to OpenReplay |
+| `useSandboxInput` | `frontend/src/composables/useSandboxInput.ts` | Mouse/keyboard forwarding for takeover |
+| `SandboxViewer` | `frontend/src/components/SandboxViewer.vue` | CDP screencast canvas viewer |
+| `SessionReplayPlayer` | `frontend/src/components/SessionReplayPlayer.vue` | Embedded replay player |
+| `ReplayTimeline` | `frontend/src/components/ReplayTimeline.vue` | Timeline with event markers |
+| `SessionHistoryPage` | `frontend/src/pages/SessionHistoryPage.vue` | Session history browsing |
+| `OpenReplayClient` | `backend/app/infrastructure/external/openreplay/client.py` | Backend OpenReplay integration |
+
+### Environment Variables
+
+```bash
+# Frontend (.env)
+VITE_OPENREPLAY_PROJECT_KEY=pythinker-dev
+VITE_OPENREPLAY_INGEST_URL=http://localhost:9001
+VITE_OPENREPLAY_ASSIST_URL=ws://localhost:9003
+VITE_OPENREPLAY_CANVAS_QUALITY=medium  # low | medium | high
+VITE_OPENREPLAY_CANVAS_FPS=6
+VITE_OPENREPLAY_ENABLED=true
+
+# Backend (.env)
+OPENREPLAY_PROJECT_KEY=pythinker-dev
+OPENREPLAY_API_URL=http://localhost:8090
+OPENREPLAY_ENABLED=true
+```
+
+### CDP Screencast (Replaced VNC)
+
+The sandbox browser view now uses Chrome DevTools Protocol (CDP) screencast instead of VNC:
+
+- **Lower latency**: Direct frame streaming (10-50ms vs 100-200ms VNC)
+- **Better integration**: Captured natively by OpenReplay canvas recording
+- **Simpler architecture**: No VNC server/client needed
+
+```typescript
+// SandboxViewer connects to CDP screencast
+const ws = new WebSocket(`ws://${sandboxHost}:8080/api/v1/screencast/stream`)
+ws.onmessage = (event) => {
+  const frame = JSON.parse(event.data)
+  // Render JPEG frame to canvas
+  renderFrame(frame.data)
+}
+```
+
+### Starting OpenReplay (Optional)
+
+```bash
+# Start OpenReplay services alongside dev stack
+docker compose -f docker-compose-openreplay.yml up -d
+
+# Or include in main dev stack
+docker compose -f docker-compose-development.yml -f docker-compose-openreplay.yml up -d
+```
+
+### Session Model Fields
+
+Sessions include OpenReplay tracking:
+```python
+# backend/app/domain/models/session.py
+class Session:
+    # ... existing fields ...
+    openreplay_session_id: str | None = None
+    openreplay_session_url: str | None = None
+```
+
+---
+
+## Sandbox Architecture
+
+### CDP Screencast API
+
+The sandbox exposes a screencast WebSocket endpoint for real-time browser view:
+
+```
+GET /api/v1/screencast/stream  # WebSocket - continuous JPEG frames
+GET /api/v1/screencast/frame   # Single frame capture
+```
+
+### Input Forwarding
+
+For interactive takeover, input events are forwarded to the sandbox:
+
+```
+POST /api/v1/input/mouse      # { x, y, type, button }
+POST /api/v1/input/keyboard   # { key, type, modifiers }
+POST /api/v1/input/scroll     # { x, y, deltaX, deltaY }
+```
+
+### Container Resources
+
+```yaml
+# docker-compose-development.yml sandbox config
+shm_size: '2gb'           # Chrome stability
+tmpfs:
+  - /run:size=100M
+  - /tmp:size=500M
+deploy:
+  resources:
+    limits:
+      memory: 4G
+    reservations:
+      memory: 1G
+```

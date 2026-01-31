@@ -17,6 +17,10 @@
               :content-preview="contentPreview"
               :file-path="filePath"
               :is-initializing="props.isInitializing"
+              :tool-content="props.toolContent || undefined"
+              :search-results="searchResults"
+              :search-query="searchQuery"
+              :generic-result="genericResult"
               size="lg"
               @click="emit('openPanel')"
             />
@@ -159,6 +163,10 @@
           :content-preview="contentPreview"
           :file-path="filePath"
           :is-initializing="props.isInitializing"
+          :tool-content="props.toolContent || undefined"
+          :search-results="searchResults"
+          :search-query="searchQuery"
+          :generic-result="genericResult"
           size="md"
           @click="emit('openPanel')"
         />
@@ -239,6 +247,7 @@ import { ChevronUp, ChevronDown, Check, MonitorPlay, Terminal, Globe, FolderOpen
 import VncMiniPreview from './VncMiniPreview.vue'
 import type { PlanEventData } from '@/types/event'
 import type { ToolContent } from '@/types/message'
+import { TOOL_FUNCTION_MAP, TOOL_NAME_MAP } from '@/constants/tool'
 
 interface Props {
   plan?: PlanEventData
@@ -423,10 +432,27 @@ const currentTaskDescription = computed(() => {
   return 'Processing...'
 })
 
-// Get current tool name for display
+// Get current tool name for display (use friendly names from mapping)
 const currentToolName = computed(() => {
   if (isAllCompleted.value) return 'Terminal' // Default back to terminal on complete
-  if (props.currentTool?.function) return props.currentTool.function
+
+  const func = props.currentTool?.function
+  const toolName = props.currentTool?.name
+
+  // Try function mapping first (e.g., "info_search_web" -> "Searching")
+  if (func && TOOL_FUNCTION_MAP[func]) {
+    return TOOL_FUNCTION_MAP[func]
+  }
+
+  // Try tool name mapping (e.g., "info" -> "Information")
+  if (toolName && TOOL_NAME_MAP[toolName]) {
+    return TOOL_NAME_MAP[toolName]
+  }
+
+  // Fallback to raw function or tool name
+  if (func) return func
+  if (toolName) return toolName
+
   return 'Terminal'
 })
 
@@ -478,6 +504,29 @@ const contentPreview = computed(() => {
 const filePath = computed(() => {
   if (!props.toolContent) return ''
   return props.toolContent.args?.file || props.toolContent.file_path || ''
+})
+
+// Extract search results from toolContent (for search/info tools)
+const searchResults = computed(() => {
+  if (!props.toolContent) return []
+  return props.toolContent.content?.results || []
+})
+
+// Extract search query from toolContent
+const searchQuery = computed(() => {
+  if (!props.toolContent) return ''
+  return props.toolContent.args?.query || ''
+})
+
+// Extract generic result from toolContent (for MCP/generic tools)
+const genericResult = computed(() => {
+  if (!props.toolContent) return undefined
+  const toolName = props.toolContent.name || ''
+  // Return result for MCP tools or tools without specific view
+  if (toolName === 'mcp' || toolName.includes('mcp')) {
+    return props.toolContent.content?.result || props.toolContent.content
+  }
+  return undefined
 })
 
 const toggleExpand = () => {

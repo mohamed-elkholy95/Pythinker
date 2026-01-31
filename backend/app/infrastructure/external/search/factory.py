@@ -95,6 +95,31 @@ def get_search_engine_from_factory() -> SearchEngine | None:
     except ImportError:
         logger.debug("Tavily search provider not available")
 
+    try:
+        from app.infrastructure.external.search.searxng_search import SearXNGSearchEngine
+    except ImportError:
+        logger.debug("SearXNG search provider not available")
+
+    try:
+        from app.infrastructure.external.search.whoogle_search import WhoogleSearchEngine
+    except ImportError:
+        logger.debug("Whoogle search provider not available")
+
+    try:
+        from app.infrastructure.external.search.bing_search import BingSearchEngine
+    except ImportError:
+        logger.debug("Bing search provider not available")
+
+    try:
+        from app.infrastructure.external.search.baidu_search import BaiduSearchEngine
+    except ImportError:
+        logger.debug("Baidu search provider not available")
+
+    try:
+        from app.infrastructure.external.search.google_search import GoogleSearchEngine
+    except ImportError:
+        logger.debug("Google search provider not available")
+
     settings = get_settings()
     provider = settings.search_provider
 

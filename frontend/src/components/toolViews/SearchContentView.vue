@@ -1,7 +1,8 @@
 <template>
   <ContentContainer
     :centered="!!isSearching"
-    :constrained="!isSearching"
+    :constrained="false"
+    padding="none"
     class="search-view"
   >
     <LoadingState
@@ -16,31 +17,19 @@
       <div
         v-for="(result, index) in results"
         :key="result.link || index"
-        class="search-result-card"
+        class="search-result-item"
         @click="handleResultClick(result)"
       >
-        <div class="result-header">
+        <div class="result-title-row">
           <img
             :src="getFavicon(result.link)"
-            :alt="getDomain(result.link)"
+            alt=""
             class="result-favicon"
             @error="handleFaviconError"
           />
-          <div class="result-meta">
-            <span class="result-domain">{{ getDomain(result.link) }}</span>
-          </div>
+          <span class="result-title">{{ result.title }}</span>
         </div>
-        <div class="result-title">{{ result.title }}</div>
-        <div class="result-snippet">{{ result.snippet }}</div>
-        <div class="result-actions">
-          <button
-            class="browse-button"
-            @click.stop="handleResultClick(result)"
-          >
-            <ExternalLink :size="14" />
-            {{ t('Open in Browser') }}
-          </button>
-        </div>
+        <p class="result-snippet">{{ formatSnippet(result.snippet) }}<span class="read-more">Read more</span></p>
       </div>
       <EmptyState
         v-if="!results || results.length === 0"
@@ -54,7 +43,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { ExternalLink } from 'lucide-vue-next';
 import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
 import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
@@ -92,16 +80,15 @@ function getFavicon(link: string): string {
 }
 
 /**
- * Extract domain from URL for display
+ * Format snippet - normalize whitespace and add ellipsis
  */
-function getDomain(link: string): string {
-  if (!link) return '';
-  try {
-    const url = new URL(link);
-    return url.hostname.replace(/^www\./, '');
-  } catch {
-    return link;
+function formatSnippet(snippet: string): string {
+  if (!snippet) return '...';
+  const cleaned = snippet.replace(/\s+/g, ' ').trim();
+  if (cleaned.length > 130) {
+    return cleaned.slice(0, 130).trim() + ' ...';
   }
+  return cleaned + '...';
 }
 
 /**
@@ -109,7 +96,7 @@ function getDomain(link: string): string {
  */
 function handleFaviconError(event: Event) {
   const img = event.target as HTMLImageElement;
-  img.style.display = 'none';
+  img.style.visibility = 'hidden';
 }
 
 /**
@@ -125,115 +112,56 @@ function handleResultClick(result: SearchResult) {
 <style scoped>
 .search-view {
   height: 100%;
+  background: #f5f5f4;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
 .search-results {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-2);
 }
 
-.search-result-card {
-  padding: var(--space-3);
-  border-radius: 8px;
-  background: var(--background-white-main);
-  border: 1px solid var(--border-light);
+.search-result-item {
+  padding: 20px 24px;
+  border-bottom: 1px solid #e5e5e5;
   cursor: pointer;
-  transition: all 0.15s ease;
 }
 
-.search-result-card:hover {
-  border-color: var(--border-dark);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  transform: translateY(-1px);
+.search-result-item:last-child {
+  border-bottom: none;
 }
 
-.result-header {
+.result-title-row {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 4px;
 }
 
 .result-favicon {
-  width: 16px;
-  height: 16px;
-  border-radius: 2px;
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
-}
-
-.result-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
-.result-domain {
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  margin-top: 2px;
 }
 
 .result-title {
-  color: var(--text-primary);
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
+  color: #1a1a1a;
+  font-size: 15px;
+  font-weight: 600;
   line-height: 1.4;
-  margin-bottom: var(--space-1);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.search-result-card:hover .result-title {
-  color: var(--text-brand);
+  letter-spacing: -0.01em;
 }
 
 .result-snippet {
-  color: var(--text-tertiary);
-  font-size: var(--text-xs);
+  color: #6b6b6b;
+  font-size: 14px;
   line-height: 1.5;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  margin: 0;
+  letter-spacing: -0.005em;
 }
 
-.result-actions {
-  margin-top: var(--space-2);
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--border-light);
-  display: flex;
-  justify-content: flex-end;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-
-.search-result-card:hover .result-actions {
-  opacity: 1;
-}
-
-.browse-button {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--text-xs);
-  color: var(--text-brand);
-  background: var(--fill-tsp-gray-main);
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.browse-button:hover {
-  background: var(--text-brand);
-  color: white;
+.read-more {
+  color: #9a9a9a;
 }
 </style>

@@ -25,6 +25,7 @@ import { ToolContent } from '@/types/message';
 import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
 import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
+import { useShiki } from '@/composables/useShiki';
 //import { showErrorToast } from '@/utils/toast';
 
 const props = defineProps<{
@@ -42,6 +43,9 @@ defineExpose({
 const shell = ref('');
 const refreshTimer = ref<number | null>(null);
 
+// Shiki highlighting for shell output
+const { highlightDualTheme } = useShiki();
+
 // Get shellSessionId from toolContent
 const shellSessionId = computed(() => {
   if (props.toolContent && props.toolContent.args.id) {
@@ -54,17 +58,46 @@ const hasShellOutput = computed(() => shell.value.trim().length > 0);
 const isLoading = computed(() => props.live && !hasShellOutput.value);
 const emptyMessage = computed(() => (props.live ? 'Waiting for output...' : 'No output yet...'));
 
-const updateShellContent = (console: any) => {
+const updateShellContent = async (console: any) => {
   if (!console) return;
   let newShell = '';
   for (const e of console) {
     // Green prompt (ubuntu@sandbox:~ $) for visibility on white background
-    newShell += `<span class="shell-prompt">${e.ps1}</span><span> ${e.command}</span>\n`;
-    newShell += `<span>${e.output}</span>\n`;
+    newShell += `<span class="shell-prompt">${escapeHtml(e.ps1)}</span>`;
+
+    // Highlight command using Shiki bash
+    if (e.command) {
+      try {
+        const highlightedCmd = await highlightDualTheme(e.command, 'bash');
+        // Extract just the code content from the highlighted output
+        const cmdMatch = highlightedCmd.match(/<code[^>]*>([\s\S]*?)<\/code>/);
+        const cmdContent = cmdMatch ? cmdMatch[1] : escapeHtml(e.command);
+        newShell += `<span class="shell-command"> ${cmdContent}</span>\n`;
+      } catch {
+        newShell += `<span class="shell-command"> ${escapeHtml(e.command)}</span>\n`;
+      }
+    } else {
+      newShell += '\n';
+    }
+
+    // Output as plain text
+    if (e.output) {
+      newShell += `<span class="shell-output-text">${escapeHtml(e.output)}</span>\n`;
+    }
   }
   if (newShell !== shell.value) {
     shell.value = newShell;
   }
+}
+
+function escapeHtml(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // Function to load Shell session content
@@ -198,5 +231,28 @@ onUnmounted(() => {
 /* Green prompt in dark mode */
 :global(.dark) .shell-output :deep(.shell-prompt) {
   color: #4ade80;
+}
+
+/* Highlighted command styling */
+.shell-output :deep(.shell-command) {
+  color: #1f2937;
+}
+
+:global(.dark) .shell-output :deep(.shell-command) {
+  color: #e5e7eb;
+}
+
+/* Shiki dark theme support */
+:global(.dark) .shell-output :deep(.shell-command span) {
+  color: var(--shiki-dark) !important;
+}
+
+/* Output text styling */
+.shell-output :deep(.shell-output-text) {
+  color: #6b7280;
+}
+
+:global(.dark) .shell-output :deep(.shell-output-text) {
+  color: #9ca3af;
 }
 </style>

@@ -141,3 +141,9 @@ class BrowseUrlRequest(BaseModel):
     """Browse URL request schema - for direct browser navigation from search results"""
 
     url: str
+
+
+class SandboxUrlResponse(BaseModel):
+    """Sandbox URL response for CDP screencast access"""
+
+    sandbox_url: str
