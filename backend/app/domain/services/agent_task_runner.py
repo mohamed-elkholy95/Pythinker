@@ -802,10 +802,34 @@ class AgentTaskRunner(TaskRunner):
                             event.tool_content = ShellToolContent(
                                 console="\n".join(console_output) if console_output else "(No output)"
                             )
+
+                            # Sync artifacts to session files
+                            artifacts = data.get("artifacts", [])
+                            if artifacts:
+                                sync_tasks = []
+                                for artifact in artifacts:
+                                    artifact_path = artifact.get("path") if isinstance(artifact, dict) else None
+                                    if artifact_path:
+                                        sync_tasks.append(self._sync_file_to_storage(artifact_path))
+                                if sync_tasks:
+                                    await asyncio.gather(*sync_tasks, return_exceptions=True)
+                                    logger.debug(
+                                        f"Agent {self._agent_id}: Synced {len(sync_tasks)} artifacts from code_executor"
+                                    )
                         else:
                             event.tool_content = ShellToolContent(console=str(data) if data else "(No output)")
                     else:
                         event.tool_content = ShellToolContent(console="(No output)")
+                elif event.tool_name == "export":
+                    # Sync exported files (archives, reports) to session files
+                    if event.function_result and hasattr(event.function_result, "data"):
+                        data = event.function_result.data
+                        if isinstance(data, dict):
+                            # Export tools return the created file path
+                            export_path = data.get("path") or data.get("file_path") or data.get("output_path")
+                            if export_path:
+                                await self._sync_file_to_storage(export_path)
+                                logger.debug(f"Agent {self._agent_id}: Synced export file '{export_path}'")
                 else:
                     logger.warning(f"Agent {self._agent_id} received unknown tool event: {event.tool_name}")
         except Exception as e:

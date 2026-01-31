@@ -55,6 +55,7 @@ const textareaRef = ref<HTMLTextAreaElement>();
 const LONG_TEXT_CHAR_THRESHOLD = 500;  // Characters
 const LONG_TEXT_LINE_THRESHOLD = 15;   // Lines
 
+
 const props = defineProps<{
     modelValue: string;
     rows: number;
@@ -75,10 +76,25 @@ const emit = defineEmits<{
 
 /**
  * Generate a filename for the pasted content
+ * Uses format: pasted_text_1.txt, pasted_text_2.txt, etc.
+ * Counts existing pasted_text files in attachments to determine next number
  */
-const generateFilename = (): string => {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    return `attached-file-${timestamp}.txt`;
+const generatePastedFilename = (): string => {
+    // Find the highest number among existing pasted_text_*.txt files
+    const pattern = /^pasted_text_(\d+)\.txt$/;
+    let maxNumber = 0;
+
+    for (const attachment of props.attachments) {
+        const match = attachment.name.match(pattern);
+        if (match) {
+            const num = parseInt(match[1], 10);
+            if (num > maxNumber) {
+                maxNumber = num;
+            }
+        }
+    }
+
+    return `pasted_text_${maxNumber + 1}.txt`;
 };
 
 /**
@@ -120,8 +136,8 @@ const handlePaste = async (event: ClipboardEvent) => {
         // Prevent default paste behavior
         event.preventDefault();
 
-        // Generate generic filename
-        const filename = generateFilename();
+        // Generate numbered filename (pasted_text_1.txt, pasted_text_2.txt, etc.)
+        const filename = generatePastedFilename();
 
         // Convert to File and upload
         const file = textToFile(pastedText, filename);

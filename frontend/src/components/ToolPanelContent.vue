@@ -497,15 +497,9 @@ const terminalContent = computed(() => {
       return '';
     }
 
-    // Shell console output (array format)
+    // Shell console output (array format) - use ANSI colors
     if (content.console && Array.isArray(content.console)) {
-      return content.console.map((entry: any) => {
-        let line = '';
-        if (entry.ps1) line += entry.ps1 + ' ';
-        if (entry.command) line += entry.command + '\n';
-        if (entry.output) line += entry.output + '\n';
-        return line;
-      }).join('');
+      return formatShellOutput(content.console);
     }
 
     // String console output
@@ -537,6 +531,28 @@ const terminalContent = computed(() => {
   return JSON.stringify(content, null, 2);
 });
 
+// ANSI escape codes for terminal colors
+const ANSI_GREEN = '\x1b[32m';
+const ANSI_RESET = '\x1b[0m';
+
+// Format shell output with ANSI color codes for prompt
+const formatShellOutput = (console: Array<{ ps1?: string; command?: string; output?: string }>) => {
+  let output = '';
+  for (const e of console) {
+    // Green prompt (ANSI escape code)
+    if (e.ps1) {
+      output += `${ANSI_GREEN}${e.ps1}${ANSI_RESET} `;
+    }
+    if (e.command) {
+      output += `${e.command}\n`;
+    }
+    if (e.output) {
+      output += `${e.output}\n`;
+    }
+  }
+  return output;
+};
+
 // Load shell content via API
 const loadShellContent = async () => {
   const shellSessionId = props.toolContent?.args?.id;
@@ -544,12 +560,7 @@ const loadShellContent = async () => {
     // Use content from props
     const content = props.toolContent?.content;
     if (content?.console && Array.isArray(content.console)) {
-      let newOutput = '';
-      for (const e of content.console) {
-        newOutput += `${e.ps1} ${e.command}\n`;
-        newOutput += `${e.output}\n`;
-      }
-      shellOutput.value = newOutput;
+      shellOutput.value = formatShellOutput(content.console);
     }
     return;
   }
@@ -557,12 +568,7 @@ const loadShellContent = async () => {
   try {
     const response = await viewShellSession(props.sessionId, shellSessionId);
     if (response?.console) {
-      let newOutput = '';
-      for (const e of response.console) {
-        newOutput += `${e.ps1} ${e.command}\n`;
-        newOutput += `${e.output}\n`;
-      }
-      shellOutput.value = newOutput;
+      shellOutput.value = formatShellOutput(response.console);
     }
   } catch (error) {
     console.error("Failed to load shell content:", error);
