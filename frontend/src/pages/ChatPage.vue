@@ -729,7 +729,13 @@ const handleToolEvent = (toolData: ToolEventData) => {
     Object.assign(lastTool.value, toolContent);
   } else {
     if (lastStep?.status === 'running') {
-      lastStep.tools.push(toolContent);
+      // Check if tool already exists in this step (avoid duplicates from SSE reconnection)
+      const existingTool = lastStep.tools.find(t => t.tool_call_id === toolContent.tool_call_id);
+      if (existingTool) {
+        Object.assign(existingTool, toolContent);
+      } else {
+        lastStep.tools.push(toolContent);
+      }
     } else {
       messages.value.push({
         id: generateMessageId(),

@@ -8,7 +8,7 @@
     <div class="flex-1 min-w-0">
       <div @click="handleClick"
         class="rounded-[20px] items-center gap-[6px] px-[10px] py-[4px] inline-flex max-w-full clickable hover:bg-[var(--fill-tsp-gray-dark)] dark:hover:bg-white/[0.02]"
-        :class="tool.status === 'calling' ? 'tool-shimmer' : 'bg-[var(--fill-tsp-gray-main)]'">
+        :class="props.isActive && tool.status === 'calling' ? 'tool-shimmer' : 'bg-[var(--fill-tsp-gray-main)]'">
         <div class="w-[16px] h-[16px] inline-flex items-center justify-center text-[var(--text-secondary)]">
           <component :is="toolInfo.icon" :size="16" />
         </div>
@@ -49,6 +49,8 @@ const INLINE_MESSAGE_TOOLS: ReadonlySet<string> = new Set([
 
 const props = defineProps<{
   tool: ToolContent;
+  /** Whether this tool is the actively running tool (shows shimmer effect) */
+  isActive?: boolean;
 }>();
 
 const emit = defineEmits<{
