@@ -41,6 +41,7 @@ from app.interfaces.schemas.session import (
     ListSessionResponse,
     ResumeSessionRequest,
     SandboxInfo,
+    SandboxUrlResponse,
     SharedSessionResponse,
     ShareSessionResponse,
     ShellViewRequest,
@@ -531,6 +532,34 @@ async def get_vnc_screenshot(
     except Exception as e:
         logger.error(f"Failed to fetch VNC screenshot: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch screenshot: {e!s}")
+
+
+@router.get("/{session_id}/sandbox/url", response_model=APIResponse[SandboxUrlResponse])
+async def get_sandbox_url(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service),
+    sandbox_cls: type[Sandbox] = Depends(get_sandbox_cls),
+) -> APIResponse[SandboxUrlResponse]:
+    """Get sandbox URL for CDP screencast streaming
+
+    Returns the direct sandbox API URL for connecting to the CDP screencast
+    WebSocket stream. This is used for the SandboxViewer component.
+    """
+    # Check if session exists and belongs to user
+    session = await agent_service.get_session(session_id, current_user.id)
+    if not session:
+        raise NotFoundError("Session not found")
+
+    if not session.sandbox_id:
+        raise NotFoundError("Session has no active sandbox")
+
+    # Get sandbox
+    sandbox = await sandbox_cls.get(session.sandbox_id)
+    if not sandbox:
+        raise NotFoundError("Sandbox not found")
+
+    return APIResponse.success(SandboxUrlResponse(sandbox_url=sandbox.base_url))
 
 
 @router.post("/{session_id}/workspace/manifest", response_model=APIResponse[WorkspaceManifestResponse])

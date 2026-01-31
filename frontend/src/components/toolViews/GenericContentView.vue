@@ -17,15 +17,13 @@
         <!-- Arguments -->
         <div v-if="args && Object.keys(args).length > 0" class="tool-block">
           <div class="tool-label">{{ t('Arguments') }}:</div>
-          <pre class="tool-code"><code>{{ JSON.stringify(args, null, 2) }}</code></pre>
+          <div class="tool-code" v-html="highlightedArgs"></div>
         </div>
 
         <!-- Result -->
         <div v-if="hasResult" class="tool-block">
           <div class="tool-label">{{ t('Result') }}:</div>
-          <div class="tool-result">
-            {{ typeof result === 'string' ? result : JSON.stringify(result, null, 2) }}
-          </div>
+          <div class="tool-result" v-html="highlightedResult"></div>
         </div>
 
         <!-- Status indicator -->
@@ -37,9 +35,7 @@
 
       <!-- Fallback for generic content -->
       <div v-else-if="hasContent" class="tool-block">
-        <div class="tool-result">
-          {{ typeof content === 'string' ? content : JSON.stringify(content, null, 2) }}
-        </div>
+        <div class="tool-result" v-html="highlightedContent"></div>
       </div>
 
       <EmptyState v-else message="No content available" icon="inbox" />
@@ -48,12 +44,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
 import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
 import LoadingDots from '@/components/toolViews/shared/LoadingDots.vue';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
+import { useShiki } from '@/composables/useShiki';
 
 const props = defineProps<{
   functionName?: string;
@@ -64,6 +61,73 @@ const props = defineProps<{
 }>();
 
 const { t } = useI18n();
+const { highlightDualTheme } = useShiki();
+
+// Highlighted content refs
+const highlightedArgs = ref('');
+const highlightedResult = ref('');
+const highlightedContent = ref('');
+
+// Helper to format and highlight JSON
+async function highlightJson(data: unknown): Promise<string> {
+  if (data === undefined || data === null) return '';
+
+  const text = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+
+  // Check if it looks like JSON
+  const isJson = typeof data !== 'string' || text.trim().startsWith('{') || text.trim().startsWith('[');
+
+  if (isJson) {
+    try {
+      const highlighted = await highlightDualTheme(text, 'json');
+      return highlighted;
+    } catch {
+      return escapeHtml(text);
+    }
+  }
+
+  return escapeHtml(text);
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Update highlighted content when props change
+watch(
+  () => props.args,
+  async (args) => {
+    if (args && Object.keys(args).length > 0) {
+      highlightedArgs.value = await highlightJson(args);
+    }
+  },
+  { immediate: true }
+);
+
+watch(
+  () => props.result,
+  async (result) => {
+    if (result !== undefined && result !== null) {
+      highlightedResult.value = await highlightJson(result);
+    }
+  },
+  { immediate: true }
+);
+
+watch(
+  () => props.content,
+  async (content) => {
+    if (content !== undefined && content !== null) {
+      highlightedContent.value = await highlightJson(content);
+    }
+  },
+  { immediate: true }
+);
 
 const hasResult = computed(() => props.result !== undefined && props.result !== null);
 const hasContent = computed(() => props.content !== undefined && props.content !== null);
@@ -116,6 +180,23 @@ const statusMessage = computed(() =>
   overflow-x: auto;
 }
 
+.tool-code :deep(pre) {
+  margin: 0;
+  padding: 0;
+  background: transparent !important;
+}
+
+.tool-code :deep(code) {
+  font-family: 'SF Mono', Menlo, Monaco, 'Courier New', monospace;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+/* Dark theme Shiki support */
+:global(.dark) .tool-code :deep(span) {
+  color: var(--shiki-dark) !important;
+}
+
 .tool-result {
   background: var(--fill-tsp-gray-main);
   border-radius: var(--radius-md);
@@ -123,6 +204,23 @@ const statusMessage = computed(() =>
   font-size: var(--text-sm);
   color: var(--text-secondary);
   white-space: pre-wrap;
+}
+
+.tool-result :deep(pre) {
+  margin: 0;
+  padding: 0;
+  background: transparent !important;
+}
+
+.tool-result :deep(code) {
+  font-family: 'SF Mono', Menlo, Monaco, 'Courier New', monospace;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+/* Dark theme Shiki support */
+:global(.dark) .tool-result :deep(span) {
+  color: var(--shiki-dark) !important;
 }
 
 .tool-status {

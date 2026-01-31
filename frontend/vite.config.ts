@@ -25,7 +25,7 @@ export default defineConfig({
     }
   },
   optimizeDeps: {
-    include: ['monaco-editor', '@novnc/novnc/lib/rfb'],
+    include: ['monaco-editor', '@novnc/novnc/lib/rfb', 'lottie-web', 'konva'],
     esbuildOptions: {
       target: 'esnext',
       supported: {
@@ -52,6 +52,9 @@ export default defineConfig({
       output: {
         manualChunks: {
           'monaco-editor': ['monaco-editor'],
+          'shiki': ['shiki'],
+          'konva': ['konva', 'vue-konva'],
+          'lottie': ['lottie-web'],
         },
       },
     },

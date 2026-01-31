@@ -502,7 +502,7 @@ class BaseAgent(ABC):
                 # Execute all tools concurrently with semaphore
                 semaphore = asyncio.Semaphore(MAX_CONCURRENT_TOOLS)
                 tasks = []
-                for tool_call, tool_call_id, function_args, tool in parsed_calls:
+                for tool_call, tool_call_id, function_args, tool, _ in parsed_calls:
                     function_name = tool_call["function"]["name"]
                     tasks.append(
                         self._execute_parallel_tool(semaphore, tool, function_name, function_args, tool_call_id)

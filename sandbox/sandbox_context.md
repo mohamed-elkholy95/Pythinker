@@ -1,8 +1,8 @@
 # Sandbox Environment Context
 
-**Generated:** 2026-01-30T21:48:16.162463
+**Generated:** 2026-01-31T02:06:55.637167
 **Version:** 1.0.0
-**Checksum:** 2d9f174c1e2b3be0
+**Checksum:** 5c906b6c577a9521
 
 ## Operating System
 
@@ -45,7 +45,7 @@
 
 ## Browser Automation
 
-- **Chromium:** Chromium 144.0.7559.96 built on Ubuntu 22.04.5 LTS
+- **Chromium:** Chromium 144.0.7559.109 built on Ubuntu 22.04.5 LTS
 - **Playwright:** Available (browsers: chromium, firefox, webkit)
 - **Stealth Mode:** Yes
 
@@ -181,7 +181,7 @@ Key variables available:
 
 ## Resource Limits
 
-- **Disk Space:** 15G available (81% used)
+- **Disk Space:** 20G available (74% used)
 - **Shared Memory:** 2gb
 
 ---

@@ -1,13 +1,12 @@
 <template>
     <div v-if="shouldShow" class="fixed bg-[var(--background-gray-main)] z-50 transition-all w-full h-full inset-0">
         <div class="w-full h-full">
-            <VNCViewer
+            <SandboxViewer
                 :session-id="sessionId"
                 :enabled="shouldShow"
                 :view-only="false"
                 @connected="onVNCConnected"
                 @disconnected="onVNCDisconnected"
-                @credentials-required="onVNCCredentialsRequired"
             />
         </div>
 
@@ -120,7 +119,7 @@ import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { MousePointer, X, Monitor } from 'lucide-vue-next';
-import VNCViewer from './VNCViewer.vue';
+import SandboxViewer from './SandboxViewer.vue';
 import { resumeSession } from '@/api/agent';
 import {
     Dialog,
@@ -170,12 +169,8 @@ const onVNCConnected = () => {
     console.log('TakeOver VNC connection successful');
 };
 
-const onVNCDisconnected = (reason?: any) => {
-    console.log('TakeOver VNC connection disconnected', reason);
-};
-
-const onVNCCredentialsRequired = () => {
-    console.log('TakeOver VNC credentials required');
+const onVNCDisconnected = (reason?: string) => {
+    console.log('TakeOver sandbox connection disconnected', reason);
 };
 
 // Calculate whether to show takeover view

@@ -424,19 +424,93 @@ export interface BrowseUrlRequest {
 }
 
 /**
+ * Browse URL SSE callbacks
+ */
+export interface BrowseUrlCallbacks {
+  onOpen?: () => void;
+  onToolEvent?: (event: AgentSSEEvent['data']) => void;
+  onMessage?: (message: string) => void;
+  onClose?: () => void;
+  onError?: (error: Error) => void;
+}
+
+/**
  * Navigate browser directly to a URL from search results
  * This triggers the browser in the sandbox to navigate to the specified URL,
  * providing a faster workflow than having the agent search again.
  *
+ * Returns an SSE stream with tool events for the navigation.
+ *
  * @param sessionId Session ID
  * @param url URL to navigate to
+ * @param callbacks Optional callbacks for SSE events
+ * @returns A function to cancel the SSE connection
  *
  * @example
  * ```typescript
  * // After user clicks a search result
- * await browseUrl('session123', 'https://example.com/article');
+ * const cancel = await browseUrl('session123', 'https://example.com/article', {
+ *   onToolEvent: (event) => console.log('Tool event:', event),
+ *   onMessage: (msg) => console.log('Message:', msg),
+ * });
  * ```
  */
-export async function browseUrl(sessionId: string, url: string): Promise<void> {
-  await apiClient.post<ApiResponse<void>>(`/sessions/${sessionId}/browse`, { url });
+export async function browseUrl(
+  sessionId: string,
+  url: string,
+  callbacks?: BrowseUrlCallbacks
+): Promise<() => void> {
+  return createSSEConnection<AgentSSEEvent['data']>(
+    `/sessions/${sessionId}/browse`,
+    {
+      method: 'POST',
+      body: { url }
+    },
+    {
+      onOpen: callbacks?.onOpen,
+      onMessage: ({ event, data }) => {
+        if (event === 'tool' && callbacks?.onToolEvent) {
+          callbacks.onToolEvent(data);
+        } else if (event === 'message' && callbacks?.onMessage) {
+          const messageData = data as { content?: string };
+          if (messageData.content) {
+            callbacks.onMessage(messageData.content);
+          }
+        }
+      },
+      onClose: callbacks?.onClose,
+      onError: callbacks?.onError,
+    }
+  );
+}
+
+// ============================================================================
+// Sandbox API
+// ============================================================================
+
+/**
+ * Sandbox URL response
+ */
+export interface SandboxUrlResponse {
+  sandbox_url: string;
+}
+
+/**
+ * Get sandbox URL for a session
+ * This returns the direct sandbox API URL for CDP screencast streaming
+ *
+ * @param sessionId Session ID
+ * @returns Sandbox base URL (e.g., http://sandbox:8080)
+ *
+ * @example
+ * ```typescript
+ * const sandboxUrl = await getSandboxUrl('session123');
+ * // Use for CDP screencast: ws://{sandboxUrl}/api/v1/screencast/stream
+ * ```
+ */
+export async function getSandboxUrl(sessionId: string): Promise<string> {
+  const response = await apiClient.get<ApiResponse<SandboxUrlResponse>>(
+    `/sessions/${sessionId}/sandbox/url`
+  );
+  return response.data.data.sandbox_url;
 }

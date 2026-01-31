@@ -78,33 +78,48 @@
 
         <!-- Content Area: Dynamic content rendering -->
         <div class="flex-1 min-h-0 w-full overflow-hidden relative">
-          <!-- VNC View -->
-          <VNCContentView
+          <!-- VNC View (via backend proxy - works from browser) -->
+          <div
             v-if="currentViewType === 'vnc'"
-            :key="'vnc-main-' + (sessionId || 'none')"
-            :session-id="sessionId || ''"
-            :enabled="vncEnabled"
-            :view-only="true"
-            :show-placeholder="showVncPlaceholder"
-            :placeholder-label="vncPlaceholderLabel"
-            :placeholder-detail="vncPlaceholderDetail"
-            :placeholder-animation="vncPlaceholderAnimation"
-            :is-active="isActiveOperation"
-            @connected="onVNCConnected"
-            @disconnected="onVNCDisconnected"
+            class="absolute inset-0 bg-[var(--background-gray-main)] overflow-hidden"
           >
-            <template #takeover>
-              <button
-                v-if="!isShare && live"
-                @click="takeOver"
-                class="absolute right-3 bottom-3 z-10 min-w-10 h-10 flex items-center justify-center rounded-full bg-[var(--background-white-main)] text-[var(--text-primary)] border border-[var(--border-main)] shadow-lg cursor-pointer hover:bg-[var(--text-brand)] hover:px-4 hover:text-white group transition-all duration-300">
-                <TakeOverIcon />
-                <span class="text-sm max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-300 group-hover:max-w-[200px] group-hover:opacity-100 group-hover:ml-1">
-                  {{ $t('Take Over') }}
-                </span>
-              </button>
-            </template>
-          </VNCContentView>
+            <!-- Placeholder for loading/text-only operations -->
+            <LoadingState
+              v-if="showVncPlaceholder"
+              :label="vncPlaceholderLabel || 'Loading'"
+              :detail="vncPlaceholderDetail"
+              :is-active="isActiveOperation"
+              :animation="vncPlaceholderAnimation || 'globe'"
+            />
+
+            <!-- VNC Viewer when enabled -->
+            <VNCViewer
+              v-else-if="vncEnabled"
+              :key="'vnc-main-' + (sessionId || 'none')"
+              :session-id="sessionId || ''"
+              :enabled="vncEnabled"
+              :view-only="true"
+              @connected="onVNCConnected"
+              @disconnected="onVNCDisconnected"
+            />
+
+            <!-- Inactive state when no session -->
+            <InactiveState
+              v-else
+              message="Pythinker's computer is inactive"
+            />
+
+            <!-- Take over button -->
+            <button
+              v-if="!isShare && live && !showVncPlaceholder"
+              @click="takeOver"
+              class="absolute right-3 bottom-3 z-10 min-w-10 h-10 flex items-center justify-center rounded-full bg-[var(--background-white-main)] text-[var(--text-primary)] border border-[var(--border-main)] shadow-lg cursor-pointer hover:bg-[var(--text-brand)] hover:px-4 hover:text-white group transition-all duration-300">
+              <TakeOverIcon />
+              <span class="text-sm max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-300 group-hover:max-w-[200px] group-hover:opacity-100 group-hover:ml-1">
+                {{ $t('Take Over') }}
+              </span>
+            </button>
+          </div>
 
           <!-- Terminal View -->
           <TerminalContentView
@@ -202,7 +217,9 @@ import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';
 import TaskProgressBar from '@/components/TaskProgressBar.vue';
 
 // Content views
-import VNCContentView from '@/components/toolViews/VNCContentView.vue';
+import VNCViewer from '@/components/VNCViewer.vue';
+import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
+import InactiveState from '@/components/toolViews/shared/InactiveState.vue';
 import TerminalContentView from '@/components/toolViews/TerminalContentView.vue';
 import EditorContentView from '@/components/toolViews/EditorContentView.vue';
 import SearchContentView from '@/components/toolViews/SearchContentView.vue';
@@ -242,12 +259,19 @@ const { toolInfo } = useToolInfo(toRef(props, 'toolContent'));
 const {
   contentConfig,
   viewModeIndex,
-  currentViewType,
+  currentViewType: computedViewType,
   isTextOnlyOperation,
   hasNewOutput,
   setViewModeByIndex,
   markNewOutput
 } = useContentConfig(toRef(props, 'toolContent'));
+
+// Override view type when browsing from search results
+const forceBrowserView = ref(false);
+const currentViewType = computed(() => {
+  if (forceBrowserView.value) return 'vnc';
+  return computedViewType.value;
+});
 
 // Tool state
 const toolName = computed(() => props.toolContent?.name || '');
@@ -305,6 +329,16 @@ const resourceDisplay = computed(() => {
 
 // Content header label - shows function name or specific resource (centered)
 const contentHeaderLabel = computed(() => {
+  // For search/info tools, always show "Search"
+  if (toolName.value === 'search' || toolName.value === 'info') {
+    return 'Search';
+  }
+
+  // For browser tools, always show "Browser"
+  if (toolName.value === 'browser' || toolName.value === 'browser_agent' || toolName.value === 'browsing') {
+    return 'Browser';
+  }
+
   // If there's a specific resource (file/url), show that
   if (resourceDisplay.value) return resourceDisplay.value;
 
@@ -347,6 +381,8 @@ const placeholderDetail = computed(() => {
 
 
 const showVncPlaceholder = computed(() => {
+  // When forcing browser view (e.g., clicking search result), don't show placeholder
+  if (forceBrowserView.value) return false;
   // For text-only operations (like browser_get_content which uses HTTP, not browser),
   // ALWAYS show placeholder - never show VNC since browser isn't being used
   if (isTextOnlyOperation.value) return true;
@@ -555,6 +591,11 @@ watch(() => props.toolContent, () => {
   if (toolName.value === 'shell' || toolName.value === 'code_executor') {
     loadShellContent();
   }
+});
+
+// Reset forceBrowserView when tool changes (new tool selected)
+watch(() => props.toolContent?.tool_call_id, () => {
+  forceBrowserView.value = false;
 });
 
 watch(() => props.live, (live) => {
@@ -789,15 +830,40 @@ const onNewTerminalContent = () => {
 /**
  * Handle browse URL request from search results
  * Navigates the browser directly to the clicked URL
+ * Switches to browser/VNC view immediately and listens to SSE events
  */
 const handleBrowseUrl = async (url: string) => {
   if (!props.sessionId || !url) return;
 
   try {
     console.log(`[ToolPanelContent] Browsing URL: ${url}`);
-    await browseUrl(props.sessionId, url);
+
+    // Immediately switch to browser view
+    forceBrowserView.value = true;
+
+    // Subscribe to SSE events from the browse endpoint
+    await browseUrl(props.sessionId, url, {
+      onToolEvent: (event) => {
+        console.log('[ToolPanelContent] Tool event from browse:', event);
+        // The SandboxViewer will automatically show the browser content
+        // as it's already connected via CDP screencast
+      },
+      onMessage: (message) => {
+        console.log('[ToolPanelContent] Message from browse:', message);
+      },
+      onClose: () => {
+        // Keep browser view active after navigation completes
+        console.log('[ToolPanelContent] Browse completed');
+      },
+      onError: (error) => {
+        console.error('[ToolPanelContent] Browse SSE error:', error);
+        // On error, optionally revert to previous view
+        // forceBrowserView.value = false;
+      }
+    });
   } catch (error) {
     console.error('[ToolPanelContent] Failed to browse URL:', error);
+    forceBrowserView.value = false;
   }
 };
 

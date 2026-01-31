@@ -18,6 +18,13 @@ services:
       - NODE_ENV=development
       - VITE_API_URL=http://localhost:8000
       - BACKEND_URL=http://backend:8000
+      # OpenReplay configuration
+      - VITE_OPENREPLAY_PROJECT_KEY=${OPENREPLAY_PROJECT_KEY:-pythinker-dev}
+      - VITE_OPENREPLAY_INGEST_URL=${OPENREPLAY_INGEST_URL:-http://localhost:9001}
+      - VITE_OPENREPLAY_ASSIST_URL=${OPENREPLAY_ASSIST_URL:-ws://localhost:9003}
+      - VITE_OPENREPLAY_CANVAS_QUALITY=${OPENREPLAY_CANVAS_QUALITY:-medium}
+      - VITE_OPENREPLAY_CANVAS_FPS=${OPENREPLAY_CANVAS_FPS:-6}
+      - VITE_OPENREPLAY_ENABLED=${OPENREPLAY_ENABLED:-true}
     depends_on:
       - backend
     restart: unless-stopped
@@ -76,11 +83,11 @@ services:
       - /app/__pycache__  # Avoid overwriting cache files
       - /app/.venv  # Avoid overwriting virtual environment
     ports:
-      #- "9222:9222"
-      - "5902:5900"
-      - "5901:5901"
-      - "8083:8080"
-      - "8082:8082"
+      #- "9222:9222"        # CDP port (internal use)
+      #- "5902:5900"        # VNC native port (removed - using CDP screencast)
+      #- "5901:5901"        # VNC WebSocket port (removed - using CDP screencast)
+      - "8083:8080"         # Sandbox API
+      - "8082:8082"         # Framework API
     # Shared memory size for Chrome browser stability (prevents crashes)
     shm_size: '2gb'
     # Temp filesystem - improves I/O performance for browser temp files

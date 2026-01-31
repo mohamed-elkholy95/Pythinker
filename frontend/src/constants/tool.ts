@@ -233,16 +233,16 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
   search: {
     primaryView: 'search',  // Show search results directly (Manus-style)
     secondaryView: 'vnc',
-    tabLabels: ['Results', 'Browser'],
+    tabLabels: [],
     defaultView: 'primary',
-    showTabs: true  // Allow switching to browser view
+    showTabs: false
   },
   info: {
     primaryView: 'search',  // Show search results directly (Manus-style)
     secondaryView: 'vnc',
-    tabLabels: ['Results', 'Browser'],
+    tabLabels: [],
     defaultView: 'primary',
-    showTabs: true  // Allow switching to browser view
+    showTabs: false
   },
   mcp: {
     primaryView: 'generic',

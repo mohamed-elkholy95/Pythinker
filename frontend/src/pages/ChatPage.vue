@@ -292,7 +292,6 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
 import WaitingForReply from '@/components/WaitingForReply.vue';
 import { useSessionStatus } from '@/composables/useSessionStatus';
-import { useVNCPreconnect } from '@/composables/useVNCPreconnect';
 
 const router = useRouter()
 const { t } = useI18n()
@@ -412,27 +411,18 @@ const simpleBarRef = ref<InstanceType<typeof SimpleBar>>();
 const observerRef = ref<HTMLDivElement>();
 const chatContainerRef = ref<HTMLDivElement>();
 
-// Phase 4: VNC pre-connection for faster display
-// Track session status for VNC preconnect
+// Track session status
 const sessionStatus = ref<SessionStatus | undefined>(undefined);
 
-// Initialize VNC preconnect composable
-const { preconnect: preconnectVNC, isReady: _isVNCPreconnected } = useVNCPreconnect({
-  sessionId,
-  sessionStatus,
-});
-
-// Watch sessionId changes to update status and trigger preconnect
+// Watch sessionId changes to update status
 watch(sessionId, async (newSessionId) => {
   if (newSessionId) {
     // Fetch session to get current status
     try {
       const session = await agentApi.getSession(newSessionId);
       sessionStatus.value = session.status as SessionStatus;
-      // Trigger preconnect immediately
-      preconnectVNC();
     } catch (e) {
-      console.warn('[VNC Preconnect] Failed to get session status:', e);
+      console.warn('Failed to get session status:', e);
     }
   } else {
     sessionStatus.value = undefined;
@@ -661,6 +651,18 @@ const handleOpenPanel = () => {
   if (lastNoMessageTool.value) {
     toolPanel.value?.showToolPanel(lastNoMessageTool.value, isLiveTool(lastNoMessageTool.value));
     panelToolId.value = lastNoMessageTool.value.tool_call_id;
+  } else if (sessionId.value) {
+    // Allow opening panel even without tool content - show live sandbox view
+    const placeholderTool: ToolContent = {
+      tool_call_id: `placeholder-${Date.now()}`,
+      name: 'browser',
+      function: 'browser_view',
+      args: {},
+      status: 'completed',
+      timestamp: Date.now(),
+    };
+    toolPanel.value?.showToolPanel(placeholderTool, true);
+    panelToolId.value = placeholderTool.tool_call_id;
   }
 };
 
