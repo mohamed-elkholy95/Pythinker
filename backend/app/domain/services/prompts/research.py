@@ -81,6 +81,11 @@ Domain-aware approach:
 
 RESEARCH_EXECUTION_PROMPT = """
 <research_execution>
+FIRST: Send an acknowledgment message (1-2 sentences) stating what research you will conduct.
+Example: "I will conduct comprehensive research on [topics] to provide you with a detailed report."
+
+THEN: Execute the research and deliver results.
+
 Before delivering results, verify:
 - Official pages visited for recommended items
 - Category and type claims confirmed from specifications
@@ -142,6 +147,22 @@ RESEARCH_TASK_INDICATORS = [
     "review",
     "analysis",
     "report",
+    "detailed",
+    "comprehensive",
+    "thorough",
+    "investigate",
+    "explore",
+    "study",
+    "search for",
+    "look into",
+    "gather information",
+    "everything about",
+    "all about",
+    "latest",
+    "current state",
+    "overview",
+    "summary",
+    "insights",
 ]
 
 def is_research_task(message: str) -> bool:

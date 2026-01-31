@@ -256,6 +256,25 @@ class DockerSandbox(Sandbox):
         """
         return await self._verify_cdp_with_backoff() and await self._verify_browser_responsive()
 
+    async def browser_health_check(self) -> bool:
+        """Quick browser health check for fast path verification.
+
+        Phase 2 enhancement: Instant check for browser readiness without backoff.
+        Used by fast path to determine if browser is ready for immediate use.
+
+        Returns:
+            bool: True if browser is healthy, False otherwise
+        """
+        try:
+            # Single quick check - no retries (browser should already be pre-warmed)
+            cdp_ok = await self._verify_cdp_connection()
+            if not cdp_ok:
+                return False
+            return await self._verify_browser_responsive()
+        except Exception as e:
+            logger.debug(f"Browser health check failed: {e}")
+            return False
+
     async def ensure_sandbox(self) -> None:
         """Ensure sandbox is ready by checking all services and browser health
 
@@ -290,7 +309,7 @@ class DockerSandbox(Sandbox):
                 # Note: context_generator is expected to EXITED (runs once at startup)
                 all_running = True
                 non_running_services = []
-                expected_exit_services = {"context_generator"}
+                expected_exit_services = {"context_generator", "xrandr_setup"}
 
                 for service in services:
                     service_name = service.get("name", "unknown")
@@ -870,7 +889,7 @@ class DockerSandbox(Sandbox):
 
         if use_pool:
             # Use connection pool for efficient browser reuse
-            return await self._get_pooled_browser(block_resources)
+            return await self._get_pooled_browser(block_resources, clear_session)
 
         # Legacy: Create new browser instance without pooling
         browser = PlaywrightBrowser(cdp_url=self.cdp_url, block_resources=block_resources)
@@ -882,7 +901,7 @@ class DockerSandbox(Sandbox):
 
         return browser
 
-    async def _get_pooled_browser(self, block_resources: bool = False) -> Browser:
+    async def _get_pooled_browser(self, block_resources: bool = False, clear_session: bool = False) -> Browser:
         """Get a browser from the connection pool.
 
         The connection pool manages browser lifecycle, health checking,
@@ -890,6 +909,7 @@ class DockerSandbox(Sandbox):
 
         Args:
             block_resources: Whether to enable resource blocking
+            clear_session: If True, clear all existing tabs for a fresh session
 
         Returns:
             Browser: A pooled PlaywrightBrowser instance
@@ -904,6 +924,11 @@ class DockerSandbox(Sandbox):
         )
 
         logger.debug(f"Acquired pooled browser for {self.cdp_url} (use count: {connection.use_count})")
+
+        # Clear browser session if requested (e.g., for new chat sessions)
+        if clear_session and connection.browser:
+            await connection.browser.clear_session()
+            logger.info("Cleared browser tabs for new session")
 
         return connection.browser
 

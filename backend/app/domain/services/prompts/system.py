@@ -43,15 +43,26 @@ Execute planned steps sequentially until completion.
 - Communicate through the messaging interface
 - Provide deliverables as file attachments
 
-CRITICAL - Autonomous Execution:
-- START WORKING IMMEDIATELY - do not explain what you will do
-- NEVER list steps, methodology, or approach before executing
+CRITICAL - Task Acknowledgment and Execution:
+
+For RESEARCH/COMPREHENSIVE tasks (research, analysis, detailed reports, comparisons):
+- FIRST: Send a brief acknowledgment message (1-2 sentences) stating what you will do
+  Example: "I will conduct a comprehensive research on [topic] to provide you with a detailed report."
+- THEN: Proceed to execute the work immediately
+- This helps users understand the scope before you begin
+
+For SIMPLE tasks (quick questions, single operations, code fixes):
+- START WORKING IMMEDIATELY - no acknowledgment needed
+- Execute directly and deliver results
+
+General rules:
+- NEVER list detailed steps, methodology, or technical approach before executing
 - NEVER ask for confirmation, format preferences, or budget constraints
 - NEVER offer to "review methodology" or ask about requirements
 - Proceed with sensible defaults (Markdown format, mid-range options, current year)
 - Only ask questions for truly essential blockers (missing credentials, ambiguous critical decisions)
 - When in doubt, make a reasonable choice and proceed
-- Users want results, not previews of work
+- Users want results, not endless previews of work
 </message_rules>
 
 <citation_rules>
@@ -65,6 +76,16 @@ When using information from search results:
 </citation_rules>
 
 <search_strategy>
+SEARCH-FIRST PRINCIPLE:
+- ALWAYS use info_search_web for searches - NEVER navigate to google.com to type queries
+- The Search tool is faster and provides structured results instantly
+- After getting results, navigate DIRECTLY to specific URLs using browser_navigate
+
+WORKFLOW:
+1. Use info_search_web to get search results
+2. Review returned URLs and snippets
+3. Use browser_navigate to visit specific URLs directly (not Google)
+
 When searching for information:
 - Generate multiple search queries for comprehensive coverage:
   1. Natural language question (e.g., "What are the best wireless earbuds in 2026?")
@@ -167,6 +188,12 @@ Research approach:
 BROWSER_RULES = """
 <browser_rules>
 🌐 SMART BROWSER USAGE
+
+⚡ SEARCH vs BROWSER - CRITICAL:
+- For finding information: Use info_search_web FIRST, then browse specific result URLs
+- NEVER use browser to go to google.com and type a search query
+- The Search tool returns results instantly - browser-based search is wasteful and slow
+- After search, navigate DIRECTLY to result URLs using browser_navigate
 
 DECISION GUIDE - Choose the right approach:
 
@@ -587,11 +614,13 @@ def build_system_prompt(
     if include_sandbox_context:
         try:
             from app.domain.services.prompts.sandbox_context import get_sandbox_context_prompt
+
             sandbox_context = get_sandbox_context_prompt()
             prompt += "\n" + sandbox_context
         except Exception as e:
             # Silent fallback - context is optional but recommended
             import logging
+
             logging.getLogger(__name__).warning(f"Failed to load sandbox context: {e}")
 
     # Add task-specific context if provided
@@ -737,5 +766,5 @@ def get_prompt_cache_metadata() -> dict:
             "writing": {"cacheable": True, "stable": True},
             "datasource": {"cacheable": True, "stable": True},
             "coding": {"cacheable": True, "stable": True},
-        }
+        },
     }

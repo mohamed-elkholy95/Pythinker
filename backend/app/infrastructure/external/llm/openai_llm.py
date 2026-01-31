@@ -478,10 +478,13 @@ To extract data from a webpage:
                 if tools:
                     # OpenAI API mode with native tool support
                     logger.debug(f"Sending request with tools, model: {self._model_name}, attempt: {attempt + 1}")
+                    # Some providers (DeepSeek, etc.) don't support response_format with tools
+                    # Only pass response_format for official OpenAI endpoints
+                    use_response_format = response_format if self._supports_response_format_with_tools() else None
                     response = await self.client.chat.completions.create(
                         **params,
                         tools=tools,
-                        response_format=response_format,
+                        response_format=use_response_format,
                         tool_choice=tool_choice,
                         parallel_tool_calls=False,
                     )
@@ -675,6 +678,23 @@ To extract data from a webpage:
             'o1', 'o3'  # Reasoning models
         )
         return self._model_name.startswith(supported_prefixes)
+
+    def _supports_response_format_with_tools(self) -> bool:
+        """Check if the provider supports response_format parameter with tools.
+
+        Many OpenAI-compatible providers (DeepSeek, local servers, etc.) don't support
+        response_format when tools are being used.
+
+        Returns:
+            True if response_format can be used with tools, False otherwise
+        """
+        # Only official OpenAI API supports response_format with tools
+        if not self._api_base:
+            return False
+
+        # Check if using official OpenAI API
+        base = self._api_base.lower()
+        return "api.openai.com" in base or "openai.azure.com" in base
 
     async def ask_stream(
         self,

@@ -85,17 +85,37 @@
               <div v-if="index < steps.length - 1" class="task-connector" :class="{ 'connector-active': step.status === 'completed' }"></div>
 
               <div class="task-indicator">
-                <div v-if="step.status === 'completed'" class="indicator-complete">
-                  <Check class="w-3 h-3 text-white" :stroke-width="3" />
-                </div>
+                <!-- 3D Flip Container for completion animation -->
                 <div
-                  v-else-if="step.status === 'running'"
-                  class="indicator-running"
-                  :class="`shape-${currentShape}`"
-                ></div>
-                <div v-else class="indicator-pending">
-                  <span class="text-[10px] font-medium">{{ index + 1 }}</span>
+                  class="indicator-flip-container"
+                  :class="{
+                    'is-flipped': step.status === 'completed',
+                    'just-completed': recentlyCompletedIds.has(step.id)
+                  }"
+                >
+                  <!-- Front face: running/pending state -->
+                  <div class="indicator-face indicator-front">
+                    <div
+                      v-if="step.status === 'running'"
+                      class="indicator-running"
+                      :class="`shape-${currentShape}`"
+                    ></div>
+                    <div v-else class="indicator-pending">
+                      <span class="text-[10px] font-medium">{{ index + 1 }}</span>
+                    </div>
+                  </div>
+                  <!-- Back face: completed checkmark -->
+                  <div class="indicator-face indicator-back">
+                    <div class="indicator-complete">
+                      <Check class="w-3 h-3 text-white" :stroke-width="3" />
+                    </div>
+                  </div>
                 </div>
+                <!-- Celebration ring effect -->
+                <div
+                  v-if="recentlyCompletedIds.has(step.id)"
+                  class="celebration-ring"
+                ></div>
               </div>
 
               <span class="task-description">
@@ -375,6 +395,10 @@ const isIdle = computed(() => {
 
 const steps = computed(() => props.plan?.steps ?? [])
 
+// Track recently completed task IDs for flip animation
+const recentlyCompletedIds = ref<Set<string>>(new Set())
+const previousStepStatuses = ref<Map<string, string>>(new Map())
+
 const completedCount = computed(() => steps.value.filter(s => s.status === 'completed').length)
 const totalCount = computed(() => steps.value.length)
 
@@ -514,6 +538,33 @@ watch(isAllCompleted, (completed) => {
     emit('requestRefresh')
   }
 })
+
+// Watch for individual task completions to trigger flip animation
+watch(
+  () => props.plan?.steps,
+  (newSteps) => {
+    if (!newSteps) return
+
+    newSteps.forEach((step) => {
+      const prevStatus = previousStepStatuses.value.get(step.id)
+      const currentStatus = step.status
+
+      // Detect transition to completed
+      if (currentStatus === 'completed' && prevStatus !== 'completed') {
+        recentlyCompletedIds.value.add(step.id)
+
+        // Remove from recently completed after animation duration
+        setTimeout(() => {
+          recentlyCompletedIds.value.delete(step.id)
+        }, 1200) // Match animation duration
+      }
+
+      // Update tracked status
+      previousStepStatuses.value.set(step.id, currentStatus)
+    })
+  },
+  { deep: true, immediate: true }
+)
 
 onMounted(() => {
   if (props.isLoading && !isAllCompleted.value) {
@@ -816,6 +867,81 @@ onUnmounted(() => {
   justify-content: center;
   position: relative;
   z-index: 1;
+  perspective: 600px;
+}
+
+/* 3D Flip Container */
+.indicator-flip-container {
+  width: 22px;
+  height: 22px;
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform 0.6s cubic-bezier(0.4, 0.0, 0.2, 1);
+}
+
+.indicator-flip-container.is-flipped {
+  transform: rotateY(180deg);
+}
+
+/* Celebration bounce when just completed */
+.indicator-flip-container.just-completed {
+  animation: completion-bounce 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.5s;
+}
+
+@keyframes completion-bounce {
+  0% { transform: rotateY(180deg) scale(1); }
+  40% { transform: rotateY(180deg) scale(1.25); }
+  70% { transform: rotateY(180deg) scale(0.95); }
+  100% { transform: rotateY(180deg) scale(1); }
+}
+
+/* Flip faces */
+.indicator-face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.indicator-front {
+  transform: rotateY(0deg);
+}
+
+.indicator-back {
+  transform: rotateY(180deg);
+}
+
+/* Celebration ring effect */
+.celebration-ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: celebration-pulse 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes celebration-pulse {
+  0% {
+    box-shadow:
+      0 0 0 0 rgba(34, 197, 94, 0.6),
+      0 0 0 0 rgba(34, 197, 94, 0.4);
+    opacity: 1;
+  }
+  50% {
+    box-shadow:
+      0 0 0 6px rgba(34, 197, 94, 0.3),
+      0 0 0 12px rgba(34, 197, 94, 0.1);
+    opacity: 0.8;
+  }
+  100% {
+    box-shadow:
+      0 0 0 10px rgba(34, 197, 94, 0),
+      0 0 0 18px rgba(34, 197, 94, 0);
+    opacity: 0;
+  }
 }
 
 .indicator-complete {
@@ -827,6 +953,22 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   box-shadow: 0 2px 6px rgba(34, 197, 94, 0.3);
+}
+
+/* Add glow to completed indicator when just flipped */
+.indicator-flip-container.just-completed .indicator-complete {
+  animation: complete-glow 1s ease-out forwards;
+}
+
+@keyframes complete-glow {
+  0% {
+    box-shadow:
+      0 2px 6px rgba(34, 197, 94, 0.3),
+      0 0 20px rgba(34, 197, 94, 0.5);
+  }
+  100% {
+    box-shadow: 0 2px 6px rgba(34, 197, 94, 0.3);
+  }
 }
 
 .indicator-running {

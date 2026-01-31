@@ -8,6 +8,7 @@ from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Optional
 
 from app.core.config import get_settings
+from app.core.sandbox_pool import get_sandbox_pool
 from app.domain.external.file import FileStorage
 from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
 
 # Set up logger
 logger = logging.getLogger(__name__)
+
 
 class AgentService:
     def __init__(
@@ -91,25 +93,46 @@ class AgentService:
 
         Phase 2 optimization: Creates sandbox in background so it's ready
         when the user sends their first chat message.
+
+        Phase 0 enhancement: Uses sandbox pool for instant allocation when enabled.
+        Phase 1 enhancement: Pre-warms browser context for immediate use.
         """
+        settings = get_settings()
+
         try:
             # Update session status to INITIALIZING
             await self._session_repository.update_status(session_id, SessionStatus.INITIALIZING)
 
-            # Create the sandbox
-            sandbox = await self._sandbox_cls.create()
+            # Try to acquire from pool first (Phase 0: instant allocation)
+            sandbox = None
+            if settings.sandbox_pool_enabled:
+                try:
+                    pool = await get_sandbox_pool(self._sandbox_cls)
+                    if pool.is_started and pool.size > 0:
+                        sandbox = await pool.acquire(timeout=5.0)
+                        logger.info(f"Acquired sandbox {sandbox.id} from pool for session {session_id}")
+                except Exception as e:
+                    logger.warning(f"Pool acquisition failed, creating on-demand: {e}")
+
+            # Fall back to on-demand creation
+            if not sandbox:
+                sandbox = await self._sandbox_cls.create()
+                logger.info(f"Created sandbox {sandbox.id} on-demand for session {session_id}")
 
             # Update session with sandbox_id
             session = await self._session_repository.find_by_id(session_id)
             if session and not session.sandbox_id:
                 session.sandbox_id = sandbox.id
                 await self._session_repository.save(session)
-                logger.info(f"Pre-warmed sandbox {sandbox.id} for session {session_id}")
 
                 # Run ensure_sandbox for full health check (includes browser verification)
-                if hasattr(sandbox, 'ensure_sandbox'):
+                if hasattr(sandbox, "ensure_sandbox"):
                     await sandbox.ensure_sandbox()
-                    logger.info(f"Sandbox {sandbox.id} fully ready for session {session_id}")
+
+                # Phase 1: Pre-warm browser context for immediate use
+                await self._prewarm_browser(sandbox, session_id)
+
+                logger.info(f"Sandbox {sandbox.id} fully ready with browser for session {session_id}")
 
             # Reset status to PENDING (ready for first chat)
             await self._session_repository.update_status(session_id, SessionStatus.PENDING)
@@ -121,6 +144,59 @@ class AgentService:
                 await self._session_repository.update_status(session_id, SessionStatus.PENDING)
             except Exception:
                 pass
+
+    async def _prewarm_browser(self, sandbox: Sandbox, session_id: str) -> None:
+        """Pre-warm browser context so it's ready for immediate use.
+
+        Phase 1 enhancement: Initializes browser connection during sandbox warm-up
+        to eliminate browser startup delay on first user action.
+
+        Note: This warms the Chrome browser via CDP. We disconnect Playwright
+        but DO NOT close the browser context - it stays ready for later use.
+        """
+        browser = None
+        try:
+            # Get sandbox IP for CDP connection
+            if not hasattr(sandbox, "ip_address") or not sandbox.ip_address:
+                logger.debug("Sandbox has no IP address, skipping browser pre-warm")
+                return
+
+            # Import here to avoid circular dependency
+            from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
+
+            # Create browser instance with CDP URL
+            cdp_url = f"ws://{sandbox.ip_address}:9222"
+            browser = PlaywrightBrowser(cdp_url=cdp_url)
+
+            # Initialize browser (this connects to Chrome via CDP)
+            if not await browser.initialize():
+                logger.warning(f"Browser pre-warm initialization failed for session {session_id}")
+                return
+
+            # Navigate to blank page to fully initialize rendering pipeline
+            result = await browser.navigate("about:blank", timeout=10000, auto_extract=False)
+            if result.success:
+                logger.info(f"Browser pre-warmed successfully for session {session_id}")
+            else:
+                logger.warning(f"Browser pre-warm navigation failed: {result.message}")
+
+        except Exception as e:
+            # Non-fatal - browser will be initialized on first use
+            logger.warning(f"Browser pre-warm failed (non-fatal) for session {session_id}: {e}")
+        finally:
+            # Disconnect Playwright but DO NOT close the browser context
+            # The context needs to stay open for later use by the agent
+            if browser:
+                try:
+                    # Only disconnect, don't close context/pages
+                    if browser.playwright:
+                        await browser.playwright.stop()
+                    browser.page = None
+                    browser.context = None
+                    browser.browser = None
+                    browser.playwright = None
+                except Exception as cleanup_error:
+                    logger.debug(f"Browser pre-warm disconnect error (non-fatal): {cleanup_error}")
 
     async def _create_agent(self) -> Agent:
         logger.info("Creating new agent")
@@ -147,11 +223,13 @@ class AgentService:
         message: str | None = None,
         timestamp: datetime | None = None,
         event_id: str | None = None,
-        attachments: list[dict] | None = None
+        attachments: list[dict] | None = None,
     ) -> AsyncGenerator[AgentEvent, None]:
         logger.info(f"Starting chat with session {session_id}: {message[:50]}...")
         # Directly use the domain service's chat method, which will check if the session exists
-        async for event in self._agent_domain_service.chat(session_id, user_id, message, timestamp, event_id, attachments):
+        async for event in self._agent_domain_service.chat(
+            session_id, user_id, message, timestamp, event_id, attachments
+        ):
             logger.debug(f"Received event: {event}")
             yield event
         logger.info(f"Chat with session {session_id} completed")
@@ -209,11 +287,7 @@ class AgentService:
         return result
 
     async def resume_session(
-        self,
-        session_id: str,
-        user_id: str,
-        context: str | None = None,
-        persist_login_state: bool | None = None
+        self, session_id: str, user_id: str, context: str | None = None, persist_login_state: bool | None = None
     ) -> bool:
         """Resume a paused session after user takeover, ensuring it belongs to the user
 
@@ -230,9 +304,7 @@ class AgentService:
             logger.error(f"Session {session_id} not found for user {user_id}")
             raise RuntimeError("Session not found")
         result = await self._agent_domain_service.resume_session(
-            session_id,
-            context=context,
-            persist_login_state=persist_login_state
+            session_id, context=context, persist_login_state=persist_login_state
         )
         if result:
             logger.info(f"Session {session_id} resumed successfully")
@@ -325,10 +397,7 @@ class AgentService:
         error_message = result.message or "Failed to read file"
         # Gracefully handle binary or non-UTF8 content to avoid 500s in the UI.
         if "codec can't decode" in error_message or "invalid start byte" in error_message:
-            return FileViewResponse(
-                content=f"[Binary file: {file_path}. Download to view.]",
-                file=file_path
-            )
+            return FileViewResponse(content=f"[Binary file: {file_path}. Download to view.]", file=file_path)
 
         raise RuntimeError(f"Failed to read file: {error_message}")
 
@@ -427,11 +496,7 @@ class AgentService:
         session.port = manifest.port
         session.env_var_keys = sorted(manifest.env_vars.keys()) if manifest.env_vars else []
         session.secret_keys = sorted(manifest.secrets.keys()) if manifest.secrets else []
-        session.git_remote = (
-            sanitized_git_remote.model_dump(exclude={"credentials"})
-            if sanitized_git_remote
-            else None
-        )
+        session.git_remote = sanitized_git_remote.model_dump(exclude={"credentials"}) if sanitized_git_remote else None
 
         await self._session_repository.save(session)
 
@@ -550,6 +615,32 @@ class AgentService:
             return None
         return session
 
+    async def browse_url(self, session_id: str, user_id: str, url: str) -> AsyncGenerator[AgentEvent, None]:
+        """Navigate browser directly to a URL from search results.
+
+        This method uses the fast-path router to quickly navigate the browser
+        to a specific URL, bypassing the full planning workflow.
+
+        Args:
+            session_id: Session ID
+            user_id: User ID for ownership verification
+            url: URL to navigate to
+
+        Yields:
+            Agent events for the navigation
+        """
+        logger.info(f"Browse URL request for session {session_id}: {url}")
+
+        # Verify session ownership
+        session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
+        if not session:
+            logger.error(f"Session {session_id} not found for user {user_id}")
+            raise RuntimeError("Session not found")
+
+        # Delegate to domain service for fast-path browsing
+        async for event in self._agent_domain_service.browse_url(session_id, url):
+            yield event
+
     async def _get_or_create_sandbox(self, session: Session) -> Sandbox:
         sandbox = None
         if session.sandbox_id:
@@ -635,9 +726,7 @@ class AgentService:
                 files_written += 1
             else:
                 files_failed += 1
-                errors.append(
-                    WorkspaceWriteError(path=path, message=result.message or "Failed to write file")
-                )
+                errors.append(WorkspaceWriteError(path=path, message=result.message or "Failed to write file"))
 
         return files_written, files_failed, errors
 
@@ -687,12 +776,8 @@ class AgentService:
 
     def _format_env_line(self, key: str, value: str | None) -> str:
         safe_value = "" if value is None else str(value)
-        needs_quotes = any(ch in safe_value for ch in [" ", "\t", "\n", "\"", "'", "\\"])
+        needs_quotes = any(ch in safe_value for ch in [" ", "\t", "\n", '"', "'", "\\"])
         if needs_quotes:
-            escaped = (
-                safe_value.replace("\\", "\\\\")
-                .replace("\n", "\\n")
-                .replace("\"", "\\\"")
-            )
+            escaped = safe_value.replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
             return f'{key}="{escaped}"'
         return f"{key}={safe_value}"
