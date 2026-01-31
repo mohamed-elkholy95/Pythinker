@@ -34,8 +34,8 @@ logger = logging.getLogger(__name__)
 
 # Tools that are safe to execute in parallel (read-only, no side effects)
 SAFE_PARALLEL_TOOLS = {
-    # Search operations
-    "info_search_web",
+    # Search operations - excluded to run sequentially for better context
+    # "info_search_web",  # Run searches one-by-one so agent can react to each result
     # File read operations
     "file_read",
     "file_search",

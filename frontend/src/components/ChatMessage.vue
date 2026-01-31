@@ -30,7 +30,7 @@
       class="max-w-none p-0 m-0 prose prose-sm sm:prose-base dark:prose-invert [&_pre:not(.shiki)]:!bg-[var(--bolt-elements-messages-code-background)] [&_pre:not(.shiki)]:text-[var(--bolt-elements-messages-inlineCode-text)] text-base text-[var(--text-primary)]"
       v-html="renderMarkdown(messageContent.content)"></div>
   </div>
-  <ToolUse v-else-if="message.type === 'tool'" :tool="toolContent" @click="handleToolClick(toolContent)" />
+  <ToolUse v-else-if="message.type === 'tool'" :tool="toolContent" :is-active="true" @click="handleToolClick(toolContent)" />
   <div v-else-if="message.type === 'step'" class="flex flex-col mt-2">
     <!-- Step Header -->
     <div class="w-full flex gap-2 justify-between group/header text-[var(--text-primary)]">
@@ -71,7 +71,13 @@
         <div class="border-l border-dashed border-[var(--border-dark)] absolute start-[8px] top-0 bottom-0"></div>
       </div>
       <div class="flex flex-col gap-[10px] flex-1 min-w-0 overflow-hidden pt-3 pb-1">
-        <ToolUse v-for="tool in stepContent.tools" :key="tool.tool_call_id" :tool="tool" @click="handleToolClick(tool)" />
+        <ToolUse
+          v-for="(tool, index) in stepContent.tools"
+          :key="tool.tool_call_id"
+          :tool="tool"
+          :is-active="index === stepContent.tools.length - 1"
+          @click="handleToolClick(tool)"
+        />
       </div>
     </div>
   </div>
