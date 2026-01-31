@@ -132,12 +132,28 @@ KNOWLEDGE_PATTERNS = [
 
 # Patterns that indicate a complex task requiring planning
 TASK_PATTERNS = [
+    # "create/build full/complete X" - strong task indicator (handles typos in target word)
+    r"(?:create|build|make|write|generate)\s+(?:a\s+|an\s+|the\s+)?(?:full|complete|detailed|comprehensive)\s+",
+    # Creation verbs with article
     r"(?:create|build|make|write|develop|implement|design|set\s+up)\s+(?:a|an|the)\s+",
+    # Creation verbs with report-like targets (handles common typos)
+    r"(?:create|build|make|write|generate)\s+(?:\w+\s+)*(?:report|assess?ment|analy[sz]is|summary|document|overview)",
+    # Fix/debug tasks
     r"(?:fix|debug|solve|resolve|troubleshoot)\s+",
+    # Improvement tasks
     r"(?:refactor|optimize|improve|enhance)\s+",
-    r"(?:analyze|compare|evaluate|review|audit)\s+.+(?:and|then|also)",
+    # Analysis tasks
+    r"(?:analyze|analyse|compare|evaluate|review|audit|assess)\s+(?:all\s+)?(?:the\s+)?",
+    # Multi-step indicators
     r"(?:step\s+by\s+step|multiple|several|various)",
     r"(?:first|then|after\s+that|finally)",  # Sequential instructions
+    # Research/investigation tasks
+    r"(?:research|investigate|find\s+out|gather|collect)\s+(?:information|data|details|issues?)\s+",
+    # Task keywords (handles typos: assesment, assessement, etc.)
+    r"(?:risk\s+)?assess?e?ment",
+    r"full\s+(?:report|analy[sz]is|review)",
+    # "about all" with action context - indicates research task
+    r"(?:about|for|on)\s+all\s+(?:the\s+)?(?:issues?|problems?|bugs?|errors?)",
 ]
 
 
@@ -415,7 +431,7 @@ class FastPathRouter:
         try:
             if self._search_engine:
                 # Use search engine directly
-                results = await self._search_engine.search(query, num_results=5)
+                search_result = await self._search_engine.search(query)
 
                 yield ProgressEvent(
                     phase=PlanningPhase.FINALIZING,
@@ -423,15 +439,15 @@ class FastPathRouter:
                     progress_percent=80,
                 )
 
-                if results:
-                    # Normalize results to consistent format
+                if search_result.success and search_result.data and search_result.data.results:
+                    # Normalize results to consistent format (limit to 5)
                     results_list = []
-                    for result in results[:5]:
+                    for result in search_result.data.results[:5]:
                         results_list.append(
                             {
-                                "title": result.get("title", "No title"),
-                                "link": result.get("url", result.get("link", "")),
-                                "snippet": result.get("snippet", result.get("description", "")),
+                                "title": result.title or "No title",
+                                "link": result.link or "",
+                                "snippet": result.snippet or "",
                             }
                         )
 

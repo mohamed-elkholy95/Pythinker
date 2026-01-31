@@ -916,6 +916,9 @@ class DockerSandbox(Sandbox):
         """
         pool = await BrowserConnectionPool.get_instance_async()
 
+        # Clear stale connections before acquiring to prevent pool exhaustion
+        await pool.clear_stale_connections(self.cdp_url)
+
         # Acquire from pool - returns a context manager but we need the browser directly
         # For the sandbox use case, we acquire and hold the connection
         connection = await pool._acquire_connection(

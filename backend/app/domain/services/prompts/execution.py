@@ -83,6 +83,103 @@ COMPLEX_TASK_INDICATORS = [
     "security", "performance", "architecture", "integration"
 ]
 
+# Keywords that indicate a diagnostic/benchmark task
+DIAGNOSTIC_TASK_INDICATORS = [
+    "diagnostic", "diagnose", "benchmark", "performance test",
+    "system info", "hardware", "capabilities", "inspect environment",
+    "health check", "stress test", "memory test", "cpu test", "disk test",
+    "environment check", "verify system", "check resources", "measure",
+    "profile", "analyze system", "system analysis", "hallucination",
+    "consistency check", "self-test", "validate environment"
+]
+
+# Diagnostic Task Signal - Manus-inspired patterns for script-first diagnostics
+DIAGNOSTIC_TASK_SIGNAL = """
+---
+DIAGNOSTIC TASK GUIDANCE:
+
+## Script-First Approach (REQUIRED)
+For diagnostics beyond a single command, CREATE PYTHON SCRIPTS:
+
+1. **Create diagnostic scripts** using `file_write`:
+   - Import: psutil, os, platform, subprocess, json, time
+   - Handle missing deps: try/except ImportError + pip install
+   - Output structured JSON for machine-readable results
+   - Include error handling and fallbacks
+
+2. **Diagnostic script pattern**:
+```python
+import json, os, platform, subprocess, sys
+try:
+    import psutil
+except ImportError:
+    subprocess.run([sys.executable, "-m", "pip", "install", "psutil"], check=True)
+    import psutil
+
+results = {
+    "platform": platform.platform(),
+    "python_version": sys.version,
+    "cpu_count": psutil.cpu_count(),
+    "memory_gb": round(psutil.virtual_memory().total / (1024**3), 2),
+    "disk_usage_percent": psutil.disk_usage('/').percent
+}
+with open("diagnostic_results.json", "w") as f:
+    json.dump(results, f, indent=2)
+print(json.dumps(results, indent=2))
+```
+
+3. **Benchmark script pattern**:
+```python
+import time, hashlib, json, os
+
+def benchmark_cpu(iterations=10**6):
+    start = time.perf_counter()
+    for i in range(iterations):
+        hashlib.sha256(str(i).encode()).hexdigest()
+    return time.perf_counter() - start
+
+def benchmark_memory(size_mb=100):
+    start = time.perf_counter()
+    data = bytearray(size_mb * 1024 * 1024)
+    for i in range(len(data)):
+        data[i] = i % 256
+    elapsed = time.perf_counter() - start
+    del data
+    return elapsed
+
+results = {"cpu_hash_time": benchmark_cpu(), "memory_write_time": benchmark_memory()}
+with open("benchmark_results.json", "w") as f:
+    json.dump(results, f, indent=2)
+```
+
+4. **Consistency check pattern** (for hallucination detection):
+```python
+import json
+
+def run_checks():
+    results = []
+    for i in range(3):
+        # Run same diagnostic multiple times
+        result = get_system_info()
+        results.append(result)
+
+    # Compare for consistency
+    discrepancies = []
+    for key in results[0]:
+        values = [str(r.get(key)) for r in results]
+        if len(set(values)) > 1:
+            discrepancies.append({"key": key, "values": values})
+
+    return {"consistent": len(discrepancies) == 0, "checks": len(results)}
+```
+
+## Output Requirements
+- Save diagnostic results to JSON file (machine-readable)
+- Create Markdown summary report (human-readable)
+- Include timestamps and environment context
+---
+"""
+
 
 def is_complex_task(step_description: str) -> bool:
     """Determine if a task is complex enough to warrant CoT reasoning.
@@ -103,6 +200,19 @@ def is_complex_task(step_description: str) -> bool:
 
     # Complex if 2+ indicators or description is long (likely detailed task)
     return indicator_count >= 2 or len(step_description) > 300
+
+
+def is_diagnostic_task(step_description: str) -> bool:
+    """Determine if a task involves diagnostics, benchmarking, or system inspection.
+
+    Args:
+        step_description: The step description to analyze
+
+    Returns:
+        True if the task involves diagnostics or system inspection
+    """
+    step_lower = step_description.lower()
+    return any(indicator in step_lower for indicator in DIAGNOSTIC_TASK_INDICATORS)
 
 
 def extract_task_constraints(step_description: str) -> list[str]:
@@ -333,6 +443,10 @@ def build_execution_prompt(
         attachments=attachments,
         language=language
     )
+
+    # Inject diagnostic task guidance for system inspection/benchmark tasks
+    if is_diagnostic_task(step):
+        prompt = DIAGNOSTIC_TASK_SIGNAL + prompt
 
     # Inject CoT reasoning for complex tasks
     if enable_cot and is_complex_task(step):

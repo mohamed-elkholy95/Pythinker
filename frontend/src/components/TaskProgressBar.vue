@@ -195,9 +195,17 @@
 
         <!-- Content -->
         <div class="flex-1 min-w-0 flex flex-col gap-0.5">
-          <span class="text-[13px] font-medium text-gray-900 dark:text-[#f0f0f0] truncate">
-            {{ currentTaskDescription }}
-          </span>
+          <!-- Flip Board Animation for Task Description -->
+          <div class="flip-board-container">
+            <TransitionGroup name="flip-board" tag="div" class="flip-board-wrapper">
+              <span
+                :key="currentTaskDescription"
+                class="flip-board-text text-[13px] font-medium text-gray-900 dark:text-[#f0f0f0] truncate"
+              >
+                {{ currentTaskDescription }}
+              </span>
+            </TransitionGroup>
+          </div>
           <div class="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-[#808080]">
             <span v-if="taskStartTime" class="font-mono tabular-nums">{{ formattedElapsedTime }}</span>
             <span v-if="taskStartTime && (currentToolName || props.isThinking || props.isLoading)" class="text-gray-300 dark:text-[#404040]">·</span>
@@ -1215,5 +1223,75 @@ onUnmounted(() => {
 .expand-up-leave-from {
   opacity: 1;
   transform: translateY(0);
+}
+
+/* ===== FLIP BOARD ANIMATION ===== */
+.flip-board-container {
+  position: relative;
+  height: 20px;
+  overflow: hidden;
+  perspective: 400px;
+}
+
+.flip-board-wrapper {
+  position: relative;
+  height: 100%;
+  width: 100%;
+}
+
+.flip-board-text {
+  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  transform-origin: center bottom;
+  backface-visibility: hidden;
+}
+
+/* Flip board enter animation - flips down from top */
+.flip-board-enter-active {
+  animation: flip-board-in 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+  z-index: 2;
+}
+
+/* Flip board leave animation - flips down and out */
+.flip-board-leave-active {
+  animation: flip-board-out 0.4s cubic-bezier(0.55, 0.085, 0.68, 0.53) forwards;
+  z-index: 1;
+}
+
+@keyframes flip-board-in {
+  0% {
+    transform: rotateX(-90deg) translateY(-50%);
+    opacity: 0;
+  }
+  40% {
+    opacity: 1;
+  }
+  100% {
+    transform: rotateX(0deg) translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes flip-board-out {
+  0% {
+    transform: rotateX(0deg) translateY(0);
+    opacity: 1;
+  }
+  60% {
+    opacity: 0.5;
+  }
+  100% {
+    transform: rotateX(90deg) translateY(50%);
+    opacity: 0;
+  }
+}
+
+/* Move animation for absolute positioning */
+.flip-board-move {
+  transition: none;
 }
 </style>

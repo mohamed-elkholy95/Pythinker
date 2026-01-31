@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-01-31T02:06:55.637167",
+  "generated_at": "2026-01-31T03:12:00.264663",
   "version": "1.0.0",
   "environment": {
     "os": {
@@ -94,7 +94,7 @@
         "multidict": "6.7.1",
         "mypy": "1.19.1",
         "mypy_extensions": "1.1.0",
-        "numpy": "1.21.5",
+        "numpy": "2.4.1",
         "ollama": "0.6.1",
         "openai": "2.16.0",
         "packageurl-python": "0.17.6",
@@ -196,7 +196,7 @@
         "requests": "2.32.5",
         "httpx": "0.28.1",
         "aiohttp": "3.13.3",
-        "numpy": "1.21.5"
+        "numpy": "2.4.1"
       }
     },
     "nodejs": {
@@ -863,9 +863,9 @@
       "shared_memory": "2gb",
       "disk": {
         "total": "79G",
-        "used": "55G",
+        "used": "56G",
         "available": "20G",
-        "use_percent": "74%"
+        "use_percent": "75%"
       }
     }
   },

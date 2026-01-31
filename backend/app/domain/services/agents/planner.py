@@ -254,9 +254,15 @@ class PlannerAgent(BaseAgent):
             except Exception as e:
                 logger.warning(f"Failed to retrieve task memories for planning: {e}")
 
+        # Extract just filenames from attachment paths for cleaner display
+        attachment_names = []
+        for path in message.attachments:
+            filename = path.split("/")[-1] if "/" in path else path
+            attachment_names.append(filename)
+
         base_prompt = build_create_plan_prompt(
             message=message.message,
-            attachments="\n".join(message.attachments),
+            attachments="\n".join(attachment_names) if attachment_names else "None",
             task_memory=task_memory
         )
 

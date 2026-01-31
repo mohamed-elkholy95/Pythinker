@@ -23,6 +23,7 @@ from app.domain.models.event import (
     VerificationEvent,
     VerificationStatus,
 )
+from app.domain.models.file import FileInfo
 from app.domain.models.message import Message
 from app.domain.models.plan import ExecutionStatus, Step
 from app.domain.models.session import SessionStatus
@@ -34,14 +35,14 @@ from app.domain.services.agents.execution import ExecutionAgent
 from app.domain.services.agents.planner import PlannerAgent
 from app.domain.services.flows.base import BaseFlow
 from app.domain.services.flows.fast_path import FastPathRouter, QueryIntent
+
+# Import research task detection for acknowledgment messages
+from app.domain.services.prompts.research import is_research_task
 from app.domain.services.tools.browser import BrowserTool
 from app.domain.services.tools.file import FileTool
 from app.domain.services.tools.mcp import MCPTool
 from app.domain.services.tools.shell import ShellTool
 from app.domain.utils.json_parser import JsonParser
-
-# Import research task detection for acknowledgment messages
-from app.domain.services.prompts.research import is_research_task
 
 # BrowserAgentTool is optional (requires browser_use package)
 try:
@@ -532,48 +533,65 @@ class PlanActFlow(BaseFlow):
             )
         self.status = new_status
 
-    def _generate_research_acknowledgment(self, user_message: str) -> str:
-        """Generate an acknowledgment message for research/comprehensive tasks.
+    def _generate_acknowledgment(self, user_message: str) -> str:
+        """Generate an acknowledgment message before starting to plan.
 
         Args:
             user_message: The user's original message
 
         Returns:
-            A brief acknowledgment message describing what will be researched
+            A brief acknowledgment message describing what will be done
         """
-        # Extract key topics from the message
         message_lower = user_message.lower()
 
-        # Common research indicators to detect the scope
-        topics = []
+        # Check for research-type tasks
+        if is_research_task(user_message):
+            # Research task acknowledgments
+            topic_patterns = [
+                ("claude code", "Claude Code features and best practices"),
+                ("mcp", "MCP (Model Context Protocol) integrations"),
+                ("plugin", "plugins and extensions"),
+                ("lsp", "LSP (Language Server Protocol) features"),
+                ("design", "design patterns and skills"),
+                ("integration", "integrations and configurations"),
+                ("api", "API usage and implementation"),
+                ("best practice", "best practices and recommendations"),
+            ]
 
-        # Look for specific research topics mentioned
-        topic_patterns = [
-            ("claude code", "Claude Code features and best practices"),
-            ("mcp", "MCP (Model Context Protocol) integrations"),
-            ("plugin", "plugins and extensions"),
-            ("lsp", "LSP (Language Server Protocol) features"),
-            ("design", "design patterns and skills"),
-            ("integration", "integrations and configurations"),
-            ("api", "API usage and implementation"),
-            ("best practice", "best practices and recommendations"),
-        ]
+            topics = []
+            for pattern, description in topic_patterns:
+                if pattern in message_lower:
+                    topics.append(description)
 
-        for pattern, description in topic_patterns:
-            if pattern in message_lower:
-                topics.append(description)
+            if topics:
+                topics_str = ", ".join(topics[:3])
+                return f"I'll research {topics_str} and provide you with a detailed report."
+            return "I'll conduct comprehensive research on this topic and provide you with a detailed report."
 
-        # Build acknowledgment message
-        if topics:
-            topics_str = ", ".join(topics[:4])  # Limit to 4 topics
-            return f"I will conduct comprehensive research on {topics_str} to provide you with a detailed report."
-        else:
-            # Generic acknowledgment for research tasks
-            # Extract first ~100 chars of the topic
-            topic_preview = user_message[:100].strip()
-            if len(user_message) > 100:
-                topic_preview += "..."
-            return f"I will conduct comprehensive research on this topic to provide you with a detailed report."
+        # Check for specific task types and generate appropriate acknowledgments
+        if any(word in message_lower for word in ["create", "build", "make", "generate", "write"]):
+            return "I'll help you with that. Let me create a plan and get started."
+
+        if any(word in message_lower for word in ["fix", "debug", "solve", "resolve"]):
+            return "I'll analyze the issue and work on a solution."
+
+        if any(word in message_lower for word in ["find", "search", "look for", "locate"]):
+            return "I'll search for that information."
+
+        if any(word in message_lower for word in ["explain", "how does", "what is", "why"]):
+            return "Let me look into that for you."
+
+        if any(word in message_lower for word in ["update", "modify", "change", "edit"]):
+            return "I'll work on making those changes."
+
+        if any(word in message_lower for word in ["install", "setup", "configure"]):
+            return "I'll help you set that up."
+
+        if any(word in message_lower for word in ["test", "check", "verify", "validate"]):
+            return "I'll run some checks on that."
+
+        # Default acknowledgment
+        return "I'll help you with that. Let me work on it."
 
     def _validate_plan_before_execution(self) -> bool:
         """Validate plan before execution; returns True if safe to proceed."""
@@ -1049,11 +1067,11 @@ class PlanActFlow(BaseFlow):
 
         logger.info(f"Agent {self._agent_id} started processing message: {message.message[:50]}...")
 
-        # Emit acknowledgment for research/comprehensive tasks before planning
-        if is_research_task(message.message) and session.status != SessionStatus.WAITING:
-            acknowledgment = self._generate_research_acknowledgment(message.message)
+        # Emit acknowledgment before planning (not for resumed/waiting sessions)
+        if session.status != SessionStatus.WAITING:
+            acknowledgment = self._generate_acknowledgment(message.message)
             yield MessageEvent(message=acknowledgment)
-            logger.info(f"Emitted research acknowledgment for session {self._session_id}")
+            logger.info(f"Emitted acknowledgment for session {self._session_id}")
 
         step = None
         while True:
@@ -1299,13 +1317,38 @@ class PlanActFlow(BaseFlow):
                 elif self.status == AgentStatus.SUMMARIZING:
                     # Conclusion with tracing
                     logger.info(f"Agent {self._agent_id} started summarizing")
+
+                    # Fetch session files to include in the final report
+                    session_files: list[FileInfo] = []
+                    try:
+                        session = await self._session_repository.find_by_id(self._session_id)
+                        if session and session.files:
+                            session_files = session.files
+                            logger.debug(f"Found {len(session_files)} session files to include in report")
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch session files: {e}")
+
                     with trace_ctx.span("summarizing", SpanKind.AGENT_STEP) as summary_span:
                         async for event in self.executor.summarize():
                             if isinstance(event, (ReportEvent, MessageEvent)):
                                 content = event.content if isinstance(event, ReportEvent) else event.message
                                 content = content or ""
-                                attachments = event.attachments if hasattr(event, "attachments") else None
-                                compliance_report = self._run_compliance_gates(content, attachments)
+
+                                # Merge session files with any attachments from the LLM
+                                event_attachments = event.attachments if hasattr(event, "attachments") else None
+                                all_attachments = list(session_files) if session_files else []
+                                if event_attachments:
+                                    # Add LLM attachments that aren't already in session files
+                                    existing_paths = {f.file_path for f in all_attachments if f.file_path}
+                                    for att in event_attachments:
+                                        if att.file_path and att.file_path not in existing_paths:
+                                            all_attachments.append(att)
+
+                                # Update event with merged attachments
+                                if all_attachments and isinstance(event, (ReportEvent, MessageEvent)):
+                                    event.attachments = all_attachments
+
+                                compliance_report = self._run_compliance_gates(content, all_attachments or None)
                                 summary_span.set_attribute("compliance.passed", compliance_report.passed)
                                 if compliance_report.blocking_issues:
                                     summary_span.set_attribute(

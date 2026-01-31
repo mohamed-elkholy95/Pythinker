@@ -1,8 +1,6 @@
 <template>
   <ContentContainer :scrollable="false" padding="none" class="shell-view">
     <div class="shell-body">
-      <!-- Orange left accent -->
-      <div class="shell-accent"></div>
       <div class="shell-surface">
         <LoadingState
           v-if="isLoading"
@@ -179,13 +177,6 @@ onUnmounted(() => {
   width: 100%;
   height: 100%;
   overflow: hidden;
-}
-
-/* Orange left accent border */
-.shell-accent {
-  width: 2px;
-  background: linear-gradient(180deg, #f97316 0%, #ea580c 100%);
-  flex-shrink: 0;
 }
 
 .shell-surface {

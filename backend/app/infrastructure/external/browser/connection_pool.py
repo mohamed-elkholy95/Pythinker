@@ -284,6 +284,53 @@ class BrowserConnectionPool:
                 conn.last_used_at = time.time()
                 logger.debug(f"Released connection back to pool for {cdp_url}")
 
+    async def clear_stale_connections(self, cdp_url: str) -> int:
+        """Clear stale/unhealthy connections for a specific CDP URL.
+
+        This should be called when starting a new session to ensure fresh connections.
+
+        Args:
+            cdp_url: The CDP URL to clear stale connections for
+
+        Returns:
+            Number of connections cleared
+        """
+        lock = self._get_pool_lock(cdp_url)
+        cleared = 0
+
+        async with lock:
+            pool = self._pools.get(cdp_url, [])
+            in_use = self._in_use.get(cdp_url, set())
+
+            # Check each connection
+            connections_to_remove = []
+            for conn in pool:
+                conn_id = id(conn)
+
+                # Skip connections currently in use
+                if conn_id in in_use:
+                    continue
+
+                # Check if connection is healthy
+                is_healthy = await self._verify_connection_health(conn)
+                if not is_healthy:
+                    connections_to_remove.append(conn)
+                    conn.is_healthy = False
+
+            # Remove and cleanup stale connections
+            for conn in connections_to_remove:
+                pool.remove(conn)
+                try:
+                    await conn.browser.cleanup()
+                except Exception as e:
+                    logger.debug(f"Error cleaning up stale connection: {e}")
+                cleared += 1
+
+            if cleared > 0:
+                logger.info(f"Cleared {cleared} stale connections for {cdp_url} (remaining: {len(pool)})")
+
+        return cleared
+
     async def close_all(self) -> None:
         """Close all pooled connections and shutdown the pool."""
         self._shutdown = True

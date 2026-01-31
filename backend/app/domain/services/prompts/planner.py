@@ -54,11 +54,27 @@ If the request involves web browsing (search, visit websites, navigate, click, e
 - Example: "Search Google for FastAPI tutorials, click first result, extract main topics"
 - The browsing tool handles ALL web actions autonomously
 
+🔬 DIAGNOSTIC/BENCHMARK TASKS:
+If the request involves system diagnostics, benchmarks, environment inspection, or capability testing:
+- Structure as: Inspect → Script → Execute → Analyze → Report
+- Example steps for "diagnose this environment":
+  1. "Inspect system and create diagnostic_script.py with hardware and OS checks"
+  2. "Execute diagnostic script, install missing dependencies if needed"
+  3. "Create benchmark_script.py for CPU, memory, and disk performance tests"
+  4. "Run benchmarks and create consistency_check.py for validation"
+  5. "Compile findings into diagnostic_report.md with recommendations"
+- Use Python scripts (not shell one-liners) for complex diagnostics
+- Output structured JSON files + human-readable Markdown report
+- Include self-consistency checks when verifying capabilities or detecting hallucinations
+
 Step writing rules:
 - Start each step with an action verb (Analyze, Review, Design, Create, Develop, Search, Compare, Compile, Save, Deliver)
-- Keep steps concise: one line, 5-15 words
-- NEVER mention tool names (no "using file_write", "via browser", "with search tool")
-- NEVER add explanatory phrases (no "in order to", "so that", "which will")
+- Keep steps concise: one line, 5-15 words max
+- Write user-friendly descriptions - NO technical details:
+  - NEVER include file paths (no "/home/ubuntu/...", no "pasted_text_1.txt")
+  - NEVER mention tool names (no "using file_write", "via browser")
+  - NEVER add explanatory phrases (no "in order to", "so that")
+- Refer to attachments generically: "the provided file", "the uploaded content", "user's document"
 - 3-5 substantive steps; consolidate related work (1 step for web browsing)
 
 Planning principles:

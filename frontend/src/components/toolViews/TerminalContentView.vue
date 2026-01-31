@@ -1,8 +1,6 @@
 <template>
   <ContentContainer :scrollable="false" padding="none" class="terminal-view">
     <div class="terminal-body">
-      <!-- Orange left accent -->
-      <div class="terminal-accent"></div>
       <div class="terminal-shell" :class="{ 'dark-mode': isDarkMode }">
         <div ref="terminalRef" class="terminal-surface"></div>
         <EmptyState
@@ -267,13 +265,6 @@ watch(
   overflow: hidden;
 }
 
-/* Orange left accent */
-.terminal-accent {
-  width: 2px;
-  background: linear-gradient(180deg, #f97316 0%, #ea580c 100%);
-  flex-shrink: 0;
-}
-
 .terminal-shell {
   position: relative;
   flex: 1;
@@ -284,7 +275,6 @@ watch(
   font-family: 'SF Mono', Menlo, Monaco, 'Cascadia Code', 'Courier New', monospace;
   font-size: 13px;
   overflow: hidden;
-  border-radius: 0 0 10px 10px;
 }
 
 .terminal-shell.dark-mode {

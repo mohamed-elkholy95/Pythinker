@@ -173,6 +173,30 @@ NO npm install needed for: {nodejs_builtin_modules}
 
 {resource_limits}
 
+## Diagnostic Capabilities (Pre-installed)
+
+For system diagnostics and benchmarks, use these immediately:
+- **psutil**: CPU, memory, disk, network, processes (INSTALLED - no pip needed)
+- **platform**: OS info, architecture, Python version (STDLIB)
+- **subprocess**: Execute commands, capture output (STDLIB)
+- **json**: Structured output formatting (STDLIB)
+- **time/timeit**: Performance measurement (STDLIB)
+- **hashlib**: CPU benchmark hashing (STDLIB)
+- **os**: Environment variables, file system info (STDLIB)
+
+### Quick Diagnostic Script (copy-paste ready):
+```python
+import psutil, platform, json
+print(json.dumps({{
+    "cpu": psutil.cpu_count(),
+    "ram_gb": round(psutil.virtual_memory().total/1024**3, 1),
+    "disk_percent": psutil.disk_usage('/').percent,
+    "os": platform.system(),
+    "arch": platform.machine(),
+    "python": platform.python_version()
+}}, indent=2))
+```
+
 ## Important Usage Notes
 
 1. **No Exploration Needed:** All tools and packages listed above are confirmed available
@@ -386,6 +410,18 @@ fs, path, http, https, crypto, buffer, stream, util, events, url
 **Python:** `python3 script.py`, `pip3 install package`, `pytest tests/`
 **Node.js:** `node script.js`, `npm install package`, `jest tests/`
 **Bash:** `grep -rn 'pattern' .`, `curl -s https://api.example.com`, `jq '.' file.json`
+
+## Diagnostic Capabilities
+
+For system diagnostics and benchmarks:
+- **psutil**: CPU, memory, disk, network (install with `pip3 install psutil`)
+- **platform, os, subprocess, json, time, hashlib**: Built-in (STDLIB)
+
+Quick diagnostic pattern:
+```python
+import platform, os, json
+print(json.dumps({"os": platform.system(), "arch": platform.machine()}, indent=2))
+```
 
 ## Workspaces
 
