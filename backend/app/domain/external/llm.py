@@ -3,7 +3,7 @@ from typing import Any, Protocol, TypeVar
 
 from pydantic import BaseModel
 
-T = TypeVar('T', bound=BaseModel)
+T = TypeVar("T", bound=BaseModel)
 
 
 class LLM(Protocol):
@@ -14,7 +14,7 @@ class LLM(Protocol):
         messages: list[dict[str, str]],
         tools: list[dict[str, Any]] | None = None,
         response_format: dict[str, Any] | None = None,
-        tool_choice: str | None = None
+        tool_choice: str | None = None,
     ) -> dict[str, Any]:
         """Send chat request to AI service
 
@@ -34,7 +34,7 @@ class LLM(Protocol):
         response_model: type[T],
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | None = None,
-        enable_caching: bool = True
+        enable_caching: bool = True,
     ) -> T:
         """Send chat request with structured output validation.
 
@@ -58,7 +58,7 @@ class LLM(Protocol):
         tools: list[dict[str, Any]] | None = None,
         response_format: dict[str, Any] | None = None,
         tool_choice: str | None = None,
-        enable_caching: bool = True
+        enable_caching: bool = True,
     ) -> AsyncGenerator[str, None]:
         """Stream chat response.
 

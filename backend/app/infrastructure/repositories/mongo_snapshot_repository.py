@@ -18,19 +18,19 @@ class MongoSnapshotRepository(SnapshotRepository):
         # Serialize snapshot data based on type
         snapshot_data = {}
         if snapshot.file_system:
-            snapshot_data['file_system'] = snapshot.file_system.model_dump()
+            snapshot_data["file_system"] = snapshot.file_system.model_dump()
         if snapshot.file_content:
-            snapshot_data['file_content'] = snapshot.file_content.model_dump()
+            snapshot_data["file_content"] = snapshot.file_content.model_dump()
         if snapshot.browser:
-            snapshot_data['browser'] = snapshot.browser.model_dump()
+            snapshot_data["browser"] = snapshot.browser.model_dump()
         if snapshot.terminal:
-            snapshot_data['terminal'] = snapshot.terminal.model_dump()
+            snapshot_data["terminal"] = snapshot.terminal.model_dump()
         if snapshot.editor:
-            snapshot_data['editor'] = snapshot.editor.model_dump()
+            snapshot_data["editor"] = snapshot.editor.model_dump()
         if snapshot.plan:
-            snapshot_data['plan'] = snapshot.plan.model_dump()
+            snapshot_data["plan"] = snapshot.plan.model_dump()
         if snapshot.full_state:
-            snapshot_data['full_state'] = snapshot.full_state
+            snapshot_data["full_state"] = snapshot.full_state
 
         return SnapshotDocument(
             snapshot_id=snapshot.id,
@@ -70,32 +70,30 @@ class MongoSnapshotRepository(SnapshotRepository):
 
         # Deserialize snapshot data based on type
         data = doc.snapshot_data
-        if 'file_system' in data:
-            snapshot.file_system = FileSystemSnapshot.model_validate(data['file_system'])
-        if 'file_content' in data:
-            snapshot.file_content = FileSnapshot.model_validate(data['file_content'])
-        if 'browser' in data:
-            snapshot.browser = BrowserSnapshot.model_validate(data['browser'])
-        if 'terminal' in data:
-            snapshot.terminal = TerminalSnapshot.model_validate(data['terminal'])
-        if 'editor' in data:
-            snapshot.editor = EditorSnapshot.model_validate(data['editor'])
-        if 'plan' in data:
-            snapshot.plan = PlanSnapshot.model_validate(data['plan'])
-        if 'full_state' in data:
-            snapshot.full_state = data['full_state']
+        if "file_system" in data:
+            snapshot.file_system = FileSystemSnapshot.model_validate(data["file_system"])
+        if "file_content" in data:
+            snapshot.file_content = FileSnapshot.model_validate(data["file_content"])
+        if "browser" in data:
+            snapshot.browser = BrowserSnapshot.model_validate(data["browser"])
+        if "terminal" in data:
+            snapshot.terminal = TerminalSnapshot.model_validate(data["terminal"])
+        if "editor" in data:
+            snapshot.editor = EditorSnapshot.model_validate(data["editor"])
+        if "plan" in data:
+            snapshot.plan = PlanSnapshot.model_validate(data["plan"])
+        if "full_state" in data:
+            snapshot.full_state = data["full_state"]
 
         return snapshot
 
     async def save(self, snapshot: StateSnapshot) -> None:
         """Save a state snapshot."""
         doc = self._to_document(snapshot)
-        existing = await SnapshotDocument.find_one(
-            SnapshotDocument.snapshot_id == snapshot.id
-        )
+        existing = await SnapshotDocument.find_one(SnapshotDocument.snapshot_id == snapshot.id)
         if existing:
             # Update existing
-            for field, value in doc.model_dump(exclude={'id'}).items():
+            for field, value in doc.model_dump(exclude={"id"}).items():
                 setattr(existing, field, value)
             await existing.save()
         else:
@@ -110,20 +108,12 @@ class MongoSnapshotRepository(SnapshotRepository):
 
     async def find_by_id(self, snapshot_id: str) -> StateSnapshot | None:
         """Find a snapshot by its ID."""
-        doc = await SnapshotDocument.find_one(
-            SnapshotDocument.snapshot_id == snapshot_id
-        )
+        doc = await SnapshotDocument.find_one(SnapshotDocument.snapshot_id == snapshot_id)
         return self._to_domain(doc) if doc else None
 
-    async def find_by_session(
-        self,
-        session_id: str,
-        limit: int | None = None
-    ) -> list[StateSnapshot]:
+    async def find_by_session(self, session_id: str, limit: int | None = None) -> list[StateSnapshot]:
         """Find all snapshots for a session, ordered by sequence number."""
-        query = SnapshotDocument.find(
-            SnapshotDocument.session_id == session_id
-        ).sort("+sequence_number")
+        query = SnapshotDocument.find(SnapshotDocument.session_id == session_id).sort("+sequence_number")
 
         if limit:
             query = query.limit(limit)
@@ -133,104 +123,93 @@ class MongoSnapshotRepository(SnapshotRepository):
 
     async def find_by_action(self, action_id: str) -> StateSnapshot | None:
         """Find the snapshot associated with a specific action."""
-        doc = await SnapshotDocument.find_one(
-            SnapshotDocument.action_id == action_id
-        )
+        doc = await SnapshotDocument.find_one(SnapshotDocument.action_id == action_id)
         return self._to_domain(doc) if doc else None
 
-    async def find_nearest_before(
-        self,
-        session_id: str,
-        sequence_number: int
-    ) -> StateSnapshot | None:
+    async def find_nearest_before(self, session_id: str, sequence_number: int) -> StateSnapshot | None:
         """
         Find the nearest snapshot at or before the given sequence number.
         Used for efficient state reconstruction.
         """
-        doc = await SnapshotDocument.find(
-            SnapshotDocument.session_id == session_id,
-            SnapshotDocument.sequence_number <= sequence_number
-        ).sort("-sequence_number").first_or_none()
+        doc = (
+            await SnapshotDocument.find(
+                SnapshotDocument.session_id == session_id, SnapshotDocument.sequence_number <= sequence_number
+            )
+            .sort("-sequence_number")
+            .first_or_none()
+        )
 
         return self._to_domain(doc) if doc else None
 
-    async def find_nearest_before_time(
-        self,
-        session_id: str,
-        timestamp: datetime
-    ) -> StateSnapshot | None:
+    async def find_nearest_before_time(self, session_id: str, timestamp: datetime) -> StateSnapshot | None:
         """
         Find the nearest snapshot at or before the given timestamp.
         Used for time-based state reconstruction.
         """
-        doc = await SnapshotDocument.find(
-            SnapshotDocument.session_id == session_id,
-            SnapshotDocument.created_at <= timestamp
-        ).sort("-created_at").first_or_none()
+        doc = (
+            await SnapshotDocument.find(
+                SnapshotDocument.session_id == session_id, SnapshotDocument.created_at <= timestamp
+            )
+            .sort("-created_at")
+            .first_or_none()
+        )
 
         return self._to_domain(doc) if doc else None
 
     async def get_snapshots_in_range(
-        self,
-        session_id: str,
-        start_sequence: int,
-        end_sequence: int
+        self, session_id: str, start_sequence: int, end_sequence: int
     ) -> list[StateSnapshot]:
         """
         Get all snapshots within a sequence number range.
         Useful for reconstructing state over a range of actions.
         """
-        docs = await SnapshotDocument.find(
-            SnapshotDocument.session_id == session_id,
-            SnapshotDocument.sequence_number >= start_sequence,
-            SnapshotDocument.sequence_number <= end_sequence
-        ).sort("+sequence_number").to_list()
+        docs = (
+            await SnapshotDocument.find(
+                SnapshotDocument.session_id == session_id,
+                SnapshotDocument.sequence_number >= start_sequence,
+                SnapshotDocument.sequence_number <= end_sequence,
+            )
+            .sort("+sequence_number")
+            .to_list()
+        )
 
         return [self._to_domain(doc) for doc in docs]
 
     async def count_by_session(self, session_id: str) -> int:
         """Count the number of snapshots for a session."""
-        return await SnapshotDocument.find(
-            SnapshotDocument.session_id == session_id
-        ).count()
+        return await SnapshotDocument.find(SnapshotDocument.session_id == session_id).count()
 
     async def delete_by_session(self, session_id: str) -> int:
         """
         Delete all snapshots for a session.
         Returns the number of deleted snapshots.
         """
-        result = await SnapshotDocument.find(
-            SnapshotDocument.session_id == session_id
-        ).delete()
+        result = await SnapshotDocument.find(SnapshotDocument.session_id == session_id).delete()
         return result.deleted_count if result else 0
 
-    async def delete_older_than(
-        self,
-        session_id: str,
-        before_date: datetime
-    ) -> int:
+    async def delete_older_than(self, session_id: str, before_date: datetime) -> int:
         """
         Delete snapshots older than a given date.
         Used for retention policy enforcement.
         Returns the number of deleted snapshots.
         """
         result = await SnapshotDocument.find(
-            SnapshotDocument.session_id == session_id,
-            SnapshotDocument.created_at < before_date
+            SnapshotDocument.session_id == session_id, SnapshotDocument.created_at < before_date
         ).delete()
         return result.deleted_count if result else 0
 
-    async def get_latest_full_snapshot(
-        self,
-        session_id: str
-    ) -> StateSnapshot | None:
+    async def get_latest_full_snapshot(self, session_id: str) -> StateSnapshot | None:
         """
         Get the most recent full state snapshot for a session.
         Full snapshots contain complete session state.
         """
-        doc = await SnapshotDocument.find(
-            SnapshotDocument.session_id == session_id,
-            SnapshotDocument.snapshot_type == SnapshotType.FULL_STATE.value
-        ).sort("-sequence_number").first_or_none()
+        doc = (
+            await SnapshotDocument.find(
+                SnapshotDocument.session_id == session_id,
+                SnapshotDocument.snapshot_type == SnapshotType.FULL_STATE.value,
+            )
+            .sort("-sequence_number")
+            .first_or_none()
+        )
 
         return self._to_domain(doc) if doc else None

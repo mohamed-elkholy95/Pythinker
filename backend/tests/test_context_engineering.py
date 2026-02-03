@@ -24,7 +24,7 @@ class TestContextChunk:
             summary="Task completed step 1",
             message_range=(0, 10),
             token_estimate=100,
-            relevance_tags=["search", "file"]
+            relevance_tags=["search", "file"],
         )
 
         assert chunk.id == "ctx_1"
@@ -33,11 +33,7 @@ class TestContextChunk:
 
     def test_created_at_default(self):
         """Test created_at default value"""
-        chunk = ContextChunk(
-            id="ctx_1",
-            summary="Test",
-            message_range=(0, 5)
-        )
+        chunk = ContextChunk(id="ctx_1", summary="Test", message_range=(0, 5))
 
         assert chunk.created_at is not None
 
@@ -57,11 +53,7 @@ class TestContextServiceConfig:
 
     def test_custom_config(self):
         """Test custom configuration"""
-        config = ContextServiceConfig(
-            enabled=False,
-            auto_summarize_threshold=10,
-            max_injected_tokens=1000
-        )
+        config = ContextServiceConfig(enabled=False, auto_summarize_threshold=10, max_injected_tokens=1000)
 
         assert config.enabled is False
         assert config.auto_summarize_threshold == 10
@@ -75,28 +67,28 @@ class TestContextEngineeringService:
     def mock_llm(self):
         """Create mock LLM"""
         llm = MagicMock()
-        llm.ask = AsyncMock(return_value={
-            "content": "Summarized context: completed search and file operations"
-        })
+        llm.ask = AsyncMock(return_value={"content": "Summarized context: completed search and file operations"})
         return llm
 
     @pytest.fixture
     def test_memory(self):
         """Create test memory with messages"""
         memory = Memory()
-        memory.add_messages([
-            {"role": "system", "content": "System prompt"},
-            {"role": "user", "content": "Search for Python tutorials"},
-            {"role": "assistant", "content": "I'll search for that"},
-            {"role": "tool", "function_name": "search", "content": "Results..."},
-            {"role": "assistant", "content": "Found several tutorials"},
-            {"role": "user", "content": "Read the first one"},
-            {"role": "assistant", "content": "Reading the tutorial"},
-            {"role": "tool", "function_name": "file_read", "content": "File content..."},
-            {"role": "assistant", "content": "Here is the content"},
-            {"role": "user", "content": "Summarize it"},
-            {"role": "assistant", "content": "Summary of the tutorial"},
-        ])
+        memory.add_messages(
+            [
+                {"role": "system", "content": "System prompt"},
+                {"role": "user", "content": "Search for Python tutorials"},
+                {"role": "assistant", "content": "I'll search for that"},
+                {"role": "tool", "function_name": "search", "content": "Results..."},
+                {"role": "assistant", "content": "Found several tutorials"},
+                {"role": "user", "content": "Read the first one"},
+                {"role": "assistant", "content": "Reading the tutorial"},
+                {"role": "tool", "function_name": "file_read", "content": "File content..."},
+                {"role": "assistant", "content": "Here is the content"},
+                {"role": "user", "content": "Summarize it"},
+                {"role": "assistant", "content": "Summary of the tutorial"},
+            ]
+        )
         return memory
 
     def test_initialization(self, mock_llm):
@@ -117,10 +109,7 @@ class TestContextEngineeringService:
 
     def test_should_summarize_message_threshold(self, mock_llm, test_memory):
         """Test summarization triggered by message threshold"""
-        config = ContextServiceConfig(
-            enabled=True,
-            auto_summarize_threshold=5
-        )
+        config = ContextServiceConfig(enabled=True, auto_summarize_threshold=5)
         service = ContextEngineeringService(llm=mock_llm, config=config)
         service._messages_since_summary = 10
 
@@ -132,7 +121,7 @@ class TestContextEngineeringService:
         config = ContextServiceConfig(
             enabled=True,
             auto_summarize_threshold=100,  # High to not trigger
-            summarize_after_steps=2
+            summarize_after_steps=2,
         )
         service = ContextEngineeringService(llm=mock_llm, config=config)
         service._steps_since_summary = 3
@@ -146,17 +135,10 @@ class TestContextEngineeringService:
         memory = Memory()
         memory.config = MemoryConfig(auto_compact_token_threshold=1000)
         # Add many messages to increase token count
-        for i in range(50):
-            memory.add_message({
-                "role": "assistant",
-                "content": "This is a longer message with more content " * 10
-            })
+        for _i in range(50):
+            memory.add_message({"role": "assistant", "content": "This is a longer message with more content " * 10})
 
-        config = ContextServiceConfig(
-            enabled=True,
-            auto_summarize_threshold=100,
-            summarize_after_steps=100
-        )
+        config = ContextServiceConfig(enabled=True, auto_summarize_threshold=100, summarize_after_steps=100)
         service = ContextEngineeringService(llm=mock_llm, config=config)
 
         result = service.should_summarize(memory)
@@ -191,10 +173,12 @@ class TestContextEngineeringService:
     async def test_summarize_and_store_too_few_messages(self, mock_llm):
         """Test summarization with too few messages"""
         memory = Memory()
-        memory.add_messages([
-            {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "Hi"},
-        ])
+        memory.add_messages(
+            [
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": "Hi"},
+            ]
+        )
 
         service = ContextEngineeringService(llm=mock_llm)
 
@@ -227,11 +211,7 @@ class TestContextEngineeringService:
     @pytest.mark.asyncio
     async def test_get_relevant_context_recent_fallback(self, mock_llm):
         """Test getting context with recent fallback"""
-        config = ContextServiceConfig(
-            use_semantic_retrieval=False,
-            fallback_to_recent=True,
-            max_chunks_to_retrieve=2
-        )
+        config = ContextServiceConfig(use_semantic_retrieval=False, fallback_to_recent=True, max_chunks_to_retrieve=2)
         service = ContextEngineeringService(llm=mock_llm, config=config)
 
         # Add some context chunks
@@ -251,7 +231,7 @@ class TestContextEngineeringService:
         """Test that context retrieval respects token budget"""
         config = ContextServiceConfig(
             use_semantic_retrieval=False,
-            max_injected_tokens=100  # Small budget
+            max_injected_tokens=100,  # Small budget
         )
         service = ContextEngineeringService(llm=mock_llm, config=config)
 
@@ -295,10 +275,7 @@ class TestContextEngineeringService:
         # Add a context chunk
         service._context_chunks = [
             ContextChunk(
-                id="ctx_1",
-                summary="Previous search found 3 tutorials",
-                message_range=(0, 5),
-                token_estimate=50
+                id="ctx_1", summary="Previous search found 3 tutorials", message_range=(0, 5), token_estimate=50
             )
         ]
 
@@ -351,9 +328,7 @@ class TestContextEngineeringService:
     def test_reset(self, mock_llm):
         """Test service reset"""
         service = ContextEngineeringService(llm=mock_llm)
-        service._context_chunks = [
-            ContextChunk(id="ctx_1", summary="Test", message_range=(0, 5))
-        ]
+        service._context_chunks = [ContextChunk(id="ctx_1", summary="Test", message_range=(0, 5))]
         service._chunk_counter = 5
         service._messages_since_summary = 20
         service._steps_since_summary = 10
@@ -410,10 +385,7 @@ class TestMemoryFork:
     def test_fork_creates_copy(self):
         """Test that fork creates an independent copy"""
         memory = Memory()
-        memory.add_messages([
-            {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "Hi"}
-        ])
+        memory.add_messages([{"role": "user", "content": "Hello"}, {"role": "assistant", "content": "Hi"}])
 
         forked = memory.fork()
 
@@ -453,16 +425,10 @@ class TestMemoryFork:
     def test_merge_from_adds_messages(self):
         """Test merging messages from another memory"""
         memory1 = Memory()
-        memory1.add_messages([
-            {"role": "user", "content": "Message 1"},
-            {"role": "assistant", "content": "Response 1"}
-        ])
+        memory1.add_messages([{"role": "user", "content": "Message 1"}, {"role": "assistant", "content": "Response 1"}])
 
         memory2 = Memory()
-        memory2.add_messages([
-            {"role": "user", "content": "Message 2"},
-            {"role": "assistant", "content": "Response 2"}
-        ])
+        memory2.add_messages([{"role": "user", "content": "Message 2"}, {"role": "assistant", "content": "Response 2"}])
 
         added = memory1.merge_from(memory2)
 
@@ -472,16 +438,15 @@ class TestMemoryFork:
     def test_merge_from_deduplicates(self):
         """Test that merge deduplicates messages"""
         memory1 = Memory()
-        memory1.add_messages([
-            {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "Hi"}
-        ])
+        memory1.add_messages([{"role": "user", "content": "Hello"}, {"role": "assistant", "content": "Hi"}])
 
         memory2 = Memory()
-        memory2.add_messages([
-            {"role": "user", "content": "Hello"},  # Duplicate
-            {"role": "assistant", "content": "Different response"}
-        ])
+        memory2.add_messages(
+            [
+                {"role": "user", "content": "Hello"},  # Duplicate
+                {"role": "assistant", "content": "Different response"},
+            ]
+        )
 
         added = memory1.merge_from(memory2, deduplicate=True)
 

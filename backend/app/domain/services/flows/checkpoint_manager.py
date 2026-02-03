@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 class CheckpointStatus(str, Enum):
     """Status of a workflow checkpoint."""
+
     ACTIVE = "active"  # Currently executing
     PAUSED = "paused"  # Manually paused
     RESUMED = "resumed"  # Resumed from checkpoint
@@ -32,6 +33,7 @@ class WorkflowCheckpoint:
 
     Stores complete workflow state for persistence and recovery.
     """
+
     workflow_id: str
     session_id: str
     stage_index: int
@@ -191,9 +193,7 @@ class CheckpointManager:
         if self._collection:
             try:
                 await self._collection.update_one(
-                    {"workflow_id": workflow.id, "session_id": session_id},
-                    {"$set": checkpoint.to_dict()},
-                    upsert=True
+                    {"workflow_id": workflow.id, "session_id": session_id}, {"$set": checkpoint.to_dict()}, upsert=True
                 )
                 logger.debug(f"Saved checkpoint for workflow {workflow.id}")
             except Exception as e:
@@ -224,10 +224,12 @@ class CheckpointManager:
 
         if self._collection:
             try:
-                doc = await self._collection.find_one({
-                    "workflow_id": workflow_id,
-                    "session_id": session_id,
-                })
+                doc = await self._collection.find_one(
+                    {
+                        "workflow_id": workflow_id,
+                        "session_id": session_id,
+                    }
+                )
                 if doc:
                     checkpoint = WorkflowCheckpoint.from_dict(doc)
                     if not checkpoint.is_expired():
@@ -262,10 +264,12 @@ class CheckpointManager:
 
         if self._collection:
             try:
-                result = await self._collection.delete_one({
-                    "workflow_id": workflow_id,
-                    "session_id": session_id,
-                })
+                result = await self._collection.delete_one(
+                    {
+                        "workflow_id": workflow_id,
+                        "session_id": session_id,
+                    }
+                )
                 return result.deleted_count > 0
             except Exception as e:
                 logger.error(f"Failed to delete checkpoint from MongoDB: {e}")
@@ -307,19 +311,21 @@ class CheckpointManager:
                 async for doc in self._collection.find(query):
                     checkpoint = WorkflowCheckpoint.from_dict(doc)
                     if include_expired or not checkpoint.is_expired():
-                        checkpoints.append({
-                            "workflow_id": checkpoint.workflow_id,
-                            "session_id": checkpoint.session_id,
-                            "status": checkpoint.status.value,
-                            "stage_index": checkpoint.stage_index,
-                            "completed_steps": len(checkpoint.completed_steps),
-                            "created_at": checkpoint.created_at.isoformat(),
-                            "updated_at": checkpoint.updated_at.isoformat(),
-                        })
+                        checkpoints.append(
+                            {
+                                "workflow_id": checkpoint.workflow_id,
+                                "session_id": checkpoint.session_id,
+                                "status": checkpoint.status.value,
+                                "stage_index": checkpoint.stage_index,
+                                "completed_steps": len(checkpoint.completed_steps),
+                                "created_at": checkpoint.created_at.isoformat(),
+                                "updated_at": checkpoint.updated_at.isoformat(),
+                            }
+                        )
             except Exception as e:
                 logger.error(f"Failed to list checkpoints from MongoDB: {e}")
         else:
-            for key, checkpoint in self._memory_storage.items():
+            for _key, checkpoint in self._memory_storage.items():
                 if session_id and checkpoint.session_id != session_id:
                     continue
                 if status and checkpoint.status != status:
@@ -327,15 +333,17 @@ class CheckpointManager:
                 if not include_expired and checkpoint.is_expired():
                     continue
 
-                checkpoints.append({
-                    "workflow_id": checkpoint.workflow_id,
-                    "session_id": checkpoint.session_id,
-                    "status": checkpoint.status.value,
-                    "stage_index": checkpoint.stage_index,
-                    "completed_steps": len(checkpoint.completed_steps),
-                    "created_at": checkpoint.created_at.isoformat(),
-                    "updated_at": checkpoint.updated_at.isoformat(),
-                })
+                checkpoints.append(
+                    {
+                        "workflow_id": checkpoint.workflow_id,
+                        "session_id": checkpoint.session_id,
+                        "status": checkpoint.status.value,
+                        "stage_index": checkpoint.stage_index,
+                        "completed_steps": len(checkpoint.completed_steps),
+                        "created_at": checkpoint.created_at.isoformat(),
+                        "updated_at": checkpoint.updated_at.isoformat(),
+                    }
+                )
 
         return checkpoints
 
@@ -438,10 +446,12 @@ class CheckpointManager:
             try:
                 await self._collection.update_one(
                     {"workflow_id": workflow_id, "session_id": session_id},
-                    {"$set": {
-                        "status": CheckpointStatus.COMPLETED.value,
-                        "updated_at": checkpoint.updated_at.isoformat(),
-                    }}
+                    {
+                        "$set": {
+                            "status": CheckpointStatus.COMPLETED.value,
+                            "updated_at": checkpoint.updated_at.isoformat(),
+                        }
+                    },
                 )
                 return True
             except Exception as e:
@@ -462,17 +472,12 @@ class CheckpointManager:
 
         if self._collection:
             try:
-                result = await self._collection.delete_many({
-                    "expires_at": {"$lt": datetime.now().isoformat()}
-                })
+                result = await self._collection.delete_many({"expires_at": {"$lt": datetime.now().isoformat()}})
                 cleaned = result.deleted_count
             except Exception as e:
                 logger.error(f"Failed to cleanup expired checkpoints: {e}")
         else:
-            expired_keys = [
-                key for key, cp in self._memory_storage.items()
-                if cp.is_expired()
-            ]
+            expired_keys = [key for key, cp in self._memory_storage.items() if cp.is_expired()]
             for key in expired_keys:
                 del self._memory_storage[key]
                 cleaned += 1

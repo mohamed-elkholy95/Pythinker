@@ -94,12 +94,7 @@ class SwarmAgent(BaseAgent):
         async for event in self.execute(full_prompt):
             yield event
 
-    async def execute_step(
-        self,
-        plan: Plan,
-        step: Step,
-        message: Message
-    ) -> AsyncGenerator[BaseEvent, None]:
+    async def execute_step(self, plan: Plan, step: Step, message: Message) -> AsyncGenerator[BaseEvent, None]:
         """Execute a single step from a plan.
 
         This method provides compatibility with the multi-agent dispatch
@@ -178,18 +173,14 @@ Respond with JSON in this format:
         except ValueError as e:
             # Handle known errors like "Agent not found" more gracefully
             error_msg = str(e)
-            logger.error(
-                f"SwarmAgent {self._agent_id} step execution failed with ValueError: {error_msg}"
-            )
+            logger.error(f"SwarmAgent {self._agent_id} step execution failed with ValueError: {error_msg}")
             step.status = ExecutionStatus.FAILED
             step.error = error_msg
             yield StepEvent(status=StepStatus.FAILED, step=step)
             yield ErrorEvent(error=f"Agent configuration error: {error_msg}")
 
         except Exception as e:
-            logger.exception(
-                f"SwarmAgent {self._agent_id} step execution failed unexpectedly: {e}"
-            )
+            logger.exception(f"SwarmAgent {self._agent_id} step execution failed unexpectedly: {e}")
             step.status = ExecutionStatus.FAILED
             step.error = str(e)
             yield StepEvent(status=StepStatus.FAILED, step=step)
@@ -287,9 +278,7 @@ class DefaultAgentFactory:
                 logger.debug(f"Agent document already exists: {agent_id[:16]}")
         except Exception as e:
             logger.error(f"Failed to ensure agent document exists for {agent_id}: {e}")
-            raise RuntimeError(
-                f"Cannot create agent {agent_id}: database operation failed - {e}"
-            ) from e
+            raise RuntimeError(f"Cannot create agent {agent_id}: database operation failed - {e}") from e
 
     async def execute_agent(
         self,
@@ -329,37 +318,27 @@ class DefaultAgentFactory:
         tools.append(MessageTool())
 
         # Add tools based on capabilities
-        if AgentCapability.SHELL_COMMANDS in spec.capabilities:
-            if self._sandbox:
-                tools.append(ShellTool(self._sandbox))
+        if AgentCapability.SHELL_COMMANDS in spec.capabilities and self._sandbox:
+            tools.append(ShellTool(self._sandbox))
 
-        if AgentCapability.FILE_OPERATIONS in spec.capabilities:
-            if self._sandbox:
-                tools.append(FileTool(self._sandbox))
+        if AgentCapability.FILE_OPERATIONS in spec.capabilities and self._sandbox:
+            tools.append(FileTool(self._sandbox))
 
-        if AgentCapability.WEB_BROWSING in spec.capabilities:
-            if self._browser:
-                tools.append(BrowserTool(self._browser))
+        if AgentCapability.WEB_BROWSING in spec.capabilities and self._browser:
+            tools.append(BrowserTool(self._browser))
 
-        if AgentCapability.WEB_SEARCH in spec.capabilities:
-            if self._search_engine:
-                tools.append(SearchTool(self._search_engine))
+        # Pass browser to SearchTool for visual search when search_prefer_browser is enabled
+        if AgentCapability.WEB_SEARCH in spec.capabilities and self._search_engine:
+            tools.append(SearchTool(self._search_engine, browser=self._browser))
 
-        if AgentCapability.CODE_EXECUTION in spec.capabilities:
-            if self._sandbox:
-                tools.append(CodeExecutorTool(
-                    sandbox=self._sandbox,
-                    session_id=spec.agent_type.value
-                ))
+        if AgentCapability.CODE_EXECUTION in spec.capabilities and self._sandbox:
+            tools.append(CodeExecutorTool(sandbox=self._sandbox, session_id=spec.agent_type.value))
 
         # Add MCP tool if available (provides additional capabilities)
         if self._mcp_tool:
             tools.append(self._mcp_tool)
 
-        logger.debug(
-            f"Built {len(tools)} tools for {spec.agent_type.value}: "
-            f"{[t.name for t in tools]}"
-        )
+        logger.debug(f"Built {len(tools)} tools for {spec.agent_type.value}: {[t.name for t in tools]}")
 
         return tools
 

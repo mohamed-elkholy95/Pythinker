@@ -11,9 +11,9 @@ from typing import List
 import defusedxml.xmlrpc
 defusedxml.xmlrpc.monkey_patch()
 
-from app.core.config import settings
-from app.core.exceptions import BadRequestException, ResourceNotFoundException
-from app.models.supervisor import (
+from app.core.config import settings  # noqa: E402
+from app.core.exceptions import BadRequestException, ResourceNotFoundException  # noqa: E402
+from app.models.supervisor import (  # noqa: E402
     ProcessInfo, 
     SupervisorActionResult, 
     SupervisorTimeout
@@ -103,7 +103,7 @@ class SupervisorService:
         try:
             loop = asyncio.get_event_loop()
             self.shutdown_task = loop.create_task(shutdown_after_timeout())
-        except Exception as e:
+        except Exception:
             # If async task creation fails, fall back to thread timer
             if hasattr(self, 'shutdown_timer') and self.shutdown_timer:
                 self.shutdown_timer.cancel()

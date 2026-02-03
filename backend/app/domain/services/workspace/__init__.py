@@ -1,4 +1,5 @@
 """Workspace management services."""
+
 from app.domain.services.workspace.session_workspace_initializer import (
     SessionWorkspaceInitializer,
     get_session_workspace_initializer,

@@ -21,18 +21,20 @@ from pydantic import BaseModel, Field
 
 class SourceType(str, Enum):
     """Type of source for a claim."""
-    DIRECT_CONTENT = "direct"       # Explicitly stated in source
-    INFERRED = "inferred"           # Derived from context
-    UNAVAILABLE = "unavailable"     # Could not access source
+
+    DIRECT_CONTENT = "direct"  # Explicitly stated in source
+    INFERRED = "inferred"  # Derived from context
+    UNAVAILABLE = "unavailable"  # Could not access source
 
 
 class AccessStatus(str, Enum):
     """Access status when fetching content."""
-    FULL = "full"                   # Full content accessible
-    PARTIAL = "partial"             # Preview only (e.g., truncated)
-    PAYWALL = "paywall"             # Behind paywall
+
+    FULL = "full"  # Full content accessible
+    PARTIAL = "partial"  # Preview only (e.g., truncated)
+    PAYWALL = "paywall"  # Behind paywall
     LOGIN_REQUIRED = "login_required"  # Requires authentication
-    ERROR = "error"                 # Failed to access
+    ERROR = "error"  # Failed to access
 
 
 class SourceAttribution(BaseModel):
@@ -43,23 +45,15 @@ class SourceAttribution(BaseModel):
     - Inferences made from available data
     - Information that couldn't be accessed
     """
+
     claim: str = Field(description="The claim or piece of information")
     source_type: SourceType = Field(description="How this information was obtained")
     source_url: str | None = Field(default=None, description="URL of the source")
     access_status: AccessStatus = Field(
-        default=AccessStatus.FULL,
-        description="Access status when retrieving this information"
+        default=AccessStatus.FULL, description="Access status when retrieving this information"
     )
-    confidence: float = Field(
-        ge=0.0,
-        le=1.0,
-        default=1.0,
-        description="Confidence in this attribution (0.0-1.0)"
-    )
-    raw_excerpt: str | None = Field(
-        default=None,
-        description="Actual text excerpt from source supporting this claim"
-    )
+    confidence: float = Field(ge=0.0, le=1.0, default=1.0, description="Confidence in this attribution (0.0-1.0)")
+    raw_excerpt: str | None = Field(default=None, description="Actual text excerpt from source supporting this claim")
 
     def is_verified(self) -> bool:
         """Check if this claim is verified from direct content."""
@@ -102,27 +96,16 @@ class ContentAccessResult(BaseModel):
     Contains both the content and metadata about access status
     for downstream attribution tracking.
     """
+
     url: str = Field(description="URL that was accessed")
     content: str = Field(description="Extracted text content")
     access_status: AccessStatus = Field(description="How much content was accessible")
     paywall_confidence: float = Field(
-        ge=0.0,
-        le=1.0,
-        default=0.0,
-        description="Confidence that content is behind a paywall"
+        ge=0.0, le=1.0, default=0.0, description="Confidence that content is behind a paywall"
     )
-    truncated: bool = Field(
-        default=False,
-        description="Whether content was truncated"
-    )
-    original_length: int | None = Field(
-        default=None,
-        description="Original content length before truncation"
-    )
-    paywall_indicators: list[str] = Field(
-        default_factory=list,
-        description="Detected paywall indicators"
-    )
+    truncated: bool = Field(default=False, description="Whether content was truncated")
+    original_length: int | None = Field(default=None, description="Original content length before truncation")
+    paywall_indicators: list[str] = Field(default_factory=list, description="Detected paywall indicators")
 
     def get_access_message(self) -> str:
         """Get a human-readable access status message."""
@@ -144,24 +127,14 @@ class AttributionSummary(BaseModel):
     Provides aggregate statistics about source quality and
     potential issues with the generated content.
     """
+
     total_claims: int = Field(default=0, description="Total number of claims tracked")
     verified_claims: int = Field(default=0, description="Claims from direct sources")
     inferred_claims: int = Field(default=0, description="Claims derived from context")
     unavailable_claims: int = Field(default=0, description="Claims from inaccessible sources")
-    average_confidence: float = Field(
-        ge=0.0,
-        le=1.0,
-        default=1.0,
-        description="Average confidence across all claims"
-    )
-    has_paywall_sources: bool = Field(
-        default=False,
-        description="Whether any sources were paywalled"
-    )
-    attributions: list[SourceAttribution] = Field(
-        default_factory=list,
-        description="Individual attribution records"
-    )
+    average_confidence: float = Field(ge=0.0, le=1.0, default=1.0, description="Average confidence across all claims")
+    has_paywall_sources: bool = Field(default=False, description="Whether any sources were paywalled")
+    attributions: list[SourceAttribution] = Field(default_factory=list, description="Individual attribution records")
 
     def add_attribution(self, attribution: SourceAttribution) -> None:
         """Add an attribution and update summary statistics."""

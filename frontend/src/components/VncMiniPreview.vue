@@ -27,6 +27,43 @@
       <div class="init-grid"></div>
     </div>
 
+    <!-- Content fetched success state (text-only operations like browser_get_content) -->
+    <div v-else-if="isTextOnlyCompleted" class="content-preview content-fetched-preview">
+      <div class="content-fetched-window">
+        <div class="content-fetched-body">
+          <div class="content-fetched-icon">
+            <svg class="check-icon" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5" class="check-circle" />
+              <path d="M7 12.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="check-mark" />
+            </svg>
+          </div>
+          <span class="content-fetched-label">Content fetched</span>
+          <span v-if="contentFetchedDetail" class="content-fetched-detail">{{ contentFetchedDetail }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Text-only operation loading state (fetching content) -->
+    <div v-else-if="isTextOnlyOperation && props.isActive" class="content-preview content-fetching-preview">
+      <div class="content-fetching-window">
+        <div class="content-fetching-body">
+          <div class="content-fetching-icon">
+            <Globe :size="18" class="globe-spinning" />
+          </div>
+          <span class="content-fetching-label">Fetching content<span class="fetching-dots"></span></span>
+          <span v-if="contentFetchedDetail" class="content-fetching-detail">{{ contentFetchedDetail }}</span>
+        </div>
+      </div>
+      <div class="activity-indicator"></div>
+    </div>
+
+    <!-- Wide Research view (parallel multi-source search) -->
+    <WideResearchMiniPreview
+      v-else-if="isWideResearch && wideResearchState"
+      :state="wideResearchState"
+      :is-active="isActive"
+    />
+
     <!-- Terminal view (shell, code_executor) -->
     <div v-else-if="currentViewType === 'terminal' && contentPreview" class="content-preview terminal-preview">
       <div class="terminal-window">
@@ -167,7 +204,9 @@
 import { computed, toRef } from 'vue';
 import { Monitor, Terminal, FileText, Globe, Code, Wrench, Search, Loader2 } from 'lucide-vue-next';
 import VNCViewer from '@/components/VNCViewer.vue';
+import WideResearchMiniPreview from '@/components/WideResearchMiniPreview.vue';
 import { useContentConfig } from '@/composables/useContentConfig';
+import { useWideResearchGlobal } from '@/composables/useWideResearch';
 import type { ToolContent } from '@/types/message';
 
 const props = withDefaults(defineProps<{
@@ -224,7 +263,37 @@ const effectiveToolContent = computed<ToolContent | undefined>(() => {
 });
 
 // Use content config to determine view type
-const { currentViewType } = useContentConfig(toRef(() => effectiveToolContent.value));
+const { currentViewType, isTextOnlyOperation } = useContentConfig(toRef(() => effectiveToolContent.value));
+
+// Wide research state
+const { miniState: wideResearchState, isActive: wideResearchActive } = useWideResearchGlobal();
+
+// Check if this is a wide research tool
+const isWideResearch = computed(() => {
+  const toolName = props.toolName?.toLowerCase() || '';
+  const toolFunc = props.toolFunction?.toLowerCase() || '';
+  return (toolName.includes('wide_research') || toolFunc.includes('wide_research')) && wideResearchActive.value;
+});
+
+// Check if this is a completed text-only operation (show "Content fetched" state)
+const isTextOnlyCompleted = computed(() => {
+  return isTextOnlyOperation.value && !props.isActive;
+});
+
+// Get URL detail for content fetched display
+const contentFetchedDetail = computed(() => {
+  const args = props.toolContent?.args || effectiveToolContent.value?.args || {};
+  if (args.url) {
+    try {
+      const u = new URL(args.url);
+      const path = u.pathname.length > 25 ? u.pathname.slice(0, 22) + '...' : u.pathname;
+      return u.hostname + path;
+    } catch {
+      return args.url.slice(0, 35) + (args.url.length > 35 ? '...' : '');
+    }
+  }
+  return '';
+});
 
 // Helper to truncate text
 const truncate = (text: string, maxLength: number): string => {
@@ -1236,5 +1305,197 @@ const sizeClass = computed(() => {
 
 :global(.dark) .empty-icon {
   color: #6b7280;
+}
+
+/* ===== Content Fetched Success State ===== */
+.content-fetched-preview {
+  background: #ffffff;
+}
+
+.content-fetched-window {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #ffffff;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.content-fetched-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 4px;
+  padding: 8px;
+}
+
+.content-fetched-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.content-fetched-icon .check-icon {
+  width: 100%;
+  height: 100%;
+  color: #22c55e;
+}
+
+.content-fetched-icon .check-circle {
+  opacity: 0.3;
+}
+
+.content-fetched-icon .check-mark {
+  stroke-dasharray: 20;
+  stroke-dashoffset: 0;
+  animation: draw-check-mini 0.4s ease-out forwards;
+}
+
+@keyframes draw-check-mini {
+  from {
+    stroke-dashoffset: 20;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.content-fetched-label {
+  font-size: 8px;
+  font-weight: 600;
+  color: #22c55e;
+  text-align: center;
+}
+
+.content-fetched-detail {
+  font-size: 6px;
+  color: #6b7280;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 90%;
+}
+
+:global(.dark) .content-fetched-preview {
+  background: #1a1a1a;
+}
+
+:global(.dark) .content-fetched-window {
+  background: #1a1a1a;
+}
+
+:global(.dark) .content-fetched-icon .check-icon {
+  color: #4ade80;
+}
+
+:global(.dark) .content-fetched-label {
+  color: #4ade80;
+}
+
+:global(.dark) .content-fetched-detail {
+  color: #9ca3af;
+}
+
+/* ===== Content Fetching Loading State ===== */
+.content-fetching-preview {
+  background: #ffffff;
+}
+
+.content-fetching-window {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #ffffff;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.content-fetching-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 4px;
+  padding: 8px;
+}
+
+.content-fetching-icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #3b82f6;
+}
+
+.globe-spinning {
+  animation: globe-pulse 2s ease-in-out infinite;
+}
+
+@keyframes globe-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+}
+
+.content-fetching-label {
+  font-size: 7px;
+  font-weight: 500;
+  color: #3b82f6;
+  text-align: center;
+}
+
+.fetching-dots::after {
+  content: '';
+  animation: fetching-ellipsis 1.5s steps(4, end) infinite;
+}
+
+@keyframes fetching-ellipsis {
+  0% { content: ''; }
+  25% { content: '.'; }
+  50% { content: '..'; }
+  75% { content: '...'; }
+  100% { content: ''; }
+}
+
+.content-fetching-detail {
+  font-size: 6px;
+  color: #6b7280;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 90%;
+}
+
+:global(.dark) .content-fetching-preview {
+  background: #1a1a1a;
+}
+
+:global(.dark) .content-fetching-window {
+  background: #1a1a1a;
+}
+
+:global(.dark) .content-fetching-icon {
+  color: #60a5fa;
+}
+
+:global(.dark) .content-fetching-label {
+  color: #60a5fa;
+}
+
+:global(.dark) .content-fetching-detail {
+  color: #9ca3af;
 }
 </style>

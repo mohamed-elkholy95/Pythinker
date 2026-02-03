@@ -91,12 +91,8 @@ class SystemIntegrator:
                 return False
 
         # Register strategies
-        self.error_manager.register_recovery_strategy(
-            ErrorCategory.NETWORK, network_recovery_strategy
-        )
-        self.error_manager.register_recovery_strategy(
-            ErrorCategory.RESOURCE, resource_recovery_strategy
-        )
+        self.error_manager.register_recovery_strategy(ErrorCategory.NETWORK, network_recovery_strategy)
+        self.error_manager.register_recovery_strategy(ErrorCategory.RESOURCE, resource_recovery_strategy)
 
     async def _cleanup_resources(self):
         """Clean up any remaining resources"""

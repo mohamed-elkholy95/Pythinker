@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Unit test for LLM wrapper that removes response_format"""
+
 import sys
 
 
@@ -81,6 +82,7 @@ def test_wrapper():
     # Test 4: Test async invoke with response_format
     print("\nTest 4: Test async invoke with response_format")
     import asyncio
+
     asyncio.run(wrapped.ainvoke("test", response_format={"type": "json"}, temperature=0.5))
     if "response_format" in mock_llm.last_invoke_kwargs:
         print(f"❌ FAILED: response_format passed to underlying LLM: {mock_llm.last_invoke_kwargs}")
@@ -131,5 +133,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n❌ Test failed with exception: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

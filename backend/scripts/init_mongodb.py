@@ -15,6 +15,7 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import contextlib
 import logging
 
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -45,7 +46,7 @@ async def init_mongodb():
 
     try:
         # Verify connection
-        await client.admin.command('ping')
+        await client.admin.command("ping")
         logger.info("✅ Connected to MongoDB")
 
         # ====================================
@@ -54,10 +55,8 @@ async def init_mongodb():
         logger.info("Setting up sessions collection...")
 
         # Drop existing indexes (fresh start)
-        try:
+        with contextlib.suppress(Exception):
             await db.sessions.drop_indexes()
-        except Exception:
-            pass
 
         # Create indexes for sessions
         await db.sessions.create_index("user_id")
@@ -83,10 +82,8 @@ async def init_mongodb():
         # ====================================
         logger.info("Setting up events collection...")
 
-        try:
+        with contextlib.suppress(Exception):
             await db.events.drop_indexes()
-        except Exception:
-            pass
 
         await db.events.create_index("session_id")
         await db.events.create_index("type")
@@ -100,10 +97,8 @@ async def init_mongodb():
         # ====================================
         logger.info("Setting up users collection...")
 
-        try:
+        with contextlib.suppress(Exception):
             await db.users.drop_indexes()
-        except Exception:
-            pass
 
         await db.users.create_index("email", unique=True)
         await db.users.create_index("username", unique=True)
@@ -117,10 +112,8 @@ async def init_mongodb():
         logger.info("Setting up usage tracking collections...")
 
         # Usage records
-        try:
+        with contextlib.suppress(Exception):
             await db.usage_records.drop_indexes()
-        except Exception:
-            pass
 
         await db.usage_records.create_index("user_id")
         await db.usage_records.create_index("session_id")
@@ -129,20 +122,16 @@ async def init_mongodb():
         await db.usage_records.create_index([("session_id", 1), ("created_at", -1)])
 
         # Session usage
-        try:
+        with contextlib.suppress(Exception):
             await db.session_usage.drop_indexes()
-        except Exception:
-            pass
 
         await db.session_usage.create_index("session_id", unique=True)
         await db.session_usage.create_index("user_id")
         await db.session_usage.create_index("last_activity")
 
         # Daily aggregates
-        try:
+        with contextlib.suppress(Exception):
             await db.daily_usage.drop_indexes()
-        except Exception:
-            pass
 
         await db.daily_usage.create_index([("user_id", 1), ("date", -1)], unique=True)
         await db.daily_usage.create_index("date")
@@ -154,10 +143,8 @@ async def init_mongodb():
         # ====================================
         logger.info("Setting up session metrics collection...")
 
-        try:
+        with contextlib.suppress(Exception):
             await db.session_metrics.drop_indexes()
-        except Exception:
-            pass
 
         await db.session_metrics.create_index("session_id", unique=True)
         await db.session_metrics.create_index("user_id")
@@ -203,10 +190,8 @@ async def init_mongodb():
         logger.info("Setting up agent collections...")
 
         # Agents collection
-        try:
+        with contextlib.suppress(Exception):
             await db.agents.drop_indexes()
-        except Exception:
-            pass
 
         await db.agents.create_index("user_id")
         await db.agents.create_index("name")
@@ -219,19 +204,15 @@ async def init_mongodb():
         # ====================================
         logger.info("Setting up knowledge collections...")
 
-        try:
+        with contextlib.suppress(Exception):
             await db.knowledge.drop_indexes()
-        except Exception:
-            pass
 
         await db.knowledge.create_index("session_id")
         await db.knowledge.create_index("scope")
         await db.knowledge.create_index("created_at")
 
-        try:
+        with contextlib.suppress(Exception):
             await db.datasources.drop_indexes()
-        except Exception:
-            pass
 
         await db.datasources.create_index("session_id")
         await db.datasources.create_index("api_name")
@@ -242,18 +223,18 @@ async def init_mongodb():
         # SUMMARY
         # ====================================
         collections = await db.list_collection_names()
-        logger.info(f"\n{'='*60}")
+        logger.info(f"\n{'=' * 60}")
         logger.info("MongoDB Schema Initialization Complete!")
-        logger.info(f"{'='*60}")
+        logger.info(f"{'=' * 60}")
         logger.info(f"Database: {settings.mongodb_database}")
         logger.info(f"Collections created: {len(collections)}")
         logger.info(f"Collections: {', '.join(sorted(collections))}")
-        logger.info(f"{'='*60}\n")
+        logger.info(f"{'=' * 60}\n")
 
         # Show index counts
         logger.info("Index counts:")
         for coll_name in sorted(collections):
-            if not coll_name.endswith('.chunks'):  # Skip GridFS chunks
+            if not coll_name.endswith(".chunks"):  # Skip GridFS chunks
                 indexes = await db[coll_name].list_indexes().to_list(None)
                 logger.info(f"  {coll_name}: {len(indexes)} indexes")
 

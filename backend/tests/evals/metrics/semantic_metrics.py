@@ -7,7 +7,7 @@ and keyword analysis.
 import math
 import re
 from collections import Counter
-from typing import Any
+from typing import Any, ClassVar
 
 from tests.evals.metrics.base import BaseMetric, MetricScore
 
@@ -32,10 +32,7 @@ class SimilarityMetric(BaseMetric):
 
         if not expected_output:
             return MetricScore(
-                metric_name=self.name,
-                score=1.0,
-                passed=True,
-                message="No expected output for similarity comparison"
+                metric_name=self.name, score=1.0, passed=True, message="No expected output for similarity comparison"
             )
 
         # Tokenize and create word frequency vectors
@@ -59,14 +56,13 @@ class SimilarityMetric(BaseMetric):
                 "actual_word_count": len(actual_words),
                 "expected_word_count": len(expected_words),
             },
-            message=f"Similarity score: {similarity:.3f} (threshold: {threshold})"
+            message=f"Similarity score: {similarity:.3f} (threshold: {threshold})",
         )
 
     def _tokenize(self, text: str) -> list[str]:
         """Tokenize text into lowercase words."""
         # Simple word tokenization
-        words = re.findall(r'\b[a-zA-Z]+\b', text.lower())
-        return words
+        return re.findall(r"\b[a-zA-Z]+\b", text.lower())
 
     def _cosine_similarity(self, words1: list[str], words2: list[str]) -> float:
         """Calculate cosine similarity between two word lists."""
@@ -82,8 +78,8 @@ class SimilarityMetric(BaseMetric):
 
         # Calculate dot product and magnitudes
         dot_product = sum(freq1.get(w, 0) * freq2.get(w, 0) for w in all_words)
-        mag1 = math.sqrt(sum(v ** 2 for v in freq1.values()))
-        mag2 = math.sqrt(sum(v ** 2 for v in freq2.values()))
+        mag1 = math.sqrt(sum(v**2 for v in freq1.values()))
+        mag2 = math.sqrt(sum(v**2 for v in freq2.values()))
 
         if mag1 == 0 or mag2 == 0:
             return 0.0
@@ -102,19 +98,111 @@ class KeywordCoverageMetric(BaseMetric):
     description = "Checks that important keywords from expected output appear in actual"
 
     # Common words to ignore
-    STOP_WORDS = {
-        "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
-        "have", "has", "had", "do", "does", "did", "will", "would", "could",
-        "should", "may", "might", "must", "shall", "can", "need", "dare",
-        "ought", "used", "to", "of", "in", "for", "on", "with", "at", "by",
-        "from", "as", "into", "through", "during", "before", "after",
-        "above", "below", "between", "under", "again", "further", "then",
-        "once", "here", "there", "when", "where", "why", "how", "all",
-        "each", "few", "more", "most", "other", "some", "such", "no", "nor",
-        "not", "only", "own", "same", "so", "than", "too", "very", "just",
-        "and", "but", "if", "or", "because", "until", "while", "this",
-        "that", "these", "those", "what", "which", "who", "whom", "i", "you",
-        "he", "she", "it", "we", "they", "me", "him", "her", "us", "them",
+    STOP_WORDS: ClassVar[set[str]] = {
+        "a",
+        "an",
+        "the",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "must",
+        "shall",
+        "can",
+        "need",
+        "dare",
+        "ought",
+        "used",
+        "to",
+        "of",
+        "in",
+        "for",
+        "on",
+        "with",
+        "at",
+        "by",
+        "from",
+        "as",
+        "into",
+        "through",
+        "during",
+        "before",
+        "after",
+        "above",
+        "below",
+        "between",
+        "under",
+        "again",
+        "further",
+        "then",
+        "once",
+        "here",
+        "there",
+        "when",
+        "where",
+        "why",
+        "how",
+        "all",
+        "each",
+        "few",
+        "more",
+        "most",
+        "other",
+        "some",
+        "such",
+        "no",
+        "nor",
+        "not",
+        "only",
+        "own",
+        "same",
+        "so",
+        "than",
+        "too",
+        "very",
+        "just",
+        "and",
+        "but",
+        "if",
+        "or",
+        "because",
+        "until",
+        "while",
+        "this",
+        "that",
+        "these",
+        "those",
+        "what",
+        "which",
+        "who",
+        "whom",
+        "i",
+        "you",
+        "he",
+        "she",
+        "it",
+        "we",
+        "they",
+        "me",
+        "him",
+        "her",
+        "us",
+        "them",
     }
 
     def evaluate(
@@ -131,20 +219,10 @@ class KeywordCoverageMetric(BaseMetric):
             if expected_output:
                 keywords = self._extract_keywords(expected_output)
             else:
-                return MetricScore(
-                    metric_name=self.name,
-                    score=1.0,
-                    passed=True,
-                    message="No keywords to check"
-                )
+                return MetricScore(metric_name=self.name, score=1.0, passed=True, message="No keywords to check")
 
         if not keywords:
-            return MetricScore(
-                metric_name=self.name,
-                score=1.0,
-                passed=True,
-                message="No significant keywords found"
-            )
+            return MetricScore(metric_name=self.name, score=1.0, passed=True, message="No significant keywords found")
 
         # Check keyword coverage
         actual_lower = actual_output.lower()
@@ -172,13 +250,13 @@ class KeywordCoverageMetric(BaseMetric):
                 "coverage": coverage,
                 "threshold": threshold,
             },
-            message=f"Keyword coverage: {coverage*100:.1f}% ({len(found)}/{len(keywords)})"
+            message=f"Keyword coverage: {coverage * 100:.1f}% ({len(found)}/{len(keywords)})",
         )
 
     def _extract_keywords(self, text: str, min_length: int = 4, top_n: int = 10) -> list[str]:
         """Extract significant keywords from text."""
         # Tokenize
-        words = re.findall(r'\b[a-zA-Z]+\b', text.lower())
+        words = re.findall(r"\b[a-zA-Z]+\b", text.lower())
 
         # Filter stop words and short words
         filtered = [w for w in words if w not in self.STOP_WORDS and len(w) >= min_length]
@@ -204,15 +282,12 @@ class JaccardSimilarityMetric(BaseMetric):
 
         if not expected_output:
             return MetricScore(
-                metric_name=self.name,
-                score=1.0,
-                passed=True,
-                message="No expected output for Jaccard comparison"
+                metric_name=self.name, score=1.0, passed=True, message="No expected output for Jaccard comparison"
             )
 
         # Tokenize into sets
-        actual_words = set(re.findall(r'\b[a-zA-Z]+\b', actual_output.lower()))
-        expected_words = set(re.findall(r'\b[a-zA-Z]+\b', expected_output.lower()))
+        actual_words = set(re.findall(r"\b[a-zA-Z]+\b", actual_output.lower()))
+        expected_words = set(re.findall(r"\b[a-zA-Z]+\b", expected_output.lower()))
 
         # Calculate Jaccard similarity
         if not actual_words or not expected_words:
@@ -235,5 +310,5 @@ class JaccardSimilarityMetric(BaseMetric):
                 "union_size": len(actual_words | expected_words),
                 "threshold": threshold,
             },
-            message=f"Jaccard similarity: {similarity:.3f}"
+            message=f"Jaccard similarity: {similarity:.3f}",
         )

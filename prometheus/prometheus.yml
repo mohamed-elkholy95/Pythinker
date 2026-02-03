@@ -1,0 +1,42 @@
+# Prometheus configuration for Pythinker AI Agent monitoring
+
+global:
+  scrape_interval: 15s  # Scrape targets every 15 seconds
+  evaluation_interval: 15s  # Evaluate rules every 15 seconds
+  external_labels:
+    cluster: 'pythinker-dev'
+    environment: 'development'
+
+# Alertmanager configuration (optional - for future use)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: []
+
+# Load rules once and periodically evaluate them
+rule_files:
+  - "alert_rules.yml"
+
+# Scrape configurations
+scrape_configs:
+  # Pythinker Backend Metrics
+  - job_name: 'pythinker-backend'
+    metrics_path: '/api/v1/metrics'
+    static_configs:
+      - targets: ['backend:8000']
+        labels:
+          service: 'backend'
+          component: 'api'
+    scrape_interval: 10s  # Scrape more frequently for active agent monitoring
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+
+  # Node Exporter (optional - for host metrics)
+  # - job_name: 'node-exporter'
+  #   static_configs:
+  #     - targets: ['node-exporter:9100']

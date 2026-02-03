@@ -1,4 +1,4 @@
-class AppException(RuntimeError):
+class AppError(RuntimeError):
     def __init__(
         self,
         code: int,
@@ -11,26 +11,26 @@ class AppException(RuntimeError):
         self.status_code = status_code
 
 
-class NotFoundError(AppException):
+class NotFoundError(AppError):
     def __init__(self, msg: str = "Resource not found"):
         super().__init__(code=404, msg=msg, status_code=404)
 
 
-class BadRequestError(AppException):
+class BadRequestError(AppError):
     def __init__(self, msg: str = "Bad request parameters"):
         super().__init__(code=400, msg=msg, status_code=400)
 
 
-class ValidationError(AppException):
+class ValidationError(AppError):
     def __init__(self, msg: str = "Validation error"):
         super().__init__(code=422, msg=msg, status_code=422)
 
 
-class ServerError(AppException):
+class ServerError(AppError):
     def __init__(self, msg: str = "Internal server error"):
         super().__init__(code=500, msg=msg, status_code=500)
 
 
-class UnauthorizedError(AppException):
+class UnauthorizedError(AppError):
     def __init__(self, msg: str = "Authentication required"):
         super().__init__(code=401, msg=msg, status_code=401)

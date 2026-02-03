@@ -64,25 +64,25 @@ from tests.evals.types import (
 )
 
 __all__ = [
-    # Types
-    "EvalCase",
-    "EvalResult",
-    "EvalDataset",
-    "EvalConfig",
-    "EvalReport",
-    "MetricScore",
-    # Runner
-    "EvalRunner",
-    "run_evaluation",
     # Metrics
     "BaseMetric",
-    "ExactMatchMetric",
     "ContainsMetric",
-    "SimilarityMetric",
+    # Types
+    "EvalCase",
+    "EvalConfig",
+    "EvalDataset",
+    "EvalReport",
+    "EvalResult",
+    # Runner
+    "EvalRunner",
+    "ExactMatchMetric",
     "JsonSchemaMetric",
-    "ToolCallMetric",
+    "MetricScore",
     "ResponseTimeMetric",
+    "SimilarityMetric",
     "TokenCountMetric",
+    "ToolCallMetric",
     "get_metric",
     "register_metric",
+    "run_evaluation",
 ]

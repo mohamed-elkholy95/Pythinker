@@ -9,6 +9,7 @@ from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+
 class MongoDB:
     def __init__(self):
         self._client: AsyncIOMotorClient | None = None
@@ -47,7 +48,7 @@ class MongoDB:
                     **connection_params,
                 )
             # Verify the connection
-            await self._client.admin.command('ping')
+            await self._client.admin.command("ping")
             logger.info("Successfully connected to MongoDB")
 
             # Initialize GridFS buckets for screenshot and artifact storage (Phase 2)
@@ -68,7 +69,7 @@ class MongoDB:
             self._client.close()
             self._client = None
             logger.info("Disconnected from MongoDB")
-                # Clear cache for this module
+            # Clear cache for this module
         get_mongodb.cache_clear()
 
     @property
@@ -99,19 +100,13 @@ class MongoDB:
         metadata: dict,
     ) -> str:
         """Store screenshot in GridFS and return file ID"""
-        file_id = await self.screenshot_bucket.upload_from_stream(
-            filename,
-            image_data,
-            metadata=metadata
-        )
+        file_id = await self.screenshot_bucket.upload_from_stream(filename, image_data, metadata=metadata)
         logger.debug(f"Stored screenshot: {filename} (ID: {file_id})")
         return str(file_id)
 
     async def get_screenshot(self, file_id: str) -> bytes:
         """Retrieve screenshot from GridFS"""
-        grid_out = await self.screenshot_bucket.open_download_stream(
-            ObjectId(file_id)
-        )
+        grid_out = await self.screenshot_bucket.open_download_stream(ObjectId(file_id))
         image_data = await grid_out.read()
         logger.debug(f"Retrieved screenshot: {file_id}")
         return image_data
@@ -123,19 +118,13 @@ class MongoDB:
         metadata: dict,
     ) -> str:
         """Store artifact in GridFS and return file ID"""
-        file_id = await self.artifacts_bucket.upload_from_stream(
-            filename,
-            file_data,
-            metadata=metadata
-        )
+        file_id = await self.artifacts_bucket.upload_from_stream(filename, file_data, metadata=metadata)
         logger.debug(f"Stored artifact: {filename} (ID: {file_id})")
         return str(file_id)
 
     async def get_artifact(self, file_id: str) -> bytes:
         """Retrieve artifact from GridFS"""
-        grid_out = await self.artifacts_bucket.open_download_stream(
-            ObjectId(file_id)
-        )
+        grid_out = await self.artifacts_bucket.open_download_stream(ObjectId(file_id))
         file_data = await grid_out.read()
         logger.debug(f"Retrieved artifact: {file_id}")
         return file_data
@@ -145,4 +134,3 @@ class MongoDB:
 def get_mongodb() -> MongoDB:
     """Get the MongoDB instance."""
     return MongoDB()
-

@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 class QualityRating(str, Enum):
     """Quality rating levels."""
+
     EXCELLENT = "excellent"  # 80-100
     GOOD = "good"  # 60-79
     MODERATE = "moderate"  # 40-59
@@ -31,6 +32,7 @@ class QualityRating(str, Enum):
 @dataclass
 class FunctionMetrics:
     """Metrics for a single function/method."""
+
     name: str
     line_start: int
     line_end: int
@@ -55,6 +57,7 @@ class FunctionMetrics:
 @dataclass
 class CodeMetrics:
     """Overall code metrics for a file."""
+
     file_path: str
     total_lines: int
     code_lines: int
@@ -92,6 +95,7 @@ class CodeMetrics:
 @dataclass
 class QualityIssue:
     """A code quality issue."""
+
     type: str
     severity: str
     description: str
@@ -225,7 +229,7 @@ class QualityAnalyzer:
     ) -> tuple[CodeMetrics, list[QualityIssue]]:
         """Analyze Python code using AST."""
         issues = []
-        lines = code.split('\n')
+        lines = code.split("\n")
 
         # Count line types
         total_lines = len(lines)
@@ -237,7 +241,7 @@ class QualityAnalyzer:
             stripped = line.strip()
             if not stripped:
                 blank_lines += 1
-            elif stripped.startswith('#'):
+            elif stripped.startswith("#"):
                 comment_lines += 1
             else:
                 code_lines += 1
@@ -255,78 +259,90 @@ class QualityAnalyzer:
         imports = 0
 
         for node in ast.walk(tree):
-            if isinstance(node, ast.Import) or isinstance(node, ast.ImportFrom):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
                 imports += 1
             elif isinstance(node, ast.ClassDef):
                 classes += 1
-            elif isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 func_metrics = self._analyze_function(node, code, lines)
                 functions.append(func_metrics)
 
                 # Check for issues
                 if func_metrics.cyclomatic_complexity >= self.COMPLEXITY_CRITICAL:
-                    issues.append(QualityIssue(
-                        type="high_complexity",
-                        severity="critical",
-                        description=f"Very high cyclomatic complexity ({func_metrics.cyclomatic_complexity})",
-                        file_path=file_path,
-                        line_number=func_metrics.line_start,
-                        function_name=func_metrics.name,
-                        recommendation="Break down into smaller functions",
-                    ))
+                    issues.append(
+                        QualityIssue(
+                            type="high_complexity",
+                            severity="critical",
+                            description=f"Very high cyclomatic complexity ({func_metrics.cyclomatic_complexity})",
+                            file_path=file_path,
+                            line_number=func_metrics.line_start,
+                            function_name=func_metrics.name,
+                            recommendation="Break down into smaller functions",
+                        )
+                    )
                 elif func_metrics.cyclomatic_complexity >= self.COMPLEXITY_WARNING:
-                    issues.append(QualityIssue(
-                        type="high_complexity",
-                        severity="warning",
-                        description=f"High cyclomatic complexity ({func_metrics.cyclomatic_complexity})",
-                        file_path=file_path,
-                        line_number=func_metrics.line_start,
-                        function_name=func_metrics.name,
-                        recommendation="Consider simplifying the function",
-                    ))
+                    issues.append(
+                        QualityIssue(
+                            type="high_complexity",
+                            severity="warning",
+                            description=f"High cyclomatic complexity ({func_metrics.cyclomatic_complexity})",
+                            file_path=file_path,
+                            line_number=func_metrics.line_start,
+                            function_name=func_metrics.name,
+                            recommendation="Consider simplifying the function",
+                        )
+                    )
 
                 if func_metrics.lines_of_code >= self.FUNCTION_LENGTH_CRITICAL:
-                    issues.append(QualityIssue(
-                        type="long_function",
-                        severity="critical",
-                        description=f"Very long function ({func_metrics.lines_of_code} lines)",
-                        file_path=file_path,
-                        line_number=func_metrics.line_start,
-                        function_name=func_metrics.name,
-                        recommendation="Break down into smaller functions",
-                    ))
+                    issues.append(
+                        QualityIssue(
+                            type="long_function",
+                            severity="critical",
+                            description=f"Very long function ({func_metrics.lines_of_code} lines)",
+                            file_path=file_path,
+                            line_number=func_metrics.line_start,
+                            function_name=func_metrics.name,
+                            recommendation="Break down into smaller functions",
+                        )
+                    )
                 elif func_metrics.lines_of_code >= self.FUNCTION_LENGTH_WARNING:
-                    issues.append(QualityIssue(
-                        type="long_function",
-                        severity="warning",
-                        description=f"Long function ({func_metrics.lines_of_code} lines)",
-                        file_path=file_path,
-                        line_number=func_metrics.line_start,
-                        function_name=func_metrics.name,
-                        recommendation="Consider splitting into smaller functions",
-                    ))
+                    issues.append(
+                        QualityIssue(
+                            type="long_function",
+                            severity="warning",
+                            description=f"Long function ({func_metrics.lines_of_code} lines)",
+                            file_path=file_path,
+                            line_number=func_metrics.line_start,
+                            function_name=func_metrics.name,
+                            recommendation="Consider splitting into smaller functions",
+                        )
+                    )
 
                 if func_metrics.parameters > self.PARAMETER_WARNING:
-                    issues.append(QualityIssue(
-                        type="too_many_parameters",
-                        severity="warning",
-                        description=f"Too many parameters ({func_metrics.parameters})",
-                        file_path=file_path,
-                        line_number=func_metrics.line_start,
-                        function_name=func_metrics.name,
-                        recommendation="Consider using a configuration object or data class",
-                    ))
+                    issues.append(
+                        QualityIssue(
+                            type="too_many_parameters",
+                            severity="warning",
+                            description=f"Too many parameters ({func_metrics.parameters})",
+                            file_path=file_path,
+                            line_number=func_metrics.line_start,
+                            function_name=func_metrics.name,
+                            recommendation="Consider using a configuration object or data class",
+                        )
+                    )
 
                 if func_metrics.nesting_depth > self.NESTING_WARNING:
-                    issues.append(QualityIssue(
-                        type="deep_nesting",
-                        severity="warning",
-                        description=f"Deep nesting ({func_metrics.nesting_depth} levels)",
-                        file_path=file_path,
-                        line_number=func_metrics.line_start,
-                        function_name=func_metrics.name,
-                        recommendation="Refactor to reduce nesting depth",
-                    ))
+                    issues.append(
+                        QualityIssue(
+                            type="deep_nesting",
+                            severity="warning",
+                            description=f"Deep nesting ({func_metrics.nesting_depth} levels)",
+                            file_path=file_path,
+                            line_number=func_metrics.line_start,
+                            function_name=func_metrics.name,
+                            recommendation="Refactor to reduce nesting depth",
+                        )
+                    )
 
         # Calculate aggregate metrics
         if functions:
@@ -337,9 +353,7 @@ class QualityAnalyzer:
             max_complexity = 1
 
         # Calculate maintainability index
-        maintainability = self._calculate_maintainability_index(
-            code_lines, avg_complexity, comment_lines
-        )
+        maintainability = self._calculate_maintainability_index(code_lines, avg_complexity, comment_lines)
 
         # Determine quality rating
         rating = self._get_quality_rating(maintainability)
@@ -403,11 +417,11 @@ class QualityAnalyzer:
         file_path: str,
     ) -> tuple[CodeMetrics, list[QualityIssue]]:
         """Generic analysis for non-Python code."""
-        lines = code.split('\n')
+        lines = code.split("\n")
         total_lines = len(lines)
-        code_lines = sum(1 for l in lines if l.strip() and not l.strip().startswith(('//', '#', '*')))
-        comment_lines = sum(1 for l in lines if l.strip().startswith(('//', '#', '*')))
-        blank_lines = sum(1 for l in lines if not l.strip())
+        code_lines = sum(1 for line in lines if line.strip() and not line.strip().startswith(("//", "#", "*")))
+        comment_lines = sum(1 for line in lines if line.strip().startswith(("//", "#", "*")))
+        blank_lines = sum(1 for line in lines if not line.strip())
 
         metrics = CodeMetrics(
             file_path=file_path,
@@ -478,7 +492,7 @@ class QualityAnalyzer:
         normalized = []
         for line in lines:
             stripped = line.strip()
-            if stripped and not stripped.startswith('#'):
+            if stripped and not stripped.startswith("#"):
                 normalized.append(stripped)
 
         if not normalized:
@@ -511,7 +525,6 @@ class QualityAnalyzer:
             "total_functions": total_functions,
             "average_maintainability": round(avg_mi, 2),
             "quality_distribution": {
-                rating.value: sum(1 for m in metrics_list if m.quality_rating == rating)
-                for rating in QualityRating
+                rating.value: sum(1 for m in metrics_list if m.quality_rating == rating) for rating in QualityRating
             },
         }

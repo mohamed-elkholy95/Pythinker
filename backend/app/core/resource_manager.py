@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 class ResourceState(str, Enum):
     """Resource lifecycle states."""
+
     PENDING = "pending"
     ACTIVE = "active"
     SHUTTING_DOWN = "shutting_down"
@@ -86,9 +87,7 @@ class ManagedResource:
 
             self.state = ResourceState.SHUTDOWN
             self.shutdown_duration_ms = (time.perf_counter() - start_time) * 1000
-            logger.debug(
-                f"Resource '{self.name}' shutdown in {self.shutdown_duration_ms:.1f}ms"
-            )
+            logger.debug(f"Resource '{self.name}' shutdown in {self.shutdown_duration_ms:.1f}ms")
             return True
 
         except TimeoutError:
@@ -155,10 +154,7 @@ class ResourceManager:
             self._resources[name] = managed
             self._shutdown_order.append(name)
 
-            logger.info(
-                f"Registered resource: {name}",
-                extra={"resource": name, "priority": priority}
-            )
+            logger.info(f"Registered resource: {name}", extra={"resource": name, "priority": priority})
 
             return managed
 
@@ -236,8 +232,7 @@ class ResourceManager:
             elapsed = time.perf_counter() - start_time
             if elapsed >= timeout:
                 logger.warning(
-                    f"Shutdown timeout reached, {len(shutdown_order) - len(results)} "
-                    f"resources not cleaned up"
+                    f"Shutdown timeout reached, {len(shutdown_order) - len(results)} resources not cleaned up"
                 )
                 break
 
@@ -252,10 +247,7 @@ class ResourceManager:
         total_time = (time.perf_counter() - start_time) * 1000
         success_count = sum(1 for v in results.values() if v)
 
-        logger.info(
-            f"Resource shutdown complete: {success_count}/{len(results)} successful "
-            f"in {total_time:.1f}ms"
-        )
+        logger.info(f"Resource shutdown complete: {success_count}/{len(results)} successful in {total_time:.1f}ms")
 
         self._is_shutting_down = False
         return results
@@ -309,8 +301,7 @@ class ResourceManager:
     def get_health(self) -> dict[str, str]:
         """Get health status of all resources."""
         return {
-            name: "healthy" if r.state == ResourceState.ACTIVE else r.state.value
-            for name, r in self._resources.items()
+            name: "healthy" if r.state == ResourceState.ACTIVE else r.state.value for name, r in self._resources.items()
         }
 
 

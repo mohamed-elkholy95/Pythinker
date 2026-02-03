@@ -15,9 +15,7 @@ class AgentRepository(Protocol):
         """Find an agent by its ID"""
         ...
 
-    async def add_memory(self, agent_id: str,
-                        name: str,
-                        memory: Memory) -> None:
+    async def add_memory(self, agent_id: str, name: str, memory: Memory) -> None:
         """Add or update a memory for an agent"""
         ...
 

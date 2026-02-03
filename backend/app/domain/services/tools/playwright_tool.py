@@ -12,7 +12,7 @@ import logging
 import uuid
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 
 from app.domain.external.sandbox import Sandbox
 from app.domain.models.tool_result import ToolResult
@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 class BrowserType(str, Enum):
     """Supported browser types."""
+
     CHROMIUM = "chromium"
     FIREFOX = "firefox"
     WEBKIT = "webkit"
@@ -30,6 +31,7 @@ class BrowserType(str, Enum):
 
 class WaitState(str, Enum):
     """Page wait states."""
+
     LOAD = "load"  # Wait for load event
     DOMCONTENTLOADED = "domcontentloaded"  # Wait for DOMContentLoaded
     NETWORKIDLE = "networkidle"  # Wait until no network connections for 500ms
@@ -38,6 +40,7 @@ class WaitState(str, Enum):
 @dataclass
 class PageState:
     """Current state of a browser page."""
+
     url: str
     title: str
     viewport_width: int
@@ -62,6 +65,7 @@ class PageState:
 @dataclass
 class Cookie:
     """Browser cookie representation."""
+
     name: str
     value: str
     domain: str
@@ -108,7 +112,7 @@ class PlaywrightTool(BaseTool):
     name: str = "playwright"
 
     # Stealth mode user agents for rotation
-    USER_AGENTS = [
+    USER_AGENTS: ClassVar[list[str]] = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
@@ -117,7 +121,7 @@ class PlaywrightTool(BaseTool):
     ]
 
     # Stealth viewport sizes for randomization
-    VIEWPORTS = [
+    VIEWPORTS: ClassVar[list[dict[str, int]]] = [
         {"width": 1920, "height": 1080},
         {"width": 1440, "height": 900},
         {"width": 1536, "height": 864},
@@ -126,7 +130,7 @@ class PlaywrightTool(BaseTool):
     ]
 
     # Stealth Chromium args to disable automation detection
-    STEALTH_ARGS = [
+    STEALTH_ARGS: ClassVar[list[str]] = [
         "--disable-blink-features=AutomationControlled",
         "--disable-features=IsolateOrigins,site-per-process",
         "--disable-site-isolation-trials",
@@ -178,11 +182,7 @@ class PlaywrightTool(BaseTool):
         if self._initialized:
             return
 
-        result = await self.sandbox.exec_command(
-            self.session_id,
-            "/",
-            f"mkdir -p {self._workspace}"
-        )
+        await self.sandbox.exec_command(self.session_id, "/", f"mkdir -p {self._workspace}")
         self._initialized = True
 
     async def _run_playwright_script(
@@ -207,7 +207,7 @@ class PlaywrightTool(BaseTool):
         script_path = f"{self._workspace}/script_{script_id}.py"
 
         # Wrap script with proper imports and async handling
-        full_script = f'''
+        full_script = f"""
 import asyncio
 import json
 import sys
@@ -223,21 +223,16 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-'''
+"""
 
         # Write script to file
         write_result = await self.sandbox.file_write(script_path, full_script)
         if not write_result.success:
-            return ToolResult(
-                success=False,
-                message=f"Failed to write script: {write_result.message}"
-            )
+            return ToolResult(success=False, message=f"Failed to write script: {write_result.message}")
 
         # Execute script
         exec_result = await self.sandbox.exec_command(
-            self.session_id,
-            self._workspace,
-            f"timeout {timeout}s python3 {script_path} 2>&1"
+            self.session_id, self._workspace, f"timeout {timeout}s python3 {script_path} 2>&1"
         )
 
         # Clean up script file
@@ -247,33 +242,25 @@ if __name__ == "__main__":
         if exec_result.success and exec_result.message:
             try:
                 # Find JSON output in the result
-                lines = exec_result.message.strip().split('\n')
+                lines = exec_result.message.strip().split("\n")
                 for line in reversed(lines):
-                    if line.strip().startswith('{'):
+                    if line.strip().startswith("{"):
                         result_data = json.loads(line)
                         if result_data.get("error"):
-                            return ToolResult(
-                                success=False,
-                                message=f"Playwright error: {result_data['error']}"
-                            )
+                            return ToolResult(success=False, message=f"Playwright error: {result_data['error']}")
                         return ToolResult(
-                            success=True,
-                            message=str(result_data.get("data", "Success")),
-                            data=result_data.get("data")
+                            success=True, message=str(result_data.get("data", "Success")), data=result_data.get("data")
                         )
             except json.JSONDecodeError:
                 pass
 
-        return ToolResult(
-            success=exec_result.success,
-            message=exec_result.message or "Script execution completed"
-        )
+        return ToolResult(success=exec_result.success, message=exec_result.message or "Script execution completed")
 
     def _indent_code(self, code: str, spaces: int) -> str:
         """Indent code by specified number of spaces."""
         indent = " " * spaces
-        lines = code.split('\n')
-        return '\n'.join(indent + line for line in lines)
+        lines = code.split("\n")
+        return "\n".join(indent + line for line in lines)
 
     @tool(
         name="playwright_launch",
@@ -282,22 +269,13 @@ if __name__ == "__main__":
             "browser_type": {
                 "type": "string",
                 "description": "Browser to launch: chromium, firefox, or webkit",
-                "enum": ["chromium", "firefox", "webkit"]
+                "enum": ["chromium", "firefox", "webkit"],
             },
-            "headless": {
-                "type": "boolean",
-                "description": "Run browser in headless mode (default: true)"
-            },
-            "viewport_width": {
-                "type": "integer",
-                "description": "Viewport width in pixels (default: 1280)"
-            },
-            "viewport_height": {
-                "type": "integer",
-                "description": "Viewport height in pixels (default: 720)"
-            }
+            "headless": {"type": "boolean", "description": "Run browser in headless mode (default: true)"},
+            "viewport_width": {"type": "integer", "description": "Viewport width in pixels (default: 1280)"},
+            "viewport_height": {"type": "integer", "description": "Viewport height in pixels (default: 720)"},
         },
-        required=[]
+        required=[],
     )
     async def playwright_launch(
         self,
@@ -340,29 +318,23 @@ async with async_playwright() as p:
         name="playwright_navigate",
         description="Navigate to a URL and wait for the page to load. Supports optional stealth mode with user agent rotation and human-like delays.",
         parameters={
-            "url": {
-                "type": "string",
-                "description": "URL to navigate to"
-            },
+            "url": {"type": "string", "description": "URL to navigate to"},
             "wait_until": {
                 "type": "string",
                 "description": "Wait condition: load, domcontentloaded, or networkidle",
-                "enum": ["load", "domcontentloaded", "networkidle"]
+                "enum": ["load", "domcontentloaded", "networkidle"],
             },
-            "timeout": {
-                "type": "integer",
-                "description": "Navigation timeout in milliseconds (default: 30000)"
-            },
+            "timeout": {"type": "integer", "description": "Navigation timeout in milliseconds (default: 30000)"},
             "stealth": {
                 "type": "boolean",
-                "description": "Enable stealth mode with random user agent/viewport (default: false)"
+                "description": "Enable stealth mode with random user agent/viewport (default: false)",
             },
             "human_delay": {
                 "type": "boolean",
-                "description": "Add random human-like delays (default: true when stealth is enabled)"
-            }
+                "description": "Add random human-like delays (default: true when stealth is enabled)",
+            },
         },
-        required=["url"]
+        required=["url"],
     )
     async def playwright_navigate(
         self,
@@ -388,6 +360,7 @@ async with async_playwright() as p:
         # Check config for stealth defaults
         try:
             from app.core.config import get_settings
+
             settings = get_settings()
             if not stealth and settings.browser_stealth_enabled:
                 stealth = True
@@ -472,25 +445,16 @@ async with async_playwright() as p:
         name="playwright_click",
         description="Click on an element using a CSS selector.",
         parameters={
-            "selector": {
-                "type": "string",
-                "description": "CSS selector for the element to click"
-            },
+            "selector": {"type": "string", "description": "CSS selector for the element to click"},
             "button": {
                 "type": "string",
                 "description": "Mouse button: left, right, or middle",
-                "enum": ["left", "right", "middle"]
+                "enum": ["left", "right", "middle"],
             },
-            "click_count": {
-                "type": "integer",
-                "description": "Number of clicks (default: 1)"
-            },
-            "timeout": {
-                "type": "integer",
-                "description": "Timeout in milliseconds (default: 30000)"
-            }
+            "click_count": {"type": "integer", "description": "Number of clicks (default: 1)"},
+            "timeout": {"type": "integer", "description": "Timeout in milliseconds (default: 30000)"},
         },
-        required=["selector"]
+        required=["selector"],
     )
     async def playwright_click(
         self,
@@ -535,20 +499,11 @@ async with async_playwright() as p:
         name="playwright_fill",
         description="Fill an input field with text. Clears existing content first.",
         parameters={
-            "selector": {
-                "type": "string",
-                "description": "CSS selector for the input element"
-            },
-            "text": {
-                "type": "string",
-                "description": "Text to fill in the input"
-            },
-            "timeout": {
-                "type": "integer",
-                "description": "Timeout in milliseconds (default: 30000)"
-            }
+            "selector": {"type": "string", "description": "CSS selector for the input element"},
+            "text": {"type": "string", "description": "Text to fill in the input"},
+            "timeout": {"type": "integer", "description": "Timeout in milliseconds (default: 30000)"},
         },
-        required=["selector", "text"]
+        required=["selector", "text"],
     )
     async def playwright_fill(
         self,
@@ -568,7 +523,7 @@ async with async_playwright() as p:
             ToolResult with fill status
         """
         safe_selector = selector.replace('"', '\\"')
-        safe_text = text.replace('"', '\\"').replace('\n', '\\n')
+        safe_text = text.replace('"', '\\"').replace("\n", "\\n")
 
         script = f'''
 async with async_playwright() as p:
@@ -590,20 +545,11 @@ async with async_playwright() as p:
         name="playwright_type",
         description="Type text character by character (useful for inputs that react to each keystroke).",
         parameters={
-            "selector": {
-                "type": "string",
-                "description": "CSS selector for the input element"
-            },
-            "text": {
-                "type": "string",
-                "description": "Text to type"
-            },
-            "delay": {
-                "type": "integer",
-                "description": "Delay between keystrokes in milliseconds (default: 50)"
-            }
+            "selector": {"type": "string", "description": "CSS selector for the input element"},
+            "text": {"type": "string", "description": "Text to type"},
+            "delay": {"type": "integer", "description": "Delay between keystrokes in milliseconds (default: 50)"},
         },
-        required=["selector", "text"]
+        required=["selector", "text"],
     )
     async def playwright_type(
         self,
@@ -623,7 +569,7 @@ async with async_playwright() as p:
             ToolResult with type status
         """
         safe_selector = selector.replace('"', '\\"')
-        safe_text = text.replace('"', '\\"').replace('\n', '\\n')
+        safe_text = text.replace('"', '\\"').replace("\n", "\\n")
 
         script = f'''
 async with async_playwright() as p:
@@ -645,25 +591,12 @@ async with async_playwright() as p:
         name="playwright_screenshot",
         description="Take a screenshot of the current page or a specific element.",
         parameters={
-            "path": {
-                "type": "string",
-                "description": "Path to save the screenshot (default: auto-generated)"
-            },
-            "selector": {
-                "type": "string",
-                "description": "CSS selector for element screenshot (optional)"
-            },
-            "full_page": {
-                "type": "boolean",
-                "description": "Capture full scrollable page (default: false)"
-            },
-            "type": {
-                "type": "string",
-                "description": "Image type: png or jpeg",
-                "enum": ["png", "jpeg"]
-            }
+            "path": {"type": "string", "description": "Path to save the screenshot (default: auto-generated)"},
+            "selector": {"type": "string", "description": "CSS selector for element screenshot (optional)"},
+            "full_page": {"type": "boolean", "description": "Capture full scrollable page (default: false)"},
+            "type": {"type": "string", "description": "Image type: png or jpeg", "enum": ["png", "jpeg"]},
         },
-        required=[]
+        required=[],
     )
     async def playwright_screenshot(
         self,
@@ -726,21 +659,15 @@ async with async_playwright() as p:
         name="playwright_pdf",
         description="Generate a PDF of the current page (Chromium only).",
         parameters={
-            "path": {
-                "type": "string",
-                "description": "Path to save the PDF (default: auto-generated)"
-            },
+            "path": {"type": "string", "description": "Path to save the PDF (default: auto-generated)"},
             "format": {
                 "type": "string",
                 "description": "Paper format: Letter, Legal, A4, etc.",
-                "enum": ["Letter", "Legal", "A4", "A3", "Tabloid"]
+                "enum": ["Letter", "Legal", "A4", "A3", "Tabloid"],
             },
-            "print_background": {
-                "type": "boolean",
-                "description": "Print background graphics (default: true)"
-            }
+            "print_background": {"type": "boolean", "description": "Print background graphics (default: true)"},
         },
-        required=[]
+        required=[],
     )
     async def playwright_pdf(
         self,
@@ -782,21 +709,15 @@ async with async_playwright() as p:
         name="playwright_wait_for_selector",
         description="Wait for an element matching the selector to appear.",
         parameters={
-            "selector": {
-                "type": "string",
-                "description": "CSS selector to wait for"
-            },
+            "selector": {"type": "string", "description": "CSS selector to wait for"},
             "state": {
                 "type": "string",
                 "description": "Wait for element state: attached, detached, visible, or hidden",
-                "enum": ["attached", "detached", "visible", "hidden"]
+                "enum": ["attached", "detached", "visible", "hidden"],
             },
-            "timeout": {
-                "type": "integer",
-                "description": "Timeout in milliseconds (default: 30000)"
-            }
+            "timeout": {"type": "integer", "description": "Timeout in milliseconds (default: 30000)"},
         },
-        required=["selector"]
+        required=["selector"],
     )
     async def playwright_wait_for_selector(
         self,
@@ -837,13 +758,9 @@ async with async_playwright() as p:
         name="playwright_get_cookies",
         description="Get all cookies from the current browser context.",
         parameters={
-            "urls": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "Filter cookies by URLs (optional)"
-            }
+            "urls": {"type": "array", "items": {"type": "string"}, "description": "Filter cookies by URLs (optional)"}
         },
-        required=[]
+        required=[],
     )
     async def playwright_get_cookies(
         self,
@@ -860,7 +777,7 @@ async with async_playwright() as p:
         """
         urls_param = json.dumps(urls) if urls else "None"
 
-        script = f'''
+        script = f"""
 async with async_playwright() as p:
     browser = await p.chromium.launch(headless=True)
     context = await browser.new_context()
@@ -873,7 +790,7 @@ async with async_playwright() as p:
     result["data"] = {{"cookies": cookies, "count": len(cookies)}}
 
     await browser.close()
-'''
+"""
 
         return await self._run_playwright_script(script)
 
@@ -891,13 +808,13 @@ async with async_playwright() as p:
                         "domain": {"type": "string"},
                         "path": {"type": "string"},
                         "secure": {"type": "boolean"},
-                        "httpOnly": {"type": "boolean"}
-                    }
+                        "httpOnly": {"type": "boolean"},
+                    },
                 },
-                "description": "Array of cookie objects to set"
+                "description": "Array of cookie objects to set",
             }
         },
-        required=["cookies"]
+        required=["cookies"],
     )
     async def playwright_set_cookies(
         self,
@@ -914,7 +831,7 @@ async with async_playwright() as p:
         """
         cookies_json = json.dumps(cookies)
 
-        script = f'''
+        script = f"""
 async with async_playwright() as p:
     browser = await p.chromium.launch(headless=True)
     context = await browser.new_context()
@@ -926,20 +843,15 @@ async with async_playwright() as p:
     result["data"] = {{"cookies_set": len(cookies)}}
 
     await browser.close()
-'''
+"""
 
         return await self._run_playwright_script(script)
 
     @tool(
         name="playwright_get_content",
         description="Get the full HTML content of the current page.",
-        parameters={
-            "url": {
-                "type": "string",
-                "description": "URL to navigate to first (optional)"
-            }
-        },
-        required=[]
+        parameters={"url": {"type": "string", "description": "URL to navigate to first (optional)"}},
+        required=[],
     )
     async def playwright_get_content(
         self,
@@ -956,7 +868,7 @@ async with async_playwright() as p:
         """
         navigate_line = f'await page.goto("{url}")' if url else "pass"
 
-        script = f'''
+        script = f"""
 async with async_playwright() as p:
     browser = await p.chromium.launch(headless=True)
     context = await browser.new_context()
@@ -971,20 +883,15 @@ async with async_playwright() as p:
     result["data"] = {{"content": content[:50000], "title": title, "url": page.url, "length": len(content)}}
 
     await browser.close()
-'''
+"""
 
         return await self._run_playwright_script(script)
 
     @tool(
         name="playwright_evaluate",
         description="Execute JavaScript in the page context and return the result.",
-        parameters={
-            "expression": {
-                "type": "string",
-                "description": "JavaScript expression to evaluate"
-            }
-        },
-        required=["expression"]
+        parameters={"expression": {"type": "string", "description": "JavaScript expression to evaluate"}},
+        required=["expression"],
     )
     async def playwright_evaluate(
         self,
@@ -1000,7 +907,7 @@ async with async_playwright() as p:
             ToolResult with evaluation result
         """
         # Escape the expression for Python string
-        safe_expr = expression.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+        safe_expr = expression.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
 
         script = f'''
 async with async_playwright() as p:
@@ -1022,17 +929,10 @@ async with async_playwright() as p:
         name="playwright_select_option",
         description="Select option(s) from a select element.",
         parameters={
-            "selector": {
-                "type": "string",
-                "description": "CSS selector for the select element"
-            },
-            "values": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "Option values to select"
-            }
+            "selector": {"type": "string", "description": "CSS selector for the select element"},
+            "values": {"type": "array", "items": {"type": "string"}, "description": "Option values to select"},
         },
-        required=["selector", "values"]
+        required=["selector", "values"],
     )
     async def playwright_select_option(
         self,
@@ -1073,11 +973,13 @@ async with async_playwright() as p:
     def _get_random_user_agent(self) -> str:
         """Get a random user agent for stealth mode."""
         import random
+
         return random.choice(self.USER_AGENTS)
 
     def _get_random_viewport(self) -> dict[str, int]:
         """Get a random viewport for stealth mode."""
         import random
+
         return random.choice(self.VIEWPORTS)
 
     def _get_stealth_args(self) -> str:
@@ -1088,25 +990,16 @@ async with async_playwright() as p:
         name="playwright_stealth_navigate",
         description="Navigate to a URL with stealth mode enabled to bypass bot detection. Uses random user agents, viewports, and anti-detection techniques.",
         parameters={
-            "url": {
-                "type": "string",
-                "description": "URL to navigate to"
-            },
+            "url": {"type": "string", "description": "URL to navigate to"},
             "wait_until": {
                 "type": "string",
                 "description": "Wait condition: load, domcontentloaded, or networkidle",
-                "enum": ["load", "domcontentloaded", "networkidle"]
+                "enum": ["load", "domcontentloaded", "networkidle"],
             },
-            "timeout": {
-                "type": "integer",
-                "description": "Navigation timeout in milliseconds (default: 60000)"
-            },
-            "human_delay": {
-                "type": "boolean",
-                "description": "Add random human-like delays (default: true)"
-            }
+            "timeout": {"type": "integer", "description": "Navigation timeout in milliseconds (default: 60000)"},
+            "human_delay": {"type": "boolean", "description": "Add random human-like delays (default: true)"},
         },
-        required=["url"]
+        required=["url"],
     )
     async def playwright_stealth_navigate(
         self,
@@ -1180,13 +1073,8 @@ async with async_playwright() as p:
     @tool(
         name="playwright_detect_protection",
         description="Detect what type of bot protection is present on a page.",
-        parameters={
-            "url": {
-                "type": "string",
-                "description": "URL to check for protection"
-            }
-        },
-        required=["url"]
+        parameters={"url": {"type": "string", "description": "URL to check for protection"}},
+        required=["url"],
     )
     async def playwright_detect_protection(
         self,
@@ -1233,17 +1121,10 @@ async with async_playwright() as p:
         name="playwright_intercept_requests",
         description="Intercept and optionally block network requests.",
         parameters={
-            "url": {
-                "type": "string",
-                "description": "URL to navigate to"
-            },
-            "block_patterns": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "URL patterns to block"
-            }
+            "url": {"type": "string", "description": "URL to navigate to"},
+            "block_patterns": {"type": "array", "items": {"type": "string"}, "description": "URL patterns to block"},
         },
-        required=["url"]
+        required=["url"],
     )
     async def playwright_intercept_requests(
         self,
@@ -1296,25 +1177,16 @@ async with async_playwright() as p:
         name="playwright_solve_recaptcha",
         description="Solve a reCAPTCHA challenge using an external solving service (requires API key configuration).",
         parameters={
-            "site_key": {
-                "type": "string",
-                "description": "The reCAPTCHA site key (data-sitekey attribute)"
-            },
-            "page_url": {
-                "type": "string",
-                "description": "The URL of the page containing the CAPTCHA"
-            },
+            "site_key": {"type": "string", "description": "The reCAPTCHA site key (data-sitekey attribute)"},
+            "page_url": {"type": "string", "description": "The URL of the page containing the CAPTCHA"},
             "captcha_type": {
                 "type": "string",
                 "description": "Type of reCAPTCHA: v2, v3, or enterprise",
-                "enum": ["v2", "v3", "enterprise"]
+                "enum": ["v2", "v3", "enterprise"],
             },
-            "action": {
-                "type": "string",
-                "description": "Action name for v3/enterprise (e.g., 'login', 'submit')"
-            }
+            "action": {"type": "string", "description": "Action name for v3/enterprise (e.g., 'login', 'submit')"},
         },
-        required=["site_key", "page_url"]
+        required=["site_key", "page_url"],
     )
     async def playwright_solve_recaptcha(
         self,
@@ -1340,6 +1212,7 @@ async with async_playwright() as p:
         """
         try:
             from app.core.config import get_settings
+
             settings = get_settings()
 
             solver = settings.browser_recaptcha_solver
@@ -1348,13 +1221,10 @@ async with async_playwright() as p:
             if not solver or not api_key:
                 return ToolResult(
                     success=False,
-                    message="CAPTCHA solver not configured. Set browser_recaptcha_solver and browser_recaptcha_api_key in settings."
+                    message="CAPTCHA solver not configured. Set browser_recaptcha_solver and browser_recaptcha_api_key in settings.",
                 )
         except Exception as e:
-            return ToolResult(
-                success=False,
-                message=f"Failed to get settings: {e}"
-            )
+            return ToolResult(success=False, message=f"Failed to get settings: {e}")
 
         # Generate script based on solver type
         if solver == "anticaptcha":
@@ -1460,8 +1330,7 @@ except Exception as e:
 '''
         else:
             return ToolResult(
-                success=False,
-                message=f"Unknown CAPTCHA solver: {solver}. Supported: anticaptcha, 2captcha"
+                success=False, message=f"Unknown CAPTCHA solver: {solver}. Supported: anticaptcha, 2captcha"
             )
 
         return await self._run_playwright_script(script, timeout=180)
@@ -1470,16 +1339,13 @@ except Exception as e:
         name="playwright_cloudflare_bypass",
         description="Navigate through a Cloudflare challenge page with extended wait times and stealth mode.",
         parameters={
-            "url": {
-                "type": "string",
-                "description": "URL to navigate to (may be behind Cloudflare)"
-            },
+            "url": {"type": "string", "description": "URL to navigate to (may be behind Cloudflare)"},
             "max_wait_seconds": {
                 "type": "integer",
-                "description": "Maximum seconds to wait for challenge to complete (default: 30)"
-            }
+                "description": "Maximum seconds to wait for challenge to complete (default: 30)",
+            },
         },
-        required=["url"]
+        required=["url"],
     )
     async def playwright_cloudflare_bypass(
         self,
@@ -1591,20 +1457,11 @@ async with async_playwright() as p:
         name="playwright_fill_2fa_code",
         description="Auto-fill a 2FA/TOTP code from a stored credential into a form field.",
         parameters={
-            "credential_id": {
-                "type": "string",
-                "description": "ID of the credential containing the TOTP secret"
-            },
-            "selector": {
-                "type": "string",
-                "description": "CSS selector for the 2FA input field"
-            },
-            "url": {
-                "type": "string",
-                "description": "URL of the page (for context in logs)"
-            }
+            "credential_id": {"type": "string", "description": "ID of the credential containing the TOTP secret"},
+            "selector": {"type": "string", "description": "CSS selector for the 2FA input field"},
+            "url": {"type": "string", "description": "URL of the page (for context in logs)"},
         },
-        required=["credential_id", "selector"]
+        required=["credential_id", "selector"],
     )
     async def playwright_fill_2fa_code(
         self,
@@ -1639,14 +1496,11 @@ async with async_playwright() as p:
                 return ToolResult(
                     success=False,
                     message=f"Failed to get TOTP code for credential {credential_id}. "
-                           "Ensure the credential has a totp_secret field."
+                    "Ensure the credential has a totp_secret field.",
                 )
 
         except Exception as e:
-            return ToolResult(
-                success=False,
-                message=f"Failed to get TOTP code: {e}"
-            )
+            return ToolResult(success=False, message=f"Failed to get TOTP code: {e}")
 
         safe_selector = selector.replace('"', '\\"')
         safe_code = totp_code
@@ -1678,30 +1532,15 @@ async with async_playwright() as p:
         parameters={
             "credential_id": {
                 "type": "string",
-                "description": "ID of the credential containing login data and optional TOTP secret"
+                "description": "ID of the credential containing login data and optional TOTP secret",
             },
-            "url": {
-                "type": "string",
-                "description": "Login page URL"
-            },
-            "username_selector": {
-                "type": "string",
-                "description": "CSS selector for username/email field"
-            },
-            "password_selector": {
-                "type": "string",
-                "description": "CSS selector for password field"
-            },
-            "submit_selector": {
-                "type": "string",
-                "description": "CSS selector for submit/login button"
-            },
-            "totp_selector": {
-                "type": "string",
-                "description": "CSS selector for 2FA input field (optional)"
-            }
+            "url": {"type": "string", "description": "Login page URL"},
+            "username_selector": {"type": "string", "description": "CSS selector for username/email field"},
+            "password_selector": {"type": "string", "description": "CSS selector for password field"},
+            "submit_selector": {"type": "string", "description": "CSS selector for submit/login button"},
+            "totp_selector": {"type": "string", "description": "CSS selector for 2FA input field (optional)"},
         },
-        required=["credential_id", "url", "username_selector", "password_selector", "submit_selector"]
+        required=["credential_id", "url", "username_selector", "password_selector", "submit_selector"],
     )
     async def playwright_login_with_2fa(
         self,
@@ -1736,19 +1575,13 @@ async with async_playwright() as p:
             )
 
             if not credential:
-                return ToolResult(
-                    success=False,
-                    message=f"Credential {credential_id} not found"
-                )
+                return ToolResult(success=False, message=f"Credential {credential_id} not found")
 
             username = credential.data.get("username") or credential.data.get("email")
             password = credential.data.get("password")
 
             if not username or not password:
-                return ToolResult(
-                    success=False,
-                    message="Credential must have username/email and password fields"
-                )
+                return ToolResult(success=False, message="Credential must have username/email and password fields")
 
             # Get TOTP code if needed
             totp_code = None
@@ -1759,10 +1592,7 @@ async with async_playwright() as p:
                 )
 
         except Exception as e:
-            return ToolResult(
-                success=False,
-                message=f"Failed to get credentials: {e}"
-            )
+            return ToolResult(success=False, message=f"Failed to get credentials: {e}")
 
         safe_username = username.replace('"', '\\"')
         safe_password = password.replace('"', '\\"')

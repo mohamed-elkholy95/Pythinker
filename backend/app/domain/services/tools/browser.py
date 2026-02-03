@@ -1,5 +1,6 @@
 import logging
 import re
+from enum import Enum
 
 import aiohttp
 
@@ -9,6 +10,46 @@ from app.domain.services.tools.base import BaseTool, tool
 from app.domain.services.tools.paywall_detector import PaywallDetector
 
 logger = logging.getLogger(__name__)
+
+
+class BrowserIntent(str, Enum):
+    """Browser interaction intent types inspired by Manus AI.
+
+    Different intents optimize the browser's approach to page interaction:
+    - NAVIGATIONAL: General browsing, exploring pages
+    - INFORMATIONAL: Focused content extraction, research tasks
+    - TRANSACTIONAL: Form filling, purchases, interactive operations
+    """
+
+    NAVIGATIONAL = "navigational"  # General browsing
+    INFORMATIONAL = "informational"  # Content extraction focus
+    TRANSACTIONAL = "transactional"  # Form filling, purchases
+
+
+# Intent-specific configurations
+BROWSER_INTENT_CONFIG = {
+    BrowserIntent.NAVIGATIONAL: {
+        "auto_scroll": True,
+        "extract_interactive": True,
+        "extract_content": True,
+        "wait_for_network_idle": False,
+        "max_content_length": 50000,
+    },
+    BrowserIntent.INFORMATIONAL: {
+        "auto_scroll": True,
+        "extract_interactive": False,  # Focus on content, not interactions
+        "extract_content": True,
+        "wait_for_network_idle": True,  # Wait for all content to load
+        "max_content_length": 100000,  # Allow more content extraction
+    },
+    BrowserIntent.TRANSACTIONAL: {
+        "auto_scroll": False,  # Don't scroll past form
+        "extract_interactive": True,  # Need form elements
+        "extract_content": False,  # Focus on interactions
+        "wait_for_network_idle": True,  # Wait for form to load
+        "max_content_length": 20000,
+    },
+}
 
 # Singleton paywall detector
 _paywall_detector: PaywallDetector | None = None
@@ -20,6 +61,7 @@ def get_paywall_detector() -> PaywallDetector:
     if _paywall_detector is None:
         _paywall_detector = PaywallDetector()
     return _paywall_detector
+
 
 # Singleton HTTP client session for connection pooling
 _http_session: aiohttp.ClientSession | None = None
@@ -36,8 +78,7 @@ async def get_http_session() -> aiohttp.ClientSession:
         # (was 30s total, 10s connect)
         timeout = aiohttp.ClientTimeout(total=15, connect=5, sock_read=10)
         _http_session = aiohttp.ClientSession(
-            timeout=timeout,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            timeout=timeout, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         )
     return _http_session
 
@@ -48,29 +89,29 @@ def html_to_text(html: str, max_length: int = 50000) -> str:
     A lightweight alternative to BeautifulSoup for simple text extraction.
     """
     # Remove scripts and styles
-    html = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
-    html = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r"<style[^>]*>.*?</style>", "", html, flags=re.DOTALL | re.IGNORECASE)
 
     # Remove HTML comments
-    html = re.sub(r'<!--.*?-->', '', html, flags=re.DOTALL)
+    html = re.sub(r"<!--.*?-->", "", html, flags=re.DOTALL)
 
     # Convert common block elements to newlines
-    html = re.sub(r'<(p|div|br|h[1-6]|li|tr)[^>]*>', '\n', html, flags=re.IGNORECASE)
+    html = re.sub(r"<(p|div|br|h[1-6]|li|tr)[^>]*>", "\n", html, flags=re.IGNORECASE)
 
     # Remove all other HTML tags
-    html = re.sub(r'<[^>]+>', '', html)
+    html = re.sub(r"<[^>]+>", "", html)
 
     # Decode common HTML entities
-    html = html.replace('&nbsp;', ' ')
-    html = html.replace('&amp;', '&')
-    html = html.replace('&lt;', '<')
-    html = html.replace('&gt;', '>')
-    html = html.replace('&quot;', '"')
-    html = html.replace('&#39;', "'")
+    html = html.replace("&nbsp;", " ")
+    html = html.replace("&amp;", "&")
+    html = html.replace("&lt;", "<")
+    html = html.replace("&gt;", ">")
+    html = html.replace("&quot;", '"')
+    html = html.replace("&#39;", "'")
 
     # Clean up whitespace
-    html = re.sub(r'\n\s*\n', '\n\n', html)
-    html = re.sub(r' +', ' ', html)
+    html = re.sub(r"\n\s*\n", "\n\n", html)
+    html = re.sub(r" +", " ", html)
     html = html.strip()
 
     return html[:max_length] if len(html) > max_length else html
@@ -91,37 +132,121 @@ class BrowserTool(BaseTool):
         super().__init__(max_observe=max_observe)
         self.browser = browser
 
+    def _extract_focused_content(self, text: str, focus: str | None, max_length: int = 50000) -> str:
+        """Extract content relevant to the focus area.
+
+        Inspired by Manus's focus parameter for informational browsing.
+        When a focus is specified, prioritize content matching that focus.
+
+        Args:
+            text: Full page text content
+            focus: Focus area description (e.g., "pricing information", "technical specs")
+            max_length: Maximum content length to return
+
+        Returns:
+            Focused or full content
+        """
+        if not focus or not text:
+            return text[:max_length]
+
+        # Split content into paragraphs
+        paragraphs = text.split("\n\n")
+        focus_lower = focus.lower()
+        focus_words = set(focus_lower.split())
+
+        # Score paragraphs by relevance to focus
+        scored = []
+        for para in paragraphs:
+            para_lower = para.lower()
+            # Count matching focus words
+            score = sum(1 for word in focus_words if word in para_lower)
+            # Boost if focus phrase appears
+            if focus_lower in para_lower:
+                score += 5
+            scored.append((score, para))
+
+        # Sort by score (highest first) but keep some context
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        # Build focused content: high-relevance paragraphs first
+        focused_parts = []
+        current_length = 0
+
+        # First add high-scoring paragraphs
+        for score, para in scored:
+            if score > 0 and current_length + len(para) < max_length:
+                focused_parts.append(para)
+                current_length += len(para) + 2
+
+        # If we have room, add some context from remaining paragraphs
+        for score, para in scored:
+            if score == 0 and current_length + len(para) < max_length * 0.3:  # 30% for context
+                focused_parts.append(para)
+                current_length += len(para) + 2
+
+        if focused_parts:
+            result = "\n\n".join(focused_parts)
+            if len(result) < len(text) * 0.5:  # If we filtered significantly
+                result = f"[FOCUSED CONTENT: {focus}]\n\n{result}"
+            return result[:max_length]
+
+        return text[:max_length]
+
     @tool(
-        name="browser_get_content",
-        description="""Fast fetch page content as text (no browser rendering).
-Use for research tasks when you only need to read text content without interactions.
-Much faster than browser_navigate for read-only pages. Falls back to browser_navigate on failure.""",
+        name="search",
+        description="""Search and fetch content from a URL.
+
+RENAMED FROM browser_get_content - This is the primary tool for visiting URLs and extracting content.
+
+FEATURES:
+- Fast HTTP-based content fetching (no browser overhead)
+- Automatic paywall detection
+- Optional focused content extraction
+- Falls back to full browser rendering if needed
+- Visible in VNC when fallback is triggered
+
+WHEN TO USE:
+- When you have a specific URL to visit
+- For research and content extraction tasks
+- To quickly fetch page text without JavaScript execution
+
+EXAMPLE:
+search(url="https://openrouter.ai/docs/pricing", focus="pricing tiers")
+→ Fetches content and extracts pricing-related information
+
+For complex interactions (clicking, scrolling, forms), use browser_navigate instead.""",
         parameters={
             "url": {
                 "type": "string",
-                "description": "Complete URL to fetch content from. Must include protocol prefix."
-            }
+                "description": "Complete URL to fetch content from. Must include protocol prefix.",
+            },
+            "focus": {
+                "type": "string",
+                "description": "(Optional) Focus area for content extraction (e.g., 'pricing', 'features', 'reviews')",
+            },
         },
-        required=["url"]
+        required=["url"],
     )
-    async def browser_get_content(self, url: str) -> ToolResult:
-        """Fast fetch page content as text without browser rendering.
+    async def search(self, url: str, focus: str | None = None) -> ToolResult:
+        """Search and fetch content from a URL.
 
         Uses lightweight HTTP client for speed. Ideal for research tasks.
         Falls back to full browser navigation on failure.
 
         Args:
             url: Complete URL to fetch
+            focus: Optional focus area for content extraction
 
         Returns:
             Page text content
         """
+        logger.info(f"Searching URL: {url}" + (f" (focus: {focus})" if focus else ""))
         try:
             session = await get_http_session()
             async with session.get(url, allow_redirects=True) as response:
                 if response.status == 200:
-                    content_type = response.headers.get('Content-Type', '')
-                    if 'text/html' in content_type or 'text/plain' in content_type:
+                    content_type = response.headers.get("Content-Type", "")
+                    if "text/html" in content_type or "text/plain" in content_type:
                         html = await response.text()
                         text = html_to_text(html)
                         if len(text) > 500:  # Valid content threshold
@@ -137,22 +262,35 @@ Much faster than browser_navigate for read-only pages. Falls back to browser_nav
                                 access_status = "full"
                                 access_message = "Full content accessible"
 
+                            # Apply focus extraction if specified
+                            if focus:
+                                text = self._extract_focused_content(text, focus, 100000)
+
+                            message = f"Content fetched ({access_status}): {len(text)} chars. {access_message}"
+                            if focus:
+                                message = f"[FOCUSED: {focus}] {message}"
+
                             return ToolResult(
                                 success=True,
-                                message=f"Content fetched ({access_status}): {len(text)} chars. {access_message}",
+                                message=message,
                                 data={
                                     "content": text,
                                     "url": str(response.url),
                                     "access_status": access_status,
+                                    "focus": focus,
                                     "paywall_confidence": paywall_result.confidence,
-                                    "paywall_indicators": paywall_result.indicators[:3] if paywall_result.indicators else []
-                                }
+                                    "paywall_indicators": paywall_result.indicators[:3]
+                                    if paywall_result.indicators
+                                    else [],
+                                },
                             )
                     logger.debug(f"Content type {content_type} not suitable for fast fetch")
         except Exception as e:
             logger.debug(f"Fast fetch failed for {url}: {e}, falling back to browser")
 
-        # Fallback to full browser navigation
+        # Fallback to full browser navigation with focus
+        if focus:
+            return await self.browser_navigate(url, intent="informational", focus=focus)
         return await self.browser_navigate(url)
 
     @tool(
@@ -167,7 +305,7 @@ USE WHEN:
 RETURNS: Page content, interactive elements list with indices, current URL, title.
 Use element indices with browser_click, browser_input, etc.""",
         parameters={},
-        required=[]
+        required=[],
     )
     async def browser_view(self) -> ToolResult:
         """View current browser page content
@@ -179,32 +317,85 @@ Use element indices with browser_click, browser_input, etc.""",
 
     @tool(
         name="browser_navigate",
-        description="""Navigate browser to URL with automatic content loading.
+        description="""Navigate browser to URL with automatic content loading (VNC visible).
 
 AUTOMATIC BEHAVIOR (faster response, fewer tool calls):
 - Scrolls page to load lazy content
 - Extracts page content immediately
 - Returns interactive elements + full content in single call
 
+OPTIONAL INTENTS:
+- navigational: General browsing, exploring pages (default)
+- informational: Content extraction focus, research tasks
+- transactional: Form filling, purchases, interactive operations
+
+FOCUS (informational intent only):
+For informational browsing, specify a focus area to extract relevant content.
+Example: focus="pricing information" or focus="technical specifications"
+
 Returns: Interactive elements, page content, title, URL - ready to use without additional calls.""",
         parameters={
-            "url": {
+            "url": {"type": "string", "description": "Complete URL to visit. Must include protocol prefix."},
+            "intent": {
                 "type": "string",
-                "description": "Complete URL to visit. Must include protocol prefix."
-            }
+                "enum": ["navigational", "informational", "transactional"],
+                "description": "(Optional) Browsing intent: navigational (general), informational (research), transactional (forms/purchase)",
+            },
+            "focus": {
+                "type": "string",
+                "description": "(Optional) For informational intent: specific content area to focus on (e.g., 'pricing', 'technical specs', 'reviews')",
+            },
         },
-        required=["url"]
+        required=["url"],
     )
-    async def browser_navigate(self, url: str) -> ToolResult:
+    async def browser_navigate(self, url: str, intent: str = "navigational", focus: str | None = None) -> ToolResult:
         """Navigate browser to specified URL with automatic content extraction
 
         Args:
             url: Complete URL address, must include protocol prefix
+            intent: Browsing intent (navigational, informational, transactional)
+            focus: Focus area for informational browsing
 
         Returns:
             Navigation result with interactive elements and page content
         """
-        return await self.browser.navigate(url)
+        # Navigate to URL
+        result = await self.browser.navigate(url)
+
+        if not result.success:
+            return result
+
+        # Parse intent
+        try:
+            browser_intent = BrowserIntent(intent.lower())
+        except ValueError:
+            browser_intent = BrowserIntent.NAVIGATIONAL
+            logger.warning(f"Unknown browser intent '{intent}', defaulting to 'navigational'")
+
+        # Get intent configuration
+        config = BROWSER_INTENT_CONFIG.get(browser_intent, BROWSER_INTENT_CONFIG[BrowserIntent.NAVIGATIONAL])
+
+        # Apply intent-specific post-processing
+        if result.data and isinstance(result.data, dict):
+            # For informational intent with focus, extract focused content
+            if browser_intent == BrowserIntent.INFORMATIONAL and focus:
+                content = result.data.get("content", "")
+                focused_content = self._extract_focused_content(content, focus, config.get("max_content_length", 50000))
+                result.data["content"] = focused_content
+                result.data["focus"] = focus
+                result.message = f"[INFORMATIONAL - Focus: {focus}] {result.message or ''}"
+
+            # For transactional intent, emphasize interactive elements
+            elif browser_intent == BrowserIntent.TRANSACTIONAL:
+                if result.message:
+                    result.message = f"[TRANSACTIONAL] {result.message}"
+                else:
+                    result.message = "[TRANSACTIONAL] Ready for form interaction"
+
+            # Add intent metadata
+            result.data["intent"] = browser_intent.value
+
+        return result
 
     @tool(
         name="browser_restart",
@@ -212,17 +403,17 @@ Returns: Interactive elements, page content, title, URL - ready to use without a
         parameters={
             "url": {
                 "type": "string",
-                "description": "Complete URL to visit after restart. Must include protocol prefix."
+                "description": "Complete URL to visit after restart. Must include protocol prefix.",
             }
         },
-        required=["url"]
+        required=["url"],
     )
     async def browser_restart(self, url: str) -> ToolResult:
         """Restart browser and navigate to specified URL
-        
+
         Args:
             url: Complete URL address to visit after restart, must include protocol prefix
-            
+
         Returns:
             Restart result
         """
@@ -242,32 +433,23 @@ RETURNS: Click result. Use browser_view to see updated page state.""",
         parameters={
             "index": {
                 "type": "integer",
-                "description": "Element index from interactive elements list (preferred method)"
+                "description": "Element index from interactive elements list (preferred method)",
             },
-            "coordinate_x": {
-                "type": "number",
-                "description": "X coordinate for coordinate-based click (fallback)"
-            },
-            "coordinate_y": {
-                "type": "number",
-                "description": "Y coordinate for coordinate-based click (fallback)"
-            }
+            "coordinate_x": {"type": "number", "description": "X coordinate for coordinate-based click (fallback)"},
+            "coordinate_y": {"type": "number", "description": "Y coordinate for coordinate-based click (fallback)"},
         },
-        required=[]
+        required=[],
     )
     async def browser_click(
-        self,
-        index: int | None = None,
-        coordinate_x: float | None = None,
-        coordinate_y: float | None = None
+        self, index: int | None = None, coordinate_x: float | None = None, coordinate_y: float | None = None
     ) -> ToolResult:
         """Click on elements in the current browser page
-        
+
         Args:
             index: (Optional) Index number of the element to click
             coordinate_x: (Optional) X coordinate of click position
             coordinate_y: (Optional) Y coordinate of click position
-            
+
         Returns:
             Click result
         """
@@ -283,28 +465,16 @@ Use element index from browser_navigate/browser_view for reliable targeting.
 For search boxes: Set press_enter=true to submit.
 For forms: Set press_enter=false and use browser_click on submit button.""",
         parameters={
-            "index": {
-                "type": "integer",
-                "description": "Element index from interactive elements list (preferred)"
-            },
-            "coordinate_x": {
-                "type": "number",
-                "description": "X coordinate for coordinate-based input (fallback)"
-            },
-            "coordinate_y": {
-                "type": "number",
-                "description": "Y coordinate for coordinate-based input (fallback)"
-            },
-            "text": {
-                "type": "string",
-                "description": "Text to type (replaces existing content)"
-            },
+            "index": {"type": "integer", "description": "Element index from interactive elements list (preferred)"},
+            "coordinate_x": {"type": "number", "description": "X coordinate for coordinate-based input (fallback)"},
+            "coordinate_y": {"type": "number", "description": "Y coordinate for coordinate-based input (fallback)"},
+            "text": {"type": "string", "description": "Text to type (replaces existing content)"},
             "press_enter": {
                 "type": "boolean",
-                "description": "Press Enter after typing (true for search, false for multi-field forms)"
-            }
+                "description": "Press Enter after typing (true for search, false for multi-field forms)",
+            },
         },
-        required=["text", "press_enter"]
+        required=["text", "press_enter"],
     )
     async def browser_input(
         self,
@@ -312,17 +482,17 @@ For forms: Set press_enter=false and use browser_click on submit button.""",
         press_enter: bool,
         index: int | None = None,
         coordinate_x: float | None = None,
-        coordinate_y: float | None = None
+        coordinate_y: float | None = None,
     ) -> ToolResult:
         """Overwrite text in editable elements on the current browser page
-        
+
         Args:
             text: Complete text content to overwrite
             press_enter: Whether to press Enter key after input
             index: (Optional) Index number of the element to overwrite text
             coordinate_x: (Optional) X coordinate of the element to overwrite text
             coordinate_y: (Optional) Y coordinate of the element to overwrite text
-            
+
         Returns:
             Input result
         """
@@ -332,28 +502,18 @@ For forms: Set press_enter=false and use browser_click on submit button.""",
         name="browser_move_mouse",
         description="Move cursor to specified position on the current browser page. Use when simulating user mouse movement.",
         parameters={
-            "coordinate_x": {
-                "type": "number",
-                "description": "X coordinate of target cursor position"
-            },
-            "coordinate_y": {
-                "type": "number",
-                "description": "Y coordinate of target cursor position"
-            }
+            "coordinate_x": {"type": "number", "description": "X coordinate of target cursor position"},
+            "coordinate_y": {"type": "number", "description": "Y coordinate of target cursor position"},
         },
-        required=["coordinate_x", "coordinate_y"]
+        required=["coordinate_x", "coordinate_y"],
     )
-    async def browser_move_mouse(
-        self,
-        coordinate_x: float,
-        coordinate_y: float
-    ) -> ToolResult:
+    async def browser_move_mouse(self, coordinate_x: float, coordinate_y: float) -> ToolResult:
         """Move mouse cursor to specified position on the current browser page
-        
+
         Args:
             coordinate_x: X coordinate of target cursor position
             coordinate_y: Y coordinate of target cursor position
-            
+
         Returns:
             Move result
         """
@@ -365,20 +525,17 @@ For forms: Set press_enter=false and use browser_click on submit button.""",
         parameters={
             "key": {
                 "type": "string",
-                "description": "Key name to simulate (e.g., Enter, Tab, ArrowUp), supports key combinations (e.g., Control+Enter)."
+                "description": "Key name to simulate (e.g., Enter, Tab, ArrowUp), supports key combinations (e.g., Control+Enter).",
             }
         },
-        required=["key"]
+        required=["key"],
     )
-    async def browser_press_key(
-        self,
-        key: str
-    ) -> ToolResult:
+    async def browser_press_key(self, key: str) -> ToolResult:
         """Simulate key press in the current browser page
-        
+
         Args:
             key: Key name to simulate (e.g., Enter, Tab, ArrowUp), supports key combinations (e.g., Control+Enter)
-            
+
         Returns:
             Key press result
         """
@@ -388,28 +545,18 @@ For forms: Set press_enter=false and use browser_click on submit button.""",
         name="browser_select_option",
         description="Select specified option from dropdown list element in the current browser page. Use when selecting dropdown menu options.",
         parameters={
-            "index": {
-                "type": "integer",
-                "description": "Index number of the dropdown list element"
-            },
-            "option": {
-                "type": "integer",
-                "description": "Option number to select, starting from 0."
-            }
+            "index": {"type": "integer", "description": "Index number of the dropdown list element"},
+            "option": {"type": "integer", "description": "Option number to select, starting from 0."},
         },
-        required=["index", "option"]
+        required=["index", "option"],
     )
-    async def browser_select_option(
-        self,
-        index: int,
-        option: int
-    ) -> ToolResult:
+    async def browser_select_option(self, index: int, option: int) -> ToolResult:
         """Select specified option from dropdown list element in the current browser page
-        
+
         Args:
             index: Index number of the dropdown list element
             option: Option number to select, starting from 0
-            
+
         Returns:
             Selection result
         """
@@ -428,20 +575,17 @@ RETURNS: Updated page state after scroll.""",
         parameters={
             "to_top": {
                 "type": "boolean",
-                "description": "(Optional) Jump directly to page top instead of one viewport up."
+                "description": "(Optional) Jump directly to page top instead of one viewport up.",
             }
         },
-        required=[]
+        required=[],
     )
-    async def browser_scroll_up(
-        self,
-        to_top: bool | None = None
-    ) -> ToolResult:
+    async def browser_scroll_up(self, to_top: bool | None = None) -> ToolResult:
         """Scroll up the current browser page
-        
+
         Args:
             to_top: (Optional) Whether to scroll directly to page top instead of one viewport up
-            
+
         Returns:
             Scroll result
         """
@@ -464,20 +608,17 @@ RETURNS: Updated page state after scroll. Use browser_view to extract new conten
         parameters={
             "to_bottom": {
                 "type": "boolean",
-                "description": "(Optional) Scroll to page bottom. Use for short pages or when you need the footer."
+                "description": "(Optional) Scroll to page bottom. Use for short pages or when you need the footer.",
             }
         },
-        required=[]
+        required=[],
     )
-    async def browser_scroll_down(
-        self,
-        to_bottom: bool | None = None
-    ) -> ToolResult:
+    async def browser_scroll_down(self, to_bottom: bool | None = None) -> ToolResult:
         """Scroll down the current browser page
-        
+
         Args:
             to_bottom: (Optional) Whether to scroll directly to page bottom instead of one viewport down
-            
+
         Returns:
             Scroll result
         """
@@ -489,20 +630,17 @@ RETURNS: Updated page state after scroll. Use browser_view to extract new conten
         parameters={
             "javascript": {
                 "type": "string",
-                "description": "JavaScript code to execute. Note that the runtime environment is browser console."
+                "description": "JavaScript code to execute. Note that the runtime environment is browser console.",
             }
         },
-        required=["javascript"]
+        required=["javascript"],
     )
-    async def browser_console_exec(
-        self,
-        javascript: str
-    ) -> ToolResult:
+    async def browser_console_exec(self, javascript: str) -> ToolResult:
         """Execute JavaScript code in browser console
-        
+
         Args:
             javascript: JavaScript code to execute, note that the runtime environment is browser console
-            
+
         Returns:
             Execution result
         """
@@ -512,17 +650,11 @@ RETURNS: Updated page state after scroll. Use browser_view to extract new conten
         name="browser_console_view",
         description="View browser console output. Use when checking JavaScript logs or debugging page errors.",
         parameters={
-            "max_lines": {
-                "type": "integer",
-                "description": "(Optional) Maximum number of log lines to return."
-            }
+            "max_lines": {"type": "integer", "description": "(Optional) Maximum number of log lines to return."}
         },
-        required=[]
+        required=[],
     )
-    async def browser_console_view(
-        self,
-        max_lines: int | None = None
-    ) -> ToolResult:
+    async def browser_console_view(self, max_lines: int | None = None) -> ToolResult:
         """View browser console output
 
         Args:
@@ -532,127 +664,3 @@ RETURNS: Updated page state after scroll. Use browser_view to extract new conten
             Console output
         """
         return await self.browser.console_view(max_lines)
-
-    @tool(
-        name="browsing",
-        description="""Execute complex multi-step browsing task autonomously using AI.
-
-WHEN TO USE:
-- Complex workflows: research, comparison shopping, multi-page navigation
-- Form filling with contextual understanding
-- Data extraction across multiple pages
-- When user wants to "watch" autonomous browsing in VNC
-
-AUTOMATIC CAPABILITIES:
-- Navigates pages intelligently
-- Scrolls to find elements
-- Clicks buttons and links
-- Fills forms with context awareness
-- Extracts and processes data
-- Handles pagination and multi-step flows
-
-ALL ACTIONS VISIBLE IN REAL-TIME VIA VNC
-
-Examples:
-- "Search Amazon for wireless keyboards, filter by 4+ stars, extract top 3 products"
-- "Go to httpbin.org/forms/post and fill the form with test data"
-- "Research Python async tutorials, visit top 3 sites, summarize key concepts"
-""",
-        parameters={
-            "task": {
-                "type": "string",
-                "description": "Natural language description of the browsing task. Be specific about what to search, filter, extract, or do."
-            },
-            "max_steps": {
-                "type": "integer",
-                "description": "Maximum autonomous actions before stopping. Default: 20. Range: 5-50. Use higher for complex multi-page tasks."
-            }
-        },
-        required=["task"]
-    )
-    async def browsing(
-        self,
-        task: str,
-        max_steps: int | None = 20
-    ) -> ToolResult:
-        """Execute autonomous browsing task with natural language instruction
-
-        Args:
-            task: Natural language task description
-            max_steps: Maximum autonomous actions (default: 20, range: 5-50)
-
-        Returns:
-            Execution results with actions taken and final output
-        """
-        try:
-            # Lazy import to avoid circular dependencies
-            from app.infrastructure.external.browser.browseruse_browser import (
-                BrowserUseService,
-                is_browser_use_available,
-            )
-
-            # Check if browser-use is available
-            if not is_browser_use_available():
-                return ToolResult(
-                    success=False,
-                    message="Browser-use library not installed. Install with: pip install browser-use>=0.11.0"
-                )
-
-            # Validate max_steps range
-            if max_steps is not None:
-                max_steps = max(5, min(50, max_steps))
-            else:
-                max_steps = 20
-
-            # Get or create browser-use service
-            if not hasattr(self.browser, 'browseruse_service'):
-                # Get CDP URL from existing browser
-                cdp_url = getattr(self.browser, 'cdp_url', 'http://localhost:9222')
-
-                # Create browser-use service
-                self.browser.browseruse_service = BrowserUseService(cdp_url=cdp_url)
-                await self.browser.browseruse_service.initialize()
-
-                logger.info("Initialized browser-use service for autonomous browsing")
-
-            # Execute autonomous task
-            logger.info(f"Executing autonomous task (max_steps={max_steps}): {task}")
-
-            result = await self.browser.browseruse_service.execute_autonomous_task(
-                task=task,
-                max_steps=max_steps
-            )
-
-            if result["success"]:
-                # Format successful result
-                actions_summary = "\n".join([
-                    f"Step {action['step']}: {action['action']}"
-                    for action in result["actions"][:10]  # Show first 10 steps
-                ])
-
-                if len(result["actions"]) > 10:
-                    actions_summary += f"\n... and {len(result['actions']) - 10} more steps"
-
-                return ToolResult(
-                    success=True,
-                    message=f"Autonomous task completed in {result['total_steps']} steps",
-                    data={
-                        "final_result": result["final_result"],
-                        "total_steps": result["total_steps"],
-                        "actions_summary": actions_summary,
-                        "model_used": result.get("model_used", "gpt-4o-mini"),
-                        "all_actions": result["actions"]  # Full action history
-                    }
-                )
-            # Task failed
-            return ToolResult(
-                success=False,
-                message=f"Autonomous task failed: {result.get('error', 'Unknown error')}"
-            )
-
-        except Exception as e:
-            logger.error(f"browsing failed: {e}", exc_info=True)
-            return ToolResult(
-                success=False,
-                message=f"Failed to execute autonomous task: {e!s}"
-            )

@@ -33,7 +33,9 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, TypeVar
+from typing import Any, ClassVar, TypeVar
+
+from app.core.config import get_feature_flags
 
 logger = logging.getLogger(__name__)
 
@@ -362,8 +364,8 @@ class CircuitBreakerRegistry:
     enabling monitoring and coordinated management.
     """
 
-    _breakers: dict[str, CircuitBreaker] = {}
-    _lock = asyncio.Lock()
+    _breakers: ClassVar[dict[str, CircuitBreaker]] = {}
+    _lock: ClassVar[asyncio.Lock] = asyncio.Lock()
 
     @classmethod
     def get_or_create(
@@ -397,7 +399,17 @@ class CircuitBreakerRegistry:
                 success_threshold=success_threshold,
             )
 
-        breaker = CircuitBreaker(name, config)
+        flags = get_feature_flags()
+        if flags.get("circuit_breaker_adaptive"):
+            try:
+                from app.core.circuit_breaker_adaptive import AdaptiveCircuitBreaker
+
+                breaker = AdaptiveCircuitBreaker(name, config)
+            except Exception as e:
+                logger.warning(f"Adaptive circuit breaker unavailable, falling back: {e}")
+                breaker = CircuitBreaker(name, config)
+        else:
+            breaker = CircuitBreaker(name, config)
         cls._breakers[name] = breaker
 
         logger.info(

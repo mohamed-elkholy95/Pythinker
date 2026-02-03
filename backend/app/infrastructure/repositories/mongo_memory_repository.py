@@ -56,39 +56,32 @@ class MongoMemoryRepository(MemoryRepository):
         try:
             # User + time index for recent queries
             await self._collection.create_index(
-                [("user_id", ASCENDING), ("created_at", DESCENDING)],
-                name="user_created_idx"
+                [("user_id", ASCENDING), ("created_at", DESCENDING)], name="user_created_idx"
             )
 
             # User + type index
             await self._collection.create_index(
-                [("user_id", ASCENDING), ("memory_type", ASCENDING)],
-                name="user_type_idx"
+                [("user_id", ASCENDING), ("memory_type", ASCENDING)], name="user_type_idx"
             )
 
             # User + entities index
             await self._collection.create_index(
-                [("user_id", ASCENDING), ("entities", ASCENDING)],
-                name="user_entities_idx"
+                [("user_id", ASCENDING), ("entities", ASCENDING)], name="user_entities_idx"
             )
 
             # User + content hash for deduplication
             await self._collection.create_index(
-                [("user_id", ASCENDING), ("content_hash", ASCENDING)],
-                name="user_hash_idx"
+                [("user_id", ASCENDING), ("content_hash", ASCENDING)], name="user_hash_idx"
             )
 
             # Full-text search on content and keywords
             await self._collection.create_index(
-                [("content", TEXT), ("keywords", TEXT)],
-                name="text_search_idx",
-                default_language="english"
+                [("content", TEXT), ("keywords", TEXT)], name="text_search_idx", default_language="english"
             )
 
             # Access count for most accessed queries
             await self._collection.create_index(
-                [("user_id", ASCENDING), ("access_count", DESCENDING)],
-                name="user_access_idx"
+                [("user_id", ASCENDING), ("access_count", DESCENDING)], name="user_access_idx"
             )
 
             # Expiration index for cleanup - TTL index only processes docs with expires_at field
@@ -96,7 +89,7 @@ class MongoMemoryRepository(MemoryRepository):
                 [("expires_at", ASCENDING)],
                 name="expiration_idx",
                 expireAfterSeconds=0,  # TTL index
-                partialFilterExpression={"expires_at": {"$type": "date"}}
+                partialFilterExpression={"expires_at": {"$type": "date"}},
             )
 
             self._indexes_created = True
@@ -197,14 +190,11 @@ class MongoMemoryRepository(MemoryRepository):
         # Recompute content hash if content changed
         if "content" in update_data:
             import hashlib
-            update_data["content_hash"] = hashlib.sha256(
-                update_data["content"].encode()
-            ).hexdigest()[:16]
+
+            update_data["content_hash"] = hashlib.sha256(update_data["content"].encode()).hexdigest()[:16]
 
         result = await self._collection.find_one_and_update(
-            {"_id": memory_id},
-            {"$set": update_data},
-            return_document=True
+            {"_id": memory_id}, {"$set": update_data}, return_document=True
         )
 
         if result:
@@ -265,12 +255,12 @@ class MongoMemoryRepository(MemoryRepository):
         if query.query_text:
             mongo_query["$text"] = {"$search": query.query_text}
 
-            cursor = self._collection.find(
-                mongo_query,
-                {"score": {"$meta": "textScore"}}
-            ).sort(
-                [("score", {"$meta": "textScore"})]
-            ).skip(query.offset).limit(query.limit)
+            cursor = (
+                self._collection.find(mongo_query, {"score": {"$meta": "textScore"}})
+                .sort([("score", {"$meta": "textScore"})])
+                .skip(query.offset)
+                .limit(query.limit)
+            )
 
             async for doc in cursor:
                 score = doc.pop("score", 0.5)
@@ -279,44 +269,46 @@ class MongoMemoryRepository(MemoryRepository):
 
                 if normalized_score >= query.min_relevance:
                     memory = self._from_document(doc)
-                    results.append(MemorySearchResult(
-                        memory=memory,
-                        relevance_score=normalized_score,
-                        match_type="text"
-                    ))
+                    results.append(
+                        MemorySearchResult(memory=memory, relevance_score=normalized_score, match_type="text")
+                    )
 
         # Keyword matching
         elif query.keywords:
             mongo_query["keywords"] = {"$in": query.keywords}
 
-            cursor = self._collection.find(mongo_query).sort(
-                [("access_count", DESCENDING), ("created_at", DESCENDING)]
-            ).skip(query.offset).limit(query.limit)
+            cursor = (
+                self._collection.find(mongo_query)
+                .sort([("access_count", DESCENDING), ("created_at", DESCENDING)])
+                .skip(query.offset)
+                .limit(query.limit)
+            )
 
             async for doc in cursor:
                 memory = self._from_document(doc)
                 # Score based on keyword overlap
                 overlap = len(set(memory.keywords) & set(query.keywords))
                 score = overlap / max(len(query.keywords), 1)
-                results.append(MemorySearchResult(
-                    memory=memory,
-                    relevance_score=score,
-                    match_type="keyword"
-                ))
+                results.append(MemorySearchResult(memory=memory, relevance_score=score, match_type="keyword"))
 
         # Default: filter-based retrieval
         else:
-            cursor = self._collection.find(mongo_query).sort(
-                [("importance", DESCENDING), ("created_at", DESCENDING)]
-            ).skip(query.offset).limit(query.limit)
+            cursor = (
+                self._collection.find(mongo_query)
+                .sort([("importance", DESCENDING), ("created_at", DESCENDING)])
+                .skip(query.offset)
+                .limit(query.limit)
+            )
 
             async for doc in cursor:
                 memory = self._from_document(doc)
-                results.append(MemorySearchResult(
-                    memory=memory,
-                    relevance_score=0.5,  # Default score for filter matches
-                    match_type="filter"
-                ))
+                results.append(
+                    MemorySearchResult(
+                        memory=memory,
+                        relevance_score=0.5,  # Default score for filter matches
+                        match_type="filter",
+                    )
+                )
 
         return results
 
@@ -326,7 +318,7 @@ class MongoMemoryRepository(MemoryRepository):
         embedding: list[float],
         limit: int = 10,
         min_score: float = 0.0,
-        memory_types: list[MemoryType] | None = None
+        memory_types: list[MemoryType] | None = None,
     ) -> list[MemorySearchResult]:
         """Search by vector similarity.
 
@@ -336,11 +328,7 @@ class MongoMemoryRepository(MemoryRepository):
         await self.ensure_indexes()
 
         # Build base query
-        query: dict[str, Any] = {
-            "user_id": user_id,
-            "is_active": True,
-            "embedding": {"$exists": True, "$ne": None}
-        }
+        query: dict[str, Any] = {"user_id": user_id, "is_active": True, "embedding": {"$exists": True, "$ne": None}}
 
         if memory_types:
             query["memory_type"] = {"$in": [t.value for t in memory_types]}
@@ -360,7 +348,7 @@ class MongoMemoryRepository(MemoryRepository):
         import math
 
         def cosine_similarity(a: list[float], b: list[float]) -> float:
-            dot = sum(x * y for x, y in zip(a, b))
+            dot = sum(x * y for x, y in zip(a, b, strict=False))
             norm_a = math.sqrt(sum(x * x for x in a))
             norm_b = math.sqrt(sum(x * x for x in b))
             if norm_a == 0 or norm_b == 0:
@@ -381,42 +369,26 @@ class MongoMemoryRepository(MemoryRepository):
         results = []
         for score, doc in scored[:limit]:
             memory = self._from_document(doc)
-            results.append(MemorySearchResult(
-                memory=memory,
-                relevance_score=score,
-                match_type="semantic"
-            ))
+            results.append(MemorySearchResult(memory=memory, relevance_score=score, match_type="semantic"))
 
         return results
 
-    async def find_duplicates(
-        self,
-        user_id: str,
-        content_hash: str
-    ) -> list[MemoryEntry]:
+    async def find_duplicates(self, user_id: str, content_hash: str) -> list[MemoryEntry]:
         """Find memories with matching content hash."""
-        cursor = self._collection.find({
-            "user_id": user_id,
-            "content_hash": content_hash
-        })
+        cursor = self._collection.find({"user_id": user_id, "content_hash": content_hash})
 
         results = []
         async for doc in cursor:
             results.append(self._from_document(doc))
         return results
 
-    async def get_by_entities(
-        self,
-        user_id: str,
-        entities: list[str],
-        limit: int = 20
-    ) -> list[MemoryEntry]:
+    async def get_by_entities(self, user_id: str, entities: list[str], limit: int = 20) -> list[MemoryEntry]:
         """Get memories mentioning specific entities."""
-        cursor = self._collection.find({
-            "user_id": user_id,
-            "is_active": True,
-            "entities": {"$in": entities}
-        }).sort("access_count", DESCENDING).limit(limit)
+        cursor = (
+            self._collection.find({"user_id": user_id, "is_active": True, "entities": {"$in": entities}})
+            .sort("access_count", DESCENDING)
+            .limit(limit)
+        )
 
         results = []
         async for doc in cursor:
@@ -424,23 +396,15 @@ class MongoMemoryRepository(MemoryRepository):
         return results
 
     async def get_recent(
-        self,
-        user_id: str,
-        limit: int = 10,
-        memory_types: list[MemoryType] | None = None
+        self, user_id: str, limit: int = 10, memory_types: list[MemoryType] | None = None
     ) -> list[MemoryEntry]:
         """Get most recently created memories."""
-        query: dict[str, Any] = {
-            "user_id": user_id,
-            "is_active": True
-        }
+        query: dict[str, Any] = {"user_id": user_id, "is_active": True}
 
         if memory_types:
             query["memory_type"] = {"$in": [t.value for t in memory_types]}
 
-        cursor = self._collection.find(query).sort(
-            "created_at", DESCENDING
-        ).limit(limit)
+        cursor = self._collection.find(query).sort("created_at", DESCENDING).limit(limit)
 
         results = []
         async for doc in cursor:
@@ -448,23 +412,15 @@ class MongoMemoryRepository(MemoryRepository):
         return results
 
     async def get_most_accessed(
-        self,
-        user_id: str,
-        limit: int = 10,
-        since: datetime | None = None
+        self, user_id: str, limit: int = 10, since: datetime | None = None
     ) -> list[MemoryEntry]:
         """Get most frequently accessed memories."""
-        query: dict[str, Any] = {
-            "user_id": user_id,
-            "is_active": True
-        }
+        query: dict[str, Any] = {"user_id": user_id, "is_active": True}
 
         if since:
             query["last_accessed"] = {"$gte": since}
 
-        cursor = self._collection.find(query).sort(
-            "access_count", DESCENDING
-        ).limit(limit)
+        cursor = self._collection.find(query).sort("access_count", DESCENDING).limit(limit)
 
         results = []
         async for doc in cursor:
@@ -475,13 +431,15 @@ class MongoMemoryRepository(MemoryRepository):
         """Get memory statistics for a user."""
         pipeline = [
             {"$match": {"user_id": user_id}},
-            {"$group": {
-                "_id": None,
-                "total": {"$sum": 1},
-                "active": {"$sum": {"$cond": ["$is_active", 1, 0]}},
-                "oldest": {"$min": "$created_at"},
-                "newest": {"$max": "$created_at"},
-            }}
+            {
+                "$group": {
+                    "_id": None,
+                    "total": {"$sum": 1},
+                    "active": {"$sum": {"$cond": ["$is_active", 1, 0]}},
+                    "oldest": {"$min": "$created_at"},
+                    "newest": {"$max": "$created_at"},
+                }
+            },
         ]
 
         stats_result = await self._collection.aggregate(pipeline).to_list(1)
@@ -489,7 +447,7 @@ class MongoMemoryRepository(MemoryRepository):
         # Get counts by type
         type_pipeline = [
             {"$match": {"user_id": user_id, "is_active": True}},
-            {"$group": {"_id": "$memory_type", "count": {"$sum": 1}}}
+            {"$group": {"_id": "$memory_type", "count": {"$sum": 1}}},
         ]
         type_counts = await self._collection.aggregate(type_pipeline).to_list(100)
         by_type = {item["_id"]: item["count"] for item in type_counts}
@@ -497,15 +455,14 @@ class MongoMemoryRepository(MemoryRepository):
         # Get counts by importance
         imp_pipeline = [
             {"$match": {"user_id": user_id, "is_active": True}},
-            {"$group": {"_id": "$importance", "count": {"$sum": 1}}}
+            {"$group": {"_id": "$importance", "count": {"$sum": 1}}},
         ]
         imp_counts = await self._collection.aggregate(imp_pipeline).to_list(100)
         by_importance = {item["_id"]: item["count"] for item in imp_counts}
 
         # Get most accessed
         most_accessed_doc = await self._collection.find_one(
-            {"user_id": user_id, "is_active": True},
-            sort=[("access_count", DESCENDING)]
+            {"user_id": user_id, "is_active": True}, sort=[("access_count", DESCENDING)]
         )
 
         base_stats = stats_result[0] if stats_result else {}
@@ -518,14 +475,12 @@ class MongoMemoryRepository(MemoryRepository):
             by_importance=by_importance,
             oldest_memory=base_stats.get("oldest"),
             newest_memory=base_stats.get("newest"),
-            most_accessed=most_accessed_doc.get("_id") if most_accessed_doc else None
+            most_accessed=most_accessed_doc.get("_id") if most_accessed_doc else None,
         )
 
     async def cleanup_expired(self, user_id: str | None = None) -> int:
         """Remove expired memories."""
-        query: dict[str, Any] = {
-            "expires_at": {"$lt": datetime.utcnow()}
-        }
+        query: dict[str, Any] = {"expires_at": {"$lt": datetime.utcnow()}}
 
         if user_id:
             query["user_id"] = user_id
@@ -537,18 +492,11 @@ class MongoMemoryRepository(MemoryRepository):
     async def record_access(self, memory_id: str) -> None:
         """Record memory access."""
         await self._collection.update_one(
-            {"_id": memory_id},
-            {
-                "$set": {"last_accessed": datetime.utcnow()},
-                "$inc": {"access_count": 1}
-            }
+            {"_id": memory_id}, {"$set": {"last_accessed": datetime.utcnow()}, "$inc": {"access_count": 1}}
         )
 
     async def merge_memories(
-        self,
-        memory_ids: list[str],
-        merged_content: str,
-        keep_original: bool = False
+        self, memory_ids: list[str], merged_content: str, keep_original: bool = False
     ) -> MemoryEntry:
         """Merge multiple memories into one."""
         # Fetch original memories
@@ -570,12 +518,12 @@ class MongoMemoryRepository(MemoryRepository):
             memory_type=first.memory_type,
             importance=max(m.importance for m in originals),
             source=first.source,
-            keywords=list(set(kw for m in originals for kw in m.keywords)),
-            entities=list(set(e for m in originals for e in m.entities)),
-            tags=list(set(t for m in originals for t in m.tags)),
+            keywords=list({kw for m in originals for kw in m.keywords}),
+            entities=list({e for m in originals for e in m.entities}),
+            tags=list({t for m in originals for t in m.tags}),
             related_memories=memory_ids,
             metadata={"merged_from": memory_ids},
-            access_count=sum(m.access_count for m in originals)
+            access_count=sum(m.access_count for m in originals),
         )
 
         # Save merged memory
@@ -584,10 +532,7 @@ class MongoMemoryRepository(MemoryRepository):
         # Handle originals
         if keep_original:
             for mid in memory_ids:
-                await self.update(mid, MemoryUpdate(
-                    is_active=False,
-                    metadata={"merged_into": merged.id}
-                ))
+                await self.update(mid, MemoryUpdate(is_active=False, metadata={"merged_into": merged.id}))
         else:
             for mid in memory_ids:
                 await self.delete(mid)

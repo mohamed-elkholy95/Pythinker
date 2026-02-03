@@ -3,7 +3,6 @@ VNC-related API endpoints for desktop screenshot capture and control.
 """
 
 from fastapi import APIRouter, HTTPException, Response, Query
-import subprocess
 import logging
 import asyncio
 from typing import Literal

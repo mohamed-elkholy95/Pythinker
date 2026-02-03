@@ -28,28 +28,17 @@ class ExportTool(BaseTool):
         name="export_organize",
         description="Organize files into appropriate workspace directories. Moves files to categorized folders (src, tests, docs, output) based on file type.",
         parameters={
-            "session_id": {
-                "type": "string",
-                "description": "Session ID"
-            },
-            "source_path": {
-                "type": "string",
-                "description": "Path to file or directory to organize"
-            },
+            "session_id": {"type": "string", "description": "Session ID"},
+            "source_path": {"type": "string", "description": "Path to file or directory to organize"},
             "target_category": {
                 "type": "string",
                 "description": "Target category: 'source', 'test', 'docs', 'config', 'output', 'other'",
-                "enum": ["source", "test", "docs", "config", "output", "other"]
-            }
+                "enum": ["source", "test", "docs", "config", "output", "other"],
+            },
         },
-        required=["session_id", "source_path"]
+        required=["session_id", "source_path"],
     )
-    async def export_organize(
-        self,
-        session_id: str,
-        source_path: str,
-        target_category: str = "other"
-    ) -> ToolResult:
+    async def export_organize(self, session_id: str, source_path: str, target_category: str = "other") -> ToolResult:
         """Organize files into workspace directories
 
         Args:
@@ -66,38 +55,29 @@ class ExportTool(BaseTool):
         name="export_archive",
         description="Create a ZIP archive of workspace files. Supports include/exclude patterns for selective archiving. Use for creating downloadable project exports.",
         parameters={
-            "session_id": {
-                "type": "string",
-                "description": "Session ID"
-            },
-            "name": {
-                "type": "string",
-                "description": "Archive name (without .zip extension)"
-            },
+            "session_id": {"type": "string", "description": "Session ID"},
+            "name": {"type": "string", "description": "Archive name (without .zip extension)"},
             "include_patterns": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Glob patterns to include (e.g., ['src/**', 'tests/**'])"
+                "description": "Glob patterns to include (e.g., ['src/**', 'tests/**'])",
             },
             "exclude_patterns": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Glob patterns to exclude (e.g., ['node_modules/**', '__pycache__/**'])"
+                "description": "Glob patterns to exclude (e.g., ['node_modules/**', '__pycache__/**'])",
             },
-            "base_path": {
-                "type": "string",
-                "description": "Base path for files (defaults to workspace root)"
-            }
+            "base_path": {"type": "string", "description": "Base path for files (defaults to workspace root)"},
         },
-        required=["session_id", "name"]
+        required=["session_id", "name"],
     )
     async def export_archive(
         self,
         session_id: str,
         name: str,
-        include_patterns: list[str] = None,
-        exclude_patterns: list[str] = None,
-        base_path: str = None
+        include_patterns: list[str] | None = None,
+        exclude_patterns: list[str] | None = None,
+        base_path: str | None = None,
     ) -> ToolResult:
         """Create ZIP archive of workspace
 
@@ -117,33 +97,27 @@ class ExportTool(BaseTool):
         name="export_report",
         description="Generate a workspace report with project overview, structure, test results, and security analysis. Supports markdown, HTML, and JSON formats.",
         parameters={
-            "session_id": {
-                "type": "string",
-                "description": "Session ID"
-            },
+            "session_id": {"type": "string", "description": "Session ID"},
             "report_type": {
                 "type": "string",
                 "description": "Report type: 'summary', 'test', 'security', 'full'",
-                "enum": ["summary", "test", "security", "full"]
+                "enum": ["summary", "test", "security", "full"],
             },
             "output_format": {
                 "type": "string",
                 "description": "Output format: 'markdown', 'html', 'json'",
-                "enum": ["markdown", "html", "json"]
+                "enum": ["markdown", "html", "json"],
             },
-            "title": {
-                "type": "string",
-                "description": "Report title"
-            }
+            "title": {"type": "string", "description": "Report title"},
         },
-        required=["session_id"]
+        required=["session_id"],
     )
     async def export_report(
         self,
         session_id: str,
         report_type: str = "summary",
         output_format: str = "markdown",
-        title: str = "Workspace Report"
+        title: str = "Workspace Report",
     ) -> ToolResult:
         """Generate workspace report
 
@@ -161,13 +135,8 @@ class ExportTool(BaseTool):
     @tool(
         name="export_list",
         description="List available exports (archives and reports) for a session. Shows files in the exports directory with size and creation time.",
-        parameters={
-            "session_id": {
-                "type": "string",
-                "description": "Session ID"
-            }
-        },
-        required=["session_id"]
+        parameters={"session_id": {"type": "string", "description": "Session ID"}},
+        required=["session_id"],
     )
     async def export_list(self, session_id: str) -> ToolResult:
         """List available exports

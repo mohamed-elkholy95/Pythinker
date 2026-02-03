@@ -1,33 +1,37 @@
 from datetime import UTC, date, datetime
-from typing import Any, Generic, Self, TypeVar
+from typing import Any, ClassVar, Generic, Self, TypeVar
 
 from beanie import Document
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pymongo import ASCENDING, DESCENDING, IndexModel
 
 from app.domain.models.agent import Agent
+from app.domain.models.claim_provenance import ClaimProvenance, ClaimType, ClaimVerificationStatus
 from app.domain.models.event import AgentEvent
 from app.domain.models.file import FileInfo
 from app.domain.models.memory import Memory
 from app.domain.models.multi_task import MultiTaskChallenge
 from app.domain.models.session import AgentMode, Session, SessionStatus
+from app.domain.models.skill import Skill, SkillCategory, SkillInvocationType, SkillSource
 from app.domain.models.usage import DailyUsageAggregate, UsageRecord, UsageType
 from app.domain.models.user import User, UserRole
+from app.domain.models.visited_source import ContentAccessMethod, VisitedSource
 
-T = TypeVar('T', bound=BaseModel)
+T = TypeVar("T", bound=BaseModel)
+
 
 class BaseDocument(Document, Generic[T]):
-    def __init_subclass__(cls, id_field="id", domain_model_class: type[T] = None, **kwargs):
+    def __init_subclass__(cls, id_field="id", domain_model_class: type[T] | None = None, **kwargs):
         super().__init_subclass__(**kwargs)
         cls._ID_FIELD = id_field
         cls._DOMAIN_MODEL_CLASS = domain_model_class
 
     def update_from_domain(self, domain_obj: T) -> None:
         """Update the document from domain model"""
-        data = domain_obj.model_dump(exclude={'id', 'created_at'})
+        data = domain_obj.model_dump(exclude={"id", "created_at"})
         data[self._ID_FIELD] = domain_obj.id
-        if hasattr(self, 'updated_at'):
-            data['updated_at'] = datetime.now(UTC)
+        if hasattr(self, "updated_at"):
+            data["updated_at"] = datetime.now(UTC)
 
         for field, value in data.items():
             setattr(self, field, value)
@@ -35,8 +39,8 @@ class BaseDocument(Document, Generic[T]):
     def to_domain(self) -> T:
         """Convert MongoDB document to domain model"""
         # Convert to dict and map agent_id to id field
-        data = self.model_dump(exclude={'id'})
-        data['id'] = data.pop(self._ID_FIELD)
+        data = self.model_dump(exclude={"id"})
+        data["id"] = data.pop(self._ID_FIELD)
         return self._DOMAIN_MODEL_CLASS.model_validate(data)
 
     @classmethod
@@ -44,11 +48,13 @@ class BaseDocument(Document, Generic[T]):
         """Create a new MongoDB agent from domain"""
         # Convert to dict and map id to agent_id field
         data = domain_obj.model_dump()
-        data[cls._ID_FIELD] = data.pop('id')
+        data[cls._ID_FIELD] = data.pop("id")
         return cls.model_validate(data)
+
 
 class UserDocument(BaseDocument[User], id_field="user_id", domain_model_class=User):
     """MongoDB document for User"""
+
     user_id: str
     fullname: str
     email: str  # Now required field for login
@@ -60,26 +66,28 @@ class UserDocument(BaseDocument[User], id_field="user_id", domain_model_class=Us
     last_login_at: datetime | None = None
 
     class Settings:
-        name = "users"
-        indexes = [
+        name: ClassVar[str] = "users"
+        indexes: ClassVar[list[Any]] = [
             "user_id",
             "fullname",  # Keep fullname index but not unique
             IndexModel([("email", ASCENDING)], unique=True),  # Email as unique index
         ]
 
+
 class AgentDocument(BaseDocument[Agent], id_field="agent_id", domain_model_class=Agent):
     """MongoDB document for Agent"""
+
     agent_id: str
     model_name: str
     temperature: float
     max_tokens: int
-    memories: dict[str, Memory] = {}
+    memories: dict[str, Memory] = Field(default_factory=dict)
     created_at: datetime = datetime.now(UTC)
     updated_at: datetime = datetime.now(UTC)
 
     class Settings:
-        name = "agents"
-        indexes = [
+        name: ClassVar[str] = "agents"
+        indexes: ClassVar[list[Any]] = [
             "agent_id",
             IndexModel([("created_at", DESCENDING)]),  # Agents by creation time
         ]
@@ -87,6 +95,7 @@ class AgentDocument(BaseDocument[Agent], id_field="agent_id", domain_model_class
 
 class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model_class=Session):
     """MongoDB model for Session"""
+
     session_id: str
     user_id: str  # User ID that owns this session
     sandbox_id: str | None = None
@@ -100,7 +109,7 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
     updated_at: datetime = datetime.now(UTC)
     events: list[AgentEvent]
     status: SessionStatus
-    files: list[FileInfo] = []
+    files: list[FileInfo] = Field(default_factory=list)
     is_shared: bool | None = False
     mode: AgentMode = AgentMode.DISCUSS  # Agent mode: discuss or agent
     pending_action: dict[str, Any] | None = None
@@ -143,8 +152,8 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
     persist_login_state: bool | None = None  # Whether to persist browser login state across tasks
 
     class Settings:
-        name = "sessions"
-        indexes = [
+        name: ClassVar[str] = "sessions"
+        indexes: ClassVar[list[Any]] = [
             "session_id",
             "user_id",  # Index for user_id queries
             "status",  # Index for status filtering
@@ -159,6 +168,7 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
 
 class SnapshotDocument(Document):
     """MongoDB document for StateSnapshot"""
+
     snapshot_id: str
     session_id: str
     action_id: str | None = None
@@ -174,15 +184,15 @@ class SnapshotDocument(Document):
     resource_path: str | None = None
 
     # Snapshot data stored as JSON
-    snapshot_data: dict = {}
+    snapshot_data: dict = Field(default_factory=dict)
 
     # Compression info
     is_compressed: bool = False
     compressed_size_bytes: int | None = None
 
     class Settings:
-        name = "snapshots"
-        indexes = [
+        name: ClassVar[str] = "snapshots"
+        indexes: ClassVar[list[Any]] = [
             "snapshot_id",
             "session_id",
             IndexModel([("session_id", ASCENDING), ("sequence_number", ASCENDING)]),
@@ -193,6 +203,7 @@ class SnapshotDocument(Document):
 
 class UsageDocument(BaseDocument[UsageRecord], id_field="usage_id", domain_model_class=UsageRecord):
     """MongoDB document for individual LLM usage records."""
+
     usage_id: str
     user_id: str
     session_id: str
@@ -216,8 +227,8 @@ class UsageDocument(BaseDocument[UsageRecord], id_field="usage_id", domain_model
     created_at: datetime = datetime.now(UTC)
 
     class Settings:
-        name = "usage"
-        indexes = [
+        name: ClassVar[str] = "usage"
+        indexes: ClassVar[list[Any]] = [
             "usage_id",
             "user_id",
             "session_id",
@@ -226,8 +237,11 @@ class UsageDocument(BaseDocument[UsageRecord], id_field="usage_id", domain_model
         ]
 
 
-class DailyUsageDocument(BaseDocument[DailyUsageAggregate], id_field="usage_id", domain_model_class=DailyUsageAggregate):
+class DailyUsageDocument(
+    BaseDocument[DailyUsageAggregate], id_field="usage_id", domain_model_class=DailyUsageAggregate
+):
     """MongoDB document for daily usage aggregates."""
+
     usage_id: str  # Format: {user_id}_{date}
     user_id: str
     date: date
@@ -248,20 +262,272 @@ class DailyUsageDocument(BaseDocument[DailyUsageAggregate], id_field="usage_id",
     session_count: int = 0
 
     # Model breakdown
-    tokens_by_model: dict[str, int] = {}
-    cost_by_model: dict[str, float] = {}
+    tokens_by_model: dict[str, int] = Field(default_factory=dict)
+    cost_by_model: dict[str, float] = Field(default_factory=dict)
 
     # Sessions active this day
-    active_sessions: list[str] = []
+    active_sessions: list[str] = Field(default_factory=list)
 
     # Timestamps
     created_at: datetime = datetime.now(UTC)
     updated_at: datetime = datetime.now(UTC)
 
     class Settings:
-        name = "daily_usage"
-        indexes = [
+        name: ClassVar[str] = "daily_usage"
+        indexes: ClassVar[list[Any]] = [
             "usage_id",
             "user_id",
             IndexModel([("user_id", ASCENDING), ("date", DESCENDING)]),
+        ]
+
+
+class SkillDocument(BaseDocument[Skill], id_field="skill_id", domain_model_class=Skill):
+    """MongoDB document for Skill."""
+
+    skill_id: str  # Unique skill identifier (slug)
+    name: str
+    description: str
+    category: SkillCategory
+    source: SkillSource = SkillSource.CUSTOM  # Default to CUSTOM for safety
+    icon: str = "sparkles"
+
+    # Tool integration
+    required_tools: list[str] = Field(default_factory=list)
+    optional_tools: list[str] = Field(default_factory=list)
+
+    # Prompt enhancement
+    system_prompt_addition: str | None = None
+
+    # Configuration schema
+    configurations: dict[str, dict] = Field(default_factory=dict)
+    default_enabled: bool = False
+
+    # Claude-style invocation configuration
+    invocation_type: SkillInvocationType = SkillInvocationType.BOTH
+    allowed_tools: list[str] | None = None  # Tool restrictions when skill is active
+    supports_dynamic_context: bool = False  # !command substitution support
+    trigger_patterns: list[str] = Field(default_factory=list)  # Auto-activation patterns
+
+    # Metadata
+    version: str = "1.0.0"
+    author: str | None = None
+    created_at: datetime = datetime.now(UTC)
+    updated_at: datetime = datetime.now(UTC)
+
+    # Premium/feature flags
+    is_premium: bool = False
+
+    # Custom skill ownership (Phase 1: Custom Skills)
+    owner_id: str | None = None
+    is_public: bool = False
+    parent_skill_id: str | None = None
+
+    # Marketplace features (Phase 2: Skill Marketplace)
+    community_rating: float = 0.0  # Average rating (1-5)
+    rating_count: int = 0  # Number of ratings
+    ratings: dict[str, float] = Field(default_factory=dict)  # user_id -> rating
+    install_count: int = 0  # Number of installations
+    is_featured: bool = False  # Featured in marketplace
+    tags: list[str] = Field(default_factory=list)  # Searchable tags
+
+    class Settings:
+        name: ClassVar[str] = "skills"
+        indexes: ClassVar[list[Any]] = [
+            IndexModel([("skill_id", ASCENDING)], unique=True),
+            "category",
+            "source",
+            IndexModel([("category", ASCENDING), ("source", ASCENDING)]),
+            "owner_id",  # Index for user's custom skills queries
+            IndexModel([("owner_id", ASCENDING), ("created_at", DESCENDING)]),
+            IndexModel([("is_public", ASCENDING), ("created_at", DESCENDING)]),
+            "invocation_type",  # Index for AI-invokable skills queries
+            # Marketplace indexes
+            IndexModel([("is_public", ASCENDING), ("community_rating", DESCENDING)]),
+            IndexModel([("is_public", ASCENDING), ("install_count", DESCENDING)]),
+            IndexModel([("is_public", ASCENDING), ("is_featured", ASCENDING)]),
+            IndexModel([("tags", ASCENDING)]),
+        ]
+
+
+class AgentDecisionDocument(Document):
+    """Capture agent decision reasoning for monitoring and analysis."""
+
+    decision_id: str  # UUID
+    session_id: str
+    agent_id: str
+    user_id: str
+    timestamp: datetime
+
+    decision_type: str  # "tool_selection", "plan_modification", "mode_selection"
+    agent_status: str  # PLANNING, EXECUTING, etc.
+
+    available_options: list[str]
+    selected_option: str
+    reasoning: str
+    confidence: float
+
+    outcome: str | None = None  # "success", "error", "replanned"
+    led_to_error: bool = False
+
+    class Settings:
+        name: ClassVar[str] = "agent_decisions"
+        indexes: ClassVar[list[Any]] = [
+            IndexModel([("session_id", ASCENDING), ("timestamp", ASCENDING)]),
+            IndexModel([("decision_type", ASCENDING)]),
+            IndexModel([("led_to_error", ASCENDING)]),
+        ]
+
+
+class ToolExecutionDocument(Document):
+    """Enhanced tool execution tracking with resource usage."""
+
+    execution_id: str
+    session_id: str
+    tool_name: str
+    function_name: str
+    function_args: dict[str, Any]
+
+    started_at: datetime
+    completed_at: datetime | None = None
+    duration_ms: float | None = None
+
+    success: bool
+    error_type: str | None = None
+    retry_count: int = 0
+
+    # Resource usage
+    container_cpu_percent: float | None = None
+    container_memory_mb: float | None = None
+
+    class Settings:
+        name: ClassVar[str] = "tool_executions"
+        indexes: ClassVar[list[Any]] = [
+            IndexModel([("session_id", ASCENDING), ("started_at", ASCENDING)]),
+            IndexModel([("tool_name", ASCENDING), ("success", ASCENDING)]),
+        ]
+
+
+class WorkflowStateDocument(Document):
+    """Track workflow state transitions for analysis."""
+
+    session_id: str
+    timestamp: datetime
+
+    previous_status: str
+    current_status: str
+    transition_reason: str
+
+    iteration_count: int
+    verification_loops: int
+    stuck_loop_detected: bool
+
+    context_tokens: int
+    context_pressure: str  # "low", "medium", "high", "critical"
+
+    state_duration_ms: float
+
+    class Settings:
+        name: ClassVar[str] = "workflow_states"
+        indexes: ClassVar[list[Any]] = [
+            IndexModel([("session_id", ASCENDING), ("timestamp", ASCENDING)]),
+        ]
+
+
+class VisitedSourceDocument(
+    BaseDocument[VisitedSource], id_field="source_id", domain_model_class=VisitedSource
+):
+    """MongoDB document for VisitedSource - tracks URLs actually visited during sessions."""
+
+    source_id: str
+    session_id: str
+    tool_event_id: str  # References ToolEvent.id that produced this
+
+    # URL and access info
+    url: str
+    final_url: str | None = None  # After redirects
+    access_method: ContentAccessMethod
+    access_time: datetime = datetime.now(UTC)
+
+    # Content fingerprint
+    content_hash: str  # SHA-256 of extracted text content
+    content_length: int
+    content_preview: str = ""  # First 2000 chars
+
+    # Page metadata
+    page_title: str | None = None
+    meta_description: str | None = None
+    last_modified: datetime | None = None
+
+    # Access status
+    access_status: str = "full"  # "full", "partial", "paywall", "error"
+    paywall_confidence: float = 0.0
+
+    # Extraction metadata
+    extracted_at: datetime = datetime.now(UTC)
+    extraction_method: str = "html_to_text"
+
+    class Settings:
+        name: ClassVar[str] = "visited_sources"
+        indexes: ClassVar[list[Any]] = [
+            "source_id",
+            "session_id",
+            "tool_event_id",
+            IndexModel([("session_id", ASCENDING), ("url", ASCENDING)]),
+            IndexModel([("session_id", ASCENDING), ("access_time", DESCENDING)]),
+            IndexModel([("content_hash", ASCENDING)]),
+        ]
+
+
+class ClaimProvenanceDocument(
+    BaseDocument[ClaimProvenance], id_field="provenance_id", domain_model_class=ClaimProvenance
+):
+    """MongoDB document for ClaimProvenance - links claims in reports to source evidence."""
+
+    provenance_id: str
+    session_id: str
+    report_id: str | None = None  # Links to ReportEvent.id
+
+    # The claim itself
+    claim_text: str
+    claim_type: ClaimType = ClaimType.UNKNOWN
+    claim_hash: str  # For deduplication
+
+    # Source linkage (primary evidence)
+    source_id: str | None = None  # References VisitedSource.id
+    tool_event_id: str | None = None  # References ToolEvent.id
+    source_url: str | None = None  # URL for quick reference
+
+    # Evidence from source
+    supporting_excerpt: str | None = None
+    excerpt_location: str | None = None
+    similarity_score: float = 0.0
+
+    # Verification
+    verification_status: ClaimVerificationStatus = ClaimVerificationStatus.UNVERIFIED
+    verification_method: str | None = None
+    verified_at: datetime | None = None
+    verifier_confidence: float = 0.0
+
+    # Audit trail
+    created_at: datetime = datetime.now(UTC)
+    created_by: str = "system"
+
+    # Flags
+    is_fabricated: bool = False
+    requires_manual_review: bool = False
+    is_numeric: bool = False
+    extracted_numbers: list[float] = Field(default_factory=list)
+
+    class Settings:
+        name: ClassVar[str] = "claim_provenance"
+        indexes: ClassVar[list[Any]] = [
+            "provenance_id",
+            "session_id",
+            "report_id",
+            "claim_hash",
+            IndexModel([("session_id", ASCENDING), ("claim_hash", ASCENDING)]),
+            IndexModel([("session_id", ASCENDING), ("verification_status", ASCENDING)]),
+            IndexModel([("session_id", ASCENDING), ("is_fabricated", ASCENDING)]),
+            IndexModel([("session_id", ASCENDING), ("is_numeric", ASCENDING)]),
+            IndexModel([("report_id", ASCENDING)]),
         ]

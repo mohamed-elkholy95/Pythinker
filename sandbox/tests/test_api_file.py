@@ -1,7 +1,4 @@
 import pytest
-import tempfile
-import os
-from unittest.mock import patch, mock_open
 from conftest import BASE_URL
 import logging
 

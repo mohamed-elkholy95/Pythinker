@@ -18,14 +18,12 @@ from app.domain.services.agents.guardrails import InputRiskLevel, get_guardrails
 from app.domain.services.agents.intent_tracker import get_intent_tracker
 from app.domain.services.langgraph.state import PlanActState
 from app.domain.services.tools.dynamic_toolset import get_toolset_manager
+from app.domain.services.validation.plan_validator import PlanValidator
 
 logger = logging.getLogger(__name__)
 
 
-async def _prefetch_tools_for_task(
-    user_message_text: str,
-    include_mcp: bool = True
-) -> list[dict[str, Any]] | None:
+async def _prefetch_tools_for_task(user_message_text: str, include_mcp: bool = True) -> list[dict[str, Any]] | None:
     """Prefetch tools in background while planning proceeds.
 
     Args:
@@ -39,10 +37,7 @@ async def _prefetch_tools_for_task(
         toolset_manager = get_toolset_manager()
 
         # Use the async prefetch method
-        tools = await toolset_manager.prefetch_tools_async(
-            user_message_text,
-            include_mcp=include_mcp
-        )
+        tools = await toolset_manager.prefetch_tools_async(user_message_text, include_mcp=include_mcp)
 
         logger.debug(f"Prefetched {len(tools)} tools for planning")
         return tools
@@ -82,7 +77,7 @@ async def planning_node(state: PlanActState) -> dict[str, Any]:
 
     # === P0: Input Guardrails Check ===
     # Screen user input for prompt injection, jailbreak attempts, etc.
-    message_text = user_message.message if hasattr(user_message, 'message') else str(user_message)
+    message_text = user_message.message if hasattr(user_message, "message") else str(user_message)
     guardrails = get_guardrails_manager()
     input_result = guardrails.check_input(message_text)
 
@@ -94,7 +89,7 @@ async def planning_node(state: PlanActState) -> dict[str, Any]:
         # Return error event - don't proceed with planning
         error_event = ErrorEvent(
             error="I cannot process this request as it appears to contain problematic content. "
-                  "Please rephrase your request."
+            "Please rephrase your request."
         )
         return {
             "error": "Input blocked by guardrails",
@@ -131,10 +126,8 @@ async def planning_node(state: PlanActState) -> dict[str, Any]:
 
     # Start tool prefetch in background (runs parallel to planning)
     # This reduces latency by preparing tools while the plan is being created
-    message_text = user_message.message if hasattr(user_message, 'message') else str(user_message)
-    prefetch_task = asyncio.create_task(
-        _prefetch_tools_for_task(message_text, include_mcp=True)
-    )
+    message_text = user_message.message if hasattr(user_message, "message") else str(user_message)
+    prefetch_task = asyncio.create_task(_prefetch_tools_for_task(message_text, include_mcp=True))
 
     # Collect events from the planner
     pending_events = []
@@ -146,14 +139,14 @@ async def planning_node(state: PlanActState) -> dict[str, Any]:
             plan = event.plan
             plan_created = True
 
-            # Infer sequential dependencies for BLOCKED cascade
-            plan.infer_sequential_dependencies()
+            # Infer smart dependencies for BLOCKED cascade and parallel execution
+            plan.infer_smart_dependencies(use_sequential_fallback=True)
 
             # Initialize task state for recitation
             if task_state_manager:
                 task_state_manager.initialize_from_plan(
                     objective=user_message.message,
-                    steps=[{"id": s.id, "description": s.description} for s in plan.steps]
+                    steps=[{"id": s.id, "description": s.description} for s in plan.steps],
                 )
 
             # Emit title event
@@ -184,13 +177,47 @@ async def planning_node(state: PlanActState) -> dict[str, Any]:
         logger.info("Plan created with no steps - marking as done")
         all_steps_done = True
 
+    # Plan validation (Phase 1)
+    plan_validation_failed = False
+    verification_verdict = None
+    verification_feedback = None
+    verification_loops = state.get("verification_loops", 0)
+    max_verification_loops = state.get("max_verification_loops", 2)
+
+    if plan:
+        flags = state.get("feature_flags", {})
+        if flags.get("plan_validation_v2"):
+            tool_names = [
+                t.get("function", {}).get("name", "") for t in (planner.get_available_tools() if planner else []) or []
+            ]
+            validation = PlanValidator(tool_names=tool_names).validate(plan)
+        else:
+            validation = plan.validate_plan()
+
+        if not validation.passed:
+            summary = (
+                validation.to_summary()
+                if hasattr(validation, "to_summary")
+                else "\n- " + "\n- ".join(validation.errors[:5])
+            )
+            if flags.get("plan_validation_v2") and flags.get("shadow_mode", True):
+                logger.warning(f"Plan pre-validation errors (shadow): {summary}")
+            else:
+                plan_validation_failed = True
+                verification_verdict = "revise"
+                verification_feedback = "Plan validation failed:" + summary
+                if verification_loops < max_verification_loops:
+                    verification_loops += 1
+
     return {
         "plan": plan,
         "plan_created": plan_created,
         "all_steps_done": all_steps_done,
-        # Reset verification state after replanning
-        "verification_verdict": None,
-        "verification_feedback": None,
+        "plan_validation_failed": plan_validation_failed,
+        # Reset verification state after replanning unless validation failed
+        "verification_verdict": verification_verdict,
+        "verification_feedback": verification_feedback,
+        "verification_loops": verification_loops,
         "pending_events": pending_events,
         "iteration_count": state.get("iteration_count", 0) + 1,
         # Include prefetched tools for execution node

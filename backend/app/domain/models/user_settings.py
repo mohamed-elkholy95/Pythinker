@@ -1,10 +1,11 @@
 from datetime import UTC, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class UserSettings(BaseModel):
     """User settings domain model"""
+
     id: str  # Same as user_id
     user_id: str
 
@@ -21,6 +22,16 @@ class UserSettings(BaseModel):
     browser_agent_max_steps: int = 25
     browser_agent_timeout: int = 300
     browser_agent_use_vision: bool = True
+
+    # Skills configuration
+    enabled_skills: list[str] = Field(
+        default_factory=list,
+        description="List of enabled skill IDs",
+    )
+    skill_configs: dict[str, dict] = Field(
+        default_factory=dict,
+        description="Per-skill configurations keyed by skill ID",
+    )
 
     # Timestamps
     created_at: datetime = datetime.now(UTC)

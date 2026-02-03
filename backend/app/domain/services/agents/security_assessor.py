@@ -9,14 +9,17 @@ from typing import Any
 
 class ActionSecurityRisk(str, Enum):
     """Risk levels for agent actions."""
+
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
 
+
 @dataclass
 class SecurityAssessment:
     """Assessment result for a proposed action."""
+
     blocked: bool
     reason: str
     risk_level: ActionSecurityRisk
@@ -27,6 +30,7 @@ class SecurityAssessment:
         if self.suggestions is None:
             self.suggestions = []
 
+
 class SecurityAssessor:
     """
     Evaluates security risks of agent actions based on configuration.
@@ -36,7 +40,7 @@ class SecurityAssessor:
         self,
         autonomy_level: str = "autonomous",
         allow_credential_access: bool = False,
-        allow_destructive_operations: bool = False
+        allow_destructive_operations: bool = False,
     ):
         """
         Initialize security assessor.
@@ -72,7 +76,7 @@ class SecurityAssessor:
             blocked=False,
             reason="Action allowed in sandboxed environment",
             risk_level=ActionSecurityRisk.LOW,
-            requires_confirmation=False
+            requires_confirmation=False,
         )
 
     def get_risk_summary(self) -> dict[str, Any]:
@@ -85,5 +89,5 @@ class SecurityAssessor:
         return {
             "autonomy_level": self.autonomy_level,
             "blocked_actions": self._blocked_count,
-            "high_risk_actions": self._high_risk_count
+            "high_risk_actions": self._high_risk_count,
         }

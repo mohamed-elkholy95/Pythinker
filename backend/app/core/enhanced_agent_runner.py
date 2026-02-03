@@ -32,7 +32,7 @@ class EnhancedAgentTaskRunner(TaskRunner):
         mcp_repository,
         search_engine=None,
         mode: AgentMode = AgentMode.AGENT,
-        **kwargs
+        **kwargs,
     ):
         self._session_id = session_id
         self._agent_id = agent_id
@@ -56,11 +56,7 @@ class EnhancedAgentTaskRunner(TaskRunner):
         self._current_task = None
         self._sandbox = None
 
-    @error_handler(
-        severity=ErrorSeverity.HIGH,
-        category=ErrorCategory.AGENT,
-        auto_recover=True
-    )
+    @error_handler(severity=ErrorSeverity.HIGH, category=ErrorCategory.AGENT, auto_recover=True)
     async def run(self, user_message: str) -> None:
         """Run agent task with comprehensive error handling"""
 
@@ -78,7 +74,7 @@ class EnhancedAgentTaskRunner(TaskRunner):
                 agent_id=self._agent_id,
                 user_id=self._user_id,
                 category=ErrorCategory.AGENT,
-                severity=ErrorSeverity.HIGH
+                severity=ErrorSeverity.HIGH,
             ):
                 # Initialize sandbox
                 await self._ensure_sandbox()
@@ -92,10 +88,7 @@ class EnhancedAgentTaskRunner(TaskRunner):
                 ]
 
                 success = await self._workflow_manager.start_workflow(
-                    session_id=self._session_id,
-                    agent_id=self._agent_id,
-                    user_id=self._user_id,
-                    steps=workflow_steps
+                    session_id=self._session_id, agent_id=self._agent_id, user_id=self._user_id, steps=workflow_steps
                 )
 
                 if not success:
@@ -115,11 +108,7 @@ class EnhancedAgentTaskRunner(TaskRunner):
         finally:
             self._is_running = False
 
-    @error_handler(
-        severity=ErrorSeverity.CRITICAL,
-        category=ErrorCategory.SANDBOX,
-        auto_recover=True
-    )
+    @error_handler(severity=ErrorSeverity.CRITICAL, category=ErrorCategory.SANDBOX, auto_recover=True)
     async def _ensure_sandbox(self):
         """Ensure sandbox is available and healthy"""
 
@@ -128,7 +117,7 @@ class EnhancedAgentTaskRunner(TaskRunner):
             operation="ensure_sandbox",
             session_id=self._session_id,
             category=ErrorCategory.SANDBOX,
-            severity=ErrorSeverity.CRITICAL
+            severity=ErrorSeverity.CRITICAL,
         ):
             self._sandbox = await self._sandbox_manager.get_sandbox(self._session_id)
 
@@ -140,6 +129,18 @@ class EnhancedAgentTaskRunner(TaskRunner):
                 raise Exception("Sandbox is not healthy")
 
             logger.info(f"Sandbox ready for session {self._session_id}")
+
+            # Start resource monitoring
+            try:
+                from app.core.resource_monitor import get_resource_monitor
+
+                resource_monitor = get_resource_monitor()
+                container_id = getattr(self._sandbox, "container_id", None)
+                if container_id:
+                    await resource_monitor.start_monitoring(self._session_id, container_id)
+                    logger.info(f"Started resource monitoring for sandbox {container_id}")
+            except Exception as e:
+                logger.warning(f"Failed to start resource monitoring: {e}")
 
     async def _attempt_recovery(self):
         """Attempt to recover from task failure"""
@@ -175,25 +176,15 @@ class EnhancedAgentTaskRunner(TaskRunner):
         try:
             from app.domain.models.event import ErrorEvent
 
-            error_event = ErrorEvent(
-                message=error_message,
-                agent_id=self._agent_id
-            )
+            error_event = ErrorEvent(message=error_message, agent_id=self._agent_id)
 
             # Add event to session
-            await self._session_repository.add_event(
-                self._session_id,
-                error_event
-            )
+            await self._session_repository.add_event(self._session_id, error_event)
 
         except Exception as e:
             logger.warning(f"Failed to emit error event: {e}")
 
-    @error_handler(
-        severity=ErrorSeverity.MEDIUM,
-        category=ErrorCategory.AGENT,
-        auto_recover=False
-    )
+    @error_handler(severity=ErrorSeverity.MEDIUM, category=ErrorCategory.AGENT, auto_recover=False)
     async def destroy(self):
         """Clean up resources"""
 
@@ -202,7 +193,7 @@ class EnhancedAgentTaskRunner(TaskRunner):
                 component="EnhancedAgentTaskRunner",
                 operation="destroy",
                 session_id=self._session_id,
-                category=ErrorCategory.AGENT
+                category=ErrorCategory.AGENT,
             ):
                 self._is_running = False
 
@@ -212,7 +203,7 @@ class EnhancedAgentTaskRunner(TaskRunner):
                     self._sandbox = None
 
                 # Clean up other resources
-                if hasattr(self, '_llm'):
+                if hasattr(self, "_llm"):
                     # Clean up LLM resources if needed
                     pass
 
@@ -229,7 +220,7 @@ class EnhancedAgentTaskRunner(TaskRunner):
             "is_running": self._is_running,
             "mode": self._mode.value if self._mode else None,
             "sandbox_healthy": self._sandbox.health.is_healthy if self._sandbox else False,
-            "workflow_status": self._workflow_manager.get_workflow_status(self._session_id)
+            "workflow_status": self._workflow_manager.get_workflow_status(self._session_id),
         }
 
     async def pause(self) -> bool:

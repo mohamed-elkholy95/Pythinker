@@ -2,6 +2,7 @@
 Schedule Tool
 Provides functionality to schedule tasks for deferred or recurring execution.
 """
+
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
@@ -68,28 +69,22 @@ Constraints:
 - Recurring tasks must have at least 5-minute intervals
 - Tasks execute in a new or specified session""",
         parameters={
-            "task": {
-                "type": "string",
-                "description": "Description of the task to execute"
-            },
+            "task": {"type": "string", "description": "Description of the task to execute"},
             "scheduled_at": {
                 "type": "string",
-                "description": "When to execute (ISO 8601 format, e.g., '2024-01-15T14:30:00Z'). Use 'now+Xm' for relative time (e.g., 'now+30m' for 30 minutes from now)"
+                "description": "When to execute (ISO 8601 format, e.g., '2024-01-15T14:30:00Z'). Use 'now+Xm' for relative time (e.g., 'now+30m' for 30 minutes from now)",
             },
-            "recurring": {
-                "type": "boolean",
-                "description": "Whether this is a recurring task (default: false)"
-            },
+            "recurring": {"type": "boolean", "description": "Whether this is a recurring task (default: false)"},
             "interval_minutes": {
                 "type": "integer",
-                "description": "Interval in minutes for recurring tasks (minimum 5 minutes)"
+                "description": "Interval in minutes for recurring tasks (minimum 5 minutes)",
             },
             "max_executions": {
                 "type": "integer",
-                "description": "Maximum number of executions for recurring tasks (optional)"
-            }
+                "description": "Maximum number of executions for recurring tasks (optional)",
+            },
         },
-        required=["task", "scheduled_at"]
+        required=["task", "scheduled_at"],
     )
     async def agent_schedule_task(
         self,
@@ -128,17 +123,13 @@ Constraints:
                     execute_at = datetime.now(UTC) + timedelta(days=days)
                 else:
                     return ToolResult(
-                        success=False,
-                        message="Invalid relative time format. Use 'now+Xm', 'now+Xh', or 'now+Xd'"
+                        success=False, message="Invalid relative time format. Use 'now+Xm', 'now+Xh', or 'now+Xd'"
                     )
             else:
                 # Parse ISO 8601 format
                 execute_at = datetime.fromisoformat(scheduled_at.replace("Z", "+00:00"))
         except (ValueError, AttributeError) as e:
-            return ToolResult(
-                success=False,
-                message=f"Invalid scheduled_at format: {e}"
-            )
+            return ToolResult(success=False, message=f"Invalid scheduled_at format: {e}")
 
         # Validate recurring task interval
         schedule_type = ScheduleType.RECURRING if recurring else ScheduleType.ONCE
@@ -146,10 +137,7 @@ Constraints:
 
         if recurring:
             if not interval_minutes or interval_minutes < 5:
-                return ToolResult(
-                    success=False,
-                    message="Recurring tasks require an interval of at least 5 minutes"
-                )
+                return ToolResult(success=False, message="Recurring tasks require an interval of at least 5 minutes")
             interval_seconds = interval_minutes * 60
 
         # Create scheduled task
@@ -177,7 +165,7 @@ Constraints:
                 "scheduled_at": execute_at.isoformat(),
                 "recurring": recurring,
                 "interval_minutes": interval_minutes,
-            }
+            },
         )
 
     @tool(
@@ -185,13 +173,8 @@ Constraints:
         description="""Cancel a scheduled task.
 
 Use this to cancel a pending scheduled task.""",
-        parameters={
-            "task_id": {
-                "type": "string",
-                "description": "ID of the scheduled task to cancel"
-            }
-        },
-        required=["task_id"]
+        parameters={"task_id": {"type": "string", "description": "ID of the scheduled task to cancel"}},
+        required=["task_id"],
     )
     async def agent_cancel_scheduled_task(
         self,
@@ -209,10 +192,7 @@ Use this to cancel a pending scheduled task.""",
         if self._cancel_callback:
             return await self._cancel_callback(task_id)
 
-        return ToolResult(
-            success=True,
-            message=f"Task {task_id} cancellation requested"
-        )
+        return ToolResult(success=True, message=f"Task {task_id} cancellation requested")
 
     @tool(
         name="agent_list_scheduled_tasks",
@@ -220,7 +200,7 @@ Use this to cancel a pending scheduled task.""",
 
 Shows pending, running, and recently completed tasks.""",
         parameters={},
-        required=[]
+        required=[],
     )
     async def agent_list_scheduled_tasks(self) -> ToolResult:
         """
@@ -232,8 +212,4 @@ Shows pending, running, and recently completed tasks.""",
         if self._list_callback:
             return await self._list_callback(self._user_id)
 
-        return ToolResult(
-            success=True,
-            message="No scheduled tasks found",
-            data={"tasks": []}
-        )
+        return ToolResult(success=True, message="No scheduled tasks found", data={"tasks": []})

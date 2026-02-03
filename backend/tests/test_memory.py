@@ -18,11 +18,7 @@ class TestMemoryConfig:
 
     def test_custom_initialization(self):
         """Test custom config initialization"""
-        config = MemoryConfig(
-            max_messages=50,
-            auto_compact_threshold=25,
-            compactable_functions=["custom_tool"]
-        )
+        config = MemoryConfig(max_messages=50, auto_compact_threshold=25, compactable_functions=["custom_tool"])
         assert config.max_messages == 50
         assert config.auto_compact_threshold == 25
         assert config.compactable_functions == ["custom_tool"]
@@ -48,10 +44,7 @@ class TestMemory:
     def test_add_messages(self):
         """Test adding multiple messages"""
         memory = Memory()
-        memory.add_messages([
-            {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "Hi there!"}
-        ])
+        memory.add_messages([{"role": "user", "content": "Hello"}, {"role": "assistant", "content": "Hi there!"}])
 
         assert len(memory.messages) == 2
 
@@ -67,10 +60,7 @@ class TestMemory:
     def test_get_last_message(self):
         """Test getting last message"""
         memory = Memory()
-        memory.add_messages([
-            {"role": "user", "content": "First"},
-            {"role": "assistant", "content": "Second"}
-        ])
+        memory.add_messages([{"role": "user", "content": "First"}, {"role": "assistant", "content": "Second"}])
 
         last = memory.get_last_message()
         assert last["content"] == "Second"
@@ -83,10 +73,7 @@ class TestMemory:
     def test_roll_back(self):
         """Test rolling back last message"""
         memory = Memory()
-        memory.add_messages([
-            {"role": "user", "content": "First"},
-            {"role": "assistant", "content": "Second"}
-        ])
+        memory.add_messages([{"role": "user", "content": "First"}, {"role": "assistant", "content": "Second"}])
 
         memory.roll_back()
         assert len(memory.messages) == 1
@@ -95,10 +82,12 @@ class TestMemory:
     def test_compact_browser_tools(self):
         """Test legacy compact removes browser tool results"""
         memory = Memory()
-        memory.add_messages([
-            {"role": "tool", "function_name": "browser_view", "content": "Large content..."},
-            {"role": "tool", "function_name": "shell_exec", "content": "Shell output"}
-        ])
+        memory.add_messages(
+            [
+                {"role": "tool", "function_name": "browser_view", "content": "Large content..."},
+                {"role": "tool", "function_name": "shell_exec", "content": "Shell output"},
+            ]
+        )
 
         memory.compact()
 
@@ -112,13 +101,15 @@ class TestMemory:
         memory = Memory()
         memory.config.compactable_functions = ["browser_view", "shell_exec", "file_read"]
 
-        memory.add_messages([
-            {"role": "system", "content": "System prompt"},
-            {"role": "tool", "function_name": "browser_view", "content": "Browser content"},
-            {"role": "tool", "function_name": "shell_exec", "content": "Shell output"},
-            {"role": "tool", "function_name": "file_read", "content": "File content"},
-            {"role": "user", "content": "Recent message"}  # Should be preserved
-        ])
+        memory.add_messages(
+            [
+                {"role": "system", "content": "System prompt"},
+                {"role": "tool", "function_name": "browser_view", "content": "Browser content"},
+                {"role": "tool", "function_name": "shell_exec", "content": "Shell output"},
+                {"role": "tool", "function_name": "file_read", "content": "File content"},
+                {"role": "user", "content": "Recent message"},  # Should be preserved
+            ]
+        )
 
         # Smart compact with preserve_recent=1
         compacted = memory.smart_compact(preserve_recent=1)
@@ -153,11 +144,9 @@ class TestMemory:
         memory = Memory()
         memory.config.compactable_functions = ["shell_exec"]
 
-        memory.add_message({
-            "role": "tool",
-            "function_name": "shell_exec",
-            "content": '{"success": true, "data": "(compacted)"}'
-        })
+        memory.add_message(
+            {"role": "tool", "function_name": "shell_exec", "content": '{"success": true, "data": "(compacted)"}'}
+        )
 
         compacted = memory.smart_compact(preserve_recent=0)
         assert compacted == 0
@@ -165,10 +154,9 @@ class TestMemory:
     def test_estimate_tokens(self):
         """Test token estimation"""
         memory = Memory()
-        memory.add_messages([
-            {"role": "user", "content": "Hello world"},
-            {"role": "assistant", "content": "Hi there, how can I help?"}
-        ])
+        memory.add_messages(
+            [{"role": "user", "content": "Hello world"}, {"role": "assistant", "content": "Hi there, how can I help?"}]
+        )
 
         tokens = memory.estimate_tokens()
         assert tokens > 0
@@ -182,11 +170,13 @@ class TestMemory:
     def test_get_stats(self):
         """Test getting memory statistics"""
         memory = Memory()
-        memory.add_messages([
-            {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "Hi"},
-            {"role": "tool", "function_name": "test", "content": "Result"}
-        ])
+        memory.add_messages(
+            [
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": "Hi"},
+                {"role": "tool", "function_name": "test", "content": "Result"},
+            ]
+        )
 
         stats = memory.get_stats()
 
@@ -208,17 +198,13 @@ class TestMemory:
             auto_compact_threshold=5,
             use_token_threshold=False,  # Use message count, not token count
             compactable_functions=["shell_exec"],
-            preserve_recent=2  # Only preserve last 2 messages
+            preserve_recent=2,  # Only preserve last 2 messages
         )
         memory = Memory(config=config)
 
         # Add messages beyond threshold to trigger auto-compact
         for i in range(6):
-            memory.add_message({
-                "role": "tool",
-                "function_name": "shell_exec",
-                "content": f"Long output {i}" * 100
-            })
+            memory.add_message({"role": "tool", "function_name": "shell_exec", "content": f"Long output {i}" * 100})
 
         # Auto-compact should have run on the 5th message (at threshold)
         # Messages 0-3 should be compacted, messages 4-5 preserved

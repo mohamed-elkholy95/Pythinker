@@ -3,7 +3,8 @@ import logging
 import time
 import uuid
 from collections.abc import Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
+from typing import ClassVar
 
 from beanie import init_beanie
 from fastapi import FastAPI, Request
@@ -16,6 +17,8 @@ from app.infrastructure.models.documents import (
     AgentDocument,
     DailyUsageDocument,
     SessionDocument,
+    SkillDocument,
+    SnapshotDocument,
     UsageDocument,
     UserDocument,
 )
@@ -43,13 +46,14 @@ settings = get_settings()
 # MIDDLEWARE COMPONENTS
 # ============================================================================
 
+
 class RequestLoggingMiddleware:
     """Middleware to log HTTP requests and add correlation IDs"""
 
     # Paths to exclude from logging (health checks, static files)
-    EXCLUDED_PATHS = {"/health", "/api/v1/health", "/favicon.ico"}
+    EXCLUDED_PATHS: ClassVar[set[str]] = {"/health", "/api/v1/health", "/favicon.ico"}
     # Sensitive headers to redact
-    SENSITIVE_HEADERS = {"authorization", "cookie", "x-api-key"}
+    SENSITIVE_HEADERS: ClassVar[set[str]] = {"authorization", "cookie", "x-api-key"}
 
     def __init__(self, app: Callable):
         self.app = app
@@ -80,9 +84,7 @@ class RequestLoggingMiddleware:
 
         # Log request (sanitized)
         client_ip = request.client.host if request.client else "unknown"
-        logger.info(
-            f"[{request_id}] {request.method} {path} - Client: {client_ip}"
-        )
+        logger.info(f"[{request_id}] {request.method} {path} - Client: {client_ip}")
 
         # Capture response status
         response_status = 500
@@ -105,10 +107,7 @@ class RequestLoggingMiddleware:
         finally:
             duration_ms = (time.time() - start_time) * 1000
             log_level = logging.INFO if response_status < 400 else logging.WARNING
-            logger.log(
-                log_level,
-                f"[{request_id}] {request.method} {path} - {response_status} ({duration_ms:.2f}ms)"
-            )
+            logger.log(log_level, f"[{request_id}] {request.method} {path} - {response_status} ({duration_ms:.2f}ms)")
 
 
 class RateLimitMiddleware:
@@ -119,13 +118,13 @@ class RateLimitMiddleware:
     """
 
     # Auth endpoints have stricter limits
-    AUTH_PATHS = {"/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/refresh"}
+    AUTH_PATHS: ClassVar[set[str]] = {"/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/refresh"}
 
     # In-memory fallback storage: {key: (count, window_start_time)}
-    _fallback_storage: dict = {}
-    _fallback_window_seconds: int = 60
-    _fallback_cleanup_counter: int = 0
-    _fallback_cleanup_interval: int = 100  # Cleanup every N requests
+    _fallback_storage: ClassVar[dict] = {}
+    _fallback_window_seconds: ClassVar[int] = 60
+    _fallback_cleanup_counter: ClassVar[int] = 0
+    _fallback_cleanup_interval: ClassVar[int] = 100  # Cleanup every N requests
 
     def __init__(self, app: Callable):
         self.app = app
@@ -134,7 +133,8 @@ class RateLimitMiddleware:
         """Remove expired entries from fallback storage to prevent memory growth."""
         current_time = time.time()
         expired_keys = [
-            key for key, (_, window_start) in self._fallback_storage.items()
+            key
+            for key, (_, window_start) in self._fallback_storage.items()
             if current_time - window_start > self._fallback_window_seconds
         ]
         for key in expired_keys:
@@ -216,19 +216,15 @@ class RateLimitMiddleware:
 
         if rate_limit_exceeded:
             logger.warning(
-                f"Rate limit exceeded for {client_id} on {path}"
-                f"{' (fallback mode)' if using_fallback else ''}"
+                f"Rate limit exceeded for {client_id} on {path}{' (fallback mode)' if using_fallback else ''}"
             )
             response = JSONResponse(
                 status_code=429,
                 content={
                     "success": False,
-                    "error": {
-                        "code": "RATE_LIMIT_EXCEEDED",
-                        "message": "Too many requests. Please try again later."
-                    }
+                    "error": {"code": "RATE_LIMIT_EXCEEDED", "message": "Too many requests. Please try again later."},
                 },
-                headers={"Retry-After": "60"}
+                headers={"Retry-After": "60"},
             )
             await response(scope, receive, send)
             return
@@ -242,6 +238,7 @@ def _initialize_observability() -> None:
         # Configure OTEL if enabled
         if settings.otel_enabled and settings.otel_endpoint:
             from app.infrastructure.observability.otel_exporter import configure_otel
+
             configure_otel(
                 endpoint=settings.otel_endpoint,
                 service_name=settings.otel_service_name,
@@ -250,6 +247,7 @@ def _initialize_observability() -> None:
 
         # Configure tracer with OTEL export
         from app.infrastructure.observability.tracer import configure_tracer
+
         configure_tracer(
             service_name=settings.otel_service_name,
             export_to_log=True,
@@ -285,6 +283,7 @@ async def lifespan(app: FastAPI):
 
     # Initialize enhanced error handling and monitoring
     from app.core.system_integrator import get_system_integrator
+
     system_integrator = get_system_integrator()
 
     try:
@@ -301,12 +300,23 @@ async def lifespan(app: FastAPI):
             document_models=[
                 AgentDocument,
                 SessionDocument,
+                SkillDocument,
+                SnapshotDocument,
                 UserDocument,
                 UsageDocument,
                 DailyUsageDocument,
-            ]
+            ],
         )
         logger.info("Successfully initialized Beanie")
+
+        # Seed official skills
+        try:
+            from app.infrastructure.seeds.skills_seed import seed_official_skills
+
+            skill_count = await seed_official_skills()
+            logger.info(f"Seeded {skill_count} official skills")
+        except Exception as e:
+            logger.warning(f"Failed to seed skills (non-critical): {e}")
 
         # Initialize Redis
         await get_redis().initialize()
@@ -324,6 +334,7 @@ async def lifespan(app: FastAPI):
         if settings.sandbox_pool_enabled:
             try:
                 from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
+
                 await start_sandbox_pool(DockerSandbox)
                 _health_state["sandbox_pool"] = True
                 logger.info("Sandbox pool initialized and warming")
@@ -409,11 +420,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.critical(f"Critical error during application startup: {e}")
         # Attempt graceful shutdown even on startup failure
-        try:
+        with suppress(Exception):
             await system_integrator.shutdown()
-        except Exception:
-            pass
         raise
+
 
 app = FastAPI(
     title="Pythinker AI Agent",
@@ -433,7 +443,13 @@ cors_origins = settings.cors_origins_list
 if not cors_origins:
     # In development without explicit config, allow common dev origins
     if settings.is_development:
-        cors_origins = ["http://localhost:5173", "http://localhost:3000", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:5174"]
+        cors_origins = [
+            "http://localhost:5173",
+            "http://localhost:3000",
+            "http://localhost:3000",
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:5174",
+        ]
         logger.warning(f"[SECURITY] CORS using development defaults: {cors_origins}")
     else:
         logger.error("[SECURITY] No CORS origins configured for production!")
@@ -458,6 +474,7 @@ register_exception_handlers(app)
 # HEALTH CHECK ENDPOINTS
 # ============================================================================
 
+
 @app.get("/health", tags=["Health"])
 async def health_check():
     """
@@ -477,30 +494,17 @@ async def readiness_check():
 
     if not state["ready"]:
         return JSONResponse(
-            status_code=503,
-            content={
-                "status": "not_ready",
-                "services": state,
-                "message": "Service is starting up"
-            }
+            status_code=503, content={"status": "not_ready", "services": state, "message": "Service is starting up"}
         )
 
     # Check required services
     if not state["mongodb"] or not state["redis"]:
         return JSONResponse(
             status_code=503,
-            content={
-                "status": "degraded",
-                "services": state,
-                "message": "Required services unavailable"
-            }
+            content={"status": "degraded", "services": state, "message": "Required services unavailable"},
         )
 
-    return {
-        "status": "ready",
-        "services": state,
-        "environment": settings.environment
-    }
+    return {"status": "ready", "services": state, "environment": settings.environment}
 
 
 @app.get("/health/live", tags=["Health"])

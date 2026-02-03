@@ -21,11 +21,7 @@ class SnapshotRepository(Protocol):
         """Find a snapshot by its ID."""
         ...
 
-    async def find_by_session(
-        self,
-        session_id: str,
-        limit: int | None = None
-    ) -> list[StateSnapshot]:
+    async def find_by_session(self, session_id: str, limit: int | None = None) -> list[StateSnapshot]:
         """Find all snapshots for a session, ordered by sequence number."""
         ...
 
@@ -33,22 +29,14 @@ class SnapshotRepository(Protocol):
         """Find the snapshot associated with a specific action."""
         ...
 
-    async def find_nearest_before(
-        self,
-        session_id: str,
-        sequence_number: int
-    ) -> StateSnapshot | None:
+    async def find_nearest_before(self, session_id: str, sequence_number: int) -> StateSnapshot | None:
         """
         Find the nearest snapshot at or before the given sequence number.
         Used for efficient state reconstruction.
         """
         ...
 
-    async def find_nearest_before_time(
-        self,
-        session_id: str,
-        timestamp: datetime
-    ) -> StateSnapshot | None:
+    async def find_nearest_before_time(self, session_id: str, timestamp: datetime) -> StateSnapshot | None:
         """
         Find the nearest snapshot at or before the given timestamp.
         Used for time-based state reconstruction.
@@ -56,10 +44,7 @@ class SnapshotRepository(Protocol):
         ...
 
     async def get_snapshots_in_range(
-        self,
-        session_id: str,
-        start_sequence: int,
-        end_sequence: int
+        self, session_id: str, start_sequence: int, end_sequence: int
     ) -> list[StateSnapshot]:
         """
         Get all snapshots within a sequence number range.
@@ -78,11 +63,7 @@ class SnapshotRepository(Protocol):
         """
         ...
 
-    async def delete_older_than(
-        self,
-        session_id: str,
-        before_date: datetime
-    ) -> int:
+    async def delete_older_than(self, session_id: str, before_date: datetime) -> int:
         """
         Delete snapshots older than a given date.
         Used for retention policy enforcement.
@@ -90,10 +71,7 @@ class SnapshotRepository(Protocol):
         """
         ...
 
-    async def get_latest_full_snapshot(
-        self,
-        session_id: str
-    ) -> StateSnapshot | None:
+    async def get_latest_full_snapshot(self, session_id: str) -> StateSnapshot | None:
         """
         Get the most recent full state snapshot for a session.
         Full snapshots contain complete session state.

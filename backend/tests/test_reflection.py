@@ -62,24 +62,14 @@ class TestReflectionTrigger:
         """Test error-based triggering"""
         trigger = ReflectionTrigger(reflect_after_error=True)
 
-        result = trigger.should_trigger(
-            steps_completed=1,
-            error_count=1,
-            total_attempts=1,
-            last_had_error=True
-        )
+        result = trigger.should_trigger(steps_completed=1, error_count=1, total_attempts=1, last_had_error=True)
         assert result == ReflectionTriggerType.AFTER_ERROR
 
     def test_error_trigger_disabled(self):
         """Test error triggering when disabled"""
         trigger = ReflectionTrigger(reflect_after_error=False)
 
-        result = trigger.should_trigger(
-            steps_completed=1,
-            error_count=1,
-            total_attempts=1,
-            last_had_error=True
-        )
+        result = trigger.should_trigger(steps_completed=1, error_count=1, total_attempts=1, last_had_error=True)
         # Should not trigger for error when disabled
         assert result != ReflectionTriggerType.AFTER_ERROR
 
@@ -87,7 +77,7 @@ class TestReflectionTrigger:
         """Test high error rate triggering"""
         trigger = ReflectionTrigger(
             error_rate_threshold=0.5,
-            reflect_after_error=False  # Disable to test rate threshold
+            reflect_after_error=False,  # Disable to test rate threshold
         )
 
         result = trigger.should_trigger(
@@ -99,32 +89,16 @@ class TestReflectionTrigger:
 
     def test_low_confidence_trigger(self):
         """Test low confidence triggering"""
-        trigger = ReflectionTrigger(
-            confidence_threshold=0.6,
-            reflect_after_error=False
-        )
+        trigger = ReflectionTrigger(confidence_threshold=0.6, reflect_after_error=False)
 
-        result = trigger.should_trigger(
-            steps_completed=1,
-            error_count=0,
-            total_attempts=1,
-            confidence=0.4
-        )
+        result = trigger.should_trigger(steps_completed=1, error_count=0, total_attempts=1, confidence=0.4)
         assert result == ReflectionTriggerType.LOW_CONFIDENCE
 
     def test_stall_trigger(self):
         """Test stall detection triggering"""
-        trigger = ReflectionTrigger(
-            stall_detection=True,
-            reflect_after_error=False
-        )
+        trigger = ReflectionTrigger(stall_detection=True, reflect_after_error=False)
 
-        result = trigger.should_trigger(
-            steps_completed=1,
-            error_count=0,
-            total_attempts=1,
-            is_stalled=True
-        )
+        result = trigger.should_trigger(steps_completed=1, error_count=0, total_attempts=1, is_stalled=True)
         assert result == ReflectionTriggerType.PROGRESS_STALL
 
 
@@ -148,10 +122,7 @@ class TestProgressMetrics:
 
     def test_estimated_progress(self):
         """Test progress estimation"""
-        metrics = ProgressMetrics(
-            steps_completed=3,
-            total_steps=10
-        )
+        metrics = ProgressMetrics(steps_completed=3, total_steps=10)
         assert metrics.estimated_progress == 0.3
 
     def test_stall_detection(self):
@@ -196,12 +167,7 @@ class TestProgressMetrics:
 
     def test_record_step_completed(self):
         """Test recording step completion"""
-        metrics = ProgressMetrics(
-            steps_completed=0,
-            steps_remaining=5,
-            total_steps=5,
-            actions_since_progress=2
-        )
+        metrics = ProgressMetrics(steps_completed=0, steps_remaining=5, total_steps=5, actions_since_progress=2)
         metrics.record_step_completed()
 
         assert metrics.steps_completed == 1
@@ -210,12 +176,7 @@ class TestProgressMetrics:
 
     def test_to_dict(self):
         """Test dict conversion for prompts"""
-        metrics = ProgressMetrics(
-            steps_completed=3,
-            total_steps=10,
-            successful_actions=7,
-            failed_actions=3
-        )
+        metrics = ProgressMetrics(steps_completed=3, total_steps=10, successful_actions=7, failed_actions=3)
 
         result = metrics.to_dict()
         assert result["steps_completed"] == 3
@@ -233,7 +194,7 @@ class TestReflectionResult:
             decision=ReflectionDecision.CONTINUE,
             confidence=0.9,
             progress_assessment="On track",
-            summary="Continue as planned"
+            summary="Continue as planned",
         )
         assert result.decision == ReflectionDecision.CONTINUE
         assert result.strategy_adjustment is None
@@ -245,7 +206,7 @@ class TestReflectionResult:
             confidence=0.8,
             progress_assessment="Slight deviation",
             strategy_adjustment="Use more specific search terms",
-            summary="Minor adjustment needed"
+            summary="Minor adjustment needed",
         )
         assert result.decision == ReflectionDecision.ADJUST_STRATEGY
         assert "specific search" in result.strategy_adjustment
@@ -257,7 +218,7 @@ class TestReflectionResult:
             confidence=0.7,
             progress_assessment="Strategy not working",
             replan_reason="Original approach blocked",
-            summary="Major strategy change needed"
+            summary="Major strategy change needed",
         )
         assert result.decision == ReflectionDecision.REPLAN
         assert result.replan_reason is not None
@@ -269,7 +230,7 @@ class TestReflectionResult:
             confidence=0.8,
             progress_assessment="Ambiguous requirement",
             user_question="Do you want option A or option B?",
-            summary="Need user clarification"
+            summary="Need user clarification",
         )
         assert result.decision == ReflectionDecision.ESCALATE
         assert result.user_question is not None
@@ -287,11 +248,7 @@ class TestReflectionConfig:
 
     def test_custom_config(self):
         """Test custom configuration"""
-        config = ReflectionConfig(
-            enabled=False,
-            max_reflections_per_task=5,
-            min_steps_between_reflections=2
-        )
+        config = ReflectionConfig(enabled=False, max_reflections_per_task=5, min_steps_between_reflections=2)
         assert config.enabled is False
         assert config.max_reflections_per_task == 5
 
@@ -303,22 +260,22 @@ class TestReflectionAgent:
     def mock_llm(self):
         """Create mock LLM"""
         llm = MagicMock()
-        llm.ask = AsyncMock(return_value={
-            "content": '{"decision": "continue", "confidence": 0.9, "summary": "OK"}'
-        })
+        llm.ask = AsyncMock(return_value={"content": '{"decision": "continue", "confidence": 0.9, "summary": "OK"}'})
         return llm
 
     @pytest.fixture
     def mock_json_parser(self):
         """Create mock JSON parser"""
         parser = MagicMock()
-        parser.parse = AsyncMock(return_value={
-            "decision": "continue",
-            "confidence": 0.9,
-            "progress_assessment": "Good progress",
-            "issues_identified": [],
-            "summary": "Continue as planned"
-        })
+        parser.parse = AsyncMock(
+            return_value={
+                "decision": "continue",
+                "confidence": 0.9,
+                "progress_assessment": "Good progress",
+                "issues_identified": [],
+                "summary": "Continue as planned",
+            }
+        )
         return parser
 
     @pytest.fixture
@@ -331,37 +288,26 @@ class TestReflectionAgent:
                 Step(id="1", description="Step 1"),
                 Step(id="2", description="Step 2"),
                 Step(id="3", description="Step 3"),
-            ]
+            ],
         )
 
     @pytest.fixture
     def test_metrics(self):
         """Create test progress metrics"""
         return ProgressMetrics(
-            steps_completed=2,
-            steps_remaining=1,
-            total_steps=3,
-            successful_actions=5,
-            failed_actions=1
+            steps_completed=2, steps_remaining=1, total_steps=3, successful_actions=5, failed_actions=1
         )
 
     def test_initialization(self, mock_llm, mock_json_parser):
         """Test agent initialization"""
-        agent = ReflectionAgent(
-            llm=mock_llm,
-            json_parser=mock_json_parser
-        )
+        agent = ReflectionAgent(llm=mock_llm, json_parser=mock_json_parser)
         assert agent.config.enabled is True
         assert agent._reflection_count == 0
 
     def test_should_reflect_disabled(self, mock_llm, mock_json_parser, test_metrics):
         """Test reflection disabled in config"""
         config = ReflectionConfig(enabled=False)
-        agent = ReflectionAgent(
-            llm=mock_llm,
-            json_parser=mock_json_parser,
-            config=config
-        )
+        agent = ReflectionAgent(llm=mock_llm, json_parser=mock_json_parser, config=config)
 
         result = agent.should_reflect(test_metrics)
         assert result is None
@@ -369,11 +315,7 @@ class TestReflectionAgent:
     def test_should_reflect_max_reached(self, mock_llm, mock_json_parser, test_metrics):
         """Test max reflections limit"""
         config = ReflectionConfig(max_reflections_per_task=2)
-        agent = ReflectionAgent(
-            llm=mock_llm,
-            json_parser=mock_json_parser,
-            config=config
-        )
+        agent = ReflectionAgent(llm=mock_llm, json_parser=mock_json_parser, config=config)
         agent._reflection_count = 2
 
         result = agent.should_reflect(test_metrics)
@@ -382,11 +324,7 @@ class TestReflectionAgent:
     def test_should_reflect_min_steps(self, mock_llm, mock_json_parser, test_metrics):
         """Test minimum steps between reflections"""
         config = ReflectionConfig(min_steps_between_reflections=3)
-        agent = ReflectionAgent(
-            llm=mock_llm,
-            json_parser=mock_json_parser,
-            config=config
-        )
+        agent = ReflectionAgent(llm=mock_llm, json_parser=mock_json_parser, config=config)
         agent._last_reflection_step = 1
         test_metrics.steps_completed = 2
 
@@ -395,10 +333,7 @@ class TestReflectionAgent:
 
     def test_should_reflect_triggered(self, mock_llm, mock_json_parser, test_metrics):
         """Test reflection is triggered"""
-        agent = ReflectionAgent(
-            llm=mock_llm,
-            json_parser=mock_json_parser
-        )
+        agent = ReflectionAgent(llm=mock_llm, json_parser=mock_json_parser)
         # Set up conditions for trigger
         test_metrics.steps_completed = 2
 
@@ -408,17 +343,14 @@ class TestReflectionAgent:
     @pytest.mark.asyncio
     async def test_reflect_continue(self, mock_llm, mock_json_parser, test_plan, test_metrics):
         """Test reflection with CONTINUE decision"""
-        agent = ReflectionAgent(
-            llm=mock_llm,
-            json_parser=mock_json_parser
-        )
+        agent = ReflectionAgent(llm=mock_llm, json_parser=mock_json_parser)
 
         events = []
         async for event in agent.reflect(
             goal="Complete task",
             plan=test_plan,
             progress=test_metrics,
-            trigger_type=ReflectionTriggerType.STEP_INTERVAL
+            trigger_type=ReflectionTriggerType.STEP_INTERVAL,
         ):
             events.append(event)
 
@@ -430,26 +362,22 @@ class TestReflectionAgent:
     @pytest.mark.asyncio
     async def test_reflect_replan(self, mock_llm, mock_json_parser, test_plan, test_metrics):
         """Test reflection with REPLAN decision"""
-        mock_json_parser.parse = AsyncMock(return_value={
-            "decision": "replan",
-            "confidence": 0.7,
-            "progress_assessment": "Strategy failing",
-            "issues_identified": ["API unavailable"],
-            "replan_reason": "Need alternative approach",
-            "summary": "Major change needed"
-        })
-
-        agent = ReflectionAgent(
-            llm=mock_llm,
-            json_parser=mock_json_parser
+        mock_json_parser.parse = AsyncMock(
+            return_value={
+                "decision": "replan",
+                "confidence": 0.7,
+                "progress_assessment": "Strategy failing",
+                "issues_identified": ["API unavailable"],
+                "replan_reason": "Need alternative approach",
+                "summary": "Major change needed",
+            }
         )
+
+        agent = ReflectionAgent(llm=mock_llm, json_parser=mock_json_parser)
 
         events = []
         async for event in agent.reflect(
-            goal="Complete task",
-            plan=test_plan,
-            progress=test_metrics,
-            trigger_type=ReflectionTriggerType.AFTER_ERROR
+            goal="Complete task", plan=test_plan, progress=test_metrics, trigger_type=ReflectionTriggerType.AFTER_ERROR
         ):
             events.append(event)
 
@@ -461,17 +389,14 @@ class TestReflectionAgent:
         """Test reflection fails open on error"""
         mock_json_parser.parse = AsyncMock(side_effect=Exception("Parse error"))
 
-        agent = ReflectionAgent(
-            llm=mock_llm,
-            json_parser=mock_json_parser
-        )
+        agent = ReflectionAgent(llm=mock_llm, json_parser=mock_json_parser)
 
         events = []
         async for event in agent.reflect(
             goal="Complete task",
             plan=test_plan,
             progress=test_metrics,
-            trigger_type=ReflectionTriggerType.STEP_INTERVAL
+            trigger_type=ReflectionTriggerType.STEP_INTERVAL,
         ):
             events.append(event)
 
@@ -482,10 +407,7 @@ class TestReflectionAgent:
 
     def test_reset(self, mock_llm, mock_json_parser):
         """Test agent reset"""
-        agent = ReflectionAgent(
-            llm=mock_llm,
-            json_parser=mock_json_parser
-        )
+        agent = ReflectionAgent(llm=mock_llm, json_parser=mock_json_parser)
         agent._reflection_count = 5
         agent._last_reflection_step = 10
 
@@ -496,10 +418,7 @@ class TestReflectionAgent:
 
     def test_get_stats(self, mock_llm, mock_json_parser):
         """Test getting agent statistics"""
-        agent = ReflectionAgent(
-            llm=mock_llm,
-            json_parser=mock_json_parser
-        )
+        agent = ReflectionAgent(llm=mock_llm, json_parser=mock_json_parser)
         agent._reflection_count = 3
         agent._last_reflection_step = 5
 

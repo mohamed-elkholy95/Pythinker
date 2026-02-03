@@ -137,11 +137,7 @@ class QdrantMemoryRepository:
             List of QdrantSearchResult with memory_id and relevance_score
         """
         # Build filter conditions
-        must_conditions = [
-            models.FieldCondition(
-                key="user_id", match=models.MatchValue(value=user_id)
-            )
-        ]
+        must_conditions = [models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id))]
 
         if memory_types:
             must_conditions.append(
@@ -226,11 +222,7 @@ class QdrantMemoryRepository:
             collection_name=self._collection,
             points_selector=models.FilterSelector(
                 filter=models.Filter(
-                    must=[
-                        models.FieldCondition(
-                            key="user_id", match=models.MatchValue(value=user_id)
-                        )
-                    ]
+                    must=[models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id))]
                 )
             ),
         )
@@ -249,11 +241,7 @@ class QdrantMemoryRepository:
             result = await get_qdrant().client.count(
                 collection_name=self._collection,
                 count_filter=models.Filter(
-                    must=[
-                        models.FieldCondition(
-                            key="user_id", match=models.MatchValue(value=user_id)
-                        )
-                    ]
+                    must=[models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id))]
                 ),
             )
         else:

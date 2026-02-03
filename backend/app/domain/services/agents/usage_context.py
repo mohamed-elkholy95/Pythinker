@@ -15,6 +15,7 @@ Usage:
     # At the end of execution
     clear_usage_context()
 """
+
 from contextvars import ContextVar
 from dataclasses import dataclass
 
@@ -22,23 +23,17 @@ from dataclasses import dataclass
 @dataclass
 class UsageContext:
     """Context for tracking usage attribution."""
+
     user_id: str
     session_id: str
     model_override: str | None = None  # Override model name for billing
 
 
 # Context variable for usage tracking
-_usage_context: ContextVar[UsageContext | None] = ContextVar(
-    "usage_context",
-    default=None
-)
+_usage_context: ContextVar[UsageContext | None] = ContextVar("usage_context", default=None)
 
 
-def set_usage_context(
-    user_id: str,
-    session_id: str,
-    model_override: str | None = None
-) -> None:
+def set_usage_context(user_id: str, session_id: str, model_override: str | None = None) -> None:
     """Set the current usage context.
 
     Call this at the start of an execution to attribute LLM calls
@@ -49,11 +44,7 @@ def set_usage_context(
         session_id: The session ID to attribute usage to
         model_override: Optional model name override for billing
     """
-    ctx = UsageContext(
-        user_id=user_id,
-        session_id=session_id,
-        model_override=model_override
-    )
+    ctx = UsageContext(user_id=user_id, session_id=session_id, model_override=model_override)
     _usage_context.set(ctx)
 
 
@@ -83,12 +74,7 @@ class UsageContextManager:
             await llm.chat(...)
     """
 
-    def __init__(
-        self,
-        user_id: str,
-        session_id: str,
-        model_override: str | None = None
-    ):
+    def __init__(self, user_id: str, session_id: str, model_override: str | None = None):
         self.user_id = user_id
         self.session_id = session_id
         self.model_override = model_override
@@ -96,11 +82,7 @@ class UsageContextManager:
 
     def __enter__(self) -> "UsageContextManager":
         self._previous_context = get_usage_context()
-        set_usage_context(
-            user_id=self.user_id,
-            session_id=self.session_id,
-            model_override=self.model_override
-        )
+        set_usage_context(user_id=self.user_id, session_id=self.session_id, model_override=self.model_override)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:

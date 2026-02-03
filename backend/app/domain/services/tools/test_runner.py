@@ -28,42 +28,30 @@ class TestRunnerTool(BaseTool):
         name="test_run",
         description="Run tests in a project. Auto-detects test framework (pytest, unittest, jest, mocha). Returns pass/fail counts, failures details, and optional coverage.",
         parameters={
-            "path": {
-                "type": "string",
-                "description": "Path to test file or directory"
-            },
+            "path": {"type": "string", "description": "Path to test file or directory"},
             "framework": {
                 "type": "string",
                 "description": "Test framework: 'auto' (detect), 'pytest', 'unittest', 'jest', 'mocha', 'npm_test'",
-                "enum": ["auto", "pytest", "unittest", "jest", "mocha", "npm_test"]
+                "enum": ["auto", "pytest", "unittest", "jest", "mocha", "npm_test"],
             },
             "pattern": {
                 "type": "string",
-                "description": "Pattern to match test names (e.g., 'test_auth*' for pytest, 'auth' for jest)"
+                "description": "Pattern to match test names (e.g., 'test_auth*' for pytest, 'auth' for jest)",
             },
-            "coverage": {
-                "type": "boolean",
-                "description": "Collect code coverage during test run"
-            },
-            "timeout": {
-                "type": "integer",
-                "description": "Test timeout in seconds (10-1800)"
-            },
-            "verbose": {
-                "type": "boolean",
-                "description": "Include full test output in result"
-            }
+            "coverage": {"type": "boolean", "description": "Collect code coverage during test run"},
+            "timeout": {"type": "integer", "description": "Test timeout in seconds (10-1800)"},
+            "verbose": {"type": "boolean", "description": "Include full test output in result"},
         },
-        required=["path"]
+        required=["path"],
     )
     async def test_run(
         self,
         path: str,
         framework: str = "auto",
-        pattern: str = None,
+        pattern: str | None = None,
         coverage: bool = False,
         timeout: int = 300,
-        verbose: bool = False
+        verbose: bool = False,
     ) -> ToolResult:
         """Run tests
 
@@ -84,23 +72,16 @@ class TestRunnerTool(BaseTool):
         name="test_list",
         description="List available tests without executing them. Shows test names, files, and class names. Use to understand test structure before running.",
         parameters={
-            "path": {
-                "type": "string",
-                "description": "Path to test file or directory"
-            },
+            "path": {"type": "string", "description": "Path to test file or directory"},
             "framework": {
                 "type": "string",
                 "description": "Test framework: 'auto' (detect), 'pytest', 'unittest', 'jest', 'mocha'",
-                "enum": ["auto", "pytest", "unittest", "jest", "mocha"]
-            }
+                "enum": ["auto", "pytest", "unittest", "jest", "mocha"],
+            },
         },
-        required=["path"]
+        required=["path"],
     )
-    async def test_list(
-        self,
-        path: str,
-        framework: str = "auto"
-    ) -> ToolResult:
+    async def test_list(self, path: str, framework: str = "auto") -> ToolResult:
         """List available tests
 
         Args:
@@ -116,28 +97,17 @@ class TestRunnerTool(BaseTool):
         name="test_coverage",
         description="Generate a code coverage report. Creates HTML, XML, or JSON report showing which lines are covered by tests.",
         parameters={
-            "path": {
-                "type": "string",
-                "description": "Path to source code directory"
-            },
+            "path": {"type": "string", "description": "Path to source code directory"},
             "output_format": {
                 "type": "string",
                 "description": "Report format: 'html', 'xml', 'json'",
-                "enum": ["html", "xml", "json"]
+                "enum": ["html", "xml", "json"],
             },
-            "output_dir": {
-                "type": "string",
-                "description": "Output directory for report (optional)"
-            }
+            "output_dir": {"type": "string", "description": "Output directory for report (optional)"},
         },
-        required=["path"]
+        required=["path"],
     )
-    async def test_coverage(
-        self,
-        path: str,
-        output_format: str = "html",
-        output_dir: str = None
-    ) -> ToolResult:
+    async def test_coverage(self, path: str, output_format: str = "html", output_dir: str | None = None) -> ToolResult:
         """Generate coverage report
 
         Args:

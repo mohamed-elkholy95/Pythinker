@@ -29,6 +29,7 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
 
+from app.core.config import get_feature_flags
 from app.domain.external.llm import LLM
 from app.domain.models.agent_response import (
     DependencyIssue,
@@ -50,7 +51,9 @@ from app.domain.services.prompts.verifier import (
     VERIFY_SIMPLE_PLAN_PROMPT,
 )
 from app.domain.services.tools.base import BaseTool
+from app.domain.services.validation.plan_validator import PlanValidator
 from app.domain.utils.json_parser import JsonParser
+from app.infrastructure.observability.prometheus_metrics import record_plan_verification
 
 logger = logging.getLogger(__name__)
 
@@ -58,18 +61,38 @@ logger = logging.getLogger(__name__)
 @dataclass
 class VerifierConfig:
     """Configuration for verifier behavior."""
+
     enabled: bool = True
     skip_simple_plans: bool = True
     simple_plan_max_steps: int = 2
     max_revision_loops: int = 2
     min_confidence_threshold: float = 0.6
     # Simple operation patterns that don't need verification
-    simple_operations: tuple = (
-        "search", "read", "list", "browse", "view", "find", "look up"
-    )
+    simple_operations: tuple = ("search", "read", "list", "browse", "view", "find", "look up")
     # Streaming short-circuit for faster verification
     enable_streaming_shortcircuit: bool = True
     early_pass_confidence_threshold: float = 0.85
+
+    # Enhanced skip logic thresholds
+    max_tools_for_simple: int = 1  # Skip only if plan uses 1 tool type
+    min_skip_confidence: float = 0.95  # Minimum confidence to skip
+    require_tool_availability: bool = True  # Verify tools exist before skipping
+
+
+@dataclass
+class SkipDecision:
+    """Result of skip decision analysis."""
+
+    should_skip: bool
+    confidence: float
+    reason: str
+    warnings: list[str]
+
+    @property
+    def adjusted_confidence(self) -> float:
+        """Reduce confidence if there are warnings."""
+        penalty = len(self.warnings) * 0.05
+        return max(0.5, self.confidence - penalty)
 
 
 class VerifierAgent:
@@ -86,13 +109,7 @@ class VerifierAgent:
     - Fail-open: On error, proceed with execution (better than blocking)
     """
 
-    def __init__(
-        self,
-        llm: LLM,
-        json_parser: JsonParser,
-        tools: list[BaseTool],
-        config: VerifierConfig | None = None
-    ):
+    def __init__(self, llm: LLM, json_parser: JsonParser, tools: list[BaseTool], config: VerifierConfig | None = None):
         """Initialize the VerifierAgent.
 
         Args:
@@ -131,32 +148,165 @@ class VerifierAgent:
         return "\n".join(descriptions)
 
     def _should_skip_verification(self, plan: Plan) -> bool:
-        """Determine if verification should be skipped for this plan."""
+        """Determine if verification should be skipped for this plan.
+
+        Uses the enhanced analysis for more accurate decision.
+        """
+        decision = self._analyze_skip_decision(plan)
+        if decision.should_skip:
+            logger.debug(f"Skipping verification for plan '{plan.title}': {decision.reason}")
+            if decision.warnings:
+                logger.debug(f"Skip warnings: {decision.warnings}")
+        return decision.should_skip
+
+    def _analyze_skip_decision(self, plan: Plan) -> SkipDecision:
+        """Analyze whether to skip verification with detailed reasoning.
+
+        Returns:
+            SkipDecision with detailed analysis
+        """
+        warnings = []
+
+        # Check if verification is disabled
         if not self.config.enabled:
-            return True
+            return SkipDecision(
+                should_skip=True,
+                confidence=1.0,
+                reason="Verification disabled in config",
+                warnings=[],
+            )
 
+        # Check if skip is disabled
         if not self.config.skip_simple_plans:
-            return False
+            return SkipDecision(
+                should_skip=False,
+                confidence=0.0,
+                reason="Simple plan skipping disabled",
+                warnings=[],
+            )
 
-        # Skip for very short plans
-        if len(plan.steps) <= self.config.simple_plan_max_steps:
-            # Check if all steps are simple operations
-            all_simple = True
-            for step in plan.steps:
-                desc_lower = step.description.lower()
-                is_simple = any(
-                    op in desc_lower
-                    for op in self.config.simple_operations
+        # Check step count
+        if len(plan.steps) > self.config.simple_plan_max_steps:
+            return SkipDecision(
+                should_skip=False,
+                confidence=0.0,
+                reason=f"Plan has {len(plan.steps)} steps (max for skip: {self.config.simple_plan_max_steps})",
+                warnings=[],
+            )
+
+        # Check if all steps are simple operations
+        complex_steps = []
+        for step in plan.steps:
+            desc_lower = step.description.lower()
+            is_simple = any(op in desc_lower for op in self.config.simple_operations)
+            if not is_simple:
+                complex_steps.append(step.id)
+
+        if complex_steps:
+            return SkipDecision(
+                should_skip=False,
+                confidence=0.0,
+                reason=f"Steps {complex_steps} are not simple operations",
+                warnings=[],
+            )
+
+        # NEW: Check number of different tool types implied
+        tool_types = self._infer_tool_types(plan)
+        if len(tool_types) > self.config.max_tools_for_simple:
+            return SkipDecision(
+                should_skip=False,
+                confidence=0.0,
+                reason=f"Plan uses {len(tool_types)} tool types: {tool_types}",
+                warnings=[],
+            )
+
+        # NEW: Check for dependencies between steps
+        if plan.steps and any(step.dependencies for step in plan.steps):
+            warnings.append("Plan has explicit step dependencies")
+
+        # NEW: Verify tool availability if required
+        if self.config.require_tool_availability:
+            missing_tools = self._check_tool_availability(plan)
+            if missing_tools:
+                return SkipDecision(
+                    should_skip=False,
+                    confidence=0.0,
+                    reason=f"Required tools may not be available: {missing_tools}",
+                    warnings=[],
                 )
-                if not is_simple:
-                    all_simple = False
+
+        # All checks passed - can skip
+        base_confidence = self.config.min_skip_confidence
+        decision = SkipDecision(
+            should_skip=True,
+            confidence=base_confidence,
+            reason="Simple plan with single tool type",
+            warnings=warnings,
+        )
+
+        # Only skip if adjusted confidence still high enough
+        if decision.adjusted_confidence < 0.85:
+            return SkipDecision(
+                should_skip=False,
+                confidence=decision.adjusted_confidence,
+                reason="Confidence too low after adjustments",
+                warnings=warnings,
+            )
+
+        return decision
+
+    def _infer_tool_types(self, plan: Plan) -> set[str]:
+        """Infer which tool types a plan might use based on step descriptions.
+
+        Returns:
+            Set of inferred tool type names
+        """
+        tool_patterns = {
+            "search": ["search", "find", "look up", "query"],
+            "browser": ["browse", "navigate", "visit", "open page", "click", "scroll"],
+            "shell": ["run", "execute", "command", "terminal", "install"],
+            "file": ["read", "write", "create file", "edit file", "save"],
+            "code": ["code", "implement", "function", "class", "refactor"],
+        }
+
+        inferred = set()
+        for step in plan.steps:
+            desc_lower = step.description.lower()
+            for tool_type, patterns in tool_patterns.items():
+                if any(pattern in desc_lower for pattern in patterns):
+                    inferred.add(tool_type)
+
+        return inferred
+
+    def _check_tool_availability(self, plan: Plan) -> list[str]:
+        """Check if tools implied by the plan are available.
+
+        Returns:
+            List of tool names that appear to be needed but unavailable
+        """
+        inferred_types = self._infer_tool_types(plan)
+
+        # Map tool types to actual tool name patterns
+        type_to_tool_patterns = {
+            "search": ["search", "web_search", "tavily"],
+            "browser": ["browser", "navigate", "playwright"],
+            "shell": ["shell", "execute", "run_command"],
+            "file": ["file", "read_file", "write_file"],
+            "code": ["code", "edit", "write"],
+        }
+
+        missing = []
+        for tool_type in inferred_types:
+            patterns = type_to_tool_patterns.get(tool_type, [tool_type])
+            found = False
+            for tool_name in self._tool_names:
+                if any(pattern in tool_name.lower() for pattern in patterns):
+                    found = True
                     break
+            if not found:
+                missing.append(tool_type)
 
-            if all_simple:
-                logger.debug(f"Skipping verification for simple plan: {plan.title}")
-                return True
-
-        return False
+        return missing
 
     def _format_steps(self, steps: list[Step]) -> str:
         """Format steps for prompt."""
@@ -166,10 +316,7 @@ class VerifierAgent:
         return "\n".join(lines)
 
     async def verify_plan(
-        self,
-        plan: Plan,
-        user_request: str,
-        task_context: str = ""
+        self, plan: Plan, user_request: str, task_context: str = ""
     ) -> AsyncGenerator[BaseEvent, None]:
         """Verify a plan before execution.
 
@@ -182,22 +329,52 @@ class VerifierAgent:
             VerificationEvent with status updates and final result
         """
         # Check if we should skip verification
-        if self._should_skip_verification(plan):
-            logger.info(f"Verification skipped for plan: {plan.title}")
+        skip_decision = self._analyze_skip_decision(plan)
+        if skip_decision.should_skip:
+            logger.info(f"Verification skipped for plan: {plan.title} ({skip_decision.reason})")
+            record_plan_verification("skip")
+
+            # Use adjusted confidence based on any warnings
+            confidence = skip_decision.adjusted_confidence
+            summary = f"Simple plan - verification skipped: {skip_decision.reason}"
+            if skip_decision.warnings:
+                summary += f" (warnings: {', '.join(skip_decision.warnings)})"
+
             yield VerificationEvent(
                 status=VerificationStatus.PASSED,
                 verdict="pass",
-                confidence=0.95,
-                summary="Simple plan - verification skipped"
+                confidence=confidence,
+                summary=summary,
             )
             return
+
+        # Phase 1: Optional pre-validation (shadow-mode aware)
+        flags = get_feature_flags()
+        if flags.get("plan_validation_v2"):
+            validator = PlanValidator(tool_names=self._tool_names)
+            report = validator.validate(plan)
+            if report.errors:
+                summary = report.to_summary()
+                if flags.get("shadow_mode", True):
+                    logger.warning(f"Plan pre-validation errors (shadow): {summary}")
+                else:
+                    record_plan_verification("revise")
+                    yield VerificationEvent(
+                        status=VerificationStatus.REVISION_NEEDED,
+                        verdict="revise",
+                        confidence=0.9,
+                        summary="Plan failed pre-validation checks",
+                        revision_feedback=summary,
+                    )
+                    return
+            elif report.warnings:
+                logger.info(f"Plan pre-validation warnings: {report.to_summary()}")
 
         logger.info(f"Verifying plan: {plan.title} ({len(plan.steps)} steps)")
 
         # Emit started event
         yield VerificationEvent(
-            status=VerificationStatus.STARTED,
-            summary=f"Verifying plan with {len(plan.steps)} steps"
+            status=VerificationStatus.STARTED, summary=f"Verifying plan with {len(plan.steps)} steps"
         )
 
         try:
@@ -206,44 +383,43 @@ class VerifierAgent:
 
             # Emit appropriate event based on verdict
             if result.verdict == VerificationVerdict.PASS:
+                record_plan_verification("pass")
                 yield VerificationEvent(
                     status=VerificationStatus.PASSED,
                     verdict="pass",
                     confidence=result.confidence,
-                    summary=result.summary
+                    summary=result.summary,
                 )
             elif result.verdict == VerificationVerdict.REVISE:
+                record_plan_verification("revise")
                 yield VerificationEvent(
                     status=VerificationStatus.REVISION_NEEDED,
                     verdict="revise",
                     confidence=result.confidence,
                     summary=result.summary,
-                    revision_feedback=result.revision_feedback
+                    revision_feedback=result.revision_feedback,
                 )
             else:  # FAIL
+                record_plan_verification("fail")
                 yield VerificationEvent(
                     status=VerificationStatus.FAILED,
                     verdict="fail",
                     confidence=result.confidence,
-                    summary=result.summary
+                    summary=result.summary,
                 )
 
         except Exception as e:
             logger.error(f"Verification failed with error: {e}")
+            record_plan_verification("error")
             # Fail-open: proceed with execution on verification error
             yield VerificationEvent(
                 status=VerificationStatus.PASSED,
                 verdict="pass",
                 confidence=0.5,
-                summary=f"Verification error (fail-open): {str(e)[:100]}"
+                summary=f"Verification error (fail-open): {str(e)[:100]}",
             )
 
-    async def _do_verification(
-        self,
-        plan: Plan,
-        user_request: str,
-        task_context: str
-    ) -> VerificationResponse:
+    async def _do_verification(self, plan: Plan, user_request: str, task_context: str) -> VerificationResponse:
         """Perform the actual verification.
 
         Uses streaming with short-circuit when enabled to detect early PASS
@@ -256,13 +432,10 @@ class VerifierAgent:
             plan_goal=plan.goal,
             steps=self._format_steps(plan.steps),
             available_tools=self._tool_descriptions,
-            task_context=task_context or "No additional context"
+            task_context=task_context or "No additional context",
         )
 
-        messages = [
-            {"role": "system", "content": VERIFIER_SYSTEM_PROMPT},
-            {"role": "user", "content": prompt}
-        ]
+        messages = [{"role": "system", "content": VERIFIER_SYSTEM_PROMPT}, {"role": "user", "content": prompt}]
 
         # Try streaming verification with short-circuit if enabled
         if self.config.enable_streaming_shortcircuit:
@@ -272,18 +445,13 @@ class VerifierAgent:
                 return early_result
 
         # Fall back to standard verification
-        response = await self.llm.ask(
-            messages=messages,
-            response_format={"type": "json_object"}
-        )
+        response = await self.llm.ask(messages=messages, response_format={"type": "json_object"})
 
         content = response.get("content", "")
         return await self._parse_verification_response(content)
 
     async def _try_streaming_verification(
-        self,
-        messages: list[dict[str, Any]],
-        plan: Plan
+        self, messages: list[dict[str, Any]], plan: Plan
     ) -> VerificationResponse | None:
         """Attempt streaming verification with early exit on clear PASS signal.
 
@@ -294,24 +462,18 @@ class VerifierAgent:
         Returns:
             Early VerificationResponse if PASS detected, None otherwise
         """
-        if not hasattr(self.llm, 'stream') and not hasattr(self.llm, 'stream_ask'):
+        if not hasattr(self.llm, "stream") and not hasattr(self.llm, "stream_ask"):
             return None
 
         try:
             accumulated = ""
-            stream_method = getattr(self.llm, 'stream', None) or getattr(self.llm, 'stream_ask', None)
+            getattr(self.llm, "stream", None) or getattr(self.llm, "stream_ask", None)
 
             # Some LLMs use different streaming interfaces
-            if hasattr(self.llm, 'stream_ask'):
-                stream = self.llm.stream_ask(
-                    messages=messages,
-                    response_format={"type": "json_object"}
-                )
-            elif hasattr(self.llm, 'stream'):
-                stream = self.llm.stream(
-                    messages=messages,
-                    response_format={"type": "json_object"}
-                )
+            if hasattr(self.llm, "stream_ask"):
+                stream = self.llm.stream_ask(messages=messages, response_format={"type": "json_object"})
+            elif hasattr(self.llm, "stream"):
+                stream = self.llm.stream(messages=messages, response_format={"type": "json_object"})
             else:
                 return None
 
@@ -332,26 +494,31 @@ class VerifierAgent:
                 # Look for clear pass indicators early in the response
                 if len(accumulated) > 50:  # Need some content
                     # Check for "verdict": "pass" pattern
-                    if '"verdict"' in accumulated_lower and '"pass"' in accumulated_lower:
-                        # Also check there's no revision feedback yet
-                        if '"revision_feedback": null' in accumulated_lower or \
-                           '"revision_feedback":null' in accumulated_lower:
-                            # Early PASS detected
-                            logger.info(f"Verification streaming: early PASS detected at {len(accumulated)} chars")
-                            return VerificationResponse(
-                                verdict=VerificationVerdict.PASS,
-                                confidence=self.config.early_pass_confidence_threshold,
-                                tool_feasibility=[],
-                                prerequisite_checks=[],
-                                dependency_issues=[],
-                                revision_feedback=None,
-                                summary=f"Plan verified (streaming early-exit, {len(plan.steps)} steps)"
-                            )
+                    if (
+                        '"verdict"' in accumulated_lower
+                        and '"pass"' in accumulated_lower
+                        and (
+                            '"revision_feedback": null' in accumulated_lower
+                            or '"revision_feedback":null' in accumulated_lower
+                        )
+                    ):
+                        # Early PASS detected
+                        logger.info(f"Verification streaming: early PASS detected at {len(accumulated)} chars")
+                        return VerificationResponse(
+                            verdict=VerificationVerdict.PASS,
+                            confidence=self.config.early_pass_confidence_threshold,
+                            tool_feasibility=[],
+                            prerequisite_checks=[],
+                            dependency_issues=[],
+                            revision_feedback=None,
+                            summary=f"Plan verified (streaming early-exit, {len(plan.steps)} steps)",
+                        )
 
                     # If we see REVISE or FAIL early, don't short-circuit - need full response
-                    if '"verdict"' in accumulated_lower:
-                        if '"revise"' in accumulated_lower or '"fail"' in accumulated_lower:
-                            return None  # Fall back to full verification
+                    if '"verdict"' in accumulated_lower and (
+                        '"revise"' in accumulated_lower or '"fail"' in accumulated_lower
+                    ):
+                        return None  # Fall back to full verification
 
                 # Safety limit - if accumulated too much without clear signal, fall back
                 if len(accumulated) > 500:
@@ -388,12 +555,14 @@ class VerifierAgent:
         tool_feasibility = []
         for tf in parsed.get("tool_feasibility", []):
             try:
-                tool_feasibility.append(ToolFeasibility(
-                    step_id=str(tf.get("step_id", "")),
-                    tool=tf.get("tool", "unknown"),
-                    feasible=tf.get("feasible", True),
-                    reason=tf.get("reason", "")
-                ))
+                tool_feasibility.append(
+                    ToolFeasibility(
+                        step_id=str(tf.get("step_id", "")),
+                        tool=tf.get("tool", "unknown"),
+                        feasible=tf.get("feasible", True),
+                        reason=tf.get("reason", ""),
+                    )
+                )
             except Exception as e:
                 logger.debug(f"Skipping malformed tool_feasibility entry: {e}")
 
@@ -401,11 +570,11 @@ class VerifierAgent:
         prerequisite_checks = []
         for pc in parsed.get("prerequisite_checks", []):
             try:
-                prerequisite_checks.append(PrerequisiteCheck(
-                    check=pc.get("check", ""),
-                    satisfied=pc.get("satisfied", True),
-                    detail=pc.get("detail", "")
-                ))
+                prerequisite_checks.append(
+                    PrerequisiteCheck(
+                        check=pc.get("check", ""), satisfied=pc.get("satisfied", True), detail=pc.get("detail", "")
+                    )
+                )
             except Exception as e:
                 logger.debug(f"Skipping malformed prerequisite_check entry: {e}")
 
@@ -413,11 +582,13 @@ class VerifierAgent:
         dependency_issues = []
         for di in parsed.get("dependency_issues", []):
             try:
-                dependency_issues.append(DependencyIssue(
-                    step_id=str(di.get("step_id", "")),
-                    depends_on=di.get("depends_on", ""),
-                    issue=di.get("issue", "")
-                ))
+                dependency_issues.append(
+                    DependencyIssue(
+                        step_id=str(di.get("step_id", "")),
+                        depends_on=di.get("depends_on", ""),
+                        issue=di.get("issue", ""),
+                    )
+                )
             except Exception as e:
                 logger.debug(f"Skipping malformed dependency_issue entry: {e}")
 
@@ -428,14 +599,10 @@ class VerifierAgent:
             prerequisite_checks=prerequisite_checks,
             dependency_issues=dependency_issues,
             revision_feedback=parsed.get("revision_feedback"),
-            summary=parsed.get("summary", "Verification completed")
+            summary=parsed.get("summary", "Verification completed"),
         )
 
-    async def quick_verify(
-        self,
-        plan: Plan,
-        user_request: str
-    ) -> SimpleVerificationResponse:
+    async def quick_verify(self, plan: Plan, user_request: str) -> SimpleVerificationResponse:
         """Quick verification for simple plans.
 
         Args:
@@ -446,21 +613,16 @@ class VerifierAgent:
             SimpleVerificationResponse with verdict and summary
         """
         prompt = VERIFY_SIMPLE_PLAN_PROMPT.format(
-            user_request=user_request,
-            steps=self._format_steps(plan.steps),
-            tool_names=", ".join(self._tool_names[:10])
+            user_request=user_request, steps=self._format_steps(plan.steps), tool_names=", ".join(self._tool_names[:10])
         )
 
         messages = [
             {"role": "system", "content": "You are a quick plan verifier. Be concise."},
-            {"role": "user", "content": prompt}
+            {"role": "user", "content": prompt},
         ]
 
         try:
-            response = await self.llm.ask(
-                messages=messages,
-                response_format={"type": "json_object"}
-            )
+            response = await self.llm.ask(messages=messages, response_format={"type": "json_object"})
 
             content = response.get("content", "")
             parsed = await self.json_parser.parse(content)
@@ -476,7 +638,7 @@ class VerifierAgent:
             return SimpleVerificationResponse(
                 verdict=verdict,
                 confidence=float(parsed.get("confidence", 0.8)),
-                summary=parsed.get("summary", "Quick verification completed")
+                summary=parsed.get("summary", "Quick verification completed"),
             )
 
         except Exception as e:
@@ -485,13 +647,10 @@ class VerifierAgent:
             return SimpleVerificationResponse(
                 verdict=VerificationVerdict.PASS,
                 confidence=0.5,
-                summary=f"Verification error (fail-open): {str(e)[:50]}"
+                summary=f"Verification error (fail-open): {str(e)[:50]}",
             )
 
-    def get_revision_prompt_addition(
-        self,
-        verification_result: VerificationResponse
-    ) -> str:
+    def get_revision_prompt_addition(self, verification_result: VerificationResponse) -> str:
         """Generate additional prompt content for replanning based on verification.
 
         Args:

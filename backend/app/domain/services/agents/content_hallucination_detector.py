@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 class HallucinationRisk(str, Enum):
     """Risk level for potential hallucination."""
+
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -37,6 +38,7 @@ class HallucinationRisk(str, Enum):
 @dataclass
 class HallucinationIssue:
     """A detected potential hallucination issue."""
+
     pattern_type: str
     matched_text: str
     description: str
@@ -48,6 +50,7 @@ class HallucinationIssue:
 @dataclass
 class HallucinationAnalysisResult:
     """Result of hallucination analysis."""
+
     issues: list[HallucinationIssue] = field(default_factory=list)
     total_patterns_checked: int = 0
     high_risk_count: int = 0
@@ -86,124 +89,118 @@ HIGH_RISK_PATTERNS = [
         "engagement_claps",
         HallucinationRisk.HIGH,
         "Clap count without source verification",
-        "Remove or mark as '[Metric not verified]'"
+        "Remove or mark as '[Metric not verified]'",
     ),
     (
         r"(\d{1,3}(?:,\d{3})*|\d+(?:\.\d+)?[KkMm]?)\s*(likes?|hearts?)",
         "engagement_likes",
         HallucinationRisk.HIGH,
         "Like count without source verification",
-        "Remove or mark as '[Metric not verified]'"
+        "Remove or mark as '[Metric not verified]'",
     ),
     (
         r"(\d{1,3}(?:,\d{3})*|\d+(?:\.\d+)?[KkMm]?)\s*(views?|reads?|impressions?)",
         "engagement_views",
         HallucinationRisk.HIGH,
         "View/read count without source verification",
-        "Remove or mark as '[Metric not verified]'"
+        "Remove or mark as '[Metric not verified]'",
     ),
     (
         r"(\d{1,3}(?:,\d{3})*|\d+(?:\.\d+)?[KkMm]?)\s*(shares?|retweets?|reposts?)",
         "engagement_shares",
         HallucinationRisk.HIGH,
         "Share count without source verification",
-        "Remove or mark as '[Metric not verified]'"
+        "Remove or mark as '[Metric not verified]'",
     ),
     (
         r"(\d{1,3}(?:,\d{3})*|\d+(?:\.\d+)?[KkMm]?)\s*(comments?|responses?|replies?)",
         "engagement_comments",
         HallucinationRisk.HIGH,
         "Comment count without source verification",
-        "Remove or mark as '[Metric not verified]'"
+        "Remove or mark as '[Metric not verified]'",
     ),
     (
         r"(\d{1,3}(?:,\d{3})*|\d+(?:\.\d+)?[KkMm]?)\s*(followers?|subscribers?)",
         "follower_count",
         HallucinationRisk.HIGH,
         "Follower/subscriber count without verification",
-        "Remove or verify from source"
+        "Remove or verify from source",
     ),
-
     # Read time (commonly fabricated for articles)
     (
         r"(\d+)\s*(min(ute)?s?|hour?s?)\s*(read|reading\s+time)",
         "read_time",
         HallucinationRisk.HIGH,
         "Read time estimate without source",
-        "Remove or state '[Read time not verified]'"
+        "Remove or state '[Read time not verified]'",
     ),
-
     # Statistics without attribution
     (
         r"(on\s+)?average(,?\s+of)?\s+\$?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)",
         "unattributed_average",
         HallucinationRisk.MEDIUM,
         "Average statistic without source",
-        "Add source citation or mark as inferred"
+        "Add source citation or mark as inferred",
     ),
     (
         r"(median|mean)\s+(?:of\s+)?\$?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)",
         "unattributed_statistic",
         HallucinationRisk.MEDIUM,
         "Statistical value without source",
-        "Add source citation or remove"
+        "Add source citation or remove",
     ),
     (
         r"(\d+(?:\.\d+)?)\s*%\s*(increase|decrease|growth|decline|of)",
         "percentage_claim",
         HallucinationRisk.MEDIUM,
         "Percentage claim without citation",
-        "Verify and cite source"
+        "Verify and cite source",
     ),
-
     # Specific dates without context
     (
         r"(on|since|as of)\s+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
         "specific_date",
         HallucinationRisk.MEDIUM,
         "Specific date without source verification",
-        "Verify date accuracy from source"
+        "Verify date accuracy from source",
     ),
     (
         r"(published|posted|written|updated)\s+(on\s+)?([A-Z][a-z]+\s+\d{1,2},?\s+\d{4})",
         "publication_date",
         HallucinationRisk.MEDIUM,
         "Publication date claim",
-        "Verify from page metadata if possible"
+        "Verify from page metadata if possible",
     ),
-
     # Prices (commonly fabricated)
     (
         r"\$\s?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s*(USD|dollars?)?(?!\s*(/|per))",
         "specific_price",
         HallucinationRisk.MEDIUM,
         "Specific price without source",
-        "Verify price from original source"
+        "Verify price from original source",
     ),
-
     # Rankings and ratings
     (
         r"#\s?(\d+)\s+(in|on|best|top)",
         "ranking_claim",
         HallucinationRisk.MEDIUM,
         "Ranking claim without verification",
-        "Verify ranking from authoritative source"
+        "Verify ranking from authoritative source",
     ),
     (
         r"(\d(?:\.\d)?)\s*/\s*5\s*(stars?|rating)",
         "rating_claim",
         HallucinationRisk.MEDIUM,
         "Rating without source verification",
-        "Verify rating from original source"
+        "Verify rating from original source",
     ),
-
     # Quotes without clear attribution
     (
         r'[""]([^""]{50,})[""](?!\s*[-—]\s*[A-Z])',
         "unattributed_quote",
         HallucinationRisk.MEDIUM,
         "Long quote without clear attribution",
-        "Add attribution or verify quote accuracy"
+        "Add attribution or verify quote accuracy",
     ),
 ]
 
@@ -230,11 +227,7 @@ class ContentHallucinationDetector:
     claims that lack proper source backing.
     """
 
-    def __init__(
-        self,
-        patterns: list[tuple] | None = None,
-        check_attribution: bool = True
-    ):
+    def __init__(self, patterns: list[tuple] | None = None, check_attribution: bool = True):
         """Initialize the hallucination detector.
 
         Args:
@@ -246,21 +239,13 @@ class ContentHallucinationDetector:
 
         # Compile patterns
         self._compiled_patterns = [
-            (re.compile(pattern, re.IGNORECASE | re.MULTILINE), *rest)
-            for pattern, *rest in self.patterns
+            (re.compile(pattern, re.IGNORECASE | re.MULTILINE), *rest) for pattern, *rest in self.patterns
         ]
 
         # Compile attribution patterns
-        self._attribution_patterns = [
-            re.compile(p, re.IGNORECASE)
-            for p in ATTRIBUTION_PATTERNS
-        ]
+        self._attribution_patterns = [re.compile(p, re.IGNORECASE) for p in ATTRIBUTION_PATTERNS]
 
-    def analyze(
-        self,
-        text: str,
-        verified_claims: set[str] | None = None
-    ) -> HallucinationAnalysisResult:
+    def analyze(self, text: str, verified_claims: set[str] | None = None) -> HallucinationAnalysisResult:
         """Analyze text for potential hallucinations.
 
         Args:
@@ -294,15 +279,18 @@ class ContentHallucinationDetector:
 
                 # Check if there's nearby attribution
                 effective_risk = risk
-                if self.check_attribution:
-                    if self._has_nearby_attribution(text, match.start(), match.end()):
-                        # Reduce risk if properly attributed
-                        if risk == HallucinationRisk.HIGH:
-                            effective_risk = HallucinationRisk.MEDIUM
-                        elif risk == HallucinationRisk.MEDIUM:
-                            effective_risk = HallucinationRisk.LOW
-                        elif risk == HallucinationRisk.CRITICAL:
-                            effective_risk = HallucinationRisk.HIGH
+                if self.check_attribution and self._has_nearby_attribution(
+                    text,
+                    match.start(),
+                    match.end(),
+                ):
+                    # Reduce risk if properly attributed
+                    if risk == HallucinationRisk.HIGH:
+                        effective_risk = HallucinationRisk.MEDIUM
+                    elif risk == HallucinationRisk.MEDIUM:
+                        effective_risk = HallucinationRisk.LOW
+                    elif risk == HallucinationRisk.CRITICAL:
+                        effective_risk = HallucinationRisk.HIGH
 
                 # Skip low risk items
                 if effective_risk == HallucinationRisk.LOW:
@@ -328,8 +316,7 @@ class ContentHallucinationDetector:
 
         if result.issues:
             logger.debug(
-                f"Hallucination analysis: {len(result.issues)} issues found "
-                f"({result.high_risk_count} high-risk)"
+                f"Hallucination analysis: {len(result.issues)} issues found ({result.high_risk_count} high-risk)"
             )
 
         return result
@@ -339,19 +326,9 @@ class ContentHallucinationDetector:
         # Normalize for comparison
         normalized = matched_text.lower().strip()
 
-        for verified_claim in verified:
-            if normalized in verified_claim.lower():
-                return True
+        return any(normalized in verified_claim.lower() for verified_claim in verified)
 
-        return False
-
-    def _has_nearby_attribution(
-        self,
-        text: str,
-        start: int,
-        end: int,
-        window: int = 200
-    ) -> bool:
+    def _has_nearby_attribution(self, text: str, start: int, end: int, window: int = 200) -> bool:
         """Check if there's attribution near the matched text.
 
         Args:
@@ -369,11 +346,7 @@ class ContentHallucinationDetector:
         context = text[context_start:context_end]
 
         # Check for attribution patterns
-        for pattern in self._attribution_patterns:
-            if pattern.search(context):
-                return True
-
-        return False
+        return any(pattern.search(context) for pattern in self._attribution_patterns)
 
     def _get_line_context(self, text: str, position: int, context_chars: int = 100) -> str:
         """Get the line containing the position with some context."""

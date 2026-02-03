@@ -29,27 +29,18 @@ class WorkspaceTool(BaseTool):
         name="workspace_init",
         description="Initialize a new workspace for the current session. Creates directory structure with optional template (python, nodejs, web, fullstack). Use at the start of a project.",
         parameters={
-            "session_id": {
-                "type": "string",
-                "description": "Unique session identifier"
-            },
-            "project_name": {
-                "type": "string",
-                "description": "Name of the project (used in generated files)"
-            },
+            "session_id": {"type": "string", "description": "Unique session identifier"},
+            "project_name": {"type": "string", "description": "Name of the project (used in generated files)"},
             "template": {
                 "type": "string",
                 "description": "Workspace template: 'none' (basic), 'python', 'nodejs', 'web', or 'fullstack'",
-                "enum": ["none", "python", "nodejs", "web", "fullstack"]
-            }
+                "enum": ["none", "python", "nodejs", "web", "fullstack"],
+            },
         },
-        required=["session_id"]
+        required=["session_id"],
     )
     async def workspace_init(
-        self,
-        session_id: str,
-        project_name: str = "project",
-        template: str = "none"
+        self, session_id: str, project_name: str = "project", template: str = "none"
     ) -> ToolResult:
         """Initialize a new workspace
 
@@ -66,13 +57,8 @@ class WorkspaceTool(BaseTool):
     @tool(
         name="workspace_info",
         description="Get information about the current workspace including size, file count, and configuration. Use to check workspace status.",
-        parameters={
-            "session_id": {
-                "type": "string",
-                "description": "Session ID to get workspace info for"
-            }
-        },
-        required=["session_id"]
+        parameters={"session_id": {"type": "string", "description": "Session ID to get workspace info for"}},
+        required=["session_id"],
     )
     async def workspace_info(self, session_id: str) -> ToolResult:
         """Get workspace information
@@ -89,27 +75,13 @@ class WorkspaceTool(BaseTool):
         name="workspace_tree",
         description="Display the directory tree structure of the workspace. Shows files and folders hierarchically. Use to understand project structure.",
         parameters={
-            "session_id": {
-                "type": "string",
-                "description": "Session ID"
-            },
-            "depth": {
-                "type": "integer",
-                "description": "Maximum depth of tree traversal (1-10)"
-            },
-            "include_hidden": {
-                "type": "boolean",
-                "description": "Whether to include hidden files/directories"
-            }
+            "session_id": {"type": "string", "description": "Session ID"},
+            "depth": {"type": "integer", "description": "Maximum depth of tree traversal (1-10)"},
+            "include_hidden": {"type": "boolean", "description": "Whether to include hidden files/directories"},
         },
-        required=["session_id"]
+        required=["session_id"],
     )
-    async def workspace_tree(
-        self,
-        session_id: str,
-        depth: int = 3,
-        include_hidden: bool = False
-    ) -> ToolResult:
+    async def workspace_tree(self, session_id: str, depth: int = 3, include_hidden: bool = False) -> ToolResult:
         """Get workspace directory tree
 
         Args:
@@ -126,22 +98,12 @@ class WorkspaceTool(BaseTool):
         name="workspace_clean",
         description="Clean the workspace by removing all files and directories. Optionally preserves configuration. Use with caution.",
         parameters={
-            "session_id": {
-                "type": "string",
-                "description": "Session ID"
-            },
-            "preserve_config": {
-                "type": "boolean",
-                "description": "Whether to preserve .pythinker config directory"
-            }
+            "session_id": {"type": "string", "description": "Session ID"},
+            "preserve_config": {"type": "boolean", "description": "Whether to preserve .pythinker config directory"},
         },
-        required=["session_id"]
+        required=["session_id"],
     )
-    async def workspace_clean(
-        self,
-        session_id: str,
-        preserve_config: bool = True
-    ) -> ToolResult:
+    async def workspace_clean(self, session_id: str, preserve_config: bool = True) -> ToolResult:
         """Clean workspace contents
 
         Args:
@@ -156,13 +118,8 @@ class WorkspaceTool(BaseTool):
     @tool(
         name="workspace_exists",
         description="Check if a workspace exists for a session. Use before operations that require an existing workspace.",
-        parameters={
-            "session_id": {
-                "type": "string",
-                "description": "Session ID to check"
-            }
-        },
-        required=["session_id"]
+        parameters={"session_id": {"type": "string", "description": "Session ID to check"}},
+        required=["session_id"],
     )
     async def workspace_exists(self, session_id: str) -> ToolResult:
         """Check if workspace exists

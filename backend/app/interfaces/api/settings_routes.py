@@ -30,7 +30,12 @@ LLM_PROVIDERS = [
     {
         "id": "anthropic",
         "name": "Anthropic",
-        "models": ["claude-sonnet-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-opus-20240229", "claude-3-haiku-20240307"],
+        "models": [
+            "claude-sonnet-4-20250514",
+            "claude-3-5-sonnet-20241022",
+            "claude-3-opus-20240229",
+            "claude-3-haiku-20240307",
+        ],
         "requires_api_key": True,
     },
     {
@@ -69,9 +74,7 @@ def get_default_settings() -> dict:
 
 
 @router.get("", response_model=APIResponse[UserSettingsResponse])
-async def get_user_settings(
-    current_user: User = Depends(get_current_user)
-) -> APIResponse[UserSettingsResponse]:
+async def get_user_settings(current_user: User = Depends(get_current_user)) -> APIResponse[UserSettingsResponse]:
     """Get current user's settings"""
     app_settings = get_app_settings()
     mongodb = get_mongodb()
@@ -83,16 +86,18 @@ async def get_user_settings(
 
     if settings_doc:
         # Return saved settings
-        return APIResponse.success(UserSettingsResponse(
-            llm_provider=settings_doc.get("llm_provider", "openai"),
-            model_name=settings_doc.get("model_name", "gpt-4"),
-            temperature=settings_doc.get("temperature", 0.7),
-            max_tokens=settings_doc.get("max_tokens", 8000),
-            search_provider=settings_doc.get("search_provider", "bing"),
-            browser_agent_max_steps=settings_doc.get("browser_agent_max_steps", 25),
-            browser_agent_timeout=settings_doc.get("browser_agent_timeout", 300),
-            browser_agent_use_vision=settings_doc.get("browser_agent_use_vision", True),
-        ))
+        return APIResponse.success(
+            UserSettingsResponse(
+                llm_provider=settings_doc.get("llm_provider", "openai"),
+                model_name=settings_doc.get("model_name", "gpt-4"),
+                temperature=settings_doc.get("temperature", 0.7),
+                max_tokens=settings_doc.get("max_tokens", 8000),
+                search_provider=settings_doc.get("search_provider", "bing"),
+                browser_agent_max_steps=settings_doc.get("browser_agent_max_steps", 25),
+                browser_agent_timeout=settings_doc.get("browser_agent_timeout", 300),
+                browser_agent_use_vision=settings_doc.get("browser_agent_use_vision", True),
+            )
+        )
 
     # Return default settings from environment
     defaults = get_default_settings()
@@ -101,8 +106,7 @@ async def get_user_settings(
 
 @router.put("", response_model=APIResponse[UserSettingsResponse])
 async def update_user_settings(
-    request: UpdateUserSettingsRequest,
-    current_user: User = Depends(get_current_user)
+    request: UpdateUserSettingsRequest, current_user: User = Depends(get_current_user)
 ) -> APIResponse[UserSettingsResponse]:
     """Update current user's settings"""
     app_settings = get_app_settings()
@@ -126,30 +130,28 @@ async def update_user_settings(
         settings_doc[key] = value
 
     # Save to database
-    await settings_collection.update_one(
-        {"user_id": str(current_user.id)},
-        {"$set": settings_doc},
-        upsert=True
-    )
+    await settings_collection.update_one({"user_id": str(current_user.id)}, {"$set": settings_doc}, upsert=True)
 
-    return APIResponse.success(UserSettingsResponse(
-        llm_provider=settings_doc.get("llm_provider", "openai"),
-        model_name=settings_doc.get("model_name", "gpt-4"),
-        temperature=settings_doc.get("temperature", 0.7),
-        max_tokens=settings_doc.get("max_tokens", 8000),
-        search_provider=settings_doc.get("search_provider", "bing"),
-        browser_agent_max_steps=settings_doc.get("browser_agent_max_steps", 25),
-        browser_agent_timeout=settings_doc.get("browser_agent_timeout", 300),
-        browser_agent_use_vision=settings_doc.get("browser_agent_use_vision", True),
-    ))
+    return APIResponse.success(
+        UserSettingsResponse(
+            llm_provider=settings_doc.get("llm_provider", "openai"),
+            model_name=settings_doc.get("model_name", "gpt-4"),
+            temperature=settings_doc.get("temperature", 0.7),
+            max_tokens=settings_doc.get("max_tokens", 8000),
+            search_provider=settings_doc.get("search_provider", "bing"),
+            browser_agent_max_steps=settings_doc.get("browser_agent_max_steps", 25),
+            browser_agent_timeout=settings_doc.get("browser_agent_timeout", 300),
+            browser_agent_use_vision=settings_doc.get("browser_agent_use_vision", True),
+        )
+    )
 
 
 @router.get("/providers", response_model=APIResponse[ProvidersResponse])
-async def get_available_providers(
-    current_user: User = Depends(get_current_user)
-) -> APIResponse[ProvidersResponse]:
+async def get_available_providers(current_user: User = Depends(get_current_user)) -> APIResponse[ProvidersResponse]:
     """Get available LLM and search providers"""
-    return APIResponse.success(ProvidersResponse(
-        llm_providers=LLM_PROVIDERS,
-        search_providers=SEARCH_PROVIDERS,
-    ))
+    return APIResponse.success(
+        ProvidersResponse(
+            llm_providers=LLM_PROVIDERS,
+            search_providers=SEARCH_PROVIDERS,
+        )
+    )

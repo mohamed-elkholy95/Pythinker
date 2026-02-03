@@ -4,6 +4,7 @@ Integration tests for authentication routes.
 These tests require a running backend API with password auth enabled.
 They are skipped if the API is not accessible or if registration is not allowed.
 """
+
 import logging
 
 import pytest
@@ -12,6 +13,7 @@ import requests
 from conftest import BASE_URL
 
 logger = logging.getLogger(__name__)
+
 
 # Check if backend API is available and get auth configuration
 def _get_auth_config():
@@ -29,13 +31,12 @@ def _get_auth_config():
         pass
     return {"api_available": False, "auth_provider": None, "registration_allowed": None}
 
+
 _AUTH_CONFIG = _get_auth_config()
 
 # Skip all tests in this module if API is not available
-pytestmark = pytest.mark.skipif(
-    not _AUTH_CONFIG["api_available"],
-    reason=f"Backend API not running at {BASE_URL}"
-)
+pytestmark = pytest.mark.skipif(not _AUTH_CONFIG["api_available"], reason=f"Backend API not running at {BASE_URL}")
+
 
 def _registration_supported():
     """Check if registration is supported by the current auth provider."""
@@ -43,24 +44,21 @@ def _registration_supported():
     return _AUTH_CONFIG.get("auth_provider") == "password"
 
 
+def _auth_enabled():
+    """Check if authentication is enabled (not 'none' provider)."""
+    return _AUTH_CONFIG.get("auth_provider") not in ("none", None)
+
+
 @pytest.fixture
 def test_user_data():
     """Create test user data"""
-    return {
-        "fullname": "Test User",
-        "password": "password123",
-        "email": "test@example.com"
-    }
+    return {"fullname": "Test User", "password": "password123", "email": "test@example.com"}
 
 
 @pytest.fixture
 def admin_user_data():
     """Create admin user data"""
-    return {
-        "fullname": "Admin User",
-        "password": "admin123",
-        "email": "admin@example.com"
-    }
+    return {"fullname": "Admin User", "password": "admin123", "email": "admin@example.com"}
 
 
 @pytest.fixture
@@ -76,17 +74,16 @@ def authenticated_user(client, test_user_data):
             "user_data": test_user_data,
             "auth_data": auth_data,
             "access_token": auth_data["access_token"],
-            "refresh_token": auth_data["refresh_token"]
+            "refresh_token": auth_data["refresh_token"],
         }
 
     logger.info(f"register_response: {register_response.status_code} - {register_response.text}")
 
     # If registration fails, try login (user might already exist)
     login_url = f"{BASE_URL}/auth/login"
-    login_response = client.post(login_url, json={
-        "email": test_user_data["email"],
-        "password": test_user_data["password"]
-    })
+    login_response = client.post(
+        login_url, json={"email": test_user_data["email"], "password": test_user_data["password"]}
+    )
 
     if login_response.status_code == 200:
         auth_data = login_response.json()["data"]
@@ -94,7 +91,7 @@ def authenticated_user(client, test_user_data):
             "user_data": test_user_data,
             "auth_data": auth_data,
             "access_token": auth_data["access_token"],
-            "refresh_token": auth_data["refresh_token"]
+            "refresh_token": auth_data["refresh_token"],
         }
 
     logger.info(f"login_response: {login_response.status_code} - {login_response.text}")
@@ -108,10 +105,9 @@ def authenticated_admin(client, admin_user_data):
     """Create and authenticate an admin user"""
     # Try to login first
     login_url = f"{BASE_URL}/auth/login"
-    login_response = client.post(login_url, json={
-        "email": admin_user_data["email"],
-        "password": admin_user_data["password"]
-    })
+    login_response = client.post(
+        login_url, json={"email": admin_user_data["email"], "password": admin_user_data["password"]}
+    )
 
     if login_response.status_code == 200:
         auth_data = login_response.json()["data"]
@@ -119,7 +115,7 @@ def authenticated_admin(client, admin_user_data):
             "user_data": admin_user_data,
             "auth_data": auth_data,
             "access_token": auth_data["access_token"],
-            "refresh_token": auth_data["refresh_token"]
+            "refresh_token": auth_data["refresh_token"],
         }
 
     # If login fails, register and promote to admin (this would need API support)
@@ -134,7 +130,7 @@ def authenticated_admin(client, admin_user_data):
             "user_data": admin_user_data,
             "auth_data": auth_data,
             "access_token": auth_data["access_token"],
-            "refresh_token": auth_data["refresh_token"]
+            "refresh_token": auth_data["refresh_token"],
         }
 
     raise Exception("Failed to authenticate admin user")
@@ -147,20 +143,18 @@ class TestAuthRoutes:
     Tests that require registration will be skipped for 'local' auth provider.
     """
 
-    @pytest.mark.skipif(
-        not _registration_supported(),
-        reason="Registration not supported by current auth provider"
-    )
+    @pytest.mark.skipif(not _registration_supported(), reason="Registration not supported by current auth provider")
     def test_register_success(self, client):
         """Test successful user registration"""
         import uuid
+
         url = f"{BASE_URL}/auth/register"
         # Use UUID to ensure unique email
         unique_suffix = str(uuid.uuid4())[:8]
         user_data = {
             "fullname": f"New User {unique_suffix}",
             "password": "password123",
-            "email": f"newuser_{unique_suffix}@example.com"
+            "email": f"newuser_{unique_suffix}@example.com",
         }
 
         response = client.post(url, json=user_data)
@@ -177,17 +171,14 @@ class TestAuthRoutes:
         assert data["data"]["user"]["role"] == "user"
         assert data["data"]["user"]["is_active"] is True
 
-    @pytest.mark.skipif(
-        not _registration_supported(),
-        reason="Registration not supported by current auth provider"
-    )
+    @pytest.mark.skipif(not _registration_supported(), reason="Registration not supported by current auth provider")
     def test_register_validation_error_short_fullname(self, client):
         """Test registration with short fullname"""
         url = f"{BASE_URL}/auth/register"
         user_data = {
             "fullname": "A",  # Too short
             "password": "password123",
-            "email": "test@example.com"
+            "email": "test@example.com",
         }
 
         response = client.post(url, json=user_data)
@@ -195,17 +186,14 @@ class TestAuthRoutes:
         logger.info(f"Register short fullname response: {response.status_code} - {response.text}")
         assert response.status_code == 422
 
-    @pytest.mark.skipif(
-        not _registration_supported(),
-        reason="Registration not supported by current auth provider"
-    )
+    @pytest.mark.skipif(not _registration_supported(), reason="Registration not supported by current auth provider")
     def test_register_validation_error_short_password(self, client):
         """Test registration with short password"""
         url = f"{BASE_URL}/auth/register"
         user_data = {
             "fullname": "Test User",
             "password": "123",  # Too short
-            "email": "test@example.com"
+            "email": "test@example.com",
         }
 
         response = client.post(url, json=user_data)
@@ -213,17 +201,14 @@ class TestAuthRoutes:
         logger.info(f"Register short password response: {response.status_code} - {response.text}")
         assert response.status_code == 422
 
-    @pytest.mark.skipif(
-        not _registration_supported(),
-        reason="Registration not supported by current auth provider"
-    )
+    @pytest.mark.skipif(not _registration_supported(), reason="Registration not supported by current auth provider")
     def test_register_validation_error_invalid_email(self, client):
         """Test registration with invalid email"""
         url = f"{BASE_URL}/auth/register"
         user_data = {
             "fullname": "Test User",
             "password": "password123",
-            "email": "invalid-email"  # Invalid email
+            "email": "invalid-email",  # Invalid email
         }
 
         response = client.post(url, json=user_data)
@@ -231,10 +216,7 @@ class TestAuthRoutes:
         logger.info(f"Register invalid email response: {response.status_code} - {response.text}")
         assert response.status_code == 422
 
-    @pytest.mark.skipif(
-        not _registration_supported(),
-        reason="Registration not supported by current auth provider"
-    )
+    @pytest.mark.skipif(not _registration_supported(), reason="Registration not supported by current auth provider")
     def test_register_duplicate_email(self, client, test_user_data):
         """Test registration with duplicate email"""
         url = f"{BASE_URL}/auth/register"
@@ -247,7 +229,7 @@ class TestAuthRoutes:
         duplicate_data = {
             "fullname": "Different User",
             "password": "password123",
-            "email": test_user_data["email"]  # Same email
+            "email": test_user_data["email"],  # Same email
         }
         response2 = client.post(url, json=duplicate_data)
         logger.info(f"Duplicate registration response: {response2.status_code} - {response2.text}")
@@ -255,16 +237,13 @@ class TestAuthRoutes:
         # Second registration should fail
         assert response2.status_code in [400, 422]
 
-    @pytest.mark.skipif(
-        not _registration_supported(),
-        reason="Registration not supported by current auth provider"
-    )
+    @pytest.mark.skipif(not _registration_supported(), reason="Registration not supported by current auth provider")
     def test_login_success(self, client, authenticated_user):
         """Test successful login"""
         url = f"{BASE_URL}/auth/login"
         login_data = {
             "email": authenticated_user["user_data"]["email"],
-            "password": authenticated_user["user_data"]["password"]
+            "password": authenticated_user["user_data"]["password"],
         }
 
         response = client.post(url, json=login_data)
@@ -278,30 +257,22 @@ class TestAuthRoutes:
         assert data["data"]["user"]["email"] == login_data["email"]
         assert data["data"]["token_type"] == "bearer"
 
-    @pytest.mark.skipif(
-        not _registration_supported(),
-        reason="Registration not supported by current auth provider"
-    )
+    @pytest.mark.skipif(not _registration_supported(), reason="Registration not supported by current auth provider")
     def test_login_invalid_credentials(self, client, authenticated_user):
         """Test login with invalid credentials"""
         url = f"{BASE_URL}/auth/login"
-        login_data = {
-            "email": authenticated_user["user_data"]["email"],
-            "password": "wrongpassword"
-        }
+        login_data = {"email": authenticated_user["user_data"]["email"], "password": "wrongpassword"}
 
         response = client.post(url, json=login_data)
 
         logger.info(f"Login invalid credentials response: {response.status_code} - {response.text}")
         assert response.status_code == 401
 
+    @pytest.mark.skipif(not _auth_enabled(), reason="Auth disabled - anonymous access allowed")
     def test_login_nonexistent_user(self, client):
         """Test login with nonexistent user"""
         url = f"{BASE_URL}/auth/login"
-        login_data = {
-            "email": "nonexistent@example.com",
-            "password": "password123"
-        }
+        login_data = {"email": "nonexistent@example.com", "password": "password123"}
 
         response = client.post(url, json=login_data)
 
@@ -329,10 +300,7 @@ class TestAuthRoutes:
         # 'authenticated' field is optional depending on provider
         # assert "authenticated" in data["data"]
 
-    @pytest.mark.skipif(
-        not _registration_supported(),
-        reason="Registration not supported by current auth provider"
-    )
+    @pytest.mark.skipif(not _registration_supported(), reason="Registration not supported by current auth provider")
     def test_get_current_user_info(self, client, authenticated_user):
         """Test get current user information"""
         url = f"{BASE_URL}/auth/me"
@@ -349,6 +317,7 @@ class TestAuthRoutes:
         assert data["data"]["email"] == authenticated_user["user_data"]["email"]
         assert data["data"]["role"] == "user"
 
+    @pytest.mark.skipif(not _auth_enabled(), reason="Auth disabled - anonymous access allowed")
     def test_get_current_user_info_unauthorized(self, client):
         """Test get current user information without authentication"""
         url = f"{BASE_URL}/auth/me"
@@ -358,6 +327,7 @@ class TestAuthRoutes:
         logger.info(f"Get current user unauthorized response: {response.status_code} - {response.text}")
         assert response.status_code == 401
 
+    @pytest.mark.skipif(not _auth_enabled(), reason="Auth disabled - anonymous access allowed")
     def test_get_current_user_info_invalid_token(self, client):
         """Test get current user information with invalid token"""
         url = f"{BASE_URL}/auth/me"
@@ -368,17 +338,11 @@ class TestAuthRoutes:
         logger.info(f"Get current user invalid token response: {response.status_code} - {response.text}")
         assert response.status_code == 401
 
-
-    @pytest.mark.skipif(
-        not _registration_supported(),
-        reason="Registration not supported by current auth provider"
-    )
+    @pytest.mark.skipif(not _registration_supported(), reason="Registration not supported by current auth provider")
     def test_refresh_token_success(self, client, authenticated_user):
         """Test successful token refresh"""
         url = f"{BASE_URL}/auth/refresh"
-        refresh_data = {
-            "refresh_token": authenticated_user["refresh_token"]
-        }
+        refresh_data = {"refresh_token": authenticated_user["refresh_token"]}
 
         response = client.post(url, json=refresh_data)
 
@@ -392,9 +356,7 @@ class TestAuthRoutes:
     def test_refresh_token_invalid_token(self, client):
         """Test token refresh with invalid token"""
         url = f"{BASE_URL}/auth/refresh"
-        refresh_data = {
-            "refresh_token": "invalid_refresh_token"
-        }
+        refresh_data = {"refresh_token": "invalid_refresh_token"}
 
         response = client.post(url, json=refresh_data)
 
@@ -402,10 +364,7 @@ class TestAuthRoutes:
         # Accept 401 (unauthorized) or 429 (rate limited) as valid responses
         assert response.status_code in (401, 429)
 
-    @pytest.mark.skipif(
-        not _registration_supported(),
-        reason="Registration not supported by current auth provider"
-    )
+    @pytest.mark.skipif(not _registration_supported(), reason="Registration not supported by current auth provider")
     def test_logout_success(self, client, authenticated_user):
         """Test successful logout"""
         url = f"{BASE_URL}/auth/logout"
@@ -429,6 +388,7 @@ class TestAuthRoutes:
         logger.info(f"Logout unauthorized response: {response.status_code} - {response.text}")
         assert response.status_code == 401
 
+    @pytest.mark.skipif(not _auth_enabled(), reason="Auth disabled - anonymous access allowed")
     def test_logout_invalid_token(self, client):
         """Test logout with invalid token"""
         url = f"{BASE_URL}/auth/logout"
@@ -440,10 +400,7 @@ class TestAuthRoutes:
         assert response.status_code == 401
 
     # Admin-only endpoint tests (these will need proper admin user setup)
-    @pytest.mark.skipif(
-        not _registration_supported(),
-        reason="Registration not supported by current auth provider"
-    )
+    @pytest.mark.skipif(not _registration_supported(), reason="Registration not supported by current auth provider")
     def test_get_user_by_id_forbidden_non_admin(self, client, authenticated_user):
         """Test get user by ID as non-admin (should be forbidden)"""
         url = f"{BASE_URL}/auth/user/some_user_id"
@@ -455,10 +412,7 @@ class TestAuthRoutes:
         # API returns 401 for non-admin access to admin endpoints
         assert response.status_code in [401, 403]
 
-    @pytest.mark.skipif(
-        not _registration_supported(),
-        reason="Registration not supported by current auth provider"
-    )
+    @pytest.mark.skipif(not _registration_supported(), reason="Registration not supported by current auth provider")
     def test_deactivate_user_forbidden_non_admin(self, client, authenticated_user):
         """Test user deactivation as non-admin (should be forbidden)"""
         url = f"{BASE_URL}/auth/user/some_user_id/deactivate"
@@ -470,10 +424,7 @@ class TestAuthRoutes:
         # API returns 401 for non-admin access to admin endpoints
         assert response.status_code in [401, 403]
 
-    @pytest.mark.skipif(
-        not _registration_supported(),
-        reason="Registration not supported by current auth provider"
-    )
+    @pytest.mark.skipif(not _registration_supported(), reason="Registration not supported by current auth provider")
     def test_activate_user_forbidden_non_admin(self, client, authenticated_user):
         """Test user activation as non-admin (should be forbidden)"""
         url = f"{BASE_URL}/auth/user/some_user_id/activate"
@@ -486,19 +437,17 @@ class TestAuthRoutes:
         assert response.status_code in [401, 403]
 
     # Integration tests combining multiple endpoints
-    @pytest.mark.skipif(
-        not _registration_supported(),
-        reason="Registration not supported by current auth provider"
-    )
+    @pytest.mark.skipif(not _registration_supported(), reason="Registration not supported by current auth provider")
     def test_complete_user_lifecycle(self, client):
         """Test complete user lifecycle: register -> login -> change password -> logout"""
         import uuid
+
         # Use UUID to ensure unique email
         unique_suffix = str(uuid.uuid4())[:8]
         user_data = {
             "fullname": f"Lifecycle User {unique_suffix}",
             "password": "password123",
-            "email": f"lifecycle_{unique_suffix}@example.com"
+            "email": f"lifecycle_{unique_suffix}@example.com",
         }
 
         # 1. Register
@@ -509,10 +458,7 @@ class TestAuthRoutes:
 
         # 2. Login
         login_url = f"{BASE_URL}/auth/login"
-        login_response = client.post(login_url, json={
-            "email": user_data["email"],
-            "password": user_data["password"]
-        })
+        login_response = client.post(login_url, json={"email": user_data["email"], "password": user_data["password"]})
         logger.info(f"Lifecycle login response: {login_response.status_code} - {login_response.text}")
         assert login_response.status_code == 200
 
@@ -521,10 +467,11 @@ class TestAuthRoutes:
         # 3. Change password
         change_password_url = f"{BASE_URL}/auth/change-password"
         headers = {"Authorization": f"Bearer {access_token}"}
-        change_response = client.post(change_password_url, json={
-            "old_password": user_data["password"],
-            "new_password": "newpassword123"
-        }, headers=headers)
+        change_response = client.post(
+            change_password_url,
+            json={"old_password": user_data["password"], "new_password": "newpassword123"},
+            headers=headers,
+        )
         logger.info(f"Lifecycle change password response: {change_response.status_code} - {change_response.text}")
         assert change_response.status_code == 200
 
@@ -534,17 +481,12 @@ class TestAuthRoutes:
         logger.info(f"Lifecycle logout response: {logout_response.status_code} - {logout_response.text}")
         assert logout_response.status_code == 200
 
-    @pytest.mark.skipif(
-        not _registration_supported(),
-        reason="Registration not supported by current auth provider"
-    )
+    @pytest.mark.skipif(not _registration_supported(), reason="Registration not supported by current auth provider")
     def test_token_refresh_workflow(self, client, authenticated_user):
         """Test token refresh workflow"""
         # Use refresh token to get new access token
         refresh_url = f"{BASE_URL}/auth/refresh"
-        refresh_response = client.post(refresh_url, json={
-            "refresh_token": authenticated_user["refresh_token"]
-        })
+        refresh_response = client.post(refresh_url, json={"refresh_token": authenticated_user["refresh_token"]})
         logger.info(f"Token refresh workflow response: {refresh_response.status_code} - {refresh_response.text}")
         assert refresh_response.status_code == 200
 

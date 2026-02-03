@@ -11,9 +11,9 @@ Supported providers:
 - duckduckgo: DuckDuckGo search (privacy-focused)
 - brave: Brave Search API (requires API key)
 """
+
 import logging
 from functools import lru_cache
-from typing import Optional
 
 from app.domain.external.search import SearchEngine
 from app.infrastructure.external.search.factory import (

@@ -10,12 +10,7 @@ class TestTokenCount:
 
     def test_create_token_count(self):
         """Test creating a token count"""
-        count = TokenCount(
-            total=100,
-            content_tokens=80,
-            tool_tokens=16,
-            overhead_tokens=4
-        )
+        count = TokenCount(total=100, content_tokens=80, tool_tokens=16, overhead_tokens=4)
         assert count.total == 100
         assert count.content_tokens == 80
 
@@ -49,10 +44,7 @@ class TestTokenManager:
     def test_count_message_tokens(self):
         """Test counting tokens in a message"""
         manager = TokenManager()
-        message = {
-            "role": "user",
-            "content": "This is a test message with some content."
-        }
+        message = {"role": "user", "content": "This is a test message with some content."}
         count = manager.count_message_tokens(message)
 
         assert count.total > 0
@@ -65,12 +57,7 @@ class TestTokenManager:
         message = {
             "role": "assistant",
             "content": "Let me execute that.",
-            "tool_calls": [{
-                "function": {
-                    "name": "shell_exec",
-                    "arguments": '{"command": "ls -la"}'
-                }
-            }]
+            "tool_calls": [{"function": {"name": "shell_exec", "arguments": '{"command": "ls -la"}'}}],
         }
         count = manager.count_message_tokens(message)
 
@@ -83,7 +70,7 @@ class TestTokenManager:
         messages = [
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": "Hello!"},
-            {"role": "assistant", "content": "Hi there!"}
+            {"role": "assistant", "content": "Hi there!"},
         ]
         total = manager.count_messages_tokens(messages)
 
@@ -92,9 +79,7 @@ class TestTokenManager:
     def test_is_within_limit_true(self):
         """Test checking within limit with small context"""
         manager = TokenManager(max_context_tokens=8192)
-        messages = [
-            {"role": "user", "content": "Hello"}
-        ]
+        messages = [{"role": "user", "content": "Hello"}]
         assert manager.is_within_limit(messages) is True
 
     def test_is_within_limit_false(self):
@@ -102,9 +87,7 @@ class TestTokenManager:
         manager = TokenManager(max_context_tokens=100, safety_margin=0)
         # Create a message that's definitely too long
         long_content = "word " * 1000
-        messages = [
-            {"role": "user", "content": long_content}
-        ]
+        messages = [{"role": "user", "content": long_content}]
         assert manager.is_within_limit(messages) is False
 
     def test_trim_messages_preserves_system(self):
@@ -117,11 +100,7 @@ class TestTokenManager:
             {"role": "user", "content": "Recent message"},
         ]
 
-        trimmed, tokens_removed = manager.trim_messages(
-            messages,
-            preserve_system=True,
-            preserve_recent=1
-        )
+        trimmed, tokens_removed = manager.trim_messages(messages, preserve_system=True, preserve_recent=1)
 
         # System message should be preserved
         assert trimmed[0]["role"] == "system"
@@ -138,11 +117,7 @@ class TestTokenManager:
             {"role": "assistant", "content": "Recent answer"},
         ]
 
-        trimmed, _ = manager.trim_messages(
-            messages,
-            preserve_system=True,
-            preserve_recent=2
-        )
+        trimmed, _ = manager.trim_messages(messages, preserve_system=True, preserve_recent=2)
 
         # Check recent messages are preserved
         assert trimmed[-1]["content"] == "Recent answer"
@@ -151,9 +126,7 @@ class TestTokenManager:
     def test_trim_messages_no_change_needed(self):
         """Test trimming when already within limit"""
         manager = TokenManager(max_context_tokens=10000)
-        messages = [
-            {"role": "user", "content": "Short message"}
-        ]
+        messages = [{"role": "user", "content": "Short message"}]
 
         trimmed, tokens_removed = manager.trim_messages(messages)
 
@@ -177,3 +150,51 @@ class TestTokenManager:
         assert "max_tokens" in stats
         assert "effective_limit" in stats
         assert "tiktoken_available" in stats
+
+    def test_trim_messages_reduces_preserve_recent_when_over_limit(self):
+        """Test that trimming reduces preserve_recent when system + recent exceeds limit.
+
+        This tests the fix for the bug where available_tokens became negative,
+        causing the loop to never keep any trimmable groups (trimmed 0 messages).
+        """
+        # Create a very small context limit
+        manager = TokenManager(max_context_tokens=100, safety_margin=20)  # effective = 80
+
+        # Create messages where system + recent would exceed the effective limit
+        messages = [
+            {"role": "system", "content": "System prompt."},  # ~4 tokens
+            {"role": "user", "content": "Old message " * 20},  # ~40 tokens
+            {"role": "assistant", "content": "Old response " * 20},  # ~40 tokens
+            {"role": "user", "content": "Recent question with lots of content " * 10},  # ~50+ tokens
+            {"role": "assistant", "content": "Recent answer with lots of content " * 10},  # ~50+ tokens
+        ]
+
+        # With preserve_recent=4, trying to keep 4 recent messages would exceed limit
+        trimmed, tokens_removed = manager.trim_messages(messages, preserve_system=True, preserve_recent=4)
+
+        # The fix should have:
+        # 1. Reduced preserve_recent dynamically to fit
+        # 2. Actually trimmed some messages (tokens_removed > 0)
+        assert tokens_removed > 0, "Should have trimmed some tokens"
+        assert len(trimmed) < len(messages), "Should have trimmed some messages"
+
+        # System message should always be preserved
+        assert trimmed[0]["role"] == "system"
+
+    def test_trim_messages_handles_huge_system_prompt(self):
+        """Test trimming when system prompt alone exceeds limit."""
+        # Create a manager with very small limit
+        manager = TokenManager(max_context_tokens=50, safety_margin=10)  # effective = 40
+
+        # System prompt that exceeds the entire limit
+        messages = [
+            {"role": "system", "content": "This is a very long system prompt " * 50},
+            {"role": "user", "content": "Hello"},
+        ]
+
+        trimmed, tokens_removed = manager.trim_messages(messages, preserve_system=True, preserve_recent=1)
+
+        # Should keep system message even if over limit (can't do much else)
+        assert trimmed[0]["role"] == "system"
+        # Should have removed the user message
+        assert tokens_removed > 0

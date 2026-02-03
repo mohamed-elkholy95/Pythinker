@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 # Try to import langfuse - graceful degradation if not installed
 try:
     from langfuse import Langfuse
-    from langfuse.client import StatefulGenerationClient
+
     LANGFUSE_AVAILABLE = True
 except ImportError:
     LANGFUSE_AVAILABLE = False
@@ -65,9 +65,7 @@ class LangfuseTracer(LLMTracerInterface):
             debug: Enable debug logging
         """
         if not LANGFUSE_AVAILABLE:
-            raise ImportError(
-                "Langfuse is not installed. Install it with: pip install langfuse>=2.0.0"
-            )
+            raise ImportError("Langfuse is not installed. Install it with: pip install langfuse>=2.0.0")
 
         self._client = Langfuse(
             public_key=public_key,
@@ -294,16 +292,17 @@ def create_langfuse_tracer_from_settings() -> LangfuseTracer | None:
 
     try:
         from app.core.config import get_settings
+
         settings = get_settings()
 
-        public_key = getattr(settings, 'langfuse_public_key', None)
-        secret_key = getattr(settings, 'langfuse_secret_key', None)
+        public_key = getattr(settings, "langfuse_public_key", None)
+        secret_key = getattr(settings, "langfuse_secret_key", None)
 
         if not public_key or not secret_key:
             logger.debug("Langfuse not configured (missing keys)")
             return None
 
-        host = getattr(settings, 'langfuse_host', 'https://cloud.langfuse.com')
+        host = getattr(settings, "langfuse_host", "https://cloud.langfuse.com")
 
         return LangfuseTracer(
             public_key=public_key,

@@ -11,13 +11,13 @@ from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.domain.external.llm import LLM
-from app.domain.services.agents.error_handler import TokenLimitExceeded
+from app.domain.services.agents.error_handler import TokenLimitExceededError
 from app.domain.services.agents.prompt_cache_manager import get_prompt_cache_manager
 from app.domain.services.agents.token_manager import TokenManager
 from app.domain.services.agents.usage_context import get_usage_context
 from app.infrastructure.external.llm.factory import LLMProviderRegistry
 
-T = TypeVar('T', bound=BaseModel)
+T = TypeVar("T", bound=BaseModel)
 
 
 logger = logging.getLogger(__name__)
@@ -27,10 +27,7 @@ logger = logging.getLogger(__name__)
 class OpenAILLM(LLM):
     def __init__(self):
         settings = get_settings()
-        self.client = AsyncOpenAI(
-            api_key=settings.api_key,
-            base_url=settings.api_base
-        )
+        self.client = AsyncOpenAI(api_key=settings.api_key, base_url=settings.api_base)
 
         self._model_name = settings.model_name
         self._temperature = settings.temperature
@@ -54,11 +51,11 @@ class OpenAILLM(LLM):
     def _detect_mlx_mode(self) -> bool:
         """Detect if using local MLX server that needs text-based tool handling."""
         # Check model name for MLX community models
-        if 'mlx-community' in self._model_name.lower():
+        if "mlx-community" in self._model_name.lower():
             return True
         # Check API base for local servers
         if self._api_base:
-            local_indicators = ['localhost', '127.0.0.1', 'host.docker.internal', ':8081']
+            local_indicators = ["localhost", "127.0.0.1", "host.docker.internal", ":8081"]
             if any(indicator in self._api_base.lower() for indicator in local_indicators):
                 return True
         return False
@@ -75,21 +72,22 @@ class OpenAILLM(LLM):
 
         try:
             # Extract usage from OpenAI response
-            usage = getattr(response, 'usage', None)
+            usage = getattr(response, "usage", None)
             if not usage:
                 return
 
-            prompt_tokens = getattr(usage, 'prompt_tokens', 0)
-            completion_tokens = getattr(usage, 'completion_tokens', 0)
+            prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+            completion_tokens = getattr(usage, "completion_tokens", 0) or 0
 
             # OpenAI uses prompt_tokens_details for cached tokens
-            prompt_details = getattr(usage, 'prompt_tokens_details', None)
+            prompt_details = getattr(usage, "prompt_tokens_details", None)
             cached_tokens = 0
             if prompt_details:
-                cached_tokens = getattr(prompt_details, 'cached_tokens', 0)
+                cached_tokens = getattr(prompt_details, "cached_tokens", 0) or 0
 
             # Lazy import to avoid circular dependency
             from app.application.services.usage_service import get_usage_service
+
             usage_service = get_usage_service()
 
             await usage_service.record_llm_usage(
@@ -117,6 +115,7 @@ class OpenAILLM(LLM):
 
         try:
             from app.application.services.usage_service import get_usage_service
+
             usage_service = get_usage_service()
             model_name = model_override or ctx.model_override or self._model_name
             await usage_service.record_llm_usage(
@@ -187,9 +186,7 @@ class OpenAILLM(LLM):
         return "\n".join(tool_descriptions)
 
     def _inject_tools_into_messages(
-        self,
-        messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]]
+        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         """Inject tool definitions into the system prompt for MLX mode."""
         if not tools:
@@ -281,7 +278,9 @@ To extract data from a webpage:
                     tool_json = {
                         "tool_call": {
                             "name": func.get("name"),
-                            "arguments": json.loads(func.get("arguments", "{}")) if isinstance(func.get("arguments"), str) else func.get("arguments", {})
+                            "arguments": json.loads(func.get("arguments", "{}"))
+                            if isinstance(func.get("arguments"), str)
+                            else func.get("arguments", {}),
                         }
                     }
                     content += f"\n```json\n{json.dumps(tool_json, indent=2)}\n```"
@@ -292,10 +291,7 @@ To extract data from a webpage:
             elif role == "tool":
                 tool_content = msg_copy.get("content", "")
                 tool_name = msg_copy.get("name", "tool")
-                msg_copy = {
-                    "role": "user",
-                    "content": f"[Tool Result from {tool_name}]:\n{tool_content}"
-                }
+                msg_copy = {"role": "user", "content": f"[Tool Result from {tool_name}]:\n{tool_content}"}
 
             # Ensure content is always a string (not None)
             if msg_copy.get("content") is None:
@@ -313,7 +309,7 @@ To extract data from a webpage:
         # Try to find JSON tool_call in the response
         patterns = [
             r'```json\s*(\{.*?"tool_call".*?\})\s*```',  # Markdown code block
-            r'```\s*(\{.*?"tool_call".*?\})\s*```',      # Generic code block
+            r'```\s*(\{.*?"tool_call".*?\})\s*```',  # Generic code block
             r'(\{[^{}]*"tool_call"[^{}]*\{[^{}]*\}[^{}]*\})',  # Inline JSON
         ]
 
@@ -327,14 +323,16 @@ To extract data from a webpage:
                         return {
                             "role": "assistant",
                             "content": None,
-                            "tool_calls": [{
-                                "id": f"call_{uuid.uuid4().hex[:8]}",
-                                "type": "function",
-                                "function": {
-                                    "name": tc.get("name"),
-                                    "arguments": json.dumps(tc.get("arguments", {}))
+                            "tool_calls": [
+                                {
+                                    "id": f"call_{uuid.uuid4().hex[:8]}",
+                                    "type": "function",
+                                    "function": {
+                                        "name": tc.get("name"),
+                                        "arguments": json.dumps(tc.get("arguments", {})),
+                                    },
                                 }
-                            }]
+                            ],
                         }
                 except json.JSONDecodeError:
                     continue
@@ -366,7 +364,7 @@ To extract data from a webpage:
         fixed_messages = []
         pending_tool_ids = set()
 
-        for i, msg in enumerate(messages):
+        for _i, msg in enumerate(messages):
             role = msg.get("role", "")
 
             # Check if this is an assistant message with tool_calls
@@ -374,13 +372,13 @@ To extract data from a webpage:
                 # If we have pending tool_ids from a previous assistant message,
                 # that means we never got responses - skip the orphaned message
                 if pending_tool_ids:
-                    logger.warning(f"Removing orphaned assistant message with unfulfilled tool_calls: {pending_tool_ids}")
+                    logger.warning(
+                        f"Removing orphaned assistant message with unfulfilled tool_calls: {pending_tool_ids}"
+                    )
                     pending_tool_ids = set()
 
                 # Track the new tool_call_ids
-                pending_tool_ids = {
-                    tc.get("id") for tc in msg.get("tool_calls", []) if tc.get("id")
-                }
+                pending_tool_ids = {tc.get("id") for tc in msg.get("tool_calls", []) if tc.get("id")}
                 fixed_messages.append(msg)
 
             elif role == "tool":
@@ -422,11 +420,14 @@ To extract data from a webpage:
 
         return fixed_messages
 
-    async def ask(self, messages: list[dict[str, str]],
-                tools: list[dict[str, Any]] | None = None,
-                response_format: dict[str, Any] | None = None,
-                tool_choice: str | None = None,
-                enable_caching: bool = True) -> dict[str, Any]:
+    async def ask(
+        self,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None = None,
+        response_format: dict[str, Any] | None = None,
+        tool_choice: str | None = None,
+        enable_caching: bool = True,
+    ) -> dict[str, Any]:
         """Send chat request to OpenAI API with retry mechanism and caching support.
 
         For MLX models (local server), tools are converted to text-based format
@@ -459,21 +460,21 @@ To extract data from a webpage:
                     await asyncio.sleep(delay)
 
                 # GPT-5 nano/mini and o1/o3 models have different parameter requirements
-                is_new_model = self._model_name.startswith(('gpt-5', 'o1', 'o3'))
+                is_new_model = self._model_name.startswith(("gpt-5", "o1", "o3"))
 
                 # Build parameters based on model type
                 params = {
-                    'model': self._model_name,
-                    'messages': messages,
+                    "model": self._model_name,
+                    "messages": messages,
                 }
 
                 if is_new_model:
                     # GPT-5+ models use max_completion_tokens and don't support custom temperature
-                    params['max_completion_tokens'] = self._max_tokens
+                    params["max_completion_tokens"] = self._max_tokens
                 else:
                     # Older models use max_tokens and support temperature
-                    params['max_tokens'] = self._max_tokens
-                    params['temperature'] = self._temperature
+                    params["max_tokens"] = self._max_tokens
+                    params["temperature"] = self._temperature
 
                 if tools:
                     # OpenAI API mode with native tool support
@@ -486,11 +487,13 @@ To extract data from a webpage:
                         tools=tools,
                         response_format=use_response_format,
                         tool_choice=tool_choice,
-                        parallel_tool_calls=False,
+                        parallel_tool_calls=self._supports_parallel_tool_calls(),
                     )
                 else:
                     # MLX mode or no tools
-                    logger.debug(f"Sending request without native tools, model: {self._model_name}, MLX mode: {self._is_mlx_mode}, attempt: {attempt + 1}")
+                    logger.debug(
+                        f"Sending request without native tools, model: {self._model_name}, MLX mode: {self._is_mlx_mode}, attempt: {attempt + 1}"
+                    )
                     response = await self.client.chat.completions.create(
                         **params,
                         response_format=response_format if not self._is_mlx_mode else None,
@@ -534,21 +537,26 @@ To extract data from a webpage:
                     continue
 
                 # Check for token limit errors and raise specific exception
-                if any(term in error_msg for term in [
-                    'context_length_exceeded',
-                    'maximum context length',
-                    'too many tokens',
-                    'max_tokens',
-                    'context window'
-                ]):
+                if any(
+                    term in error_msg
+                    for term in [
+                        "context_length_exceeded",
+                        "maximum context length",
+                        "too many tokens",
+                        "max_tokens",
+                        "context window",
+                    ]
+                ):
                     logger.warning(f"Token limit exceeded: {e}")
-                    raise TokenLimitExceeded(str(e))
+                    raise TokenLimitExceededError(str(e)) from e
 
                 error_log = f"Error calling API on attempt {attempt + 1}: {e!s}"
                 logger.error(error_log)
                 if attempt == max_retries:
                     raise e
                 continue
+        # This should never be reached - all paths should either return or raise
+        raise ValueError(f"LLM request failed after {max_retries + 1} attempts with no response")
 
     def get_cache_metrics(self) -> dict[str, Any]:
         """Get prompt caching performance metrics"""
@@ -562,7 +570,7 @@ To extract data from a webpage:
         response_model: type[T],
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | None = None,
-        enable_caching: bool = True
+        enable_caching: bool = True,
     ) -> T:
         """Send chat request with structured output validation.
 
@@ -602,36 +610,46 @@ To extract data from a webpage:
                     logger.info(f"Retrying structured request (attempt {attempt + 1}/{max_retries + 1})")
                     await asyncio.sleep(delay)
 
-                is_new_model = self._model_name.startswith(('gpt-5', 'o1', 'o3'))
+                is_new_model = self._model_name.startswith(("gpt-5", "o1", "o3"))
                 params = {
-                    'model': self._model_name,
-                    'messages': messages,
+                    "model": self._model_name,
+                    "messages": messages,
                 }
 
                 if is_new_model:
-                    params['max_completion_tokens'] = self._max_tokens
+                    params["max_completion_tokens"] = self._max_tokens
                 else:
-                    params['max_tokens'] = self._max_tokens
-                    params['temperature'] = self._temperature
+                    params["max_tokens"] = self._max_tokens
+                    params["temperature"] = self._temperature
 
                 if supports_strict_schema:
                     # Use native structured output with strict schema
-                    params['response_format'] = {
+                    params["response_format"] = {
                         "type": "json_schema",
-                        "json_schema": {
-                            "name": response_model.__name__,
-                            "strict": True,
-                            "schema": schema
-                        }
+                        "json_schema": {"name": response_model.__name__, "strict": True, "schema": schema},
                     }
+                elif self._supports_json_object_format():
+                    # Use json_object if provider supports it
+                    params["response_format"] = {"type": "json_object"}
+                    logger.debug("Using json_object response format")
                 else:
-                    # Fall back to json_object mode
-                    params['response_format'] = {"type": "json_object"}
+                    # Provider doesn't support json_object - use prompt-based JSON
+                    logger.info(f"Provider doesn't support json_object format, using prompt-based JSON for {self._model_name}")
+                    json_instruction = (
+                        "\n\nCRITICAL: You must respond with valid JSON matching this schema:\n"
+                        f"{json.dumps(schema, indent=2)}\n\n"
+                        "Respond with ONLY the JSON object, no other text or explanation."
+                    )
+                    # Add instruction to system message or create one
+                    if params["messages"] and params["messages"][0]["role"] == "system":
+                        params["messages"][0]["content"] += json_instruction
+                    else:
+                        params["messages"].insert(0, {"role": "system", "content": json_instruction})
 
                 if tools:
-                    params['tools'] = tools
-                    params['tool_choice'] = tool_choice
-                    params['parallel_tool_calls'] = False
+                    params["tools"] = tools
+                    params["tool_choice"] = tool_choice
+                    params["parallel_tool_calls"] = False
 
                 response = await self.client.chat.completions.create(**params)
 
@@ -653,14 +671,20 @@ To extract data from a webpage:
             except json.JSONDecodeError as e:
                 logger.warning(f"JSON decode error on attempt {attempt + 1}: {e}")
                 if attempt == max_retries:
-                    raise ValueError(f"Failed to parse JSON response: {e}")
+                    raise ValueError(f"Failed to parse JSON response: {e}") from e
             except Exception as e:
                 error_msg = str(e).lower()
-                if any(term in error_msg for term in [
-                    'context_length_exceeded', 'maximum context length',
-                    'too many tokens', 'max_tokens', 'context window'
-                ]):
-                    raise TokenLimitExceeded(str(e))
+                if any(
+                    term in error_msg
+                    for term in [
+                        "context_length_exceeded",
+                        "maximum context length",
+                        "too many tokens",
+                        "max_tokens",
+                        "context window",
+                    ]
+                ):
+                    raise TokenLimitExceededError(str(e)) from e
                 if attempt == max_retries:
                     raise
                 logger.warning(f"Structured request failed on attempt {attempt + 1}: {e}")
@@ -674,8 +698,11 @@ To extract data from a webpage:
         if self._is_mlx_mode:
             return False
         supported_prefixes = (
-            'gpt-4o', 'gpt-4-turbo', 'gpt-5',
-            'o1', 'o3'  # Reasoning models
+            "gpt-4o",
+            "gpt-4-turbo",
+            "gpt-5",
+            "o1",
+            "o3",  # Reasoning models
         )
         return self._model_name.startswith(supported_prefixes)
 
@@ -696,13 +723,58 @@ To extract data from a webpage:
         base = self._api_base.lower()
         return "api.openai.com" in base or "openai.azure.com" in base
 
+    def _supports_parallel_tool_calls(self) -> bool:
+        """Check if the provider supports parallel tool calls."""
+        if not self._api_base:
+            return False
+        base = self._api_base.lower()
+        return "api.openai.com" in base or "openai.azure.com" in base
+
+    def _supports_json_object_format(self) -> bool:
+        """Check if provider supports json_object response format.
+
+        Many OpenAI-compatible providers don't support json_object format:
+        - DeepInfra with NVIDIA models
+        - Most models on OpenRouter (except OpenAI/Anthropic/Google)
+        - Local inference servers
+
+        Returns:
+            True if json_object format is supported, False otherwise
+        """
+        if not self._api_base:
+            return True  # Default OpenAI supports it
+
+        base = self._api_base.lower()
+
+        # Official OpenAI API supports json_object
+        if "api.openai.com" in base or "openai.azure.com" in base:
+            return True
+
+        # DeepInfra has limited json_object support
+        # NVIDIA models on DeepInfra don't support it
+        if "deepinfra" in base:
+            if "nvidia" in self._model_name.lower() or "nemotron" in self._model_name.lower():
+                logger.debug(f"DeepInfra NVIDIA model {self._model_name} doesn't support json_object format")
+                return False
+
+        # Many OpenRouter providers don't support json_object
+        if "openrouter" in base:
+            # Only specific model families support it
+            supported_prefixes = ("openai/", "anthropic/", "google/")
+            if not self._model_name.startswith(supported_prefixes):
+                logger.debug(f"OpenRouter model {self._model_name} doesn't support json_object format")
+                return False
+
+        # Conservative default for unknown providers
+        return False
+
     async def ask_stream(
         self,
         messages: list[dict[str, str]],
         tools: list[dict[str, Any]] | None = None,
         response_format: dict[str, Any] | None = None,
         tool_choice: str | None = None,
-        enable_caching: bool = True
+        enable_caching: bool = True,
     ) -> AsyncGenerator[str, None]:
         """Stream chat response from OpenAI API.
 
@@ -733,28 +805,28 @@ To extract data from a webpage:
         if enable_caching and self._cache_manager:
             messages = self._cache_manager.prepare_messages_for_caching(messages)
 
-        is_new_model = self._model_name.startswith(('gpt-5', 'o1', 'o3'))
+        is_new_model = self._model_name.startswith(("gpt-5", "o1", "o3"))
         params = {
-            'model': self._model_name,
-            'messages': messages,
-            'stream': True,
+            "model": self._model_name,
+            "messages": messages,
+            "stream": True,
         }
         if self._supports_stream_usage:
-            params['stream_options'] = {'include_usage': True}
+            params["stream_options"] = {"include_usage": True}
 
         if is_new_model:
-            params['max_completion_tokens'] = self._max_tokens
+            params["max_completion_tokens"] = self._max_tokens
         else:
-            params['max_tokens'] = self._max_tokens
-            params['temperature'] = self._temperature
+            params["max_tokens"] = self._max_tokens
+            params["temperature"] = self._temperature
 
         if tools:
-            params['tools'] = tools
-            params['tool_choice'] = tool_choice
-            params['parallel_tool_calls'] = False
+            params["tools"] = tools
+            params["tool_choice"] = tool_choice
+            params["parallel_tool_calls"] = False
 
         if response_format and not tools:
-            params['response_format'] = response_format
+            params["response_format"] = response_format
 
         completion_parts: list[str] = []
         usage_counts: dict[str, int] | None = None
@@ -765,10 +837,10 @@ To extract data from a webpage:
             async for chunk in stream:
                 if getattr(chunk, "usage", None):
                     usage = chunk.usage
-                    prompt_tokens = getattr(usage, 'prompt_tokens', 0)
-                    completion_tokens = getattr(usage, 'completion_tokens', 0)
-                    prompt_details = getattr(usage, 'prompt_tokens_details', None)
-                    cached_tokens = getattr(prompt_details, 'cached_tokens', 0) if prompt_details else 0
+                    prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+                    completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+                    prompt_details = getattr(usage, "prompt_tokens_details", None)
+                    cached_tokens = (getattr(prompt_details, "cached_tokens", 0) or 0) if prompt_details else 0
                     usage_counts = {
                         "prompt_tokens": prompt_tokens,
                         "completion_tokens": completion_tokens,
@@ -794,9 +866,15 @@ To extract data from a webpage:
 
         except Exception as e:
             error_msg = str(e).lower()
-            if any(term in error_msg for term in [
-                'context_length_exceeded', 'maximum context length',
-                'too many tokens', 'max_tokens', 'context window'
-            ]):
-                raise TokenLimitExceeded(str(e))
+            if any(
+                term in error_msg
+                for term in [
+                    "context_length_exceeded",
+                    "maximum context length",
+                    "too many tokens",
+                    "max_tokens",
+                    "context window",
+                ]
+            ):
+                raise TokenLimitExceededError(str(e)) from e
             raise

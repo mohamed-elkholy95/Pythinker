@@ -17,18 +17,19 @@ from app.domain.models.tool_result import ToolResult
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 @dataclass
 class ToolExecutionMetrics:
     """Metrics for a single tool's executions."""
+
     tool_name: str
     call_count: int = 0
     success_count: int = 0
     failure_count: int = 0
     total_duration_ms: float = 0.0
-    min_duration_ms: float = float('inf')
+    min_duration_ms: float = float("inf")
     max_duration_ms: float = 0.0
     last_used: datetime | None = None
     last_error: str | None = None
@@ -56,12 +57,7 @@ class ToolExecutionMetrics:
             return 0.0
         return (self.failure_count / self.call_count) * 100
 
-    def record_execution(
-        self,
-        duration_ms: float,
-        success: bool,
-        error: str | None = None
-    ) -> None:
+    def record_execution(self, duration_ms: float, success: bool, error: str | None = None) -> None:
         """Record a single execution.
 
         Args:
@@ -94,17 +90,18 @@ class ToolExecutionMetrics:
             "success_rate": round(self.success_rate, 2),
             "failure_rate": round(self.failure_rate, 2),
             "avg_duration_ms": round(self.avg_duration_ms, 2),
-            "min_duration_ms": round(self.min_duration_ms, 2) if self.min_duration_ms != float('inf') else None,
+            "min_duration_ms": round(self.min_duration_ms, 2) if self.min_duration_ms != float("inf") else None,
             "max_duration_ms": round(self.max_duration_ms, 2),
             "last_used": self.last_used.isoformat() if self.last_used else None,
             "last_error": self.last_error,
-            "consecutive_failures": self.consecutive_failures
+            "consecutive_failures": self.consecutive_failures,
         }
 
 
 @dataclass
 class ExecutionRecord:
     """Record of a single tool execution for history tracking."""
+
     tool_name: str
     timestamp: datetime
     duration_ms: float
@@ -133,12 +130,7 @@ class ToolExecutionProfiler:
             ...
     """
 
-    def __init__(
-        self,
-        history_limit: int = 100,
-        slow_threshold_ms: float = 5000.0,
-        unreliable_threshold: float = 0.2
-    ):
+    def __init__(self, history_limit: int = 100, slow_threshold_ms: float = 5000.0, unreliable_threshold: float = 0.2):
         """Initialize the profiler.
 
         Args:
@@ -152,12 +144,7 @@ class ToolExecutionProfiler:
         self._slow_threshold_ms = slow_threshold_ms
         self._unreliable_threshold = unreliable_threshold
 
-    async def profile_execution(
-        self,
-        tool,
-        function_name: str | None = None,
-        **kwargs
-    ) -> ToolResult:
+    async def profile_execution(self, tool, function_name: str | None = None, **kwargs) -> ToolResult:
         """Execute and profile a tool call.
 
         Args:
@@ -168,7 +155,7 @@ class ToolExecutionProfiler:
         Returns:
             ToolResult from the tool execution
         """
-        tool_name = function_name or getattr(tool, 'name', type(tool).__name__)
+        tool_name = function_name or getattr(tool, "name", type(tool).__name__)
 
         # Ensure metrics exist for this tool
         if tool_name not in self._metrics:
@@ -179,18 +166,18 @@ class ToolExecutionProfiler:
         error_msg = None
 
         try:
-            if function_name and hasattr(tool, 'invoke_function'):
+            if function_name and hasattr(tool, "invoke_function"):
                 result = await tool.invoke_function(function_name, **kwargs)
-            elif hasattr(tool, 'execute'):
+            elif hasattr(tool, "execute"):
                 result = await tool.execute(**kwargs)
             else:
                 raise ValueError(f"Tool {tool_name} has no execute or invoke_function method")
 
             duration_ms = (time.perf_counter() - start_time) * 1000
-            success = result.success if hasattr(result, 'success') else True
+            success = result.success if hasattr(result, "success") else True
 
             if not success:
-                error_msg = str(result.message)[:200] if hasattr(result, 'message') else "Unknown error"
+                error_msg = str(result.message)[:200] if hasattr(result, "message") else "Unknown error"
 
             metrics.record_execution(duration_ms, success, error_msg)
             self._record_history(tool_name, duration_ms, success, error_msg, kwargs)
@@ -214,13 +201,7 @@ class ToolExecutionProfiler:
             logger.error(f"Tool execution failed: {tool_name} - {error_msg}")
             raise
 
-    def record_execution(
-        self,
-        tool_name: str,
-        duration_ms: float,
-        success: bool,
-        error: str | None = None
-    ) -> None:
+    def record_execution(self, tool_name: str, duration_ms: float, success: bool, error: str | None = None) -> None:
         """Record a tool execution directly without wrapping the call.
 
         Use this when you need to record execution metrics but the call
@@ -248,12 +229,7 @@ class ToolExecutionProfiler:
             )
 
     def _record_history(
-        self,
-        tool_name: str,
-        duration_ms: float,
-        success: bool,
-        error: str | None,
-        kwargs: dict[str, Any]
+        self, tool_name: str, duration_ms: float, success: bool, error: str | None, kwargs: dict[str, Any]
     ) -> None:
         """Record execution in history."""
         # Create brief summary of args
@@ -271,14 +247,14 @@ class ToolExecutionProfiler:
             duration_ms=duration_ms,
             success=success,
             error=error,
-            args_summary=args_summary
+            args_summary=args_summary,
         )
 
         self._history.append(record)
 
         # Trim history if needed
         if len(self._history) > self._history_limit:
-            self._history = self._history[-self._history_limit:]
+            self._history = self._history[-self._history_limit :]
 
     def profile(self, func: Callable) -> Callable:
         """Decorator for profiling async tool functions.
@@ -288,6 +264,7 @@ class ToolExecutionProfiler:
             async def my_tool_function(arg1, arg2):
                 ...
         """
+
         @wraps(func)
         async def wrapper(*args, **kwargs):
             tool_name = func.__name__
@@ -302,9 +279,9 @@ class ToolExecutionProfiler:
                 result = await func(*args, **kwargs)
                 duration_ms = (time.perf_counter() - start_time) * 1000
 
-                success = result.success if hasattr(result, 'success') else True
+                success = result.success if hasattr(result, "success") else True
                 error = None
-                if not success and hasattr(result, 'message'):
+                if not success and hasattr(result, "message"):
                     error = str(result.message)[:200]
 
                 metrics.record_execution(duration_ms, success, error)
@@ -335,8 +312,7 @@ class ToolExecutionProfiler:
             List of metrics for slow tools, sorted by avg duration
         """
         slow_tools = [
-            m for m in self._metrics.values()
-            if m.avg_duration_ms > self._slow_threshold_ms and m.call_count > 0
+            m for m in self._metrics.values() if m.avg_duration_ms > self._slow_threshold_ms and m.call_count > 0
         ]
         return sorted(slow_tools, key=lambda m: m.avg_duration_ms, reverse=True)
 
@@ -347,7 +323,8 @@ class ToolExecutionProfiler:
             List of metrics for unreliable tools, sorted by failure rate
         """
         unreliable = [
-            m for m in self._metrics.values()
+            m
+            for m in self._metrics.values()
             if m.call_count > 0 and m.failure_rate > (self._unreliable_threshold * 100)
         ]
         return sorted(unreliable, key=lambda m: m.failure_rate, reverse=True)
@@ -361,10 +338,7 @@ class ToolExecutionProfiler:
         Returns:
             List of metrics for tools with consecutive failures
         """
-        return [
-            m for m in self._metrics.values()
-            if m.consecutive_failures >= min_failures
-        ]
+        return [m for m in self._metrics.values() if m.consecutive_failures >= min_failures]
 
     def get_recent_history(self, limit: int = 20, tool_name: str | None = None) -> list[ExecutionRecord]:
         """Get recent execution history.
@@ -395,7 +369,7 @@ class ToolExecutionProfiler:
                 "slowest_tool": None,
                 "most_used_tool": None,
                 "most_unreliable_tool": None,
-                "tools": {}
+                "tools": {},
             }
 
         total_calls = sum(m.call_count for m in self._metrics.values())
@@ -414,11 +388,15 @@ class ToolExecutionProfiler:
             "slowest_avg_ms": round(slowest.avg_duration_ms, 2) if slowest and slowest.call_count > 0 else None,
             "most_used_tool": most_used.tool_name if most_used else None,
             "most_used_count": most_used.call_count if most_used else 0,
-            "most_unreliable_tool": most_unreliable.tool_name if most_unreliable and most_unreliable.failure_rate > 0 else None,
-            "most_unreliable_rate": round(most_unreliable.failure_rate, 2) if most_unreliable and most_unreliable.failure_rate > 0 else None,
+            "most_unreliable_tool": most_unreliable.tool_name
+            if most_unreliable and most_unreliable.failure_rate > 0
+            else None,
+            "most_unreliable_rate": round(most_unreliable.failure_rate, 2)
+            if most_unreliable and most_unreliable.failure_rate > 0
+            else None,
             "slow_tools_count": len(self.get_slow_tools()),
             "unreliable_tools_count": len(self.get_unreliable_tools()),
-            "tools": {name: m.to_dict() for name, m in self._metrics.items()}
+            "tools": {name: m.to_dict() for name, m in self._metrics.items()},
         }
 
     def reset(self, tool_name: str | None = None) -> None:
@@ -435,11 +413,7 @@ class ToolExecutionProfiler:
             self._metrics.clear()
             self._history.clear()
 
-    def set_thresholds(
-        self,
-        slow_threshold_ms: float | None = None,
-        unreliable_threshold: float | None = None
-    ) -> None:
+    def set_thresholds(self, slow_threshold_ms: float | None = None, unreliable_threshold: float | None = None) -> None:
         """Update profiler thresholds.
 
         Args:

@@ -20,6 +20,7 @@ from urllib.parse import urlparse
 try:
     from browser_use import Agent, BrowserSession
     from browser_use.agent.views import ActionResult, AgentHistory
+
     BROWSER_USE_AVAILABLE = True
 except ImportError:
     BROWSER_USE_AVAILABLE = False
@@ -34,32 +35,68 @@ logger = logging.getLogger(__name__)
 
 # Video domains to skip - these waste time and resources
 VIDEO_DOMAINS: set[str] = {
-    "youtube.com", "www.youtube.com", "youtu.be", "m.youtube.com",
-    "vimeo.com", "www.vimeo.com", "player.vimeo.com",
-    "dailymotion.com", "www.dailymotion.com",
-    "twitch.tv", "www.twitch.tv", "clips.twitch.tv",
-    "tiktok.com", "www.tiktok.com", "vm.tiktok.com",
-    "netflix.com", "www.netflix.com",
-    "hulu.com", "www.hulu.com",
-    "disneyplus.com", "www.disneyplus.com",
-    "primevideo.com", "www.primevideo.com",
-    "hbomax.com", "www.hbomax.com", "max.com",
-    "peacocktv.com", "www.peacocktv.com",
-    "crunchyroll.com", "www.crunchyroll.com",
-    "funimation.com", "www.funimation.com",
-    "pornhub.com", "www.pornhub.com",
-    "xvideos.com", "www.xvideos.com",
-    "rumble.com", "www.rumble.com",
-    "bitchute.com", "www.bitchute.com",
-    "odysee.com", "www.odysee.com",
-    "bilibili.com", "www.bilibili.com",
-    "nicovideo.jp", "www.nicovideo.jp",
+    "youtube.com",
+    "www.youtube.com",
+    "youtu.be",
+    "m.youtube.com",
+    "vimeo.com",
+    "www.vimeo.com",
+    "player.vimeo.com",
+    "dailymotion.com",
+    "www.dailymotion.com",
+    "twitch.tv",
+    "www.twitch.tv",
+    "clips.twitch.tv",
+    "tiktok.com",
+    "www.tiktok.com",
+    "vm.tiktok.com",
+    "netflix.com",
+    "www.netflix.com",
+    "hulu.com",
+    "www.hulu.com",
+    "disneyplus.com",
+    "www.disneyplus.com",
+    "primevideo.com",
+    "www.primevideo.com",
+    "hbomax.com",
+    "www.hbomax.com",
+    "max.com",
+    "peacocktv.com",
+    "www.peacocktv.com",
+    "crunchyroll.com",
+    "www.crunchyroll.com",
+    "funimation.com",
+    "www.funimation.com",
+    "pornhub.com",
+    "www.pornhub.com",
+    "xvideos.com",
+    "www.xvideos.com",
+    "rumble.com",
+    "www.rumble.com",
+    "bitchute.com",
+    "www.bitchute.com",
+    "odysee.com",
+    "www.odysee.com",
+    "bilibili.com",
+    "www.bilibili.com",
+    "nicovideo.jp",
+    "www.nicovideo.jp",
 }
 
 # Video file extensions to skip
 VIDEO_EXTENSIONS: set[str] = {
-    ".mp4", ".webm", ".avi", ".mov", ".mkv", ".flv",
-    ".wmv", ".m4v", ".mpg", ".mpeg", ".3gp", ".ogv",
+    ".mp4",
+    ".webm",
+    ".avi",
+    ".mov",
+    ".mkv",
+    ".flv",
+    ".wmv",
+    ".m4v",
+    ".mpg",
+    ".mpeg",
+    ".3gp",
+    ".ogv",
 }
 
 # URL patterns that indicate video content
@@ -156,10 +193,7 @@ class BrowserUseService:
             auto_dismiss_dialogs: Whether to auto-dismiss popups/dialogs (default: True)
         """
         if not BROWSER_USE_AVAILABLE:
-            raise ImportError(
-                "browser-use library not installed. "
-                "Install with: pip install browser-use>=0.11.0"
-            )
+            raise ImportError("browser-use library not installed. Install with: pip install browser-use>=0.11.0")
 
         self.cdp_url = cdp_url
         self.llm_provider = llm_provider
@@ -178,11 +212,10 @@ class BrowserUseService:
             import aiohttp
 
             # Get all targets from CDP
-            async with aiohttp.ClientSession() as http_session:
-                async with http_session.get(f"{self.cdp_url}/json") as resp:
-                    if resp.status != 200:
-                        return False
-                    targets = await resp.json()
+            async with aiohttp.ClientSession() as http_session, http_session.get(f"{self.cdp_url}/json") as resp:
+                if resp.status != 200:
+                    return False
+                targets = await resp.json()
 
             # Find page targets and force their window position
             for target in targets:
@@ -194,46 +227,38 @@ class BrowserUseService:
                     continue
 
                 try:
-                    async with aiohttp.ClientSession() as ws_session:
-                        async with ws_session.ws_connect(ws_url) as ws:
-                            # Get window ID
-                            await ws.send_json({
-                                "id": 1,
-                                "method": "Browser.getWindowForTarget"
-                            })
+                    async with aiohttp.ClientSession() as ws_session, ws_session.ws_connect(ws_url) as ws:
+                        # Get window ID
+                        await ws.send_json({"id": 1, "method": "Browser.getWindowForTarget"})
 
-                            response = await ws.receive_json()
-                            window_id = response.get("result", {}).get("windowId")
+                        response = await ws.receive_json()
+                        window_id = response.get("result", {}).get("windowId")
 
-                            if window_id:
-                                # Set window to normal state first
-                                await ws.send_json({
+                        if window_id:
+                            # Set window to normal state first
+                            await ws.send_json(
+                                {
                                     "id": 2,
                                     "method": "Browser.setWindowBounds",
-                                    "params": {
-                                        "windowId": window_id,
-                                        "bounds": {"windowState": "normal"}
-                                    }
-                                })
-                                await ws.receive_json()
+                                    "params": {"windowId": window_id, "bounds": {"windowState": "normal"}},
+                                }
+                            )
+                            await ws.receive_json()
 
-                                # Force position to (0,0) and size to match VNC
-                                await ws.send_json({
+                            # Force position to (0,0) and size to match VNC
+                            await ws.send_json(
+                                {
                                     "id": 3,
                                     "method": "Browser.setWindowBounds",
                                     "params": {
                                         "windowId": window_id,
-                                        "bounds": {
-                                            "left": 0,
-                                            "top": 0,
-                                            "width": 1280,
-                                            "height": 1024
-                                        }
-                                    }
-                                })
-                                await ws.receive_json()
+                                        "bounds": {"left": 0, "top": 0, "width": 1280, "height": 1024},
+                                    },
+                                }
+                            )
+                            await ws.receive_json()
 
-                            logger.info(f"Forced window {window_id} to position (0,0)")
+                        logger.info(f"Forced window {window_id} to position (0,0)")
                 except Exception as e:
                     logger.debug(f"Failed to position window for target: {e}")
                     continue
@@ -253,6 +278,7 @@ class BrowserUseService:
             # Import BrowserConfig if available for viewport settings
             try:
                 from browser_use.browser.config import BrowserConfig
+
                 # Configure viewport to match VNC display (1280x1024)
                 # This prevents browser-use from setting 1920x1080 which causes content cutoff
                 browser_config = BrowserConfig(
@@ -356,15 +382,13 @@ EFFICIENCY RULES (CRITICAL - follow strictly):
                     "success": False,
                     "error": "Failed to initialize browser-use session",
                     "actions": [],
-                    "total_steps": 0
+                    "total_steps": 0,
                 }
 
         try:
             # Import here to avoid circular dependencies
             from browser_use import ChatOpenAI
             from langchain_core.language_models.chat_models import BaseChatModel
-            from langchain_core.messages import BaseMessage
-            from langchain_core.outputs import ChatResult
 
             # Get settings
             settings = get_settings()
@@ -373,7 +397,9 @@ EFFICIENCY RULES (CRITICAL - follow strictly):
             model_name = llm_model or settings.model_name or "deepseek-chat"
 
             # Check if we need to strip response_format (non-OpenAI providers)
-            is_openai = settings.api_base and ("api.openai.com" in settings.api_base.lower() or "openai.azure.com" in settings.api_base.lower())
+            is_openai = settings.api_base and (
+                "api.openai.com" in settings.api_base.lower() or "openai.azure.com" in settings.api_base.lower()
+            )
 
             # Create LLM provider
             if self.llm_provider:
@@ -394,29 +420,29 @@ EFFICIENCY RULES (CRITICAL - follow strictly):
 
                         def __init__(self, wrapped_llm):
                             super().__init__()
-                            object.__setattr__(self, '_wrapped', wrapped_llm)
+                            object.__setattr__(self, "_wrapped", wrapped_llm)
 
                         @property
                         def _llm_type(self) -> str:
                             return self._wrapped._llm_type
 
                         def _generate(self, messages, stop=None, run_manager=None, **kwargs):
-                            kwargs.pop('response_format', None)
+                            kwargs.pop("response_format", None)
                             return self._wrapped._generate(messages, stop, run_manager, **kwargs)
 
                         async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
-                            kwargs.pop('response_format', None)
+                            kwargs.pop("response_format", None)
                             return await self._wrapped._agenerate(messages, stop, run_manager, **kwargs)
 
                         def bind(self, **kwargs):
-                            kwargs.pop('response_format', None)
+                            kwargs.pop("response_format", None)
                             return self._wrapped.bind(**kwargs)
 
                         def __getattr__(self, name):
                             return getattr(self._wrapped, name)
 
                     llm = NoResponseFormatLLM(base_llm)
-                    logger.info(f"Created response_format-stripping wrapper for non-OpenAI provider")
+                    logger.info("Created response_format-stripping wrapper for non-OpenAI provider")
                 else:
                     llm = base_llm
 
@@ -455,7 +481,7 @@ EFFICIENCY RULES (CRITICAL - follow strictly):
                 action_info = {
                     "step": i + 1,
                     "action": action_str,
-                    "timestamp": getattr(action, 'timestamp', None),
+                    "timestamp": getattr(action, "timestamp", None),
                 }
                 actions_taken.append(action_info)
 
@@ -473,7 +499,7 @@ EFFICIENCY RULES (CRITICAL - follow strictly):
 
             # Get URLs visited and filter out video URLs for reporting
             urls_visited = []
-            if hasattr(history, 'urls'):
+            if hasattr(history, "urls"):
                 all_urls = history.urls() if callable(history.urls) else history.urls
                 if all_urls:
                     for url in all_urls:
@@ -485,7 +511,7 @@ EFFICIENCY RULES (CRITICAL - follow strictly):
             return {
                 "success": True,
                 "actions": actions_taken,
-                "final_result": history.final_result() if hasattr(history, 'final_result') else str(history),
+                "final_result": history.final_result() if hasattr(history, "final_result") else str(history),
                 "total_steps": len(actions_taken),
                 "model_used": model_name,
                 "urls_visited": urls_visited[:10],
@@ -529,10 +555,7 @@ EFFICIENCY RULES (CRITICAL - follow strictly):
             Dictionary with current URL, page title, and session status
         """
         if not self._initialized or not self.session:
-            return {
-                "initialized": False,
-                "error": "Browser session not initialized"
-            }
+            return {"initialized": False, "error": "Browser session not initialized"}
 
         try:
             # Get browser state from session if available
@@ -543,7 +566,7 @@ EFFICIENCY RULES (CRITICAL - follow strictly):
             }
 
             # Try to get current page info
-            if hasattr(self.session, 'browser') and self.session.browser:
+            if hasattr(self.session, "browser") and self.session.browser:
                 contexts = self.session.browser.contexts
                 if contexts:
                     pages = contexts[0].pages
@@ -556,10 +579,7 @@ EFFICIENCY RULES (CRITICAL - follow strictly):
             return state
 
         except Exception as e:
-            return {
-                "initialized": True,
-                "error": f"Error getting state: {e!s}"
-            }
+            return {"initialized": True, "error": f"Error getting state: {e!s}"}
 
 
 def is_browser_use_available() -> bool:

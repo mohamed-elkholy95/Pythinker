@@ -1,4 +1,3 @@
-
 from app.domain.models.event import KnowledgeEvent
 
 

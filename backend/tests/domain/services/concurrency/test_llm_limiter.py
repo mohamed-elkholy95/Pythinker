@@ -119,10 +119,7 @@ class TestLLMConcurrencyLimiter:
                 await asyncio.sleep(hold_time)
 
         # Start 5 requests with only 3 concurrent allowed
-        tasks = [
-            asyncio.create_task(acquire_and_track(i, 0.1))
-            for i in range(5)
-        ]
+        tasks = [asyncio.create_task(acquire_and_track(i, 0.1)) for i in range(5)]
 
         # Let some tasks acquire
         await asyncio.sleep(0.05)
@@ -187,6 +184,7 @@ class TestLLMConcurrencyLimiter:
     @pytest.mark.asyncio
     async def test_cancellation_handling(self, limiter):
         """Test proper handling of cancelled requests."""
+
         async def cancellable_acquire():
             async with limiter.acquire():
                 await asyncio.sleep(10)  # Long wait

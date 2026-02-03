@@ -1,4 +1,5 @@
 """Usage tracking domain models for token consumption and cost tracking."""
+
 import uuid
 from datetime import UTC, date, datetime
 from enum import Enum
@@ -8,6 +9,7 @@ from pydantic import BaseModel, Field
 
 class UsageType(str, Enum):
     """Type of usage record"""
+
     LLM_CALL = "llm_call"
     TOOL_CALL = "tool_call"
     EMBEDDING = "embedding"
@@ -18,6 +20,7 @@ class UsageRecord(BaseModel):
 
     Tracks token consumption and cost for a single LLM API call.
     """
+
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:16])
     user_id: str
     session_id: str
@@ -46,6 +49,7 @@ class SessionUsage(BaseModel):
 
     Contains totals for all LLM calls within a session.
     """
+
     session_id: str
     user_id: str
 
@@ -77,6 +81,7 @@ class SessionMetrics(BaseModel):
 
     Aggregates performance and activity metrics beyond just token usage.
     """
+
     session_id: str
     user_id: str
 
@@ -122,6 +127,7 @@ class DailyUsageAggregate(BaseModel):
 
     Aggregates all usage for a user on a specific day.
     """
+
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:16])
     user_id: str
     date: date  # The date this aggregate covers
@@ -155,6 +161,7 @@ class DailyUsageAggregate(BaseModel):
 
 class MonthlyUsageSummary(BaseModel):
     """Monthly usage summary for billing/quota purposes."""
+
     user_id: str
     year: int
     month: int  # 1-12

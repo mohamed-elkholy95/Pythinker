@@ -13,6 +13,13 @@ vi.mock('vue-i18n', () => ({
   useI18n: () => ({
     t: (key: string) => key,
   }),
+  createI18n: () => ({
+    global: {
+      t: (key: string) => key,
+      locale: { value: 'en' },
+    },
+    install: vi.fn(),
+  }),
 }))
 
 // Mock child components
@@ -43,6 +50,38 @@ vi.mock('lucide-vue-next', () => ({
     name: 'Paperclip',
     template: '<span class="mock-paperclip" />',
   },
+}))
+
+// Mock useSkills composable
+vi.mock('@/composables/useSkills', () => ({
+  useSkills: () => ({
+    selectedSkills: { value: [] },
+    deselectSkill: vi.fn(),
+    clearSelectedSkills: vi.fn(),
+    getSelectedSkillIds: () => [],
+  }),
+}))
+
+// Mock SkillPill component
+vi.mock('@/components/SkillPill.vue', () => ({
+  default: {
+    name: 'SkillPill',
+    template: '<span class="mock-skill-pill"><slot /></span>',
+    props: ['skill'],
+  },
+}))
+
+// Mock SkillsPopover component
+vi.mock('@/components/SkillsPopover.vue', () => ({
+  default: {
+    name: 'SkillsPopover',
+    template: '<span class="mock-skills-popover"><slot /></span>',
+  },
+}))
+
+// Mock skills API
+vi.mock('@/api/skills', () => ({
+  MAX_ENABLED_SKILLS: 5,
 }))
 
 describe('ChatBox', () => {

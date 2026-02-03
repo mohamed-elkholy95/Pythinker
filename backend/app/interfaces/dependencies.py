@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 # Security scheme - Bearer Token only
 security_bearer = HTTPBearer(auto_error=False)
 
+
 def _get_llm_instance():
     """Get LLM instance using factory pattern.
 
@@ -102,6 +103,16 @@ def get_agent_service() -> AgentService:
     mcp_repository = FileMCPRepository()
     memory_service = get_memory_service()  # Phase 6: Qdrant integration
 
+    # Get MongoDB database for LangGraph checkpointing
+    settings = get_settings()
+    mongodb_db = None
+    if settings.feature_workflow_checkpointing:
+        try:
+            mongodb_db = get_mongodb().client[settings.mongodb_database]
+            logger.info("MongoDB database configured for LangGraph checkpointing")
+        except Exception as e:
+            logger.warning(f"Failed to get MongoDB for checkpointing: {e}")
+
     # Create AgentService instance
     return AgentService(
         llm=llm,
@@ -114,6 +125,7 @@ def get_agent_service() -> AgentService:
         search_engine=search_engine,
         mcp_repository=mcp_repository,
         memory_service=memory_service,
+        mongodb_db=mongodb_db,
     )
 
 
@@ -121,7 +133,7 @@ def get_agent_service() -> AgentService:
 def get_file_service() -> FileService:
     """
     Get file service instance with required dependencies
-    
+
     This function creates and returns a FileService instance with
     the necessary file storage and token service dependencies.
     """
@@ -141,7 +153,7 @@ def get_file_service() -> FileService:
 def get_auth_service() -> AuthService:
     """
     Get authentication service instance with required dependencies
-    
+
     This function creates and returns an AuthService instance with
     the necessary user repository dependency.
     """
@@ -177,12 +189,12 @@ def get_sandbox_cls():
 
 
 async def get_current_user(
-    bearer_credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),
-    auth_service: AuthService = Depends(get_auth_service)
+    bearer_credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),  # noqa: B008
+    auth_service: AuthService = Depends(get_auth_service),  # noqa: B008
 ) -> User:
     """
     Get current authenticated user (required)
-    
+
     This dependency enforces authentication using Bearer Token.
     If authentication fails, it raises an UnauthorizedError.
     """
@@ -191,11 +203,7 @@ async def get_current_user(
     # If auth_provider is 'none', return anonymous user
     if settings.auth_provider == "none":
         return User(
-            id="anonymous",
-            fullname="anonymous",
-            email="anonymous@localhost",
-            role=UserRole.USER,
-            is_active=True
+            id="anonymous", fullname="anonymous", email="anonymous@localhost", role=UserRole.USER, is_active=True
         )
 
     # Check if bearer token is provided
@@ -216,19 +224,19 @@ async def get_current_user(
 
     except Exception as e:
         logger.warning(f"Authentication failed: {e}")
-        raise UnauthorizedError("Authentication failed")
+        raise UnauthorizedError("Authentication failed") from e
 
 
 async def get_optional_current_user(
-    bearer_credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),
-    auth_service: AuthService = Depends(get_auth_service)
+    bearer_credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),  # noqa: B008
+    auth_service: AuthService = Depends(get_auth_service),  # noqa: B008
 ) -> User | None:
     """
     Get current authenticated user (optional)
-    
+
     This dependency allows both authenticated and anonymous access.
     Returns None if authentication fails or is not provided.
-    
+
     Uses Bearer Token authentication.
     """
     settings = get_settings()
@@ -236,11 +244,7 @@ async def get_optional_current_user(
     # If auth_provider is 'none', return anonymous user
     if settings.auth_provider == "none":
         return User(
-            id="anonymous",
-            fullname="anonymous",
-            email="anonymous@localhost",
-            role=UserRole.USER,
-            is_active=True
+            id="anonymous", fullname="anonymous", email="anonymous@localhost", role=UserRole.USER, is_active=True
         )
 
     # If no bearer token provided, return None
@@ -259,58 +263,55 @@ async def get_optional_current_user(
 
     return None
 
+
 async def verify_signature(
     request: Request,
     signature: str | None = Query(None),
-    token_service: TokenService = Depends(get_token_service)
+    token_service: TokenService = Depends(get_token_service),  # noqa: B008
 ) -> str:
     return await _verify_signature(request, signature, token_service)
+
 
 async def verify_signature_websocket(
     request: WebSocket,
     signature: str | None = Query(None),
-    token_service: TokenService = Depends(get_token_service)
+    token_service: TokenService = Depends(get_token_service),  # noqa: B008
 ) -> str:
     return await _verify_signature(request, signature, token_service)
+
 
 async def _verify_signature(
     request: Request | WebSocket,
     signature: str | None = Query(None),
-    token_service: TokenService = Depends(get_token_service)
+    token_service: TokenService = Depends(get_token_service),  # noqa: B008
 ) -> str:
     """
     Verify signature for signed URL access
-    
+
     This dependency validates the signature parameter in the request URL.
     If the signature is missing or invalid, it raises an HTTPException.
-    
+
     This is designed to work with both regular HTTP endpoints and WebSocket endpoints.
     For WebSocket connections, the exception will be raised before the connection is accepted,
     preventing invalid connections from being established.
-    
+
     Args:
         request: The incoming request
         signature: The signature query parameter
         token_service: Token service for signature verification
-        
+
     Returns:
         The verified signature string
-        
+
     Raises:
         HTTPException: If signature is missing or invalid (status code 401)
     """
     if not signature:
         logger.error(f"Missing signature: {request.url}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing signature"
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing signature")
 
     if not token_service.verify_signed_url(str(request.url)):
         logger.error(f"Invalid signature: {request.url}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid signature"
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid signature")
 
     return signature

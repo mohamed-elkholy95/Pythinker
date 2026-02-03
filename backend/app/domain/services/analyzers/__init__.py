@@ -5,7 +5,7 @@ from app.domain.services.analyzers.quality_analyzer import QualityAnalyzer
 from app.domain.services.analyzers.security_analyzer import SecurityAnalyzer
 
 __all__ = [
-    'DependencyAnalyzer',
-    'QualityAnalyzer',
-    'SecurityAnalyzer',
+    "DependencyAnalyzer",
+    "QualityAnalyzer",
+    "SecurityAnalyzer",
 ]

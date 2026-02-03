@@ -102,7 +102,7 @@ class RepoMapGenerator:
         else:
             files = list(self._find_files(root))
 
-        for file_path in files[:self._config.max_files]:
+        for file_path in files[: self._config.max_files]:
             try:
                 # Get file extension and language
                 ext = file_path.suffix.lower()
@@ -121,26 +121,24 @@ class RepoMapGenerator:
                 importance = self._calculate_importance(rel_path)
 
                 # Add file entry
-                repo_map.add_entry(RepoMapEntry(
-                    path=rel_path,
-                    entry_type=EntryType.FILE,
-                    name=file_path.name,
-                    line_number=None,
-                    importance=importance * 0.5,  # Files less important than definitions
-                    metadata={"lines": lines, "language": language},
-                ))
+                repo_map.add_entry(
+                    RepoMapEntry(
+                        path=rel_path,
+                        entry_type=EntryType.FILE,
+                        name=file_path.name,
+                        line_number=None,
+                        importance=importance * 0.5,  # Files less important than definitions
+                        metadata={"lines": lines, "language": language},
+                    )
+                )
 
                 # Extract definitions based on language
                 if language == "python" and self._config.extract_functions:
-                    entries = self._extract_python_definitions(
-                        content, rel_path, importance
-                    )
+                    entries = self._extract_python_definitions(content, rel_path, importance)
                     for entry in entries:
                         repo_map.add_entry(entry)
                 elif language in ("typescript", "javascript") and self._config.extract_functions:
-                    entries = self._extract_js_ts_definitions(
-                        content, rel_path, importance
-                    )
+                    entries = self._extract_js_ts_definitions(content, rel_path, importance)
                     for entry in entries:
                         repo_map.add_entry(entry)
 
@@ -187,10 +185,7 @@ class RepoMapGenerator:
 
     def _matches_patterns(self, path: str, patterns: list[str]) -> bool:
         """Check if a path matches any of the given patterns."""
-        for pattern in patterns:
-            if fnmatch.fnmatch(path, pattern):
-                return True
-        return False
+        return any(fnmatch.fnmatch(path, pattern) for pattern in patterns)
 
     def _calculate_importance(self, path: str) -> float:
         """Calculate importance score for a file."""
@@ -225,45 +220,51 @@ class RepoMapGenerator:
             if isinstance(node, ast.ClassDef):
                 # Extract class
                 docstring = ast.get_docstring(node)
-                entries.append(RepoMapEntry(
-                    path=file_path,
-                    entry_type=EntryType.CLASS,
-                    name=node.name,
-                    signature=self._format_class_signature(node),
-                    docstring=self._truncate_docstring(docstring) if docstring else None,
-                    line_number=node.lineno,
-                    importance=base_importance * 1.2,
-                ))
+                entries.append(
+                    RepoMapEntry(
+                        path=file_path,
+                        entry_type=EntryType.CLASS,
+                        name=node.name,
+                        signature=self._format_class_signature(node),
+                        docstring=self._truncate_docstring(docstring) if docstring else None,
+                        line_number=node.lineno,
+                        importance=base_importance * 1.2,
+                    )
+                )
 
                 # Extract methods
                 if self._config.extract_functions:
                     for item in node.body:
                         if isinstance(item, ast.FunctionDef):
                             method_docstring = ast.get_docstring(item)
-                            entries.append(RepoMapEntry(
-                                path=file_path,
-                                entry_type=EntryType.METHOD,
-                                name=item.name,
-                                signature=self._format_function_signature(item),
-                                docstring=self._truncate_docstring(method_docstring) if method_docstring else None,
-                                line_number=item.lineno,
-                                parent=node.name,
-                                importance=base_importance * (1.0 if item.name.startswith("_") else 0.8),
-                            ))
+                            entries.append(
+                                RepoMapEntry(
+                                    path=file_path,
+                                    entry_type=EntryType.METHOD,
+                                    name=item.name,
+                                    signature=self._format_function_signature(item),
+                                    docstring=self._truncate_docstring(method_docstring) if method_docstring else None,
+                                    line_number=item.lineno,
+                                    parent=node.name,
+                                    importance=base_importance * (1.0 if item.name.startswith("_") else 0.8),
+                                )
+                            )
 
-            elif isinstance(node, ast.FunctionDef) and not isinstance(getattr(node, 'parent', None), ast.ClassDef):
+            elif isinstance(node, ast.FunctionDef) and not isinstance(getattr(node, "parent", None), ast.ClassDef):
                 # Top-level function
-                if hasattr(node, 'col_offset') and node.col_offset == 0:
+                if hasattr(node, "col_offset") and node.col_offset == 0:
                     docstring = ast.get_docstring(node)
-                    entries.append(RepoMapEntry(
-                        path=file_path,
-                        entry_type=EntryType.FUNCTION,
-                        name=node.name,
-                        signature=self._format_function_signature(node),
-                        docstring=self._truncate_docstring(docstring) if docstring else None,
-                        line_number=node.lineno,
-                        importance=base_importance * (1.0 if not node.name.startswith("_") else 0.6),
-                    ))
+                    entries.append(
+                        RepoMapEntry(
+                            path=file_path,
+                            entry_type=EntryType.FUNCTION,
+                            name=node.name,
+                            signature=self._format_function_signature(node),
+                            docstring=self._truncate_docstring(docstring) if docstring else None,
+                            line_number=node.lineno,
+                            importance=base_importance * (1.0 if not node.name.startswith("_") else 0.6),
+                        )
+                    )
 
         return entries
 
@@ -290,7 +291,7 @@ class RepoMapGenerator:
         returns = ""
         if node.returns:
             try:
-                returns = f" -> {ast.unparse(node.returns)}" if hasattr(ast, 'unparse') else " -> ..."
+                returns = f" -> {ast.unparse(node.returns)}" if hasattr(ast, "unparse") else " -> ..."
             except Exception:
                 returns = " -> ..."
 
@@ -301,7 +302,7 @@ class RepoMapGenerator:
         bases = []
         for base in node.bases:
             try:
-                bases.append(ast.unparse(base) if hasattr(ast, 'unparse') else "...")
+                bases.append(ast.unparse(base) if hasattr(ast, "unparse") else "...")
             except Exception:
                 bases.append("...")
 
@@ -323,12 +324,12 @@ class RepoMapGenerator:
 
         # Class pattern
         class_pattern = re.compile(
-            r'^(?:export\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?(?:\s+implements\s+[\w,\s]+)?',
-            re.MULTILINE
+            r"^(?:export\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?(?:\s+implements\s+[\w,\s]+)?",
+            re.MULTILINE,
         )
 
         for match in class_pattern.finditer(content):
-            line_number = content[:match.start()].count('\n') + 1
+            line_number = content[: match.start()].count("\n") + 1
             class_name = match.group(1)
             extends = match.group(2)
 
@@ -336,64 +337,63 @@ class RepoMapGenerator:
             if extends:
                 signature += f" extends {extends}"
 
-            entries.append(RepoMapEntry(
-                path=file_path,
-                entry_type=EntryType.CLASS,
-                name=class_name,
-                signature=signature,
-                line_number=line_number,
-                importance=base_importance * 1.2,
-            ))
+            entries.append(
+                RepoMapEntry(
+                    path=file_path,
+                    entry_type=EntryType.CLASS,
+                    name=class_name,
+                    signature=signature,
+                    line_number=line_number,
+                    importance=base_importance * 1.2,
+                )
+            )
 
         # Function patterns
         func_patterns = [
             # function name() or async function name()
-            re.compile(
-                r'^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)',
-                re.MULTILINE
-            ),
+            re.compile(r"^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)", re.MULTILINE),
             # const name = () => or const name = function()
             re.compile(
-                r'^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[^=]+)\s*=>\s*',
-                re.MULTILINE
+                r"^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[^=]+)\s*=>\s*", re.MULTILINE
             ),
         ]
 
         for pattern in func_patterns:
             for match in pattern.finditer(content):
-                line_number = content[:match.start()].count('\n') + 1
+                line_number = content[: match.start()].count("\n") + 1
                 func_name = match.group(1)
 
                 # Skip if inside a class (basic heuristic)
-                preceding = content[:match.start()]
-                if preceding.count('{') > preceding.count('}'):
+                preceding = content[: match.start()]
+                if preceding.count("{") > preceding.count("}"):
                     continue
 
-                entries.append(RepoMapEntry(
-                    path=file_path,
-                    entry_type=EntryType.FUNCTION,
-                    name=func_name,
-                    signature=f"function {func_name}(...)",
-                    line_number=line_number,
-                    importance=base_importance * (1.0 if not func_name.startswith("_") else 0.6),
-                ))
+                entries.append(
+                    RepoMapEntry(
+                        path=file_path,
+                        entry_type=EntryType.FUNCTION,
+                        name=func_name,
+                        signature=f"function {func_name}(...)",
+                        line_number=line_number,
+                        importance=base_importance * (1.0 if not func_name.startswith("_") else 0.6),
+                    )
+                )
 
         # Interface pattern (TypeScript)
-        interface_pattern = re.compile(
-            r'^(?:export\s+)?interface\s+(\w+)',
-            re.MULTILINE
-        )
+        interface_pattern = re.compile(r"^(?:export\s+)?interface\s+(\w+)", re.MULTILINE)
 
         for match in interface_pattern.finditer(content):
-            line_number = content[:match.start()].count('\n') + 1
-            entries.append(RepoMapEntry(
-                path=file_path,
-                entry_type=EntryType.INTERFACE,
-                name=match.group(1),
-                signature=f"interface {match.group(1)}",
-                line_number=line_number,
-                importance=base_importance * 1.1,
-            ))
+            line_number = content[: match.start()].count("\n") + 1
+            entries.append(
+                RepoMapEntry(
+                    path=file_path,
+                    entry_type=EntryType.INTERFACE,
+                    name=match.group(1),
+                    signature=f"interface {match.group(1)}",
+                    line_number=line_number,
+                    importance=base_importance * 1.1,
+                )
+            )
 
         return entries
 
@@ -403,11 +403,11 @@ class RepoMapGenerator:
             return ""
 
         # Get first line
-        first_line = docstring.split('\n')[0].strip()
+        first_line = docstring.split("\n")[0].strip()
 
         # Truncate if needed
         if len(first_line) > max_length:
-            return first_line[:max_length - 3] + "..."
+            return first_line[: max_length - 3] + "..."
 
         return first_line
 

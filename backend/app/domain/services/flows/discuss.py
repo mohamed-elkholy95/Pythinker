@@ -3,6 +3,7 @@ Discuss Flow
 Simple Q&A conversation flow with search capabilities.
 No task planning - direct responses with optional mode switching to Agent.
 """
+
 import json
 import logging
 import re
@@ -41,6 +42,7 @@ logger = logging.getLogger(__name__)
 
 class DiscussStatus(str, Enum):
     """Discuss flow status"""
+
     IDLE = "idle"
     RESPONDING = "responding"
     MODE_SWITCHING = "mode_switching"
@@ -67,11 +69,7 @@ class DiscussAgent(BaseAgent):
         json_parser: JsonParser,
     ):
         super().__init__(
-            agent_id=agent_id,
-            agent_repository=agent_repository,
-            llm=llm,
-            json_parser=json_parser,
-            tools=tools
+            agent_id=agent_id, agent_repository=agent_repository, llm=llm, json_parser=json_parser, tools=tools
         )
 
 
@@ -165,7 +163,7 @@ class DiscussFlow(BaseFlow):
         """Remove the suggestions JSON block from the response for display"""
         # Remove JSON block with suggestions
         json_pattern = r'\s*```json\s*\{[^`]*"suggestions"[^`]*\}\s*```\s*'
-        cleaned = re.sub(json_pattern, '', response, flags=re.DOTALL | re.IGNORECASE)
+        cleaned = re.sub(json_pattern, "", response, flags=re.DOTALL | re.IGNORECASE)
         return cleaned.strip()
 
     async def run(self, message: Message) -> AsyncGenerator[BaseEvent, None]:
@@ -185,7 +183,7 @@ class DiscussFlow(BaseFlow):
             prompt = build_discuss_prompt(
                 message=message.message,
                 attachments="\n".join(message.attachments) if message.attachments else "",
-                language="English"  # TODO: Detect or configure language
+                language="English",  # TODO: Detect or configure language
             )
 
             # Execute through the agent
@@ -201,8 +199,7 @@ class DiscussFlow(BaseFlow):
 
                         # Yield mode change event
                         yield ModeChangeEvent(
-                            mode="agent",
-                            reason=f"Task requires Agent mode: {self._mode_switch_task}"
+                            mode="agent", reason=f"Task requires Agent mode: {self._mode_switch_task}"
                         )
 
                         # Break out of the agent loop - mode switch should be handled by caller
@@ -217,11 +214,7 @@ class DiscussFlow(BaseFlow):
                     clean_message = self._clean_response(raw_response)
 
                     # Yield cleaned message
-                    yield MessageEvent(
-                        message=clean_message,
-                        role="assistant",
-                        attachments=event.attachments
-                    )
+                    yield MessageEvent(message=clean_message, role="assistant", attachments=event.attachments)
 
                     # Yield suggestions if found
                     if suggestions:

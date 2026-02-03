@@ -73,7 +73,10 @@ class SkillTriggerMatcher:
                         self._skills_cache[skill.id] = skill
 
             self._initialized = True
-            logger.debug(f"SkillTriggerMatcher initialized with {len(self._compiled_patterns)} skills")
+            logger.info(
+                f"✓ SkillTriggerMatcher initialized with {len(self._compiled_patterns)} AI-invokable skills with triggers "
+                f"(total patterns: {sum(len(p) for p in self._compiled_patterns.values())})"
+            )
 
         except Exception as e:
             logger.warning(f"Failed to initialize SkillTriggerMatcher: {e}")
@@ -235,9 +238,14 @@ class SkillTriggerMatcher:
             registry = await get_skill_registry()
             skill = await registry.get_skill(skill_id)
 
-            if skill and skill.trigger_patterns and skill.invocation_type in (
-                SkillInvocationType.AI,
-                SkillInvocationType.BOTH,
+            if (
+                skill
+                and skill.trigger_patterns
+                and skill.invocation_type
+                in (
+                    SkillInvocationType.AI,
+                    SkillInvocationType.BOTH,
+                )
             ):
                 patterns = []
                 for pattern_str in skill.trigger_patterns:

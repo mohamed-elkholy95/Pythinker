@@ -7,6 +7,7 @@ Endpoints:
     GET /metrics/json - JSON format metrics
     GET /metrics/health - Health check for monitoring
 """
+
 import time
 from typing import Any
 
@@ -162,10 +163,7 @@ async def get_agent_timeseries(minutes: int = 60) -> dict[str, Any]:
     collector = get_metrics_collector()
     minutes = min(minutes, 60)  # Cap at 60 minutes
 
-    return {
-        "period_minutes": minutes,
-        "buckets": collector.get_time_series(minutes)
-    }
+    return {"period_minutes": minutes, "buckets": collector.get_time_series(minutes)}
 
 
 @router.get("/agent/cache")
@@ -186,7 +184,7 @@ async def get_agent_cache_details() -> dict[str, Any]:
             "l1_misses": collector.cache.l1_misses,
             "l2_hits": collector.cache.l2_hits,
             "l2_misses": collector.cache.l2_misses,
-        }
+        },
     }
 
 
@@ -215,10 +213,7 @@ async def reset_agent_metrics() -> dict[str, Any]:
     collector = get_metrics_collector()
     collector.reset()
 
-    return {
-        "status": "reset",
-        "timestamp": time.time()
-    }
+    return {"status": "reset", "timestamp": time.time()}
 
 
 @router.get("/tokens/summary")
@@ -239,11 +234,11 @@ async def get_token_usage_summary() -> dict[str, Any]:
             "total_calls": 0,
             "total_tokens": 0,
             "total_cost_usd": 0.0,
-            "note": "Detailed metrics available in external tracing platform"
+            "note": "Detailed metrics available in external tracing platform",
         }
 
     # Add tracer URL if available
-    trace_url = llm_tracer.get_trace_url("latest") if hasattr(llm_tracer, 'get_trace_url') else None
+    trace_url = llm_tracer.get_trace_url("latest") if hasattr(llm_tracer, "get_trace_url") else None
 
     return {
         "summary": metrics,
@@ -253,10 +248,7 @@ async def get_token_usage_summary() -> dict[str, Any]:
 
 
 @router.get("/tokens/timeline")
-async def get_token_timeline(
-    minutes: int = 60,
-    model: str | None = None
-) -> dict[str, Any]:
+async def get_token_timeline(minutes: int = 60, model: str | None = None) -> dict[str, Any]:
     """Get time-series token usage data.
 
     Args:
@@ -379,3 +371,91 @@ async def _update_dynamic_metrics() -> None:
     # Update active counts
     active_sessions.set({}, tracer_metrics.get("active_traces", 0))
     # Note: active_agents would be updated by the agent service
+
+
+@router.get("/stream")
+async def stream_metrics():
+    """Stream real-time metrics via SSE (Phase 6).
+
+    Returns:
+        Server-Sent Events stream with metrics updates every 2 seconds
+    """
+    import asyncio
+    import json
+
+    from sse_starlette.sse import EventSourceResponse
+
+    async def event_generator():
+        while True:
+            # Collect Prometheus data
+            await _update_dynamic_metrics()
+            prometheus_data = collect_all_metrics()
+
+            # Get agent-level metrics
+            metrics_collector = get_metrics_collector()
+            agent_data = metrics_collector.get_summary()
+
+            payload = {
+                "timestamp": time.time(),
+                "prometheus": prometheus_data.get("metrics", {}),
+                "agent": agent_data,
+            }
+
+            yield {"data": json.dumps(payload)}
+            await asyncio.sleep(2)
+
+    return EventSourceResponse(event_generator())
+
+
+@router.get("/dashboard")
+async def get_dashboard_summary():
+    """Get comprehensive dashboard metrics (Phase 6).
+
+    Returns:
+        Dashboard summary with performance, workflow, tool, and error metrics
+    """
+    from app.application.services.analytics_service import get_analytics_service
+
+    analytics = get_analytics_service()
+    summary = await analytics.get_dashboard_summary()
+
+    return {
+        "data": summary,
+        "status": "success",
+    }
+
+
+@router.get("/workflow-efficiency")
+async def get_workflow_efficiency():
+    """Get workflow efficiency metrics (Phase 6).
+
+    Returns:
+        Workflow efficiency metrics including completion rate and replanning frequency
+    """
+    from app.application.services.analytics_service import get_analytics_service
+
+    analytics = get_analytics_service()
+    metrics = await analytics.get_workflow_efficiency_metrics(days=7)
+
+    return {
+        "data": metrics,
+        "status": "success",
+    }
+
+
+@router.get("/tool-performance")
+async def get_tool_performance():
+    """Get tool performance breakdown (Phase 6).
+
+    Returns:
+        Tool performance metrics including success rates and average durations
+    """
+    from app.application.services.analytics_service import get_analytics_service
+
+    analytics = get_analytics_service()
+    metrics = await analytics.get_tool_performance_breakdown()
+
+    return {
+        "data": metrics,
+        "status": "success",
+    }

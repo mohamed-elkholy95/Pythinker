@@ -313,6 +313,12 @@ export const createSSEConnection = async <T = any>(
   // Track if the initial message has been sent to prevent duplicate submissions on retry
   let messageSent = false;
 
+  // Track if stream completed normally (received 'done' or 'complete' event)
+  let streamCompleted = false;
+
+  // Track the last event_id received for reconnection resume
+  let lastReceivedEventId: string | undefined = (body as { event_id?: string })?.event_id;
+
   // Retry configuration
   let retryCount = 0;
   const maxRetries = 5;
@@ -337,7 +343,16 @@ export const createSSEConnection = async <T = any>(
 
       // Include body on first attempt OR if previous attempt failed before server acknowledged
       // Only skip body on retry after successful connection (e.g., 401 auth refresh, stream disconnect)
-      const requestBody = (!messageSent && body) ? JSON.stringify(body) : undefined;
+      // Always send at least an empty object for POST requests to avoid 422 validation errors
+      // IMPORTANT: On reconnection, include event_id to resume from where we left off (prevents duplicate events)
+      let requestBody: string | undefined;
+      if (!messageSent && body) {
+        // First attempt: send full body with message
+        requestBody = JSON.stringify(body);
+      } else if (method === 'POST') {
+        // Reconnection: send only event_id to resume streaming (no message to prevent duplicate)
+        requestBody = JSON.stringify({ event_id: lastReceivedEventId });
+      }
 
       const ssePromise = fetchEventSource(apiUrl, {
         method,
@@ -356,7 +371,9 @@ export const createSSEConnection = async <T = any>(
               const newToken = getStoredToken();
               if (newToken) {
                 requestHeaders.Authorization = `Bearer ${newToken}`;
-                // Retry connection with new token (without resending the message)
+                // Retry connection with new token
+                // Note: messageSent stays false intentionally - 401 means the server rejected
+                // at auth layer and the message was NOT processed, so we need to resend it
                 setTimeout(() => createConnection().catch(console.error), 1000);
               }
             }
@@ -403,10 +420,22 @@ export const createSSEConnection = async <T = any>(
         },
         onmessage(event: EventSourceMessage) {
           if (event.event && event.event.trim() !== '') {
+            // Track stream completion events to prevent unnecessary reconnection
+            if (event.event === 'done' || event.event === 'complete' || event.event === 'end') {
+              streamCompleted = true;
+            }
+
+            // Parse event data and extract event_id for reconnection resume
+            const parsedData = JSON.parse(event.data) as T;
+            const eventId = (parsedData as { event_id?: string })?.event_id;
+            if (eventId) {
+              lastReceivedEventId = eventId;
+            }
+
             if (onMessage) {
               onMessage({
                 event: event.event,
-                data: JSON.parse(event.data) as T
+                data: parsedData
               });
             }
           }
@@ -414,6 +443,11 @@ export const createSSEConnection = async <T = any>(
         onclose() {
           if (onClose) {
             onClose();
+          }
+
+          // Don't reconnect if stream completed normally (received done/complete/end event)
+          if (streamCompleted) {
+            return;
           }
 
           // Attempt reconnection if not manually aborted

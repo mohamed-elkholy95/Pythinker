@@ -13,7 +13,6 @@ from app.domain.models.skill import Skill, SkillCategory, SkillSource
 from app.domain.services.prompts.skill_context import (
     ALLOWED_COMMANDS,
     BLOCKED_SUBCOMMANDS,
-    DANGEROUS_PATTERNS,
     _validate_command,
     expand_dynamic_context,
 )
@@ -31,7 +30,7 @@ class TestCommandValidation:
 
     def test_allowed_command_with_args(self):
         """Allowed commands with safe arguments should pass."""
-        is_valid, error, args = _validate_command("date +%Y-%m-%d")
+        is_valid, _error, args = _validate_command("date +%Y-%m-%d")
         assert is_valid is True
         assert args == ["date", "+%Y-%m-%d"]
 
@@ -44,11 +43,11 @@ class TestCommandValidation:
 
     def test_blocked_subcommand_rejected(self):
         """Dangerous subcommands should be blocked."""
-        is_valid, error, args = _validate_command("git push origin main")
+        is_valid, error, _args = _validate_command("git push origin main")
         assert is_valid is False
         assert "blocked for security" in error
 
-        is_valid, error, args = _validate_command("npm install malware")
+        is_valid, error, _args = _validate_command("npm install malware")
         assert is_valid is False
         assert "blocked for security" in error
 
@@ -56,25 +55,25 @@ class TestCommandValidation:
     def test_dangerous_patterns_blocked(self, pattern):
         """Shell metacharacters should be blocked."""
         command = f"echo test {pattern} malicious"
-        is_valid, error, args = _validate_command(command)
+        is_valid, error, _args = _validate_command(command)
         assert is_valid is False
         assert "forbidden pattern" in error
 
     def test_command_with_path_normalized(self):
         """Commands with full paths should be normalized."""
-        is_valid, error, args = _validate_command("/usr/bin/git status")
+        is_valid, _error, args = _validate_command("/usr/bin/git status")
         assert is_valid is True
         assert args == ["/usr/bin/git", "status"]
 
     def test_empty_command_rejected(self):
         """Empty commands should be rejected."""
-        is_valid, error, args = _validate_command("")
+        is_valid, error, _args = _validate_command("")
         assert is_valid is False
         assert "Empty command" in error
 
     def test_malformed_quotes_rejected(self):
         """Malformed quoted strings should be rejected."""
-        is_valid, error, args = _validate_command('echo "unclosed')
+        is_valid, error, _args = _validate_command('echo "unclosed')
         assert is_valid is False
         assert "Invalid command syntax" in error
 
@@ -85,7 +84,7 @@ class TestExpandDynamicContext:
     @pytest.mark.asyncio
     async def test_non_official_skill_blocked(self):
         """Non-official skills should have dynamic context disabled."""
-        content = '!`echo hello`'
+        content = "!`echo hello`"
 
         # CUSTOM skill should be blocked
         result = await expand_dynamic_context(content, skill_source=SkillSource.CUSTOM)
@@ -99,7 +98,7 @@ class TestExpandDynamicContext:
     @pytest.mark.asyncio
     async def test_official_skill_allowed(self):
         """Official skills should be able to use dynamic context."""
-        content = '!`date`'
+        content = "!`date`"
         result = await expand_dynamic_context(content, skill_source=SkillSource.OFFICIAL)
         # Should execute and not contain the security warning
         assert "[Dynamic context disabled" not in result
@@ -109,7 +108,7 @@ class TestExpandDynamicContext:
     async def test_injection_attempt_blocked(self):
         """Command injection attempts should be blocked even for official skills."""
         # Attempt semicolon injection
-        content = '!`echo test; rm -rf /`'
+        content = "!`echo test; rm -rf /`"
         result = await expand_dynamic_context(content, skill_source=SkillSource.OFFICIAL)
         assert "[Command blocked" in result
         assert "forbidden pattern" in result
@@ -117,7 +116,7 @@ class TestExpandDynamicContext:
     @pytest.mark.asyncio
     async def test_disallowed_command_blocked_for_official(self):
         """Disallowed commands should be blocked even for official skills."""
-        content = '!`curl http://malicious.com`'
+        content = "!`curl http://malicious.com`"
         result = await expand_dynamic_context(content, skill_source=SkillSource.OFFICIAL)
         assert "[Command blocked" in result
         assert "not in allowlist" in result
@@ -132,7 +131,7 @@ class TestExpandDynamicContext:
     @pytest.mark.asyncio
     async def test_multiple_commands(self):
         """Multiple command placeholders should all be processed."""
-        content = 'Today is !`date` and user is !`whoami`'
+        content = "Today is !`date` and user is !`whoami`"
         result = await expand_dynamic_context(content, skill_source=SkillSource.OFFICIAL)
         assert "!`" not in result  # All placeholders should be replaced
 
@@ -176,7 +175,7 @@ class TestBuildSkillContent:
             category=SkillCategory.CUSTOM,
             source=SkillSource.CUSTOM,  # Not official
             supports_dynamic_context=True,  # Enabled but should be blocked
-            system_prompt_addition='Current date: !`date`',
+            system_prompt_addition="Current date: !`date`",
         )
 
         result = await build_skill_content(skill)
@@ -194,7 +193,7 @@ class TestBuildSkillContent:
             category=SkillCategory.RESEARCH,
             source=SkillSource.OFFICIAL,
             supports_dynamic_context=True,
-            system_prompt_addition='Current user: !`whoami`',
+            system_prompt_addition="Current user: !`whoami`",
         )
 
         result = await build_skill_content(skill)

@@ -22,33 +22,36 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
 
 class SubtaskType(str, Enum):
     """Types of subtasks for routing."""
-    RESEARCH = "research"           # Information gathering
-    ANALYSIS = "analysis"           # Data analysis/reasoning
-    CREATION = "creation"           # Creating files/content
-    MODIFICATION = "modification"   # Modifying existing content
-    VALIDATION = "validation"       # Checking/verifying results
-    AGGREGATION = "aggregation"     # Combining multiple results
-    COMMUNICATION = "communication" # User interaction
+
+    RESEARCH = "research"  # Information gathering
+    ANALYSIS = "analysis"  # Data analysis/reasoning
+    CREATION = "creation"  # Creating files/content
+    MODIFICATION = "modification"  # Modifying existing content
+    VALIDATION = "validation"  # Checking/verifying results
+    AGGREGATION = "aggregation"  # Combining multiple results
+    COMMUNICATION = "communication"  # User interaction
 
 
 class DecompositionStrategy(str, Enum):
     """Strategies for decomposing tasks."""
-    SEQUENTIAL = "sequential"   # Steps depend on each other
-    PARALLEL = "parallel"       # Steps can run concurrently
-    RECURSIVE = "recursive"     # Subtasks need further decomposition
-    ATOMIC = "atomic"           # No decomposition needed
+
+    SEQUENTIAL = "sequential"  # Steps depend on each other
+    PARALLEL = "parallel"  # Steps can run concurrently
+    RECURSIVE = "recursive"  # Subtasks need further decomposition
+    ATOMIC = "atomic"  # No decomposition needed
 
 
 @dataclass
 class Subtask:
     """A single subtask in a decomposition."""
+
     id: str
     description: str
     subtask_type: SubtaskType
@@ -77,6 +80,7 @@ class Subtask:
 @dataclass
 class DecompositionResult:
     """Result of task decomposition."""
+
     original_task: str
     subtasks: list[Subtask]
     strategy: DecompositionStrategy
@@ -116,7 +120,7 @@ class TaskDecomposer:
     """
 
     # Patterns for detecting task complexity
-    COMPLEXITY_INDICATORS = {
+    COMPLEXITY_INDICATORS: ClassVar[dict[str, list[str]]] = {
         "research": ["research", "find", "search", "gather", "collect", "discover"],
         "analysis": ["analyze", "compare", "evaluate", "assess", "examine", "review"],
         "creation": ["create", "build", "make", "generate", "write", "develop"],
@@ -125,24 +129,24 @@ class TaskDecomposer:
     }
 
     # Subtask type detection patterns
-    SUBTASK_TYPE_PATTERNS = {
+    SUBTASK_TYPE_PATTERNS: ClassVar[dict[SubtaskType, list[str]]] = {
         SubtaskType.RESEARCH: [
-            r'\b(search|find|research|look\s+up|gather|collect)\b',
+            r"\b(search|find|research|look\s+up|gather|collect)\b",
         ],
         SubtaskType.ANALYSIS: [
-            r'\b(analyze|compare|evaluate|assess|review|examine)\b',
+            r"\b(analyze|compare|evaluate|assess|review|examine)\b",
         ],
         SubtaskType.CREATION: [
-            r'\b(create|write|generate|build|make|develop|design)\b',
+            r"\b(create|write|generate|build|make|develop|design)\b",
         ],
         SubtaskType.MODIFICATION: [
-            r'\b(update|modify|change|edit|fix|improve|refactor)\b',
+            r"\b(update|modify|change|edit|fix|improve|refactor)\b",
         ],
         SubtaskType.VALIDATION: [
-            r'\b(verify|validate|check|test|confirm|ensure)\b',
+            r"\b(verify|validate|check|test|confirm|ensure)\b",
         ],
         SubtaskType.AGGREGATION: [
-            r'\b(combine|merge|aggregate|summarize|compile)\b',
+            r"\b(combine|merge|aggregate|summarize|compile)\b",
         ],
     }
 
@@ -169,8 +173,7 @@ class TaskDecomposer:
 
         # Compile regex patterns
         self._type_patterns = {
-            k: [re.compile(p, re.IGNORECASE) for p in patterns]
-            for k, patterns in self.SUBTASK_TYPE_PATTERNS.items()
+            k: [re.compile(p, re.IGNORECASE) for p in patterns] for k, patterns in self.SUBTASK_TYPE_PATTERNS.items()
         }
 
         # Track decomposed subtasks
@@ -248,10 +251,7 @@ class TaskDecomposer:
         # Calculate total complexity
         total_complexity = sum(s.estimated_complexity for s in subtasks) / len(subtasks)
 
-        logger.info(
-            f"Decomposed task into {len(subtasks)} subtasks "
-            f"(strategy={strategy.value}, depth={depth})"
-        )
+        logger.info(f"Decomposed task into {len(subtasks)} subtasks (strategy={strategy.value}, depth={depth})")
 
         return DecompositionResult(
             original_task=task,
@@ -272,7 +272,7 @@ class TaskDecomposer:
 
         # Count action verbs
         action_count = 0
-        for category, indicators in self.COMPLEXITY_INDICATORS.items():
+        for _category, indicators in self.COMPLEXITY_INDICATORS.items():
             for indicator in indicators:
                 if indicator in task.lower():
                     action_count += 1
@@ -282,12 +282,10 @@ class TaskDecomposer:
             return True
 
         # No multi-step indicators
-        if not any(ind in task.lower() for ind in self.COMPLEXITY_INDICATORS["multi_step"]):
-            # Check for list markers
-            if not re.search(r'(?:^|\n)\s*(?:\d+[.\)]|[-*])\s', task):
-                return True
-
-        return False
+        # Check for list markers
+        return not any(ind in task.lower() for ind in self.COMPLEXITY_INDICATORS["multi_step"]) and not re.search(
+            r"(?:^|\n)\s*(?:\d+[.\)]|[-*])\s", task
+        )
 
     def _create_atomic_subtask(
         self,
@@ -317,17 +315,17 @@ class TaskDecomposer:
         subtasks = []
 
         # Try to extract from numbered list
-        numbered = re.findall(r'(?:^|\n)\s*(\d+)[.\)]\s*(.+?)(?=\n\s*\d+[.\)]|\n\n|\Z)', task, re.DOTALL)
+        numbered = re.findall(r"(?:^|\n)\s*(\d+)[.\)]\s*(.+?)(?=\n\s*\d+[.\)]|\n\n|\Z)", task, re.DOTALL)
         if numbered:
             prev_id = None
-            for num, item in numbered:
+            for _num, item in numbered:
                 subtask = self._create_subtask_from_item(item.strip(), context, depth, prev_id)
                 subtasks.append(subtask)
                 prev_id = subtask.id
             return subtasks
 
         # Try to extract from bullet list
-        bullets = re.findall(r'(?:^|\n)\s*[-*]\s*(.+?)(?=\n\s*[-*]|\n\n|\Z)', task, re.DOTALL)
+        bullets = re.findall(r"(?:^|\n)\s*[-*]\s*(.+?)(?=\n\s*[-*]|\n\n|\Z)", task, re.DOTALL)
         if bullets:
             for item in bullets:
                 subtask = self._create_subtask_from_item(item.strip(), context, depth)
@@ -335,7 +333,7 @@ class TaskDecomposer:
             return subtasks
 
         # Try to split on conjunctions
-        parts = re.split(r'\s+(?:and\s+then|then|after\s+that|next|finally)\s+', task, flags=re.IGNORECASE)
+        parts = re.split(r"\s+(?:and\s+then|then|after\s+that|next|finally)\s+", task, flags=re.IGNORECASE)
         if len(parts) > 1:
             prev_id = None
             for part in parts:
@@ -346,7 +344,7 @@ class TaskDecomposer:
             return subtasks
 
         # Try to split on "and" for parallel tasks
-        parts = re.split(r'\s+and\s+', task, flags=re.IGNORECASE)
+        parts = re.split(r"\s+and\s+", task, flags=re.IGNORECASE)
         if len(parts) > 1 and all(len(p.split()) > 3 for p in parts):
             for part in parts:
                 if part.strip():
@@ -410,8 +408,14 @@ class TaskDecomposer:
 
         # Complexity indicators
         complexity_words = [
-            "complex", "detailed", "comprehensive", "thorough",
-            "multiple", "various", "all", "every",
+            "complex",
+            "detailed",
+            "comprehensive",
+            "thorough",
+            "multiple",
+            "various",
+            "all",
+            "every",
         ]
         complexity_boost = sum(0.1 for w in complexity_words if w in text.lower())
 
@@ -501,10 +505,7 @@ class TaskDecomposer:
         Returns:
             List of subtasks with satisfied dependencies
         """
-        return [
-            s for s in self._subtasks.values()
-            if s.status == "pending" and s.is_ready(self._completed_ids)
-        ]
+        return [s for s in self._subtasks.values() if s.status == "pending" and s.is_ready(self._completed_ids)]
 
     def get_context_for_subtask(self, subtask_id: str) -> str:
         """Get accumulated context for a subtask from completed dependencies.
@@ -526,9 +527,7 @@ class TaskDecomposer:
             if dep_id in self._results:
                 dep_subtask = self._subtasks.get(dep_id)
                 if dep_subtask:
-                    context_parts.append(
-                        f"[{dep_subtask.description[:50]}...]: {self._results[dep_id][:500]}"
-                    )
+                    context_parts.append(f"[{dep_subtask.description[:50]}...]: {self._results[dep_id][:500]}")
 
         return "\n\n".join(context_parts)
 
@@ -540,7 +539,7 @@ class TaskDecomposer:
         """
         results = []
 
-        for subtask_id, subtask in self._subtasks.items():
+        for _subtask_id, subtask in self._subtasks.items():
             if subtask.status == "completed" and subtask.result:
                 results.append(f"## {subtask.description[:100]}\n{subtask.result}")
 

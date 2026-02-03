@@ -18,7 +18,11 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, ClassVar, Optional
+
+from app.domain.services.agents.memory.importance_analyzer import ImportanceAnalyzer
+from app.domain.services.agents.memory.semantic_compressor import SemanticCompressor
+from app.domain.services.agents.memory.temporal_compressor import TemporalCompressor
 
 if TYPE_CHECKING:
     from app.domain.external.llm import LLM
@@ -29,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 class PressureLevel(Enum):
     """Token pressure levels for memory management."""
+
     NORMAL = "normal"
     WARNING = "warning"
     CRITICAL = "critical"
@@ -38,6 +43,7 @@ class PressureLevel(Enum):
 @dataclass
 class PressureStatus:
     """Current token pressure status."""
+
     level: PressureLevel
     current_tokens: int
     max_tokens: int
@@ -55,6 +61,7 @@ class PressureStatus:
 @dataclass
 class CompactedMessage:
     """Result of message compaction with summary and reference"""
+
     summary: str
     file_ref: str | None = None
     original_tokens: int = 0
@@ -69,6 +76,7 @@ class CompactedMessage:
 @dataclass
 class ExtractionResult:
     """Extracted key information from a tool result"""
+
     success: bool
     key_facts: list[str]
     data_points: dict[str, Any]
@@ -76,6 +84,20 @@ class ExtractionResult:
     error_message: str | None = None
     extraction_method: str = "heuristic"  # "heuristic", "llm", or "fallback"
     confidence: float = 1.0  # Confidence score (0.0-1.0)
+
+
+@dataclass
+class ContextOptimizationReport:
+    """Report for context optimization results."""
+
+    tokens_before: int
+    tokens_after: int
+    semantic_compacted: int = 0
+    temporal_compacted: int = 0
+
+    @property
+    def tokens_saved(self) -> int:
+        return max(0, self.tokens_before - self.tokens_after)
 
 
 class MemoryManager:
@@ -89,7 +111,7 @@ class MemoryManager:
     """
 
     # Functions whose outputs should be summarized, not just compacted
-    SUMMARIZABLE_FUNCTIONS = {
+    SUMMARIZABLE_FUNCTIONS: ClassVar[dict[str, str]] = {
         "browser_view": "browser content",
         "browser_navigate": "navigation result",
         "shell_exec": "command output",
@@ -100,11 +122,11 @@ class MemoryManager:
     }
 
     # Maximum tokens for a compacted summary
-    MAX_SUMMARY_TOKENS = 200
+    MAX_SUMMARY_TOKENS: ClassVar[int] = 200
 
     # Default limits for memory management
-    DEFAULT_MAX_ARCHIVE_SIZE = 1000  # Maximum entries in archive index
-    DEFAULT_ARCHIVE_CLEANUP_BATCH = 100  # Entries to remove when limit exceeded
+    DEFAULT_MAX_ARCHIVE_SIZE: ClassVar[int] = 1000  # Maximum entries in archive index
+    DEFAULT_ARCHIVE_CLEANUP_BATCH: ClassVar[int] = 100  # Entries to remove when limit exceeded
 
     def __init__(
         self,
@@ -140,9 +162,7 @@ class MemoryManager:
         self._archive_cleanup_batch = archive_cleanup_batch
 
     def compact_message(
-        self,
-        message: dict[str, Any],
-        preserve_summary: bool = True
+        self, message: dict[str, Any], preserve_summary: bool = True
     ) -> tuple[dict[str, Any], CompactedMessage]:
         """
         Compact a message while preserving key information.
@@ -156,11 +176,7 @@ class MemoryManager:
         """
         if message.get("role") != "tool":
             # Only compact tool messages
-            return message, CompactedMessage(
-                summary="",
-                original_tokens=0,
-                compacted_tokens=0
-            )
+            return message, CompactedMessage(summary="", original_tokens=0, compacted_tokens=0)
 
         function_name = message.get("function_name", "")
         content = message.get("content", "")
@@ -171,9 +187,7 @@ class MemoryManager:
         # Already compacted?
         if "(compacted)" in content or "(removed)" in content:
             return message, CompactedMessage(
-                summary=content,
-                original_tokens=original_tokens,
-                compacted_tokens=original_tokens
+                summary=content, original_tokens=original_tokens, compacted_tokens=original_tokens
             )
 
         # Extract key information
@@ -204,10 +218,8 @@ class MemoryManager:
 
         # Create compacted content
         from app.domain.models.tool_result import ToolResult
-        compacted_content = ToolResult(
-            success=extraction.success,
-            data=summary
-        ).model_dump_json()
+
+        compacted_content = ToolResult(success=extraction.success, data=summary).model_dump_json()
 
         # Create compacted message
         compacted_message = dict(message)
@@ -220,14 +232,10 @@ class MemoryManager:
             original_tokens=original_tokens,
             compacted_tokens=compacted_tokens,
             key_results=extraction.key_facts,
-            file_ref=None  # File storage handled separately
+            file_ref=None,  # File storage handled separately
         )
 
-    def _extract_key_results(
-        self,
-        function_name: str,
-        content: str
-    ) -> ExtractionResult:
+    def _extract_key_results(self, function_name: str, content: str) -> ExtractionResult:
         """
         Extract key information from tool output.
 
@@ -251,10 +259,7 @@ class MemoryManager:
             error_message = parsed.get("message") if not success else None
             data = parsed.get("data", "")
 
-            if isinstance(data, str):
-                content_to_analyze = data
-            else:
-                content_to_analyze = json.dumps(data)
+            content_to_analyze = data if isinstance(data, str) else json.dumps(data)
         except json.JSONDecodeError:
             content_to_analyze = content
 
@@ -274,11 +279,7 @@ class MemoryManager:
             key_facts = self._extract_generic_results(content_to_analyze)
 
         return ExtractionResult(
-            success=success,
-            key_facts=key_facts,
-            data_points=data_points,
-            urls=urls,
-            error_message=error_message
+            success=success, key_facts=key_facts, data_points=data_points, urls=urls, error_message=error_message
         )
 
     def _extract_browser_results(self, content: str) -> tuple[list[str], list[str]]:
@@ -292,17 +293,17 @@ class MemoryManager:
         urls = list(set(found_urls))[:5]
 
         # Extract title if present
-        title_match = re.search(r'<title[^>]*>([^<]+)</title>', content, re.I)
+        title_match = re.search(r"<title[^>]*>([^<]+)</title>", content, re.I)
         if title_match:
             facts.append(f"Title: {title_match.group(1)[:100]}")
 
         # Count interactive elements
-        link_count = len(re.findall(r'<a\s', content, re.I))
+        link_count = len(re.findall(r"<a\s", content, re.I))
         if link_count:
             facts.append(f"{link_count} links found")
 
         # Check for forms
-        if re.search(r'<form', content, re.I):
+        if re.search(r"<form", content, re.I):
             facts.append("Contains form")
 
         # Content length indicator
@@ -315,14 +316,11 @@ class MemoryManager:
     def _extract_shell_results(self, content: str) -> list[str]:
         """Extract key facts from shell command output"""
         facts = []
-        lines = content.strip().split('\n')
+        lines = content.strip().split("\n")
 
         # Check for error indicators
-        error_patterns = ['error', 'failed', 'denied', 'not found', 'exception']
-        has_error = any(
-            pattern in content.lower()
-            for pattern in error_patterns
-        )
+        error_patterns = ["error", "failed", "denied", "not found", "exception"]
+        has_error = any(pattern in content.lower() for pattern in error_patterns)
 
         if has_error:
             # Extract error message
@@ -336,11 +334,11 @@ class MemoryManager:
             facts.append(f"{len(lines)} lines output")
 
         # Check for common outputs
-        if 'installed' in content.lower():
+        if "installed" in content.lower():
             facts.append("Installation completed")
-        if 'created' in content.lower():
+        if "created" in content.lower():
             facts.append("Created resource")
-        if 'success' in content.lower():
+        if "success" in content.lower():
             facts.append("Operation successful")
 
         return facts[:5]
@@ -348,18 +346,18 @@ class MemoryManager:
     def _extract_file_results(self, content: str) -> list[str]:
         """Extract key facts from file content"""
         facts = []
-        lines = content.strip().split('\n')
+        lines = content.strip().split("\n")
 
         facts.append(f"{len(lines)} lines")
 
         # Detect file type indicators
-        if content.startswith('{') or content.startswith('['):
+        if content.startswith("{") or content.startswith("["):
             facts.append("JSON format")
-        elif 'def ' in content or 'import ' in content:
+        elif "def " in content or "import " in content:
             facts.append("Python code")
-        elif '<html' in content.lower() or '<!doctype' in content.lower():
+        elif "<html" in content.lower() or "<!doctype" in content.lower():
             facts.append("HTML document")
-        elif 'function' in content or 'const ' in content:
+        elif "function" in content or "const " in content:
             facts.append("JavaScript code")
 
         return facts
@@ -376,15 +374,15 @@ class MemoryManager:
                 facts.append(f"{len(results)} results found")
                 for r in results[:3]:
                     if isinstance(r, dict):
-                        title = r.get('title', '')[:50]
+                        title = r.get("title", "")[:50]
                         if title:
                             facts.append(title)
-                        url = r.get('url', r.get('link', ''))
+                        url = r.get("url", r.get("link", ""))
                         if url:
                             urls.append(url)
         except json.JSONDecodeError:
             # Count result indicators
-            result_count = content.count('http')
+            result_count = content.count("http")
             if result_count:
                 facts.append(f"~{result_count} results")
 
@@ -399,12 +397,12 @@ class MemoryManager:
     def _extract_listing_results(self, content: str) -> list[str]:
         """Extract key facts from directory listing"""
         facts = []
-        lines = content.strip().split('\n')
+        lines = content.strip().split("\n")
 
         facts.append(f"{len(lines)} items")
 
         # Count file types
-        dirs = sum(1 for l in lines if l.endswith('/') or 'dir' in l.lower())
+        dirs = sum(1 for line in lines if line.endswith("/") or "dir" in line.lower())
         if dirs:
             facts.append(f"{dirs} directories")
 
@@ -416,24 +414,21 @@ class MemoryManager:
 
         # Basic metrics
         word_count = len(content.split())
-        line_count = len(content.split('\n'))
+        line_count = len(content.split("\n"))
 
         if word_count > 0:
             facts.append(f"{word_count} words, {line_count} lines")
 
         # Check for success/failure indicators
-        if 'success' in content.lower():
+        if "success" in content.lower():
             facts.append("Indicates success")
-        elif 'error' in content.lower() or 'failed' in content.lower():
+        elif "error" in content.lower() or "failed" in content.lower():
             facts.append("Contains errors")
 
         return facts[:3]
 
     def compact_messages_batch(
-        self,
-        messages: list[dict[str, Any]],
-        preserve_recent: int = 10,
-        token_threshold: int = 80000
+        self, messages: list[dict[str, Any]], preserve_recent: int = 10, token_threshold: int = 80000
     ) -> tuple[list[dict[str, Any]], int]:
         """
         Compact a batch of messages based on token threshold.
@@ -472,6 +467,67 @@ class MemoryManager:
         logger.info(f"Compaction complete: saved {tokens_saved} tokens")
         return compacted_messages, tokens_saved
 
+    def _estimate_tokens_for_messages(self, messages: list[dict[str, Any]]) -> int:
+        """Estimate tokens for a list of messages (approximate)."""
+        return sum(len(str(m.get("content", ""))) // 4 for m in messages)
+
+    def _build_tool_summary(self, message: dict[str, Any]) -> tuple[str, bool]:
+        """Build a concise summary for a tool message."""
+        function_name = message.get("function_name", "tool")
+        content = message.get("content", "")
+        extraction = self._extract_key_results(function_name, content)
+
+        summary_parts = [f"[{function_name}]"]
+        if extraction.success:
+            summary_parts.append("SUCCESS")
+        else:
+            summary_parts.append(f"FAILED: {extraction.error_message or 'unknown'}")
+
+        if extraction.key_facts:
+            facts_text = " | ".join(extraction.key_facts[:5])
+            if len(facts_text) > 500:
+                facts_text = facts_text[:497] + "..."
+            summary_parts.append(facts_text)
+
+        if extraction.urls:
+            summary_parts.append(f"URLs: {', '.join(extraction.urls[:3])}")
+
+        summary = " - ".join(summary_parts)
+        return summary, extraction.success
+
+    def optimize_context(
+        self,
+        messages: list[dict[str, Any]],
+        preserve_recent: int = 10,
+        token_threshold: int | None = None,
+    ) -> tuple[list[dict[str, Any]], ContextOptimizationReport]:
+        """Optimize context by deduplicating and compressing older messages."""
+        tokens_before = self._estimate_tokens_for_messages(messages)
+        if token_threshold is not None and tokens_before < token_threshold:
+            return messages, ContextOptimizationReport(tokens_before=tokens_before, tokens_after=tokens_before)
+
+        analyzer = ImportanceAnalyzer()
+        semantic = SemanticCompressor(summary_builder=self._build_tool_summary)
+        temporal = TemporalCompressor(summary_builder=self._build_tool_summary)
+
+        optimized_messages, semantic_stats = semantic.compress(
+            messages, preserve_recent=preserve_recent, importance_analyzer=analyzer
+        )
+        optimized_messages, temporal_stats = temporal.compress(
+            optimized_messages, preserve_recent=preserve_recent, importance_analyzer=analyzer
+        )
+
+        tokens_after = self._estimate_tokens_for_messages(optimized_messages)
+
+        report = ContextOptimizationReport(
+            tokens_before=tokens_before,
+            tokens_after=tokens_after,
+            semantic_compacted=semantic_stats.compacted,
+            temporal_compacted=temporal_stats.compacted,
+        )
+
+        return optimized_messages, report
+
     def get_archive_path(self, function_name: str) -> str:
         """Generate unique archive file path"""
         self._archive_counter += 1
@@ -492,13 +548,10 @@ class MemoryManager:
         self._token_history.append(current_tokens)
         # Keep only recent history
         if len(self._token_history) > self._max_history_size:
-            self._token_history = self._token_history[-self._max_history_size:]
+            self._token_history = self._token_history[-self._max_history_size :]
 
     def should_trigger_compaction(
-        self,
-        pressure: PressureStatus,
-        recent_tools: list[str],
-        iteration_count: int
+        self, pressure: PressureStatus, recent_tools: list[str], iteration_count: int
     ) -> tuple[bool, str]:
         """
         Determine if compaction should be triggered with reason.
@@ -525,9 +578,8 @@ class MemoryManager:
             return True, "Multiple verbose tool outputs detected"
 
         # Rule 3: Periodic compaction at regular intervals
-        if iteration_count > 0 and iteration_count % 20 == 0:
-            if pressure.level != PressureLevel.NORMAL:
-                return True, f"Periodic compaction at iteration {iteration_count}"
+        if iteration_count > 0 and iteration_count % 20 == 0 and pressure.level != PressureLevel.NORMAL:
+            return True, f"Periodic compaction at iteration {iteration_count}"
 
         # Rule 4: High memory growth rate
         if len(self._token_history) >= 5:
@@ -536,20 +588,15 @@ class MemoryManager:
                 return True, f"High memory growth rate: {growth_rate:.0f} tokens/iteration"
 
         # Rule 5: Approaching warning threshold with upward trend
-        if pressure.level == PressureLevel.NORMAL and pressure.usage_ratio > 0.6:
-            if len(self._token_history) >= 3:
-                # Check if trending upward
-                recent_trend = self._token_history[-1] - self._token_history[-3]
-                if recent_trend > 2000:
-                    return True, "Approaching threshold with upward trend"
+        if pressure.level == PressureLevel.NORMAL and pressure.usage_ratio > 0.6 and len(self._token_history) >= 3:
+            # Check if trending upward
+            recent_trend = self._token_history[-1] - self._token_history[-3]
+            if recent_trend > 2000:
+                return True, "Approaching threshold with upward trend"
 
         return False, ""
 
-    def get_pressure_status(
-        self,
-        current_tokens: int,
-        max_tokens: int = 128000
-    ) -> PressureStatus:
+    def get_pressure_status(self, current_tokens: int, max_tokens: int = 128000) -> PressureStatus:
         """
         Calculate current token pressure status.
 
@@ -572,22 +619,14 @@ class MemoryManager:
             level = PressureLevel.NORMAL
 
         return PressureStatus(
-            level=level,
-            current_tokens=current_tokens,
-            max_tokens=max_tokens,
-            usage_ratio=usage_ratio
+            level=level, current_tokens=current_tokens, max_tokens=max_tokens, usage_ratio=usage_ratio
         )
 
     # =========================================================================
     # Phase 3: LLM-Based Extraction for Unknown Tools
     # =========================================================================
 
-    async def extract_with_llm(
-        self,
-        function_name: str,
-        content: str,
-        llm: "LLM"
-    ) -> ExtractionResult:
+    async def extract_with_llm(self, function_name: str, content: str, llm: "LLM") -> ExtractionResult:
         """
         Use LLM to extract key information from unknown tool output.
 
@@ -631,13 +670,10 @@ URLS: (if any)
 ERRORS: (if any)"""
 
         try:
-            response = await llm.ask(
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=300
-            )
+            response = await llm.ask(messages=[{"role": "user", "content": prompt}], max_tokens=300)
 
             # Parse LLM response
-            response_text = response.content if hasattr(response, 'content') else str(response)
+            response_text = response.content if hasattr(response, "content") else str(response)
             key_facts = self._parse_llm_extraction(response_text)
             success = "success" in response_text.lower() and "failure" not in response_text.lower()
 
@@ -647,7 +683,7 @@ ERRORS: (if any)"""
                 data_points={},
                 urls=self._extract_urls_from_text(response_text),
                 extraction_method="llm",
-                confidence=0.8
+                confidence=0.8,
             )
         except Exception as e:
             logger.warning(f"LLM extraction failed for {function_name}: {e}")
@@ -656,17 +692,17 @@ ERRORS: (if any)"""
     def _parse_llm_extraction(self, response: str) -> list[str]:
         """Parse LLM extraction response into key facts."""
         facts = []
-        lines = response.strip().split('\n')
+        lines = response.strip().split("\n")
 
         in_facts_section = False
         for line in lines:
             line = line.strip()
-            if line.startswith('KEY_FACTS:'):
+            if line.startswith("KEY_FACTS:"):
                 in_facts_section = True
                 continue
-            if line.startswith('URLS:') or line.startswith('ERRORS:'):
+            if line.startswith("URLS:") or line.startswith("ERRORS:"):
                 in_facts_section = False
-            if in_facts_section and line.startswith('- '):
+            if in_facts_section and line.startswith("- "):
                 facts.append(line[2:].strip())
 
         # Fallback: take non-empty lines if no structured facts found
@@ -680,11 +716,7 @@ ERRORS: (if any)"""
         url_pattern = r'https?://[^\s<>"\']+(?:[^\s<>"\'\.,;:!?\)])'
         return list(set(re.findall(url_pattern, text)))[:5]
 
-    def _fallback_extraction(
-        self,
-        function_name: str,
-        content: str
-    ) -> ExtractionResult:
+    def _fallback_extraction(self, function_name: str, content: str) -> ExtractionResult:
         """
         Fallback extraction using heuristics when LLM fails.
 
@@ -696,16 +728,10 @@ ERRORS: (if any)"""
             ExtractionResult with basic extracted information
         """
         # Take first 500 and last 200 chars for long content
-        if len(content) > 700:
-            summary = content[:500] + "\n...\n" + content[-200:]
-        else:
-            summary = content
+        summary = content[:500] + "\n...\n" + content[-200:] if len(content) > 700 else content
 
         # Infer success from content
-        success = not any(
-            indicator in content.lower()
-            for indicator in ['error', 'failed', 'exception', 'denied']
-        )
+        success = not any(indicator in content.lower() for indicator in ["error", "failed", "exception", "denied"])
 
         return ExtractionResult(
             success=success,
@@ -714,18 +740,14 @@ ERRORS: (if any)"""
             urls=self._extract_urls_from_text(content),
             error_message=None if success else "Possible error detected",
             extraction_method="fallback",
-            confidence=0.5
+            confidence=0.5,
         )
 
     # =========================================================================
     # Phase 3: Archive Integration
     # =========================================================================
 
-    async def compact_and_archive(
-        self,
-        message: dict[str, Any],
-        session_id: str
-    ) -> tuple[dict[str, Any], str | None]:
+    async def compact_and_archive(self, message: dict[str, Any], session_id: str) -> tuple[dict[str, Any], str | None]:
         """
         Compact message and archive full content to storage.
 
@@ -753,15 +775,17 @@ ERRORS: (if any)"""
         # Archive full content if storage is enabled and available
         if self._enable_file_storage and self._file_storage:
             try:
-                archive_data = json.dumps({
-                    "message_id": message_id,
-                    "function_name": function_name,
-                    "original_content": content,
-                    "archived_at": datetime.now().isoformat(),
-                    "extraction_method": extraction.extraction_method,
-                    "key_facts": extraction.key_facts,
-                    "urls": extraction.urls,
-                })
+                archive_data = json.dumps(
+                    {
+                        "message_id": message_id,
+                        "function_name": function_name,
+                        "original_content": content,
+                        "archived_at": datetime.now().isoformat(),
+                        "extraction_method": extraction.extraction_method,
+                        "key_facts": extraction.key_facts,
+                        "urls": extraction.urls,
+                    }
+                )
                 await self._file_storage.write(archive_path, archive_data)
                 self._add_to_archive_index(message_id, archive_path)
                 logger.debug(f"Archived message {message_id} to {archive_path}")
@@ -792,10 +816,8 @@ ERRORS: (if any)"""
 
         # Create compacted message
         from app.domain.models.tool_result import ToolResult
-        compacted_content = ToolResult(
-            success=extraction.success,
-            data=summary
-        ).model_dump_json()
+
+        compacted_content = ToolResult(success=extraction.success, data=summary).model_dump_json()
 
         compacted_message = dict(message)
         compacted_message["content"] = compacted_content
@@ -846,15 +868,11 @@ ERRORS: (if any)"""
         return {
             "total_archived": len(self._archive_index),
             "max_archive_size": self._max_archive_size,
-            "archive_usage_ratio": len(self._archive_index) / self._max_archive_size if self._max_archive_size > 0 else 0,
-            "file_archived": sum(
-                1 for p in self._archive_index.values()
-                if not p.startswith("memory://")
-            ),
-            "memory_only": sum(
-                1 for p in self._archive_index.values()
-                if p.startswith("memory://")
-            ),
+            "archive_usage_ratio": len(self._archive_index) / self._max_archive_size
+            if self._max_archive_size > 0
+            else 0,
+            "file_archived": sum(1 for p in self._archive_index.values() if not p.startswith("memory://")),
+            "memory_only": sum(1 for p in self._archive_index.values() if p.startswith("memory://")),
             "token_history_size": len(self._token_history),
             "last_token_count": self._token_history[-1] if self._token_history else 0,
         }

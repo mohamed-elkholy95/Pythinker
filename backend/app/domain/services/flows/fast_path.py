@@ -16,6 +16,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
+from app.core.config import get_settings
 from app.domain.models.event import (
     BaseEvent,
     DoneEvent,
@@ -40,6 +41,7 @@ logger = logging.getLogger(__name__)
 class QueryIntent(Enum):
     """Classification of user query intent."""
 
+    GREETING = "greeting"  # "hi", "hello", "hey mate", casual greetings
     DIRECT_BROWSE = "direct_browse"  # "open google.com", "go to X"
     WEB_SEARCH = "web_search"  # "search for X on the web"
     KNOWLEDGE = "knowledge"  # "what is X?", factual questions
@@ -105,6 +107,35 @@ URL_KNOWLEDGE_BASE: dict[str, str] = {
     "hacker news": "https://news.ycombinator.com",
     "hn": "https://news.ycombinator.com",
 }
+
+# Patterns for greetings and casual conversation
+# Using flexible patterns that allow additional words after greeting (e.g., "hey mate", "hi there")
+# NOTE: Patterns use [.!?,\s]* to allow punctuation OR whitespace between greeting and follow-up word
+# This handles cases like "hi. mate", "hello, friend", "hey! there", "hi mate4" (typos), etc.
+# The \w* at the end allows trailing characters (typos like "mate4", "hii", etc.)
+GREETING_PATTERNS = [
+    # Basic greetings (allow optional words after, with punctuation/whitespace separator)
+    # \w* at end allows trailing alphanumeric (typos like "mate4")
+    r"^(?:hi+|hello+|hey+|heya|hiya|greetings)[.!?,\s]*(?:there|mate|buddy|pal|man|friend|you|everyone|all)?\w*[.!?,\s]*$",
+    # Good morning/afternoon/evening
+    r"^(?:good\s+)?(?:morning|afternoon|evening|day)[.!?,\s]*(?:mate|buddy|pal|friend)?\w*[.!?,\s]*$",
+    # Casual/slang greetings
+    r"^(?:sup|wassup|what'?s\s+up|yo+|howdy)[.!?,\s]*(?:mate|buddy|pal|dude|man)?\w*[.!?,\s]*$",
+    # Regional greetings (including Portuguese olá/ola)
+    r"^(?:g'?day|hola|ol[aá]|bonjour|namaste|ciao|salut)[.!?,\s]*(?:mate|friend|amigo)?\w*[.!?,\s]*$",
+    # How are you variations
+    r"^(?:how\s+are\s+you|how'?s\s+it\s+going|how\s+are\s+things)[.!?,\s]*$",
+]
+
+# Patterns for acknowledgments (thanks, goodbye, etc.)
+# NOTE: Same flexible punctuation/whitespace handling as GREETING_PATTERNS
+ACKNOWLEDGMENT_PATTERNS = [
+    r"^(?:thanks|thank\s+you|thx|ty|cheers)[.!?,\s]*(?:mate|buddy|pal|so\s+much|a\s+lot)?[.!?,\s]*$",
+    r"^(?:bye|goodbye|see\s+you|see\s+ya|later|cya|take\s+care)[.!?,\s]*$",
+    r"^(?:ok|okay|got\s+it|understood|alright|sounds\s+good)[.!?,\s]*$",
+    r"^(?:yes|yeah|yep|yup|sure|no|nope|nah)[.!?,\s]*$",
+    r"^(?:cool|nice|great|awesome|perfect|excellent)[.!?,\s]*$",
+]
 
 # Patterns for direct browse intent
 DIRECT_BROWSE_PATTERNS = [
@@ -194,7 +225,19 @@ class FastPathRouter:
         message_clean = message.strip()
         message_lower = message_clean.lower()
 
-        # Check for explicit task indicators first (highest priority)
+        # Check for greetings and acknowledgments FIRST (highest priority)
+        # These should always be detected before other patterns
+        for pattern in GREETING_PATTERNS:
+            if re.match(pattern, message_lower):
+                logger.info(f"Query classified as GREETING: {message_clean[:50]}")
+                return QueryIntent.GREETING, {"original_message": message_clean}
+
+        for pattern in ACKNOWLEDGMENT_PATTERNS:
+            if re.match(pattern, message_lower):
+                logger.info(f"Query classified as GREETING (acknowledgment): {message_clean[:50]}")
+                return QueryIntent.GREETING, {"original_message": message_clean}
+
+        # Check for explicit task indicators
         for pattern in TASK_PATTERNS:
             if re.search(pattern, message_lower):
                 logger.debug("Query classified as TASK (matched task pattern)")
@@ -429,8 +472,27 @@ class FastPathRouter:
         )
 
         try:
+            settings = get_settings()
+            # Use browser for search when search_prefer_browser is enabled (visible to user in sandbox)
+            if settings.search_prefer_browser and self._browser:
+                logger.info(f"Using browser search (visible in sandbox) for: {query}")
+                # Emit ToolEvent CALLED to close the calling state before browser search
+                yield ToolEvent(
+                    status=ToolStatus.CALLED,
+                    tool_call_id=tool_call_id,
+                    tool_name="search",
+                    function_name="info_search_web",
+                    function_args={"query": query},
+                    function_result={"success": True, "message": "Using browser search for visibility"},
+                )
+                # Use browser-based search so user can see activity in sandbox
+                search_url = f"https://www.google.com/search?q={quote(query)}"
+                async for event in self.execute_fast_browse(search_url):
+                    yield event
+                return
+
             if self._search_engine:
-                # Use search engine directly
+                # Use search engine API directly (faster but invisible)
                 search_result = await self._search_engine.search(query)
 
                 yield ProgressEvent(
@@ -589,6 +651,64 @@ class FastPathRouter:
 
         yield DoneEvent()
 
+    async def execute_fast_greeting(
+        self,
+        original_message: str,
+        message: Message | None = None,
+    ) -> AsyncGenerator[BaseEvent, None]:
+        """Respond to a greeting with a friendly, contextual message.
+
+        Args:
+            original_message: The original greeting message
+            message: Original message object (optional)
+
+        Yields:
+            Events for progress, greeting response, and completion
+        """
+        if not self._llm:
+            yield ErrorEvent(error="LLM not available for greeting")
+            yield DoneEvent()
+            return
+
+        yield ProgressEvent(
+            phase=PlanningPhase.RECEIVED,
+            message="Responding to your greeting...",
+            progress_percent=50,
+        )
+
+        try:
+            # Direct LLM call for greeting response
+            messages = [
+                {
+                    "role": "system",
+                    "content": "You are Pythinker, a helpful AI assistant. The user has greeted you. "
+                    "Respond with a warm, friendly greeting. Keep it natural and conversational (1-2 sentences). "
+                    "You can ask how you can help them today.",
+                },
+                {"role": "user", "content": original_message},
+            ]
+
+            # Try streaming if available
+            if hasattr(self._llm, "ask_stream"):
+                full_response = ""
+                async for chunk in self._llm.ask_stream(messages):
+                    full_response += chunk
+                    yield StreamEvent(content=chunk, is_final=False)
+
+                yield StreamEvent(content="", is_final=True)
+                yield MessageEvent(message=full_response)
+            else:
+                # Non-streaming fallback
+                response = await self._llm.ask(messages)
+                content = response.get("content", "")
+                yield MessageEvent(message=content)
+
+        except Exception as e:
+            logger.exception(f"Fast greeting error: {e}")
+            yield ErrorEvent(error=f"Failed to respond to greeting: {e!s}")
+
+        yield DoneEvent()
+
     async def execute(
         self,
         intent: QueryIntent,
@@ -605,7 +725,11 @@ class FastPathRouter:
         Yields:
             Events from the appropriate fast path execution
         """
-        if intent == QueryIntent.DIRECT_BROWSE:
+        if intent == QueryIntent.GREETING:
+            async for event in self.execute_fast_greeting(params.get("original_message", ""), message):
+                yield event
+
+        elif intent == QueryIntent.DIRECT_BROWSE:
             async for event in self.execute_fast_browse(params.get("target", ""), message):
                 yield event
 
@@ -621,6 +745,16 @@ class FastPathRouter:
             # TASK intent should not reach here
             yield ErrorEvent(error="Task queries should use full workflow")
             yield DoneEvent()
+
+
+def should_use_fast_path(message: str) -> bool:
+    """Return True when a message should be handled by the fast path."""
+    if not message or not message.strip():
+        return False
+
+    router = FastPathRouter()
+    intent, _ = router.classify(message)
+    return intent != QueryIntent.TASK
 
 
 def get_fast_path_router(

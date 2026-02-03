@@ -14,20 +14,18 @@ class Settings(BaseSettings):
     debug: bool = False
 
     # LLM Provider selection
-    llm_provider: str = "openai"  # "openai", "anthropic", "ollama"
+    llm_provider: str = "openai"  # "openai", "ollama"
 
     # OpenAI-compatible provider configuration (default)
+    # Works with OpenRouter, DeepSeek, OpenAI, and other OpenAI-compatible APIs
     api_key: str | None = None
-    api_base: str = "https://api.deepseek.com/v1"
+    api_base: str = "https://openrouter.ai/api/v1"
 
     # Model configuration
-    model_name: str = "deepseek-chat"
+    # NVIDIA Nemotron 3 Nano 30B A3B: 30B MoE (3B active), 262k context, agentic AI optimized
+    model_name: str = "nvidia/nemotron-3-nano-30b-a3b"
     temperature: float = 0.3  # Lower temperature for deterministic JSON responses
     max_tokens: int = 8000  # Increased from 2000 to allow complete responses
-
-    # Anthropic configuration
-    anthropic_api_key: str | None = None
-    anthropic_model_name: str = "claude-sonnet-4-20250514"
 
     # Ollama configuration
     ollama_base_url: str = "http://localhost:11434"
@@ -107,6 +105,9 @@ class Settings(BaseSettings):
 
     # Search engine configuration
     search_provider: str | None = "bing"  #  "google", "bing", "searxng", "whoogle", "duckduckgo", "brave", "tavily"
+    search_prefer_browser: bool = (
+        True  # Use browser for search (visible in sandbox) instead of API (faster but invisible)
+    )
     google_search_api_key: str | None = None
     google_search_engine_id: str | None = None
     searxng_url: str | None = "http://searxng:8080"  # SearXNG instance URL
@@ -146,7 +147,7 @@ class Settings(BaseSettings):
 
     # Browser Connection Pool Configuration (Phase 3: connection reuse)
     browser_pool_enabled: bool = True  # Enable browser connection pooling
-    browser_pool_max_per_url: int = 3  # Max connections per CDP URL
+    browser_pool_max_per_url: int = 8  # Max connections per CDP URL (increased to prevent exhaustion)
     browser_pool_timeout: float = 30.0  # Timeout waiting for available connection
     browser_pool_max_idle: float = 300.0  # Max idle time before cleanup (5 min)
     browser_pool_health_interval: float = 60.0  # Health check interval (1 min)
@@ -208,6 +209,12 @@ class Settings(BaseSettings):
 
     # Logging configuration
     log_level: str = "INFO"
+    log_redaction_enabled: bool = True
+    # Comma-separated list of keys to redact in logs (case-insensitive)
+    log_redaction_keys: str = (
+        "api_key,apikey,access_token,refresh_token,token,password,secret,authorization,cookie,set-cookie"
+    )
+    log_redaction_max_depth: int = 6
 
     # Alerting configuration (optional)
     alert_webhook_url: str | None = None
@@ -246,6 +253,26 @@ class Settings(BaseSettings):
     # LangGraph Flow configuration
     use_langgraph_flow: bool = False  # Use LangGraph-based PlanActFlow instead of custom
 
+    # Agent Enhancement Feature Flags (Phase 0+)
+    feature_plan_validation_v2: bool = False
+    feature_reflection_advanced: bool = False
+    feature_context_optimization: bool = False
+    feature_tool_tracing: bool = False
+    feature_reward_hacking_detection: bool = False
+    feature_failure_prediction: bool = False
+    feature_circuit_breaker_adaptive: bool = False
+    feature_workflow_checkpointing: bool = False
+    feature_shadow_mode: bool = True
+
+    # Hallucination Prevention Feature Flags (Phase 1-6)
+    feature_url_verification: bool = True  # Verify cited URLs exist and were visited
+    feature_claim_provenance: bool = True  # Track claim-to-source linkage
+    feature_enhanced_grounding: bool = True  # Numeric/entity verification in sources
+    feature_cove_verification: bool = True  # Chain-of-Verification for reports
+    feature_semantic_citation_validation: bool = True  # Semantic matching for citations
+    feature_strict_numeric_verification: bool = True  # Reject unverified numeric claims
+    feature_reject_ungrounded_reports: bool = False  # Start permissive, can enable later
+
     # Autonomy Configuration (Enhancement Phase 1)
     autonomy_level: str = "guided"  # supervised, guided, autonomous, unrestricted
     allow_credential_access: bool = True
@@ -255,6 +282,18 @@ class Settings(BaseSettings):
     allow_shell_execute: bool = True
     allow_browser_navigation: bool = True
     allow_payment_operations: bool = False  # Disabled by default
+
+    # Agent Enhancement Feature Flags (Phases 1-5)
+    # Phase 1: Python 3.11+ TaskGroup Migration
+    feature_taskgroup_enabled: bool = False  # Use TaskGroup instead of asyncio.gather
+    # Phase 2: LangGraph + Browser-use Node Integration
+    feature_browser_node: bool = False  # Browser-use as first-class LangGraph node
+    # Phase 3: SSE Streaming v2
+    feature_sse_v2: bool = False  # LangGraph astream_events v2 API
+    # Phase 4: Zero-Hallucination Defense
+    feature_structured_outputs: bool = False  # Pydantic structured LLM outputs with validation
+    # Phase 5: Parallel Memory Architecture
+    feature_parallel_memory: bool = False  # Parallel MongoDB/Qdrant memory writes
 
     # Safety Limits
     max_iterations: int = 400  # Maximum loop iterations per run (doubled for complex tasks)
@@ -295,6 +334,31 @@ class Settings(BaseSettings):
     openreplay_project_key: str = "pythinker-dev"  # OpenReplay project key
     openreplay_ingest_url: str = "http://localhost:9001"  # OpenReplay ingestion endpoint
     openreplay_api_url: str = "http://localhost:8090"  # OpenReplay API endpoint
+
+    # Research Enhancement Configuration (Phase 6)
+    # Source filtering
+    research_source_min_reliability: float = 0.4  # Minimum reliability score for sources
+    research_source_min_relevance: float = 0.5  # Minimum relevance score for sources
+    research_source_max_age_days: int = 730  # Max age of sources in days (2 years)
+    research_source_require_https: bool = True  # Require HTTPS for sources
+    research_source_allow_paywalled: bool = False  # Allow paywalled sources
+
+    # Citation discipline
+    research_citation_requirement: str = "moderate"  # "strict", "moderate", "relaxed"
+    research_citation_min_coverage: float = 0.7  # Min citation coverage score
+    research_citation_min_quality: float = 0.5  # Min citation quality score
+    research_citation_auto_caveats: bool = True  # Auto-add caveats to uncited claims
+
+    # Benchmark extraction
+    research_benchmark_enabled: bool = True  # Enable benchmark extraction
+    research_benchmark_min_confidence: float = 0.5  # Min confidence for extracted benchmarks
+
+    # Report generation
+    research_report_max_retries: int = 3  # Max retries for report generation
+    research_report_max_sources: int = 10  # Max sources per research query
+
+    # Feature flag
+    feature_enhanced_research: bool = False  # Enable enhanced research flow
 
     class Config:
         env_file = ".env"
@@ -410,12 +474,11 @@ class Settings(BaseSettings):
         # === HIGH PRIORITY CHECKS ===
 
         # Password hash rounds validation
-        if self.password_hash_rounds < 100000:
-            if self.is_production:
-                security_warnings.append(
-                    f"PASSWORD_HASH_ROUNDS ({self.password_hash_rounds}) is below recommended minimum (600000). "
-                    "This weakens password security."
-                )
+        if self.password_hash_rounds < 100000 and self.is_production:
+            security_warnings.append(
+                f"PASSWORD_HASH_ROUNDS ({self.password_hash_rounds}) is below recommended minimum (600000). "
+                "This weakens password security."
+            )
 
         # API key validation
         if self.llm_provider in ["openai", "anthropic"] and not self.api_key:
@@ -425,12 +488,11 @@ class Settings(BaseSettings):
                 errors.append("API_KEY is required for OpenAI provider")
 
         # Credential encryption key
-        if self.allow_credential_access and not self.credential_encryption_key:
-            if self.is_production:
-                security_warnings.append(
-                    "CREDENTIAL_ENCRYPTION_KEY not set but credential access is enabled. "
-                    "Credentials will be stored without encryption."
-                )
+        if self.allow_credential_access and not self.credential_encryption_key and self.is_production:
+            security_warnings.append(
+                "CREDENTIAL_ENCRYPTION_KEY not set but credential access is enabled. "
+                "Credentials will be stored without encryption."
+            )
 
         # === WARNINGS ===
 
@@ -456,7 +518,7 @@ class Settings(BaseSettings):
         # === LOG WARNINGS ===
         for warning in security_warnings:
             logger.warning(f"[SECURITY] {warning}")
-            warnings.warn(warning, UserWarning)
+            warnings.warn(warning, UserWarning, stacklevel=2)
 
         # === RAISE ERRORS ===
         if errors:
@@ -473,3 +535,49 @@ def get_settings() -> Settings:
     settings = Settings()
     settings.validate()
     return settings
+
+
+def get_feature_flags() -> dict[str, bool]:
+    """Get feature flag settings for agent enhancements."""
+    try:
+        settings = get_settings()
+    except Exception:
+        # Fail-open with safe defaults if settings validation fails
+        return {
+            "plan_validation_v2": False,
+            "reflection_advanced": False,
+            "context_optimization": False,
+            "tool_tracing": False,
+            "reward_hacking_detection": False,
+            "failure_prediction": False,
+            "circuit_breaker_adaptive": False,
+            "workflow_checkpointing": False,
+            "shadow_mode": True,
+            # Hallucination Prevention (Phase 1-6)
+            "url_verification": True,
+            "claim_provenance": True,
+            "enhanced_grounding": True,
+            "cove_verification": True,
+            "semantic_citation_validation": True,
+            "strict_numeric_verification": True,
+            "reject_ungrounded_reports": False,
+        }
+    return {
+        "plan_validation_v2": settings.feature_plan_validation_v2,
+        "reflection_advanced": settings.feature_reflection_advanced,
+        "context_optimization": settings.feature_context_optimization,
+        "tool_tracing": settings.feature_tool_tracing,
+        "reward_hacking_detection": settings.feature_reward_hacking_detection,
+        "failure_prediction": settings.feature_failure_prediction,
+        "circuit_breaker_adaptive": settings.feature_circuit_breaker_adaptive,
+        "workflow_checkpointing": settings.feature_workflow_checkpointing,
+        "shadow_mode": settings.feature_shadow_mode,
+        # Hallucination Prevention (Phase 1-6)
+        "url_verification": settings.feature_url_verification,
+        "claim_provenance": settings.feature_claim_provenance,
+        "enhanced_grounding": settings.feature_enhanced_grounding,
+        "cove_verification": settings.feature_cove_verification,
+        "semantic_citation_validation": settings.feature_semantic_citation_validation,
+        "strict_numeric_verification": settings.feature_strict_numeric_verification,
+        "reject_ungrounded_reports": settings.feature_reject_ungrounded_reports,
+    }

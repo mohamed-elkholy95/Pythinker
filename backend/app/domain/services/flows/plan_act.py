@@ -1,10 +1,12 @@
 import asyncio
 import logging
+import os
 import re
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Optional
+from uuid import uuid4
 
 from app.domain.external.browser import Browser
 from app.domain.external.llm import LLM
@@ -18,10 +20,15 @@ from app.domain.models.event import (
     PlanEvent,
     PlanStatus,
     ReportEvent,
+    StepEvent,
+    StepStatus,
     TitleEvent,
     ToolEvent,
+    ToolStatus,
     VerificationEvent,
     VerificationStatus,
+    WideResearchEvent,
+    WideResearchStatus,
 )
 from app.domain.models.file import FileInfo
 from app.domain.models.message import Message
@@ -39,6 +46,7 @@ from app.domain.services.flows.fast_path import FastPathRouter, QueryIntent
 # Import research task detection for acknowledgment messages
 from app.domain.services.prompts.research import is_research_task
 from app.domain.services.tools.browser import BrowserTool
+from app.domain.services.tools.code_executor import CodeExecutorTool
 from app.domain.services.tools.file import FileTool
 from app.domain.services.tools.mcp import MCPTool
 from app.domain.services.tools.shell import ShellTool
@@ -53,7 +61,8 @@ except ImportError:
 # Import for type hints
 from typing import TYPE_CHECKING
 
-from app.core.config import get_settings
+from app.core.alert_manager import get_alert_manager
+from app.core.config import get_feature_flags, get_settings
 from app.domain.services.agents.compliance_gates import ComplianceReport, get_compliance_gates
 from app.domain.services.agents.error_handler import ErrorContext, ErrorHandler
 
@@ -87,10 +96,15 @@ from app.domain.services.orchestration.agent_types import (
     AgentType,
     get_agent_registry,
 )
+from app.domain.services.prediction.failure_predictor import FailurePredictor
 from app.domain.services.tools.idle import IdleTool
 from app.domain.services.tools.message import MessageTool
 from app.domain.services.tools.search import SearchTool
+from app.domain.services.tools.skill_creator import get_skill_creator_tools
+from app.domain.services.tools.skill_invoke import create_skill_invoke_tool
+from app.domain.services.validation.plan_validator import PlanValidator
 from app.infrastructure.observability import SpanKind, get_tracer
+from app.infrastructure.observability.prometheus_metrics import record_failure_prediction
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
@@ -142,6 +156,7 @@ class PlanActFlow(BaseFlow):
         self._json_parser = json_parser
         self._mcp_tool = mcp_tool
         self._search_engine = search_engine
+        self._search_tool: SearchTool | None = None
 
         # Memory service for long-term context (Phase 6: Qdrant integration)
         self._memory_service = memory_service
@@ -160,11 +175,21 @@ class PlanActFlow(BaseFlow):
         self._verification_loops = 0
         self._max_verification_loops = 1  # Reduced from 2 to 1 for faster response
 
-        tools = [ShellTool(sandbox), BrowserTool(browser), FileTool(sandbox), MessageTool(), IdleTool(), mcp_tool]
+        tools = [
+            ShellTool(sandbox),
+            BrowserTool(browser),
+            FileTool(sandbox),
+            CodeExecutorTool(sandbox=sandbox, session_id=session_id),
+            MessageTool(),
+            IdleTool(),
+            mcp_tool,
+        ]
 
         # Only add search tool when search_engine is not None
+        # Pass browser to SearchTool for visual search when search_prefer_browser is enabled
         if search_engine:
-            tools.append(SearchTool(search_engine))
+            self._search_tool = SearchTool(search_engine, browser=browser)
+            tools.append(self._search_tool)
 
         # Add browser agent tool when cdp_url is available, enabled, and browser_use is installed
         settings = get_settings()
@@ -174,6 +199,25 @@ class PlanActFlow(BaseFlow):
                 logger.info(f"Browser agent tool enabled for Agent {agent_id}")
             except ImportError as e:
                 logger.warning(f"Browser agent tool not available: {e}")
+
+        # Add skill creator tools for custom skill creation (Phase 3: Custom Skills)
+        # Pending events queue for skill delivery events from tools
+        self._pending_events: list[BaseEvent] = []
+        skill_tools = get_skill_creator_tools(
+            user_id=user_id,
+            emit_event=lambda e: self._pending_events.append(e),
+        )
+        tools.extend(skill_tools)
+        logger.debug(f"Added {len(skill_tools)} skill creator tools for Agent {agent_id}")
+
+        # Phase 3.5: Skill invoke tool (initialized with empty skills, populated in run())
+        # This meta-tool allows AI to invoke skills dynamically during execution
+        self._skill_invoke_tool = create_skill_invoke_tool(
+            available_skills=[],
+            session_id=session_id,
+        )
+        tools.append(self._skill_invoke_tool)
+        self._skill_invoke_initialized = False
 
         # Create planner and execution agents
         self.planner = PlannerAgent(
@@ -225,6 +269,8 @@ class PlanActFlow(BaseFlow):
 
         # Task state manager for todo recitation
         self._task_state_manager = TaskStateManager(sandbox)
+        self.planner._task_state_manager = self._task_state_manager
+        self.executor._task_state_manager = self._task_state_manager
 
         # Compliance gates for output quality checks
         self._compliance_gates = get_compliance_gates()
@@ -277,6 +323,33 @@ class PlanActFlow(BaseFlow):
         )
         logger.info(f"Multi-agent dispatch enabled for Agent {self._agent_id}")
 
+    async def _init_skill_invoke_tool(self) -> None:
+        """Initialize the skill_invoke tool with available skills.
+
+        Phase 3.5: Populate the skill_invoke meta-tool with AI-invokable skills
+        so the agent can dynamically invoke skills during execution.
+        """
+        if self._skill_invoke_initialized:
+            return
+
+        try:
+            from app.domain.services.skill_registry import get_skill_registry
+
+            registry = await get_skill_registry()
+            ai_skills = await registry.get_ai_invokable_skills()
+
+            if ai_skills:
+                self._skill_invoke_tool.set_available_skills(ai_skills)
+                logger.info(f"Initialized skill_invoke tool with {len(ai_skills)} AI-invokable skills")
+            else:
+                logger.debug("No AI-invokable skills available for skill_invoke tool")
+
+            self._skill_invoke_initialized = True
+
+        except Exception as e:
+            logger.warning(f"Failed to initialize skill_invoke tool: {e}")
+            self._skill_invoke_initialized = True  # Avoid repeated failures
+
     async def _verify_browser_ready(self, session) -> bool:
         """Verify browser is ready for fast path operations.
 
@@ -326,6 +399,44 @@ class PlanActFlow(BaseFlow):
         except Exception as e:
             logger.warning(f"Browser readiness check failed: {e}")
             return False
+
+    def _extract_skill_creator_command(self, user_message: str) -> tuple[str, str] | None:
+        """Extract /skill-creator command and arguments from the user message."""
+        match = re.search(r"/(skill-creator)(?![\w-])(?:\s+([^\n]*))?", user_message, flags=re.IGNORECASE)
+        if not match:
+            return None
+        arguments = (match.group(2) or "").strip()
+        return "skill-creator", arguments
+
+    async def _emit_skill_invoke_events(self, skill_name: str, arguments: str) -> AsyncGenerator[BaseEvent, None]:
+        """Emit tool events for skill_invoke to mirror skill loading UX."""
+        await self._init_skill_invoke_tool()
+        tool_call_id = str(uuid4())
+        function_args = {"skill_name": skill_name, "arguments": arguments}
+
+        calling_event = self.executor._create_tool_event(
+            tool_call_id=tool_call_id,
+            tool_name="skill",
+            function_name="skill_invoke",
+            function_args=function_args,
+            status=ToolStatus.CALLING,
+        )
+        yield calling_event
+
+        try:
+            result = await self._skill_invoke_tool.execute(skill_name=skill_name, arguments=arguments)
+        except Exception as e:
+            result = {"success": False, "error": str(e)}
+
+        called_event = self.executor._create_tool_event(
+            tool_call_id=tool_call_id,
+            tool_name="skill",
+            function_name="skill_invoke",
+            function_args=function_args,
+            status=ToolStatus.CALLED,
+            function_result=result,
+        )
+        yield called_event
 
     def _extract_agent_type(self, step_description: str) -> str | None:
         """Extract [AGENT_TYPE] prefix from step description.
@@ -480,8 +591,26 @@ class PlanActFlow(BaseFlow):
                         f"(tokens: {current_tokens}, pressure: {pressure.level.value})"
                     )
 
+                    messages = self.executor.memory.get_messages()
+                    flags = get_feature_flags()
+
+                    if flags.get("context_optimization"):
+                        optimized_messages, report = self._memory_manager.optimize_context(
+                            messages,
+                            preserve_recent=10,
+                            token_threshold=int(pressure.max_tokens * 0.65),
+                        )
+                        if report.tokens_saved > 0:
+                            self.executor.memory.messages = optimized_messages
+                            await self._repository.save_memory(self._agent_id, self.executor.name, self.executor.memory)
+                            logger.info(
+                                f"Agent {self._agent_id} context optimization saved {report.tokens_saved} tokens "
+                                f"(semantic={report.semantic_compacted}, temporal={report.temporal_compacted})"
+                            )
+                            logger.debug(f"Agent {self._agent_id} background memory compact completed")
+                            return
+
                     # Use smart compaction with result extraction
-                    messages = self.executor.memory.to_messages()
                     compacted_messages, tokens_saved = self._memory_manager.compact_messages_batch(
                         messages,
                         preserve_recent=10,
@@ -544,28 +673,28 @@ class PlanActFlow(BaseFlow):
         """
         message_lower = user_message.lower()
 
+        # Skill creation acknowledgment
+        if "/skill-creator" in message_lower:
+            if message_lower.strip().startswith("/skill-creator"):
+                command_match = re.match(r"^\s*/skill-creator(?:\s+(.*))?$", user_message, flags=re.IGNORECASE)
+                if command_match:
+                    skill_name = (command_match.group(1) or "").strip().strip('"')
+                    if skill_name:
+                        return f'I\'ll help you create the "{skill_name}" skill. Let me first review the skill creation guidelines.'
+            # Try to extract a quoted skill name for a more natural response
+            match = re.search(r'"([^"]+)"', user_message)
+            if match and match.group(1).strip():
+                return f'I\'ll help you create the "{match.group(1).strip()}" skill. Let me first review the skill creation guidelines.'
+            return "I'll help you create that skill. Let me first review the skill creation guidelines."
+
         # Check for research-type tasks
         if is_research_task(user_message):
-            # Research task acknowledgments
-            topic_patterns = [
-                ("claude code", "Claude Code features and best practices"),
-                ("mcp", "MCP (Model Context Protocol) integrations"),
-                ("plugin", "plugins and extensions"),
-                ("lsp", "LSP (Language Server Protocol) features"),
-                ("design", "design patterns and skills"),
-                ("integration", "integrations and configurations"),
-                ("api", "API usage and implementation"),
-                ("best practice", "best practices and recommendations"),
-            ]
-
-            topics = []
-            for pattern, description in topic_patterns:
-                if pattern in message_lower:
-                    topics.append(description)
-
-            if topics:
-                topics_str = ", ".join(topics[:3])
-                return f"I'll research {topics_str} and provide you with a detailed report."
+            # Extract the actual research topic from the user's message
+            topic = self._extract_research_topic(user_message)
+            if topic:
+                # Truncate long topics for the acknowledgment
+                display_topic = topic[:100] + "..." if len(topic) > 100 else topic
+                return f"I'll research {display_topic} and provide you with a detailed report."
             return "I'll conduct comprehensive research on this topic and provide you with a detailed report."
 
         # Check for specific task types and generate appropriate acknowledgments
@@ -593,18 +722,322 @@ class PlanActFlow(BaseFlow):
         # Default acknowledgment
         return "I'll help you with that. Let me work on it."
 
+    def _extract_research_topic(self, user_message: str) -> str | None:
+        """Extract the research topic from the user's message.
+
+        Args:
+            user_message: The user's original message
+
+        Returns:
+            The extracted topic or None if not found
+        """
+        message_lower = user_message.lower()
+
+        # Patterns to extract topic after common research request phrases
+        # Order matters - more specific patterns first
+        topic_patterns = [
+            # "research report on: X" or "research report about X"
+            r"research\s+report\s+(?:on|about)[:\s]+(.+?)(?:\.|$)",
+            # "comprehensive research on X"
+            r"comprehensive\s+research\s+(?:on|about)[:\s]+(.+?)(?:\.|$)",
+            # "research on: X" or "research about X"
+            r"research\s+(?:on|about)[:\s]+(.+?)(?:\.|$)",
+            # "research X" (without on/about)
+            r"(?:^|\s)research[:\s]+(.+?)(?:\.|$)",
+            # "investigate X"
+            r"investigate[:\s]+(.+?)(?:\.|$)",
+            # "find information on/about X"
+            r"find\s+(?:information|info|details)\s+(?:on|about)[:\s]+(.+?)(?:\.|$)",
+            # "look into X"
+            r"look\s+into[:\s]+(.+?)(?:\.|$)",
+            # "analyze X"
+            r"analyze[:\s]+(.+?)(?:\.|$)",
+            # "study X"
+            r"study[:\s]+(.+?)(?:\.|$)",
+        ]
+
+        for pattern in topic_patterns:
+            match = re.search(pattern, message_lower, re.IGNORECASE)
+            if match:
+                topic = match.group(1).strip()
+                # Clean up the topic
+                topic = re.sub(r"\s+", " ", topic)  # Normalize whitespace
+                # Remove trailing phrases like "and provide", "then create", etc.
+                topic = re.sub(
+                    r"\s+(?:and\s+(?:provide|create|give|send)|then\s+\w+).*$", "", topic, flags=re.IGNORECASE
+                )
+                if topic and len(topic) > 3:  # Avoid very short/empty topics
+                    return topic
+
+        # Fallback: Try to extract after "Create a ... report on:"
+        report_match = re.search(
+            r"create\s+(?:a\s+)?(?:\w+\s+)*report\s+(?:on|about)[:\s]+(.+?)(?:\.|$)", message_lower
+        )
+        if report_match:
+            topic = report_match.group(1).strip()
+            topic = re.sub(r"\s+", " ", topic)
+            if topic and len(topic) > 3:
+                return topic
+
+        # Last fallback: If message starts with a research indicator, take the rest as topic
+        if message_lower.startswith(("research ", "investigate ", "analyze ")):
+            parts = user_message.split(" ", 1)
+            if len(parts) > 1:
+                topic = parts[1].strip()
+                # Remove leading "on:" or "about:" if present
+                topic = re.sub(r"^(?:on|about)[:\s]+", "", topic, flags=re.IGNORECASE)
+                if topic and len(topic) > 3:
+                    return topic[:150]  # Limit length
+
+        return None
+
+    async def _execute_deep_research(
+        self, topic: str, original_message: str, trace_ctx
+    ) -> AsyncGenerator[BaseEvent, None]:
+        """Execute deep research using the wide_research tool.
+
+        This method is called when the user enables Deep Research mode.
+        It calls the wide_research tool for parallel multi-source search.
+
+        Args:
+            topic: The research topic extracted from the user's message
+            original_message: The original user message for context
+            trace_ctx: The trace context for observability
+
+        Yields:
+            BaseEvent: Events from the wide_research tool execution
+        """
+        from uuid import uuid4
+
+        logger.info(f"Executing deep research on topic: {topic}")
+
+        # Generate queries from the topic
+        queries = self._generate_research_queries(topic)
+        search_types = ["info", "news"]
+        research_id = str(uuid4())[:12]
+
+        # Emit PENDING WideResearchEvent at start
+        yield WideResearchEvent(
+            research_id=research_id,
+            topic=topic,
+            status=WideResearchStatus.PENDING,
+            total_queries=len(queries) * len(search_types),
+            completed_queries=0,
+            sources_found=0,
+            search_types=search_types,
+        )
+
+        # Emit tool calling event for wide_research
+        tool_call_id = str(uuid4())
+        function_args = {
+            "topic": topic,
+            "queries": queries,
+            "search_types": search_types,
+            "aggregation": "synthesize",
+        }
+
+        # Emit calling event
+        yield ToolEvent(
+            tool_call_id=tool_call_id,
+            tool_name="wide_research",
+            function_name="wide_research",
+            function_args=function_args,
+            status=ToolStatus.CALLING,
+        )
+
+        # Emit SEARCHING WideResearchEvent
+        yield WideResearchEvent(
+            research_id=research_id,
+            topic=topic,
+            status=WideResearchStatus.SEARCHING,
+            total_queries=len(queries) * len(search_types),
+            completed_queries=0,
+            sources_found=0,
+            search_types=search_types,
+            current_query=queries[0] if queries else None,
+        )
+
+        try:
+            # Execute wide_research through the search tool
+            if self._search_tool:
+                result = await self._search_tool.wide_research(
+                    topic=topic,
+                    queries=queries,
+                    search_types=search_types,
+                    aggregation="synthesize",
+                )
+
+                # Emit AGGREGATING WideResearchEvent
+                sources_found = result.data.get("total_sources", 0) if result and result.data else 0
+                yield WideResearchEvent(
+                    research_id=research_id,
+                    topic=topic,
+                    status=WideResearchStatus.AGGREGATING,
+                    total_queries=len(queries) * len(search_types),
+                    completed_queries=len(queries) * len(search_types),
+                    sources_found=sources_found,
+                    search_types=search_types,
+                )
+
+                # Emit called event with results
+                yield ToolEvent(
+                    tool_call_id=tool_call_id,
+                    tool_name="wide_research",
+                    function_name="wide_research",
+                    function_args=function_args,
+                    function_result=result.data if result else {},
+                    status=ToolStatus.CALLED,
+                )
+
+                # Emit report event with synthesized content
+                if result and result.success and result.data:
+                    content = result.data.get("content", "")
+
+                    # Create a report from the research
+                    report_id = str(uuid4())
+                    yield ReportEvent(
+                        id=report_id,
+                        title=f"Research: {topic}",
+                        content=content,
+                        attachments=[],
+                    )
+
+                    # Emit COMPLETED WideResearchEvent
+                    yield WideResearchEvent(
+                        research_id=research_id,
+                        topic=topic,
+                        status=WideResearchStatus.COMPLETED,
+                        total_queries=len(queries) * len(search_types),
+                        completed_queries=len(queries) * len(search_types),
+                        sources_found=sources_found,
+                        search_types=search_types,
+                    )
+
+                    # Emit done event
+                    yield DoneEvent()
+                else:
+                    # Research failed or no results
+                    error_msg = result.message if result else "No search tool available"
+
+                    # Emit FAILED WideResearchEvent
+                    yield WideResearchEvent(
+                        research_id=research_id,
+                        topic=topic,
+                        status=WideResearchStatus.FAILED,
+                        total_queries=len(queries) * len(search_types),
+                        completed_queries=len(queries) * len(search_types),
+                        sources_found=0,
+                        search_types=search_types,
+                        errors=[error_msg],
+                    )
+
+                    yield MessageEvent(message=f"I was unable to complete the deep research: {error_msg}")
+                    yield DoneEvent()
+            else:
+                # Emit FAILED WideResearchEvent for missing search tool
+                yield WideResearchEvent(
+                    research_id=research_id,
+                    topic=topic,
+                    status=WideResearchStatus.FAILED,
+                    total_queries=len(queries) * len(search_types),
+                    completed_queries=0,
+                    sources_found=0,
+                    search_types=search_types,
+                    errors=["Search capabilities are not available"],
+                )
+
+                yield MessageEvent(message="Search capabilities are not available for deep research.")
+                yield DoneEvent()
+
+        except Exception as e:
+            logger.error(f"Deep research failed: {e}")
+
+            # Emit FAILED WideResearchEvent on exception
+            yield WideResearchEvent(
+                research_id=research_id,
+                topic=topic,
+                status=WideResearchStatus.FAILED,
+                total_queries=len(queries) * len(search_types),
+                completed_queries=0,
+                sources_found=0,
+                search_types=search_types,
+                errors=[str(e)],
+            )
+
+            yield ToolEvent(
+                tool_call_id=tool_call_id,
+                tool_name="wide_research",
+                function_name="wide_research",
+                function_args=function_args,
+                function_result={"error": str(e)},
+                status=ToolStatus.CALLED,
+            )
+            yield ErrorEvent(error=f"Deep research failed: {e}")
+
+    def _generate_research_queries(self, topic: str) -> list[str]:
+        """Generate search queries from a research topic.
+
+        Args:
+            topic: The research topic
+
+        Returns:
+            A list of search queries for comprehensive coverage
+        """
+        # Start with the topic itself
+        queries = [topic]
+
+        # Add variations for broader coverage
+        topic_lower = topic.lower()
+
+        # Add "best" query if not already present
+        if "best" not in topic_lower:
+            queries.append(f"best {topic}")
+
+        # Add "comparison" query if not already present
+        if "comparison" not in topic_lower and "compare" not in topic_lower:
+            queries.append(f"{topic} comparison")
+
+        # Add "review" query for product/service topics
+        if "review" not in topic_lower:
+            queries.append(f"{topic} review")
+
+        # Add year if not present (for recency)
+        import datetime
+
+        current_year = datetime.datetime.now().year
+        if str(current_year) not in topic and str(current_year - 1) not in topic:
+            queries.append(f"{topic} {current_year}")
+
+        return queries[:5]  # Limit to 5 queries
+
     def _validate_plan_before_execution(self) -> bool:
         """Validate plan before execution; returns True if safe to proceed."""
         if not self.plan:
             logger.warning("No plan available for validation")
             return False
 
-        validation = self.plan.validate_plan()
-        if not validation.passed:
+        flags = get_feature_flags()
+        if flags.get("plan_validation_v2"):
+            tool_names = [
+                t.get("function", {}).get("name", "")
+                for t in (self.planner.get_available_tools() if self.planner else []) or []
+            ]
+            validation = PlanValidator(tool_names=tool_names).validate(self.plan)
+        else:
+            validation = self.plan.validate_plan()
+
+        passed = validation.passed
+        if not passed:
             error_summary = "; ".join(validation.errors[:3])
             logger.warning(f"Plan validation failed: {error_summary}")
+            if hasattr(validation, "to_summary"):
+                summary = validation.to_summary()
+            else:
+                summary = "\n- " + "\n- ".join(validation.errors[:5])
+            if flags.get("plan_validation_v2") and flags.get("shadow_mode", True):
+                return True
             self._verification_verdict = "revise"
-            self._verification_feedback = "Plan validation failed:\n- " + "\n- ".join(validation.errors[:5])
+            self._verification_feedback = "Plan validation failed:" + summary
             return False
 
         if validation.warnings:
@@ -900,16 +1333,60 @@ class PlanActFlow(BaseFlow):
         """
         old_status = self.status
         self._transition_to(new_status)
-        logger.debug(f"Agent {self._agent_id} entering state: {new_status}")
 
-        try:
-            yield
-        except Exception as e:
-            self._previous_status = old_status
-            self._error_context = self._error_handler.classify_error(e)
-            self._transition_to(AgentStatus.ERROR, force=True, reason="state context error")
-            logger.error(f"Agent {self._agent_id} error in state {new_status}: {e}")
-            raise
+        # Enhanced logging with structured context
+        logger.info(
+            "Workflow state transition",
+            extra={
+                "session_id": self._session_id,
+                "agent_id": self._agent_id,
+                "from_state": old_status.value,
+                "to_state": new_status.value,
+                "iteration_count": getattr(self, "_iteration_count", 0),
+            },
+        )
+
+        # Capture transition with observability span
+        from app.infrastructure.observability.spans import SpanKind, SpanStatus
+
+        trace_ctx = getattr(self, "_trace_context", None)
+
+        span_name = f"workflow:{new_status.value}"
+
+        if trace_ctx:
+            with trace_ctx.span(span_name, SpanKind.PLAN_CREATE) as span:
+                span.set_attribute("workflow.from_state", old_status.value)
+                span.set_attribute("workflow.to_state", new_status.value)
+                span.set_attribute("workflow.session_id", self._session_id)
+                span.set_attribute("workflow.agent_id", self._agent_id)
+
+                try:
+                    yield
+                except Exception as e:
+                    self._previous_status = old_status
+                    self._error_context = self._error_handler.classify_error(e)
+                    self._transition_to(AgentStatus.ERROR, force=True, reason="state context error")
+
+                    span.set_status(SpanStatus.ERROR, str(e))
+                    logger.error(
+                        f"Agent {self._agent_id} error in state {new_status}",
+                        extra={
+                            "session_id": self._session_id,
+                            "from_state": old_status.value,
+                            "to_state": new_status.value,
+                            "error": str(e),
+                        },
+                    )
+                    raise
+        else:
+            try:
+                yield
+            except Exception as e:
+                self._previous_status = old_status
+                self._error_context = self._error_handler.classify_error(e)
+                self._transition_to(AgentStatus.ERROR, force=True, reason="state context error")
+                logger.error(f"Agent {self._agent_id} error in state {new_status}: {e}")
+                raise
 
     async def handle_error_state(self) -> bool:
         """
@@ -961,10 +1438,14 @@ class PlanActFlow(BaseFlow):
         if not session:
             raise ValueError(f"Session {self._session_id} not found")
 
+        # Phase 3.5: Initialize skill_invoke tool with available skills (lazy load)
+        await self._init_skill_invoke_tool()
+
         # === FAST PATH: Check if this is a simple query that can skip planning ===
-        # Only for PENDING sessions (fully initialized), not INITIALIZING (browser may not be ready)
+        # For PENDING or COMPLETED sessions (not INITIALIZING where browser may not be ready)
+        # COMPLETED sessions can still receive new messages and should use fast path for greetings/simple queries
         logger.info(f"Fast path check: session.status={session.status}, message={message.message[:50]}")
-        if session.status == SessionStatus.PENDING:
+        if session.status in (SessionStatus.PENDING, SessionStatus.COMPLETED):
             fast_path_router = FastPathRouter(
                 browser=self._browser,
                 llm=self._llm,
@@ -977,7 +1458,10 @@ class PlanActFlow(BaseFlow):
             use_fast_path = False
             skip_reason = ""
 
-            if intent == QueryIntent.KNOWLEDGE:
+            if intent == QueryIntent.GREETING:
+                # Greetings don't need browser or tools - always use fast path
+                use_fast_path = True
+            elif intent == QueryIntent.KNOWLEDGE:
                 # Knowledge queries don't need browser - always safe
                 use_fast_path = True
             elif intent in (QueryIntent.DIRECT_BROWSE, QueryIntent.WEB_SEARCH):
@@ -1000,10 +1484,15 @@ class PlanActFlow(BaseFlow):
                 async for event in fast_path_router.execute(intent, params, message):
                     yield event
 
-                # Mark session as completed
-                await self._session_repository.update_status(self._session_id, SessionStatus.COMPLETED)
+                # For GREETING, keep session PENDING (waiting for actual task)
+                # For other fast paths (BROWSE, SEARCH, KNOWLEDGE), mark as COMPLETED
+                if intent == QueryIntent.GREETING:
+                    await self._session_repository.update_status(self._session_id, SessionStatus.PENDING)
+                    logger.info(f"Greeting fast path completed, session {self._session_id} waiting for task")
+                else:
+                    await self._session_repository.update_status(self._session_id, SessionStatus.COMPLETED)
+                    logger.info(f"Fast path completed for session {self._session_id}")
 
-                logger.info(f"Fast path completed for session {self._session_id}")
                 return  # Exit early - don't proceed with full workflow
             elif intent in (QueryIntent.DIRECT_BROWSE, QueryIntent.WEB_SEARCH):
                 logger.info(f"Fast path skipped for {intent.value} - {skip_reason}, using normal workflow")
@@ -1065,6 +1554,45 @@ class PlanActFlow(BaseFlow):
         await self._session_repository.update_status(self._session_id, SessionStatus.RUNNING)
         self.plan = session.get_last_plan()
 
+        # Restore step statuses from StepEvents when resuming with an existing plan
+        if self.plan and self.plan.steps:
+            # Map StepStatus to ExecutionStatus
+            step_status_map = {
+                StepStatus.COMPLETED: ExecutionStatus.COMPLETED,
+                StepStatus.FAILED: ExecutionStatus.FAILED,
+                StepStatus.RUNNING: ExecutionStatus.RUNNING,
+                StepStatus.STARTED: ExecutionStatus.RUNNING,
+            }
+            # Find the latest status for each step from StepEvents
+            step_statuses: dict[str, ExecutionStatus] = {}
+            for event in session.events:
+                if isinstance(event, StepEvent) and event.step:
+                    step_id = str(event.step.id)
+                    if event.status in step_status_map:
+                        step_statuses[step_id] = step_status_map[event.status]
+
+            # Apply restored statuses to plan steps
+            for step in self.plan.steps:
+                step_id = str(step.id)
+                if step_id in step_statuses:
+                    step.status = step_statuses[step_id]
+                    logger.debug(f"Restored step {step_id} status to {step.status}")
+
+        # Reinitialize TaskStateManager when resuming with an existing plan
+        if self.plan and self.plan.steps:
+            # Get the original objective from the first user message event
+            original_objective = ""
+            for event in session.events:
+                if hasattr(event, "role") and event.role == "user" and hasattr(event, "message"):
+                    original_objective = event.message or ""
+                    break
+
+            self._task_state_manager.initialize_from_plan(
+                objective=original_objective or message.message,
+                steps=[{"id": s.id, "description": s.description} for s in self.plan.steps],
+            )
+            logger.info(f"TaskStateManager initialized with {len(self.plan.steps)} steps for resumed session")
+
         logger.info(f"Agent {self._agent_id} started processing message: {message.message[:50]}...")
 
         # Emit acknowledgment before planning (not for resumed/waiting sessions)
@@ -1072,6 +1600,30 @@ class PlanActFlow(BaseFlow):
             acknowledgment = self._generate_acknowledgment(message.message)
             yield MessageEvent(message=acknowledgment)
             logger.info(f"Emitted acknowledgment for session {self._session_id}")
+
+        # Emit a skill loading tool event for /skill-creator commands
+        skill_command = self._extract_skill_creator_command(message.message)
+        if skill_command:
+            async for event in self._emit_skill_invoke_events(*skill_command):
+                yield event
+
+        # === DEEP RESEARCH MODE ===
+        # When deep_research is True, directly execute wide_research tool
+        # This provides parallel multi-source search capabilities
+        if message.deep_research:
+            logger.info(f"Deep Research mode activated for session {self._session_id}")
+            topic = self._extract_research_topic(message.message) or message.message
+            logger.info(f"Deep Research topic: {topic}")
+
+            # Execute wide_research directly through the search tool
+            async for event in self._execute_deep_research(topic, message.message, trace_ctx):
+                yield event
+
+            # After deep research, proceed to summarization
+            await self._session_repository.update_status(self._session_id, SessionStatus.COMPLETED)
+            logger.info(f"Deep Research completed for session {self._session_id}")
+            return
+        # === END DEEP RESEARCH MODE ===
 
         step = None
         while True:
@@ -1105,8 +1657,8 @@ class PlanActFlow(BaseFlow):
                             if isinstance(event, PlanEvent) and event.status == PlanStatus.CREATED:
                                 self.plan = event.plan
 
-                                # Infer sequential dependencies for BLOCKED cascade
-                                self.plan.infer_sequential_dependencies()
+                                # Infer smart dependencies for BLOCKED cascade and parallel execution
+                                self.plan.infer_smart_dependencies(use_sequential_fallback=True)
 
                                 plan_span.set_attribute("plan.steps", len(event.plan.steps))
                                 plan_span.set_attribute("plan.title", event.plan.title)
@@ -1256,11 +1808,25 @@ class PlanActFlow(BaseFlow):
                             )
                             logger.info(f"Using specialized executor for step {step.id}")
 
+                        # Phase 4 P1: Mark step executing to prevent compaction
+                        if hasattr(step_executor, "_token_manager"):
+                            step_executor._token_manager.mark_step_executing()
+
                         async for event in step_executor.execute_step(self.plan, step, message):
                             # Phase 3: Track tool usage for proactive compaction
                             if isinstance(event, ToolEvent) and event.tool_name:
                                 self._track_tool_usage(event.tool_name)
                             yield event
+
+                            # Yield any pending events from skill creator tools (Phase 3: Custom Skills)
+                            while self._pending_events:
+                                pending_event = self._pending_events.pop(0)
+                                logger.info(f"Yielding pending event: {type(pending_event).__name__}")
+                                yield pending_event
+
+                        # Phase 4 P1: Mark step completed to allow compaction
+                        if hasattr(step_executor, "_token_manager"):
+                            step_executor._token_manager.mark_step_completed()
 
                         # Mark step status based on actual success/failure
                         if step.success:
@@ -1281,6 +1847,47 @@ class PlanActFlow(BaseFlow):
 
                     # Check if we can skip plan update phase for faster response
                     # Skipping saves 2-5 seconds by avoiding an LLM call
+                    flags = get_feature_flags()
+                    if flags.get("failure_prediction"):
+                        try:
+                            progress = self._task_state_manager.get_progress_metrics()
+                            token_usage_pct = None
+                            try:
+                                await self.executor._ensure_memory()
+                                pressure = self._memory_manager.get_pressure_status(
+                                    self.executor.memory.estimate_tokens()
+                                )
+                                token_usage_pct = pressure.usage_ratio
+                            except Exception as e:
+                                logger.debug(f"Token pressure lookup failed: {e}")
+
+                            prediction = FailurePredictor().predict(
+                                progress=progress,
+                                recent_actions=self._task_state_manager.get_recent_actions(),
+                                stuck_analysis=None,
+                                token_usage_pct=token_usage_pct,
+                            )
+                            record_failure_prediction(
+                                "predicted" if prediction.will_fail else "clear",
+                                prediction.probability,
+                            )
+                            await get_alert_manager().check_thresholds(
+                                self._session_id,
+                                {"failure_prediction_probability": prediction.probability},
+                            )
+                            if prediction.will_fail:
+                                note = (
+                                    f"Failure prediction: {prediction.probability:.0%} risk. "
+                                    f"Factors: {', '.join(prediction.factors) or 'unknown'}. "
+                                    f"Recommended: {prediction.recommended_action}."
+                                )
+                                if step.notes:
+                                    step.notes = f"{step.notes}\n{note}"
+                                else:
+                                    step.notes = note
+                        except Exception as e:
+                            logger.debug(f"Failure prediction failed: {e}")
+
                     remaining_steps = [s for s in self.plan.steps if not s.is_done()]
                     skip_update, skip_reason = self._should_skip_plan_update(step, len(remaining_steps))
 
@@ -1339,10 +1946,22 @@ class PlanActFlow(BaseFlow):
                                 all_attachments = list(session_files) if session_files else []
                                 if event_attachments:
                                     # Add LLM attachments that aren't already in session files
+                                    # Deduplicate by both full path and filename (basename) to handle path variations
                                     existing_paths = {f.file_path for f in all_attachments if f.file_path}
+                                    existing_filenames = {
+                                        os.path.basename(f.file_path) for f in all_attachments if f.file_path
+                                    }
                                     for att in event_attachments:
-                                        if att.file_path and att.file_path not in existing_paths:
-                                            all_attachments.append(att)
+                                        if att.file_path:
+                                            basename = os.path.basename(att.file_path)
+                                            # Skip if exact path OR filename already exists
+                                            if (
+                                                att.file_path not in existing_paths
+                                                and basename not in existing_filenames
+                                            ):
+                                                all_attachments.append(att)
+                                                existing_paths.add(att.file_path)
+                                                existing_filenames.add(basename)
 
                                 # Update event with merged attachments
                                 if all_attachments and isinstance(event, (ReportEvent, MessageEvent)):

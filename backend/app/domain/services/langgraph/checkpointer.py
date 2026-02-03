@@ -4,22 +4,105 @@ This module implements a LangGraph checkpoint saver using MongoDB,
 enabling persistent state across workflow executions.
 """
 
+import importlib
+import importlib.util
 import json
 import logging
+import sys
 from collections.abc import AsyncIterator, Iterator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
-from langgraph.checkpoint.base import (
+
+
+def _import_from_site_packages(module_path: str):
+    """Import a module directly from site-packages, bypassing local shadowing."""
+    import site
+
+    # Get site-packages directories
+    site_packages = site.getsitepackages()
+    if hasattr(site, 'getusersitepackages'):
+        user_site = site.getusersitepackages()
+        if user_site:
+            site_packages.append(user_site)
+
+    # Find the langgraph package
+    for sp in site_packages:
+        pkg_path = Path(sp) / 'langgraph'
+        if pkg_path.exists():
+            # Found it! Import from here
+            checkpoint_init = pkg_path / 'checkpoint' / 'base' / '__init__.py'
+            if checkpoint_init.exists():
+                spec = importlib.util.spec_from_file_location(
+                    'langgraph_checkpoint_base',
+                    checkpoint_init
+                )
+                if spec and spec.loader:
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+                    return module
+
+    raise ImportError(f"Could not find langgraph package in site-packages: {site_packages}")
+
+
+def _get_checkpoint_classes():
+    """Get checkpoint classes, handling import shadowing during pytest."""
+    # First, check if the correct module is already loaded
+    if 'langgraph.checkpoint.base' in sys.modules:
+        mod = sys.modules['langgraph.checkpoint.base']
+        if hasattr(mod, 'BaseCheckpointSaver'):
+            return (
+                mod.BaseCheckpointSaver,
+                mod.ChannelVersions,
+                mod.Checkpoint,
+                mod.CheckpointMetadata,
+                mod.CheckpointTuple,
+                mod.get_checkpoint_id,
+            )
+
+    try:
+        # Try direct import
+        from langgraph.checkpoint.base import (
+            BaseCheckpointSaver,
+            ChannelVersions,
+            Checkpoint,
+            CheckpointMetadata,
+            CheckpointTuple,
+            get_checkpoint_id,
+        )
+        return (
+            BaseCheckpointSaver,
+            ChannelVersions,
+            Checkpoint,
+            CheckpointMetadata,
+            CheckpointTuple,
+            get_checkpoint_id,
+        )
+    except (ImportError, ModuleNotFoundError, AttributeError):
+        # Direct import failed (likely due to shadowing), use file-based import
+        mod = _import_from_site_packages('langgraph.checkpoint.base')
+        return (
+            mod.BaseCheckpointSaver,
+            mod.ChannelVersions,
+            mod.Checkpoint,
+            mod.CheckpointMetadata,
+            mod.CheckpointTuple,
+            mod.get_checkpoint_id,
+        )
+
+
+# Get the checkpoint classes
+(
     BaseCheckpointSaver,
     ChannelVersions,
     Checkpoint,
     CheckpointMetadata,
     CheckpointTuple,
     get_checkpoint_id,
-)
+) = _get_checkpoint_classes()
 
 logger = logging.getLogger(__name__)
 
@@ -114,9 +197,7 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
             "v": checkpoint.get("v", 1),
             "ts": checkpoint.get("ts", datetime.now(UTC).isoformat()),
             "id": checkpoint.get("id"),
-            "channel_values": self._serialize_channel_values(
-                checkpoint.get("channel_values", {})
-            ),
+            "channel_values": self._serialize_channel_values(checkpoint.get("channel_values", {})),
             "channel_versions": checkpoint.get("channel_versions", {}),
             "versions_seen": checkpoint.get("versions_seen", {}),
             "pending_sends": checkpoint.get("pending_sends", []),
@@ -136,10 +217,7 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
         """
         serialized = {}
         # Keys to skip (non-serializable agent/tool instances)
-        skip_keys = {
-            "planner", "executor", "verifier", "reflection_agent",
-            "task_state_manager", "user_message"
-        }
+        skip_keys = {"planner", "executor", "verifier", "reflection_agent", "task_state_manager", "user_message"}
 
         for key, value in channel_values.items():
             if key in skip_keys:
@@ -191,10 +269,7 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
         query = self._config_to_query(config, checkpoint_ns)
 
         # Find the most recent checkpoint
-        doc = await self._checkpoints.find_one(
-            query,
-            sort=[("ts", -1)]
-        )
+        doc = await self._checkpoints.find_one(query, sort=[("ts", -1)])
 
         if not doc:
             return None
@@ -211,18 +286,22 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
         }
 
         # Get pending writes for this checkpoint
-        writes_cursor = self._writes.find({
-            "thread_id": doc["thread_id"],
-            "checkpoint_ns": doc.get("checkpoint_ns", ""),
-            "checkpoint_id": doc.get("checkpoint_id") or checkpoint.get("id"),
-        })
+        writes_cursor = self._writes.find(
+            {
+                "thread_id": doc["thread_id"],
+                "checkpoint_ns": doc.get("checkpoint_ns", ""),
+                "checkpoint_id": doc.get("checkpoint_id") or checkpoint.get("id"),
+            }
+        )
         pending_writes = []
         async for write_doc in writes_cursor:
-            pending_writes.append((
-                write_doc.get("task_id", ""),
-                write_doc.get("channel"),
-                write_doc.get("value"),
-            ))
+            pending_writes.append(
+                (
+                    write_doc.get("task_id", ""),
+                    write_doc.get("channel"),
+                    write_doc.get("value"),
+                )
+            )
 
         return CheckpointTuple(
             config=checkpoint_config,
@@ -255,10 +334,15 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
         checkpoint_ns = configurable.get("checkpoint_ns", "")
         checkpoint_id = checkpoint.get("id") or get_checkpoint_id()
 
+        # P1.4: Track parent checkpoint for lineage/branching support
+        # The current checkpoint_id in config is the parent (we're creating a new one)
+        parent_checkpoint_id = configurable.get("checkpoint_id")
+
         doc = {
             "thread_id": thread_id,
             "checkpoint_ns": checkpoint_ns,
             "checkpoint_id": checkpoint_id,
+            "parent_checkpoint_id": parent_checkpoint_id,  # P1.4: Track lineage
             **self._serialize_checkpoint(checkpoint),
             "metadata": metadata,
             "new_versions": new_versions,
@@ -310,15 +394,17 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
             try:
                 # Verify serializable
                 json.dumps(value, default=str)
-                docs.append({
-                    "thread_id": thread_id,
-                    "checkpoint_ns": checkpoint_ns,
-                    "checkpoint_id": checkpoint_id,
-                    "task_id": task_id,
-                    "channel": channel,
-                    "value": value,
-                    "created_at": datetime.now(UTC),
-                })
+                docs.append(
+                    {
+                        "thread_id": thread_id,
+                        "checkpoint_ns": checkpoint_ns,
+                        "checkpoint_id": checkpoint_id,
+                        "task_id": task_id,
+                        "channel": channel,
+                        "value": value,
+                        "created_at": datetime.now(UTC),
+                    }
+                )
             except (TypeError, ValueError):
                 logger.debug(f"Skipping non-serializable write for channel: {channel}")
                 continue
@@ -400,9 +486,7 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
 
     def get_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
         """Sync get_tuple - not supported, use aget_tuple."""
-        raise NotImplementedError(
-            "MongoDBCheckpointer only supports async operations. Use aget_tuple instead."
-        )
+        raise NotImplementedError("MongoDBCheckpointer only supports async operations. Use aget_tuple instead.")
 
     def put(
         self,
@@ -412,9 +496,7 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
         new_versions: ChannelVersions,
     ) -> RunnableConfig:
         """Sync put - not supported, use aput."""
-        raise NotImplementedError(
-            "MongoDBCheckpointer only supports async operations. Use aput instead."
-        )
+        raise NotImplementedError("MongoDBCheckpointer only supports async operations. Use aput instead.")
 
     def put_writes(
         self,
@@ -423,9 +505,7 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
         task_id: str,
     ) -> None:
         """Sync put_writes - not supported, use aput_writes."""
-        raise NotImplementedError(
-            "MongoDBCheckpointer only supports async operations. Use aput_writes instead."
-        )
+        raise NotImplementedError("MongoDBCheckpointer only supports async operations. Use aput_writes instead.")
 
     def list(
         self,
@@ -436,6 +516,4 @@ class MongoDBCheckpointer(BaseCheckpointSaver):
         limit: int | None = None,
     ) -> Iterator[CheckpointTuple]:
         """Sync list - not supported, use alist."""
-        raise NotImplementedError(
-            "MongoDBCheckpointer only supports async operations. Use alist instead."
-        )
+        raise NotImplementedError("MongoDBCheckpointer only supports async operations. Use alist instead.")

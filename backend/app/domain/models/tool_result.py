@@ -2,7 +2,8 @@ from typing import Generic, TypeVar
 
 from pydantic import BaseModel
 
-T = TypeVar('T')
+T = TypeVar("T")
+
 
 class ToolResult(BaseModel, Generic[T]):
     success: bool

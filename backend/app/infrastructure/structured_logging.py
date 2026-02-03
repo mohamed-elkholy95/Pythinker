@@ -5,6 +5,7 @@ Provides JSON-formatted logging with correlation ID propagation through async op
 """
 
 import logging
+import re
 import sys
 from contextvars import ContextVar
 from typing import Any
@@ -19,6 +20,89 @@ request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 session_id_var: ContextVar[str | None] = ContextVar("session_id", default=None)
 user_id_var: ContextVar[str | None] = ContextVar("user_id", default=None)
 agent_id_var: ContextVar[str | None] = ContextVar("agent_id", default=None)
+
+REDACTED_VALUE = "***REDACTED***"
+_DEFAULT_REDACTION_KEYS = {
+    "api_key",
+    "apikey",
+    "access_token",
+    "refresh_token",
+    "token",
+    "password",
+    "secret",
+    "authorization",
+    "cookie",
+    "set-cookie",
+}
+_VALUE_PATTERNS = [
+    re.compile(r"sk-[A-Za-z0-9]{16,}"),
+    re.compile(r"rk-[A-Za-z0-9]{16,}"),
+    re.compile(r"(?i)bearer\s+[A-Za-z0-9._~+/-]+=*"),  # Note: - must be at end of character class
+]
+
+
+def _parse_redaction_keys(raw_keys: str | None) -> set[str]:
+    if not raw_keys:
+        return set(_DEFAULT_REDACTION_KEYS)
+    keys = {k.strip().lower() for k in raw_keys.split(",") if k.strip()}
+    return keys or set(_DEFAULT_REDACTION_KEYS)
+
+
+def _is_sensitive_key(key: Any, redaction_keys: set[str]) -> bool:
+    if key is None:
+        return False
+    key_str = str(key).strip().lower()
+    key_norm = key_str.replace("-", "_")
+    if key_str in redaction_keys or key_norm in redaction_keys:
+        return True
+    return any(token in key_norm for token in redaction_keys if len(token) >= 4)
+
+
+def _value_looks_sensitive(value: str) -> bool:
+    return any(pattern.search(value) for pattern in _VALUE_PATTERNS)
+
+
+def _redact_object(obj: Any, redaction_keys: set[str], max_depth: int, depth: int = 0) -> Any:
+    if depth > max_depth:
+        return obj
+    if isinstance(obj, dict):
+        for key, value in list(obj.items()):
+            if _is_sensitive_key(key, redaction_keys):
+                obj[key] = REDACTED_VALUE
+            else:
+                obj[key] = _redact_object(value, redaction_keys, max_depth, depth + 1)
+        return obj
+    if isinstance(obj, list):
+        return [_redact_object(item, redaction_keys, max_depth, depth + 1) for item in obj]
+    if isinstance(obj, tuple):
+        return tuple(_redact_object(item, redaction_keys, max_depth, depth + 1) for item in obj)
+    if isinstance(obj, str) and _value_looks_sensitive(obj):
+        return REDACTED_VALUE
+    return obj
+
+
+def redact_event_dict(logger: Any, method_name: str, event_dict: EventDict) -> EventDict:
+    """Redact sensitive data from structured log entries.
+
+    This is a structlog processor function with the standard signature.
+
+    Args:
+        logger: The wrapped logger object
+        method_name: The name of the log method called (e.g., 'info', 'error')
+        event_dict: The event dictionary to process
+
+    Returns:
+        The event dictionary with sensitive values redacted
+    """
+    settings = get_settings()
+    if not settings.log_redaction_enabled:
+        return event_dict
+    try:
+        redaction_keys = _parse_redaction_keys(settings.log_redaction_keys)
+        return _redact_object(event_dict, redaction_keys, settings.log_redaction_max_depth)
+    except Exception:
+        # Fail-open: do not block logging
+        return event_dict
 
 
 def set_request_id(request_id: str) -> None:
@@ -61,9 +145,7 @@ def get_agent_id() -> str | None:
     return agent_id_var.get()
 
 
-def add_correlation_ids(
-    logger: logging.Logger, method_name: str, event_dict: EventDict
-) -> EventDict:
+def add_correlation_ids(logger: logging.Logger, method_name: str, event_dict: EventDict) -> EventDict:
     """Processor to inject correlation IDs into all log entries."""
     request_id = request_id_var.get()
     session_id = session_id_var.get()
@@ -82,6 +164,7 @@ def add_correlation_ids(
     # Also try to get from observability context (fallback)
     try:
         from app.infrastructure.observability.context import get_request_context
+
         ctx = get_request_context()
         if ctx.request_id and "request_id" not in event_dict:
             event_dict["request_id"] = ctx.request_id
@@ -97,9 +180,7 @@ def add_correlation_ids(
     return event_dict
 
 
-def add_log_level(
-    logger: logging.Logger, method_name: str, event_dict: EventDict
-) -> EventDict:
+def add_log_level(logger: logging.Logger, method_name: str, event_dict: EventDict) -> EventDict:
     """Add log level to event dict."""
     event_dict["level"] = method_name.upper()
     return event_dict
@@ -123,6 +204,7 @@ def setup_structured_logging() -> None:
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_logger_name,
         add_correlation_ids,
+        redact_event_dict,
         structlog.stdlib.add_log_level,
         structlog.stdlib.PositionalArgumentsFormatter(),
         structlog.processors.TimeStamper(fmt="iso"),

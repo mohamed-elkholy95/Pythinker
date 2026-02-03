@@ -9,7 +9,8 @@ import re
 import json
 import logging
 import asyncio
-from typing import Optional, Dict, Any, List
+import contextlib
+from typing import List
 from pathlib import Path
 
 from app.models.code_dev import (
@@ -100,10 +101,8 @@ class CodeDevService:
 
         except asyncio.TimeoutError:
             logger.error(f"Command timed out: {' '.join(cmd)}")
-            try:
+            with contextlib.suppress(Exception):
                 process.kill()
-            except:
-                pass
             raise AppException(f"Command timed out after {timeout} seconds")
 
         except Exception as e:
@@ -639,8 +638,7 @@ class CodeDevService:
                             context_after.append(ctx_line)
 
                     elif msg_type == "summary":
-                        summary = data.get("data", {})
-                        # Process summary if needed
+                        _ = data.get("data", {})
 
                 except json.JSONDecodeError:
                     continue

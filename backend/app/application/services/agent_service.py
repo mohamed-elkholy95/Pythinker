@@ -1,11 +1,12 @@
 import asyncio
+import contextlib
 import logging
 import posixpath
 import shlex
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from app.core.config import get_settings
 from app.core.sandbox_pool import get_sandbox_pool
@@ -52,6 +53,7 @@ class AgentService:
         mcp_repository: MCPRepository,
         search_engine: SearchEngine | None = None,
         memory_service: Optional["MemoryService"] = None,
+        mongodb_db: Any | None = None,  # MongoDB database for LangGraph checkpointing
     ):
         logger.info("Initializing AgentService")
         self._agent_repository = agent_repository
@@ -68,13 +70,53 @@ class AgentService:
             mcp_repository,
             search_engine,
             memory_service,
+            mongodb_db,
         )
         self._llm = llm
         self._search_engine = search_engine
         self._sandbox_cls = sandbox_cls
+        self._background_tasks: set[asyncio.Task] = set()
 
-    async def create_session(self, user_id: str, mode: AgentMode = AgentMode.AGENT) -> Session:
+    async def create_session(
+        self,
+        user_id: str,
+        mode: AgentMode = AgentMode.AGENT,
+        initial_message: str | None = None,
+    ) -> Session:
         logger.info(f"Creating new session for user: {user_id} with mode: {mode}")
+
+        # Phase 4 P0: Intent classification for simple queries
+        if initial_message and mode == AgentMode.AGENT:
+            from app.domain.services.agents.intent_classifier import get_intent_classifier
+            from app.infrastructure.observability.prometheus_metrics import intent_classification_total
+
+            classifier = get_intent_classifier()
+            intent, recommended_mode, confidence = classifier.classify(initial_message)
+
+            logger.info(
+                "Intent classification",
+                extra={
+                    "message_preview": initial_message[:50],
+                    "detected_intent": intent,
+                    "recommended_mode": recommended_mode.value,
+                    "confidence": confidence,
+                    "original_mode": mode.value,
+                },
+            )
+
+            # Record metric
+            intent_classification_total.inc(
+                labels={
+                    "detected_intent": intent,
+                    "selected_mode": recommended_mode.value,
+                }
+            )
+
+            # Override mode if classification confidence is high enough
+            if confidence >= 0.75:
+                mode = recommended_mode
+                logger.info(f"Mode overridden by intent classification: {mode.value}")
+
         agent = await self._create_agent()
         session = Session(agent_id=agent.id, user_id=user_id, mode=mode)
         logger.info(f"Created new Session with ID: {session.id} for user: {user_id} with mode: {mode}")
@@ -83,7 +125,9 @@ class AgentService:
         # Phase 2: Start sandbox creation in background for faster first chat
         settings = get_settings()
         if settings.sandbox_eager_init:
-            asyncio.create_task(self._warm_sandbox_for_session(session.id))
+            task = asyncio.create_task(self._warm_sandbox_for_session(session.id))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
             logger.info(f"Started background sandbox warm-up for session {session.id}")
 
         return session
@@ -140,10 +184,8 @@ class AgentService:
         except Exception as e:
             logger.warning(f"Failed to pre-warm sandbox for session {session_id}: {e}")
             # Reset status to PENDING even on failure - first chat will create sandbox
-            try:
+            with contextlib.suppress(Exception):
                 await self._session_repository.update_status(session_id, SessionStatus.PENDING)
-            except Exception:
-                pass
 
     async def _prewarm_browser(self, sandbox: Sandbox, session_id: str) -> None:
         """Pre-warm browser context so it's ready for immediate use.
@@ -224,11 +266,13 @@ class AgentService:
         timestamp: datetime | None = None,
         event_id: str | None = None,
         attachments: list[dict] | None = None,
+        skills: list[str] | None = None,
+        deep_research: bool | None = None,
     ) -> AsyncGenerator[AgentEvent, None]:
-        logger.info(f"Starting chat with session {session_id}: {message[:50]}...")
+        logger.info(f"Starting chat with session {session_id}: {(message or '')[:50]}...")
         # Directly use the domain service's chat method, which will check if the session exists
         async for event in self._agent_domain_service.chat(
-            session_id, user_id, message, timestamp, event_id, attachments
+            session_id, user_id, message, timestamp, event_id, attachments, skills, deep_research
         ):
             logger.debug(f"Received event: {event}")
             yield event

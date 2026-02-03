@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 class WorkflowState(str, Enum):
     """Workflow execution states"""
+
     INITIALIZING = "initializing"
     RUNNING = "running"
     PAUSED = "paused"
@@ -31,6 +32,7 @@ class WorkflowState(str, Enum):
 
 class WorkflowStep(str, Enum):
     """Standard workflow steps"""
+
     SANDBOX_INIT = "sandbox_init"
     AGENT_INIT = "agent_init"
     PLANNING = "planning"
@@ -42,6 +44,7 @@ class WorkflowStep(str, Enum):
 @dataclass
 class WorkflowContext:
     """Context for workflow execution"""
+
     session_id: str
     agent_id: str
     user_id: str
@@ -70,25 +73,11 @@ class WorkflowManager:
         """Register a recovery handler for a workflow step"""
         self._recovery_handlers[step] = handler
 
-    @error_handler(
-        severity=ErrorSeverity.HIGH,
-        category=ErrorCategory.AGENT,
-        auto_recover=True
-    )
-    async def start_workflow(
-        self,
-        session_id: str,
-        agent_id: str,
-        user_id: str,
-        steps: list[WorkflowStep]
-    ) -> bool:
+    @error_handler(severity=ErrorSeverity.HIGH, category=ErrorCategory.AGENT, auto_recover=True)
+    async def start_workflow(self, session_id: str, agent_id: str, user_id: str, steps: list[WorkflowStep]) -> bool:
         """Start a new workflow with error handling"""
 
-        context = WorkflowContext(
-            session_id=session_id,
-            agent_id=agent_id,
-            user_id=user_id
-        )
+        context = WorkflowContext(session_id=session_id, agent_id=agent_id, user_id=user_id)
 
         self._active_workflows[session_id] = context
 
@@ -99,7 +88,7 @@ class WorkflowManager:
                 session_id=session_id,
                 agent_id=agent_id,
                 user_id=user_id,
-                category=ErrorCategory.AGENT
+                category=ErrorCategory.AGENT,
             ):
                 context.state = WorkflowState.RUNNING
 
@@ -115,10 +104,7 @@ class WorkflowManager:
             logger.error(f"Workflow failed for session {session_id}: {e}")
 
             # Attempt recovery
-            if await self._attempt_workflow_recovery(context):
-                return True
-
-            return False
+            return bool(await self._attempt_workflow_recovery(context))
         finally:
             # Cleanup
             await self._cleanup_workflow(context)
@@ -133,7 +119,7 @@ class WorkflowManager:
             session_id=context.session_id,
             agent_id=context.agent_id,
             user_id=context.user_id,
-            category=ErrorCategory.AGENT
+            category=ErrorCategory.AGENT,
         ):
             if step not in self._step_handlers:
                 raise ValueError(f"No handler registered for step {step}")
@@ -186,7 +172,7 @@ class WorkflowManager:
             "agent_id": context.agent_id,
             "state": context.state.value,
             "current_step": context.current_step.value if context.current_step else None,
-            "metadata": context.metadata
+            "metadata": context.metadata,
         }
 
     def pause_workflow(self, session_id: str) -> bool:
@@ -216,11 +202,7 @@ def get_workflow_manager() -> WorkflowManager:
 
 
 # Standard workflow step implementations
-@error_handler(
-    severity=ErrorSeverity.CRITICAL,
-    category=ErrorCategory.SANDBOX,
-    auto_recover=True
-)
+@error_handler(severity=ErrorSeverity.CRITICAL, category=ErrorCategory.SANDBOX, auto_recover=True)
 async def sandbox_init_handler(context: WorkflowContext):
     """Initialize sandbox with robust error handling"""
     logger.info(f"Initializing sandbox for session {context.session_id}")
@@ -230,11 +212,7 @@ async def sandbox_init_handler(context: WorkflowContext):
     context.metadata["sandbox_initialized"] = True
 
 
-@error_handler(
-    severity=ErrorSeverity.HIGH,
-    category=ErrorCategory.AGENT,
-    auto_recover=True
-)
+@error_handler(severity=ErrorSeverity.HIGH, category=ErrorCategory.AGENT, auto_recover=True)
 async def agent_init_handler(context: WorkflowContext):
     """Initialize agent with error handling"""
     logger.info(f"Initializing agent {context.agent_id}")
@@ -243,11 +221,7 @@ async def agent_init_handler(context: WorkflowContext):
     context.metadata["agent_initialized"] = True
 
 
-@error_handler(
-    severity=ErrorSeverity.MEDIUM,
-    category=ErrorCategory.AGENT,
-    auto_recover=True
-)
+@error_handler(severity=ErrorSeverity.MEDIUM, category=ErrorCategory.AGENT, auto_recover=True)
 async def planning_handler(context: WorkflowContext):
     """Execute planning phase with error handling"""
     logger.info(f"Starting planning for session {context.session_id}")
@@ -256,11 +230,7 @@ async def planning_handler(context: WorkflowContext):
     context.metadata["planning_completed"] = True
 
 
-@error_handler(
-    severity=ErrorSeverity.MEDIUM,
-    category=ErrorCategory.AGENT,
-    auto_recover=True
-)
+@error_handler(severity=ErrorSeverity.MEDIUM, category=ErrorCategory.AGENT, auto_recover=True)
 async def execution_handler(context: WorkflowContext):
     """Execute agent actions with error handling"""
     logger.info(f"Starting execution for session {context.session_id}")

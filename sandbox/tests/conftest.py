@@ -3,8 +3,8 @@ Pytest configuration and fixtures
 """
 import sys
 import os
+import contextlib
 import pytest
-import tempfile
 from pathlib import Path
 
 # Add the parent directory to Python path so we can import app modules
@@ -43,10 +43,8 @@ def temp_test_file():
     yield temp_file
     
     # Cleanup via API
-    try:
+    with contextlib.suppress(Exception):
         session.post(f"{BASE_URL}/api/v1/file/write", json={
             "file": temp_file,
             "content": ""
         })
-    except:
-        pass 

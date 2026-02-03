@@ -32,6 +32,7 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
+from app.core.config import get_feature_flags
 from app.domain.external.llm import LLM
 from app.domain.models.event import (
     BaseEvent,
@@ -56,6 +57,11 @@ from app.domain.services.prompts.reflection import (
     REFLECTION_SYSTEM_PROMPT,
 )
 from app.domain.utils.json_parser import JsonParser
+from app.infrastructure.observability.prometheus_metrics import (
+    record_reflection_check,
+    record_reflection_decision,
+    record_reflection_trigger,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -73,12 +79,7 @@ class ReflectionAgent:
     - Fail-open: On error, recommend CONTINUE to avoid blocking
     """
 
-    def __init__(
-        self,
-        llm: LLM,
-        json_parser: JsonParser,
-        config: ReflectionConfig | None = None
-    ):
+    def __init__(self, llm: LLM, json_parser: JsonParser, config: ReflectionConfig | None = None):
         """Initialize the ReflectionAgent.
 
         Args:
@@ -98,7 +99,8 @@ class ReflectionAgent:
         self,
         progress: ProgressMetrics,
         last_had_error: bool = False,
-        confidence: float = 1.0
+        confidence: float = 1.0,
+        recent_actions: list[dict[str, Any]] | None = None,
     ) -> ReflectionTriggerType | None:
         """Check if reflection should be triggered.
 
@@ -113,27 +115,45 @@ class ReflectionAgent:
         if not self.config.enabled:
             return None
 
+        trigger: ReflectionTriggerType | None = None
+
         # Check reflection limits
         if self._reflection_count >= self.config.max_reflections_per_task:
-            logger.debug(
-                f"Max reflections ({self.config.max_reflections_per_task}) reached"
-            )
-            return None
+            logger.debug(f"Max reflections ({self.config.max_reflections_per_task}) reached")
+        else:
+            # Check minimum steps between reflections
+            steps_since_last = progress.steps_completed - self._last_reflection_step
+            if steps_since_last >= self.config.min_steps_between_reflections:
+                # Use trigger configuration
+                trigger = self.config.trigger.should_trigger(
+                    steps_completed=progress.steps_completed,
+                    error_count=progress.error_count,
+                    total_attempts=progress.successful_actions + progress.failed_actions,
+                    confidence=confidence,
+                    is_stalled=progress.is_stalled,
+                    last_had_error=last_had_error,
+                )
 
-        # Check minimum steps between reflections
-        steps_since_last = progress.steps_completed - self._last_reflection_step
-        if steps_since_last < self.config.min_steps_between_reflections:
-            return None
+        if not trigger:
+            flags = get_feature_flags()
+            if flags.get("reflection_advanced") and recent_actions:
+                # Advanced signals: repeated failures or action loops
+                recent = recent_actions[-5:]
+                recent_failures = [a for a in recent if not a.get("success")]
+                if len(recent_failures) >= 3:
+                    trigger = ReflectionTriggerType.HIGH_ERROR_RATE
+                else:
+                    recent_tools = [a.get("function_name") for a in recent if a.get("function_name")]
+                    if len(recent_tools) >= 3 and len(set(recent_tools[-3:])) == 1:
+                        trigger = ReflectionTriggerType.PROGRESS_STALL
 
-        # Use trigger configuration
-        return self.config.trigger.should_trigger(
-            steps_completed=progress.steps_completed,
-            error_count=progress.error_count,
-            total_attempts=progress.successful_actions + progress.failed_actions,
-            confidence=confidence,
-            is_stalled=progress.is_stalled,
-            last_had_error=last_had_error
-        )
+        if trigger:
+            record_reflection_check("triggered")
+            record_reflection_trigger(trigger.value)
+        else:
+            record_reflection_check("skipped")
+
+        return trigger
 
     async def reflect(
         self,
@@ -141,8 +161,8 @@ class ReflectionAgent:
         plan: Plan,
         progress: ProgressMetrics,
         trigger_type: ReflectionTriggerType,
-        recent_actions: list[dict[str, Any]] = None,
-        last_error: str | None = None
+        recent_actions: list[dict[str, Any]] | None = None,
+        last_error: str | None = None,
     ) -> AsyncGenerator[BaseEvent, None]:
         """Perform reflection and yield events.
 
@@ -158,15 +178,11 @@ class ReflectionAgent:
             ReflectionEvent with assessment results
         """
         logger.info(
-            f"Reflection triggered: {trigger_type.value} "
-            f"(step {progress.steps_completed}/{progress.total_steps})"
+            f"Reflection triggered: {trigger_type.value} (step {progress.steps_completed}/{progress.total_steps})"
         )
 
         # Emit triggered event
-        yield ReflectionEvent(
-            status=ReflectionStatus.TRIGGERED,
-            trigger_reason=trigger_type.value
-        )
+        yield ReflectionEvent(status=ReflectionStatus.TRIGGERED, trigger_reason=trigger_type.value)
 
         try:
             # Perform the reflection
@@ -176,7 +192,7 @@ class ReflectionAgent:
                 progress=progress,
                 trigger_type=trigger_type,
                 recent_actions=recent_actions or [],
-                last_error=last_error
+                last_error=last_error,
             )
 
             # Update tracking
@@ -184,23 +200,25 @@ class ReflectionAgent:
             self._last_reflection_step = progress.steps_completed
 
             # Emit completed event
+            record_reflection_decision(result.decision.value)
             yield ReflectionEvent(
                 status=ReflectionStatus.COMPLETED,
                 decision=result.decision.value,
                 confidence=result.confidence,
                 summary=result.summary,
-                trigger_reason=trigger_type.value
+                trigger_reason=trigger_type.value,
             )
 
         except Exception as e:
             logger.error(f"Reflection failed: {e}")
             # Fail-open: emit CONTINUE recommendation
+            record_reflection_decision("continue")
             yield ReflectionEvent(
                 status=ReflectionStatus.COMPLETED,
                 decision="continue",
                 confidence=0.5,
                 summary=f"Reflection error (fail-open): {str(e)[:100]}",
-                trigger_reason=trigger_type.value
+                trigger_reason=trigger_type.value,
             )
 
     async def _do_reflection(
@@ -210,7 +228,7 @@ class ReflectionAgent:
         progress: ProgressMetrics,
         trigger_type: ReflectionTriggerType,
         recent_actions: list[dict[str, Any]],
-        last_error: str | None
+        last_error: str | None,
     ) -> ReflectionResult:
         """Perform the actual reflection assessment."""
         # Select appropriate prompt based on trigger type
@@ -220,19 +238,13 @@ class ReflectionAgent:
             progress=progress,
             trigger_type=trigger_type,
             recent_actions=recent_actions,
-            last_error=last_error
+            last_error=last_error,
         )
 
         # Call LLM
-        messages = [
-            {"role": "system", "content": REFLECTION_SYSTEM_PROMPT},
-            {"role": "user", "content": prompt}
-        ]
+        messages = [{"role": "system", "content": REFLECTION_SYSTEM_PROMPT}, {"role": "user", "content": prompt}]
 
-        response = await self.llm.ask(
-            messages=messages,
-            response_format={"type": "json_object"}
-        )
+        response = await self.llm.ask(messages=messages, response_format={"type": "json_object"})
 
         content = response.get("content", "")
         parsed = await self.json_parser.parse(content)
@@ -253,7 +265,7 @@ class ReflectionAgent:
             replan_reason=parsed.get("replan_reason"),
             user_question=parsed.get("user_question"),
             summary=parsed.get("summary", "Reflection completed"),
-            trigger_type=trigger_type
+            trigger_type=trigger_type,
         )
 
     def _build_reflection_prompt(
@@ -263,7 +275,7 @@ class ReflectionAgent:
         progress: ProgressMetrics,
         trigger_type: ReflectionTriggerType,
         recent_actions: list[dict[str, Any]],
-        last_error: str | None
+        last_error: str | None,
     ) -> str:
         """Build the appropriate reflection prompt."""
         # Format recent actions
@@ -300,7 +312,7 @@ class ReflectionAgent:
                 steps_completed=progress.steps_completed,
                 total_steps=progress.total_steps,
                 previous_errors=progress.error_count,
-                plan_status=plan_summary
+                plan_status=plan_summary,
             )
 
         if trigger_type == ReflectionTriggerType.PROGRESS_STALL:
@@ -310,7 +322,7 @@ class ReflectionAgent:
                 stall_duration="unknown",
                 last_success="unknown",
                 current_state=f"Step {progress.steps_completed} of {progress.total_steps}",
-                attempted_actions=actions_text
+                attempted_actions=actions_text,
             )
 
         # Default progress check prompt
@@ -325,7 +337,7 @@ class ReflectionAgent:
             error_count=progress.error_count,
             last_error=last_error or "None",
             is_stalled="Yes" if progress.is_stalled else "No",
-            trigger_reason=trigger_type.value
+            trigger_reason=trigger_type.value,
         )
 
     def reset(self) -> None:
@@ -346,7 +358,7 @@ class ReflectionAgent:
         goal: str,
         plan: Plan,
         stuck_analysis: StuckAnalysis,
-        recent_actions: list[dict[str, Any]] = None,
+        recent_actions: list[dict[str, Any]] | None = None,
     ) -> AsyncGenerator[BaseEvent, None]:
         """Perform specialized reflection when a stuck pattern is detected.
 
@@ -369,8 +381,7 @@ class ReflectionAgent:
 
         # Emit triggered event
         yield ReflectionEvent(
-            status=ReflectionStatus.TRIGGERED,
-            trigger_reason=f"stuck_pattern:{stuck_analysis.loop_type.value}"
+            status=ReflectionStatus.TRIGGERED, trigger_reason=f"stuck_pattern:{stuck_analysis.loop_type.value}"
         )
 
         try:
@@ -383,15 +394,9 @@ class ReflectionAgent:
             )
 
             # Call LLM
-            messages = [
-                {"role": "system", "content": REFLECTION_SYSTEM_PROMPT},
-                {"role": "user", "content": prompt}
-            ]
+            messages = [{"role": "system", "content": REFLECTION_SYSTEM_PROMPT}, {"role": "user", "content": prompt}]
 
-            response = await self.llm.ask(
-                messages=messages,
-                response_format={"type": "json_object"}
-            )
+            response = await self.llm.ask(messages=messages, response_format={"type": "json_object"})
 
             content = response.get("content", "")
             parsed = await self.json_parser.parse(content)
@@ -423,7 +428,7 @@ class ReflectionAgent:
                 decision=decision.value,
                 confidence=float(parsed.get("confidence", 0.7)),
                 summary=summary[:500],  # Truncate if too long
-                trigger_reason=f"stuck_pattern:{stuck_analysis.loop_type.value}"
+                trigger_reason=f"stuck_pattern:{stuck_analysis.loop_type.value}",
             )
 
         except Exception as e:
@@ -434,7 +439,7 @@ class ReflectionAgent:
                 decision="adjust",
                 confidence=0.5,
                 summary=f"Stuck pattern analysis error: {str(e)[:100]}. Recommend trying alternative approach.",
-                trigger_reason=f"stuck_pattern:{stuck_analysis.loop_type.value}"
+                trigger_reason=f"stuck_pattern:{stuck_analysis.loop_type.value}",
             )
 
     def _build_stuck_pattern_prompt(
@@ -472,10 +477,7 @@ class ReflectionAgent:
 
         # Get loop-type specific causes
         loop_type_key = stuck_analysis.loop_type.value
-        possible_causes = LOOP_TYPE_CAUSES.get(
-            loop_type_key,
-            "- Unknown pattern type\n- General debugging needed"
-        )
+        possible_causes = LOOP_TYPE_CAUSES.get(loop_type_key, "- Unknown pattern type\n- General debugging needed")
 
         return REFLECT_ON_STUCK_PATTERN_PROMPT.format(
             goal=goal,

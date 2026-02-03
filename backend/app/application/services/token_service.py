@@ -37,15 +37,11 @@ class TokenService:
             "is_active": user.is_active,
             "iat": int(now.timestamp()),  # Issued at (timestamp)
             "exp": int(expire.timestamp()),  # Expiration time (timestamp)
-            "type": "access"
+            "type": "access",
         }
 
         try:
-            token = jwt.encode(
-                payload,
-                self.settings.jwt_secret_key,
-                algorithm=self.settings.jwt_algorithm
-            )
+            token = jwt.encode(payload, self.settings.jwt_secret_key, algorithm=self.settings.jwt_algorithm)
             logger.debug(f"Created access token for user: {user.fullname}")
             return token
         except Exception as e:
@@ -62,15 +58,11 @@ class TokenService:
             "fullname": user.fullname,
             "iat": int(now.timestamp()),  # Issued at (timestamp)
             "exp": int(expire.timestamp()),  # Expiration time (timestamp)
-            "type": "refresh"
+            "type": "refresh",
         }
 
         try:
-            token = jwt.encode(
-                payload,
-                self.settings.jwt_secret_key,
-                algorithm=self.settings.jwt_algorithm
-            )
+            token = jwt.encode(payload, self.settings.jwt_secret_key, algorithm=self.settings.jwt_algorithm)
             logger.debug(f"Created refresh token for user: {user.fullname}")
             return token
         except Exception as e:
@@ -80,11 +72,7 @@ class TokenService:
     def verify_token(self, token: str) -> dict[str, Any] | None:
         """Verify JWT token and return payload"""
         try:
-            payload = jwt.decode(
-                token,
-                self.settings.jwt_secret_key,
-                algorithms=[self.settings.jwt_algorithm]
-            )
+            payload = jwt.decode(token, self.settings.jwt_secret_key, algorithms=[self.settings.jwt_algorithm])
 
             # Check if token is not expired
             exp = payload.get("exp")
@@ -113,10 +101,9 @@ class TokenService:
             return None
 
         # Check if token is blacklisted
-        if self.settings.jwt_token_blacklist_enabled:
-            if await self._is_token_blacklisted(token):
-                logger.warning("Token is blacklisted")
-                return None
+        if self.settings.jwt_token_blacklist_enabled and await self._is_token_blacklisted(token):
+            logger.warning("Token is blacklisted")
+            return None
 
         return payload
 
@@ -143,7 +130,7 @@ class TokenService:
                 token,
                 self.settings.jwt_secret_key,
                 algorithms=[self.settings.jwt_algorithm],
-                options={"verify_exp": False}  # Don't verify expiry for TTL calculation
+                options={"verify_exp": False},  # Don't verify expiry for TTL calculation
             )
             exp = payload.get("exp")
             if exp:
@@ -167,7 +154,7 @@ class TokenService:
             "email": payload.get("email"),
             "role": payload.get("role"),
             "is_active": payload.get("is_active", True),
-            "token_type": payload.get("type", "access")
+            "token_type": payload.get("type", "access"),
         }
 
     def is_token_valid(self, token: str) -> bool:
@@ -185,9 +172,11 @@ class TokenService:
             return datetime.fromtimestamp(exp, UTC)
         return None
 
-    def create_resource_access_token(self, resource_type: str, resource_id: str, user_id: str, expire_minutes: int = 60) -> str:
+    def create_resource_access_token(
+        self, resource_type: str, resource_id: str, user_id: str, expire_minutes: int = 60
+    ) -> str:
         """Create JWT resource access token for URL-based access
-        
+
         Args:
             resource_type: Type of resource (file, vnc, etc.)
             resource_id: ID of the resource (file_id, session_id, etc.)
@@ -203,15 +192,11 @@ class TokenService:
             "user_id": user_id,
             "iat": int(now.timestamp()),  # Issued at (timestamp)
             "exp": int(expire.timestamp()),  # Expiration time (timestamp)
-            "type": "resource_access"
+            "type": "resource_access",
         }
 
         try:
-            token = jwt.encode(
-                payload,
-                self.settings.jwt_secret_key,
-                algorithm=self.settings.jwt_algorithm
-            )
+            token = jwt.encode(payload, self.settings.jwt_secret_key, algorithm=self.settings.jwt_algorithm)
             logger.debug(f"Created resource access token for {resource_type}: {resource_id}, user: {user_id}")
             return token
         except Exception as e:
@@ -299,11 +284,11 @@ class TokenService:
 
     def create_signed_url(self, base_url: str, expire_minutes: int = 60) -> str:
         """Create URL with signature for resource access
-        
+
         Args:
             base_url: Base URL for the resource (e.g., '/api/v1/files/123' or '/api/v1/sessions/456/vnc')
             expire_minutes: URL expiration time in minutes
-            
+
         Returns:
             Signed URL with signature and expiration parameters
         """
@@ -319,9 +304,7 @@ class TokenService:
 
         # Generate HMAC signature
         signature = hmac.new(
-            self.settings.jwt_secret_key.encode('utf-8'),
-            payload_data.encode('utf-8'),
-            hashlib.sha256
+            self.settings.jwt_secret_key.encode("utf-8"), payload_data.encode("utf-8"), hashlib.sha256
         ).hexdigest()
 
         # Parse URL to add query parameters
@@ -329,29 +312,24 @@ class TokenService:
         query_params = urllib.parse.parse_qs(parsed_url.query)
 
         # Add signature parameters
-        query_params['signature'] = [signature]
-        query_params['expires'] = [str(expires_timestamp)]
+        query_params["signature"] = [signature]
+        query_params["expires"] = [str(expires_timestamp)]
 
         # Rebuild URL with signature parameters
         new_query = urllib.parse.urlencode(query_params, doseq=True)
-        signed_url = urllib.parse.urlunparse((
-            '',
-            '',
-            parsed_url.path,
-            parsed_url.params,
-            new_query,
-            parsed_url.fragment
-        ))
+        signed_url = urllib.parse.urlunparse(
+            ("", "", parsed_url.path, parsed_url.params, new_query, parsed_url.fragment)
+        )
 
         logger.debug(f"Created signed URL for: {final_url}")
         return signed_url
 
     def verify_signed_url(self, request_url: str) -> bool:
         """Verify signed URL
-        
+
         Args:
             request_url: Full request URL with query parameters
-            
+
         Returns:
             True if valid, False if invalid
         """
@@ -362,8 +340,8 @@ class TokenService:
             query_params = urllib.parse.parse_qs(parsed_url.query)
 
             # Extract required parameters
-            signature = query_params.get('signature', [None])[0]
-            expires_str = query_params.get('expires', [None])[0]
+            signature = query_params.get("signature", [None])[0]
+            expires_str = query_params.get("expires", [None])[0]
 
             if not all([signature, expires_str]):
                 logger.warning("Missing required signature parameters in URL")
@@ -376,26 +354,18 @@ class TokenService:
                 return False
 
             # Reconstruct base URL without signature parameters
-            base_query_params = {k: v for k, v in query_params.items()
-                               if k not in ['signature', 'expires']}
+            base_query_params = {k: v for k, v in query_params.items() if k not in ["signature", "expires"]}
             base_query = urllib.parse.urlencode(base_query_params, doseq=True)
-            base_url = urllib.parse.urlunparse((
-                '',
-                '',
-                parsed_url.path,
-                parsed_url.params,
-                base_query,
-                parsed_url.fragment
-            ))
+            base_url = urllib.parse.urlunparse(
+                ("", "", parsed_url.path, parsed_url.params, base_query, parsed_url.fragment)
+            )
 
             # Recreate payload for signature verification using simplified method
             payload_data = f"{base_url}|{expires_timestamp}"
 
             # Generate expected signature
             expected_signature = hmac.new(
-                self.settings.jwt_secret_key.encode('utf-8'),
-                payload_data.encode('utf-8'),
-                hashlib.sha256
+                self.settings.jwt_secret_key.encode("utf-8"), payload_data.encode("utf-8"), hashlib.sha256
             ).hexdigest()
 
             # Compare signatures using constant-time comparison to prevent timing attacks

@@ -3,7 +3,10 @@
 Registry pattern for dynamically selecting search providers based on configuration.
 Supports: bing, google, baidu, searxng, whoogle, duckduckgo, brave, tavily
 """
+
+import importlib
 import logging
+from typing import ClassVar
 
 from app.core.config import get_settings
 from app.domain.external.search import SearchEngine
@@ -17,7 +20,8 @@ class SearchProviderRegistry:
     Allows dynamic registration and retrieval of search engines
     based on provider name configuration.
     """
-    _providers: dict[str, type[SearchEngine]] = {}
+
+    _providers: ClassVar[dict[str, type[SearchEngine]]] = {}
 
     @classmethod
     def register(cls, name: str):
@@ -34,10 +38,12 @@ class SearchProviderRegistry:
             class DuckDuckGoSearchEngine(SearchEngine):
                 ...
         """
+
         def decorator(provider_class: type[SearchEngine]) -> type[SearchEngine]:
             cls._providers[name.lower()] = provider_class
             logger.debug(f"Registered search provider: {name}")
             return provider_class
+
         return decorator
 
     @classmethod
@@ -81,42 +87,42 @@ def get_search_engine_from_factory() -> SearchEngine | None:
 
     # Try to import optional providers
     try:
-        from app.infrastructure.external.search.duckduckgo_search import DuckDuckGoSearchEngine
+        importlib.import_module("app.infrastructure.external.search.duckduckgo_search")
     except ImportError:
         logger.debug("DuckDuckGo search provider not available")
 
     try:
-        from app.infrastructure.external.search.brave_search import BraveSearchEngine
+        importlib.import_module("app.infrastructure.external.search.brave_search")
     except ImportError:
         logger.debug("Brave search provider not available")
 
     try:
-        from app.infrastructure.external.search.tavily_search import TavilySearchEngine
+        importlib.import_module("app.infrastructure.external.search.tavily_search")
     except ImportError:
         logger.debug("Tavily search provider not available")
 
     try:
-        from app.infrastructure.external.search.searxng_search import SearXNGSearchEngine
+        importlib.import_module("app.infrastructure.external.search.searxng_search")
     except ImportError:
         logger.debug("SearXNG search provider not available")
 
     try:
-        from app.infrastructure.external.search.whoogle_search import WhoogleSearchEngine
+        importlib.import_module("app.infrastructure.external.search.whoogle_search")
     except ImportError:
         logger.debug("Whoogle search provider not available")
 
     try:
-        from app.infrastructure.external.search.bing_search import BingSearchEngine
+        importlib.import_module("app.infrastructure.external.search.bing_search")
     except ImportError:
         logger.debug("Bing search provider not available")
 
     try:
-        from app.infrastructure.external.search.baidu_search import BaiduSearchEngine
+        importlib.import_module("app.infrastructure.external.search.baidu_search")
     except ImportError:
         logger.debug("Baidu search provider not available")
 
     try:
-        from app.infrastructure.external.search.google_search import GoogleSearchEngine
+        importlib.import_module("app.infrastructure.external.search.google_search")
     except ImportError:
         logger.debug("Google search provider not available")
 

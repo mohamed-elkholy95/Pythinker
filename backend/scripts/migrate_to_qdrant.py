@@ -26,10 +26,7 @@ from app.infrastructure.storage.mongodb import get_mongodb
 from app.infrastructure.storage.qdrant import get_qdrant
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -66,9 +63,7 @@ async def migrate():
     qdrant_repo = QdrantMemoryRepository()
 
     # Count documents to migrate
-    total_docs = await collection.count_documents({
-        "embedding": {"$exists": True, "$ne": None}
-    })
+    total_docs = await collection.count_documents({"embedding": {"$exists": True, "$ne": None}})
     logger.info(f"Found {total_docs} memories with embeddings to migrate")
 
     if total_docs == 0:
@@ -83,9 +78,7 @@ async def migrate():
     failed = 0
     skipped = 0
 
-    cursor = collection.find({
-        "embedding": {"$exists": True, "$ne": None}
-    })
+    cursor = collection.find({"embedding": {"$exists": True, "$ne": None}})
 
     batch = []
 
@@ -104,14 +97,16 @@ async def migrate():
                 skipped += 1
                 continue
 
-            batch.append({
-                "memory_id": memory_id,
-                "user_id": user_id,
-                "embedding": embedding,
-                "memory_type": doc.get("memory_type", "fact"),
-                "importance": doc.get("importance", "medium"),
-                "tags": doc.get("tags", []),
-            })
+            batch.append(
+                {
+                    "memory_id": memory_id,
+                    "user_id": user_id,
+                    "embedding": embedding,
+                    "memory_type": doc.get("memory_type", "fact"),
+                    "importance": doc.get("importance", "medium"),
+                    "tags": doc.get("tags", []),
+                }
+            )
 
             # Process batch when full
             if len(batch) >= batch_size:
@@ -171,9 +166,7 @@ async def verify_migration():
     qdrant_repo = QdrantMemoryRepository()
 
     # Get a sample of memories
-    sample = await collection.find({
-        "embedding": {"$exists": True, "$ne": None}
-    }).limit(10).to_list(10)
+    sample = await collection.find({"embedding": {"$exists": True, "$ne": None}}).limit(10).to_list(10)
 
     verified = 0
     for doc in sample:
@@ -195,11 +188,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Migrate memories to Qdrant")
-    parser.add_argument(
-        "--verify-only",
-        action="store_true",
-        help="Only verify existing migration, don't migrate"
-    )
+    parser.add_argument("--verify-only", action="store_true", help="Only verify existing migration, don't migrate")
     args = parser.parse_args()
 
     if args.verify_only:

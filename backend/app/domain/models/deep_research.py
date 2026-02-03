@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 class ResearchQueryStatus(str, Enum):
     """Individual research query status"""
+
     PENDING = "pending"
     SEARCHING = "searching"
     COMPLETED = "completed"
@@ -17,6 +18,7 @@ class ResearchQueryStatus(str, Enum):
 
 class ResearchQuery(BaseModel):
     """Individual research query with status tracking"""
+
     id: str
     query: str
     status: ResearchQueryStatus = ResearchQueryStatus.PENDING
@@ -39,6 +41,7 @@ class ResearchQuery(BaseModel):
 
 class DeepResearchConfig(BaseModel):
     """Configuration for deep research execution"""
+
     queries: list[str] = Field(..., description="List of search queries to execute")
     auto_run: bool = Field(default=False, description="Skip approval and run immediately")
     max_concurrent: int = Field(default=5, ge=1, le=10, description="Maximum concurrent searches")
@@ -47,6 +50,7 @@ class DeepResearchConfig(BaseModel):
 
 class DeepResearchSession(BaseModel):
     """Deep research session state"""
+
     research_id: str
     session_id: str
     config: DeepResearchConfig
@@ -60,7 +64,8 @@ class DeepResearchSession(BaseModel):
     def completed_count(self) -> int:
         """Count of completed queries (including skipped)"""
         return sum(
-            1 for q in self.queries
+            1
+            for q in self.queries
             if q.status in (ResearchQueryStatus.COMPLETED, ResearchQueryStatus.SKIPPED, ResearchQueryStatus.FAILED)
         )
 

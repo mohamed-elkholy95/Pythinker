@@ -81,7 +81,7 @@ def create_plan_act_graph(
             "verify": "verify",
             "execute": "execute",
             "summarize": "summarize",
-        }
+        },
     )
 
     # Conditional routing after verification
@@ -93,7 +93,7 @@ def create_plan_act_graph(
             "execute": "execute",
             "plan": "plan",
             "summarize": "summarize",
-        }
+        },
     )
 
     # Conditional routing after execution
@@ -106,7 +106,7 @@ def create_plan_act_graph(
             "update": "update",
             "summarize": "summarize",
             "__end__": END,
-        }
+        },
     )
 
     # Conditional routing after reflection
@@ -118,7 +118,7 @@ def create_plan_act_graph(
             "update": "update",
             "plan": "plan",
             "summarize": "summarize",
-        }
+        },
     )
 
     # Direct edge: update always goes back to execute

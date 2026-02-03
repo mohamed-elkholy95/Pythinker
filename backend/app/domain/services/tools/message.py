@@ -1,4 +1,3 @@
-
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.base import BaseTool, tool
 
@@ -16,25 +15,15 @@ class MessageTool(BaseTool):
         name="message_notify_user",
         description="Send a message to user without requiring a response. Use for acknowledging receipt of messages, providing progress updates, reporting task completion, or explaining changes in approach.",
         parameters={
-            "text": {
-                "type": "string",
-                "description": "Message text to display to user"
-            },
+            "text": {"type": "string", "description": "Message text to display to user"},
             "attachments": {
-                "anyOf": [
-                    {"type": "string"},
-                    {"items": {"type": "string"}, "type": "array"}
-                ],
-                "description": "(Optional) List of attachments to show to user, can be file paths or URLs"
-            }
+                "anyOf": [{"type": "string"}, {"items": {"type": "string"}, "type": "array"}],
+                "description": "(Optional) List of attachments to show to user, can be file paths or URLs",
+            },
         },
-        required=["text"]
+        required=["text"],
     )
-    async def message_notify_user(
-        self,
-        text: str,
-        attachments: str | list[str] | None = None
-    ) -> ToolResult:
+    async def message_notify_user(self, text: str, attachments: str | list[str] | None = None) -> ToolResult:
         """Send notification message to user, no response needed
 
         Args:
@@ -52,38 +41,29 @@ class MessageTool(BaseTool):
         name="message_ask_user",
         description="Ask user a question and wait for response. Use for requesting clarification, asking for confirmation, or gathering additional information.",
         parameters={
-            "text": {
-                "type": "string",
-                "description": "Question text to present to user"
-            },
+            "text": {"type": "string", "description": "Question text to present to user"},
             "attachments": {
-                "anyOf": [
-                    {"type": "string"},
-                    {"items": {"type": "string"}, "type": "array"}
-                ],
-                "description": "(Optional) List of question-related files or reference materials"
+                "anyOf": [{"type": "string"}, {"items": {"type": "string"}, "type": "array"}],
+                "description": "(Optional) List of question-related files or reference materials",
             },
             "suggest_user_takeover": {
                 "type": "string",
                 "enum": ["none", "browser"],
-                "description": "(Optional) Suggested operation for user takeover"
-            }
+                "description": "(Optional) Suggested operation for user takeover",
+            },
         },
-        required=["text"]
+        required=["text"],
     )
     async def message_ask_user(
-        self,
-        text: str,
-        attachments: str | list[str] | None = None,
-        suggest_user_takeover: str | None = None
+        self, text: str, attachments: str | list[str] | None = None, suggest_user_takeover: str | None = None
     ) -> ToolResult:
         """Ask user a question and wait for response
-        
+
         Args:
             text: Question text to present to user
             attachments: List of question-related files or reference materials
             suggest_user_takeover: Suggested operation for user takeover
-            
+
         Returns:
             Question asking result with user response
         """

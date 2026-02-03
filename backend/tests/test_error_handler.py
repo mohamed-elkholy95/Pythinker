@@ -6,7 +6,7 @@ from app.domain.services.agents.error_handler import (
     ErrorContext,
     ErrorHandler,
     ErrorType,
-    TokenLimitExceeded,
+    TokenLimitExceededError,
 )
 
 
@@ -34,41 +34,22 @@ class TestErrorContext:
 
     def test_can_retry_within_limit(self):
         """Test retry check within limit"""
-        ctx = ErrorContext(
-            error_type=ErrorType.JSON_PARSE,
-            message="Test error",
-            retry_count=0,
-            max_retries=3
-        )
+        ctx = ErrorContext(error_type=ErrorType.JSON_PARSE, message="Test error", retry_count=0, max_retries=3)
         assert ctx.can_retry() is True
 
     def test_can_retry_at_limit(self):
         """Test retry check at limit"""
-        ctx = ErrorContext(
-            error_type=ErrorType.JSON_PARSE,
-            message="Test error",
-            retry_count=3,
-            max_retries=3
-        )
+        ctx = ErrorContext(error_type=ErrorType.JSON_PARSE, message="Test error", retry_count=3, max_retries=3)
         assert ctx.can_retry() is False
 
     def test_can_retry_non_recoverable(self):
         """Test non-recoverable errors cannot retry"""
-        ctx = ErrorContext(
-            error_type=ErrorType.UNKNOWN,
-            message="Test error",
-            recoverable=False,
-            retry_count=0
-        )
+        ctx = ErrorContext(error_type=ErrorType.UNKNOWN, message="Test error", recoverable=False, retry_count=0)
         assert ctx.can_retry() is False
 
     def test_increment_retry(self):
         """Test retry counter increment"""
-        ctx = ErrorContext(
-            error_type=ErrorType.JSON_PARSE,
-            message="Test error",
-            retry_count=0
-        )
+        ctx = ErrorContext(error_type=ErrorType.JSON_PARSE, message="Test error", retry_count=0)
         ctx.increment_retry()
         assert ctx.retry_count == 1
 
@@ -168,20 +149,16 @@ class TestErrorHandler:
         assert len(handler.get_recent_errors()) == 0
 
 
-class TestTokenLimitExceeded:
-    """Tests for TokenLimitExceeded exception"""
+class TestTokenLimitExceededError:
+    """Tests for TokenLimitExceededError exception"""
 
     def test_basic_exception(self):
         """Test basic exception creation"""
-        exc = TokenLimitExceeded("Context too long")
+        exc = TokenLimitExceededError("Context too long")
         assert str(exc) == "Context too long"
 
     def test_exception_with_token_counts(self):
         """Test exception with token count information"""
-        exc = TokenLimitExceeded(
-            "Context too long",
-            current_tokens=10000,
-            max_tokens=8192
-        )
+        exc = TokenLimitExceededError("Context too long", current_tokens=10000, max_tokens=8192)
         assert exc.current_tokens == 10000
         assert exc.max_tokens == 8192

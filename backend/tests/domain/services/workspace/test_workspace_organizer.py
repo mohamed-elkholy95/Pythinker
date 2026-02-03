@@ -276,10 +276,9 @@ class TestWorkspaceOrganizer:
         ]
 
         # Initialize concurrently
-        results = await asyncio.gather(*[
-            organizer.initialize_workspace(test_session_id, template)
-            for template in templates
-        ])
+        results = await asyncio.gather(
+            *[organizer.initialize_workspace(test_session_id, template) for template in templates]
+        )
 
         # Verify all succeeded
         assert len(results) == 3
@@ -359,7 +358,7 @@ class TestWorkspaceOrganizer:
         result = await organizer.initialize_workspace(test_session_id, RESEARCH_TEMPLATE)
 
         assert isinstance(result, dict)
-        assert all(isinstance(k, str) for k in result.keys())
+        assert all(isinstance(k, str) for k in result)
         assert all(isinstance(v, str) for v in result.values())
 
     @pytest.mark.asyncio

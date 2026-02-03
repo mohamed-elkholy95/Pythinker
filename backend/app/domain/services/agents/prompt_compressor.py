@@ -14,22 +14,24 @@ import logging
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
 
 class CompressionLevel(str, Enum):
     """Compression aggressiveness levels."""
-    NONE = "none"         # No compression
-    LIGHT = "light"       # Remove whitespace, trim
-    MODERATE = "moderate" # Summarize, remove redundancy
+
+    NONE = "none"  # No compression
+    LIGHT = "light"  # Remove whitespace, trim
+    MODERATE = "moderate"  # Summarize, remove redundancy
     AGGRESSIVE = "aggressive"  # Heavy summarization
 
 
 @dataclass
 class CompressionResult:
     """Result of compression operation."""
+
     original_tokens: int  # Estimated original token count
     compressed_tokens: int  # Estimated compressed token count
     compression_ratio: float  # 0-1, lower is more compressed
@@ -62,32 +64,39 @@ class PromptCompressor:
     TOKENS_PER_CHAR = 0.25
 
     # Patterns for content that can be safely reduced
-    REDUCIBLE_PATTERNS = {
+    REDUCIBLE_PATTERNS: ClassVar[dict[str, Any]] = {
         # Repeated whitespace
-        r'\n{3,}': '\n\n',
-        r' {2,}': ' ',
-        r'\t+': ' ',
-
+        r"\n{3,}": "\n\n",
+        r" {2,}": " ",
+        r"\t+": " ",
         # Verbose logging patterns
-        r'\[\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}[^\]]*\]': '[timestamp]',
-        r'DEBUG:.*?\n': '',
-        r'INFO:.*?(?=\n[A-Z])': '',
-
+        r"\[\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}[^\]]*\]": "[timestamp]",
+        r"DEBUG:.*?\n": "",
+        r"INFO:.*?(?=\n[A-Z])": "",
         # Stack traces (keep first and last)
-        r'(Traceback.*?\n(?:  File.*?\n)+)': lambda m: _summarize_traceback(m.group(1)),
-
+        r"(Traceback.*?\n(?:  File.*?\n)+)": lambda m: _summarize_traceback(m.group(1)),
         # Long paths
-        r'/(?:home|Users)/[^/]+/': '~/',
-
+        r"/(?:home|Users)/[^/]+/": "~/",
         # UUIDs (keep first 8 chars)
-        r'([0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}': r'\1...',
+        r"([0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}": r"\1...",
     }
 
     # Content markers for importance detection
-    IMPORTANT_MARKERS = [
-        'error', 'exception', 'failed', 'success', 'warning',
-        'result', 'output', 'created', 'modified', 'deleted',
-        'important', 'note', 'todo', 'fixme',
+    IMPORTANT_MARKERS: ClassVar[list[str]] = [
+        "error",
+        "exception",
+        "failed",
+        "success",
+        "warning",
+        "result",
+        "output",
+        "created",
+        "modified",
+        "deleted",
+        "important",
+        "note",
+        "todo",
+        "fixme",
     ]
 
     def __init__(
@@ -108,10 +117,7 @@ class PromptCompressor:
         self.max_list_items = max_list_items
 
         # Compile patterns
-        self._reducible_re = {
-            re.compile(p, re.MULTILINE | re.DOTALL): r
-            for p, r in self.REDUCIBLE_PATTERNS.items()
-        }
+        self._reducible_re = {re.compile(p, re.MULTILINE | re.DOTALL): r for p, r in self.REDUCIBLE_PATTERNS.items()}
 
         # Statistics
         self._stats = {
@@ -195,9 +201,7 @@ class PromptCompressor:
 
         # Aggressive compression: truncate with summary
         if level == CompressionLevel.AGGRESSIVE or current_tokens > max_tokens:
-            compressed, summary_generated = self._truncate_with_summary(
-                compressed, max_tokens, tool_name
-            )
+            compressed, summary_generated = self._truncate_with_summary(compressed, max_tokens, tool_name)
             items_removed += 1  # Counting the truncation
 
         return self._create_result(output, compressed, items_removed, summary_generated)
@@ -308,14 +312,14 @@ class PromptCompressor:
             return context
 
         # Split into sections
-        sections = re.split(r'\n(?=##?\s)', context)
+        sections = re.split(r"\n(?=##?\s)", context)
 
         # Categorize sections by importance
         preserved = []
         compressible = []
 
         for section in sections:
-            header_match = re.match(r'^(##?\s*)(.+)', section)
+            header_match = re.match(r"^(##?\s*)(.+)", section)
             header = header_match.group(2).lower() if header_match else ""
 
             if (preserve_sections and any(p in header for p in preserve_sections)) or self._is_important(section):
@@ -345,18 +349,16 @@ class PromptCompressor:
     def _apply_basic_compression(self, text: str) -> str:
         """Apply basic compression (whitespace removal)."""
         # Normalize line endings
-        text = text.replace('\r\n', '\n').replace('\r', '\n')
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
 
         # Remove excessive blank lines
-        text = re.sub(r'\n{3,}', '\n\n', text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
 
         # Remove trailing whitespace
-        text = '\n'.join(line.rstrip() for line in text.split('\n'))
+        text = "\n".join(line.rstrip() for line in text.split("\n"))
 
         # Remove leading/trailing whitespace
-        text = text.strip()
-
-        return text
+        return text.strip()
 
     def _apply_pattern_compression(self, text: str) -> tuple[str, int]:
         """Apply pattern-based compression."""
@@ -391,15 +393,15 @@ class PromptCompressor:
             return f"[Output truncated - {len(text)} chars]", True
 
         # Extract key parts
-        lines = text.split('\n')
+        lines = text.split("\n")
 
         # Keep first few lines (often contain important info)
         first_lines = lines[:5]
-        first_content = '\n'.join(first_lines)
+        first_content = "\n".join(first_lines)
 
         # Keep last few lines (often contain results)
         last_lines = lines[-3:] if len(lines) > 8 else []
-        last_content = '\n'.join(last_lines)
+        last_content = "\n".join(last_lines)
 
         # Build summary
         total_lines = len(lines)
@@ -424,12 +426,12 @@ class PromptCompressor:
         max_chars = int(max_tokens / self.TOKENS_PER_CHAR)
 
         # Extract header if present
-        header_match = re.match(r'^(##?\s*.+)\n', section)
+        header_match = re.match(r"^(##?\s*.+)\n", section)
         header = header_match.group(1) if header_match else ""
 
         # Get first sentence or line
-        content = section[len(header):].strip() if header else section
-        first_line = content.split('\n')[0][:100]
+        content = section[len(header) :].strip() if header else section
+        first_line = content.split("\n")[0][:100]
 
         summary = f"{header}\n{first_line}..." if header else f"{first_line}..."
 
@@ -455,9 +457,7 @@ class PromptCompressor:
 
         # Update rolling average
         n = self._stats["compressions"]
-        self._stats["avg_compression_ratio"] = (
-            (self._stats["avg_compression_ratio"] * (n - 1) + ratio) / n
-        )
+        self._stats["avg_compression_ratio"] = (self._stats["avg_compression_ratio"] * (n - 1) + ratio) / n
 
         return CompressionResult(
             original_tokens=original_tokens,
@@ -478,14 +478,14 @@ class PromptCompressor:
 
 def _summarize_traceback(traceback: str) -> str:
     """Summarize a traceback to first and last frames."""
-    lines = traceback.strip().split('\n')
+    lines = traceback.strip().split("\n")
     if len(lines) <= 6:
         return traceback
 
     # Keep header, first frame, and last frame
     header = lines[0]
-    first_frame = '\n'.join(lines[1:3])
-    last_frame = '\n'.join(lines[-2:])
+    first_frame = "\n".join(lines[1:3])
+    last_frame = "\n".join(lines[-2:])
 
     return f"{header}\n{first_frame}\n  [...{len(lines) - 5} frames...]\n{last_frame}"
 

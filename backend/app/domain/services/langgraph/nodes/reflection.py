@@ -12,7 +12,10 @@ import asyncio
 import logging
 from typing import Any
 
+from app.core.alert_manager import get_alert_manager
+from app.core.config import get_feature_flags
 from app.domain.models.event import ReflectionEvent, ReflectionStatus
+from app.domain.models.reflection import ReflectionTriggerType
 
 # P0 Priority: Hallucination Prevention & Prompt Adherence
 from app.domain.services.agents.grounding_validator import (
@@ -20,8 +23,11 @@ from app.domain.services.agents.grounding_validator import (
     get_grounding_validator,
 )
 from app.domain.services.agents.intent_tracker import get_intent_tracker
+from app.domain.services.agents.memory_manager import get_memory_manager
 from app.domain.services.agents.stuck_detector import LoopType, StuckAnalysis
 from app.domain.services.langgraph.state import PlanActState
+from app.domain.services.prediction.failure_predictor import FailurePredictor
+from app.infrastructure.observability.prometheus_metrics import record_failure_prediction
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +76,45 @@ async def reflection_node(state: PlanActState) -> dict[str, Any]:
     trigger_type = reflection_agent.should_reflect(
         progress=progress,
         last_had_error=state.get("last_had_error", False),
-        confidence=1.0  # Could be dynamic based on context
+        confidence=1.0,  # Could be dynamic based on context
+        recent_actions=task_state_manager.get_recent_actions() if task_state_manager else None,
     )
+
+    # Failure prediction (Phase 5, shadow mode)
+    prediction = None
+    flags = get_feature_flags()
+    if flags.get("failure_prediction"):
+        try:
+            token_usage_pct = None
+            executor = state.get("executor")
+            if executor:
+                try:
+                    memory_manager = get_memory_manager()
+                    await executor._ensure_memory()
+                    pressure = memory_manager.get_pressure_status(executor.memory.estimate_tokens())
+                    token_usage_pct = pressure.usage_ratio
+                except Exception as e:
+                    logger.debug(f"Token pressure lookup failed: {e}")
+
+            predictor = FailurePredictor()
+            prediction = predictor.predict(
+                progress=progress,
+                recent_actions=task_state_manager.get_recent_actions(),
+                stuck_analysis=state.get("stuck_analysis"),
+                token_usage_pct=token_usage_pct,
+            )
+            record_failure_prediction(
+                "predicted" if prediction.will_fail else "clear",
+                prediction.probability,
+            )
+            await get_alert_manager().check_thresholds(
+                state.get("session_id") or "unknown",
+                {"failure_prediction_probability": prediction.probability},
+            )
+            if prediction.will_fail and not trigger_type:
+                trigger_type = ReflectionTriggerType.EXPLICIT
+        except Exception as e:
+            logger.debug(f"Failure prediction failed: {e}")
 
     if not trigger_type:
         return {
@@ -161,8 +204,7 @@ async def reflection_node(state: PlanActState) -> dict[str, Any]:
 
         # Get current work summary from recent actions
         current_work = " ".join(
-            f"{action.get('function_name', '')}: {action.get('result', '')[:100]}"
-            for action in recent_actions[-10:]
+            f"{action.get('function_name', '')}: {action.get('result', '')[:100]}" for action in recent_actions[-10:]
         )
 
         # Check alignment
@@ -200,7 +242,7 @@ async def reflection_node(state: PlanActState) -> dict[str, Any]:
         progress=progress,
         trigger_type=trigger_type,
         recent_actions=task_state_manager.get_recent_actions(),
-        last_error=task_state_manager.get_last_error()
+        last_error=task_state_manager.get_last_error(),
     ):
         # Stream event in real-time if queue available
         if event_queue:
@@ -221,14 +263,25 @@ async def reflection_node(state: PlanActState) -> dict[str, Any]:
             combined_feedback += "\n\n"
         combined_feedback += "\n".join(additional_guidance)
 
+    if prediction and prediction.will_fail and decision == "continue":
+        decision = "adjust"
+        prediction_feedback = (
+            f"Failure prediction: {prediction.probability:.0%} risk. "
+            f"Factors: {', '.join(prediction.factors) or 'unknown'}. "
+            f"Recommended: {prediction.recommended_action}."
+        )
+        combined_feedback = (
+            f"{combined_feedback}\n\n{prediction_feedback}" if combined_feedback else prediction_feedback
+        )
+
     return {
         "reflection_decision": decision,
         "reflection_feedback": combined_feedback if combined_feedback else None,
         "last_had_error": False,  # Reset after reflection
         "pending_events": pending_events,
         "grounding_checked": True,  # Flag that grounding was validated
-        "intent_checked": True,     # Flag that intent was verified
-        "stuck_analysis": None,    # Clear stuck analysis after reflection
+        "intent_checked": True,  # Flag that intent was verified
+        "stuck_analysis": None,  # Clear stuck analysis after reflection
     }
 
 

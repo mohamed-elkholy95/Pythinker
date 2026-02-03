@@ -3,6 +3,7 @@
 Provides integration with Anthropic's Claude models using the official SDK.
 Supports Claude Opus 4, Sonnet 4, and other Claude models.
 """
+
 import asyncio
 import json
 import logging
@@ -17,21 +18,23 @@ from app.domain.services.agents.token_manager import TokenManager
 from app.domain.services.agents.usage_context import get_usage_context
 from app.infrastructure.external.llm.factory import LLMProviderRegistry
 
-T = TypeVar('T', bound=BaseModel)
+T = TypeVar("T", bound=BaseModel)
 
 logger = logging.getLogger(__name__)
 
 # Check if anthropic is installed
 try:
     import anthropic
+
     ANTHROPIC_AVAILABLE = True
 except ImportError:
     ANTHROPIC_AVAILABLE = False
     logger.warning("anthropic package not installed. Run: pip install anthropic")
 
 
-class TokenLimitExceeded(Exception):
+class TokenLimitExceededError(Exception):
     """Raised when the token limit is exceeded."""
+
     pass
 
 
@@ -67,7 +70,7 @@ class AnthropicLLM(LLM):
         if not self._api_key:
             raise ValueError("Anthropic API key is required")
 
-        self._model_name = model_name or getattr(settings, 'anthropic_model_name', 'claude-sonnet-4-20250514')
+        self._model_name = model_name or getattr(settings, "anthropic_model_name", "claude-sonnet-4-20250514")
         self._temperature = temperature if temperature is not None else settings.temperature
         self._max_tokens = max_tokens if max_tokens is not None else settings.max_tokens
 
@@ -99,20 +102,21 @@ class AnthropicLLM(LLM):
 
         try:
             # Extract usage from Anthropic response
-            usage = getattr(response, 'usage', None)
+            usage = getattr(response, "usage", None)
             if not usage:
                 return
 
-            input_tokens = getattr(usage, 'input_tokens', 0)
-            output_tokens = getattr(usage, 'output_tokens', 0)
-            cache_read_tokens = getattr(usage, 'cache_read_input_tokens', 0)
-            cache_creation_tokens = getattr(usage, 'cache_creation_input_tokens', 0)
+            input_tokens = getattr(usage, "input_tokens", 0)
+            output_tokens = getattr(usage, "output_tokens", 0)
+            cache_read_tokens = getattr(usage, "cache_read_input_tokens", 0)
+            cache_creation_tokens = getattr(usage, "cache_creation_input_tokens", 0)
 
             # Total cached tokens = read from cache + created for cache
             cached_tokens = cache_read_tokens + cache_creation_tokens
 
             # Lazy import to avoid circular dependency
             from app.application.services.usage_service import get_usage_service
+
             usage_service = get_usage_service()
 
             await usage_service.record_llm_usage(
@@ -145,6 +149,7 @@ class AnthropicLLM(LLM):
             completion_tokens = token_manager.count_tokens(completion_text)
 
             from app.application.services.usage_service import get_usage_service
+
             usage_service = get_usage_service()
 
             await usage_service.record_llm_usage(
@@ -158,10 +163,7 @@ class AnthropicLLM(LLM):
         except Exception as e:
             logger.warning(f"Failed to record streaming usage: {e}")
 
-    def _convert_openai_tools_to_anthropic(
-        self,
-        tools: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    def _convert_openai_tools_to_anthropic(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Convert OpenAI tool format to Anthropic format.
 
         Args:
@@ -174,16 +176,17 @@ class AnthropicLLM(LLM):
         for tool in tools:
             if tool.get("type") == "function":
                 func = tool.get("function", {})
-                anthropic_tools.append({
-                    "name": func.get("name"),
-                    "description": func.get("description", ""),
-                    "input_schema": func.get("parameters", {"type": "object", "properties": {}})
-                })
+                anthropic_tools.append(
+                    {
+                        "name": func.get("name"),
+                        "description": func.get("description", ""),
+                        "input_schema": func.get("parameters", {"type": "object", "properties": {}}),
+                    }
+                )
         return anthropic_tools
 
     def _convert_openai_messages_to_anthropic(
-        self,
-        messages: list[dict[str, Any]]
+        self, messages: list[dict[str, Any]]
     ) -> tuple[str | None, list[dict[str, Any]]]:
         """Convert OpenAI message format to Anthropic format.
 
@@ -218,53 +221,37 @@ class AnthropicLLM(LLM):
                             except json.JSONDecodeError:
                                 args = {}
 
-                        tool_use_blocks.append({
-                            "type": "tool_use",
-                            "id": tc.get("id", ""),
-                            "name": func.get("name", ""),
-                            "input": args
-                        })
+                        tool_use_blocks.append(
+                            {"type": "tool_use", "id": tc.get("id", ""), "name": func.get("name", ""), "input": args}
+                        )
 
                     # Include text content if present
                     if content:
-                        anthropic_messages.append({
-                            "role": "assistant",
-                            "content": [{"type": "text", "text": content}] + tool_use_blocks
-                        })
+                        anthropic_messages.append(
+                            {"role": "assistant", "content": [{"type": "text", "text": content}, *tool_use_blocks]}
+                        )
                     else:
-                        anthropic_messages.append({
-                            "role": "assistant",
-                            "content": tool_use_blocks
-                        })
+                        anthropic_messages.append({"role": "assistant", "content": tool_use_blocks})
                 else:
-                    anthropic_messages.append({
-                        "role": "assistant",
-                        "content": content or ""
-                    })
+                    anthropic_messages.append({"role": "assistant", "content": content or ""})
 
             elif role == "tool":
                 # Convert tool response to Anthropic format
-                anthropic_messages.append({
-                    "role": "user",
-                    "content": [{
-                        "type": "tool_result",
-                        "tool_use_id": msg.get("tool_call_id", ""),
-                        "content": content
-                    }]
-                })
+                anthropic_messages.append(
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "tool_result", "tool_use_id": msg.get("tool_call_id", ""), "content": content}
+                        ],
+                    }
+                )
 
             elif role == "user":
-                anthropic_messages.append({
-                    "role": "user",
-                    "content": content
-                })
+                anthropic_messages.append({"role": "user", "content": content})
 
         return system_prompt, anthropic_messages
 
-    def _convert_anthropic_response_to_openai(
-        self,
-        response: Any
-    ) -> dict[str, Any]:
+    def _convert_anthropic_response_to_openai(self, response: Any) -> dict[str, Any]:
         """Convert Anthropic response to OpenAI format.
 
         Args:
@@ -273,11 +260,7 @@ class AnthropicLLM(LLM):
         Returns:
             Response in OpenAI format
         """
-        result = {
-            "role": "assistant",
-            "content": None,
-            "tool_calls": None
-        }
+        result = {"role": "assistant", "content": None, "tool_calls": None}
 
         text_content = []
         tool_calls = []
@@ -286,14 +269,13 @@ class AnthropicLLM(LLM):
             if block.type == "text":
                 text_content.append(block.text)
             elif block.type == "tool_use":
-                tool_calls.append({
-                    "id": block.id,
-                    "type": "function",
-                    "function": {
-                        "name": block.name,
-                        "arguments": json.dumps(block.input)
+                tool_calls.append(
+                    {
+                        "id": block.id,
+                        "type": "function",
+                        "function": {"name": block.name, "arguments": json.dumps(block.input)},
                     }
-                })
+                )
 
         if text_content:
             result["content"] = "\n".join(text_content)
@@ -321,13 +303,7 @@ class AnthropicLLM(LLM):
 
         # Use Anthropic's cache control format for ephemeral caching
         # This marks the system prompt as cacheable for subsequent requests
-        return [
-            {
-                "type": "text",
-                "text": system_prompt,
-                "cache_control": {"type": "ephemeral"}
-            }
-        ]
+        return [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}]
 
     async def ask(
         self,
@@ -335,7 +311,7 @@ class AnthropicLLM(LLM):
         tools: list[dict[str, Any]] | None = None,
         response_format: dict[str, Any] | None = None,
         tool_choice: str | None = None,
-        enable_caching: bool = True
+        enable_caching: bool = True,
     ) -> dict[str, Any]:
         """Send chat request to Anthropic API.
 
@@ -402,7 +378,7 @@ class AnthropicLLM(LLM):
             except anthropic.BadRequestError as e:
                 error_msg = str(e).lower()
                 if "token" in error_msg or "context" in error_msg:
-                    raise TokenLimitExceeded(str(e))
+                    raise TokenLimitExceededError(str(e)) from e
                 raise
 
             except Exception as e:
@@ -418,7 +394,7 @@ class AnthropicLLM(LLM):
         response_model: type[T],
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | None = None,
-        enable_caching: bool = True
+        enable_caching: bool = True,
     ) -> T:
         """Send chat request with structured output validation.
 
@@ -442,8 +418,8 @@ class AnthropicLLM(LLM):
             "function": {
                 "name": "return_structured_response",
                 "description": f"Return a response matching the {response_model.__name__} schema",
-                "parameters": schema
-            }
+                "parameters": schema,
+            },
         }
 
         # Add instruction to use the tool
@@ -451,15 +427,12 @@ class AnthropicLLM(LLM):
         if enhanced_messages and enhanced_messages[-1].get("role") == "user":
             enhanced_messages[-1] = {
                 **enhanced_messages[-1],
-                "content": enhanced_messages[-1].get("content", "") +
-                          "\n\nPlease respond using the return_structured_response tool."
+                "content": enhanced_messages[-1].get("content", "")
+                + "\n\nPlease respond using the return_structured_response tool.",
             }
 
         response = await self.ask(
-            messages=enhanced_messages,
-            tools=[structured_tool],
-            tool_choice="required",
-            enable_caching=enable_caching
+            messages=enhanced_messages, tools=[structured_tool], tool_choice="required", enable_caching=enable_caching
         )
 
         # Extract structured response from tool call
@@ -479,7 +452,7 @@ class AnthropicLLM(LLM):
         tools: list[dict[str, Any]] | None = None,
         response_format: dict[str, Any] | None = None,
         tool_choice: str | None = None,
-        enable_caching: bool = True
+        enable_caching: bool = True,
     ) -> AsyncGenerator[str, None]:
         """Stream chat response from Anthropic API.
 
@@ -527,7 +500,7 @@ class AnthropicLLM(LLM):
         except anthropic.BadRequestError as e:
             error_msg = str(e).lower()
             if "token" in error_msg or "context" in error_msg:
-                raise TokenLimitExceeded(str(e))
+                raise TokenLimitExceededError(str(e)) from e
             raise
 
 
@@ -544,9 +517,7 @@ if __name__ == "__main__":
 
         llm = AnthropicLLM(api_key=api_key)
 
-        response = await llm.ask([
-            {"role": "user", "content": "What is 2 + 2?"}
-        ])
+        response = await llm.ask([{"role": "user", "content": "What is 2 + 2?"}])
 
         print(f"Response: {response}")
 

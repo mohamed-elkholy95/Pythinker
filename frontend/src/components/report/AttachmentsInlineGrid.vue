@@ -1,5 +1,5 @@
 <template>
-  <div class="attachments-inline-grid w-full max-w-[600px] min-w-0 mt-3">
+  <div class="attachments-inline-grid w-full max-w-[520px] min-w-0 mt-3">
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
       <div
         v-for="file in displayedAttachments"
@@ -25,7 +25,7 @@
 
       <!-- View all files button - inline in grid -->
       <button
-        v-if="attachments.length > maxDisplayedFiles"
+        v-if="uniqueAttachments.length > maxDisplayedFiles"
         class="file-card flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-[var(--background-card)] border border-[var(--border-light)] cursor-pointer hover:border-[var(--border-main)] hover:shadow-sm transition-all"
         @click="showAllFiles"
       >
@@ -62,11 +62,33 @@ const emit = defineEmits<{
 
 const maxDisplayedFiles = props.maxDisplayedFiles ?? 4;
 
+// Deduplicate attachments by filename (preferred) or file_id to prevent showing duplicates
+// Prefer filename because the same file synced multiple times may have different file_ids
+const uniqueAttachments = computed(() => {
+  const seenFilenames = new Set<string>();
+  const seenFileIds = new Set<string>();
+  return props.attachments.filter(file => {
+    // Primary dedup by filename
+    if (file.filename) {
+      if (seenFilenames.has(file.filename)) return false;
+      seenFilenames.add(file.filename);
+      return true;
+    }
+    // Fallback to file_id if no filename
+    if (file.file_id) {
+      if (seenFileIds.has(file.file_id)) return false;
+      seenFileIds.add(file.file_id);
+      return true;
+    }
+    return true; // Keep if neither exists
+  });
+});
+
 const displayedAttachments = computed(() => {
-  if (props.attachments.length > maxDisplayedFiles) {
-    return props.attachments.slice(0, maxDisplayedFiles - 1);
+  if (uniqueAttachments.value.length > maxDisplayedFiles) {
+    return uniqueAttachments.value.slice(0, maxDisplayedFiles - 1);
   }
-  return props.attachments.slice(0, maxDisplayedFiles);
+  return uniqueAttachments.value.slice(0, maxDisplayedFiles);
 });
 
 const formatFileSize = (bytes: number) => {

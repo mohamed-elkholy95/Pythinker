@@ -126,16 +126,18 @@ class TestDeepResearchFlow:
     def mock_search_engine(self):
         """Create a mock search engine."""
         engine = AsyncMock()
-        engine.search = AsyncMock(return_value=ToolResult(
-            success=True,
-            data=SearchResults(
-                query="test",
-                results=[
-                    SearchResultItem(title="Result 1", link="http://r1.com", snippet="Snippet 1"),
-                    SearchResultItem(title="Result 2", link="http://r2.com", snippet="Snippet 2"),
-                ]
+        engine.search = AsyncMock(
+            return_value=ToolResult(
+                success=True,
+                data=SearchResults(
+                    query="test",
+                    results=[
+                        SearchResultItem(title="Result 1", link="http://r1.com", snippet="Snippet 1"),
+                        SearchResultItem(title="Result 2", link="http://r2.com", snippet="Snippet 2"),
+                    ],
+                ),
             )
-        ))
+        )
         return engine
 
     @pytest.fixture
@@ -202,6 +204,7 @@ class TestDeepResearchFlow:
     @pytest.mark.asyncio
     async def test_flow_skip_query(self, flow, mock_search_engine):
         """Test skipping individual queries."""
+
         # Make search slow
         async def slow_search(query):
             await asyncio.sleep(2)
@@ -309,12 +312,14 @@ class TestDeepResearchManager:
         flow.skip_query = AsyncMock(return_value=True)
         flow.skip_all = AsyncMock()
         flow.cancel = AsyncMock()
-        flow.get_session = MagicMock(return_value=MagicMock(
-            research_id="test",
-            status="started",
-            total_count=3,
-            completed_count=1,
-        ))
+        flow.get_session = MagicMock(
+            return_value=MagicMock(
+                research_id="test",
+                status="started",
+                total_count=3,
+                completed_count=1,
+            )
+        )
         return flow
 
     @pytest.mark.asyncio

@@ -11,11 +11,21 @@ import asyncio
 
 import pytest
 
-# Model Router tests
 from app.domain.services.agents.model_router import (
     ModelRouter,
     ModelTier,
     TaskComplexity,
+)
+from app.domain.services.agents.parallel_executor import (
+    ParallelToolExecutor,
+    ToolCall,
+)
+from app.domain.services.agents.prompt_cache_manager import (
+    SemanticResponseCache,
+)
+from app.domain.services.agents.requirement_extractor import (
+    RequirementPriority,
+    extract_requirements,
 )
 
 
@@ -103,13 +113,6 @@ class TestModelRouter:
         assert stats["total_routed"] == 3
 
 
-# Requirement Extractor tests
-from app.domain.services.agents.requirement_extractor import (
-    RequirementPriority,
-    extract_requirements,
-)
-
-
 class TestRequirementExtractor:
     """Tests for user requirement extraction."""
 
@@ -183,12 +186,6 @@ class TestRequirementExtractor:
         assert "[ ]" in summary  # Unchecked items
 
 
-# Semantic Cache tests
-from app.domain.services.agents.prompt_cache_manager import (
-    SemanticResponseCache,
-)
-
-
 class TestSemanticCache:
     """Tests for semantic response caching."""
 
@@ -208,7 +205,7 @@ class TestSemanticCache:
         cache.put("What is the Python programming language?", "Python is a language.")
 
         # Similar query should hit cache
-        result = cache.get("Tell me about Python programming language")
+        cache.get("Tell me about Python programming language")
 
         # Note: This may or may not match depending on threshold
         # The semantic matching is simplified in implementation
@@ -220,6 +217,7 @@ class TestSemanticCache:
         cache.put("Question", "Answer")
 
         import time
+
         time.sleep(0.1)
 
         result = cache.get("Question")
@@ -247,13 +245,6 @@ class TestSemanticCache:
 
         assert cache.get("Q1") == "A1"
         assert cache.get("Q3") == "A3"
-
-
-# Parallel Executor tests
-from app.domain.services.agents.parallel_executor import (
-    ParallelToolExecutor,
-    ToolCall,
-)
 
 
 class TestParallelExecutor:
@@ -311,6 +302,7 @@ class TestParallelExecutor:
 
         async def mock_executor(tool_name: str, args: dict):
             import time
+
             start = time.time()
             await asyncio.sleep(0.1)  # Simulate work
             call_times.append(time.time() - start)
@@ -376,7 +368,7 @@ class TestQuickWinsIntegration:
     async def test_cache_with_parallel_execution(self):
         """Caching should work alongside parallel execution."""
         cache = SemanticResponseCache(ttl_seconds=60)
-        executor = ParallelToolExecutor()
+        ParallelToolExecutor()
 
         # Add a cached response
         cache.put("file_read a.txt", "Content of a.txt")

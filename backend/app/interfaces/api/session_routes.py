@@ -4,13 +4,14 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 
 import websockets
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from sse_starlette.event import ServerSentEvent
 from sse_starlette.sse import EventSourceResponse
 
 from app.application.errors.exceptions import NotFoundError, UnauthorizedError
 from app.application.services.agent_service import AgentService
 from app.application.services.token_service import TokenService
+from app.core.config import get_settings
 from app.core.deep_research_manager import get_deep_research_manager
 from app.domain.external.sandbox import Sandbox
 from app.domain.models.file import FileInfo
@@ -62,7 +63,11 @@ async def create_session(
     agent_service: AgentService = Depends(get_agent_service),
     sandbox_cls: type[Sandbox] = Depends(get_sandbox_cls),
 ) -> APIResponse[CreateSessionResponse]:
-    session = await agent_service.create_session(current_user.id, mode=request.mode)
+    session = await agent_service.create_session(
+        current_user.id,
+        mode=request.mode,
+        initial_message=request.message,  # Phase 4 P0: Pass initial message for intent classification
+    )
 
     # Phase 4: Include sandbox info if available for optimistic VNC connection
     sandbox_info = None
@@ -226,25 +231,74 @@ async def stream_sessions(
 async def chat(
     session_id: str,
     request: ChatRequest,
+    http_request: Request,
     current_user: User = Depends(get_current_user),
     agent_service: AgentService = Depends(get_agent_service),
 ) -> EventSourceResponse:
+    """Chat endpoint with SSE streaming.
+
+    Phase 3 Enhancement: Improved disconnect handling and send timeout.
+    When feature_sse_v2 is enabled, uses enhanced event streaming with
+    disconnect detection and timeouts for better reliability.
+    """
+    settings = get_settings()
+    use_sse_v2 = settings.feature_sse_v2
+
+    # SSE send timeout (Phase 3: prevents hanging on slow clients)
+    send_timeout = 30.0 if use_sse_v2 else None
+
     async def event_generator() -> AsyncGenerator[ServerSentEvent, None]:
-        async for event in agent_service.chat(
-            session_id=session_id,
-            user_id=current_user.id,
-            message=request.message,
-            timestamp=datetime.fromtimestamp(request.timestamp) if request.timestamp else None,
-            event_id=request.event_id,
-            attachments=request.attachments,
-        ):
-            logger.debug(f"Received event from chat: {event}")
-            sse_event = await EventMapper.event_to_sse_event(event)
-            logger.debug(f"Received event: {sse_event}")
-            if sse_event:
-                yield ServerSentEvent(
-                    event=sse_event.event, data=sse_event.data.model_dump_json() if sse_event.data else None
-                )
+        try:
+            async for event in agent_service.chat(
+                session_id=session_id,
+                user_id=current_user.id,
+                message=request.message,
+                timestamp=datetime.fromtimestamp(request.timestamp) if request.timestamp else None,
+                event_id=request.event_id,
+                attachments=request.attachments,
+                skills=request.skills,
+                deep_research=request.deep_research,
+            ):
+                # Phase 3: Check for client disconnect before sending
+                if use_sse_v2 and await http_request.is_disconnected():
+                    logger.info(f"Client disconnected during chat stream: {session_id}")
+                    break
+
+                logger.debug(f"Received event from chat: {event}")
+                sse_event = await EventMapper.event_to_sse_event(event)
+                logger.debug(f"Received event: {sse_event}")
+                if sse_event:
+                    # Phase 3: Use timeout for send operations
+                    if send_timeout:
+                        try:
+                            async with asyncio.timeout(send_timeout):
+                                yield ServerSentEvent(
+                                    event=sse_event.event,
+                                    data=sse_event.data.model_dump_json() if sse_event.data else None,
+                                )
+                        except TimeoutError:
+                            logger.warning(f"SSE send timeout for session {session_id}")
+                            break
+                    else:
+                        yield ServerSentEvent(
+                            event=sse_event.event, data=sse_event.data.model_dump_json() if sse_event.data else None
+                        )
+        except asyncio.CancelledError:
+            # Client disconnected - log and gracefully terminate
+            logger.warning(f"Chat stream cancelled for session {session_id} (client disconnected)")
+            # Allow agent to cleanup gracefully
+            try:
+                await agent_service.stop_session(session_id, current_user.id)
+            except Exception as e:
+                logger.debug(f"Error stopping session on disconnect: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Error in chat stream for session {session_id}: {e}")
+            # Yield error event before closing
+            yield ServerSentEvent(
+                event="error",
+                data=f'{{"message": "Stream error: {str(e)[:100]}"}}'
+            )
 
     return EventSourceResponse(event_generator())
 
@@ -404,7 +458,7 @@ async def vnc_websocket(
             forward_task2 = asyncio.create_task(forward_from_sandbox())
 
             # Wait for either task to complete (meaning connection has closed)
-            done, pending = await asyncio.wait([forward_task1, forward_task2], return_when=asyncio.FIRST_COMPLETED)
+            _done, pending = await asyncio.wait([forward_task1, forward_task2], return_when=asyncio.FIRST_COMPLETED)
 
             logger.info("WebSocket connection closed")
 
@@ -531,7 +585,7 @@ async def get_vnc_screenshot(
             )
     except Exception as e:
         logger.error(f"Failed to fetch VNC screenshot: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch screenshot: {e!s}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch screenshot: {e!s}") from e
 
 
 @router.get("/{session_id}/sandbox/url", response_model=APIResponse[SandboxUrlResponse])

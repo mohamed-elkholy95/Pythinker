@@ -38,8 +38,8 @@ onUnmounted(() => {
 
 <style scoped>
 .thinking-shape {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 50%, #3b82f6 100%);
   background-size: 200% 200%;
   animation: shimmer 1.5s ease-in-out infinite;

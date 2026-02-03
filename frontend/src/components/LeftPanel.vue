@@ -3,14 +3,27 @@
     class="left-panel-container h-full flex flex-col"
     :class="{
       'left-panel-expanded': isLeftPanelShow,
-      'left-panel-collapsed fixed top-0 start-0 bottom-0 z-[1]': !isLeftPanelShow
+      'left-panel-collapsed': !isLeftPanelShow
     }"
   >
+    <!-- Collapsed icon sidebar (always visible when collapsed) -->
+    <div v-if="!isLeftPanelShow" class="collapsed-sidebar">
+      <div class="collapsed-sidebar-top">
+        <button @click="toggleLeftPanel" class="collapsed-icon-btn" aria-label="Expand sidebar">
+          <PanelLeft class="h-5 w-5" />
+        </button>
+      </div>
+      <div class="collapsed-sidebar-bottom">
+        <button @click="openSettingsDialog('settings')" class="collapsed-icon-btn" aria-label="Settings">
+          <Settings2 class="h-5 w-5" />
+        </button>
+      </div>
+    </div>
     <div
       class="left-panel-content flex flex-col overflow-hidden bg-[var(--background-nav)]"
       :class="{
         'h-full opacity-100 translate-x-0 border-r border-[var(--border-main)]': isLeftPanelShow,
-        'fixed top-1 start-1 bottom-1 z-[1] border dark:border border-[var(--border-main)] dark:border-[var(--border-light)] rounded-xl shadow-[0px_8px_32px_0px_rgba(0,0,0,0.16),0px_0px_0px_1px_rgba(0,0,0,0.06)] opacity-0 pointer-events-none -translate-x-10': !isLeftPanelShow
+        'hidden': !isLeftPanelShow
       }"
     >
       <div class="flex items-center px-4 py-3 h-[56px]">
@@ -229,7 +242,7 @@ watch(() => route.path, async (newPath, oldPath) => {
 /* ===== LEFT PANEL LAYOUT ===== */
 .left-panel-container {
   --left-panel-width-expanded: 280px;
-  --left-panel-width-collapsed: 24px;
+  --left-panel-width-collapsed: 64px;
 }
 
 .left-panel-expanded {
@@ -252,6 +265,46 @@ watch(() => route.path, async (newPath, oldPath) => {
 
 .left-panel-collapsed .left-panel-content {
   width: 0px;
+}
+
+/* ===== COLLAPSED ICON SIDEBAR ===== */
+.collapsed-sidebar {
+  width: var(--left-panel-width-collapsed);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  background: var(--background-nav);
+  border-right: 1px solid var(--border-main);
+}
+
+.collapsed-sidebar-top,
+.collapsed-sidebar-bottom {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.collapsed-icon-btn {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  color: var(--icon-secondary);
+  background: transparent;
+  border: none;
+}
+
+.collapsed-icon-btn:hover {
+  background: var(--fill-tsp-gray-main);
+  color: var(--icon-primary);
 }
 
 /* ===== NEW TASK BUTTON ===== */

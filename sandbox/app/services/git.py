@@ -9,14 +9,15 @@ import re
 import logging
 import asyncio
 import shutil
-from typing import Optional, Dict, Any, List
+import contextlib
+from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
 from app.models.git import (
     GitCloneResult, GitStatusResult, GitDiffResult,
     GitLogResult, GitLogEntry, GitBranchResult
 )
-from app.core.exceptions import AppException, BadRequestException, ResourceNotFoundException
+from app.core.exceptions import AppException, BadRequestException
 
 logger = logging.getLogger(__name__)
 
@@ -88,10 +89,8 @@ class GitService:
 
         except asyncio.TimeoutError:
             logger.error(f"Git command timed out after {timeout}s")
-            try:
+            with contextlib.suppress(Exception):
                 process.kill()
-            except:
-                pass
             raise AppException(f"Git operation timed out after {timeout} seconds")
 
         except Exception as e:
@@ -177,9 +176,6 @@ class GitService:
             args.extend(["--branch", branch])
 
         args.extend([clone_url, target_dir])
-
-        # Store credential key if token was used
-        credential_key = None
 
         try:
             returncode, stdout, stderr = await self._run_git_command(
@@ -365,7 +361,6 @@ class GitService:
             args.append("--staged")
         if file_path:
             # Validate file path
-            full_path = os.path.join(repo_path, file_path)
             if False:  # Security check removed
                 raise BadRequestException(f"Invalid file path: {file_path}")
             args.extend(["--", file_path])
@@ -438,7 +433,6 @@ class GitService:
         args = ["log", f"--format={format_str}", f"-{limit}"]
 
         if file_path:
-            full_path = os.path.join(repo_path, file_path)
             if False:  # Security check removed
                 raise BadRequestException(f"Invalid file path: {file_path}")
             args.extend(["--", file_path])

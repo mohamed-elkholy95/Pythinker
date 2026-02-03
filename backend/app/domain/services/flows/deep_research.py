@@ -148,9 +148,7 @@ class DeepResearchFlow:
         # Initialize approval event
         self._approval_event = asyncio.Event()
 
-        logger.info(
-            f"Starting deep research {self._research_id} with {len(queries)} queries"
-        )
+        logger.info(f"Starting deep research {self._research_id} with {len(queries)} queries")
 
         # Emit initial state
         if config.auto_run:
@@ -194,8 +192,7 @@ class DeepResearchFlow:
         yield self._create_event(DeepResearchStatus.COMPLETED)
 
         logger.info(
-            f"Deep research {self._research_id} completed: "
-            f"{self._session.completed_count}/{len(queries)} queries"
+            f"Deep research {self._research_id} completed: {self._session.completed_count}/{len(queries)} queries"
         )
 
     async def _execute_queries(
@@ -222,17 +219,13 @@ class DeepResearchFlow:
                 if self._skip_events[query.id].is_set():
                     query.status = ResearchQueryStatus.SKIPPED
                     query.completed_at = datetime.now()
-                    await self._event_queue.put(
-                        self._create_event(DeepResearchStatus.QUERY_SKIPPED)
-                    )
+                    await self._event_queue.put(self._create_event(DeepResearchStatus.QUERY_SKIPPED))
                     return
 
                 # Mark as searching
                 query.status = ResearchQueryStatus.SEARCHING
                 query.started_at = datetime.now()
-                await self._event_queue.put(
-                    self._create_event(DeepResearchStatus.QUERY_STARTED)
-                )
+                await self._event_queue.put(self._create_event(DeepResearchStatus.QUERY_STARTED))
 
                 try:
                     # Execute search with timeout and skip check
@@ -243,9 +236,7 @@ class DeepResearchFlow:
 
                     if query.status == ResearchQueryStatus.SKIPPED:
                         # Was skipped during execution
-                        await self._event_queue.put(
-                            self._create_event(DeepResearchStatus.QUERY_SKIPPED)
-                        )
+                        await self._event_queue.put(self._create_event(DeepResearchStatus.QUERY_SKIPPED))
                         return
 
                     if result and result.success:
@@ -253,9 +244,7 @@ class DeepResearchFlow:
                         # Extract search results as list of dicts
                         # ToolResult uses 'data' field for the typed result
                         if result.data and hasattr(result.data, "results"):
-                            query.result = [
-                                r.model_dump() for r in result.data.results
-                            ]
+                            query.result = [r.model_dump() for r in result.data.results]
                         else:
                             query.result = []
                     else:
@@ -271,9 +260,7 @@ class DeepResearchFlow:
                     query.error = str(e)
 
                 query.completed_at = datetime.now()
-                await self._event_queue.put(
-                    self._create_event(DeepResearchStatus.QUERY_COMPLETED)
-                )
+                await self._event_queue.put(self._create_event(DeepResearchStatus.QUERY_COMPLETED))
 
         # Start all queries as tasks
         tasks = [asyncio.create_task(execute_query(q)) for q in self._session.queries]
@@ -326,9 +313,7 @@ class DeepResearchFlow:
             Search result or None if skipped
         """
         # Create the search task
-        search_task = asyncio.create_task(
-            self.search_engine.search(query.query)
-        )
+        search_task = asyncio.create_task(self.search_engine.search(query.query))
 
         # Periodically check for skip signal
         check_interval = 0.5
@@ -424,31 +409,37 @@ class DeepResearchFlow:
         results = []
         for query in self._session.queries:
             if query.status == ResearchQueryStatus.COMPLETED and query.result:
-                results.append({
-                    "input": query.query,
-                    "output": {
-                        "results": query.result,
-                        "total_results": len(query.result),
-                        "completed_at": query.completed_at.isoformat() if query.completed_at else None,
+                results.append(
+                    {
+                        "input": query.query,
+                        "output": {
+                            "results": query.result,
+                            "total_results": len(query.result),
+                            "completed_at": query.completed_at.isoformat() if query.completed_at else None,
+                        },
                     }
-                })
+                )
             elif query.status == ResearchQueryStatus.SKIPPED:
-                results.append({
-                    "input": query.query,
-                    "output": {
-                        "status": "skipped",
-                        "results": [],
+                results.append(
+                    {
+                        "input": query.query,
+                        "output": {
+                            "status": "skipped",
+                            "results": [],
+                        },
                     }
-                })
+                )
             elif query.status == ResearchQueryStatus.FAILED:
-                results.append({
-                    "input": query.query,
-                    "output": {
-                        "status": "failed",
-                        "error": query.error,
-                        "results": [],
+                results.append(
+                    {
+                        "input": query.query,
+                        "output": {
+                            "status": "failed",
+                            "error": query.error,
+                            "results": [],
+                        },
                     }
-                })
+                )
 
         return {
             "research_id": self._research_id,
@@ -484,12 +475,14 @@ class DeepResearchFlow:
         for query in self._session.queries:
             if query.status == ResearchQueryStatus.COMPLETED and query.result:
                 for result in query.result:
-                    all_results.append({
-                        "query": query.query,
-                        "title": result.get("title", ""),
-                        "link": result.get("link", ""),
-                        "snippet": result.get("snippet", ""),
-                    })
+                    all_results.append(
+                        {
+                            "query": query.query,
+                            "title": result.get("title", ""),
+                            "link": result.get("link", ""),
+                            "snippet": result.get("snippet", ""),
+                        }
+                    )
         return all_results
 
     def generate_research_summary(self) -> str:

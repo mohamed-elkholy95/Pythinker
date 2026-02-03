@@ -95,21 +95,11 @@ class SessionRepository(Protocol):
         ...
 
     # Timeline query methods
-    async def get_events_paginated(
-        self,
-        session_id: str,
-        offset: int = 0,
-        limit: int = 100
-    ) -> list[BaseEvent]:
+    async def get_events_paginated(self, session_id: str, offset: int = 0, limit: int = 100) -> list[BaseEvent]:
         """Get paginated events for a session."""
         ...
 
-    async def get_events_in_range(
-        self,
-        session_id: str,
-        start_time: datetime,
-        end_time: datetime
-    ) -> list[BaseEvent]:
+    async def get_events_in_range(self, session_id: str, start_time: datetime, end_time: datetime) -> list[BaseEvent]:
         """Get events within a time range."""
         ...
 
@@ -117,10 +107,6 @@ class SessionRepository(Protocol):
         """Get the total number of events for a session."""
         ...
 
-    async def get_event_by_sequence(
-        self,
-        session_id: str,
-        sequence: int
-    ) -> BaseEvent | None:
+    async def get_event_by_sequence(self, session_id: str, sequence: int) -> BaseEvent | None:
         """Get an event by its sequence number."""
         ...

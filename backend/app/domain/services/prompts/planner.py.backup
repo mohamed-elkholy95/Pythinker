@@ -1,0 +1,154 @@
+# Planner prompt - optimized for token efficiency
+from datetime import UTC, datetime
+
+PLANNER_SYSTEM_PROMPT = """You are a task planner. Create focused, actionable plans. No explanations - just plan."""
+
+# Current date signal template - for temporal awareness in planning
+CURRENT_DATE_SIGNAL = """
+---
+CURRENT DATE: {current_date}
+Today is {day_of_week}, {full_date}. Use this for time-sensitive planning and search queries.
+---
+"""
+
+
+def get_current_date_signal() -> str:
+    """Generate the current date signal with formatted date information.
+
+    Returns:
+        Formatted current date signal string
+    """
+    now = datetime.now(UTC)
+    return CURRENT_DATE_SIGNAL.format(
+        current_date=now.strftime("%Y-%m-%d"),
+        day_of_week=now.strftime("%A"),
+        full_date=now.strftime("%B %d, %Y")
+    )
+
+THINKING_PROMPT = """Before creating a plan, think through the user's request step by step.
+
+User request: {message}
+
+Consider:
+1. What is the user actually asking for?
+2. What are the key challenges or constraints?
+3. What approach would be most effective?
+
+Think out loud briefly."""
+
+# Task memory template - for similar past tasks (Phase 6: Qdrant integration)
+TASK_MEMORY_SIGNAL = """
+---
+RELEVANT PAST TASKS AND OUTCOMES:
+{task_memory}
+Consider these experiences when creating your plan.
+---
+"""
+
+CREATE_PLAN_PROMPT = """Plan the following request: {message}
+
+🌐 CRITICAL - WEB BROWSING TASKS:
+If the request involves web browsing (search, visit websites, navigate, click, extract from web):
+- Create ONLY ONE step with the COMPLETE browsing task description
+- Do NOT break into: search → navigate → click → extract
+- Example: "Search Google for FastAPI tutorials, click first result, extract main topics"
+- The browsing tool handles ALL web actions autonomously
+
+🔬 DIAGNOSTIC/BENCHMARK TASKS:
+If the request involves system diagnostics, benchmarks, environment inspection, or capability testing:
+- Structure as: Inspect → Script → Execute → Analyze → Report
+- Example steps for "diagnose this environment":
+  1. "Inspect system and create diagnostic_script.py with hardware and OS checks"
+  2. "Execute diagnostic script, install missing dependencies if needed"
+  3. "Create benchmark_script.py for CPU, memory, and disk performance tests"
+  4. "Run benchmarks and create consistency_check.py for validation"
+  5. "Compile findings into diagnostic_report.md with recommendations"
+- Use Python scripts (not shell one-liners) for complex diagnostics
+- Output structured JSON files + human-readable Markdown report
+- Include self-consistency checks when verifying capabilities or detecting hallucinations
+
+Step writing rules:
+- Start each step with an action verb (Analyze, Review, Design, Create, Develop, Search, Compare, Compile, Save, Deliver)
+- Keep steps concise: one line, 5-15 words max
+- Write user-friendly descriptions - NO technical details:
+  - NEVER include file paths (no "/home/ubuntu/...", no "pasted_text_1.txt")
+  - NEVER mention tool names (no "using file_write", "via browser")
+  - NEVER add explanatory phrases (no "in order to", "so that")
+- Refer to attachments generically: "the provided file", "the uploaded content", "user's document"
+- 3-5 substantive steps; consolidate related work (1 step for web browsing)
+
+Planning principles:
+- Proceed with sensible defaults (mid-range budget, current year, mainstream options)
+- Match the user's language throughout
+- DO NOT explain or acknowledge - just create the plan
+
+⚠️ CRITICAL - NO REDUNDANT STEPS:
+- Each step must have a UNIQUE objective - NO overlapping work
+- If data is gathered in step 1, subsequent steps REUSE that data
+- ONE step collects data → ONE step writes the report (not multiple)
+- NEVER create steps that would visit the same URL twice
+- NEVER create steps that would create/write the same file twice
+- NEVER create steps that would run the same command twice
+- BAD: "Analyze issues" + "Review and assess issues" (overlapping)
+- GOOD: "Gather all issue data" + "Write assessment report from gathered data"
+
+For complex multi-source research tasks ONLY (3+ websites, comparative analysis):
+- Add step: "Compile findings into structured Markdown report with citations"
+- Add step: "Save final report and deliver to user"
+
+For simple web queries (single search, one website):
+- ONE browsing step returns results directly - NO compilation/save steps needed
+
+Response format (JSON only, no other text):
+```json
+{{"goal": "objective", "title": "brief title", "language": "en", "steps": [{{"id": "1", "description": "..."}}]}}
+```
+
+User message: {message}
+Attachments: {attachments}
+"""
+
+UPDATE_PLAN_PROMPT = """Return the remaining uncompleted steps.
+
+Include all steps not yet executed. Return an empty steps array only when the task is fully complete.
+
+Completed step: {step}
+Current plan: {plan}
+
+Response format: {{"steps": [{{"id": "N", "description": "..."}}]}}
+"""
+
+
+def build_create_plan_prompt(
+    message: str,
+    attachments: str,
+    task_memory: str | None = None,
+    include_current_date: bool = True
+) -> str:
+    """Build create plan prompt with optional task memory context.
+
+    Args:
+        message: User message
+        attachments: User attachments
+        task_memory: Optional context from similar past tasks
+        include_current_date: Include current date context (default: True)
+
+    Returns:
+        Formatted plan prompt with memory context if available
+    """
+    base_prompt = CREATE_PLAN_PROMPT.format(
+        message=message,
+        attachments=attachments
+    )
+
+    # Inject task memory if present (Phase 6: Qdrant integration)
+    if task_memory:
+        base_prompt = TASK_MEMORY_SIGNAL.format(
+            task_memory=task_memory
+        ) + base_prompt
+
+    # Inject current date for temporal awareness
+    if include_current_date:
+        base_prompt = get_current_date_signal() + base_prompt
+
+    return base_prompt

@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 class WorkflowStatus(str, Enum):
     """Status of a workflow."""
+
     PENDING = "pending"
     RUNNING = "running"
     PAUSED = "paused"
@@ -41,6 +42,7 @@ class WorkflowStatus(str, Enum):
 
 class StageStatus(str, Enum):
     """Status of a workflow stage."""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -55,6 +57,7 @@ class WorkflowStep:
 
     Similar to Plan Step but with additional orchestration metadata.
     """
+
     id: str
     description: str
     status: ExecutionStatus = ExecutionStatus.PENDING
@@ -127,6 +130,7 @@ class WorkflowStage:
     Stages execute sequentially, but steps within a stage can execute
     in parallel based on their dependencies.
     """
+
     id: str
     name: str
     description: str
@@ -194,6 +198,7 @@ class Workflow:
     Workflows manage complex multi-step tasks with stage-level
     sequencing and step-level parallelism.
     """
+
     id: str
     name: str
     description: str
@@ -210,13 +215,9 @@ class Workflow:
         """Get overall workflow progress."""
         total_steps = sum(len(stage.steps) for stage in self.stages)
         completed_steps = sum(
-            sum(1 for s in stage.steps if s.status == ExecutionStatus.COMPLETED)
-            for stage in self.stages
+            sum(1 for s in stage.steps if s.status == ExecutionStatus.COMPLETED) for stage in self.stages
         )
-        failed_steps = sum(
-            sum(1 for s in stage.steps if s.status == ExecutionStatus.FAILED)
-            for stage in self.stages
-        )
+        failed_steps = sum(sum(1 for s in stage.steps if s.status == ExecutionStatus.FAILED) for stage in self.stages)
 
         return {
             "total_stages": len(self.stages),
@@ -286,6 +287,7 @@ class Workflow:
 @dataclass
 class OrchestratorConfig:
     """Configuration for the task orchestrator."""
+
     max_concurrency: int = 3
     default_step_timeout: int = 300
     default_stage_timeout: int = 1800
@@ -473,9 +475,7 @@ class TaskOrchestrator:
                     elapsed = (datetime.now() - workflow.started_at).total_seconds()
                     if elapsed > workflow.timeout_seconds:
                         workflow.status = WorkflowStatus.FAILED
-                        yield ErrorEvent(
-                            error=f"Workflow timeout after {elapsed:.0f}s"
-                        )
+                        yield ErrorEvent(error=f"Workflow timeout after {elapsed:.0f}s")
                         break
 
                 # Get next stage
@@ -486,9 +486,7 @@ class TaskOrchestrator:
                     if pending:
                         # Stages have unmet dependencies - deadlock or failure
                         workflow.status = WorkflowStatus.FAILED
-                        yield ErrorEvent(
-                            error=f"Workflow has {len(pending)} stages with unmet dependencies"
-                        )
+                        yield ErrorEvent(error=f"Workflow has {len(pending)} stages with unmet dependencies")
                     else:
                         # All stages complete
                         workflow.status = WorkflowStatus.COMPLETED
@@ -496,9 +494,7 @@ class TaskOrchestrator:
                     break
 
                 # Execute stage
-                async for event in self._execute_stage(
-                    workflow, stage, execute_step_func
-                ):
+                async for event in self._execute_stage(workflow, stage, execute_step_func):
                     yield event
 
                 # Checkpoint after stage
@@ -517,8 +513,8 @@ class TaskOrchestrator:
         progress = workflow.get_progress()
         yield MessageEvent(
             message=f"Workflow {workflow.status.value}: "
-                   f"{progress['completed_steps']}/{progress['total_steps']} steps, "
-                   f"{progress['completed_stages']}/{progress['total_stages']} stages"
+            f"{progress['completed_steps']}/{progress['total_steps']} steps, "
+            f"{progress['completed_stages']}/{progress['total_stages']} stages"
         )
 
     async def _execute_stage(
@@ -543,9 +539,7 @@ class TaskOrchestrator:
 
         logger.info(f"Executing stage {stage.id}: {stage.name}")
 
-        yield MessageEvent(
-            message=f"Stage: {stage.name}"
-        )
+        yield MessageEvent(message=f"Stage: {stage.name}")
 
         # Create parallel executor for this stage
         executor = ParallelExecutor(
@@ -568,12 +562,10 @@ class TaskOrchestrator:
         # Execute with timeout
         try:
             async with asyncio.timeout(stage.timeout_seconds):
+
                 async def wrapped_execute(plan_step: Step) -> StepResult:
                     # Find corresponding workflow step
-                    wf_step = next(
-                        (s for s in stage.steps if s.id == plan_step.id),
-                        None
-                    )
+                    wf_step = next((s for s in stage.steps if s.id == plan_step.id), None)
                     if not wf_step:
                         return StepResult(
                             step_id=plan_step.id,
@@ -602,9 +594,7 @@ class TaskOrchestrator:
 
         except TimeoutError:
             stage.status = StageStatus.FAILED
-            yield ErrorEvent(
-                error=f"Stage {stage.id} timed out after {stage.timeout_seconds}s"
-            )
+            yield ErrorEvent(error=f"Stage {stage.id} timed out after {stage.timeout_seconds}s")
             return
 
         # Update stage status
@@ -619,10 +609,7 @@ class TaskOrchestrator:
         stage.completed_at = datetime.now()
         self._execution_stats[stage.id] = executor.get_stats()
 
-        logger.info(
-            f"Stage {stage.id} {stage.status.value}: "
-            f"{progress['completed']}/{progress['total']} completed"
-        )
+        logger.info(f"Stage {stage.id} {stage.status.value}: {progress['completed']}/{progress['total']} completed")
 
     async def pause_workflow(self, workflow: Workflow) -> bool:
         """
@@ -662,9 +649,7 @@ class TaskOrchestrator:
             Events from execution
         """
         if workflow.status not in [WorkflowStatus.PAUSED, WorkflowStatus.PENDING]:
-            yield ErrorEvent(
-                error=f"Cannot resume workflow in status {workflow.status.value}"
-            )
+            yield ErrorEvent(error=f"Cannot resume workflow in status {workflow.status.value}")
             return
 
         logger.info(f"Resuming workflow {workflow.id}")
@@ -692,7 +677,7 @@ class TaskOrchestrator:
             "status": workflow.status.value,
             "progress": workflow.get_progress(),
             "stage_stats": stage_stats,
-            "duration_seconds": (
-                (workflow.completed_at or datetime.now()) - workflow.started_at
-            ).total_seconds() if workflow.started_at else 0,
+            "duration_seconds": ((workflow.completed_at or datetime.now()) - workflow.started_at).total_seconds()
+            if workflow.started_at
+            else 0,
         }

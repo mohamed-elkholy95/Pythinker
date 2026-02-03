@@ -1,0 +1,165 @@
+# Prometheus Alerting Rules for Pythinker AI Agent
+# These rules define when to trigger alerts based on metrics
+
+groups:
+  - name: pythinker_errors
+    interval: 30s
+    rules:
+      # High error rate alert
+      - alert: HighErrorRate
+        expr: rate(pythinker_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          component: "{{ $labels.component }}"
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate for {{ $labels.type }} in {{ $labels.component }} is {{ $value | humanize }} errors/sec (threshold: 0.1/sec)"
+
+      # Connection pool exhaustion alert
+      - alert: BrowserConnectionPoolExhausted
+        expr: increase(pythinker_errors_total{type="connection_pool_exhausted"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: browser
+        annotations:
+          summary: "Browser connection pool exhausted"
+          description: "Browser connection pool has been exhausted {{ $value }} times in the last 5 minutes. Consider increasing pool size."
+
+      # Unhandled exceptions alert
+      - alert: UnhandledExceptions
+        expr: increase(pythinker_errors_total{type="unhandled_exception"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "Unhandled exceptions detected"
+          description: "{{ $value }} unhandled exceptions occurred in the last 5 minutes. Check logs immediately."
+
+      # Timeout errors alert
+      - alert: HighTimeoutRate
+        expr: rate(pythinker_errors_total{type="timeout"}[5m]) > 0.05
+        for: 3m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "High timeout rate"
+          description: "Timeout error rate is {{ $value | humanize }}/sec. System may be overloaded."
+
+  - name: pythinker_service_health
+    interval: 30s
+    rules:
+      # Backend service down
+      - alert: BackendDown
+        expr: up{job="pythinker-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: backend
+        annotations:
+          summary: "Backend service is down"
+          description: "The Pythinker backend service has been down for more than 1 minute."
+
+      # No metrics being collected
+      - alert: NoMetricsCollected
+        expr: absent(pythinker_active_sessions)
+        for: 2m
+        labels:
+          severity: warning
+          component: monitoring
+        annotations:
+          summary: "No metrics being collected"
+          description: "Prometheus is not receiving metrics from the backend. Check metric endpoint."
+
+  - name: pythinker_performance
+    interval: 30s
+    rules:
+      # High LLM error rate
+      - alert: HighLLMErrorRate
+        expr: |
+          sum(rate(pythinker_llm_calls_total{status="error"}[5m]))
+          /
+          sum(rate(pythinker_llm_calls_total[5m]))
+          > 0.1
+        for: 3m
+        labels:
+          severity: warning
+          component: llm
+        annotations:
+          summary: "High LLM error rate"
+          description: "LLM error rate is {{ $value | humanizePercentage }}. Check LLM API status and credentials."
+
+      # High tool error rate
+      - alert: HighToolErrorRate
+        expr: |
+          sum(rate(pythinker_tool_calls_total{status="error"}[5m]))
+          /
+          sum(rate(pythinker_tool_calls_total[5m]))
+          > 0.15
+        for: 3m
+        labels:
+          severity: warning
+          component: tools
+        annotations:
+          summary: "High tool execution error rate"
+          description: "Tool error rate is {{ $value | humanizePercentage }}. Check tool implementations."
+
+      # Slow LLM latency
+      - alert: SlowLLMLatency
+        expr: |
+          histogram_quantile(0.95,
+            rate(pythinker_llm_latency_seconds_bucket[5m])
+          ) > 30
+        for: 5m
+        labels:
+          severity: warning
+          component: llm
+        annotations:
+          summary: "Slow LLM response times"
+          description: "95th percentile LLM latency is {{ $value | humanizeDuration }}. Expected < 30s."
+
+  - name: pythinker_capacity
+    interval: 30s
+    rules:
+      # High concurrent sessions
+      - alert: HighConcurrentSessions
+        expr: pythinker_active_sessions > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: backend
+        annotations:
+          summary: "High number of concurrent sessions"
+          description: "{{ $value }} concurrent sessions are active. Consider scaling resources."
+
+      # LLM queue backing up
+      - alert: LLMQueueBackup
+        expr: pythinker_llm_queue_waiting > 5
+        for: 2m
+        labels:
+          severity: warning
+          component: llm
+        annotations:
+          summary: "LLM request queue backing up"
+          description: "{{ $value }} requests waiting in LLM queue. System may be overloaded."
+
+  - name: pythinker_cache
+    interval: 60s
+    rules:
+      # Low cache hit rate
+      - alert: LowCacheHitRate
+        expr: |
+          sum(rate(pythinker_cache_hits_total[10m]))
+          /
+          (sum(rate(pythinker_cache_hits_total[10m])) + sum(rate(pythinker_cache_misses_total[10m])))
+          < 0.3
+        for: 10m
+        labels:
+          severity: info
+          component: cache
+        annotations:
+          summary: "Low cache hit rate"
+          description: "Cache hit rate is {{ $value | humanizePercentage }}. Consider cache tuning or warming."

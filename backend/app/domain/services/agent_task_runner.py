@@ -3,7 +3,7 @@ import logging
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional
 
 from pydantic import TypeAdapter
 
@@ -27,7 +27,6 @@ from app.domain.models.event import (
     MessageEvent,
     ModeChangeEvent,
     ReportEvent,
-    SearchToolContent,
     ShellToolContent,
     TitleEvent,
     ToolEvent,
@@ -62,7 +61,7 @@ logger = logging.getLogger(__name__)
 
 # Type alias for events that contain attachments requiring storage sync
 # Both MessageEvent and ReportEvent have an 'attachments' field of type Optional[List[FileInfo]]
-EventWithAttachments = Union[MessageEvent, ReportEvent]
+EventWithAttachments = MessageEvent | ReportEvent
 
 
 class AgentTaskRunner(TaskRunner):
@@ -93,6 +92,7 @@ class AgentTaskRunner(TaskRunner):
         enable_coordinator: bool = False,
         memory_service: Optional["MemoryService"] = None,
         use_langgraph_flow: bool = False,
+        mongodb_db: Any | None = None,  # MongoDB database for LangGraph checkpointing
     ):
         self._session_id = session_id
         self._agent_id = agent_id
@@ -118,6 +118,9 @@ class AgentTaskRunner(TaskRunner):
 
         # Memory service for long-term context (Phase 6: Qdrant integration)
         self._memory_service = memory_service
+
+        # MongoDB database for LangGraph checkpointing
+        self._mongodb_db = mongodb_db
 
         # Tool metadata caches for enhanced UI
         self._tool_start_times: dict[str, float] = {}
@@ -172,6 +175,11 @@ class AgentTaskRunner(TaskRunner):
     def _init_langgraph_flow(self) -> None:
         """Initialize LangGraphPlanActFlow for Agent mode with LangGraph"""
         if self._langgraph_flow is None:
+            settings = get_settings()
+
+            # Enable checkpointing if configured and MongoDB is available
+            enable_checkpointing = settings.feature_workflow_checkpointing and self._mongodb_db is not None
+
             self._langgraph_flow = LangGraphPlanActFlow(
                 agent_id=self._agent_id,
                 agent_repository=self._repository,
@@ -184,15 +192,17 @@ class AgentTaskRunner(TaskRunner):
                 mcp_tool=self._mcp_tool,
                 search_engine=self._search_engine,
                 cdp_url=self._sandbox.cdp_url,
-                enable_verification=True,
+                enable_verification=settings.enable_plan_verification,
                 enable_reflection=True,
-                enable_checkpointing=False,  # Can be enabled when MongoDB db is passed
+                enable_checkpointing=enable_checkpointing,
+                mongodb_db=self._mongodb_db,
                 memory_service=self._memory_service,
                 user_id=self._user_id,
             )
             logger.info(
                 f"Initialized LangGraphPlanActFlow for agent {self._agent_id} "
-                f"(memory_service={'enabled' if self._memory_service else 'disabled'})"
+                f"(checkpointing={'enabled' if enable_checkpointing else 'disabled'}, "
+                f"memory_service={'enabled' if self._memory_service else 'disabled'})"
             )
 
     def _init_coordinator_flow(self) -> None:
@@ -633,7 +643,8 @@ class AgentTaskRunner(TaskRunner):
             elif event.tool_name == "browser" or event.tool_name == "browser_agent":
                 event.action_type = "browse"
             elif event.tool_name == "search":
-                event.action_type = "search"
+                # Search now uses browser - action type is browse
+                event.action_type = "browse"
             elif event.tool_name == "mcp":
                 event.action_type = "call_tool"
 
@@ -703,9 +714,19 @@ class AgentTaskRunner(TaskRunner):
                             page_content = result_data
                     event.tool_content = BrowserToolContent(content=page_content)
                 elif event.tool_name == "search":
+                    # Search now uses browser - show as BrowserToolContent for VNC visibility
                     search_results: ToolResult[SearchResults] = event.function_result
                     logger.debug(f"Search tool results: {search_results}")
-                    event.tool_content = SearchToolContent(results=search_results.data.results)
+                    page_content = ""
+                    if hasattr(search_results, "message") and search_results.message:
+                        page_content = search_results.message
+                    elif hasattr(search_results, "data"):
+                        data = search_results.data
+                        if isinstance(data, dict):
+                            page_content = data.get("content", str(data))
+                        else:
+                            page_content = str(data) if data else ""
+                    event.tool_content = BrowserToolContent(content=page_content)
                 elif event.tool_name == "shell":
                     event.observation_type = "run"
                     if event.function_result and hasattr(event.function_result, "data"):
@@ -856,8 +877,18 @@ class AgentTaskRunner(TaskRunner):
 
                 logger.info(f"Agent {self._agent_id} received new message: {message[:50]}...")
 
+                # Build attachments list, handling None case
+                attachments = [attachment.file_path for attachment in event.attachments] if event.attachments else []
+
+                # Log skills for debugging skill activation
+                if event.skills:
+                    logger.info(f"Agent {self._agent_id} received skills: {event.skills}")
+
                 message_obj = Message(
-                    message=message, attachments=[attachment.file_path for attachment in event.attachments]
+                    message=message,
+                    attachments=attachments,
+                    skills=event.skills or [],
+                    deep_research=event.deep_research or False,
                 )
 
                 async for event in self._run_flow(message_obj, task):
@@ -919,14 +950,16 @@ class AgentTaskRunner(TaskRunner):
                     # Sync attachments to storage for events that contain file references
                     # This resolves file_path to file_id for proper frontend access
                     await self._sync_event_attachments_to_storage(event)
-                elif isinstance(event, ModeChangeEvent):
+                elif isinstance(event, ModeChangeEvent) and event.mode == "agent" and self._mode == AgentMode.DISCUSS:
                     # Handle mode switch from Discuss to Agent
-                    if event.mode == "agent" and self._mode == AgentMode.DISCUSS:
-                        # Get the task from the discuss flow
-                        if self._discuss_flow and self._discuss_flow.mode_switch_task:
-                            mode_switch_task = self._discuss_flow.mode_switch_task
-                        yield event
-                        continue
+                    # Get the task from the discuss flow
+                    mode_switch_task = mode_switch_task or (
+                        self._discuss_flow.mode_switch_task
+                        if self._discuss_flow and self._discuss_flow.mode_switch_task
+                        else None
+                    )
+                    yield event
+                    continue
                 yield event
 
         # If mode switch was requested, switch to Agent mode and re-run with the task
@@ -934,8 +967,13 @@ class AgentTaskRunner(TaskRunner):
             logger.info(f"Executing mode switch to Agent for task: {mode_switch_task}")
             await self._switch_to_agent_mode(mode_switch_task)
 
-            # Create a new message with the task description
-            task_message = Message(message=mode_switch_task, attachments=message.attachments)
+            # Create a new message with the task description (preserve skills from original message)
+            task_message = Message(
+                message=mode_switch_task,
+                attachments=message.attachments,
+                skills=message.skills,
+                deep_research=message.deep_research,
+            )
 
             # Run through Agent mode flow
             async with self._usage_context():

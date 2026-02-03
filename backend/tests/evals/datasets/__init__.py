@@ -83,36 +83,28 @@ def get_tool_use_dataset() -> EvalDataset:
                 id="file_read",
                 name="File Read Tool",
                 input="Read the contents of /tmp/test.txt",
-                expected_tool_calls=[
-                    {"function_name": "file_read", "arguments": {"path": "/tmp/test.txt"}}
-                ],
+                expected_tool_calls=[{"function_name": "file_read", "arguments": {"path": "/tmp/test.txt"}}],
                 tags=["file", "tools"],
             ),
             EvalCase(
                 id="web_search",
                 name="Web Search Tool",
                 input="Search the web for 'Python tutorials'",
-                expected_tool_calls=[
-                    {"function_name": "info_search_web"}
-                ],
+                expected_tool_calls=[{"function_name": "info_search_web"}],
                 tags=["search", "tools"],
             ),
             EvalCase(
                 id="shell_command",
                 name="Shell Command Tool",
                 input="List files in the current directory",
-                expected_tool_calls=[
-                    {"function_name": "shell_run"}
-                ],
+                expected_tool_calls=[{"function_name": "shell_run"}],
                 tags=["shell", "tools"],
             ),
             EvalCase(
                 id="browser_navigate",
                 name="Browser Navigation",
                 input="Open google.com in the browser",
-                expected_tool_calls=[
-                    {"function_name": "browser_view", "arguments": {"url": "google.com"}}
-                ],
+                expected_tool_calls=[{"function_name": "browser_view", "arguments": {"url": "google.com"}}],
                 tags=["browser", "tools"],
             ),
         ],
@@ -218,10 +210,7 @@ def get_structured_output_dataset() -> EvalDataset:
                 expected_json_schema={
                     "type": "object",
                     "required": ["name", "age"],
-                    "properties": {
-                        "name": {"type": "string"},
-                        "age": {"type": "integer"}
-                    }
+                    "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
                 },
                 tags=["json", "object"],
             ),
@@ -229,11 +218,7 @@ def get_structured_output_dataset() -> EvalDataset:
                 id="json_array",
                 name="JSON Array Output",
                 input="Return a JSON array with three fruits.",
-                expected_json_schema={
-                    "type": "array",
-                    "minItems": 3,
-                    "items": {"type": "string"}
-                },
+                expected_json_schema={"type": "array", "minItems": 3, "items": {"type": "string"}},
                 tags=["json", "array"],
             ),
         ],

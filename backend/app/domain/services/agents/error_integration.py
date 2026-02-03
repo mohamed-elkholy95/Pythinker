@@ -10,11 +10,15 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from app.core.config import get_feature_flags
+from app.domain.services.prediction.failure_predictor import FailurePredictor
+
 logger = logging.getLogger(__name__)
 
 
 class AgentHealthLevel(str, Enum):
     """Overall health level of the agent."""
+
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     CRITICAL = "critical"
@@ -24,6 +28,7 @@ class AgentHealthLevel(str, Enum):
 @dataclass
 class AgentHealthStatus:
     """Comprehensive health status of the agent."""
+
     level: AgentHealthLevel
     error_count_recent: int = 0
     is_stuck: bool = False
@@ -33,6 +38,10 @@ class AgentHealthStatus:
     patterns_detected: list[dict[str, Any]] = field(default_factory=list)
     recommended_actions: list[str] = field(default_factory=list)
     details: dict[str, Any] = field(default_factory=dict)
+    predicted_failure: bool = False
+    failure_probability: float = 0.0
+    failure_factors: list[str] = field(default_factory=list)
+    recommended_intervention: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -45,13 +54,18 @@ class AgentHealthStatus:
             "token_usage_pct": self.token_usage_pct,
             "patterns_detected": self.patterns_detected,
             "recommended_actions": self.recommended_actions,
-            "details": self.details
+            "predicted_failure": self.predicted_failure,
+            "failure_probability": self.failure_probability,
+            "failure_factors": self.failure_factors,
+            "recommended_intervention": self.recommended_intervention,
+            "details": self.details,
         }
 
 
 @dataclass
 class IterationGuidance:
     """Guidance for the next iteration based on error state analysis."""
+
     should_continue: bool = True
     inject_prompt: str | None = None
     trigger_compaction: bool = False
@@ -75,12 +89,7 @@ class ErrorIntegrationBridge:
     """
 
     def __init__(
-        self,
-        error_handler=None,
-        stuck_detector=None,
-        pattern_analyzer=None,
-        token_manager=None,
-        memory_manager=None
+        self, error_handler=None, stuck_detector=None, pattern_analyzer=None, token_manager=None, memory_manager=None
     ):
         """Initialize with optional component references.
 
@@ -117,10 +126,7 @@ class ErrorIntegrationBridge:
         """Set the memory manager component."""
         self._memory_manager = memory_manager
 
-    def assess_agent_health(
-        self,
-        messages: list[dict[str, Any]] | None = None
-    ) -> AgentHealthStatus:
+    def assess_agent_health(self, messages: list[dict[str, Any]] | None = None) -> AgentHealthStatus:
         """Comprehensive health assessment across all systems.
 
         Args:
@@ -153,9 +159,11 @@ class ErrorIntegrationBridge:
         if self._stuck_detector:
             health.is_stuck = self._stuck_detector.is_stuck()
             if health.is_stuck:
-                health.stuck_type = self._stuck_detector.get_stuck_type() if hasattr(
-                    self._stuck_detector, 'get_stuck_type'
-                ) else "unknown"
+                health.stuck_type = (
+                    self._stuck_detector.get_stuck_type()
+                    if hasattr(self._stuck_detector, "get_stuck_type")
+                    else "unknown"
+                )
                 issues.append(f"Agent stuck: {health.stuck_type}")
                 recommendations.append("Try a different approach or tool")
 
@@ -163,8 +171,8 @@ class ErrorIntegrationBridge:
         if self._token_manager and messages:
             try:
                 pressure = self._token_manager.get_context_pressure(messages)
-                health.token_pressure_level = pressure.level.value if hasattr(pressure, 'level') else str(pressure)
-                health.token_usage_pct = pressure.usage_percent if hasattr(pressure, 'usage_percent') else 0.0
+                health.token_pressure_level = pressure.level.value if hasattr(pressure, "level") else str(pressure)
+                health.token_usage_pct = pressure.usage_percent if hasattr(pressure, "usage_percent") else 0.0
 
                 if health.token_usage_pct > 85:
                     issues.append(f"High token pressure: {health.token_usage_pct:.0f}%")
@@ -180,12 +188,16 @@ class ErrorIntegrationBridge:
                 if self._error_handler:
                     recent_errors = self._error_handler.get_recent_errors(limit=20)
                     patterns = self._pattern_analyzer.analyze_patterns(recent_errors)
-                    health.patterns_detected = [
-                        {"type": p.pattern_type, "confidence": p.confidence, "suggestion": p.suggestion}
-                        for p in patterns
-                    ] if patterns else []
+                    health.patterns_detected = (
+                        [
+                            {"type": p.pattern_type, "confidence": p.confidence, "suggestion": p.suggestion}
+                            for p in patterns
+                        ]
+                        if patterns
+                        else []
+                    )
 
-                    for pattern in (patterns or []):
+                    for pattern in patterns or []:
                         if pattern.confidence > 0.7:
                             issues.append(f"Pattern: {pattern.pattern_type}")
                             if pattern.suggestion:
@@ -206,13 +218,29 @@ class ErrorIntegrationBridge:
         health.recommended_actions = recommendations
         health.details["issues"] = issues
 
+        # Failure prediction (shadow mode by default)
+        flags = get_feature_flags()
+        if flags.get("failure_prediction"):
+            try:
+                predictor = FailurePredictor()
+                prediction = predictor.predict(
+                    progress=None,
+                    recent_actions=None,
+                    stuck_analysis=self._stuck_detector.get_analysis() if self._stuck_detector else None,
+                    token_usage_pct=health.token_usage_pct if health.token_usage_pct else None,
+                )
+                health.predicted_failure = prediction.will_fail
+                health.failure_probability = prediction.probability
+                health.failure_factors = prediction.factors
+                health.recommended_intervention = prediction.recommended_action
+            except Exception as e:
+                logger.debug(f"Failure prediction failed: {e}")
+
         self._last_health_status = health
         return health
 
     async def handle_iteration_end(
-        self,
-        response: dict[str, Any],
-        messages: list[dict[str, Any]] | None = None
+        self, response: dict[str, Any], messages: list[dict[str, Any]] | None = None
     ) -> IterationGuidance:
         """Process end of iteration across all systems.
 
@@ -244,7 +272,7 @@ class ErrorIntegrationBridge:
 
         # Determine if we should continue
         if is_stuck:
-            recovery_attempts = getattr(self._stuck_detector, '_recovery_attempts', 0)
+            recovery_attempts = getattr(self._stuck_detector, "_recovery_attempts", 0)
             if recovery_attempts >= 5:
                 guidance.should_continue = False
                 guidance.warnings.append("Maximum stuck recovery attempts reached")
@@ -269,8 +297,7 @@ class ErrorIntegrationBridge:
         # Add token pressure signal
         if health.token_pressure_level and health.token_pressure_level not in ["normal", "NORMAL"]:
             pressure_signal = (
-                f"CONTEXT PRESSURE: {health.token_usage_pct:.0f}% used. "
-                "Consider being more concise in responses."
+                f"CONTEXT PRESSURE: {health.token_usage_pct:.0f}% used. Consider being more concise in responses."
             )
             prompt_parts.append(pressure_signal)
 
@@ -278,9 +305,9 @@ class ErrorIntegrationBridge:
 
         # Determine if compaction needed
         should_compact = (
-            health.token_usage_pct > 85 or
-            (is_stuck and getattr(self._stuck_detector, '_recovery_attempts', 0) > 2) or
-            health.level == AgentHealthLevel.CRITICAL
+            health.token_usage_pct > 85
+            or (is_stuck and getattr(self._stuck_detector, "_recovery_attempts", 0) > 2)
+            or health.level == AgentHealthLevel.CRITICAL
         )
 
         # Avoid compacting too frequently
@@ -304,15 +331,11 @@ class ErrorIntegrationBridge:
 
     async def _trigger_compaction(self) -> None:
         """Trigger memory compaction via memory manager."""
-        if self._memory_manager and hasattr(self._memory_manager, 'compact'):
+        if self._memory_manager and hasattr(self._memory_manager, "compact"):
             logger.info("Triggering memory compaction via error integration bridge")
             await self._memory_manager.compact()
 
-    def get_unified_recovery_prompt(
-        self,
-        error_context=None,
-        tool_name: str | None = None
-    ) -> str | None:
+    def get_unified_recovery_prompt(self, error_context=None, tool_name: str | None = None) -> str | None:
         """Get unified recovery prompt combining all sources.
 
         Combines prompts from error handler, stuck detector, and pattern analyzer.
@@ -367,7 +390,7 @@ class ErrorIntegrationBridge:
             self._error_handler.clear_history()
             self._error_handler.reset_stats()
 
-        if self._stuck_detector and hasattr(self._stuck_detector, 'reset'):
+        if self._stuck_detector and hasattr(self._stuck_detector, "reset"):
             self._stuck_detector.reset()
 
     def get_metrics(self) -> dict[str, Any]:
@@ -386,8 +409,73 @@ class ErrorIntegrationBridge:
 
         if self._stuck_detector:
             metrics["stuck_detector"] = {
-                "is_stuck": self._stuck_detector.is_stuck() if hasattr(self._stuck_detector, 'is_stuck') else False,
-                "recovery_attempts": getattr(self._stuck_detector, '_recovery_attempts', 0),
+                "is_stuck": self._stuck_detector.is_stuck() if hasattr(self._stuck_detector, "is_stuck") else False,
+                "recovery_attempts": getattr(self._stuck_detector, "_recovery_attempts", 0),
             }
 
         return metrics
+
+    # Session Lifecycle Methods for Cross-Session Learning
+
+    async def on_session_start(self, user_id: str, memory_service: Any | None = None) -> int:
+        """Initialize cross-session learning at session start.
+
+        Loads historical error patterns from long-term memory to prime
+        the pattern analyzer with known issues for this user.
+
+        Args:
+            user_id: User ID for pattern retrieval
+            memory_service: Memory service for retrieval
+
+        Returns:
+            Number of patterns loaded
+        """
+        if not memory_service:
+            logger.debug("No memory service available for cross-session learning")
+            return 0
+
+        if not self._pattern_analyzer:
+            logger.debug("No pattern analyzer available for cross-session learning")
+            return 0
+
+        # Set user ID on pattern analyzer
+        self._pattern_analyzer.set_user_id(user_id)
+
+        # Load historical patterns
+        try:
+            loaded = await self._pattern_analyzer.load_user_patterns(memory_service)
+            if loaded > 0:
+                logger.info(f"Cross-session learning: loaded {loaded} historical error patterns for user {user_id}")
+            return loaded
+        except Exception as e:
+            logger.warning(f"Failed to load historical patterns: {e}")
+            return 0
+
+    async def on_session_end(self, memory_service: Any | None = None) -> int:
+        """Persist learned patterns at session end.
+
+        Saves detected error patterns to long-term memory for
+        future cross-session learning.
+
+        Args:
+            memory_service: Memory service for persistence
+
+        Returns:
+            Number of patterns persisted
+        """
+        if not memory_service:
+            logger.debug("No memory service available for pattern persistence")
+            return 0
+
+        if not self._pattern_analyzer:
+            logger.debug("No pattern analyzer available for pattern persistence")
+            return 0
+
+        try:
+            persisted = await self._pattern_analyzer.persist_patterns(memory_service)
+            if persisted > 0:
+                logger.info(f"Cross-session learning: persisted {persisted} error patterns to long-term memory")
+            return persisted
+        except Exception as e:
+            logger.warning(f"Failed to persist error patterns: {e}")
+            return 0

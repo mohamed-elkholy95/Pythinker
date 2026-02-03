@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class TraceMetrics:
     """Aggregated metrics for a trace."""
+
     total_spans: int = 0
     total_duration_ms: float = 0
     llm_call_count: int = 0
@@ -82,12 +83,7 @@ class TraceContext:
         self._current_span = self.root_span
 
     @contextmanager
-    def span(
-        self,
-        name: str,
-        kind: SpanKind = SpanKind.INTERNAL,
-        attributes: dict[str, Any] | None = None
-    ):
+    def span(self, name: str, kind: SpanKind = SpanKind.INTERNAL, attributes: dict[str, Any] | None = None):
         """Create a child span within this trace context.
 
         Args:
@@ -100,12 +96,7 @@ class TraceContext:
         """
         parent_span_id = self._current_span.span_id if self._current_span else None
 
-        span = Span(
-            trace_id=self.trace_id,
-            parent_span_id=parent_span_id,
-            name=name,
-            kind=kind
-        )
+        span = Span(trace_id=self.trace_id, parent_span_id=parent_span_id, name=name, kind=kind)
 
         if attributes:
             span.set_attributes(attributes)
@@ -126,12 +117,7 @@ class TraceContext:
             self._current_span = old_current
 
     @asynccontextmanager
-    async def span_async(
-        self,
-        name: str,
-        kind: SpanKind = SpanKind.INTERNAL,
-        attributes: dict[str, Any] | None = None
-    ):
+    async def span_async(self, name: str, kind: SpanKind = SpanKind.INTERNAL, attributes: dict[str, Any] | None = None):
         """Async version of span context manager."""
         with self.span(name, kind, attributes) as span:
             yield span
@@ -145,7 +131,7 @@ class TraceContext:
         return self.span(
             f"tool:{tool_name}.{function_name}",
             SpanKind.TOOL_EXECUTION,
-            {"tool.name": tool_name, "tool.function": function_name}
+            {"tool.name": tool_name, "tool.function": function_name},
         )
 
     def flow_span(self, state: str):
@@ -200,7 +186,7 @@ class Tracer:
         self,
         service_name: str = "pythinker-agent",
         export_to_log: bool = True,
-        on_trace_complete: Callable[[TraceContext], None] | None = None
+        on_trace_complete: Callable[[TraceContext], None] | None = None,
     ):
         """Initialize the tracer.
 
@@ -222,7 +208,7 @@ class Tracer:
         name: str,
         agent_id: str | None = None,
         session_id: str | None = None,
-        attributes: dict[str, Any] | None = None
+        attributes: dict[str, Any] | None = None,
     ):
         """Start a new trace.
 
@@ -237,11 +223,7 @@ class Tracer:
         """
         trace_id = str(uuid.uuid4())
 
-        root_span = Span(
-            trace_id=trace_id,
-            name=name,
-            kind=SpanKind.INTERNAL
-        )
+        root_span = Span(trace_id=trace_id, name=name, kind=SpanKind.INTERNAL)
 
         root_span.set_attribute("service.name", self.service_name)
         if agent_id:
@@ -251,11 +233,7 @@ class Tracer:
         if attributes:
             root_span.set_attributes(attributes)
 
-        trace_ctx = TraceContext(
-            trace_id=trace_id,
-            root_span=root_span,
-            _tracer=self
-        )
+        trace_ctx = TraceContext(trace_id=trace_id, root_span=root_span, _tracer=self)
 
         self._active_traces[trace_id] = trace_ctx
 
@@ -329,10 +307,7 @@ class Tracer:
         return {
             "active_traces": len(self._active_traces),
             "completed_traces": len(self._completed_traces),
-            "agents": {
-                agent_id: metrics.to_dict()
-                for agent_id, metrics in self._metrics_by_agent.items()
-            }
+            "agents": {agent_id: metrics.to_dict() for agent_id, metrics in self._metrics_by_agent.items()},
         }
 
 
@@ -378,6 +353,7 @@ def configure_tracer(
             )
 
             if is_otel_enabled():
+
                 def combined_callback(trace_ctx: TraceContext) -> None:
                     export_trace_to_otel(trace_ctx)
                     if on_trace_complete:
@@ -388,9 +364,5 @@ def configure_tracer(
         except ImportError:
             logger.debug("OTEL exporter not available")
 
-    _tracer = Tracer(
-        service_name=service_name,
-        export_to_log=export_to_log,
-        on_trace_complete=final_callback
-    )
+    _tracer = Tracer(service_name=service_name, export_to_log=export_to_log, on_trace_complete=final_callback)
     return _tracer

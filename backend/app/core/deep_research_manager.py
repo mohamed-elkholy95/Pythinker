@@ -137,10 +137,7 @@ class DeepResearchManager:
         timeout = timedelta(minutes=SESSION_TIMEOUT_MINUTES)
 
         async with self._lock:
-            stale_sessions = [
-                sid for sid, t in self._session_times.items()
-                if now - t > timeout
-            ]
+            stale_sessions = [sid for sid, t in self._session_times.items() if now - t > timeout]
 
             for sid in stale_sessions:
                 del self._sessions[sid]

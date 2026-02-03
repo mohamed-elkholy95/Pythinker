@@ -141,8 +141,7 @@ class RedisCache:
             if not keys:
                 return 0
 
-            result = await self.redis_client.client.delete(*keys)
-            return result
+            return await self.redis_client.client.delete(*keys)
 
         except Exception as e:
             logger.error(f"Failed to clear keys with pattern {pattern}: {e!s}")

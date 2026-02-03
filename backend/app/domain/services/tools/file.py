@@ -1,10 +1,27 @@
+import base64
+import contextlib
+import mimetypes
+from pathlib import Path
+
 from app.domain.external.sandbox import Sandbox
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.base import BaseTool, tool
 
+# Supported image extensions for multimodal viewing
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
+
+# Supported document extensions for viewing
+DOCUMENT_EXTENSIONS = {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"}
+
+# Chart/data file extensions
+DATA_EXTENSIONS = {".csv", ".json", ".xml", ".yaml", ".yml"}
+
 
 class FileTool(BaseTool):
-    """File tool class, providing file operation functions"""
+    """File tool class, providing file operation functions.
+
+    Enhanced with multimodal file viewing capabilities per Manus pattern.
+    """
 
     name: str = "file"
 
@@ -22,81 +39,42 @@ class FileTool(BaseTool):
         name="file_read",
         description="Read file content. Use for checking file contents, analyzing logs, or reading configuration files.",
         parameters={
-            "file": {
-                "type": "string",
-                "description": "Absolute path of the file to read"
-            },
-            "start_line": {
-                "type": "integer",
-                "description": "(Optional) Starting line to read from, 0-based"
-            },
-            "end_line": {
-                "type": "integer",
-                "description": "(Optional) Ending line number (exclusive)"
-            },
-            "sudo": {
-                "type": "boolean",
-                "description": "(Optional) Whether to use sudo privileges"
-            }
+            "file": {"type": "string", "description": "Absolute path of the file to read"},
+            "start_line": {"type": "integer", "description": "(Optional) Starting line to read from, 0-based"},
+            "end_line": {"type": "integer", "description": "(Optional) Ending line number (exclusive)"},
+            "sudo": {"type": "boolean", "description": "(Optional) Whether to use sudo privileges"},
         },
-        required=["file"]
+        required=["file"],
     )
     async def file_read(
-        self,
-        file: str,
-        start_line: int | None = None,
-        end_line: int | None = None,
-        sudo: bool | None = False
+        self, file: str, start_line: int | None = None, end_line: int | None = None, sudo: bool | None = False
     ) -> ToolResult:
         """Read file content
-        
+
         Args:
             file: Absolute path of the file to read
             start_line: (Optional) Starting line, 0-based
             end_line: (Optional) Ending line (exclusive)
             sudo: (Optional) Whether to use sudo privileges
-            
+
         Returns:
             File content
         """
         # Directly call sandbox's file_read method
-        return await self.sandbox.file_read(
-            file=file,
-            start_line=start_line,
-            end_line=end_line,
-            sudo=sudo
-        )
+        return await self.sandbox.file_read(file=file, start_line=start_line, end_line=end_line, sudo=sudo)
 
     @tool(
         name="file_write",
         description="Overwrite or append content to a file. Use for creating new files, appending content, or modifying existing files.",
         parameters={
-            "file": {
-                "type": "string",
-                "description": "Absolute path of the file to write to"
-            },
-            "content": {
-                "type": "string",
-                "description": "Text content to write"
-            },
-            "append": {
-                "type": "boolean",
-                "description": "(Optional) Whether to use append mode"
-            },
-            "leading_newline": {
-                "type": "boolean",
-                "description": "(Optional) Whether to add a leading newline"
-            },
-            "trailing_newline": {
-                "type": "boolean",
-                "description": "(Optional) Whether to add a trailing newline"
-            },
-            "sudo": {
-                "type": "boolean",
-                "description": "(Optional) Whether to use sudo privileges"
-            }
+            "file": {"type": "string", "description": "Absolute path of the file to write to"},
+            "content": {"type": "string", "description": "Text content to write"},
+            "append": {"type": "boolean", "description": "(Optional) Whether to use append mode"},
+            "leading_newline": {"type": "boolean", "description": "(Optional) Whether to add a leading newline"},
+            "trailing_newline": {"type": "boolean", "description": "(Optional) Whether to add a trailing newline"},
+            "sudo": {"type": "boolean", "description": "(Optional) Whether to use sudo privileges"},
         },
-        required=["file", "content"]
+        required=["file", "content"],
     )
     async def file_write(
         self,
@@ -105,10 +83,10 @@ class FileTool(BaseTool):
         append: bool | None = False,
         leading_newline: bool | None = False,
         trailing_newline: bool | None = False,
-        sudo: bool | None = False
+        sudo: bool | None = False,
     ) -> ToolResult:
         """Write content to file
-        
+
         Args:
             file: Absolute path of the file to write to
             content: Text content to write
@@ -116,7 +94,7 @@ class FileTool(BaseTool):
             leading_newline: (Optional) Whether to add a leading newline
             trailing_newline: (Optional) Whether to add a trailing newline
             sudo: (Optional) Whether to use sudo privileges
-            
+
         Returns:
             Write result
         """
@@ -134,131 +112,401 @@ class FileTool(BaseTool):
             append=append,
             leading_newline=False,  # Already handled in final_content
             trailing_newline=False,  # Already handled in final_content
-            sudo=sudo
+            sudo=sudo,
         )
 
     @tool(
         name="file_str_replace",
         description="Replace specified string in a file. Use for updating specific content in files or fixing errors in code.",
         parameters={
-            "file": {
-                "type": "string",
-                "description": "Absolute path of the file to perform replacement on"
-            },
-            "old_str": {
-                "type": "string",
-                "description": "Original string to be replaced"
-            },
-            "new_str": {
-                "type": "string",
-                "description": "New string to replace with"
-            },
-            "sudo": {
-                "type": "boolean",
-                "description": "(Optional) Whether to use sudo privileges"
-            }
+            "file": {"type": "string", "description": "Absolute path of the file to perform replacement on"},
+            "old_str": {"type": "string", "description": "Original string to be replaced"},
+            "new_str": {"type": "string", "description": "New string to replace with"},
+            "sudo": {"type": "boolean", "description": "(Optional) Whether to use sudo privileges"},
         },
-        required=["file", "old_str", "new_str"]
+        required=["file", "old_str", "new_str"],
     )
-    async def file_str_replace(
-        self,
-        file: str,
-        old_str: str,
-        new_str: str,
-        sudo: bool | None = False
-    ) -> ToolResult:
+    async def file_str_replace(self, file: str, old_str: str, new_str: str, sudo: bool | None = False) -> ToolResult:
         """Replace specified string in file
-        
+
         Args:
             file: Absolute path of the file to perform replacement on
             old_str: Original string to be replaced
             new_str: New string to replace with
             sudo: (Optional) Whether to use sudo privileges
-            
+
         Returns:
             Replacement result
         """
         # Directly call sandbox's file_replace method
-        return await self.sandbox.file_replace(
-            file=file,
-            old_str=old_str,
-            new_str=new_str,
-            sudo=sudo
-        )
+        return await self.sandbox.file_replace(file=file, old_str=old_str, new_str=new_str, sudo=sudo)
 
     @tool(
         name="file_find_in_content",
         description="Search for matching text within file content. Use for finding specific content or patterns in files.",
         parameters={
-            "file": {
-                "type": "string",
-                "description": "Absolute path of the file to search within"
-            },
-            "regex": {
-                "type": "string",
-                "description": "Regular expression pattern to match"
-            },
-            "sudo": {
-                "type": "boolean",
-                "description": "(Optional) Whether to use sudo privileges"
-            }
+            "file": {"type": "string", "description": "Absolute path of the file to search within"},
+            "regex": {"type": "string", "description": "Regular expression pattern to match"},
+            "sudo": {"type": "boolean", "description": "(Optional) Whether to use sudo privileges"},
         },
-        required=["file", "regex"]
+        required=["file", "regex"],
     )
-    async def file_find_in_content(
-        self,
-        file: str,
-        regex: str,
-        sudo: bool | None = False
-    ) -> ToolResult:
+    async def file_find_in_content(self, file: str, regex: str, sudo: bool | None = False) -> ToolResult:
         """Search for matching text in file content
-        
+
         Args:
             file: Absolute path of the file to search
             regex: Regular expression pattern for matching
             sudo: (Optional) Whether to use sudo privileges
-            
+
         Returns:
             Search results
         """
         # Directly call sandbox's file_search method
-        return await self.sandbox.file_search(
-            file=file,
-            regex=regex,
-            sudo=sudo
-        )
+        return await self.sandbox.file_search(file=file, regex=regex, sudo=sudo)
 
     @tool(
         name="file_find_by_name",
         description="Find files by name pattern in specified directory. Use for locating files with specific naming patterns.",
         parameters={
-            "path": {
-                "type": "string",
-                "description": "Absolute path of directory to search"
-            },
-            "glob": {
-                "type": "string",
-                "description": "Filename pattern using glob syntax wildcards"
-            }
+            "path": {"type": "string", "description": "Absolute path of directory to search"},
+            "glob": {"type": "string", "description": "Filename pattern using glob syntax wildcards"},
         },
-        required=["path", "glob"]
+        required=["path", "glob"],
     )
-    async def file_find_by_name(
-        self,
-        path: str,
-        glob: str
-    ) -> ToolResult:
+    async def file_find_by_name(self, path: str, glob: str) -> ToolResult:
         """Find files by name pattern in specified directory
-        
+
         Args:
             path: Absolute path of directory to search
             glob: Filename pattern using glob syntax wildcards
-            
+
         Returns:
             Search results
         """
         # Directly call sandbox's file_find method
-        return await self.sandbox.file_find(
-            path=path,
-            glob_pattern=glob
-        )
+        return await self.sandbox.file_find(path=path, glob_pattern=glob)
+
+    @tool(
+        name="file_view",
+        description=(
+            "View and understand visual content (images, PDFs, charts, documents). "
+            "Use this for analyzing images, reading PDF documents, understanding charts and graphs. "
+            "Returns structured information about the visual content for further analysis."
+        ),
+        parameters={
+            "file": {"type": "string", "description": "Absolute path of the file to view"},
+            "page_range": {"type": "string", "description": "(Optional) Page range for PDFs (e.g., '1-5' or '1,3,5')"},
+            "extract_text": {
+                "type": "boolean",
+                "description": "(Optional) Whether to extract text content from documents",
+            },
+            "analyze_charts": {
+                "type": "boolean",
+                "description": "(Optional) Whether to analyze charts/graphs in the file",
+            },
+        },
+        required=["file"],
+    )
+    async def file_view(
+        self,
+        file: str,
+        page_range: str | None = None,
+        extract_text: bool = True,
+        analyze_charts: bool = True,
+    ) -> ToolResult:
+        """View and understand visual content.
+
+        Supports images, PDFs, and data files. Returns structured information
+        about the content including:
+        - File metadata (type, size, dimensions for images)
+        - Extracted text content (for documents)
+        - Base64 encoded content (for images, to pass to vision models)
+        - Chart/graph analysis hints
+
+        Args:
+            file: Absolute path of the file to view
+            page_range: Page range for PDFs (e.g., '1-5')
+            extract_text: Whether to extract text content
+            analyze_charts: Whether to analyze charts/graphs
+
+        Returns:
+            Structured view result with content and metadata
+        """
+        file_path = Path(file)
+        extension = file_path.suffix.lower()
+
+        # Get file metadata
+        try:
+            stat_result = await self.sandbox.file_stat(file)
+            if not stat_result.success:
+                return ToolResult(
+                    success=False,
+                    result=f"File not found or inaccessible: {file}",
+                )
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                result=f"Error accessing file: {e!s}",
+            )
+
+        # Detect content type
+        content_type, _ = mimetypes.guess_type(file)
+        if content_type is None:
+            content_type = "application/octet-stream"
+
+        result_data = {
+            "file_path": file,
+            "file_name": file_path.name,
+            "extension": extension,
+            "content_type": content_type,
+            "file_type": self._categorize_file_type(extension),
+        }
+
+        # Handle different file types
+        if extension in IMAGE_EXTENSIONS:
+            return await self._view_image(file, result_data)
+        if extension == ".pdf":
+            return await self._view_pdf(file, page_range, extract_text, result_data)
+        if extension in DATA_EXTENSIONS:
+            return await self._view_data_file(file, analyze_charts, result_data)
+        if extension in DOCUMENT_EXTENSIONS:
+            return await self._view_document(file, extract_text, result_data)
+        # Try to read as text
+        return await self._view_text_file(file, result_data)
+
+    def _categorize_file_type(self, extension: str) -> str:
+        """Categorize file type from extension."""
+        if extension in IMAGE_EXTENSIONS:
+            return "image"
+        if extension == ".pdf":
+            return "pdf"
+        if extension in DATA_EXTENSIONS:
+            return "data"
+        if extension in DOCUMENT_EXTENSIONS:
+            return "document"
+        return "text"
+
+    async def _view_image(self, file: str, result_data: dict) -> ToolResult:
+        """View an image file."""
+        try:
+            # Read file as binary
+            read_result = await self.sandbox.file_read_binary(file)
+            if not read_result.success:
+                return ToolResult(
+                    success=False,
+                    result=f"Failed to read image: {read_result.result}",
+                )
+
+            # Encode as base64
+            if hasattr(read_result, "data") and read_result.data:
+                binary_data = read_result.data
+            else:
+                # Fallback: try to read the content
+                binary_data = read_result.result if isinstance(read_result.result, bytes) else b""
+
+            if binary_data:
+                base64_content = base64.b64encode(binary_data).decode("utf-8")
+                result_data["base64_content"] = base64_content
+                result_data["size_bytes"] = len(binary_data)
+
+            result_text = (
+                f"**Image File:** {result_data['file_name']}\n"
+                f"**Type:** {result_data['content_type']}\n"
+                f"**Size:** {result_data.get('size_bytes', 'unknown')} bytes\n\n"
+                "Image content is available in base64 format for vision analysis. "
+                "To understand the image content, pass it to a vision-capable model."
+            )
+
+            return ToolResult(
+                success=True,
+                result=result_text,
+                data=result_data,
+            )
+
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                result=f"Error viewing image: {e!s}",
+            )
+
+    async def _view_pdf(self, file: str, page_range: str | None, extract_text: bool, result_data: dict) -> ToolResult:
+        """View a PDF file."""
+        try:
+            # Parse page range
+            pages_to_extract = None
+            if page_range:
+                pages_to_extract = self._parse_page_range(page_range)
+
+            result_data["page_range"] = page_range
+
+            # Try to extract text using sandbox
+            if extract_text:
+                # Use shell command to extract text with pdftotext if available
+                extract_cmd = f"pdftotext '{file}' -"
+                if pages_to_extract:
+                    first_page = min(pages_to_extract)
+                    last_page = max(pages_to_extract)
+                    extract_cmd = f"pdftotext -f {first_page} -l {last_page} '{file}' -"
+
+                text_result = await self.sandbox.shell_exec(extract_cmd)
+                if text_result.success:
+                    result_data["extracted_text"] = text_result.result[:10000]  # Limit text length
+
+            # Get page count
+            page_count_cmd = f"pdfinfo '{file}' | grep 'Pages:' | awk '{{print $2}}'"
+            page_result = await self.sandbox.shell_exec(page_count_cmd)
+            if page_result.success and page_result.result.strip().isdigit():
+                result_data["page_count"] = int(page_result.result.strip())
+
+            result_text = (
+                f"**PDF Document:** {result_data['file_name']}\n**Pages:** {result_data.get('page_count', 'unknown')}\n"
+            )
+
+            if extract_text and result_data.get("extracted_text"):
+                text_preview = result_data["extracted_text"][:1000]
+                result_text += f"\n**Text Preview:**\n{text_preview}..."
+
+            return ToolResult(
+                success=True,
+                result=result_text,
+                data=result_data,
+            )
+
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                result=f"Error viewing PDF: {e!s}",
+            )
+
+    async def _view_data_file(self, file: str, analyze_charts: bool, result_data: dict) -> ToolResult:
+        """View a data file (CSV, JSON, etc.)."""
+        try:
+            # Read the file content
+            read_result = await self.sandbox.file_read(file=file)
+            if not read_result.success:
+                return ToolResult(
+                    success=False,
+                    result=f"Failed to read data file: {read_result.result}",
+                )
+
+            content = read_result.result
+            result_data["content_preview"] = content[:5000] if len(content) > 5000 else content
+
+            extension = result_data["extension"]
+
+            # Analyze based on type
+            if extension == ".csv":
+                result_data["data_type"] = "tabular"
+                # Count rows and columns
+                lines = content.strip().split("\n")
+                result_data["row_count"] = len(lines)
+                if lines:
+                    result_data["column_count"] = len(lines[0].split(","))
+                    result_data["headers"] = lines[0].split(",")
+
+            elif extension == ".json":
+                import json
+
+                try:
+                    parsed = json.loads(content)
+                    result_data["data_type"] = "json"
+                    if isinstance(parsed, list):
+                        result_data["record_count"] = len(parsed)
+                    elif isinstance(parsed, dict):
+                        result_data["top_keys"] = list(parsed.keys())[:10]
+                except json.JSONDecodeError:
+                    result_data["data_type"] = "invalid_json"
+
+            result_text = (
+                f"**Data File:** {result_data['file_name']}\n**Type:** {result_data.get('data_type', extension)}\n"
+            )
+
+            if "row_count" in result_data:
+                result_text += f"**Rows:** {result_data['row_count']}\n"
+                result_text += f"**Columns:** {result_data.get('column_count', 'unknown')}\n"
+                if result_data.get("headers"):
+                    result_text += f"**Headers:** {', '.join(result_data['headers'][:5])}...\n"
+
+            result_text += f"\n**Preview:**\n{result_data['content_preview'][:500]}..."
+
+            return ToolResult(
+                success=True,
+                result=result_text,
+                data=result_data,
+            )
+
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                result=f"Error viewing data file: {e!s}",
+            )
+
+    async def _view_document(self, file: str, extract_text: bool, result_data: dict) -> ToolResult:
+        """View a document file (Word, Excel, etc.)."""
+        try:
+            result_text = (
+                f"**Document:** {result_data['file_name']}\n"
+                f"**Type:** {result_data['content_type']}\n\n"
+                "Document viewing requires conversion. Use appropriate tools to extract content."
+            )
+
+            return ToolResult(
+                success=True,
+                result=result_text,
+                data=result_data,
+            )
+
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                result=f"Error viewing document: {e!s}",
+            )
+
+    async def _view_text_file(self, file: str, result_data: dict) -> ToolResult:
+        """View a text file."""
+        try:
+            read_result = await self.sandbox.file_read(file=file)
+            if not read_result.success:
+                return ToolResult(
+                    success=False,
+                    result=f"Failed to read file: {read_result.result}",
+                )
+
+            content = read_result.result
+            result_data["content_preview"] = content[:5000]
+            result_data["line_count"] = content.count("\n") + 1
+
+            result_text = (
+                f"**Text File:** {result_data['file_name']}\n"
+                f"**Lines:** {result_data['line_count']}\n\n"
+                f"**Content:**\n{result_data['content_preview'][:1000]}..."
+            )
+
+            return ToolResult(
+                success=True,
+                result=result_text,
+                data=result_data,
+            )
+
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                result=f"Error viewing text file: {e!s}",
+            )
+
+    def _parse_page_range(self, page_range: str) -> list[int]:
+        """Parse page range string into list of page numbers."""
+        pages = []
+        parts = page_range.replace(" ", "").split(",")
+
+        for part in parts:
+            if "-" in part:
+                start, end = part.split("-", 1)
+                with contextlib.suppress(ValueError):
+                    pages.extend(range(int(start), int(end) + 1))
+            else:
+                with contextlib.suppress(ValueError):
+                    pages.append(int(part))
+
+        return sorted(set(pages))

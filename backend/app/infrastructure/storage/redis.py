@@ -1,10 +1,11 @@
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from functools import lru_cache
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
 from redis.asyncio import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -103,6 +104,7 @@ class CircuitBreaker:
             "last_failure": self.last_failure_time.isoformat() if self.last_failure_time else None,
             "half_open_successes": self.half_open_successes,
         }
+
 
 class RedisClient:
     """Redis client with circuit breaker, auto-reconnection, and connection health monitoring."""
@@ -242,7 +244,9 @@ class RedisClient:
 
                 if attempt < max_retries - 1:
                     backoff = 0.1 * (2**attempt)  # Exponential backoff: 0.1, 0.2, 0.4s
-                    logger.warning(f"Redis operation failed (attempt {attempt + 1}/{max_retries}), retrying in {backoff}s: {e}")
+                    logger.warning(
+                        f"Redis operation failed (attempt {attempt + 1}/{max_retries}), retrying in {backoff}s: {e}"
+                    )
                     await self._close_client()  # Force reconnection on next attempt
                     await asyncio.sleep(backoff)
                 else:

@@ -8,6 +8,7 @@ Author: Pythinker Team
 Version: 1.0.0
 """
 
+import contextlib
 import json
 import logging
 import os
@@ -97,7 +98,7 @@ class SandboxContextManager:
         env = context["environment"]
 
         # Build concise, agent-optimized prompt
-        prompt = """
+        return """
 <sandbox_environment_knowledge>
 **PRE-LOADED ENVIRONMENT CONTEXT**
 
@@ -242,8 +243,6 @@ debugging a specific failure. Reference command patterns above instead of explor
             resource_limits=cls._format_resource_limits(env.get("resource_limits", {})),
         )
 
-        return prompt
-
     @classmethod
     def _format_python_packages(cls, python_env: dict[str, Any]) -> str:
         """Format Python packages for prompt"""
@@ -309,7 +308,7 @@ debugging a specific failure. Reference command patterns above instead of explor
 
         # Collect modules from top categories
         all_modules = []
-        for category, modules in list(by_category.items())[:3]:  # Top 3 categories
+        for _category, modules in list(by_category.items())[:3]:  # Top 3 categories
             all_modules.extend(modules[:8])  # Top 8 from each
 
         return ", ".join(all_modules[:20])  # Limit to 20 total to save tokens
@@ -350,7 +349,7 @@ debugging a specific failure. Reference command patterns above instead of explor
 
         for category in categories:
             cat_commands = bash_commands.get(category, {})
-            for cmd_name, cmd_info in list(cat_commands.items())[:2]:  # Top 2 per category
+            for _cmd_name, cmd_info in list(cat_commands.items())[:2]:  # Top 2 per category
                 examples = cmd_info.get("examples", [])
                 if examples:
                     lines.append(f"- `{examples[0]}`")
@@ -449,11 +448,9 @@ print(json.dumps({"os": platform.system(), "arch": platform.machine()}, indent=2
         generated_at = context.get("generated_at")
         age = None
         if generated_at:
-            try:
-                gen_time = datetime.fromisoformat(generated_at.replace('Z', '+00:00'))
+            with contextlib.suppress(Exception):
+                gen_time = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
                 age = datetime.utcnow() - gen_time
-            except:
-                pass
 
         return {
             "available": True,
@@ -465,7 +462,7 @@ print(json.dumps({"os": platform.system(), "arch": platform.machine()}, indent=2
             "package_counts": {
                 "python": context.get("environment", {}).get("python", {}).get("package_count", 0),
                 "nodejs": context.get("environment", {}).get("nodejs", {}).get("package_count", 0),
-            }
+            },
         }
 
 
@@ -486,7 +483,5 @@ def get_sandbox_context_prompt(force_reload: bool = False) -> str:
 
 
 # Auto-load context on module import for caching
-try:
+with contextlib.suppress(BaseException):
     SandboxContextManager.load_context()
-except:
-    pass  # Silent failure - will use fallback

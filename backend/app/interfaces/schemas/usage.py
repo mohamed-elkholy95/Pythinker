@@ -1,4 +1,5 @@
 """API schemas for usage tracking endpoints."""
+
 from datetime import date, datetime
 
 from pydantic import BaseModel
@@ -6,6 +7,7 @@ from pydantic import BaseModel
 
 class TodayUsageResponse(BaseModel):
     """Today's usage summary."""
+
     tokens: int
     cost: float
     llm_calls: int
@@ -14,6 +16,7 @@ class TodayUsageResponse(BaseModel):
 
 class MonthUsageResponse(BaseModel):
     """This month's usage summary."""
+
     tokens: int
     cost: float
     llm_calls: int
@@ -24,12 +27,14 @@ class MonthUsageResponse(BaseModel):
 
 class UsageSummaryResponse(BaseModel):
     """Combined usage summary for today and this month."""
+
     today: TodayUsageResponse
     month: MonthUsageResponse
 
 
 class DailyUsageResponse(BaseModel):
     """Daily usage breakdown."""
+
     date: date
     total_prompt_tokens: int
     total_completion_tokens: int
@@ -43,12 +48,14 @@ class DailyUsageResponse(BaseModel):
 
 class DailyUsageListResponse(BaseModel):
     """List of daily usage records."""
+
     days: list[DailyUsageResponse]
     total_days: int
 
 
 class MonthlyUsageDetailResponse(BaseModel):
     """Monthly usage detail."""
+
     year: int
     month: int
     total_prompt_tokens: int
@@ -64,12 +71,14 @@ class MonthlyUsageDetailResponse(BaseModel):
 
 class MonthlyUsageListResponse(BaseModel):
     """List of monthly usage records."""
+
     months: list[MonthlyUsageDetailResponse]
     total_months: int
 
 
 class SessionUsageResponse(BaseModel):
     """Usage for a specific session."""
+
     session_id: str
     total_prompt_tokens: int
     total_completion_tokens: int
@@ -85,6 +94,7 @@ class SessionUsageResponse(BaseModel):
 
 class ModelPricingResponse(BaseModel):
     """Pricing for a single model."""
+
     model: str
     prompt_price: float  # Per 1M tokens
     completion_price: float  # Per 1M tokens
@@ -93,4 +103,5 @@ class ModelPricingResponse(BaseModel):
 
 class PricingListResponse(BaseModel):
     """List of all model pricing."""
+
     models: list[ModelPricingResponse]

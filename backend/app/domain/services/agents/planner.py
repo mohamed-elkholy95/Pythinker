@@ -3,10 +3,24 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Optional
 
+from pydantic import ValidationError
+from tenacity import (
+    AsyncRetrying,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
+
+from app.core.config import get_settings
 from app.domain.external.llm import LLM
 from app.domain.models.long_term_memory import MemoryType
 from app.domain.models.message import Message
 from app.domain.models.plan import ExecutionStatus, Plan, Step
+from app.domain.models.structured_outputs import (
+    PlanOutput as StructuredPlanOutput,
+    build_validation_feedback,
+    validate_llm_output,
+)
 from app.domain.services.agents.base import BaseAgent
 from app.domain.services.agents.requirement_extractor import (
     RequirementSet,
@@ -49,7 +63,7 @@ COMPLEXITY_STEP_LIMITS = {
 }
 
 
-def get_task_complexity(message: str, tools: list = None) -> str:
+def get_task_complexity(message: str, tools: list | None = None) -> str:
     """Determine task complexity based on message content.
 
     Args:
@@ -63,16 +77,31 @@ def get_task_complexity(message: str, tools: list = None) -> str:
 
     # Simple task indicators (single action, no conditionals)
     simple_indicators = [
-        "just", "only", "simply", "quick", "single",
-        "one file", "one thing", "basic",
+        "just",
+        "only",
+        "simply",
+        "quick",
+        "single",
+        "one file",
+        "one thing",
+        "basic",
     ]
 
     # Complex task indicators (research, multi-source, conditional logic)
     complex_indicators = [
-        "research", "investigate", "compare", "analyze",
-        "comprehensive", "detailed", "multiple sources",
-        "if possible", "depending on", "various",
-        "full report", "in-depth", "thorough",
+        "research",
+        "investigate",
+        "compare",
+        "analyze",
+        "comprehensive",
+        "detailed",
+        "multiple sources",
+        "if possible",
+        "depending on",
+        "various",
+        "full report",
+        "in-depth",
+        "thorough",
     ]
 
     # Count indicators
@@ -92,8 +121,9 @@ def get_task_complexity(message: str, tools: list = None) -> str:
 
     # Check for multi-part requests (numbered items, bullets)
     import re
-    numbered_items = len(re.findall(r'(?:^|\n)\s*\d+[\.\)]\s', message))
-    bullet_items = len(re.findall(r'(?:^|\n)\s*[-*]\s', message))
+
+    numbered_items = len(re.findall(r"(?:^|\n)\s*\d+[\.\)]\s", message))
+    bullet_items = len(re.findall(r"(?:^|\n)\s*[-*]\s", message))
 
     if numbered_items >= 3 or bullet_items >= 3:
         return "complex"
@@ -112,6 +142,7 @@ def get_step_limits(complexity: str) -> tuple:
         Tuple of (min_steps, max_steps)
     """
     return COMPLEXITY_STEP_LIMITS.get(complexity, (DEFAULT_MIN_PLAN_STEPS, DEFAULT_MAX_PLAN_STEPS))
+
 
 class PlannerAgent(BaseAgent):
     """
@@ -147,10 +178,7 @@ class PlannerAgent(BaseAgent):
         # Requirement tracking for user prompt adherence
         self._current_requirements: RequirementSet | None = None
 
-    async def _stream_thinking(
-        self,
-        message: str
-    ) -> AsyncGenerator[BaseEvent, None]:
+    async def _stream_thinking(self, message: str) -> AsyncGenerator[BaseEvent, None]:
         """Stream thinking process before creating a plan.
 
         Uses the LLM's streaming capability to show reasoning in real-time.
@@ -164,7 +192,7 @@ class PlannerAgent(BaseAgent):
         thinking_prompt = THINKING_PROMPT.format(message=message)
 
         # Check if LLM supports streaming
-        if not hasattr(self.llm, 'ask_stream'):
+        if not hasattr(self.llm, "ask_stream"):
             logger.debug("LLM does not support streaming, skipping thinking phase")
             return
 
@@ -172,14 +200,10 @@ class PlannerAgent(BaseAgent):
             # Use a fresh message list for thinking (don't pollute main memory)
             thinking_messages = [
                 {"role": "system", "content": "You are a thoughtful assistant. Think through problems step by step."},
-                {"role": "user", "content": thinking_prompt}
+                {"role": "user", "content": thinking_prompt},
             ]
 
-            async for chunk in self.llm.ask_stream(
-                thinking_messages,
-                tools=None,
-                response_format=None
-            ):
+            async for chunk in self.llm.ask_stream(thinking_messages, tools=None, response_format=None):
                 yield StreamEvent(content=chunk, is_final=False)
 
             # Signal end of thinking stream
@@ -189,11 +213,7 @@ class PlannerAgent(BaseAgent):
             logger.warning(f"Thinking stream failed, continuing with plan creation: {e}")
             # Don't yield error - just continue to plan creation
 
-    async def create_plan(
-        self,
-        message: Message,
-        replan_context: str | None = None
-    ) -> AsyncGenerator[BaseEvent, None]:
+    async def create_plan(self, message: Message, replan_context: str | None = None) -> AsyncGenerator[BaseEvent, None]:
         """Create an execution plan for the given message.
 
         Emits ProgressEvents for instant user feedback during planning:
@@ -212,11 +232,31 @@ class PlannerAgent(BaseAgent):
         """
         from app.domain.models.event import PlanningPhase, ProgressEvent
 
+        # Build skill context if skills are enabled for this message (Phase 3: Custom Skills)
+        # Phase 3.5: Use SkillRegistry for cached skill context
+        if message.skills:
+            try:
+                from app.domain.services.skill_registry import get_skill_registry
+
+                registry = await get_skill_registry()
+                skill_context = await registry.build_context(
+                    message.skills,
+                    expand_dynamic=True,
+                )
+
+                if skill_context.prompt_addition:
+                    # Extend system prompt with skill context for skill-aware planning
+                    self.system_prompt = SYSTEM_PROMPT + PLANNER_SYSTEM_PROMPT + skill_context.prompt_addition
+                    logger.info(
+                        f"Planner injected skill context for skills: {message.skills} "
+                        f"({len(skill_context.prompt_addition)} chars)"
+                    )
+            except Exception as e:
+                logger.warning(f"Planner failed to build skill context: {e}")
+
         # Instant acknowledgment - user sees feedback immediately
         yield ProgressEvent(
-            phase=PlanningPhase.RECEIVED,
-            message="Message received, starting to process...",
-            progress_percent=10
+            phase=PlanningPhase.RECEIVED, message="Message received, starting to process...", progress_percent=10
         )
 
         # Extract user requirements for tracking (Quick Win: User Prompt Adherence)
@@ -230,9 +270,7 @@ class PlannerAgent(BaseAgent):
         # Stream thinking phase for initial plans (skip on replans for speed)
         if not replan_context:
             yield ProgressEvent(
-                phase=PlanningPhase.ANALYZING,
-                message="Analyzing task complexity...",
-                progress_percent=20
+                phase=PlanningPhase.ANALYZING, message="Analyzing task complexity...", progress_percent=20
             )
             async for event in self._stream_thinking(message.message):
                 yield event
@@ -246,7 +284,7 @@ class PlannerAgent(BaseAgent):
                     context=message.message,
                     limit=3,
                     memory_types=[MemoryType.TASK_OUTCOME, MemoryType.ERROR_PATTERN],
-                    min_relevance=0.4
+                    min_relevance=0.4,
                 )
                 if memories:
                     task_memory = self._format_task_memory(memories)
@@ -263,7 +301,7 @@ class PlannerAgent(BaseAgent):
         base_prompt = build_create_plan_prompt(
             message=message.message,
             attachments="\n".join(attachment_names) if attachment_names else "None",
-            task_memory=task_memory
+            task_memory=task_memory,
         )
 
         # Add replan context if provided (from verification feedback)
@@ -274,25 +312,42 @@ class PlannerAgent(BaseAgent):
             prompt = base_prompt
 
         # Progress: Starting plan generation
-        yield ProgressEvent(
-            phase=PlanningPhase.PLANNING,
-            message="Creating execution plan...",
-            progress_percent=40
-        )
+        yield ProgressEvent(phase=PlanningPhase.PLANNING, message="Creating execution plan...", progress_percent=40)
 
         # Try structured output first for type-safe response
+        # Phase 4: Use Tenacity retry with validation feedback when feature enabled
+        settings = get_settings()
+        use_structured = settings.feature_structured_outputs
+
         try:
             await self._add_to_memory([{"role": "user", "content": prompt}])
             await self._ensure_within_token_limit()
 
-            # Check if LLM supports structured outputs
-            if hasattr(self.llm, 'ask_structured'):
+            # Phase 4: Validated structured output with retry
+            if use_structured and hasattr(self.llm, "ask_structured"):
+                plan = await self._create_validated_plan(
+                    message=message,
+                    prompt=prompt,
+                    replan_context=replan_context,
+                )
+                if plan:
+                    # Progress: Finalizing plan
+                    yield ProgressEvent(
+                        phase=PlanningPhase.FINALIZING,
+                        message="Finalizing plan...",
+                        estimated_steps=len(plan.steps),
+                        progress_percent=80,
+                    )
+                    logger.info(f"Created plan using validated structured output: {plan.title}")
+                    await self._add_to_memory([{"role": "assistant", "content": plan.model_dump_json()}])
+                    yield PlanEvent(status=PlanStatus.CREATED, plan=plan)
+                    return
+
+            # Check if LLM supports structured outputs (fallback without validation retry)
+            elif hasattr(self.llm, "ask_structured"):
                 try:
                     plan_response = await self.llm.ask_structured(
-                        self.memory.get_messages(),
-                        response_model=PlanResponse,
-                        tools=None,
-                        tool_choice=None
+                        self.memory.get_messages(), response_model=PlanResponse, tools=None, tool_choice=None
                     )
 
                     # Progress: Finalizing plan
@@ -300,7 +355,7 @@ class PlannerAgent(BaseAgent):
                         phase=PlanningPhase.FINALIZING,
                         message="Finalizing plan...",
                         estimated_steps=len(plan_response.steps),
-                        progress_percent=80
+                        progress_percent=80,
                     )
 
                     # Convert to Plan model
@@ -310,12 +365,9 @@ class PlannerAgent(BaseAgent):
                         language=plan_response.language,
                         message=plan_response.message,
                         steps=self._normalize_plan_steps(
-                            [
-                                Step(id=str(i + 1), description=s.description)
-                                for i, s in enumerate(plan_response.steps)
-                            ],
-                            task_message=message.message
-                        )
+                            [Step(id=str(i + 1), description=s.description) for i, s in enumerate(plan_response.steps)],
+                            task_message=message.message,
+                        ),
                     )
                     logger.info(f"Created plan using structured output: {plan.title}")
                     await self._add_to_memory([{"role": "assistant", "content": plan.model_dump_json()}])
@@ -370,13 +422,11 @@ class PlannerAgent(BaseAgent):
             # If we have more completed steps than our display cap and still pending work,
             # keep the most recent completed steps to make room for remaining items.
             if new_steps and len(completed_steps) >= max_steps_limit:
-                completed_steps = completed_steps[-(max_steps_limit - 1):]
+                completed_steps = completed_steps[-(max_steps_limit - 1) :]
 
             remaining_slots = max(max_steps_limit - len(completed_steps), 0)
             normalized_pending = self._normalize_update_steps(
-                new_steps,
-                remaining_slots,
-                id_offset=len(completed_steps)
+                new_steps, remaining_slots, id_offset=len(completed_steps)
             )
 
             plan.steps = completed_steps + normalized_pending
@@ -386,19 +436,19 @@ class PlannerAgent(BaseAgent):
             await self._add_to_memory([{"role": "user", "content": prompt}])
             await self._ensure_within_token_limit()
 
-            if hasattr(self.llm, 'ask_structured'):
+            if hasattr(self.llm, "ask_structured"):
                 try:
                     update_response = await self.llm.ask_structured(
-                        self.memory.get_messages(),
-                        response_model=PlanUpdateResponse,
-                        tools=None,
-                        tool_choice=None
+                        self.memory.get_messages(), response_model=PlanUpdateResponse, tools=None, tool_choice=None
                     )
-                    new_steps = [Step(id=str(i+1), description=s.description)
-                                 for i, s in enumerate(update_response.steps)]
+                    new_steps = [
+                        Step(id=str(i + 1), description=s.description) for i, s in enumerate(update_response.steps)
+                    ]
                     apply_plan_update(new_steps)
                     logger.debug("Updated plan using structured output")
-                    await self._add_to_memory([{"role": "assistant", "content": json.dumps({"steps": [s.model_dump() for s in new_steps]})}])
+                    await self._add_to_memory(
+                        [{"role": "assistant", "content": json.dumps({"steps": [s.model_dump() for s in new_steps]})}]
+                    )
                     yield PlanEvent(status=PlanStatus.UPDATED, plan=plan)
                     return
                 except Exception as e:
@@ -418,11 +468,7 @@ class PlannerAgent(BaseAgent):
             else:
                 yield event
 
-    def _normalize_plan_steps(
-        self,
-        steps: list[Step],
-        task_message: str = ""
-    ) -> list[Step]:
+    def _normalize_plan_steps(self, steps: list[Step], task_message: str = "") -> list[Step]:
         """Clamp plan length and merge overflow steps into the final step.
 
         Uses adaptive step limits based on task complexity.
@@ -469,9 +515,7 @@ class PlannerAgent(BaseAgent):
         tail = steps[max_steps - 1 :]
 
         # Store original descriptions in metadata when merging
-        merged_desc = "Consolidate remaining items: " + "; ".join(
-            s.description for s in tail if s.description
-        )
+        merged_desc = "Consolidate remaining items: " + "; ".join(s.description for s in tail if s.description)
         if len(merged_desc) > MAX_MERGED_STEP_CHARS:
             merged_desc = merged_desc[: MAX_MERGED_STEP_CHARS - 3].rstrip() + "..."
 
@@ -480,22 +524,17 @@ class PlannerAgent(BaseAgent):
             description=merged_desc,
             metadata={
                 "merged_from": len(tail),
-                "original_descriptions": [s.description for s in tail if s.description]
-            }
+                "original_descriptions": [s.description for s in tail if s.description],
+            },
         )
-        normalized = head + [merged_step]
+        normalized = [*head, merged_step]
 
         for i, s in enumerate(normalized):
             s.id = str(i + 1)
 
         return normalized
 
-    def _normalize_update_steps(
-        self,
-        steps: list[Step],
-        max_steps: int,
-        id_offset: int = 0
-    ) -> list[Step]:
+    def _normalize_update_steps(self, steps: list[Step], max_steps: int, id_offset: int = 0) -> list[Step]:
         """Normalize remaining steps during plan updates without inflating total steps."""
         if not steps or max_steps <= 0:
             return []
@@ -507,9 +546,7 @@ class PlannerAgent(BaseAgent):
 
         head = steps[: max_steps - 1]
         tail = steps[max_steps - 1 :]
-        merged_desc = "Consolidate remaining items: " + "; ".join(
-            s.description for s in tail if s.description
-        )
+        merged_desc = "Consolidate remaining items: " + "; ".join(s.description for s in tail if s.description)
         if len(merged_desc) > MAX_MERGED_STEP_CHARS:
             merged_desc = merged_desc[: MAX_MERGED_STEP_CHARS - 3].rstrip() + "..."
 
@@ -519,9 +556,9 @@ class PlannerAgent(BaseAgent):
             metadata={
                 "merged_from": len(tail),
                 "original_descriptions": [s.description for s in tail if s.description],
-            }
+            },
         )
-        normalized = head + [merged_step]
+        normalized = [*head, merged_step]
 
         for i, s in enumerate(normalized):
             s.id = str(id_offset + i + 1)
@@ -567,6 +604,7 @@ class PlannerAgent(BaseAgent):
             return
 
         from app.domain.services.agents.requirement_extractor import get_requirement_extractor
+
         extractor = get_requirement_extractor()
 
         for req in self._current_requirements.requirements:
@@ -591,7 +629,7 @@ class PlannerAgent(BaseAgent):
         lines = []
         for result in memories[:3]:  # Limit to 3 most relevant
             mem = result.memory
-            mem_type = mem.memory_type.value if hasattr(mem.memory_type, 'value') else str(mem.memory_type)
+            mem_type = mem.memory_type.value if hasattr(mem.memory_type, "value") else str(mem.memory_type)
 
             if mem_type == "task_outcome":
                 lines.append(f"- [Past Task] {mem.content[:200]}...")
@@ -601,3 +639,87 @@ class PlannerAgent(BaseAgent):
                 lines.append(f"- [{mem_type}] {mem.content[:150]}...")
 
         return "\n".join(lines)
+
+    async def _create_validated_plan(
+        self,
+        message: Message,
+        prompt: str,
+        replan_context: str | None = None,
+        prev_error: str | None = None,
+    ) -> Plan | None:
+        """Create a plan with validation and retry.
+
+        Phase 4 Enhancement: Uses Tenacity retry with validation feedback
+        to ensure plans meet quality standards.
+
+        Args:
+            message: Original user message
+            prompt: Planning prompt
+            replan_context: Optional context for replanning
+            prev_error: Previous validation error (for retry)
+
+        Returns:
+            Validated Plan or None if validation fails after retries
+        """
+        max_attempts = 3
+
+        # Build context with previous error if retrying
+        context_addition = ""
+        if prev_error:
+            context_addition = f"\n\n## FIX THIS VALIDATION ERROR:\n{prev_error}"
+
+        try:
+            async for attempt in AsyncRetrying(
+                stop=stop_after_attempt(max_attempts),
+                retry=retry_if_exception_type(ValidationError),
+                wait=wait_exponential(multiplier=0.5, min=0.5, max=2),
+            ):
+                with attempt:
+                    attempt_num = attempt.retry_state.attempt_number
+                    logger.debug(f"Plan creation attempt {attempt_num}/{max_attempts}")
+
+                    # Add validation feedback to prompt if this is a retry
+                    effective_prompt = prompt
+                    if attempt_num > 1 and prev_error:
+                        effective_prompt = prompt + context_addition
+
+                    # Get LLM response
+                    response = await self.llm.ask(
+                        self.memory.get_messages(),
+                        response_format={"type": "json_object"},
+                    )
+
+                    content = response.get("content", "{}")
+
+                    # Validate using structured output model
+                    parsed, result = validate_llm_output(content, StructuredPlanOutput)
+
+                    if not result.is_valid:
+                        # Build feedback for next attempt
+                        prev_error = build_validation_feedback(result)
+                        logger.warning(f"Plan validation failed (attempt {attempt_num}): {prev_error[:200]}")
+                        raise ValidationError.from_exception_data(
+                            "Plan validation failed",
+                            [{"type": "value_error", "loc": (), "msg": prev_error, "input": content}],
+                        )
+
+                    # Convert validated structured output to Plan model
+                    plan = Plan(
+                        goal=parsed.goal,
+                        title=parsed.title,
+                        language=parsed.language,
+                        message=parsed.message,
+                        steps=self._normalize_plan_steps(
+                            [Step(id=str(i + 1), description=s.description) for i, s in enumerate(parsed.steps)],
+                            task_message=message.message,
+                        ),
+                    )
+
+                    logger.info(f"Plan validated successfully on attempt {attempt_num}")
+                    return plan
+
+        except Exception as e:
+            logger.error(f"Plan creation failed after {max_attempts} attempts: {e}")
+            return None
+
+        return None

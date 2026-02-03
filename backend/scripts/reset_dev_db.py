@@ -27,9 +27,9 @@ async def reset_database():
     """Drop and recreate database."""
     settings = get_settings()
 
-    logger.warning("="*60)
+    logger.warning("=" * 60)
     logger.warning("  ⚠️  DEV DATABASE RESET - DESTRUCTIVE OPERATION")
-    logger.warning("="*60)
+    logger.warning("=" * 60)
     logger.warning("")
     logger.warning(f"Database: {settings.mongodb_database}")
     logger.warning(f"URI: {settings.mongodb_uri}")
@@ -39,7 +39,7 @@ async def reset_database():
 
     # Require confirmation
     confirmation = input("Type 'yes' to confirm: ")
-    if confirmation.lower() != 'yes':
+    if confirmation.lower() != "yes":
         logger.info("Aborted.")
         return
 
@@ -70,12 +70,13 @@ async def reset_database():
 
         # Import and run init script
         from init_mongodb import init_mongodb
+
         await init_mongodb()
 
         logger.info("")
-        logger.info("="*60)
+        logger.info("=" * 60)
         logger.info("✅ Database reset complete!")
-        logger.info("="*60)
+        logger.info("=" * 60)
         logger.info("")
         logger.info("Next steps:")
         logger.info("  1. Start the backend: ./dev.sh up -d")

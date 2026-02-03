@@ -4,10 +4,11 @@ Tests the SkillRegistry, SkillTriggerMatcher, and skill integration
 with agent execution and planning.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
-from app.domain.models.skill import Skill, SkillCategory, SkillSource, SkillInvocationType
+import pytest
+
+from app.domain.models.skill import Skill, SkillCategory, SkillInvocationType, SkillSource
 
 
 class TestSkillRegistry:
@@ -168,8 +169,8 @@ class TestSkillTriggerMatcher:
     @pytest.mark.asyncio
     async def test_pattern_matching(self, skill_with_triggers):
         """Test that patterns match correctly."""
-        from app.domain.services.skill_trigger_matcher import SkillTriggerMatcher
         from app.domain.services.skill_registry import SkillRegistry
+        from app.domain.services.skill_trigger_matcher import SkillTriggerMatcher
 
         SkillRegistry.reset_instance()
 
@@ -188,8 +189,8 @@ class TestSkillTriggerMatcher:
     @pytest.mark.asyncio
     async def test_no_match_for_unrelated_message(self, skill_with_triggers):
         """Test that unrelated messages don't match."""
-        from app.domain.services.skill_trigger_matcher import SkillTriggerMatcher
         from app.domain.services.skill_registry import SkillRegistry
+        from app.domain.services.skill_trigger_matcher import SkillTriggerMatcher
 
         SkillRegistry.reset_instance()
 
@@ -206,8 +207,8 @@ class TestSkillTriggerMatcher:
     @pytest.mark.asyncio
     async def test_user_only_skills_excluded(self):
         """Test that USER-only skills are not matched for AI invocation."""
-        from app.domain.services.skill_trigger_matcher import SkillTriggerMatcher
         from app.domain.services.skill_registry import SkillRegistry
+        from app.domain.services.skill_trigger_matcher import SkillTriggerMatcher
 
         user_only_skill = Skill(
             id="user-only",

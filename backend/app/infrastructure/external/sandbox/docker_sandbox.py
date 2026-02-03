@@ -26,7 +26,7 @@ CDP_CONNECTION_RETRIES = 15
 
 
 class DockerSandbox(Sandbox):
-    def __init__(self, ip: str = None, container_name: str = None):
+    def __init__(self, ip: str | None = None, container_name: str | None = None):
         """Initialize Docker sandbox and API interaction client"""
         settings = get_settings()
         self.client = httpx.AsyncClient(timeout=600)
@@ -100,7 +100,7 @@ class DockerSandbox(Sandbox):
         if not ip_address and "Networks" in network_settings:
             networks = network_settings["Networks"]
             # Try to get IP from first available network
-            for network_name, network_config in networks.items():
+            for _network_name, network_config in networks.items():
                 if network_config.get("IPAddress"):
                     ip_address = network_config["IPAddress"]
                     break
@@ -177,7 +177,7 @@ class DockerSandbox(Sandbox):
             return DockerSandbox(ip=ip_address, container_name=container_name)
 
         except Exception as e:
-            raise Exception(f"Failed to create Docker sandbox: {e!s}")
+            raise Exception(f"Failed to create Docker sandbox: {e!s}") from e
 
     async def _verify_cdp_connection(self) -> bool:
         """Verify Chrome DevTools Protocol connection is working
@@ -445,7 +445,7 @@ class DockerSandbox(Sandbox):
         return ToolResult(**response.json())
 
     async def file_read(
-        self, file: str, start_line: int = None, end_line: int = None, sudo: bool = False
+        self, file: str, start_line: int | None = None, end_line: int | None = None, sudo: bool = False
     ) -> ToolResult:
         """Read file content
 
@@ -549,7 +549,7 @@ class DockerSandbox(Sandbox):
         )
         return ToolResult(**response.json())
 
-    async def file_upload(self, file_data: BinaryIO, path: str, filename: str = None) -> ToolResult:
+    async def file_upload(self, file_data: BinaryIO, path: str, filename: str | None = None) -> ToolResult:
         """Upload file to sandbox
 
         Args:
@@ -622,7 +622,7 @@ class DockerSandbox(Sandbox):
 
     # Git operations
     async def git_clone(
-        self, url: str, target_dir: str, branch: str = None, shallow: bool = True, auth_token: str = None
+        self, url: str, target_dir: str, branch: str | None = None, shallow: bool = True, auth_token: str | None = None
     ) -> ToolResult:
         """Clone a git repository"""
         response = await self.client.post(
@@ -636,14 +636,14 @@ class DockerSandbox(Sandbox):
         response = await self.client.post(f"{self.base_url}/api/v1/git/status", json={"repo_path": repo_path})
         return ToolResult(**response.json())
 
-    async def git_diff(self, repo_path: str, staged: bool = False, file_path: str = None) -> ToolResult:
+    async def git_diff(self, repo_path: str, staged: bool = False, file_path: str | None = None) -> ToolResult:
         """Get git diff"""
         response = await self.client.post(
             f"{self.base_url}/api/v1/git/diff", json={"repo_path": repo_path, "staged": staged, "file_path": file_path}
         )
         return ToolResult(**response.json())
 
-    async def git_log(self, repo_path: str, limit: int = 10, file_path: str = None) -> ToolResult:
+    async def git_log(self, repo_path: str, limit: int = 10, file_path: str | None = None) -> ToolResult:
         """Get git commit history"""
         response = await self.client.post(
             f"{self.base_url}/api/v1/git/log", json={"repo_path": repo_path, "limit": limit, "file_path": file_path}
@@ -701,7 +701,7 @@ class DockerSandbox(Sandbox):
         self,
         path: str,
         framework: str = "auto",
-        pattern: str = None,
+        pattern: str | None = None,
         coverage: bool = False,
         timeout: int = 300,
         verbose: bool = False,
@@ -727,7 +727,7 @@ class DockerSandbox(Sandbox):
         )
         return ToolResult(**response.json())
 
-    async def test_coverage(self, path: str, output_format: str = "html", output_dir: str = None) -> ToolResult:
+    async def test_coverage(self, path: str, output_format: str = "html", output_dir: str | None = None) -> ToolResult:
         """Generate coverage report"""
         response = await self.client.post(
             f"{self.base_url}/api/v1/test/coverage",
@@ -748,9 +748,9 @@ class DockerSandbox(Sandbox):
         self,
         session_id: str,
         name: str,
-        include_patterns: list = None,
-        exclude_patterns: list = None,
-        base_path: str = None,
+        include_patterns: list | None = None,
+        exclude_patterns: list | None = None,
+        base_path: str | None = None,
     ) -> ToolResult:
         """Create archive"""
         response = await self.client.post(
@@ -901,8 +901,13 @@ class DockerSandbox(Sandbox):
 
         return browser
 
-    async def _get_pooled_browser(self, block_resources: bool = False, clear_session: bool = False) -> Browser:
-        """Get a browser from the connection pool.
+    async def _get_pooled_browser(
+        self,
+        block_resources: bool = False,
+        clear_session: bool = False,
+        session_id: str | None = None,
+    ) -> Browser:
+        """Get a browser from the connection pool with robust error handling.
 
         The connection pool manages browser lifecycle, health checking,
         and efficient reuse of connections across requests.
@@ -910,38 +915,97 @@ class DockerSandbox(Sandbox):
         Args:
             block_resources: Whether to enable resource blocking
             clear_session: If True, clear all existing tabs for a fresh session
+            session_id: Optional session ID for error context
 
         Returns:
             Browser: A pooled PlaywrightBrowser instance
+
+        Raises:
+            ConnectionPoolExhaustedError: When all connections are in use
+            ConnectionTimeoutError: When connection attempt times out
+            BrowserCrashedError: When browser initialization fails
         """
-        pool = await BrowserConnectionPool.get_instance_async()
-
-        # Clear stale connections before acquiring to prevent pool exhaustion
-        await pool.clear_stale_connections(self.cdp_url)
-
-        # Acquire from pool - returns a context manager but we need the browser directly
-        # For the sandbox use case, we acquire and hold the connection
-        connection = await pool._acquire_connection(
-            cdp_url=self.cdp_url,
-            block_resources=block_resources,
+        from app.domain.exceptions.browser import (
+            BrowserError,
+            ConnectionPoolExhaustedError,
         )
 
-        logger.debug(f"Acquired pooled browser for {self.cdp_url} (use count: {connection.use_count})")
+        pool = await BrowserConnectionPool.get_instance_async()
 
-        # Clear browser session if requested (e.g., for new chat sessions)
-        if clear_session and connection.browser:
-            await connection.browser.clear_session()
-            logger.info("Cleared browser tabs for new session")
+        try:
+            # Acquire from pool with proper error context
+            connection = await pool._acquire_connection(
+                cdp_url=self.cdp_url,
+                block_resources=block_resources,
+                session_id=session_id,
+                sandbox_id=self.id,
+            )
 
-        return connection.browser
+            logger.debug(f"Acquired pooled browser for {self.cdp_url} (use count: {connection.use_count})")
 
-    async def release_pooled_browser(self, browser: Browser) -> None:
+            # Clear browser session if requested (e.g., for new chat sessions)
+            if clear_session and connection.browser:
+                await connection.browser.clear_session()
+                logger.info("Cleared browser tabs for new session")
+
+            return connection.browser
+
+        except ConnectionPoolExhaustedError:
+            # Log detailed pool stats for debugging
+            pool_stats = pool.get_stats()
+            logger.error(
+                f"Connection pool exhausted for sandbox {self.id}",
+                extra={
+                    "cdp_url": self.cdp_url,
+                    "session_id": session_id,
+                    "pool_stats": pool_stats,
+                },
+            )
+
+            # Attempt recovery: force release stale connections and retry once
+            logger.info("Attempting recovery: forcing cleanup of all stale connections")
+            cleaned = await pool.clear_stale_connections(self.cdp_url)
+            if cleaned > 0:
+                logger.info(f"Cleaned {cleaned} stale connections, retrying acquisition")
+                try:
+                    connection = await pool._acquire_connection(
+                        cdp_url=self.cdp_url,
+                        block_resources=block_resources,
+                        session_id=session_id,
+                        sandbox_id=self.id,
+                    )
+                    return connection.browser
+                except ConnectionPoolExhaustedError:
+                    pass  # Fall through to raise original error
+
+            raise
+
+        except BrowserError as e:
+            logger.error(
+                f"Browser error getting pooled browser: {e}",
+                extra={
+                    "error_code": e.code.value,
+                    "cdp_url": self.cdp_url,
+                    "session_id": session_id,
+                    "recoverable": e.recoverable,
+                },
+            )
+            raise
+
+        except Exception as e:
+            logger.error(f"Unexpected error getting pooled browser: {e}")
+            raise
+
+    async def release_pooled_browser(self, browser: Browser, had_error: bool = False) -> None:
         """Release a pooled browser back to the pool.
 
         Should be called when done with a pooled browser to allow reuse.
+        If had_error is True, the connection will be marked as potentially
+        unhealthy and may be replaced.
 
         Args:
             browser: The browser instance to release
+            had_error: Whether an error occurred during use of this browser
         """
         pool = BrowserConnectionPool.get_instance()
 
@@ -949,8 +1013,8 @@ class DockerSandbox(Sandbox):
         for cdp_url, connections in pool._pools.items():
             for conn in connections:
                 if conn.browser is browser:
-                    await pool._release_connection(cdp_url, conn)
-                    logger.debug(f"Released pooled browser for {cdp_url}")
+                    await pool._release_connection(cdp_url, conn, had_error=had_error)
+                    logger.debug(f"Released pooled browser for {cdp_url}" + (" (with error)" if had_error else ""))
                     return
 
         logger.warning("Could not find browser in pool to release")

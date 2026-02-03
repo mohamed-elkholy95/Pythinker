@@ -5,7 +5,7 @@ import time
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, ClassVar
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ServerHealth:
     """Health status for an MCP server"""
+
     server_name: str
     healthy: bool = True
     last_check: datetime = field(default_factory=datetime.now)
@@ -39,10 +40,84 @@ class ServerHealth:
     consecutive_failures: int = 0
     tools_count: int = 0
 
+    # Enhanced health metrics
+    avg_response_time_ms: float = 0.0
+    response_time_samples: list[float] = field(default_factory=list)
+    max_response_samples: int = 50  # Keep last 50 response times
+
+    # Reliability scoring
+    success_count: int = 0
+    failure_count: int = 0
+    degraded: bool = False  # True if server is working but slow/unreliable
+    priority: int = 100  # 0-100, lower = deprioritized
+
+    def record_response_time(self, response_time_ms: float) -> None:
+        """Record a response time sample."""
+        self.response_time_samples.append(response_time_ms)
+        if len(self.response_time_samples) > self.max_response_samples:
+            self.response_time_samples.pop(0)
+        self.avg_response_time_ms = sum(self.response_time_samples) / len(self.response_time_samples)
+
+    def record_success(self) -> None:
+        """Record a successful operation."""
+        self.success_count += 1
+        self._update_reliability()
+
+    def record_failure(self) -> None:
+        """Record a failed operation."""
+        self.failure_count += 1
+        self._update_reliability()
+
+    def _update_reliability(self) -> None:
+        """Update reliability metrics and priority."""
+        total = self.success_count + self.failure_count
+        if total == 0:
+            return
+
+        success_rate = self.success_count / total
+
+        # Degraded if success rate < 90%
+        self.degraded = success_rate < 0.90
+
+        # Calculate priority based on success rate and response time
+        # Base priority from success rate (0-100)
+        base_priority = int(success_rate * 100)
+
+        # Penalize slow servers (response time > 2 seconds reduces priority)
+        if self.avg_response_time_ms > 2000:
+            speed_penalty = min(30, int((self.avg_response_time_ms - 2000) / 100))
+            base_priority = max(0, base_priority - speed_penalty)
+
+        self.priority = base_priority
+
+    @property
+    def success_rate(self) -> float:
+        """Get the success rate as a percentage."""
+        total = self.success_count + self.failure_count
+        if total == 0:
+            return 1.0
+        return self.success_count / total
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "server_name": self.server_name,
+            "healthy": self.healthy,
+            "degraded": self.degraded,
+            "last_check": self.last_check.isoformat() if self.last_check else None,
+            "last_error": self.last_error,
+            "consecutive_failures": self.consecutive_failures,
+            "tools_count": self.tools_count,
+            "avg_response_time_ms": round(self.avg_response_time_ms, 2),
+            "success_rate": round(self.success_rate * 100, 1),
+            "priority": self.priority,
+        }
+
 
 @dataclass
 class CachedToolSchema:
     """Tool schema with TTL-based caching"""
+
     tools: list[MCPToolType]
     cached_at: datetime = field(default_factory=datetime.now)
     ttl_seconds: int = 300  # 5 minutes default
@@ -56,12 +131,72 @@ class CachedToolSchema:
 @dataclass
 class ToolUsageStats:
     """Usage statistics for a tool"""
+
     tool_name: str
     call_count: int = 0
     success_count: int = 0
     failure_count: int = 0
     total_duration_ms: float = 0
     last_used: datetime | None = None
+
+    # Enhanced metrics
+    min_duration_ms: float = float("inf")
+    max_duration_ms: float = 0
+    timeout_count: int = 0
+    last_error: str | None = None
+
+    @property
+    def avg_duration_ms(self) -> float:
+        """Average duration per call."""
+        if self.call_count == 0:
+            return 0
+        return self.total_duration_ms / self.call_count
+
+    @property
+    def success_rate(self) -> float:
+        """Success rate as a percentage."""
+        if self.call_count == 0:
+            return 1.0
+        return self.success_count / self.call_count
+
+    @property
+    def is_reliable(self) -> bool:
+        """Check if tool is considered reliable (>90% success rate)."""
+        return self.success_rate >= 0.90
+
+    def record_call(self, success: bool, duration_ms: float, error: str | None = None, timeout: bool = False) -> None:
+        """Record a tool call."""
+        self.call_count += 1
+        self.total_duration_ms += duration_ms
+        self.last_used = datetime.now()
+
+        self.min_duration_ms = min(self.min_duration_ms, duration_ms)
+        self.max_duration_ms = max(self.max_duration_ms, duration_ms)
+
+        if success:
+            self.success_count += 1
+        else:
+            self.failure_count += 1
+            self.last_error = error
+
+        if timeout:
+            self.timeout_count += 1
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "tool_name": self.tool_name,
+            "call_count": self.call_count,
+            "success_count": self.success_count,
+            "failure_count": self.failure_count,
+            "success_rate": round(self.success_rate * 100, 1),
+            "avg_duration_ms": round(self.avg_duration_ms, 2),
+            "min_duration_ms": round(self.min_duration_ms, 2) if self.min_duration_ms != float("inf") else None,
+            "max_duration_ms": round(self.max_duration_ms, 2),
+            "timeout_count": self.timeout_count,
+            "last_used": self.last_used.isoformat() if self.last_used else None,
+            "is_reliable": self.is_reliable,
+        }
 
 
 class MCPClientManager:
@@ -100,7 +235,7 @@ class MCPClientManager:
             return
 
         try:
-            logger.info(f"Loaded {len(self._config.mcpServers)} MCP server configurations")
+            logger.info(f"Loaded {len(self._config.mcp_servers)} MCP server configurations")
 
             # Store config hash for change detection
             self._config_hash = self._compute_config_hash()
@@ -184,7 +319,7 @@ class MCPClientManager:
 
         for server_name, health in self._server_health.items():
             if not health.healthy and health.consecutive_failures <= self._max_consecutive_failures:
-                server_config = self._config.mcpServers.get(server_name)
+                server_config = self._config.mcp_servers.get(server_name)
                 if server_config:
                     try:
                         logger.info(f"Attempting to reconnect to {server_name}")
@@ -201,33 +336,97 @@ class MCPClientManager:
 
         return reconnected
 
-    def record_tool_usage(self, tool_name: str, success: bool, duration_ms: float) -> None:
-        """Record tool usage statistics"""
+    def record_tool_usage(
+        self,
+        tool_name: str,
+        success: bool,
+        duration_ms: float,
+        error: str | None = None,
+        timeout: bool = False,
+        server_name: str | None = None,
+    ) -> None:
+        """Record tool usage statistics.
+
+        Args:
+            tool_name: Name of the tool
+            success: Whether the call succeeded
+            duration_ms: Duration in milliseconds
+            error: Error message if failed
+            timeout: Whether failure was due to timeout
+            server_name: Name of the server (for server-level metrics)
+        """
         if tool_name not in self._tool_usage:
             self._tool_usage[tool_name] = ToolUsageStats(tool_name=tool_name)
 
         stats = self._tool_usage[tool_name]
-        stats.call_count += 1
-        stats.total_duration_ms += duration_ms
-        stats.last_used = datetime.now()
+        stats.record_call(success, duration_ms, error, timeout)
 
-        if success:
-            stats.success_count += 1
-        else:
-            stats.failure_count += 1
+        # Also update server health if server_name provided
+        if server_name and server_name in self._server_health:
+            health = self._server_health[server_name]
+            health.record_response_time(duration_ms)
+            if success:
+                health.record_success()
+            else:
+                health.record_failure()
 
     def get_tool_stats(self) -> dict[str, ToolUsageStats]:
         """Get tool usage statistics"""
         return self._tool_usage
 
+    def get_reliable_tools(self, min_success_rate: float = 0.90) -> list[str]:
+        """Get list of reliable tools based on success rate.
+
+        Args:
+            min_success_rate: Minimum success rate threshold (0.0-1.0)
+
+        Returns:
+            List of tool names that meet the reliability threshold
+        """
+        reliable = []
+        for name, stats in self._tool_usage.items():
+            if stats.call_count >= 3 and stats.success_rate >= min_success_rate:
+                reliable.append(name)
+        return reliable
+
+    def get_unreliable_tools(self, max_success_rate: float = 0.80) -> list[str]:
+        """Get list of unreliable tools that should be deprioritized.
+
+        Args:
+            max_success_rate: Maximum success rate to be considered unreliable
+
+        Returns:
+            List of tool names that are unreliable
+        """
+        unreliable = []
+        for name, stats in self._tool_usage.items():
+            if stats.call_count >= 3 and stats.success_rate < max_success_rate:
+                unreliable.append(name)
+        return unreliable
+
+    def get_tools_by_priority(self) -> list[tuple[str, int]]:
+        """Get all tools sorted by priority (server health-based).
+
+        Returns:
+            List of (tool_name, priority) tuples sorted by priority descending
+        """
+        tool_priorities = []
+        for server_name, health in self._server_health.items():
+            if server_name in self._tools_cache:
+                for cached_tool in self._tools_cache[server_name].tools:
+                    tool_priorities.append((cached_tool.name, health.priority))
+
+        # Sort by priority descending
+        tool_priorities.sort(key=lambda x: x[1], reverse=True)
+        return tool_priorities
+
     def get_health_status(self) -> dict[str, ServerHealth]:
         """Get current health status of all servers"""
         return self._server_health
 
-
     async def _connect_servers(self):
         """Connect to all enabled MCP servers"""
-        for server_name, server_config in self._config.mcpServers.items():
+        for server_name, server_config in self._config.mcp_servers.items():
             if not server_config.enabled:
                 continue
 
@@ -243,11 +442,11 @@ class MCPClientManager:
         try:
             transport_type = server_config.transport
 
-            if transport_type == 'stdio':
+            if transport_type == "stdio":
                 await self._connect_stdio_server(server_name, server_config)
-            elif transport_type == 'http' or transport_type == 'sse':
+            elif transport_type == "http" or transport_type == "sse":
                 await self._connect_http_server(server_name, server_config)
-            elif transport_type == 'streamable-http':
+            elif transport_type == "streamable-http":
                 await self._connect_streamable_http_server(server_name, server_config)
             else:
                 logger.error(f"Unsupported transport type: {transport_type}")
@@ -265,25 +464,16 @@ class MCPClientManager:
         if not command:
             raise ValueError(f"Server {server_name} missing command configuration")
 
-
         # Create server parameters (path handling done in config provider)
-        server_params = StdioServerParameters(
-            command=command,
-            args=args,
-            env={**os.environ, **env}
-        )
+        server_params = StdioServerParameters(command=command, args=args, env={**os.environ, **env})
 
         try:
             # Establish connection
-            stdio_transport = await self._exit_stack.enter_async_context(
-                stdio_client(server_params)
-            )
+            stdio_transport = await self._exit_stack.enter_async_context(stdio_client(server_params))
             read_stream, write_stream = stdio_transport
 
             # Create session
-            session = await self._exit_stack.enter_async_context(
-                ClientSession(read_stream, write_stream)
-            )
+            session = await self._exit_stack.enter_async_context(ClientSession(read_stream, write_stream))
 
             # Initialize session
             await session.initialize()
@@ -308,15 +498,11 @@ class MCPClientManager:
 
         try:
             # Establish SSE connection
-            sse_transport = await self._exit_stack.enter_async_context(
-                sse_client(url)
-            )
+            sse_transport = await self._exit_stack.enter_async_context(sse_client(url))
             read_stream, write_stream = sse_transport
 
             # Create session
-            session = await self._exit_stack.enter_async_context(
-                ClientSession(read_stream, write_stream)
-            )
+            session = await self._exit_stack.enter_async_context(ClientSession(read_stream, write_stream))
 
             # Initialize session
             await session.initialize()
@@ -356,9 +542,7 @@ class MCPClientManager:
                 client_params["headers"] = headers
 
             # Establish streamable-http connection
-            streamable_transport = await self._exit_stack.enter_async_context(
-                streamablehttp_client(**client_params)
-            )
+            streamable_transport = await self._exit_stack.enter_async_context(streamablehttp_client(**client_params))
 
             # Unpack returned streams and optional third parameter
             if len(streamable_transport) == 3:
@@ -367,9 +551,7 @@ class MCPClientManager:
                 read_stream, write_stream = streamable_transport
 
             # Create MCP session
-            session = await self._exit_stack.enter_async_context(
-                ClientSession(read_stream, write_stream)
-            )
+            session = await self._exit_stack.enter_async_context(ClientSession(read_stream, write_stream))
 
             # Initialize session
             await session.initialize()
@@ -394,17 +576,12 @@ class MCPClientManager:
 
             # Use TTL-based caching for tool schemas
             self._tools_cache[server_name] = CachedToolSchema(
-                tools=tools,
-                cached_at=datetime.now(),
-                ttl_seconds=self.TOOL_SCHEMA_TTL
+                tools=tools, cached_at=datetime.now(), ttl_seconds=self.TOOL_SCHEMA_TTL
             )
 
             # Initialize health tracking
             self._server_health[server_name] = ServerHealth(
-                server_name=server_name,
-                healthy=True,
-                tools_count=len(tools),
-                last_check=datetime.now()
+                server_name=server_name, healthy=True, tools_count=len(tools), last_check=datetime.now()
             )
 
             logger.info(f"Server {server_name} provides {len(tools)} tools (cached for {self.TOOL_SCHEMA_TTL}s)")
@@ -416,10 +593,7 @@ class MCPClientManager:
             logger.error(f"Failed to get tool list from server {server_name}: {e}")
             self._tools_cache[server_name] = CachedToolSchema(tools=[], ttl_seconds=60)  # Short TTL for failed cache
             self._server_health[server_name] = ServerHealth(
-                server_name=server_name,
-                healthy=False,
-                last_error=str(e),
-                consecutive_failures=1
+                server_name=server_name, healthy=False, last_error=str(e), consecutive_failures=1
             )
 
     async def _refresh_tools_if_expired(self, server_name: str) -> list[MCPToolType]:
@@ -462,27 +636,31 @@ class MCPClientManager:
             resources = []
             templates = []
 
-            if resources_response and hasattr(resources_response, 'resources'):
+            if resources_response and hasattr(resources_response, "resources"):
                 for res in resources_response.resources:
-                    resources.append(MCPResource(
-                        uri=res.uri,
-                        name=res.name,
-                        description=getattr(res, 'description', None),
-                        mime_type=getattr(res, 'mimeType', None),
-                        server_name=server_name,
-                        annotations=getattr(res, 'annotations', {}) or {}
-                    ))
+                    resources.append(
+                        MCPResource(
+                            uri=res.uri,
+                            name=res.name,
+                            description=getattr(res, "description", None),
+                            mime_type=getattr(res, "mimeType", None),
+                            server_name=server_name,
+                            annotations=getattr(res, "annotations", {}) or {},
+                        )
+                    )
 
             # Check for resource templates
-            if hasattr(resources_response, 'resourceTemplates') and resources_response.resourceTemplates:
+            if hasattr(resources_response, "resourceTemplates") and resources_response.resourceTemplates:
                 for tmpl in resources_response.resourceTemplates:
-                    templates.append(ResourceTemplate(
-                        uri_template=tmpl.uriTemplate,
-                        name=tmpl.name,
-                        description=getattr(tmpl, 'description', None),
-                        mime_type=getattr(tmpl, 'mimeType', None),
-                        server_name=server_name
-                    ))
+                    templates.append(
+                        ResourceTemplate(
+                            uri_template=tmpl.uriTemplate,
+                            name=tmpl.name,
+                            description=getattr(tmpl, "description", None),
+                            mime_type=getattr(tmpl, "mimeType", None),
+                            server_name=server_name,
+                        )
+                    )
 
             self._resources_cache[server_name] = resources
             self._templates_cache[server_name] = templates
@@ -528,7 +706,7 @@ class MCPClientManager:
             templates=all_templates,
             total_count=len(all_resources),
             servers_queried=list(self._clients.keys()),
-            errors=errors
+            errors=errors,
         )
 
     async def read_resource(self, uri: str, server_name: str | None = None) -> ResourceReadResult:
@@ -549,65 +727,47 @@ class MCPClientManager:
             target_server = self._find_resource_server(uri)
 
         if not target_server:
-            return ResourceReadResult(
-                success=False,
-                error=f"No server found providing resource: {uri}"
-            )
+            return ResourceReadResult(success=False, error=f"No server found providing resource: {uri}")
 
         session = self._clients.get(target_server)
         if not session:
-            return ResourceReadResult(
-                success=False,
-                error=f"Server {target_server} not connected"
-            )
+            return ResourceReadResult(success=False, error=f"Server {target_server} not connected")
 
         try:
             # Call MCP read_resource
             result = await session.read_resource(uri)
 
-            if not result or not hasattr(result, 'contents') or not result.contents:
-                return ResourceReadResult(
-                    success=False,
-                    error="Resource returned no content"
-                )
+            if not result or not hasattr(result, "contents") or not result.contents:
+                return ResourceReadResult(success=False, error="Resource returned no content")
 
             # Process the first content item (MCP can return multiple)
             content_item = result.contents[0]
 
             # Determine content type
-            if hasattr(content_item, 'text') and content_item.text is not None:
+            if hasattr(content_item, "text") and content_item.text is not None:
                 resource_content = MCPResourceContent(
                     uri=uri,
                     resource_type=ResourceType.TEXT,
                     text=content_item.text,
-                    mime_type=getattr(content_item, 'mimeType', None)
+                    mime_type=getattr(content_item, "mimeType", None),
                 )
-            elif hasattr(content_item, 'blob') and content_item.blob is not None:
+            elif hasattr(content_item, "blob") and content_item.blob is not None:
                 resource_content = MCPResourceContent(
                     uri=uri,
                     resource_type=ResourceType.BLOB,
                     blob=content_item.blob,
-                    mime_type=getattr(content_item, 'mimeType', None)
+                    mime_type=getattr(content_item, "mimeType", None),
                 )
             else:
-                return ResourceReadResult(
-                    success=False,
-                    error="Resource content format not recognized"
-                )
+                return ResourceReadResult(success=False, error="Resource content format not recognized")
 
             return ResourceReadResult(
-                success=True,
-                content=resource_content,
-                read_time_ms=(time.time() - start_time) * 1000
+                success=True, content=resource_content, read_time_ms=(time.time() - start_time) * 1000
             )
 
         except Exception as e:
             logger.error(f"Failed to read resource {uri}: {e}")
-            return ResourceReadResult(
-                success=False,
-                error=str(e),
-                read_time_ms=(time.time() - start_time) * 1000
-            )
+            return ResourceReadResult(success=False, error=str(e), read_time_ms=(time.time() - start_time) * 1000)
 
     def _find_resource_server(self, uri: str) -> str | None:
         """Find which server provides a given resource URI."""
@@ -631,7 +791,7 @@ class MCPClientManager:
         import re
 
         # Convert template to regex
-        pattern = template.replace('{', '(?P<').replace('}', '>[^/]+)')
+        pattern = template.replace("{", "(?P<").replace("}", ">[^/]+)")
         pattern = f"^{pattern}$"
 
         try:
@@ -746,7 +906,7 @@ class MCPClientManager:
             tools = await self._refresh_tools_if_expired(server_name)
             for tool in tools:
                 # Generate tool name, avoid duplicate mcp_ prefix
-                if server_name.startswith('mcp_'):
+                if server_name.startswith("mcp_"):
                     tool_name = f"{server_name}_{tool.name}"
                 else:
                     tool_name = f"mcp_{server_name}_{tool.name}"
@@ -757,8 +917,8 @@ class MCPClientManager:
                     "function": {
                         "name": tool_name,
                         "description": f"[{server_name}] {tool.description or tool.name}",
-                        "parameters": tool.inputSchema
-                    }
+                        "parameters": tool.inputSchema,
+                    },
                 }
                 all_tools.append(tool_schema)
 
@@ -767,6 +927,7 @@ class MCPClientManager:
     async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> ToolResult:
         """Call MCP tool with health tracking and usage statistics"""
         import time
+
         start_time = time.time()
         server_name = None
 
@@ -775,11 +936,11 @@ class MCPClientManager:
             original_tool_name = None
 
             # Find matching server name
-            for srv_name in self._config.mcpServers.keys():
-                expected_prefix = srv_name if srv_name.startswith('mcp_') else f"mcp_{srv_name}"
+            for srv_name in self._config.mcp_servers:
+                expected_prefix = srv_name if srv_name.startswith("mcp_") else f"mcp_{srv_name}"
                 if tool_name.startswith(f"{expected_prefix}_"):
                     server_name = srv_name
-                    original_tool_name = tool_name[len(expected_prefix) + 1:]
+                    original_tool_name = tool_name[len(expected_prefix) + 1 :]
                     break
 
             if not server_name or not original_tool_name:
@@ -790,16 +951,13 @@ class MCPClientManager:
             if health and not health.healthy and health.consecutive_failures >= self._max_consecutive_failures:
                 return ToolResult(
                     success=False,
-                    message=f"MCP server {server_name} is unhealthy (failures: {health.consecutive_failures})"
+                    message=f"MCP server {server_name} is unhealthy (failures: {health.consecutive_failures})",
                 )
 
             # Get client session
             session = self._clients.get(server_name)
             if not session:
-                return ToolResult(
-                    success=False,
-                    message=f"MCP server {server_name} not connected"
-                )
+                return ToolResult(success=False, message=f"MCP server {server_name} not connected")
 
             # Call tool
             result = await session.call_tool(original_tool_name, arguments)
@@ -817,21 +975,15 @@ class MCPClientManager:
             # Process result
             if result:
                 content = []
-                if hasattr(result, 'content') and result.content:
+                if hasattr(result, "content") and result.content:
                     for item in result.content:
-                        if hasattr(item, 'text'):
+                        if hasattr(item, "text"):
                             content.append(item.text)
                         else:
                             content.append(str(item))
 
-                return ToolResult(
-                    success=True,
-                    data='\n'.join(content) if content else "Tool executed successfully"
-                )
-            return ToolResult(
-                success=True,
-                data="Tool executed successfully"
-            )
+                return ToolResult(success=True, data="\n".join(content) if content else "Tool executed successfully")
+            return ToolResult(success=True, data="Tool executed successfully")
 
         except Exception as e:
             # Record failed call
@@ -847,10 +999,7 @@ class MCPClientManager:
                 health.last_check = datetime.now()
 
             logger.error(f"Failed to call MCP tool {tool_name}: {e}")
-            return ToolResult(
-                success=False,
-                message=f"Failed to call MCP tool: {e!s}"
-            )
+            return ToolResult(success=False, message=f"Failed to call MCP tool: {e!s}")
 
     async def cleanup(self):
         """Cleanup resources"""
@@ -863,6 +1012,205 @@ class MCPClientManager:
 
         except Exception as e:
             logger.error(f"Failed to cleanup MCP client manager: {e}")
+
+
+class MCPHealthMonitor:
+    """Proactive health monitor for MCP servers.
+
+    Runs periodic health checks and automatically:
+    - Detects degraded servers
+    - Deprioritizes unreliable tools
+    - Attempts recovery of failed servers
+    - Emits health events for monitoring
+
+    Usage:
+        monitor = MCPHealthMonitor(client_manager)
+        await monitor.start()
+        # ... later
+        await monitor.stop()
+    """
+
+    def __init__(
+        self,
+        client_manager: MCPClientManager,
+        check_interval_seconds: float = 300.0,  # 5 minutes
+        recovery_interval_seconds: float = 60.0,  # 1 minute
+    ):
+        """Initialize health monitor.
+
+        Args:
+            client_manager: MCP client manager to monitor
+            check_interval_seconds: Interval between health checks
+            recovery_interval_seconds: Interval between recovery attempts
+        """
+        self._client_manager = client_manager
+        self._check_interval = check_interval_seconds
+        self._recovery_interval = recovery_interval_seconds
+        self._running = False
+        self._check_task: Any = None
+        self._recovery_task: Any = None
+        self._health_callbacks: list[Any] = []
+
+    def add_health_callback(self, callback: Any) -> None:
+        """Add callback for health events.
+
+        Args:
+            callback: Async function(health_status: dict) to call on health changes
+        """
+        self._health_callbacks.append(callback)
+
+    async def start(self) -> None:
+        """Start the health monitor."""
+        if self._running:
+            return
+
+        self._running = True
+        import asyncio
+
+        self._check_task = asyncio.create_task(self._health_check_loop())
+        self._recovery_task = asyncio.create_task(self._recovery_loop())
+        logger.info(f"MCP health monitor started (check every {self._check_interval}s)")
+
+    async def stop(self) -> None:
+        """Stop the health monitor."""
+        import asyncio
+
+        self._running = False
+
+        if self._check_task:
+            self._check_task.cancel()
+            try:
+                await self._check_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+
+        if self._recovery_task:
+            self._recovery_task.cancel()
+            try:
+                await self._recovery_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+
+        logger.info("MCP health monitor stopped")
+
+    async def _health_check_loop(self) -> None:
+        """Run periodic health checks."""
+        import asyncio
+
+        while self._running:
+            try:
+                await asyncio.sleep(self._check_interval)
+                if not self._running:
+                    break
+
+                start_time = time.time()
+                health_status = await self._client_manager.health_check()
+                duration_ms = (time.time() - start_time) * 1000
+
+                # Emit health event
+                await self._emit_health_event(health_status, duration_ms)
+
+                # Log summary
+                healthy_count = sum(1 for h in health_status.values() if h.healthy)
+                degraded_count = sum(1 for h in health_status.values() if h.degraded)
+                total_count = len(health_status)
+
+                if degraded_count > 0:
+                    logger.warning(
+                        f"MCP health check: {healthy_count}/{total_count} healthy, "
+                        f"{degraded_count} degraded (took {duration_ms:.0f}ms)"
+                    )
+                else:
+                    logger.debug(f"MCP health check: {healthy_count}/{total_count} healthy (took {duration_ms:.0f}ms)")
+
+            except Exception as e:
+                logger.error(f"Health check failed: {e}")
+
+    async def _recovery_loop(self) -> None:
+        """Run periodic recovery attempts for unhealthy servers."""
+        import asyncio
+
+        while self._running:
+            try:
+                await asyncio.sleep(self._recovery_interval)
+                if not self._running:
+                    break
+
+                # Check if any servers need recovery
+                health_status = self._client_manager.get_health_status()
+                unhealthy = [name for name, h in health_status.items() if not h.healthy]
+
+                if unhealthy:
+                    logger.info(f"Attempting recovery for {len(unhealthy)} unhealthy servers")
+                    reconnected = await self._client_manager.reconnect_unhealthy()
+                    if reconnected:
+                        logger.info(f"Successfully recovered servers: {reconnected}")
+
+            except Exception as e:
+                logger.error(f"Recovery loop failed: {e}")
+
+    async def _emit_health_event(self, health_status: dict[str, ServerHealth], duration_ms: float) -> None:
+        """Emit health status to callbacks."""
+        summary = self.get_health_summary()
+        summary["check_duration_ms"] = duration_ms
+
+        for callback in self._health_callbacks:
+            try:
+                await callback(summary)
+            except Exception as e:
+                logger.warning(f"Health callback failed: {e}")
+
+    def get_health_summary(self) -> dict[str, Any]:
+        """Get a summary of all MCP health metrics.
+
+        Returns:
+            Dict with aggregated health information
+        """
+        health_status = self._client_manager.get_health_status()
+        tool_stats = self._client_manager.get_tool_stats()
+
+        healthy_servers = [name for name, h in health_status.items() if h.healthy]
+        unhealthy_servers = [name for name, h in health_status.items() if not h.healthy]
+        degraded_servers = [name for name, h in health_status.items() if h.degraded]
+
+        reliable_tools = self._client_manager.get_reliable_tools()
+        unreliable_tools = self._client_manager.get_unreliable_tools()
+
+        # Calculate aggregate metrics
+        total_calls = sum(s.call_count for s in tool_stats.values())
+        total_success = sum(s.success_count for s in tool_stats.values())
+        overall_success_rate = total_success / total_calls if total_calls > 0 else 1.0
+
+        avg_response_times = [h.avg_response_time_ms for h in health_status.values() if h.avg_response_time_ms > 0]
+        overall_avg_response = sum(avg_response_times) / len(avg_response_times) if avg_response_times else 0
+
+        return {
+            "servers": {
+                "total": len(health_status),
+                "healthy": len(healthy_servers),
+                "unhealthy": len(unhealthy_servers),
+                "degraded": len(degraded_servers),
+                "healthy_names": healthy_servers,
+                "unhealthy_names": unhealthy_servers,
+                "degraded_names": degraded_servers,
+            },
+            "tools": {
+                "total": len(tool_stats),
+                "reliable": len(reliable_tools),
+                "unreliable": len(unreliable_tools),
+                "unreliable_names": unreliable_tools,
+            },
+            "metrics": {
+                "total_calls": total_calls,
+                "overall_success_rate": round(overall_success_rate * 100, 1),
+                "avg_response_time_ms": round(overall_avg_response, 2),
+            },
+            "status": "healthy" if not unhealthy_servers else "degraded" if not degraded_servers else "unhealthy",
+        }
 
 
 class MCPTool(BaseTool):
@@ -880,7 +1228,7 @@ class MCPTool(BaseTool):
     name = "mcp"
 
     # Built-in resource management tools
-    RESOURCE_TOOLS = [
+    RESOURCE_TOOLS: ClassVar[list[dict[str, Any]]] = [
         {
             "type": "function",
             "function": {
@@ -889,14 +1237,11 @@ class MCPTool(BaseTool):
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "server_name": {
-                            "type": "string",
-                            "description": "Optional: Filter by specific MCP server name"
-                        }
+                        "server_name": {"type": "string", "description": "Optional: Filter by specific MCP server name"}
                     },
-                    "required": []
-                }
-            }
+                    "required": [],
+                },
+            },
         },
         {
             "type": "function",
@@ -908,29 +1253,25 @@ class MCPTool(BaseTool):
                     "properties": {
                         "uri": {
                             "type": "string",
-                            "description": "The URI of the resource to read (e.g., 'file:///path/to/file', 'db://table/record')"
+                            "description": "The URI of the resource to read (e.g., 'file:///path/to/file', 'db://table/record')",
                         },
                         "server_name": {
                             "type": "string",
-                            "description": "Optional: Specific server to read from (auto-detected if not provided)"
-                        }
+                            "description": "Optional: Specific server to read from (auto-detected if not provided)",
+                        },
                     },
-                    "required": ["uri"]
-                }
-            }
+                    "required": ["uri"],
+                },
+            },
         },
         {
             "type": "function",
             "function": {
                 "name": "mcp_server_status",
                 "description": "Get health status and statistics for connected MCP servers.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {},
-                    "required": []
-                }
-            }
-        }
+                "parameters": {"type": "object", "properties": {}, "required": []},
+            },
+        },
     ]
 
     def __init__(self):
@@ -948,6 +1289,7 @@ class MCPTool(BaseTool):
         but defers actual initialization until first MCP tool call.
         """
         from app.core.config import get_settings
+
         settings = get_settings()
 
         if self._initialized:
@@ -1005,16 +1347,12 @@ class MCPTool(BaseTool):
     def has_function(self, function_name: str) -> bool:
         """Check if specified function exists (including dynamic MCP tools)"""
         # Check built-in resource tools
-        resource_tool_names = {t['function']['name'] for t in self.RESOURCE_TOOLS}
+        resource_tool_names = {t["function"]["name"] for t in self.RESOURCE_TOOLS}
         if function_name in resource_tool_names:
             return True
 
         # Check MCP server tools
-        for tool in self._tools:
-            if tool['function']['name'] == function_name:
-                return True
-
-        return False
+        return any(tool["function"]["name"] == function_name for tool in self._tools)
 
     async def invoke_function(self, function_name: str, **kwargs) -> ToolResult:
         """Call tool function (MCP server tool or built-in resource tool).
@@ -1082,10 +1420,7 @@ class MCPTool(BaseTool):
             if not resources and not templates:
                 output_parts.append("No resources available from connected MCP servers.")
 
-            return ToolResult(
-                success=True,
-                data="\n".join(output_parts)
-            )
+            return ToolResult(success=True, data="\n".join(output_parts))
 
         except Exception as e:
             logger.error(f"Failed to list resources: {e}")
@@ -1114,14 +1449,11 @@ class MCPTool(BaseTool):
                     metadata += f"\nMIME Type: {result.content.mime_type}"
                 metadata += f"\nRead Time: {result.read_time_ms:.1f}ms"
 
-                return ToolResult(
-                    success=True,
-                    data=f"{metadata}\n\n---\n\n{data}"
-                )
+                return ToolResult(success=True, data=f"{metadata}\n\n---\n\n{data}")
             # Binary content - provide info only
             return ToolResult(
                 success=True,
-                data=f"Binary resource read successfully.\nURI: {uri}\nMIME Type: {result.content.mime_type or 'unknown'}\nSize: {len(result.content.blob or b'')} bytes"
+                data=f"Binary resource read successfully.\nURI: {uri}\nMIME Type: {result.content.mime_type or 'unknown'}\nSize: {len(result.content.blob or b'')} bytes",
             )
 
         except Exception as e:
@@ -1162,8 +1494,7 @@ class MCPTool(BaseTool):
                     success_rate = (stats.success_count / stats.call_count * 100) if stats.call_count > 0 else 0
                     avg_duration = stats.total_duration_ms / stats.call_count if stats.call_count > 0 else 0
                     output_parts.append(
-                        f"  - {name}: {stats.call_count} calls, "
-                        f"{success_rate:.0f}% success, {avg_duration:.0f}ms avg"
+                        f"  - {name}: {stats.call_count} calls, {success_rate:.0f}% success, {avg_duration:.0f}ms avg"
                     )
 
             return ToolResult(success=True, data="\n".join(output_parts))
@@ -1192,23 +1523,17 @@ class MCPTool(BaseTool):
         if self.manager and not warmup_manager.is_warmed_up:
             # Warmup: Refresh all tool schemas
             warmup_manager.register_warmup_task(
-                name="mcp_tool_schemas",
-                coroutine_factory=lambda: self.manager.get_all_tools(),
-                priority=1
+                name="mcp_tool_schemas", coroutine_factory=lambda: self.manager.get_all_tools(), priority=1
             )
 
             # Warmup: Pre-fetch resource lists
             warmup_manager.register_warmup_task(
-                name="mcp_resources",
-                coroutine_factory=lambda: self.manager.list_all_resources(),
-                priority=2
+                name="mcp_resources", coroutine_factory=lambda: self.manager.list_all_resources(), priority=2
             )
 
             # Warmup: Health check all servers
             warmup_manager.register_warmup_task(
-                name="mcp_health_check",
-                coroutine_factory=lambda: self.manager.health_check(),
-                priority=3
+                name="mcp_health_check", coroutine_factory=lambda: self.manager.health_check(), priority=3
             )
 
         # Execute warmup

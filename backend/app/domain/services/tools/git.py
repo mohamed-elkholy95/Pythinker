@@ -29,36 +29,25 @@ class GitTool(BaseTool):
         name="git_clone",
         description="Clone a git repository to the workspace. Supports public repos and private repos with authentication token. URLs are validated against a whitelist (github.com, gitlab.com, bitbucket.org).",
         parameters={
-            "url": {
-                "type": "string",
-                "description": "Repository URL (https://github.com/user/repo.git)"
-            },
+            "url": {"type": "string", "description": "Repository URL (https://github.com/user/repo.git)"},
             "target_dir": {
                 "type": "string",
-                "description": "Target directory path (e.g., /workspace/session-id/src/repo)"
+                "description": "Target directory path (e.g., /workspace/session-id/src/repo)",
             },
-            "branch": {
-                "type": "string",
-                "description": "Branch to clone (optional, defaults to default branch)"
-            },
+            "branch": {"type": "string", "description": "Branch to clone (optional, defaults to default branch)"},
             "shallow": {
                 "type": "boolean",
-                "description": "Whether to do a shallow clone (depth=1). Faster but no history."
+                "description": "Whether to do a shallow clone (depth=1). Faster but no history.",
             },
             "auth_token": {
                 "type": "string",
-                "description": "Authentication token for private repositories (ephemeral, not stored)"
-            }
+                "description": "Authentication token for private repositories (ephemeral, not stored)",
+            },
         },
-        required=["url", "target_dir"]
+        required=["url", "target_dir"],
     )
     async def git_clone(
-        self,
-        url: str,
-        target_dir: str,
-        branch: str = None,
-        shallow: bool = True,
-        auth_token: str = None
+        self, url: str, target_dir: str, branch: str | None = None, shallow: bool = True, auth_token: str | None = None
     ) -> ToolResult:
         """Clone a git repository
 
@@ -77,13 +66,8 @@ class GitTool(BaseTool):
     @tool(
         name="git_status",
         description="Get the status of a git repository. Shows current branch, staged files, modified files, untracked files, and ahead/behind remote.",
-        parameters={
-            "repo_path": {
-                "type": "string",
-                "description": "Path to the git repository"
-            }
-        },
-        required=["repo_path"]
+        parameters={"repo_path": {"type": "string", "description": "Path to the git repository"}},
+        required=["repo_path"],
     )
     async def git_status(self, repo_path: str) -> ToolResult:
         """Get git repository status
@@ -100,27 +84,13 @@ class GitTool(BaseTool):
         name="git_diff",
         description="Show differences in a git repository. Can show working tree changes or staged changes. Optionally diff a specific file.",
         parameters={
-            "repo_path": {
-                "type": "string",
-                "description": "Path to the git repository"
-            },
-            "staged": {
-                "type": "boolean",
-                "description": "Show staged changes instead of working tree changes"
-            },
-            "file_path": {
-                "type": "string",
-                "description": "Specific file to diff (relative to repo root)"
-            }
+            "repo_path": {"type": "string", "description": "Path to the git repository"},
+            "staged": {"type": "boolean", "description": "Show staged changes instead of working tree changes"},
+            "file_path": {"type": "string", "description": "Specific file to diff (relative to repo root)"},
         },
-        required=["repo_path"]
+        required=["repo_path"],
     )
-    async def git_diff(
-        self,
-        repo_path: str,
-        staged: bool = False,
-        file_path: str = None
-    ) -> ToolResult:
+    async def git_diff(self, repo_path: str, staged: bool = False, file_path: str | None = None) -> ToolResult:
         """Get git diff
 
         Args:
@@ -137,27 +107,13 @@ class GitTool(BaseTool):
         name="git_log",
         description="Show commit history of a git repository. Returns recent commits with hash, author, date, and message.",
         parameters={
-            "repo_path": {
-                "type": "string",
-                "description": "Path to the git repository"
-            },
-            "limit": {
-                "type": "integer",
-                "description": "Maximum number of commits to return (1-100)"
-            },
-            "file_path": {
-                "type": "string",
-                "description": "Show history for a specific file only"
-            }
+            "repo_path": {"type": "string", "description": "Path to the git repository"},
+            "limit": {"type": "integer", "description": "Maximum number of commits to return (1-100)"},
+            "file_path": {"type": "string", "description": "Show history for a specific file only"},
         },
-        required=["repo_path"]
+        required=["repo_path"],
     )
-    async def git_log(
-        self,
-        repo_path: str,
-        limit: int = 10,
-        file_path: str = None
-    ) -> ToolResult:
+    async def git_log(self, repo_path: str, limit: int = 10, file_path: str | None = None) -> ToolResult:
         """Get git commit history
 
         Args:
@@ -174,22 +130,12 @@ class GitTool(BaseTool):
         name="git_branches",
         description="List branches in a git repository. Shows current branch and all local/remote branches.",
         parameters={
-            "repo_path": {
-                "type": "string",
-                "description": "Path to the git repository"
-            },
-            "show_remote": {
-                "type": "boolean",
-                "description": "Include remote branches in the list"
-            }
+            "repo_path": {"type": "string", "description": "Path to the git repository"},
+            "show_remote": {"type": "boolean", "description": "Include remote branches in the list"},
         },
-        required=["repo_path"]
+        required=["repo_path"],
     )
-    async def git_branches(
-        self,
-        repo_path: str,
-        show_remote: bool = True
-    ) -> ToolResult:
+    async def git_branches(self, repo_path: str, show_remote: bool = True) -> ToolResult:
         """Get git branches
 
         Args:

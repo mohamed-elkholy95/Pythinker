@@ -14,6 +14,7 @@ from app.domain.services.flows.workflow_graph import (
 # Import LangGraph flow only when available
 try:
     from app.domain.services.langgraph import LangGraphPlanActFlow
+
     LANGGRAPH_AVAILABLE = True
 except ImportError:
     LangGraphPlanActFlow = None

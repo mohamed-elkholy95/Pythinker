@@ -13,6 +13,22 @@ import {
   mockStepMessage,
 } from '../mocks/api'
 
+// Mock marked library
+vi.mock('marked', () => ({
+  marked: (text: string) => text,
+  Renderer: class MockRenderer {
+    code = () => ''
+  },
+}))
+
+// Mock useShiki composable
+vi.mock('@/composables/useShiki', () => ({
+  useShiki: () => ({
+    highlightDualTheme: async (code: string) => code,
+    normalizeLanguage: (lang: string) => lang,
+  }),
+}))
+
 // Mock composables
 vi.mock('@/composables/useTime', () => ({
   useRelativeTime: () => ({
@@ -33,6 +49,39 @@ vi.mock('@/components/AttachmentsMessage.vue', () => ({
   default: {
     name: 'AttachmentsMessage',
     template: '<div class="mock-attachments"><slot /></div>',
+    props: ['content'],
+  },
+}))
+
+vi.mock('@/components/report', () => ({
+  ReportCard: {
+    name: 'ReportCard',
+    template: '<div class="mock-report-card"><slot /></div>',
+    props: ['report', 'suggestions'],
+  },
+  AttachmentsInlineGrid: {
+    name: 'AttachmentsInlineGrid',
+    template: '<div class="mock-attachments-grid"><slot /></div>',
+    props: ['attachments'],
+  },
+  TaskCompletedFooter: {
+    name: 'TaskCompletedFooter',
+    template: '<div class="mock-footer"><slot /></div>',
+  },
+}))
+
+vi.mock('@/components/DeepResearchCard.vue', () => ({
+  default: {
+    name: 'DeepResearchCard',
+    template: '<div class="mock-deep-research"><slot /></div>',
+    props: ['content'],
+  },
+}))
+
+vi.mock('@/components/SkillDeliveryCard.vue', () => ({
+  default: {
+    name: 'SkillDeliveryCard',
+    template: '<div class="mock-skill-delivery"><slot /></div>',
     props: ['content'],
   },
 }))

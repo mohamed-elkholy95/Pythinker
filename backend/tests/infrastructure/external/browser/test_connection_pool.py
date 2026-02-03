@@ -256,7 +256,7 @@ class TestBrowserConnectionPool:
 
     @pytest.mark.asyncio
     async def test_connection_marked_unhealthy_on_exception(self, pool, mock_browser):
-        """Test connection is marked unhealthy when exception occurs."""
+        """Test connection failure is tracked when exception occurs."""
         with patch(
             "app.infrastructure.external.browser.connection_pool.PlaywrightBrowser",
             return_value=mock_browser,
@@ -270,10 +270,10 @@ class TestBrowserConnectionPool:
             except ValueError:
                 pass
 
-            # Connection should be marked unhealthy
+            # Connection should have failure tracked (unhealthy after 3 failures)
             if pool._pools.get(cdp_url):
                 conn = pool._pools[cdp_url][0]
-                assert conn.is_healthy is False
+                assert conn.consecutive_failures >= 1
 
 
 class TestPooledConnectionContext:
@@ -298,7 +298,7 @@ class TestPooledConnectionContext:
 
     @pytest.mark.asyncio
     async def test_context_sets_unhealthy_on_error(self, pool, mock_browser):
-        """Test context sets connection unhealthy on exception."""
+        """Test context tracks failure on exception."""
         with patch(
             "app.infrastructure.external.browser.connection_pool.PlaywrightBrowser",
             return_value=mock_browser,
@@ -313,6 +313,6 @@ class TestPooledConnectionContext:
             # Simulate exception exit
             await ctx.__aexit__(ValueError, ValueError("test"), None)
 
-            # Connection should be marked unhealthy
+            # Connection should have failure tracked (unhealthy after 3 failures)
             if ctx._connection:
-                assert ctx._connection.is_healthy is False
+                assert ctx._connection.consecutive_failures >= 1

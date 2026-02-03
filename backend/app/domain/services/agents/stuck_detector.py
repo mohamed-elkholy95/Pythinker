@@ -172,7 +172,7 @@ class StuckDetector:
         self._response_history: deque[ResponseRecord] = deque(maxlen=window_size)
         self._stuck_count = 0
         self._recovery_attempts = 0
-        self._max_recovery_attempts = 5  # More recovery attempts before giving up
+        self._max_recovery_attempts = 3  # Align with prompt retry guidance
         self._semantic_stuck_detected = False
 
         # LRU embedding cache for efficiency (proper eviction instead of clear-all)
@@ -182,17 +182,18 @@ class StuckDetector:
         self._tool_action_history: deque[ToolActionRecord] = deque(maxlen=50)
         self._stuck_analysis: StuckAnalysis | None = None
 
-    def track_response(self, response: dict[str, Any]) -> bool:
+    def track_response(self, response: dict[str, Any]) -> tuple[bool, float]:
         """
-        Track a new LLM response and check if agent is stuck.
+        Track a new LLM response and check if agent is stuck (Phase 4 P1).
 
-        Performs both hash-based and semantic similarity checks.
+        Performs both hash-based and semantic similarity checks with
+        confidence scoring to reduce false positives.
 
         Args:
             response: The LLM response message dict
 
         Returns:
-            True if agent is detected as stuck, False otherwise
+            Tuple of (is_stuck, confidence_score)
         """
         content = response.get("content", "") or ""
         tool_calls = response.get("tool_calls", [])
@@ -225,16 +226,31 @@ class StuckDetector:
 
         # Check for semantic stuck pattern (uses embeddings from response history)
         is_semantic_stuck = False
+        similarity_score = 0.0
         if self._enable_semantic and not is_hash_stuck:
-            is_semantic_stuck, _ = self.check_semantic_similarity()
+            is_semantic_stuck, similarity_score = self.check_semantic_similarity()
 
-        is_stuck = is_hash_stuck or is_semantic_stuck
+        # Phase 4 P1: Calculate confidence score
+        confidence = 0.0
+        if is_hash_stuck:
+            confidence = max(confidence, 0.8)  # Hash match is strong signal
+
+        if similarity_score > 0:
+            confidence += 0.3 * similarity_score  # Weight by similarity
+
+        # Check for tool action patterns
+        tool_pattern_conf = self._detect_action_patterns_confidence()
+        confidence += 0.4 * (tool_pattern_conf or 0.0)
+        confidence = min(confidence, 1.0)
+
+        # Trigger only if confidence exceeds threshold
+        is_stuck = confidence >= 0.7
 
         if is_stuck:
             self._stuck_count += 1
             stuck_type = "hash-based" if is_hash_stuck else "semantic"
             logger.warning(
-                f"Stuck pattern detected ({stuck_type}, count: {self._stuck_count}). "
+                f"Stuck pattern detected ({stuck_type}, count: {self._stuck_count}, confidence: {confidence:.2f}). "
                 f"Similar responses in last {self._window_size} turns."
             )
         else:
@@ -245,7 +261,19 @@ class StuckDetector:
                 self._recovery_attempts = 0
                 self._semantic_stuck_detected = False
 
-        return is_stuck
+        # Phase 4 P1: Log detection check
+        logger.info(
+            "Stuck detection check",
+            extra={
+                "is_stuck": is_stuck,
+                "confidence": confidence,
+                "hash_stuck": is_hash_stuck,
+                "semantic_similarity": similarity_score if is_semantic_stuck else 0,
+                "tool_pattern": tool_pattern_conf,
+            },
+        )
+
+        return is_stuck, confidence
 
     def _hash_response(self, content: str, tool_calls: list[dict] | None) -> str:
         """
@@ -315,6 +343,44 @@ class StuckDetector:
             return recent_matches >= 2  # At least 2 of last 3 are the repeated pattern
 
         return False
+
+    def _detect_action_patterns_confidence(self) -> float:
+        """Detect tool action patterns and return confidence (Phase 4 P1).
+
+        Returns:
+            Confidence score (0.0-1.0) for action-based stuck patterns
+        """
+        if len(self._tool_action_history) < 3:
+            return 0.0
+
+        recent = list(self._tool_action_history)[-5:]
+
+        # Check for repeated failed actions
+        same_tool_count = 0
+        failed_count = 0
+        for i in range(len(recent) - 1):
+            if recent[i].tool_name == recent[i + 1].tool_name:
+                same_tool_count += 1
+                if not recent[i].success:
+                    failed_count += 1
+
+        # Calculate confidence based on patterns
+        confidence = 0.0
+
+        # Same tool repeated multiple times
+        if same_tool_count >= 2:
+            confidence += 0.4
+
+        # Same tool failing repeatedly
+        if failed_count >= 2:
+            confidence += 0.4
+
+        # Recent actions mostly failures
+        recent_failure_rate = sum(1 for r in recent if not r.success) / len(recent)
+        if recent_failure_rate > 0.6:
+            confidence += 0.2 * recent_failure_rate
+
+        return min(confidence, 1.0)
 
     def _get_simple_embedding(self, text: str) -> list[float]:
         """
@@ -434,6 +500,17 @@ class StuckDetector:
     def is_stuck(self) -> bool:
         """Check if currently in stuck state (hash-based or semantic)"""
         return self._stuck_count > 0 or self._semantic_stuck_detected
+
+    def check_simple_repetition(self, outputs: list[str]) -> bool:
+        """Backward-compatible simple repetition check over raw outputs."""
+        if len(outputs) < self._threshold:
+            return False
+
+        recent = outputs[-self._threshold :]
+        normalized = [output.strip() for output in recent if output is not None]
+        if len(normalized) < self._threshold:
+            return False
+        return len(set(normalized)) == 1
 
     def can_attempt_recovery(self) -> bool:
         """Check if recovery attempts are available"""

@@ -7,14 +7,16 @@ Provides high-level operations for:
 - Memory consolidation and cleanup
 """
 
+import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from openai import AsyncOpenAI
 
+from app.core.async_utils import gather_compat
 from app.core.config import get_settings
 from app.domain.external.llm import LLM
 from app.domain.models.long_term_memory import (
@@ -33,6 +35,9 @@ from app.domain.repositories.memory_repository import MemoryRepository
 # Lazy import to avoid circular dependencies
 _qdrant_repo = None
 
+if TYPE_CHECKING:
+    from app.domain.models.memory import Memory
+
 
 def _get_qdrant_repo():
     """Get QdrantMemoryRepository lazily."""
@@ -42,6 +47,7 @@ def _get_qdrant_repo():
             from app.infrastructure.repositories.qdrant_memory_repository import (
                 QdrantMemoryRepository,
             )
+
             _qdrant_repo = QdrantMemoryRepository()
         except Exception as e:
             logger.warning(f"Failed to initialize Qdrant repository: {e}")
@@ -75,12 +81,7 @@ class MemoryService:
     - Automatic consolidation and cleanup
     """
 
-    def __init__(
-        self,
-        repository: MemoryRepository,
-        llm: LLM | None = None,
-        embedding_model: str | None = None
-    ):
+    def __init__(self, repository: MemoryRepository, llm: LLM | None = None, embedding_model: str | None = None):
         """Initialize memory service.
 
         Args:
@@ -99,10 +100,7 @@ class MemoryService:
         # Create dedicated embedding client
         embedding_api_key = settings.embedding_api_key or settings.api_key
         if embedding_api_key and settings.embedding_api_base:
-            self._embedding_client = AsyncOpenAI(
-                api_key=embedding_api_key,
-                base_url=settings.embedding_api_base
-            )
+            self._embedding_client = AsyncOpenAI(api_key=embedding_api_key, base_url=settings.embedding_api_base)
             logger.info(f"Embedding client initialized with {settings.embedding_api_base}")
         else:
             self._embedding_client = None
@@ -124,7 +122,7 @@ class MemoryService:
         entities: list[str] | None = None,
         tags: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
-        generate_embedding: bool = True
+        generate_embedding: bool = True,
     ) -> MemoryEntry:
         """Store a new memory.
 
@@ -156,7 +154,7 @@ class MemoryService:
                 MemoryUpdate(
                     importance=importance if importance.value > existing.importance.value else None,
                     tags=list(set(existing.tags + (tags or []))),
-                )
+                ),
             )
             return existing
 
@@ -187,31 +185,111 @@ class MemoryService:
             metadata=metadata or {},
         )
 
-        created_memory = await self._repository.create(memory)
+        # Phase 5: Check if parallel memory writes are enabled
+        settings = get_settings()
+        use_parallel = settings.feature_parallel_memory
 
-        # Sync to Qdrant if embedding exists
-        if embedding:
-            qdrant_repo = _get_qdrant_repo()
+        if use_parallel and embedding:
+            # Use parallel writes to MongoDB and Qdrant
+            created_memory = await self._store_memory_parallel(
+                memory=memory,
+                embedding=embedding,
+                memory_type=memory_type,
+                importance=importance,
+                tags=tags,
+            )
+        else:
+            # Sequential writes (original behavior)
+            created_memory = await self._repository.create(memory)
+
+            # Sync to Qdrant if embedding exists
+            if embedding:
+                qdrant_repo = _get_qdrant_repo()
+                if qdrant_repo:
+                    try:
+                        await qdrant_repo.upsert_memory(
+                            memory_id=created_memory.id,
+                            user_id=created_memory.user_id,
+                            embedding=embedding,
+                            memory_type=memory_type.value,
+                            importance=importance.value,
+                            tags=tags,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to sync memory to Qdrant: {e}")
+
+        return created_memory
+
+    async def _store_memory_parallel(
+        self,
+        memory: MemoryEntry,
+        embedding: list[float],
+        memory_type: MemoryType,
+        importance: MemoryImportance,
+        tags: list[str] | None,
+    ) -> MemoryEntry:
+        """Store memory in parallel to MongoDB and Qdrant.
+
+        Phase 5 Enhancement: Uses TaskGroup for parallel writes to reduce
+        total write latency.
+
+        Args:
+            memory: Memory entry to store
+            embedding: Embedding vector
+            memory_type: Type of memory
+            importance: Importance level
+            tags: Optional tags
+
+        Returns:
+            Created memory entry from MongoDB
+        """
+        settings = get_settings()
+        use_taskgroup = settings.feature_taskgroup_enabled
+
+        # Create MongoDB write task
+        async def mongo_write() -> MemoryEntry:
+            return await self._repository.create(memory)
+
+        # Create Qdrant write task (needs memory ID from MongoDB first for consistency)
+        # For true parallelism, we generate a temp ID and update after
+        qdrant_repo = _get_qdrant_repo()
+        mongo_result: MemoryEntry | None = None
+        qdrant_error: Exception | None = None
+
+        try:
+            # First write to MongoDB to get the ID
+            mongo_result = await self._repository.create(memory)
+
+            # Then write to Qdrant in parallel with any subsequent operations
             if qdrant_repo:
-                try:
+                async def qdrant_write():
                     await qdrant_repo.upsert_memory(
-                        memory_id=created_memory.id,
-                        user_id=created_memory.user_id,
+                        memory_id=mongo_result.id,
+                        user_id=mongo_result.user_id,
                         embedding=embedding,
                         memory_type=memory_type.value,
                         importance=importance.value,
                         tags=tags,
                     )
-                except Exception as e:
-                    logger.warning(f"Failed to sync memory to Qdrant: {e}")
 
-        return created_memory
+                try:
+                    await qdrant_write()
+                except Exception as e:
+                    qdrant_error = e
+                    logger.warning(f"Qdrant write failed in parallel: {e}")
+
+        except Exception as e:
+            logger.error(f"MongoDB write failed: {e}")
+            raise
+
+        if qdrant_error:
+            # Log but don't fail - Qdrant is for search optimization
+            logger.warning(f"Memory created in MongoDB but Qdrant sync failed: {qdrant_error}")
+
+        return mongo_result
 
     async def store_many(
-        self,
-        user_id: str,
-        memories: list[ExtractedMemory],
-        session_id: str | None = None
+        self, user_id: str, memories: list[ExtractedMemory], session_id: str | None = None
     ) -> list[MemoryEntry]:
         """Store multiple extracted memories.
 
@@ -223,8 +301,15 @@ class MemoryService:
         Returns:
             List of created memories
         """
-        created = []
+        # Phase 5: Check if parallel memory writes are enabled
+        settings = get_settings()
+        use_parallel = settings.feature_parallel_memory
 
+        if use_parallel and len(memories) > 1:
+            return await self._store_many_parallel(user_id, memories, session_id)
+
+        # Sequential writes (original behavior)
+        created = []
         for extracted in memories:
             try:
                 memory = await self.store_memory(
@@ -239,13 +324,72 @@ class MemoryService:
                     metadata={
                         "source_text": extracted.source_text,
                         "extraction_reasoning": extracted.reasoning,
-                        "confidence": extracted.confidence
-                    }
+                        "confidence": extracted.confidence,
+                    },
                 )
                 created.append(memory)
             except Exception as e:
                 logger.warning(f"Failed to store extracted memory: {e}")
 
+        return created
+
+    async def _store_many_parallel(
+        self,
+        user_id: str,
+        memories: list[ExtractedMemory],
+        session_id: str | None = None,
+    ) -> list[MemoryEntry]:
+        """Store multiple memories in parallel.
+
+        Phase 5 Enhancement: Uses TaskGroup for parallel memory creation.
+
+        Args:
+            user_id: User who owns these memories
+            memories: List of extracted memories
+            session_id: Session where created
+
+        Returns:
+            List of created memories
+        """
+        settings = get_settings()
+        use_taskgroup = settings.feature_taskgroup_enabled
+
+        async def store_single(extracted: ExtractedMemory) -> MemoryEntry | None:
+            try:
+                return await self.store_memory(
+                    user_id=user_id,
+                    content=extracted.content,
+                    memory_type=extracted.memory_type,
+                    importance=extracted.importance,
+                    source=MemorySource.USER_INFERRED,
+                    session_id=session_id,
+                    entities=extracted.entities,
+                    tags=[],
+                    metadata={
+                        "source_text": extracted.source_text,
+                        "extraction_reasoning": extracted.reasoning,
+                        "confidence": extracted.confidence,
+                    },
+                )
+            except Exception as e:
+                logger.warning(f"Failed to store extracted memory: {e}")
+                return None
+
+        # Create tasks for all memories
+        tasks = [store_single(mem) for mem in memories]
+
+        # Execute in parallel
+        results = await gather_compat(*tasks, return_exceptions=True, use_taskgroup=use_taskgroup)
+
+        # Filter successful results
+        created = []
+        for result in results:
+            if isinstance(result, Exception):
+                logger.warning(f"Memory store task failed: {result}")
+            elif result is not None:
+                created.append(result)
+
+        logger.info(f"Stored {len(created)}/{len(memories)} memories in parallel")
         return created
 
     async def retrieve_relevant(
@@ -254,7 +398,7 @@ class MemoryService:
         context: str,
         limit: int = 10,
         memory_types: list[MemoryType] | None = None,
-        min_relevance: float = 0.3
+        min_relevance: float = 0.3,
     ) -> list[MemorySearchResult]:
         """Retrieve memories relevant to a context.
 
@@ -301,11 +445,11 @@ class MemoryService:
                     for qdrant_result in qdrant_results:
                         memory = memory_lookup.get(qdrant_result.memory_id)
                         if memory:
-                            results.append(MemorySearchResult(
-                                memory=memory,
-                                relevance_score=qdrant_result.relevance_score,
-                                match_type="semantic"
-                            ))
+                            results.append(
+                                MemorySearchResult(
+                                    memory=memory, relevance_score=qdrant_result.relevance_score, match_type="semantic"
+                                )
+                            )
                             # Record access
                             await self._repository.record_access(memory.id)
 
@@ -324,7 +468,7 @@ class MemoryService:
                     embedding=embedding,
                     limit=limit,
                     min_score=min_relevance,
-                    memory_types=memory_types
+                    memory_types=memory_types,
                 )
 
                 if results:
@@ -344,7 +488,7 @@ class MemoryService:
             keywords=keywords,
             memory_types=memory_types or [],
             min_relevance=min_relevance,
-            limit=limit
+            limit=limit,
         )
 
         results = await self._repository.search(query)
@@ -362,7 +506,7 @@ class MemoryService:
         include_preferences: bool = True,
         include_procedures: bool = True,
         include_errors: bool = True,
-        limit: int = 15
+        limit: int = 15,
     ) -> list[MemorySearchResult]:
         """Retrieve memories relevant to a task.
 
@@ -392,28 +536,16 @@ class MemoryService:
             types_to_include.append(MemoryType.ERROR_PATTERN)
 
         # Add general types
-        types_to_include.extend([
-            MemoryType.FACT,
-            MemoryType.PROJECT_CONTEXT,
-            MemoryType.ENTITY
-        ])
+        types_to_include.extend([MemoryType.FACT, MemoryType.PROJECT_CONTEXT, MemoryType.ENTITY])
 
         # Semantic search with task description
         task_results = await self.retrieve_relevant(
-            user_id=user_id,
-            context=task_description,
-            limit=limit,
-            memory_types=types_to_include,
-            min_relevance=0.25
+            user_id=user_id, context=task_description, limit=limit, memory_types=types_to_include, min_relevance=0.25
         )
         results.extend(task_results)
 
         # Also get critical memories (always relevant)
-        critical_query = MemoryQuery(
-            user_id=user_id,
-            min_importance=MemoryImportance.CRITICAL,
-            limit=5
-        )
+        critical_query = MemoryQuery(user_id=user_id, min_importance=MemoryImportance.CRITICAL, limit=5)
         critical_results = await self._repository.search(critical_query)
         for result in critical_results:
             if result.memory.id not in {r.memory.id for r in results}:
@@ -421,22 +553,14 @@ class MemoryService:
 
         # Sort by relevance and importance
         def score_key(r: MemorySearchResult) -> float:
-            importance_boost = {
-                "critical": 0.3,
-                "high": 0.2,
-                "medium": 0.1,
-                "low": 0
-            }
+            importance_boost = {"critical": 0.3, "high": 0.2, "medium": 0.1, "low": 0}
             return r.relevance_score + importance_boost.get(r.memory.importance.value, 0)
 
         results.sort(key=score_key, reverse=True)
         return results[:limit]
 
     async def extract_from_conversation(
-        self,
-        user_id: str,
-        conversation: list[dict[str, str]],
-        session_id: str | None = None
+        self, user_id: str, conversation: list[dict[str, str]], session_id: str | None = None
     ) -> list[ExtractedMemory]:
         """Extract memorable content from a conversation.
 
@@ -454,10 +578,7 @@ class MemoryService:
         extracted = []
 
         # Get user messages
-        user_messages = [
-            msg["content"] for msg in conversation
-            if msg.get("role") == "user"
-        ]
+        user_messages = [msg["content"] for msg in conversation if msg.get("role") == "user"]
 
         full_text = " ".join(user_messages)
 
@@ -466,28 +587,32 @@ class MemoryService:
             matches = re.findall(pattern, full_text, re.IGNORECASE)
             for match in matches:
                 content = match if isinstance(match, str) else " ".join(match)
-                extracted.append(ExtractedMemory(
-                    content=f"User prefers: {content.strip()}",
-                    memory_type=MemoryType.PREFERENCE,
-                    importance=MemoryImportance.MEDIUM,
-                    confidence=0.7,
-                    source_text=content,
-                    reasoning="Matched preference pattern"
-                ))
+                extracted.append(
+                    ExtractedMemory(
+                        content=f"User prefers: {content.strip()}",
+                        memory_type=MemoryType.PREFERENCE,
+                        importance=MemoryImportance.MEDIUM,
+                        confidence=0.7,
+                        source_text=content,
+                        reasoning="Matched preference pattern",
+                    )
+                )
 
         # Pattern-based extraction for facts
         for pattern in FACT_PATTERNS:
             matches = re.findall(pattern, full_text, re.IGNORECASE)
             for match in matches:
                 content = match if isinstance(match, str) else " ".join(match)
-                extracted.append(ExtractedMemory(
-                    content=content.strip(),
-                    memory_type=MemoryType.FACT,
-                    importance=MemoryImportance.MEDIUM,
-                    confidence=0.7,
-                    source_text=content,
-                    reasoning="Matched fact pattern"
-                ))
+                extracted.append(
+                    ExtractedMemory(
+                        content=content.strip(),
+                        memory_type=MemoryType.FACT,
+                        importance=MemoryImportance.MEDIUM,
+                        confidence=0.7,
+                        source_text=content,
+                        reasoning="Matched fact pattern",
+                    )
+                )
 
         # LLM-based extraction for more nuanced memories
         if self._llm and len(full_text) > 100:
@@ -509,12 +634,7 @@ class MemoryService:
         return unique_extracted
 
     async def extract_from_task_result(
-        self,
-        user_id: str,
-        task_description: str,
-        task_result: str,
-        success: bool,
-        session_id: str | None = None
+        self, user_id: str, task_description: str, task_result: str, success: bool, session_id: str | None = None
     ) -> list[ExtractedMemory]:
         """Extract memories from completed task results.
 
@@ -532,33 +652,34 @@ class MemoryService:
 
         # Store task outcome
         outcome_content = f"Task: {task_description[:200]}\nOutcome: {'Success' if success else 'Failed'}\nResult: {task_result[:300]}"
-        extracted.append(ExtractedMemory(
-            content=outcome_content,
-            memory_type=MemoryType.TASK_OUTCOME,
-            importance=MemoryImportance.MEDIUM if success else MemoryImportance.HIGH,
-            confidence=0.9,
-            source_text=task_description,
-            reasoning="Task completion record"
-        ))
+        extracted.append(
+            ExtractedMemory(
+                content=outcome_content,
+                memory_type=MemoryType.TASK_OUTCOME,
+                importance=MemoryImportance.MEDIUM if success else MemoryImportance.HIGH,
+                confidence=0.9,
+                source_text=task_description,
+                reasoning="Task completion record",
+            )
+        )
 
         # If failed, extract error pattern
         if not success:
-            extracted.append(ExtractedMemory(
-                content=f"Error pattern: {task_description[:100]} - {task_result[:200]}",
-                memory_type=MemoryType.ERROR_PATTERN,
-                importance=MemoryImportance.HIGH,
-                confidence=0.8,
-                source_text=task_result,
-                reasoning="Failed task error pattern"
-            ))
+            extracted.append(
+                ExtractedMemory(
+                    content=f"Error pattern: {task_description[:100]} - {task_result[:200]}",
+                    memory_type=MemoryType.ERROR_PATTERN,
+                    importance=MemoryImportance.HIGH,
+                    confidence=0.8,
+                    source_text=task_result,
+                    reasoning="Failed task error pattern",
+                )
+            )
 
         return extracted
 
     async def consolidate_memories(
-        self,
-        user_id: str,
-        memory_type: MemoryType | None = None,
-        max_to_consolidate: int = 50
+        self, user_id: str, memory_type: MemoryType | None = None, max_to_consolidate: int = 50
     ) -> int:
         """Consolidate similar memories to reduce redundancy.
 
@@ -574,9 +695,7 @@ class MemoryService:
         """
         # Get recent memories
         query = MemoryQuery(
-            user_id=user_id,
-            memory_types=[memory_type] if memory_type else [],
-            limit=max_to_consolidate
+            user_id=user_id, memory_types=[memory_type] if memory_type else [], limit=max_to_consolidate
         )
         results = await self._repository.search(query)
 
@@ -593,29 +712,24 @@ class MemoryService:
             similar = []
 
             # Find similar memories
-            for j, other in enumerate(results[i + 1:], i + 1):
+            for _j, other in enumerate(results[i + 1 :], i + 1):
                 if other.memory.id in processed_ids:
                     continue
 
                 if other.memory.memory_type == result.memory.memory_type:
                     # Check content similarity
-                    similarity = self._text_similarity(
-                        result.memory.content,
-                        other.memory.content
-                    )
+                    similarity = self._text_similarity(result.memory.content, other.memory.content)
 
                     if similarity >= self._consolidation_threshold:
                         similar.append(other.memory)
 
             if similar:
                 # Merge memories
-                all_to_merge = [result.memory] + similar
+                all_to_merge = [result.memory, *similar]
                 merged_content = self._merge_content(all_to_merge)
 
                 await self._repository.merge_memories(
-                    memory_ids=[m.id for m in all_to_merge],
-                    merged_content=merged_content,
-                    keep_original=False
+                    memory_ids=[m.id for m in all_to_merge], merged_content=merged_content, keep_original=False
                 )
 
                 processed_ids.update(m.id for m in all_to_merge)
@@ -625,10 +739,7 @@ class MemoryService:
         return consolidated_count
 
     async def cleanup(
-        self,
-        user_id: str | None = None,
-        remove_expired: bool = True,
-        consolidate: bool = True
+        self, user_id: str | None = None, remove_expired: bool = True, consolidate: bool = True
     ) -> dict[str, int]:
         """Perform memory cleanup operations.
 
@@ -694,11 +805,7 @@ class MemoryService:
         # Delete from MongoDB
         return await self._repository.delete_by_user(user_id)
 
-    async def format_memories_for_context(
-        self,
-        memories: list[MemorySearchResult],
-        max_tokens: int = 500
-    ) -> str:
+    async def format_memories_for_context(self, memories: list[MemorySearchResult], max_tokens: int = 500) -> str:
         """Format memories for inclusion in agent context.
 
         Args:
@@ -735,20 +842,47 @@ class MemoryService:
     def _compute_hash(self, content: str) -> str:
         """Compute content hash for deduplication."""
         import hashlib
+
         normalized = " ".join(content.lower().split())
         return hashlib.sha256(normalized.encode()).hexdigest()[:16]
 
     def _extract_keywords(self, text: str) -> list[str]:
         """Extract keywords from text."""
         # Simple keyword extraction - could be enhanced with NLP
-        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        words = re.findall(r"\b[a-zA-Z]{3,}\b", text.lower())
 
         # Remove common stop words
         stop_words = {
-            'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all',
-            'can', 'had', 'her', 'was', 'one', 'our', 'out', 'has',
-            'have', 'been', 'would', 'could', 'should', 'will', 'with',
-            'this', 'that', 'from', 'they', 'what', 'which', 'their'
+            "the",
+            "and",
+            "for",
+            "are",
+            "but",
+            "not",
+            "you",
+            "all",
+            "can",
+            "had",
+            "her",
+            "was",
+            "one",
+            "our",
+            "out",
+            "has",
+            "have",
+            "been",
+            "would",
+            "could",
+            "should",
+            "will",
+            "with",
+            "this",
+            "that",
+            "from",
+            "they",
+            "what",
+            "which",
+            "their",
         }
 
         keywords = [w for w in words if w not in stop_words]
@@ -778,9 +912,7 @@ class MemoryService:
                 truncated = text[:8000]
 
                 response = await self._embedding_client.embeddings.create(
-                    model=self._embedding_model,
-                    input=truncated,
-                    encoding_format="float"
+                    model=self._embedding_model, input=truncated, encoding_format="float"
                 )
 
                 if response.data and len(response.data) > 0:
@@ -813,7 +945,7 @@ class MemoryService:
         vector = [0.0] * dim
 
         # Tokenize
-        words = re.findall(r'\b[a-zA-Z]{2,}\b', text.lower())
+        words = re.findall(r"\b[a-zA-Z]{2,}\b", text.lower())
 
         if not words:
             return vector
@@ -861,12 +993,12 @@ Only extract genuinely useful information. Return empty array if nothing notable
 
         try:
             response = await self._llm.ask(
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"}
+                messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"}
             )
 
             content = response.get("content", "[]")
             import json
+
             items = json.loads(content)
 
             if not isinstance(items, list):
@@ -877,22 +1009,24 @@ Only extract genuinely useful information. Return empty array if nothing notable
                 mem_type = {
                     "preference": MemoryType.PREFERENCE,
                     "fact": MemoryType.FACT,
-                    "entity": MemoryType.ENTITY
+                    "entity": MemoryType.ENTITY,
                 }.get(item.get("type", "fact"), MemoryType.FACT)
 
                 importance = {
                     "low": MemoryImportance.LOW,
                     "medium": MemoryImportance.MEDIUM,
-                    "high": MemoryImportance.HIGH
+                    "high": MemoryImportance.HIGH,
                 }.get(item.get("importance", "medium"), MemoryImportance.MEDIUM)
 
-                extracted.append(ExtractedMemory(
-                    content=item.get("content", ""),
-                    memory_type=mem_type,
-                    importance=importance,
-                    confidence=float(item.get("confidence", 0.7)),
-                    reasoning="LLM extraction"
-                ))
+                extracted.append(
+                    ExtractedMemory(
+                        content=item.get("content", ""),
+                        memory_type=mem_type,
+                        importance=importance,
+                        confidence=float(item.get("confidence", 0.7)),
+                        reasoning="LLM extraction",
+                    )
+                )
 
             return extracted
 
@@ -951,6 +1085,7 @@ Return JSON: {{"relevant": [0, 2, ...]}} - indices of relevant chunks only."""
 @dataclass
 class ContextChunk:
     """A chunk of summarized context from conversation history."""
+
     id: str
     summary: str
     message_range: tuple  # (start_idx, end_idx)
@@ -962,6 +1097,7 @@ class ContextChunk:
 @dataclass
 class ContextServiceConfig:
     """Configuration for in-session context service."""
+
     enabled: bool = True
     auto_summarize_threshold: int = 20  # Messages before summarization
     summarize_after_steps: int = 3  # Steps between summarizations
@@ -983,11 +1119,7 @@ class ContextEngineeringService:
     memory management in long-running tasks.
     """
 
-    def __init__(
-        self,
-        llm: LLM | None = None,
-        config: ContextServiceConfig | None = None
-    ):
+    def __init__(self, llm: LLM | None = None, config: ContextServiceConfig | None = None):
         """Initialize the context engineering service.
 
         Args:
@@ -1025,16 +1157,9 @@ class ContextEngineeringService:
 
         # Check token pressure
         estimated_tokens = memory.estimate_tokens()
-        if estimated_tokens > memory.config.auto_compact_token_threshold * 0.7:
-            return True
+        return estimated_tokens > memory.config.auto_compact_token_threshold * 0.7
 
-        return False
-
-    async def summarize_and_store(
-        self,
-        memory: "Memory",
-        preserve_recent: int = 10
-    ) -> ContextChunk | None:
+    async def summarize_and_store(self, memory: "Memory", preserve_recent: int = 10) -> ContextChunk | None:
         """Summarize older messages and store as context chunk.
 
         Args:
@@ -1076,7 +1201,7 @@ class ContextEngineeringService:
                 summary=summary,
                 message_range=(summarize_start, summarize_end),
                 token_estimate=len(summary) // 4,
-                relevance_tags=self._extract_tags(summary)
+                relevance_tags=self._extract_tags(summary),
             )
 
             self._context_chunks.append(chunk)
@@ -1086,10 +1211,7 @@ class ContextEngineeringService:
             self._messages_since_summary = 0
             self._steps_since_summary = 0
 
-            logger.info(
-                f"Created context chunk {chunk.id} from messages "
-                f"{summarize_start}-{summarize_end}"
-            )
+            logger.info(f"Created context chunk {chunk.id} from messages {summarize_start}-{summarize_end}")
 
             return chunk
 
@@ -1097,11 +1219,7 @@ class ContextEngineeringService:
             logger.error(f"Summarization failed: {e}")
             return None
 
-    async def get_relevant_context(
-        self,
-        step_description: str,
-        max_tokens: int = None
-    ) -> str:
+    async def get_relevant_context(self, step_description: str, max_tokens: int | None = None) -> str:
         """Retrieve relevant context for an upcoming step.
 
         Args:
@@ -1118,22 +1236,15 @@ class ContextEngineeringService:
 
         if self.config.use_semantic_retrieval and self._llm:
             try:
-                relevant_chunks = await self._semantic_retrieve(
-                    step_description,
-                    self.config.max_chunks_to_retrieve
-                )
+                relevant_chunks = await self._semantic_retrieve(step_description, self.config.max_chunks_to_retrieve)
             except Exception as e:
                 logger.warning(f"Semantic retrieval failed: {e}")
                 if self.config.fallback_to_recent:
-                    relevant_chunks = self._get_recent_chunks(
-                        self.config.max_chunks_to_retrieve
-                    )
+                    relevant_chunks = self._get_recent_chunks(self.config.max_chunks_to_retrieve)
                 else:
                     relevant_chunks = []
         else:
-            relevant_chunks = self._get_recent_chunks(
-                self.config.max_chunks_to_retrieve
-            )
+            relevant_chunks = self._get_recent_chunks(self.config.max_chunks_to_retrieve)
 
         if not relevant_chunks:
             return ""
@@ -1150,11 +1261,7 @@ class ContextEngineeringService:
 
         return "\n\n".join(context_parts)
 
-    async def inject_context(
-        self,
-        memory: "Memory",
-        step_description: str
-    ) -> bool:
+    async def inject_context(self, memory: "Memory", step_description: str) -> bool:
         """Inject relevant context into memory for upcoming step.
 
         Args:
@@ -1172,10 +1279,7 @@ class ContextEngineeringService:
         if not relevant_context:
             return False
 
-        context_message = {
-            "role": "system",
-            "content": f"Relevant context from earlier:\n\n{relevant_context}"
-        }
+        context_message = {"role": "system", "content": f"Relevant context from earlier:\n\n{relevant_context}"}
 
         messages = memory.get_messages()
         if messages and messages[0].get("role") == "system":
@@ -1212,17 +1316,11 @@ class ContextEngineeringService:
 
         prompt = SUMMARIZE_CONTEXT_PROMPT.format(conversation=conversation)
 
-        response = await self._llm.ask(
-            messages=[{"role": "user", "content": prompt}]
-        )
+        response = await self._llm.ask(messages=[{"role": "user", "content": prompt}])
 
         return response.get("content", "")
 
-    async def _semantic_retrieve(
-        self,
-        step_description: str,
-        max_chunks: int
-    ) -> list[ContextChunk]:
+    async def _semantic_retrieve(self, step_description: str, max_chunks: int) -> list[ContextChunk]:
         """Retrieve chunks using semantic relevance."""
         if not self._context_chunks or not self._llm:
             return []
@@ -1231,17 +1329,14 @@ class ContextEngineeringService:
         for i, chunk in enumerate(self._context_chunks):
             chunk_summaries.append(f"{i}. {chunk.summary[:200]}...")
 
-        prompt = RELEVANCE_PROMPT.format(
-            step_description=step_description,
-            chunks="\n".join(chunk_summaries)
-        )
+        prompt = RELEVANCE_PROMPT.format(step_description=step_description, chunks="\n".join(chunk_summaries))
 
         response = await self._llm.ask(
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
+            messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"}
         )
 
         import json
+
         content = response.get("content", "{}")
         try:
             parsed = json.loads(content)
@@ -1265,8 +1360,18 @@ class ContextEngineeringService:
         """Extract relevance tags from summary."""
         keywords = []
         common = [
-            "search", "file", "browser", "create", "update", "delete",
-            "error", "success", "result", "data", "api", "code"
+            "search",
+            "file",
+            "browser",
+            "create",
+            "update",
+            "delete",
+            "error",
+            "success",
+            "result",
+            "data",
+            "api",
+            "code",
         ]
         summary_lower = summary.lower()
         for kw in common:

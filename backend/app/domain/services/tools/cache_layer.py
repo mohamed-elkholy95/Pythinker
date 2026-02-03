@@ -11,6 +11,7 @@ Features:
 - Cache statistics and management
 - Automatic L1 eviction and promotion
 """
+
 import hashlib
 import json
 import logging
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class L1CacheEntry:
     """In-memory cache entry with metadata."""
+
     value: Any
     created_at: float
     ttl: int
@@ -91,11 +93,7 @@ class L1Cache:
         if len(self._cache) >= self._max_size:
             self._evict_lru()
 
-        self._cache[key] = L1CacheEntry(
-            value=value,
-            created_at=time.time(),
-            ttl=ttl or self._default_ttl
-        )
+        self._cache[key] = L1CacheEntry(value=value, created_at=time.time(), ttl=ttl or self._default_ttl)
 
     def delete(self, key: str) -> bool:
         """Delete entry from cache."""
@@ -118,10 +116,7 @@ class L1Cache:
         if len(self._cache) >= self._max_size:
             # Score = hits / age_seconds (lower is more evictable)
             now = time.time()
-            scored = [
-                (k, v.hits / max(now - v.created_at, 1))
-                for k, v in self._cache.items()
-            ]
+            scored = [(k, v.hits / max(now - v.created_at, 1)) for k, v in self._cache.items()]
             scored.sort(key=lambda x: x[1])
 
             # Evict bottom 10%
@@ -143,7 +138,7 @@ class L1Cache:
             "max_size": self._max_size,
             "hits": self._hits,
             "misses": self._misses,
-            "hit_rate": round(self._hits / total, 4) if total > 0 else 0.0
+            "hit_rate": round(self._hits / total, 4) if total > 0 else 0.0,
         }
 
 
@@ -162,47 +157,45 @@ class ToolCacheConfig:
     default_ttl: int = 3600
 
     # TTL overrides per tool name
-    ttl_by_tool: dict[str, int] = field(default_factory=lambda: {
-        # Read operations - shorter TTL as content may change
-        "file_read": 300,           # 5 minutes
-        "file_list_directory": 300,  # 5 minutes
-
-        # Search operations - moderate TTL
-        "info_search_web": 1800,    # 30 minutes
-
-        # Browser operations - shorter TTL for dynamic content
-        "browser_extract": 600,     # 10 minutes
-        "browser_read_page_content": 600,
-
-        # MCP tools - moderate TTL
-        "mcp_call_tool": 900,       # 15 minutes
-    })
+    ttl_by_tool: dict[str, int] = field(
+        default_factory=lambda: {
+            # Read operations - shorter TTL as content may change
+            "file_read": 300,  # 5 minutes
+            "file_list_directory": 300,  # 5 minutes
+            # Search operations - moderate TTL
+            "info_search_web": 1800,  # 30 minutes
+            # Browser operations - shorter TTL for dynamic content
+            "browser_extract": 600,  # 10 minutes
+            "browser_read_page_content": 600,
+            # MCP tools - moderate TTL
+            "mcp_call_tool": 900,  # 15 minutes
+        }
+    )
 
     # Tools that should never be cached (write operations, side effects)
-    exclude_tools: set[str] = field(default_factory=lambda: {
-        # Write operations
-        "file_write",
-        "file_create_directory",
-        "file_copy",
-        "file_move",
-        "file_delete",
-
-        # Shell operations (side effects)
-        "shell_execute",
-
-        # Browser actions (side effects)
-        "browser_navigate",
-        "browser_click",
-        "browser_type",
-        "browser_scroll",
-        "browser_agent_navigate",
-        "browser_agent_click",
-        "browser_agent_type",
-        "browser_agent_interact",
-
-        # Message operations
-        "message_notify_user",
-    })
+    exclude_tools: set[str] = field(
+        default_factory=lambda: {
+            # Write operations
+            "file_write",
+            "file_create_directory",
+            "file_copy",
+            "file_move",
+            "file_delete",
+            # Shell operations (side effects)
+            "shell_execute",
+            # Browser actions (side effects)
+            "browser_navigate",
+            "browser_click",
+            "browser_type",
+            "browser_scroll",
+            "browser_agent_navigate",
+            "browser_agent_click",
+            "browser_agent_type",
+            "browser_agent_interact",
+            # Message operations
+            "message_notify_user",
+        }
+    )
 
     # Maximum size for cache key arguments (prevents huge keys)
     max_key_size: int = 10000
@@ -246,7 +239,7 @@ def _generate_cache_key(tool_name: str, kwargs: dict[str, Any]) -> str:
     # Truncate if too large
     config = get_cache_config()
     if len(kwargs_json) > config.max_key_size:
-        kwargs_json = kwargs_json[:config.max_key_size]
+        kwargs_json = kwargs_json[: config.max_key_size]
 
     # Create hash
     key_hash = hashlib.sha256(kwargs_json.encode()).hexdigest()[:16]
@@ -268,10 +261,7 @@ def _should_cache_tool(tool_name: str) -> bool:
     if not config.enabled:
         return False
 
-    if tool_name in config.exclude_tools:
-        return False
-
-    return True
+    return tool_name not in config.exclude_tools
 
 
 def _get_tool_ttl(tool_name: str) -> int:
@@ -374,11 +364,12 @@ def cacheable_tool(ttl: int | None = None, use_l1: bool = True):
         async def file_read(self, path: str) -> ToolResult:
             ...
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         async def wrapper(self, *args, **kwargs):
             # Get tool name from decorated function
-            tool_name = getattr(func, '_function_name', func.__name__)
+            tool_name = getattr(func, "_function_name", func.__name__)
 
             # Check if this tool should be cached
             if not _should_cache_tool(tool_name):
@@ -387,11 +378,12 @@ def cacheable_tool(ttl: int | None = None, use_l1: bool = True):
 
             # Convert args to kwargs for cache key
             import inspect
+
             sig = inspect.signature(func)
             bound = sig.bind(self, *args, **kwargs)
             bound.apply_defaults()
             all_kwargs = dict(bound.arguments)
-            all_kwargs.pop('self', None)
+            all_kwargs.pop("self", None)
 
             # Generate cache key
             cache_key = _generate_cache_key(tool_name, all_kwargs)
@@ -406,11 +398,13 @@ def cacheable_tool(ttl: int | None = None, use_l1: bool = True):
                     logger.debug(f"L1 cache hit for {tool_name}: {cache_key}")
                     _cache_stats.record_hit()
                     from app.domain.models.tool_result import ToolResult
+
                     return ToolResult(**l1_value)
 
             # L2 LOOKUP (Redis)
             try:
                 from app.infrastructure.external.cache import get_cache
+
                 cache = get_cache()
 
                 cached_value = await cache.get(cache_key)
@@ -424,6 +418,7 @@ def cacheable_tool(ttl: int | None = None, use_l1: bool = True):
 
                     # Reconstruct ToolResult from cached dict
                     from app.domain.models.tool_result import ToolResult
+
                     return ToolResult(**cached_value)
 
             except Exception as e:
@@ -441,7 +436,11 @@ def cacheable_tool(ttl: int | None = None, use_l1: bool = True):
                     cache_value = {
                         "success": result.success,
                         "message": result.message,
-                        "data": result.data if not hasattr(result.data, 'model_dump') else result.data.model_dump() if result.data else None,
+                        "data": result.data
+                        if not hasattr(result.data, "model_dump")
+                        else result.data.model_dump()
+                        if result.data
+                        else None,
                     }
 
                     # Store in L1 (fast)
@@ -459,6 +458,7 @@ def cacheable_tool(ttl: int | None = None, use_l1: bool = True):
             return result
 
         return wrapper
+
     return decorator
 
 
@@ -482,12 +482,10 @@ async def clear_tool_cache(tool_name: str | None = None, clear_l1: bool = True) 
     # Clear L2 (Redis)
     try:
         from app.infrastructure.external.cache import get_cache
+
         cache = get_cache()
 
-        if tool_name:
-            pattern = f"tool:{tool_name}:*"
-        else:
-            pattern = "tool:*"
+        pattern = f"tool:{tool_name}:*" if tool_name else "tool:*"
 
         l2_cleared = await cache.clear_pattern(pattern)
         logger.info(f"Cleared cache: L1={l1_cleared}, L2={l2_cleared} matching '{pattern}'")
@@ -509,12 +507,10 @@ async def get_cached_keys(tool_name: str | None = None) -> list[str]:
     """
     try:
         from app.infrastructure.external.cache import get_cache
+
         cache = get_cache()
 
-        if tool_name:
-            pattern = f"tool:{tool_name}:*"
-        else:
-            pattern = "tool:*"
+        pattern = f"tool:{tool_name}:*" if tool_name else "tool:*"
 
         return await cache.keys(pattern)
 
@@ -542,8 +538,8 @@ def get_combined_cache_stats() -> dict[str, Any]:
         "combined": {
             "total_hits": total_hits,
             "total_misses": total_misses,
-            "combined_hit_rate": round(total_hits / total, 4) if total > 0 else 0.0
-        }
+            "combined_hit_rate": round(total_hits / total, 4) if total > 0 else 0.0,
+        },
     }
 
 
@@ -559,7 +555,6 @@ async def warmup_common_tools() -> dict[str, bool]:
     from app.domain.services.tools.dynamic_toolset import get_warmup_manager
 
     warmup_manager = get_warmup_manager()
-    results = {}
 
     # Register cache-specific warmup tasks
     if not warmup_manager.is_warmed_up:
@@ -570,16 +565,13 @@ async def warmup_common_tools() -> dict[str, bool]:
             _l1_cache.get("_warmup_test")
             _l1_cache.delete("_warmup_test")
 
-        warmup_manager.register_warmup_task(
-            name="l1_cache_prime",
-            coroutine_factory=prime_l1_cache,
-            priority=1
-        )
+        warmup_manager.register_warmup_task(name="l1_cache_prime", coroutine_factory=prime_l1_cache, priority=1)
 
         async def check_l2_connection():
             """Verify L2 (Redis) connection is available."""
             try:
                 from app.infrastructure.external.cache import get_cache
+
                 cache = get_cache()
                 await cache.set("_warmup_test", {"status": "ready"}, ttl=60)
                 await cache.get("_warmup_test")
@@ -589,9 +581,7 @@ async def warmup_common_tools() -> dict[str, bool]:
                 return False
 
         warmup_manager.register_warmup_task(
-            name="l2_cache_connection",
-            coroutine_factory=check_l2_connection,
-            priority=2
+            name="l2_cache_connection", coroutine_factory=check_l2_connection, priority=2
         )
 
     return await warmup_manager.warmup()

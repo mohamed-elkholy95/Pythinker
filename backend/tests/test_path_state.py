@@ -142,7 +142,7 @@ class TestComplexityAnalysis:
             complexity=TaskComplexity.SIMPLE,
             confidence=0.9,
             branching_decision=BranchingDecision.LINEAR,
-            estimated_steps=2
+            estimated_steps=2,
         )
         assert analysis.should_branch() is False
 
@@ -153,7 +153,7 @@ class TestComplexityAnalysis:
             confidence=0.8,
             branching_decision=BranchingDecision.BRANCH_STRATEGIES,
             suggested_strategies=["Approach A", "Approach B"],
-            estimated_steps=7
+            estimated_steps=7,
         )
         assert analysis.should_branch() is True
         assert len(analysis.suggested_strategies) == 2
@@ -172,12 +172,7 @@ class TestPathScoreWeights:
 
     def test_custom_weights(self):
         """Test custom weight values"""
-        weights = PathScoreWeights(
-            result_quality=0.5,
-            confidence=0.2,
-            efficiency=0.2,
-            error_penalty=0.1
-        )
+        weights = PathScoreWeights(result_quality=0.5, confidence=0.2, efficiency=0.2, error_penalty=0.1)
         assert weights.result_quality == 0.5
 
 
@@ -194,11 +189,7 @@ class TestTreeOfThoughtsConfig:
 
     def test_custom_config(self):
         """Test custom configuration"""
-        config = TreeOfThoughtsConfig(
-            enabled=False,
-            max_paths=5,
-            auto_abandon_threshold=0.4
-        )
+        config = TreeOfThoughtsConfig(enabled=False, max_paths=5, auto_abandon_threshold=0.4)
         assert config.enabled is False
         assert config.max_paths == 5
 
@@ -210,31 +201,28 @@ class TestTaskComplexityAnalyzer:
     def mock_llm(self):
         """Create mock LLM"""
         llm = MagicMock()
-        llm.ask = AsyncMock(return_value={
-            "content": '{"complexity": "moderate", "confidence": 0.8}'
-        })
+        llm.ask = AsyncMock(return_value={"content": '{"complexity": "moderate", "confidence": 0.8}'})
         return llm
 
     @pytest.fixture
     def mock_json_parser(self):
         """Create mock JSON parser"""
         parser = MagicMock()
-        parser.parse = AsyncMock(return_value={
-            "complexity": "moderate",
-            "confidence": 0.8,
-            "branching_decision": "linear",
-            "suggested_strategies": [],
-            "reasoning": "Standard task",
-            "estimated_steps": 4
-        })
+        parser.parse = AsyncMock(
+            return_value={
+                "complexity": "moderate",
+                "confidence": 0.8,
+                "branching_decision": "linear",
+                "suggested_strategies": [],
+                "reasoning": "Standard task",
+                "estimated_steps": 4,
+            }
+        )
         return parser
 
     def test_quick_analyze_simple(self, mock_llm, mock_json_parser):
         """Test quick analysis detects simple tasks"""
-        analyzer = TaskComplexityAnalyzer(
-            llm=mock_llm,
-            json_parser=mock_json_parser
-        )
+        analyzer = TaskComplexityAnalyzer(llm=mock_llm, json_parser=mock_json_parser)
 
         result = analyzer.quick_analyze("read the file config.yaml")
 
@@ -248,10 +236,7 @@ class TestTaskComplexityAnalyzer:
         Uses a task that matches RESEARCH_PATTERNS (checked before COMPLEX_PATTERNS).
         RESEARCH_PATTERNS includes: "find the best", "compare options", "research ", etc.
         """
-        analyzer = TaskComplexityAnalyzer(
-            llm=mock_llm,
-            json_parser=mock_json_parser
-        )
+        analyzer = TaskComplexityAnalyzer(llm=mock_llm, json_parser=mock_json_parser)
 
         # Use "find the best" which is in RESEARCH_PATTERNS
         result = analyzer.quick_analyze("find the best JavaScript frameworks for React alternatives")
@@ -262,10 +247,7 @@ class TestTaskComplexityAnalyzer:
 
     def test_quick_analyze_complex(self, mock_llm, mock_json_parser):
         """Test quick analysis detects complex tasks"""
-        analyzer = TaskComplexityAnalyzer(
-            llm=mock_llm,
-            json_parser=mock_json_parser
-        )
+        analyzer = TaskComplexityAnalyzer(llm=mock_llm, json_parser=mock_json_parser)
 
         result = analyzer.quick_analyze("design a system architecture for microservices")
 
@@ -275,10 +257,7 @@ class TestTaskComplexityAnalyzer:
 
     def test_quick_analyze_moderate(self, mock_llm, mock_json_parser):
         """Test quick analysis detects moderate tasks"""
-        analyzer = TaskComplexityAnalyzer(
-            llm=mock_llm,
-            json_parser=mock_json_parser
-        )
+        analyzer = TaskComplexityAnalyzer(llm=mock_llm, json_parser=mock_json_parser)
 
         result = analyzer.quick_analyze("create a simple Python script")
 
@@ -288,10 +267,7 @@ class TestTaskComplexityAnalyzer:
 
     def test_quick_analyze_ambiguous(self, mock_llm, mock_json_parser):
         """Test quick analysis returns None for ambiguous tasks"""
-        analyzer = TaskComplexityAnalyzer(
-            llm=mock_llm,
-            json_parser=mock_json_parser
-        )
+        analyzer = TaskComplexityAnalyzer(llm=mock_llm, json_parser=mock_json_parser)
 
         result = analyzer.quick_analyze("work on the project")
 
@@ -301,15 +277,10 @@ class TestTaskComplexityAnalyzer:
     @pytest.mark.asyncio
     async def test_analyze_with_llm(self, mock_llm, mock_json_parser):
         """Test full analysis with LLM"""
-        analyzer = TaskComplexityAnalyzer(
-            llm=mock_llm,
-            json_parser=mock_json_parser
-        )
+        analyzer = TaskComplexityAnalyzer(llm=mock_llm, json_parser=mock_json_parser)
 
         result = await analyzer.analyze(
-            task="work on the project",
-            context="Backend development",
-            tools_summary="shell, file, browser"
+            task="work on the project", context="Backend development", tools_summary="shell, file, browser"
         )
 
         assert result is not None
@@ -320,10 +291,7 @@ class TestTaskComplexityAnalyzer:
         """Test analysis falls back on error"""
         mock_json_parser.parse = AsyncMock(side_effect=Exception("Parse error"))
 
-        analyzer = TaskComplexityAnalyzer(
-            llm=mock_llm,
-            json_parser=mock_json_parser
-        )
+        analyzer = TaskComplexityAnalyzer(llm=mock_llm, json_parser=mock_json_parser)
 
         result = await analyzer.analyze("work on project")
 
@@ -335,73 +303,46 @@ class TestTaskComplexityAnalyzer:
     def test_should_use_tot_disabled(self, mock_llm, mock_json_parser):
         """Test ToT not used when disabled"""
         config = TreeOfThoughtsConfig(enabled=False)
-        analyzer = TaskComplexityAnalyzer(
-            llm=mock_llm,
-            json_parser=mock_json_parser,
-            config=config
-        )
+        analyzer = TaskComplexityAnalyzer(llm=mock_llm, json_parser=mock_json_parser, config=config)
 
         analysis = ComplexityAnalysis(
-            complexity=TaskComplexity.COMPLEX,
-            confidence=0.9,
-            branching_decision=BranchingDecision.BRANCH_STRATEGIES
+            complexity=TaskComplexity.COMPLEX, confidence=0.9, branching_decision=BranchingDecision.BRANCH_STRATEGIES
         )
 
         assert analyzer.should_use_tot(analysis) is False
 
     def test_should_use_tot_simple_task(self, mock_llm, mock_json_parser):
         """Test ToT not used for simple tasks"""
-        config = TreeOfThoughtsConfig(
-            enabled=True,
-            complexity_threshold=TaskComplexity.COMPLEX
-        )
-        analyzer = TaskComplexityAnalyzer(
-            llm=mock_llm,
-            json_parser=mock_json_parser,
-            config=config
-        )
+        config = TreeOfThoughtsConfig(enabled=True, complexity_threshold=TaskComplexity.COMPLEX)
+        analyzer = TaskComplexityAnalyzer(llm=mock_llm, json_parser=mock_json_parser, config=config)
 
         analysis = ComplexityAnalysis(
-            complexity=TaskComplexity.SIMPLE,
-            confidence=0.9,
-            branching_decision=BranchingDecision.LINEAR
+            complexity=TaskComplexity.SIMPLE, confidence=0.9, branching_decision=BranchingDecision.LINEAR
         )
 
         assert analyzer.should_use_tot(analysis) is False
 
     def test_should_use_tot_complex_task(self, mock_llm, mock_json_parser):
         """Test ToT used for complex tasks with branching"""
-        config = TreeOfThoughtsConfig(
-            enabled=True,
-            complexity_threshold=TaskComplexity.COMPLEX
-        )
-        analyzer = TaskComplexityAnalyzer(
-            llm=mock_llm,
-            json_parser=mock_json_parser,
-            config=config
-        )
+        config = TreeOfThoughtsConfig(enabled=True, complexity_threshold=TaskComplexity.COMPLEX)
+        analyzer = TaskComplexityAnalyzer(llm=mock_llm, json_parser=mock_json_parser, config=config)
 
         analysis = ComplexityAnalysis(
-            complexity=TaskComplexity.COMPLEX,
-            confidence=0.9,
-            branching_decision=BranchingDecision.BRANCH_STRATEGIES
+            complexity=TaskComplexity.COMPLEX, confidence=0.9, branching_decision=BranchingDecision.BRANCH_STRATEGIES
         )
 
         assert analyzer.should_use_tot(analysis) is True
 
     def test_get_strategy_plans(self, mock_llm, mock_json_parser):
         """Test generating strategy plans from analysis"""
-        analyzer = TaskComplexityAnalyzer(
-            llm=mock_llm,
-            json_parser=mock_json_parser
-        )
+        analyzer = TaskComplexityAnalyzer(llm=mock_llm, json_parser=mock_json_parser)
 
         analysis = ComplexityAnalysis(
             complexity=TaskComplexity.COMPLEX,
             confidence=0.8,
             branching_decision=BranchingDecision.BRANCH_STRATEGIES,
             suggested_strategies=["Approach A", "Approach B", "Approach C"],
-            estimated_steps=5
+            estimated_steps=5,
         )
 
         plans = analyzer.get_strategy_plans(analysis, max_strategies=2)
@@ -412,17 +353,14 @@ class TestTaskComplexityAnalyzer:
 
     def test_get_strategy_plans_defaults(self, mock_llm, mock_json_parser):
         """Test default strategies when none suggested"""
-        analyzer = TaskComplexityAnalyzer(
-            llm=mock_llm,
-            json_parser=mock_json_parser
-        )
+        analyzer = TaskComplexityAnalyzer(llm=mock_llm, json_parser=mock_json_parser)
 
         analysis = ComplexityAnalysis(
             complexity=TaskComplexity.RESEARCH,
             confidence=0.8,
             branching_decision=BranchingDecision.BRANCH_STRATEGIES,
             suggested_strategies=[],  # Empty
-            estimated_steps=5
+            estimated_steps=5,
         )
 
         plans = analyzer.get_strategy_plans(analysis)

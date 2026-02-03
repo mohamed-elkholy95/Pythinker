@@ -1,9 +1,9 @@
 import type { FileInfo } from '../api/file';
-import type { SourceCitation, DeepResearchQuery, DeepResearchStatus } from './message';
+import type { SourceCitation, DeepResearchQuery, DeepResearchStatus, SkillPackageFile, SkillPackageFileTree } from './message';
 
 export type AgentSSEEvent = {
-  event: 'tool' | 'step' | 'message' | 'error' | 'done' | 'title' | 'wait' | 'plan' | 'attachments' | 'mode_change' | 'suggestion' | 'report' | 'stream' | 'progress' | 'deep_research';
-  data: ToolEventData | StepEventData | MessageEventData | ErrorEventData | DoneEventData | TitleEventData | WaitEventData | PlanEventData | ModeChangeEventData | SuggestionEventData | ReportEventData | StreamEventData | ProgressEventData | DeepResearchEventData;
+  event: 'tool' | 'step' | 'message' | 'error' | 'done' | 'title' | 'wait' | 'plan' | 'attachments' | 'mode_change' | 'suggestion' | 'report' | 'stream' | 'progress' | 'deep_research' | 'wide_research' | 'skill_delivery' | 'skill_activation' | 'thought';
+  data: ToolEventData | StepEventData | MessageEventData | ErrorEventData | DoneEventData | TitleEventData | WaitEventData | PlanEventData | ModeChangeEventData | SuggestionEventData | ReportEventData | StreamEventData | ProgressEventData | DeepResearchEventData | WideResearchEventData | SkillDeliveryEventData | SkillActivationEventData | ThoughtEventData;
 }
 
 export interface BaseEventData {
@@ -104,4 +104,51 @@ export interface DeepResearchEventData extends BaseEventData {
   completed_queries: number;
   queries: DeepResearchQuery[];
   auto_run: boolean;
+}
+
+// Wide Research types (parallel multi-source search)
+export type WideResearchStatus = 'pending' | 'searching' | 'aggregating' | 'completed' | 'failed';
+
+export interface WideResearchEventData extends BaseEventData {
+  research_id: string;
+  topic: string;
+  status: WideResearchStatus;
+  total_queries: number;
+  completed_queries: number;
+  sources_found: number;
+  search_types: string[];
+  current_query?: string;
+  aggregation_strategy?: string;
+  errors?: string[];
+}
+
+export interface SkillDeliveryEventData extends BaseEventData {
+  package_id: string;
+  name: string;
+  description: string;
+  version: string;
+  icon: string;
+  category: string;
+  author?: string;
+  file_tree: SkillPackageFileTree;
+  files: SkillPackageFile[];
+  file_id?: string;
+  skill_id?: string;
+}
+
+export interface SkillActivationEventData extends BaseEventData {
+  skill_ids: string[];
+  skill_names: string[];
+  tool_restrictions?: string[];
+  prompt_chars: number;
+}
+
+export interface ThoughtEventData extends BaseEventData {
+  status: 'thinking' | 'thought' | 'chain_complete';
+  thought_type?: 'observation' | 'analysis' | 'hypothesis' | 'conclusion';
+  content?: string;
+  confidence?: number;
+  step_name?: string;
+  chain_id?: string;
+  is_final?: boolean;
 }

@@ -7,6 +7,7 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+
 def test_imports():
     """Test all new module imports."""
     print("Testing imports for multi-task system...")
@@ -92,10 +93,10 @@ def test_imports():
         tests_failed += 1
 
     # Summary
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print(f"Tests passed: {tests_passed}")
     print(f"Tests failed: {tests_failed}")
-    print("="*50)
+    print("=" * 50)
 
     if tests_failed == 0:
         print("\n✅ All imports successful!")

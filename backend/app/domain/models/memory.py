@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class MemoryConfig:
     """Configuration for memory management"""
+
     max_messages: int = 100
     auto_compact_threshold: int = 50
     # Token-based threshold for smart compaction (default: 80k tokens)
@@ -38,6 +39,7 @@ class Memory(BaseModel):
     """
     Memory class, defining the basic behavior of memory
     """
+
     messages: list[dict[str, Any]] = []
     # Exclude config from serialization - it's runtime-only configuration
     config: MemoryConfig = Field(default_factory=MemoryConfig, exclude=True)
@@ -48,7 +50,7 @@ class Memory(BaseModel):
     def model_post_init(self, __context) -> None:
         """Ensure config is always initialized after deserialization"""
         if self.config is None:
-            object.__setattr__(self, 'config', MemoryConfig())
+            object.__setattr__(self, "config", MemoryConfig())
 
     def get_message_role(self, message: dict[str, Any]) -> str:
         """Get the role of the message"""
@@ -98,10 +100,9 @@ class Memory(BaseModel):
     def compact(self) -> None:
         """Compact memory (legacy method, use smart_compact for better results)"""
         for message in self.messages:
-            if message.get("role") == "tool":
-                if message.get("function_name") in ["browser_view", "browser_navigate"]:
-                    message["content"] = ToolResult(success=True, data='(removed)').model_dump_json()
-                    logger.debug(f"Removed tool result from memory: {message['function_name']}")
+            if message.get("role") == "tool" and message.get("function_name") in ["browser_view", "browser_navigate"]:
+                message["content"] = ToolResult(success=True, data="(removed)").model_dump_json()
+                logger.debug(f"Removed tool result from memory: {message['function_name']}")
 
     def smart_compact(self, preserve_recent: int | None = None) -> int:
         """
@@ -139,10 +140,7 @@ class Memory(BaseModel):
                 content = message.get("content", "")
                 if "(removed)" not in content and "(compacted)" not in content:
                     # Compact the content
-                    message["content"] = ToolResult(
-                        success=True,
-                        data='(compacted)'
-                    ).model_dump_json()
+                    message["content"] = ToolResult(success=True, data="(compacted)").model_dump_json()
                     compacted += 1
                     logger.debug(f"Smart-compacted tool result: {function_name}")
 
@@ -200,7 +198,8 @@ class Memory(BaseModel):
             stats["token_threshold"] = self.config.auto_compact_token_threshold
             stats["token_usage_percent"] = (
                 estimated_tokens / self.config.auto_compact_token_threshold * 100
-                if self.config.auto_compact_token_threshold > 0 else 0
+                if self.config.auto_compact_token_threshold > 0
+                else 0
             )
 
         return stats
@@ -210,7 +209,7 @@ class Memory(BaseModel):
         """Check if memory is empty"""
         return len(self.messages) == 0
 
-    def fork(self, preserve_messages: int = None) -> "Memory":
+    def fork(self, preserve_messages: int | None = None) -> "Memory":
         """Create a fork of this memory for isolated exploration.
 
         This supports Tree-of-Thoughts pattern where multiple paths
@@ -237,7 +236,8 @@ class Memory(BaseModel):
             auto_compact_token_threshold=self.config.auto_compact_token_threshold,
             use_token_threshold=self.config.use_token_threshold,
             compactable_functions=self.config.compactable_functions.copy()
-            if self.config.compactable_functions else None,
+            if self.config.compactable_functions
+            else None,
             preserve_recent=self.config.preserve_recent,
         )
 

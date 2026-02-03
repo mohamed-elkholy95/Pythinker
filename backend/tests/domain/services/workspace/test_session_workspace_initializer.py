@@ -228,10 +228,10 @@ class TestSessionWorkspaceInitializer:
         self, initializer, test_session, mock_sandbox, mock_session_repository
     ):
         """Test workspace initialization handles organizer errors gracefully."""
-        with patch("app.domain.services.workspace.session_workspace_initializer.WorkspaceOrganizer") as mock_organizer_class:
-            mock_organizer_class.return_value.initialize_workspace = AsyncMock(
-                side_effect=Exception("Organizer error")
-            )
+        with patch(
+            "app.domain.services.workspace.session_workspace_initializer.WorkspaceOrganizer"
+        ) as mock_organizer_class:
+            mock_organizer_class.return_value.initialize_workspace = AsyncMock(side_effect=Exception("Organizer error"))
 
             result = await initializer.initialize_workspace_if_needed(
                 session=test_session,
@@ -247,9 +247,7 @@ class TestSessionWorkspaceInitializer:
         self, initializer, test_session, mock_sandbox, mock_session_repository
     ):
         """Test workspace initialization handles repository errors gracefully."""
-        mock_session_repository.update_by_id = AsyncMock(
-            side_effect=Exception("Database error")
-        )
+        mock_session_repository.update_by_id = AsyncMock(side_effect=Exception("Database error"))
 
         result = await initializer.initialize_workspace_if_needed(
             session=test_session,
@@ -319,14 +317,16 @@ class TestSessionWorkspaceInitializer:
         import asyncio
 
         # First call should initialize, subsequent should skip
-        results = await asyncio.gather(*[
-            initializer.initialize_workspace_if_needed(
-                session=test_session,
-                sandbox=mock_sandbox,
-                task_description="Research AI",
-            )
-            for _ in range(3)
-        ])
+        results = await asyncio.gather(
+            *[
+                initializer.initialize_workspace_if_needed(
+                    session=test_session,
+                    sandbox=mock_sandbox,
+                    task_description="Research AI",
+                )
+                for _ in range(3)
+            ]
+        )
 
         # First should succeed, rest should be None (already initialized)
         # Note: Actual behavior depends on race conditions
@@ -337,6 +337,7 @@ class TestSessionWorkspaceInitializer:
         """Test that get_session_workspace_initializer returns singleton."""
         # Reset singleton
         import app.domain.services.workspace.session_workspace_initializer as module
+
         module._initializer = None
 
         init1 = get_session_workspace_initializer(mock_session_repository)
@@ -349,6 +350,7 @@ class TestSessionWorkspaceInitializer:
         """Test that get_session_workspace_initializer creates instance."""
         # Reset singleton
         import app.domain.services.workspace.session_workspace_initializer as module
+
         module._initializer = None
 
         initializer = get_session_workspace_initializer(mock_session_repository)
@@ -386,9 +388,7 @@ class TestSessionWorkspaceInitializer:
 
     # Multiple session tests
     @pytest.mark.asyncio
-    async def test_initialize_workspace_multiple_different_sessions(
-        self, mock_session_repository, mock_sandbox
-    ):
+    async def test_initialize_workspace_multiple_different_sessions(self, mock_session_repository, mock_sandbox):
         """Test workspace initialization for multiple different sessions."""
         initializer = SessionWorkspaceInitializer(mock_session_repository)
 
@@ -409,7 +409,7 @@ class TestSessionWorkspaceInitializer:
         ]
 
         results = []
-        for session, task in zip(sessions, tasks):
+        for session, task in zip(sessions, tasks, strict=False):
             result = await initializer.initialize_workspace_if_needed(
                 session=session,
                 sandbox=mock_sandbox,
@@ -431,6 +431,7 @@ class TestSessionWorkspaceInitializer:
     ):
         """Test that workspace initialization logs success."""
         import logging
+
         caplog.set_level(logging.INFO)
 
         await initializer.initialize_workspace_if_needed(
@@ -448,6 +449,7 @@ class TestSessionWorkspaceInitializer:
     ):
         """Test that workspace initialization logs skip when already initialized."""
         import logging
+
         caplog.set_level(logging.DEBUG)
 
         test_session.workspace_structure = {"inputs": "Input files"}

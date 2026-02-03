@@ -49,6 +49,7 @@ END = "__end__"
 
 class NodeStatus(str, Enum):
     """Status of a workflow node execution."""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -63,6 +64,7 @@ class WorkflowState:
     Subclass this to define custom state for your workflow.
     The state is passed between nodes and can be mutated.
     """
+
     current_node: str = START
     previous_node: str | None = None
     iteration_count: int = 0
@@ -72,11 +74,7 @@ class WorkflowState:
 
     def should_continue(self) -> bool:
         """Check if workflow should continue executing."""
-        return (
-            self.current_node != END and
-            self.error is None and
-            self.iteration_count < self.max_iterations
-        )
+        return self.current_node != END and self.error is None and self.iteration_count < self.max_iterations
 
     def transition_to(self, next_node: str) -> None:
         """Transition to a new node."""
@@ -93,6 +91,7 @@ ConditionalRouter = Callable[[WorkflowState], str | Awaitable[str]]
 @dataclass
 class Node:
     """A node in the workflow graph."""
+
     name: str
     handler: NodeHandler
     description: str = ""
@@ -101,6 +100,7 @@ class Node:
 @dataclass
 class Edge:
     """An edge connecting two nodes."""
+
     from_node: str
     to_node: str
     condition: str | None = None  # Human-readable condition description
@@ -109,6 +109,7 @@ class Edge:
 @dataclass
 class ConditionalEdge:
     """A conditional edge that routes based on state."""
+
     from_node: str
     router: ConditionalRouter
     possible_targets: list[str] = field(default_factory=list)
@@ -117,6 +118,7 @@ class ConditionalEdge:
 @dataclass
 class NodeExecution:
     """Record of a node execution for debugging/tracing."""
+
     node_name: str
     status: NodeStatus
     duration_ms: float = 0
@@ -146,12 +148,7 @@ class WorkflowGraph:
         self._entry_point: str | None = None
         self._execution_history: list[NodeExecution] = []
 
-    def add_node(
-        self,
-        name: str,
-        handler: NodeHandler,
-        description: str = ""
-    ) -> "WorkflowGraph":
+    def add_node(self, name: str, handler: NodeHandler, description: str = "") -> "WorkflowGraph":
         """Add a node to the graph.
 
         Args:
@@ -165,11 +162,7 @@ class WorkflowGraph:
         if name in (START, END):
             raise ValueError(f"Cannot use reserved node name: {name}")
 
-        self._nodes[name] = Node(
-            name=name,
-            handler=handler,
-            description=description
-        )
+        self._nodes[name] = Node(name=name, handler=handler, description=description)
 
         # Initialize edge list for this node
         if name not in self._edges:
@@ -177,12 +170,7 @@ class WorkflowGraph:
 
         return self
 
-    def add_edge(
-        self,
-        from_node: str,
-        to_node: str,
-        condition: str | None = None
-    ) -> "WorkflowGraph":
+    def add_edge(self, from_node: str, to_node: str, condition: str | None = None) -> "WorkflowGraph":
         """Add a direct edge between nodes.
 
         Args:
@@ -208,10 +196,7 @@ class WorkflowGraph:
         return self
 
     def add_conditional_edge(
-        self,
-        from_node: str,
-        router: ConditionalRouter,
-        possible_targets: list[str] | None = None
+        self, from_node: str, router: ConditionalRouter, possible_targets: list[str] | None = None
     ) -> "WorkflowGraph":
         """Add a conditional edge that routes based on state.
 
@@ -227,9 +212,7 @@ class WorkflowGraph:
             raise ValueError(f"Source node not found: {from_node}")
 
         self._conditional_edges[from_node] = ConditionalEdge(
-            from_node=from_node,
-            router=router,
-            possible_targets=possible_targets or []
+            from_node=from_node, router=router, possible_targets=possible_targets or []
         )
 
         return self
@@ -275,6 +258,11 @@ class WorkflowGraph:
             result = conditional.router(state)
             if asyncio.iscoroutine(result):
                 result = await result
+            if conditional.possible_targets and result not in conditional.possible_targets and result != END:
+                raise ValueError(
+                    f"Conditional router returned invalid target '{result}' for node '{current}'. "
+                    f"Allowed: {conditional.possible_targets}"
+                )
             return result
 
         # Check for direct edges
@@ -289,7 +277,9 @@ class WorkflowGraph:
         self,
         initial_state: WorkflowState,
         on_node_start: Callable[[str, WorkflowState], None] | None = None,
-        on_node_end: Callable[[str, WorkflowState, NodeExecution], None] | None = None
+        on_node_end: Callable[[str, WorkflowState, NodeExecution], None] | None = None,
+        checkpoint_manager: Any | None = None,
+        checkpoint_interval: int = 1,
     ) -> AsyncGenerator[BaseEvent, None]:
         """Execute the workflow graph.
 
@@ -328,11 +318,9 @@ class WorkflowGraph:
 
             # Execute node
             import time
+
             start_time = time.time()
-            execution = NodeExecution(
-                node_name=current_node,
-                status=NodeStatus.RUNNING
-            )
+            execution = NodeExecution(node_name=current_node, status=NodeStatus.RUNNING)
 
             try:
                 logger.debug(f"Workflow '{self.name}' executing node: {current_node}")
@@ -358,6 +346,30 @@ class WorkflowGraph:
                 if on_node_end:
                     on_node_end(current_node, state, execution)
 
+                # Optional checkpointing hook (feature-flagged)
+                try:
+                    flags = getattr(state, "metadata", {}).get("feature_flags", {})
+                    if (
+                        checkpoint_manager
+                        and flags.get("workflow_checkpointing")
+                        and state.iteration_count % max(checkpoint_interval, 1) == 0
+                    ):
+                        session_id = getattr(state, "session_id", None) or "unknown"
+                        await checkpoint_manager.save_checkpoint(
+                            session_id=session_id,
+                            node_name=current_node,
+                            iteration=state.iteration_count,
+                            state=state,
+                            execution={
+                                "status": execution.status.value,
+                                "duration_ms": execution.duration_ms,
+                                "events_emitted": execution.events_emitted,
+                                "error": execution.error,
+                            },
+                        )
+                except Exception as e:
+                    logger.debug(f"Checkpoint save failed (non-blocking): {e}")
+
             # If error occurred, stop
             if state.error:
                 break
@@ -367,9 +379,7 @@ class WorkflowGraph:
             logger.debug(f"Workflow '{self.name}' transitioning: {current_node} -> {next_node}")
             state.transition_to(next_node)
 
-        logger.info(
-            f"Workflow '{self.name}' completed after {state.iteration_count} iterations"
-        )
+        logger.info(f"Workflow '{self.name}' completed after {state.iteration_count} iterations")
 
     def get_execution_history(self) -> list[NodeExecution]:
         """Get the execution history from the last run."""
@@ -381,34 +391,22 @@ class WorkflowGraph:
         edges = []
 
         for name, node in self._nodes.items():
-            nodes.append({
-                "name": name,
-                "description": node.description
-            })
+            nodes.append({"name": name, "description": node.description})
 
         for from_node, edge_list in self._edges.items():
             for edge in edge_list:
-                edges.append({
-                    "from": from_node,
-                    "to": edge.to_node,
-                    "condition": edge.condition,
-                    "type": "direct"
-                })
+                edges.append({"from": from_node, "to": edge.to_node, "condition": edge.condition, "type": "direct"})
 
         for from_node, conditional in self._conditional_edges.items():
             for target in conditional.possible_targets:
-                edges.append({
-                    "from": from_node,
-                    "to": target,
-                    "type": "conditional"
-                })
+                edges.append({"from": from_node, "to": target, "type": "conditional"})
 
         return {
             "name": self.name,
             "description": self.description,
             "nodes": nodes,
             "edges": edges,
-            "entry_point": self._entry_point
+            "entry_point": self._entry_point,
         }
 
 
@@ -419,12 +417,7 @@ class WorkflowBuilder:
         self._graph = WorkflowGraph(name, description)
         self._current_node: str | None = None
 
-    def node(
-        self,
-        name: str,
-        handler: NodeHandler,
-        description: str = ""
-    ) -> "WorkflowBuilder":
+    def node(self, name: str, handler: NodeHandler, description: str = "") -> "WorkflowBuilder":
         """Add a node."""
         self._graph.add_node(name, handler, description)
         self._current_node = name
@@ -442,11 +435,7 @@ class WorkflowBuilder:
         self._graph.add_edge(self._current_node, to_node)
         return self
 
-    def conditional(
-        self,
-        router: ConditionalRouter,
-        targets: list[str]
-    ) -> "WorkflowBuilder":
+    def conditional(self, router: ConditionalRouter, targets: list[str]) -> "WorkflowBuilder":
         """Add conditional edge from current node."""
         if not self._current_node:
             raise ValueError("No current node - add a node first")

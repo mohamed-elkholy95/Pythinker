@@ -2,7 +2,7 @@ import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from pydantic import TypeAdapter
 
@@ -46,6 +46,7 @@ class AgentDomainService:
         mcp_repository: MCPRepository,
         search_engine: SearchEngine | None = None,
         memory_service: Optional["MemoryService"] = None,
+        mongodb_db: Any | None = None,  # MongoDB database for LangGraph checkpointing
     ):
         self._repository = agent_repository
         self._session_repository = session_repository
@@ -57,6 +58,7 @@ class AgentDomainService:
         self._file_storage = file_storage
         self._mcp_repository = mcp_repository
         self._memory_service = memory_service
+        self._mongodb_db = mongodb_db  # For LangGraph checkpointing
         # Session-level locks to prevent concurrent task creation for the same session
         # This prevents race conditions when fast prompts arrive in quick succession
         self._task_creation_locks: dict[str, asyncio.Lock] = {}
@@ -194,6 +196,8 @@ class AgentDomainService:
             use_langgraph_flow=settings.use_langgraph_flow,
             # Long-term memory service (Phase 6: Qdrant integration)
             memory_service=self._memory_service,
+            # MongoDB database for LangGraph checkpointing
+            mongodb_db=self._mongodb_db,
         )
 
         task = self._task_cls.create(task_runner)
@@ -201,6 +205,76 @@ class AgentDomainService:
         await self._session_repository.save(session)
 
         return task
+
+    def _parse_command(self, message: str) -> tuple[str | None, str]:
+        """Parse /command syntax from user message.
+
+        Args:
+            message: User message that may start with /command
+
+        Returns:
+            Tuple of (skill_id, remaining_message)
+        """
+        try:
+            from app.domain.services.command_registry import get_command_registry
+
+            registry = get_command_registry()
+            skill_id, remaining = registry.parse_command(message)
+
+            if skill_id:
+                logger.info(f"Command invoked: {message.split()[0]} → skill '{skill_id}'")
+
+            return skill_id, remaining
+
+        except Exception as e:
+            logger.warning(f"Failed to parse command: {e}")
+            return None, message
+
+    async def _apply_skill_triggers(self, message: str, user_skills: list[str] | None) -> tuple[list[str], list[str]]:
+        """Apply skill trigger patterns to auto-activate skills.
+
+        Matches the user message against skill trigger patterns and merges
+        auto-triggered skills with user-provided skills.
+
+        Args:
+            message: User message to match against trigger patterns
+            user_skills: Skills explicitly selected by the user
+
+        Returns:
+            Tuple of (combined_skills, newly_activated_skills)
+            - combined_skills: All skills (user + auto-triggered)
+            - newly_activated_skills: Only the skills that were auto-triggered
+        """
+        try:
+            from app.domain.services.skill_trigger_matcher import get_skill_trigger_matcher
+
+            matcher = await get_skill_trigger_matcher()
+            matches = await matcher.find_matching_skills(message, max_matches=3, min_confidence=0.3)
+
+            if not matches:
+                return user_skills or [], []
+
+            # Get auto-triggered skill IDs
+            auto_triggered_ids = [m.skill_id for m in matches]
+            logger.info(
+                f"Auto-triggered {len(auto_triggered_ids)} skill(s) from message: {', '.join(auto_triggered_ids)}"
+            )
+
+            # Merge with user-provided skills (deduplicate)
+            user_skill_set = set(user_skills or [])
+            all_skills = list(user_skill_set | set(auto_triggered_ids))
+
+            # Log which skills were newly activated
+            newly_activated = [sid for sid in auto_triggered_ids if sid not in user_skill_set]
+            if newly_activated:
+                logger.info(f"Newly activated skills: {', '.join(newly_activated)}")
+
+            return all_skills, newly_activated
+
+        except Exception as e:
+            logger.warning(f"Failed to apply skill triggers: {e}")
+            # Return original skills on error
+            return user_skills or [], []
 
     async def _resolve_user_attachments(self, attachments: list[dict] | None, user_id: str) -> list[FileInfo] | None:
         """Resolve attachment metadata so UI can display accurate info (size/type)."""
@@ -390,6 +464,8 @@ IMPORTANT: The browser state may have changed. Before continuing:
         timestamp: datetime | None = None,
         latest_event_id: str | None = None,
         attachments: list[dict] | None = None,
+        skills: list[str] | None = None,
+        deep_research: bool | None = None,
     ) -> AsyncGenerator[BaseEvent, None]:
         """
         Chat with an agent
@@ -409,18 +485,45 @@ IMPORTANT: The browser state may have changed. Before continuing:
                 # - Page reloads or SSE reconnects during active task
                 # - Backend restarts and frontend retries the request
                 is_duplicate = False
-                if session.latest_message == message and session.latest_message_at:
+                last_user_event = None
+                if session.events:
+                    for event in reversed(session.events):
+                        if isinstance(event, MessageEvent) and event.role == "user":
+                            last_user_event = event
+                            break
+
+                if last_user_event and last_user_event.message == message:
                     now = datetime.now(UTC)
-                    # Make latest_message_at timezone-aware if it isn't
-                    latest_at = session.latest_message_at
+                    latest_at = last_user_event.timestamp
                     if latest_at.tzinfo is None:
                         latest_at = latest_at.replace(tzinfo=UTC)
                     time_since_last = (now - latest_at).total_seconds()
                     if time_since_last < 300:  # Within 5 minutes (research tasks can take a while)
-                        is_duplicate = True
-                        logger.warning(
-                            f"Skipping duplicate message for session {session_id} (same message sent {time_since_last:.1f}s ago, status={session.status})"
-                        )
+
+                        def normalize_skills(skill_ids: list[str] | None) -> list[str]:
+                            return sorted({skill_id for skill_id in (skill_ids or []) if skill_id})
+
+                        def normalize_attachments(items: list[dict] | list[FileInfo] | None) -> list[str]:
+                            normalized: set[str] = set()
+                            for item in items or []:
+                                if isinstance(item, dict):
+                                    value = item.get("file_id") or item.get("filename") or item.get("file_path")
+                                else:
+                                    value = item.file_id or item.filename or item.file_path
+                                if value:
+                                    normalized.add(value)
+                            return sorted(normalized)
+
+                        incoming_skills = normalize_skills(skills)
+                        last_skills = normalize_skills(last_user_event.skills)
+                        incoming_attachments = normalize_attachments(attachments)
+                        last_attachments = normalize_attachments(last_user_event.attachments)
+
+                        if incoming_skills == last_skills and incoming_attachments == last_attachments:
+                            is_duplicate = True
+                            logger.warning(
+                                f"Skipping duplicate message for session {session_id} (same payload sent {time_since_last:.1f}s ago, status={session.status})"
+                            )
 
                 if is_duplicate:
                     # Don't add duplicate message
@@ -476,8 +579,27 @@ IMPORTANT: The browser state may have changed. Before continuing:
                         session_id, message, timestamp or datetime.now()
                     )
 
+                    # Parse /command syntax (Superpowers command system)
+                    command_skill_id, message_without_command = self._parse_command(message)
+                    if command_skill_id:
+                        # Add command-invoked skill to skills list
+                        skills = list(set((skills or []) + [command_skill_id]))
+                        # Use message without command for trigger matching
+                        message_for_triggers = message_without_command or message
+                    else:
+                        message_for_triggers = message
+
+                    # Auto-trigger skills based on message content (Superpowers integration)
+                    skills_to_use, auto_triggered = await self._apply_skill_triggers(message_for_triggers, skills)
+
                     resolved_attachments = await self._resolve_user_attachments(attachments, user_id)
-                    message_event = MessageEvent(message=message, role="user", attachments=resolved_attachments)
+                    message_event = MessageEvent(
+                        message=message,
+                        role="user",
+                        attachments=resolved_attachments,
+                        skills=skills_to_use,
+                        deep_research=deep_research,
+                    )
 
                     event_id = await task.input_stream.put(message_event.model_dump_json())
 
@@ -486,6 +608,32 @@ IMPORTANT: The browser state may have changed. Before continuing:
 
                     # Yield the user message event so frontend can display it immediately
                     yield message_event
+
+                    # Emit skill activation event if skills were auto-triggered
+                    if auto_triggered:
+                        from app.domain.models.event import SkillActivationEvent
+                        from app.domain.services.skill_registry import get_skill_registry
+
+                        try:
+                            registry = await get_skill_registry()
+                            skill_names = []
+                            for skill_id in auto_triggered:
+                                skill = await registry.get_skill(skill_id)
+                                if skill:
+                                    skill_names.append(skill.name)
+
+                            activation_event = SkillActivationEvent(
+                                skill_ids=auto_triggered,
+                                skill_names=skill_names,
+                            )
+                            yield activation_event
+
+                            logger.info(
+                                f"Auto-activated skills for session {session_id}: "
+                                f"{', '.join(skill_names or auto_triggered)}"
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to emit skill activation event: {e}")
 
                     await task.run()
                     logger.debug(f"Put message into Session {session_id}'s event queue: {message[:50]}...")

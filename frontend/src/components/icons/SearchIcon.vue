@@ -9,9 +9,9 @@
         <path
             d="M2.37779 4.7C2.37779 3.44552 3.39474 2.42857 4.64922 2.42857H13.2492C14.5037 2.42857 15.5206 3.44552 15.5206 4.7V13.3C15.5206 14.5545 14.5037 15.5714 13.2492 15.5714H4.64922C3.39474 15.5714 2.37779 14.5545 2.37779 13.3V4.7Z"
             stroke="#5F5F5F" stroke-width="0.857143"></path>
-        <circle cx="8.57422" cy="8.625" r="3" stroke="#ACACAC" stroke-width="1.2" stroke-linecap="round"
+        <circle cx="8.57422" cy="8.625" r="3" stroke="#FFFFFF" stroke-width="1.2" stroke-linecap="round"
             stroke-linejoin="round"></circle>
-        <path d="M10.8242 10.875L12.3242 12.375" stroke="#ACACAC" stroke-width="1.2" stroke-linecap="round"
+        <path d="M10.8242 10.875L12.3242 12.375" stroke="#FFFFFF" stroke-width="1.2" stroke-linecap="round"
             stroke-linejoin="round"></path>
         <defs>
             <filter id="filter0_ii_6414_3794" x="1.44922" y="1.5" width="15" height="15" filterUnits="userSpaceOnUse"

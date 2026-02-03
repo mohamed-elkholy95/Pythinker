@@ -126,7 +126,7 @@ class MemoryRepository(ABC):
         embedding: list[float],
         limit: int = 10,
         min_score: float = 0.0,
-        memory_types: list[MemoryType] | None = None
+        memory_types: list[MemoryType] | None = None,
     ) -> list[MemorySearchResult]:
         """Search memories by vector similarity.
 
@@ -143,11 +143,7 @@ class MemoryRepository(ABC):
         ...
 
     @abstractmethod
-    async def find_duplicates(
-        self,
-        user_id: str,
-        content_hash: str
-    ) -> list[MemoryEntry]:
+    async def find_duplicates(self, user_id: str, content_hash: str) -> list[MemoryEntry]:
         """Find memories with matching content hash.
 
         Used for deduplication.
@@ -162,12 +158,7 @@ class MemoryRepository(ABC):
         ...
 
     @abstractmethod
-    async def get_by_entities(
-        self,
-        user_id: str,
-        entities: list[str],
-        limit: int = 20
-    ) -> list[MemoryEntry]:
+    async def get_by_entities(self, user_id: str, entities: list[str], limit: int = 20) -> list[MemoryEntry]:
         """Get memories mentioning specific entities.
 
         Args:
@@ -182,10 +173,7 @@ class MemoryRepository(ABC):
 
     @abstractmethod
     async def get_recent(
-        self,
-        user_id: str,
-        limit: int = 10,
-        memory_types: list[MemoryType] | None = None
+        self, user_id: str, limit: int = 10, memory_types: list[MemoryType] | None = None
     ) -> list[MemoryEntry]:
         """Get most recently created memories.
 
@@ -201,10 +189,7 @@ class MemoryRepository(ABC):
 
     @abstractmethod
     async def get_most_accessed(
-        self,
-        user_id: str,
-        limit: int = 10,
-        since: datetime | None = None
+        self, user_id: str, limit: int = 10, since: datetime | None = None
     ) -> list[MemoryEntry]:
         """Get most frequently accessed memories.
 
@@ -255,10 +240,7 @@ class MemoryRepository(ABC):
 
     @abstractmethod
     async def merge_memories(
-        self,
-        memory_ids: list[str],
-        merged_content: str,
-        keep_original: bool = False
+        self, memory_ids: list[str], merged_content: str, keep_original: bool = False
     ) -> MemoryEntry:
         """Merge multiple memories into one.
 

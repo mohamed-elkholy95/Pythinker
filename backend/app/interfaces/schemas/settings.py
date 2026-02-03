@@ -1,9 +1,9 @@
-
 from pydantic import BaseModel
 
 
 class UserSettingsResponse(BaseModel):
     """Response schema for user settings"""
+
     llm_provider: str
     model_name: str
     temperature: float
@@ -17,6 +17,7 @@ class UserSettingsResponse(BaseModel):
 
 class UpdateUserSettingsRequest(BaseModel):
     """Request schema for updating user settings"""
+
     llm_provider: str | None = None
     model_name: str | None = None
     temperature: float | None = None
@@ -30,12 +31,14 @@ class UpdateUserSettingsRequest(BaseModel):
 
 class ProvidersResponse(BaseModel):
     """Response schema for available providers"""
+
     llm_providers: list[dict]  # [{"id": "openai", "name": "OpenAI", "models": [...]}]
     search_providers: list[dict]  # [{"id": "bing", "name": "Bing Search"}]
 
 
 class LLMProviderInfo(BaseModel):
     """LLM provider information"""
+
     id: str
     name: str
     models: list[str]
@@ -44,6 +47,7 @@ class LLMProviderInfo(BaseModel):
 
 class SearchProviderInfo(BaseModel):
     """Search provider information"""
+
     id: str
     name: str
     requires_api_key: bool = False

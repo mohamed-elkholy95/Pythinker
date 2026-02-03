@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Display sandbox context statistics"""
 import json
-import sys
 
 with open('/app/sandbox_context.json') as f:
     data = json.load(f)

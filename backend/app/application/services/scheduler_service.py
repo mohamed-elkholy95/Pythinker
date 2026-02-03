@@ -2,6 +2,7 @@
 Scheduler Service
 Manages scheduled tasks using Redis persistence and APScheduler execution.
 """
+
 import logging
 
 from app.domain.models.scheduled_task import (
@@ -58,7 +59,7 @@ class SchedulerService:
         if not task.validate_interval():
             return ToolResult(
                 success=False,
-                message=f"Recurring tasks require minimum {task.MIN_INTERVAL_SECONDS // 60} minute interval"
+                message=f"Recurring tasks require minimum {task.MIN_INTERVAL_SECONDS // 60} minute interval",
             )
 
         # Check for existing active task
@@ -69,7 +70,7 @@ class SchedulerService:
                 return ToolResult(
                     success=False,
                     message=f"User already has an active scheduled task (ID: {existing_task_id}). Cancel it first to create a new one.",
-                    data={"existing_task_id": existing_task_id}
+                    data={"existing_task_id": existing_task_id},
                 )
 
         # Store task
@@ -94,7 +95,7 @@ class SchedulerService:
                 "scheduled_at": task.scheduled_at.isoformat(),
                 "schedule_type": task.schedule_type.value,
                 "interval_minutes": task.interval_seconds // 60 if task.interval_seconds else None,
-            }
+            },
         )
 
     async def cancel_task(self, task_id: str) -> ToolResult:
@@ -109,16 +110,10 @@ class SchedulerService:
         """
         task = self._in_memory_tasks.get(task_id)
         if not task:
-            return ToolResult(
-                success=False,
-                message=f"Task {task_id} not found"
-            )
+            return ToolResult(success=False, message=f"Task {task_id} not found")
 
         if not task.is_active():
-            return ToolResult(
-                success=False,
-                message=f"Task {task_id} is not active (status: {task.status.value})"
-            )
+            return ToolResult(success=False, message=f"Task {task_id} is not active (status: {task.status.value})")
 
         task.cancel()
 
@@ -135,10 +130,7 @@ class SchedulerService:
 
         logger.info(f"Cancelled task {task_id}")
 
-        return ToolResult(
-            success=True,
-            message=f"Task {task_id} cancelled successfully"
-        )
+        return ToolResult(success=True, message=f"Task {task_id} cancelled successfully")
 
     async def list_user_tasks(self, user_id: str) -> ToolResult:
         """
@@ -150,10 +142,7 @@ class SchedulerService:
         Returns:
             ToolResult with list of tasks
         """
-        user_tasks = [
-            task for task in self._in_memory_tasks.values()
-            if task.user_id == user_id
-        ]
+        user_tasks = [task for task in self._in_memory_tasks.values() if task.user_id == user_id]
 
         # Sort by scheduled_at (most recent first)
         user_tasks.sort(key=lambda t: t.scheduled_at, reverse=True)
@@ -171,11 +160,7 @@ class SchedulerService:
             for task in user_tasks[:10]  # Limit to 10 most recent
         ]
 
-        return ToolResult(
-            success=True,
-            message=f"Found {len(tasks_data)} scheduled tasks",
-            data={"tasks": tasks_data}
-        )
+        return ToolResult(success=True, message=f"Found {len(tasks_data)} scheduled tasks", data={"tasks": tasks_data})
 
     async def get_pending_tasks(self) -> list[ScheduledTask]:
         """
@@ -184,11 +169,7 @@ class SchedulerService:
         Returns:
             List of tasks that can be executed now
         """
-        pending = [
-            task for task in self._in_memory_tasks.values()
-            if task.can_execute()
-        ]
-        return pending
+        return [task for task in self._in_memory_tasks.values() if task.can_execute()]
 
     async def mark_task_executed(self, task_id: str) -> None:
         """
@@ -202,9 +183,8 @@ class SchedulerService:
             task.mark_executed()
 
             # Remove from active tasks if completed
-            if task.status == ScheduledTaskStatus.COMPLETED:
-                if self._user_active_tasks.get(task.user_id) == task_id:
-                    del self._user_active_tasks[task.user_id]
+            if task.status == ScheduledTaskStatus.COMPLETED and self._user_active_tasks.get(task.user_id) == task_id:
+                del self._user_active_tasks[task.user_id]
 
             # Persist to Redis if available
             if self._redis:
@@ -268,11 +248,7 @@ class SchedulerService:
             # Scan for all task keys
             cursor = 0
             while True:
-                cursor, keys = await self._redis.scan(
-                    cursor,
-                    match=f"{self.REDIS_PREFIX}*",
-                    count=100
-                )
+                cursor, keys = await self._redis.scan(cursor, match=f"{self.REDIS_PREFIX}*", count=100)
                 for key in keys:
                     data = await self._redis.get(key)
                     if data:

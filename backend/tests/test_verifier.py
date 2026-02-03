@@ -48,32 +48,19 @@ class TestVerificationModels:
 
     def test_tool_feasibility_model(self):
         """Test ToolFeasibility model"""
-        tf = ToolFeasibility(
-            step_id="1",
-            tool="shell_exec",
-            feasible=True,
-            reason="Standard shell command"
-        )
+        tf = ToolFeasibility(step_id="1", tool="shell_exec", feasible=True, reason="Standard shell command")
         assert tf.step_id == "1"
         assert tf.feasible is True
 
     def test_prerequisite_check_model(self):
         """Test PrerequisiteCheck model"""
-        pc = PrerequisiteCheck(
-            check="Internet access",
-            satisfied=True,
-            detail="Network available"
-        )
+        pc = PrerequisiteCheck(check="Internet access", satisfied=True, detail="Network available")
         assert pc.check == "Internet access"
         assert pc.satisfied is True
 
     def test_dependency_issue_model(self):
         """Test DependencyIssue model"""
-        di = DependencyIssue(
-            step_id="2",
-            depends_on="1",
-            issue="Step 2 needs output from step 1"
-        )
+        di = DependencyIssue(step_id="2", depends_on="1", issue="Step 2 needs output from step 1")
         assert di.step_id == "2"
         assert di.depends_on == "1"
 
@@ -82,12 +69,10 @@ class TestVerificationModels:
         response = VerificationResponse(
             verdict=VerificationVerdict.PASS,
             confidence=0.9,
-            tool_feasibility=[
-                ToolFeasibility(step_id="1", tool="search", feasible=True, reason="OK")
-            ],
+            tool_feasibility=[ToolFeasibility(step_id="1", tool="search", feasible=True, reason="OK")],
             prerequisite_checks=[],
             dependency_issues=[],
-            summary="Plan verified successfully"
+            summary="Plan verified successfully",
         )
         assert response.verdict == VerificationVerdict.PASS
         assert response.confidence == 0.9
@@ -101,23 +86,23 @@ class TestVerifierAgent:
     def mock_llm(self):
         """Create mock LLM"""
         llm = MagicMock()
-        llm.ask = AsyncMock(return_value={
-            "content": '{"verdict": "pass", "confidence": 0.9, "summary": "OK"}'
-        })
+        llm.ask = AsyncMock(return_value={"content": '{"verdict": "pass", "confidence": 0.9, "summary": "OK"}'})
         return llm
 
     @pytest.fixture
     def mock_json_parser(self):
         """Create mock JSON parser"""
         parser = MagicMock()
-        parser.parse = AsyncMock(return_value={
-            "verdict": "pass",
-            "confidence": 0.9,
-            "summary": "Plan verified successfully",
-            "tool_feasibility": [],
-            "prerequisite_checks": [],
-            "dependency_issues": []
-        })
+        parser.parse = AsyncMock(
+            return_value={
+                "verdict": "pass",
+                "confidence": 0.9,
+                "summary": "Plan verified successfully",
+                "tool_feasibility": [],
+                "prerequisite_checks": [],
+                "dependency_issues": [],
+            }
+        )
         return parser
 
     @pytest.fixture
@@ -125,7 +110,8 @@ class TestVerifierAgent:
         """Create mock tools list"""
         tool = MagicMock()
         tool.get_tools.return_value = [
-            {"function": {"name": "shell_exec", "description": "Execute shell commands"}}
+            {"function": {"name": "shell_exec", "description": "Execute shell commands"}},
+            {"function": {"name": "search", "description": "Search the web"}},
         ]
         return [tool]
 
@@ -137,7 +123,7 @@ class TestVerifierAgent:
             goal="Search for information",
             steps=[
                 Step(id="1", description="Search for Python tutorials"),
-            ]
+            ],
         )
 
     @pytest.fixture
@@ -151,46 +137,33 @@ class TestVerifierAgent:
                 Step(id="2", description="Create backend API"),
                 Step(id="3", description="Build frontend UI"),
                 Step(id="4", description="Deploy application"),
-            ]
+            ],
         )
 
     def test_initialization(self, mock_llm, mock_json_parser, mock_tools):
         """Test verifier initialization"""
-        verifier = VerifierAgent(
-            llm=mock_llm,
-            json_parser=mock_json_parser,
-            tools=mock_tools
-        )
+        verifier = VerifierAgent(llm=mock_llm, json_parser=mock_json_parser, tools=mock_tools)
         assert verifier.llm == mock_llm
         assert verifier.config.enabled is True
 
     def test_should_skip_simple_plan(self, mock_llm, mock_json_parser, mock_tools, simple_plan):
         """Test that simple plans are skipped"""
         verifier = VerifierAgent(
-            llm=mock_llm,
-            json_parser=mock_json_parser,
-            tools=mock_tools,
-            config=VerifierConfig(skip_simple_plans=True)
+            llm=mock_llm, json_parser=mock_json_parser, tools=mock_tools, config=VerifierConfig(skip_simple_plans=True)
         )
         assert verifier._should_skip_verification(simple_plan) is True
 
     def test_should_not_skip_complex_plan(self, mock_llm, mock_json_parser, mock_tools, complex_plan):
         """Test that complex plans are not skipped"""
         verifier = VerifierAgent(
-            llm=mock_llm,
-            json_parser=mock_json_parser,
-            tools=mock_tools,
-            config=VerifierConfig(skip_simple_plans=True)
+            llm=mock_llm, json_parser=mock_json_parser, tools=mock_tools, config=VerifierConfig(skip_simple_plans=True)
         )
         assert verifier._should_skip_verification(complex_plan) is False
 
     def test_should_not_skip_when_disabled(self, mock_llm, mock_json_parser, mock_tools, simple_plan):
         """Test that no plans are skipped when skip_simple_plans is False"""
         verifier = VerifierAgent(
-            llm=mock_llm,
-            json_parser=mock_json_parser,
-            tools=mock_tools,
-            config=VerifierConfig(skip_simple_plans=False)
+            llm=mock_llm, json_parser=mock_json_parser, tools=mock_tools, config=VerifierConfig(skip_simple_plans=False)
         )
         assert verifier._should_skip_verification(simple_plan) is False
 
@@ -198,10 +171,7 @@ class TestVerifierAgent:
     async def test_verify_simple_plan_skipped(self, mock_llm, mock_json_parser, mock_tools, simple_plan):
         """Test verification of simple plan is skipped"""
         verifier = VerifierAgent(
-            llm=mock_llm,
-            json_parser=mock_json_parser,
-            tools=mock_tools,
-            config=VerifierConfig(skip_simple_plans=True)
+            llm=mock_llm, json_parser=mock_json_parser, tools=mock_tools, config=VerifierConfig(skip_simple_plans=True)
         )
 
         events = []
@@ -217,10 +187,7 @@ class TestVerifierAgent:
     async def test_verify_complex_plan(self, mock_llm, mock_json_parser, mock_tools, complex_plan):
         """Test verification of complex plan"""
         verifier = VerifierAgent(
-            llm=mock_llm,
-            json_parser=mock_json_parser,
-            tools=mock_tools,
-            config=VerifierConfig(skip_simple_plans=True)
+            llm=mock_llm, json_parser=mock_json_parser, tools=mock_tools, config=VerifierConfig(skip_simple_plans=True)
         )
 
         events = []
@@ -234,15 +201,17 @@ class TestVerifierAgent:
     @pytest.mark.asyncio
     async def test_verify_plan_revise_verdict(self, mock_llm, mock_json_parser, mock_tools, complex_plan):
         """Test verification with REVISE verdict"""
-        mock_json_parser.parse = AsyncMock(return_value={
-            "verdict": "revise",
-            "confidence": 0.7,
-            "summary": "Plan needs revision",
-            "revision_feedback": "Step 2 is not feasible",
-            "tool_feasibility": [],
-            "prerequisite_checks": [],
-            "dependency_issues": []
-        })
+        mock_json_parser.parse = AsyncMock(
+            return_value={
+                "verdict": "revise",
+                "confidence": 0.7,
+                "summary": "Plan needs revision",
+                "revision_feedback": "Step 2 is not feasible",
+                "tool_feasibility": [],
+                "prerequisite_checks": [],
+                "dependency_issues": [],
+            }
+        )
 
         verifier = VerifierAgent(
             llm=mock_llm,
@@ -262,14 +231,16 @@ class TestVerifierAgent:
     @pytest.mark.asyncio
     async def test_verify_plan_fail_verdict(self, mock_llm, mock_json_parser, mock_tools, complex_plan):
         """Test verification with FAIL verdict"""
-        mock_json_parser.parse = AsyncMock(return_value={
-            "verdict": "fail",
-            "confidence": 0.9,
-            "summary": "Plan is impossible",
-            "tool_feasibility": [],
-            "prerequisite_checks": [],
-            "dependency_issues": []
-        })
+        mock_json_parser.parse = AsyncMock(
+            return_value={
+                "verdict": "fail",
+                "confidence": 0.9,
+                "summary": "Plan is impossible",
+                "tool_feasibility": [],
+                "prerequisite_checks": [],
+                "dependency_issues": [],
+            }
+        )
 
         verifier = VerifierAgent(
             llm=mock_llm,
@@ -316,14 +287,10 @@ class TestVerifierAgent:
         response = VerificationResponse(
             verdict=VerificationVerdict.REVISE,
             confidence=0.7,
-            tool_feasibility=[
-                ToolFeasibility(step_id="1", tool="db_query", feasible=False, reason="No DB access")
-            ],
-            dependency_issues=[
-                DependencyIssue(step_id="2", depends_on="1", issue="Needs DB data")
-            ],
+            tool_feasibility=[ToolFeasibility(step_id="1", tool="db_query", feasible=False, reason="No DB access")],
+            dependency_issues=[DependencyIssue(step_id="2", depends_on="1", issue="Needs DB data")],
             revision_feedback="Use web APIs instead of database",
-            summary="Plan needs revision"
+            summary="Plan needs revision",
         )
 
         prompt = verifier.get_revision_prompt_addition(response)
