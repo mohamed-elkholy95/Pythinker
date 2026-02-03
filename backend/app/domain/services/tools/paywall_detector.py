@@ -34,23 +34,19 @@ PAYWALL_TEXT_PATTERNS = [
     (r"this\s+(article|content|story)\s+is\s+for\s+(premium\s+)?members", 0.95),
     (r"create\s+(a\s+|an\s+)?(free\s+)?account\s+to\s+(read|continue|access)", 0.8),
     (r"sign\s+(in|up)\s+to\s+(read|continue|access|view)", 0.75),
-
     # Pricing indicators
     (r"\$\d+(\.\d{2})?\s*(/|per)\s*(month|year|mo|yr)", 0.85),
     (r"(starting\s+at|from|only)\s+\$\d+", 0.7),
     (r"(monthly|annual|yearly)\s+subscription", 0.75),
     (r"free\s+trial", 0.5),
-
     # Access limitations
     (r"you('ve|'re|\s+have)\s+(reached|hit)\s+(your\s+)?(free\s+)?(article|story)\s+limit", 0.95),
     (r"\d+\s+(free\s+)?(articles?|stories?)\s+(remaining|left)", 0.8),
     (r"(unlock|access)\s+unlimited\s+(articles?|content|stories?)", 0.85),
     (r"read\s+the\s+full\s+(article|story)", 0.6),
-
     # Medium-specific patterns
     (r"member-only\s+story", 0.95),
     (r"friend\s+link", 0.7),
-
     # Generic gating
     (r"continue\s+reading\s+with\s+a\s+subscription", 0.9),
     (r"(join|upgrade)\s+to\s+(read|continue|access)", 0.85),
@@ -67,12 +63,10 @@ PAYWALL_CSS_PATTERNS = [
     (r"locked[-_]?content", 0.85),
     (r"article[-_]?truncated", 0.85),
     (r"metered[-_]?(paywall|content)", 0.9),
-
     # Login/subscription prompts
     (r"subscribe[-_]?(modal|popup|overlay|cta)", 0.8),
     (r"login[-_]?(required|prompt|gate)", 0.75),
     (r"(sign[-_]?up|register)[-_]?(modal|popup|overlay)", 0.7),
-
     # Content hiding
     (r"content[-_]?hidden", 0.8),
     (r"blur[-_]?overlay", 0.75),
@@ -86,6 +80,7 @@ CSS_ATTRIBUTES = ["class", "id", "data-testid", "data-component"]
 @dataclass
 class PaywallDetectionResult:
     """Result of paywall detection analysis."""
+
     detected: bool = False
     confidence: float = 0.0
     indicators: list[str] = field(default_factory=list)
@@ -115,7 +110,7 @@ class PaywallDetector:
         self,
         text_patterns: list[tuple[str, float]] | None = None,
         css_patterns: list[tuple[str, float]] | None = None,
-        confidence_threshold: float = 0.6
+        confidence_threshold: float = 0.6,
     ):
         """Initialize the paywall detector.
 
@@ -129,21 +124,10 @@ class PaywallDetector:
         self.confidence_threshold = confidence_threshold
 
         # Compile regex patterns for efficiency
-        self._compiled_text = [
-            (re.compile(pattern, re.IGNORECASE), weight)
-            for pattern, weight in self.text_patterns
-        ]
-        self._compiled_css = [
-            (re.compile(pattern, re.IGNORECASE), weight)
-            for pattern, weight in self.css_patterns
-        ]
+        self._compiled_text = [(re.compile(pattern, re.IGNORECASE), weight) for pattern, weight in self.text_patterns]
+        self._compiled_css = [(re.compile(pattern, re.IGNORECASE), weight) for pattern, weight in self.css_patterns]
 
-    def detect(
-        self,
-        html: str,
-        text: str | None = None,
-        url: str | None = None
-    ) -> PaywallDetectionResult:
+    def detect(self, html: str, text: str | None = None, url: str | None = None) -> PaywallDetectionResult:
         """Detect if content is behind a paywall.
 
         Args:
@@ -187,7 +171,7 @@ class PaywallDetector:
             confidence = sorted_weights[0]
             for i, w in enumerate(sorted_weights[1:], 1):
                 # Each additional indicator adds less (diminishing returns)
-                confidence += w * (0.5 ** i)
+                confidence += w * (0.5**i)
             confidence = min(confidence, 0.99)  # Cap at 99%
         else:
             confidence = 0.0
@@ -203,10 +187,7 @@ class PaywallDetector:
         detected = confidence >= self.confidence_threshold
 
         if detected:
-            logger.debug(
-                f"Paywall detected with {confidence:.0%} confidence. "
-                f"Indicators: {indicators[:5]}"
-            )
+            logger.debug(f"Paywall detected with {confidence:.0%} confidence. Indicators: {indicators[:5]}")
 
         return PaywallDetectionResult(
             detected=detected,
@@ -236,10 +217,7 @@ class PaywallDetector:
         seen_patterns: set[str] = set()
 
         # Extract all class and id attributes
-        attr_pattern = re.compile(
-            r'(?:class|id|data-testid|data-component)\s*=\s*["\']([^"\']+)["\']',
-            re.IGNORECASE
-        )
+        attr_pattern = re.compile(r'(?:class|id|data-testid|data-component)\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE)
 
         for match in attr_pattern.finditer(html):
             attr_value = match.group(1).lower()
@@ -262,26 +240,17 @@ class PaywallDetector:
         score = 0.0
 
         # Check for "read more" / "continue reading" patterns
-        read_more_pattern = re.compile(
-            r'(read|continue|view)\s+(more|full|the\s+rest)',
-            re.IGNORECASE
-        )
+        read_more_pattern = re.compile(r"(read|continue|view)\s+(more|full|the\s+rest)", re.IGNORECASE)
         if read_more_pattern.search(html):
             score += 0.3
 
         # Check for ellipsis followed by subscription CTA
-        ellipsis_pattern = re.compile(
-            r'\.{3,}.*?(subscribe|sign\s+up|member)',
-            re.IGNORECASE | re.DOTALL
-        )
+        ellipsis_pattern = re.compile(r"\.{3,}.*?(subscribe|sign\s+up|member)", re.IGNORECASE | re.DOTALL)
         if ellipsis_pattern.search(html):
             score += 0.4
 
         # Check for gradient fade overlays (visual truncation)
-        fade_pattern = re.compile(
-            r'(gradient|fade|blur).*?(overlay|mask)',
-            re.IGNORECASE
-        )
+        fade_pattern = re.compile(r"(gradient|fade|blur).*?(overlay|mask)", re.IGNORECASE)
         if fade_pattern.search(html):
             score += 0.3
 
@@ -295,35 +264,35 @@ class PaywallDetector:
 
         return min(score, 1.0)
 
-    def _check_domain_patterns(
-        self,
-        url: str,
-        html: str
-    ) -> tuple[list[str], list[float]]:
+    def _check_domain_patterns(self, url: str, html: str) -> tuple[list[str], list[float]]:
         """Check domain-specific paywall patterns."""
         indicators = []
         weights = []
 
         url_lower = url.lower()
+        html_lower = html.lower()
 
         # Medium-specific patterns
-        if "medium.com" in url_lower or "towardsdatascience.com" in url_lower:
-            if "member-only" in html.lower() or "metered-paywall" in html.lower():
-                indicators.append("medium_member_only")
-                weights.append(0.95)
+        if ("medium.com" in url_lower or "towardsdatascience.com" in url_lower) and (
+            "member-only" in html_lower or "metered-paywall" in html_lower
+        ):
+            indicators.append("medium_member_only")
+            weights.append(0.95)
 
         # Substack patterns
-        if "substack.com" in url_lower:
-            if "paywall" in html.lower() or "subscribe to read" in html.lower():
-                indicators.append("substack_paywall")
-                weights.append(0.9)
+        if "substack.com" in url_lower and ("paywall" in html_lower or "subscribe to read" in html_lower):
+            indicators.append("substack_paywall")
+            weights.append(0.9)
 
         # News site patterns
         news_domains = ["nytimes.com", "wsj.com", "washingtonpost.com", "ft.com"]
-        if any(domain in url_lower for domain in news_domains):
-            if "subscribe" in html.lower() and "article" in html.lower():
-                indicators.append("news_subscription_gate")
-                weights.append(0.8)
+        if (
+            any(domain in url_lower for domain in news_domains)
+            and "subscribe" in html_lower
+            and "article" in html_lower
+        ):
+            indicators.append("news_subscription_gate")
+            weights.append(0.8)
 
         return indicators, weights
 
@@ -344,7 +313,4 @@ class PaywallDetector:
                 f"Content behind paywall ({result.confidence:.0%} confidence). "
                 f"Only preview available. Indicators: {', '.join(result.indicators[:3])}"
             )
-        return (
-            f"Partial content accessible ({result.confidence:.0%} paywall confidence). "
-            f"Some content may be gated."
-        )
+        return f"Partial content accessible ({result.confidence:.0%} paywall confidence). Some content may be gated."

@@ -59,6 +59,12 @@
       :message="inactiveMessage"
     />
 
+    <!-- Wide Research Overlay - Shows when wide_research is active -->
+    <WideResearchOverlay
+      v-if="showWideResearchOverlay"
+      :state="wideResearchState"
+    />
+
     <!-- Take over button slot -->
     <slot name="takeover"></slot>
   </div>
@@ -68,7 +74,9 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue'
 import InactiveState from '@/components/toolViews/shared/InactiveState.vue'
+import WideResearchOverlay from '@/components/WideResearchOverlay.vue'
 import { useSandboxInput } from '@/composables/useSandboxInput'
+import { useWideResearchGlobal } from '@/composables/useWideResearch'
 import { markCanvasForRecording } from '@/composables/useOpenReplay'
 import { getSandboxUrl } from '@/api/agent'
 
@@ -115,6 +123,10 @@ const sandboxUrl = ref<string | null>(null)
 // Input forwarding
 const { isForwarding, startForwarding, stopForwarding, attachInputListeners } = useSandboxInput()
 let cleanupInputListeners: (() => void) | null = null
+
+// Wide research state
+const { overlayState: wideResearchState, isActive: wideResearchActive } = useWideResearchGlobal()
+const showWideResearchOverlay = computed(() => wideResearchActive.value && wideResearchState.value !== null)
 
 // Interactive mode computed
 const isInteractive = computed(() => !props.viewOnly && isForwarding.value)

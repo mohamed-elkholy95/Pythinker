@@ -17,13 +17,16 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, TypeVar
 
+from app.infrastructure.observability.prometheus_metrics import record_error
+
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class ErrorType(str, Enum):
     """Classification of error types for targeted handling"""
+
     JSON_PARSE = "json_parse"
     TOKEN_LIMIT = "token_limit"
     TOOL_EXECUTION = "tool_execution"
@@ -43,6 +46,7 @@ class ErrorType(str, Enum):
 @dataclass
 class ErrorContext:
     """Context information for error handling and recovery with backoff support"""
+
     error_type: ErrorType
     message: str
     original_exception: Exception | None = None
@@ -73,7 +77,7 @@ class ErrorContext:
             Delay in seconds before next retry
         """
         # Exponential backoff: min_delay * (factor ^ retry_count)
-        delay = self.min_retry_delay * (self.backoff_factor ** self.retry_count)
+        delay = self.min_retry_delay * (self.backoff_factor**self.retry_count)
         delay = min(delay, self.max_retry_delay)
 
         if self.jitter:
@@ -93,7 +97,7 @@ class ErrorContext:
             "max_retry_delay": self.max_retry_delay,
             "jitter": self.jitter,
             "current_retry": self.retry_count,
-            "next_delay": self.get_retry_delay() if self.can_retry() else None
+            "next_delay": self.get_retry_delay() if self.can_retry() else None,
         }
 
 
@@ -113,6 +117,10 @@ class ErrorHandler:
         self._recovery_stats: dict[ErrorType, dict[str, int]] = {}
         self._total_retry_attempts = 0
         self._successful_recoveries = 0
+        # Phase 4 P1: Retry outcome tracking
+        from collections import defaultdict
+
+        self._retry_outcomes: dict[ErrorType, list[bool]] = defaultdict(list)
 
     def classify_error(self, exception: Exception, context: dict[str, Any] | None = None) -> ErrorContext:
         """
@@ -137,11 +145,15 @@ class ErrorHandler:
             original_exception=exception,
             recoverable=recoverable,
             recovery_strategy=recovery_strategy,
-            metadata=context
+            metadata=context,
         )
 
         self._record_error(error_context)
         logger.warning(f"Classified error as {error_type.value}: {error_message[:100]}")
+        if "unsupported operand" in error_message:
+            import traceback
+
+            logger.error(f"PRICING ERROR TRACEBACK:\\n{traceback.format_exc()}")
 
         return error_context
 
@@ -151,66 +163,75 @@ class ErrorHandler:
         exception_type = type(exception).__name__.lower()
 
         # JSON parsing errors
-        if any(term in message_lower for term in ['json', 'decode', 'parse']) or \
-           any(term in exception_type for term in ['json', 'decode']):
+        if any(term in message_lower for term in ["json", "decode", "parse"]) or any(
+            term in exception_type for term in ["json", "decode"]
+        ):
             return ErrorType.JSON_PARSE
 
         # Token/context limit errors
-        if any(term in message_lower for term in [
-            'context_length_exceeded', 'token', 'context length',
-            'maximum context', 'too long', 'max_tokens'
-        ]):
+        if any(
+            term in message_lower
+            for term in [
+                "context_length_exceeded",
+                "token",
+                "context length",
+                "maximum context",
+                "too long",
+                "max_tokens",
+            ]
+        ):
             return ErrorType.TOKEN_LIMIT
 
         # Browser-specific errors (check before generic timeout)
-        if any(term in message_lower for term in [
-            'browser', 'playwright', 'page', 'navigate', 'cdp'
-        ]):
+        if any(term in message_lower for term in ["browser", "playwright", "page", "navigate", "cdp"]):
             # Browser element not found
-            if any(term in message_lower for term in [
-                'element', 'selector', 'not found', 'cannot find', 'no such element',
-                'interactive element', 'index'
-            ]):
+            if any(
+                term in message_lower
+                for term in [
+                    "element",
+                    "selector",
+                    "not found",
+                    "cannot find",
+                    "no such element",
+                    "interactive element",
+                    "index",
+                ]
+            ):
                 return ErrorType.BROWSER_ELEMENT_NOT_FOUND
 
             # Browser connection errors
-            if any(term in message_lower for term in [
-                'connection', 'disconnect', 'closed', 'cdp', 'chrome'
-            ]):
+            if any(term in message_lower for term in ["connection", "disconnect", "closed", "cdp", "chrome"]):
                 return ErrorType.BROWSER_CONNECTION
 
             # Browser navigation errors
-            if any(term in message_lower for term in [
-                'navigate', 'navigation', 'goto', 'url', 'load'
-            ]):
+            if any(term in message_lower for term in ["navigate", "navigation", "goto", "url", "load"]):
                 return ErrorType.BROWSER_NAVIGATION
 
             # Browser timeout
-            if any(term in message_lower for term in ['timeout', 'timed out']):
+            if any(term in message_lower for term in ["timeout", "timed out"]):
                 return ErrorType.BROWSER_TIMEOUT
 
         # Timeout errors (generic)
-        if any(term in message_lower for term in ['timeout', 'timed out']) or \
-           'timeout' in exception_type:
+        if any(term in message_lower for term in ["timeout", "timed out"]) or "timeout" in exception_type:
             return ErrorType.TIMEOUT
 
         # MCP connection errors
-        if any(term in message_lower for term in ['mcp', 'connection', 'disconnect']):
+        if any(term in message_lower for term in ["mcp", "connection", "disconnect"]):
             return ErrorType.MCP_CONNECTION
 
         # LLM API errors (OpenAI, etc.)
-        if any(term in message_lower for term in [
-            'openai', 'api', 'rate limit', 'authentication',
-            'invalid_api_key', 'insufficient_quota'
-        ]):
+        if any(
+            term in message_lower
+            for term in ["openai", "api", "rate limit", "authentication", "invalid_api_key", "insufficient_quota"]
+        ):
             return ErrorType.LLM_API
 
         # Tool execution errors
-        if any(term in message_lower for term in ['tool', 'function', 'execute', 'invoke']):
+        if any(term in message_lower for term in ["tool", "function", "execute", "invoke"]):
             return ErrorType.TOOL_EXECUTION
 
         # Empty response errors from LLM
-        if any(term in message_lower for term in ['empty response', 'no content', 'empty content']):
+        if any(term in message_lower for term in ["empty response", "no content", "empty content"]):
             return ErrorType.LLM_EMPTY_RESPONSE
 
         return ErrorType.UNKNOWN
@@ -223,56 +244,20 @@ class ErrorHandler:
             Tuple of (recovery_strategy, is_recoverable)
         """
         strategies = {
-            ErrorType.JSON_PARSE: (
-                "Retry with explicit JSON formatting instruction",
-                True
-            ),
-            ErrorType.TOKEN_LIMIT: (
-                "Trim context and retry with reduced history",
-                True
-            ),
-            ErrorType.TIMEOUT: (
-                "Retry with exponential backoff",
-                True
-            ),
-            ErrorType.MCP_CONNECTION: (
-                "Attempt reconnection to MCP server",
-                True
-            ),
+            ErrorType.JSON_PARSE: ("Retry with explicit JSON formatting instruction", True),
+            ErrorType.TOKEN_LIMIT: ("Trim context and retry with reduced history", True),
+            ErrorType.TIMEOUT: ("Retry with exponential backoff", True),
+            ErrorType.MCP_CONNECTION: ("Attempt reconnection to MCP server", True),
             ErrorType.LLM_API: self._get_llm_api_strategy(message),
-            ErrorType.TOOL_EXECUTION: (
-                "Retry tool execution with error context",
-                True
-            ),
-            ErrorType.STUCK_LOOP: (
-                "Inject recovery prompt to break loop",
-                True
-            ),
-            ErrorType.LLM_EMPTY_RESPONSE: (
-                "Retry with simplified prompt or different approach",
-                True
-            ),
+            ErrorType.TOOL_EXECUTION: ("Retry tool execution with error context", True),
+            ErrorType.STUCK_LOOP: ("Inject recovery prompt to break loop", True),
+            ErrorType.LLM_EMPTY_RESPONSE: ("Retry with simplified prompt or different approach", True),
             # Browser-specific strategies
-            ErrorType.BROWSER_NAVIGATION: (
-                "Verify URL format and retry navigation, or try alternative URL",
-                True
-            ),
-            ErrorType.BROWSER_ELEMENT_NOT_FOUND: (
-                "Refresh element indices with browser_view before retry",
-                True
-            ),
-            ErrorType.BROWSER_CONNECTION: (
-                "Reinitialize browser connection with browser_restart",
-                True
-            ),
-            ErrorType.BROWSER_TIMEOUT: (
-                "Page may still be usable - check with browser_view",
-                True
-            ),
-            ErrorType.UNKNOWN: (
-                "Log and escalate to user",
-                False
-            )
+            ErrorType.BROWSER_NAVIGATION: ("Verify URL format and retry navigation, or try alternative URL", True),
+            ErrorType.BROWSER_ELEMENT_NOT_FOUND: ("Refresh element indices with browser_view before retry", True),
+            ErrorType.BROWSER_CONNECTION: ("Reinitialize browser connection with browser_restart", True),
+            ErrorType.BROWSER_TIMEOUT: ("Page may still be usable - check with browser_view", True),
+            ErrorType.UNKNOWN: ("Log and escalate to user", False),
         }
 
         return strategies.get(error_type, ("Unknown error handling", False))
@@ -281,27 +266,26 @@ class ErrorHandler:
         """Get specific strategy for LLM API errors"""
         message_lower = message.lower()
 
-        if 'rate limit' in message_lower:
+        if "rate limit" in message_lower:
             return ("Wait and retry with exponential backoff", True)
-        if 'authentication' in message_lower or 'api_key' in message_lower:
+        if "authentication" in message_lower or "api_key" in message_lower:
             return ("Check API key configuration", False)
-        if 'insufficient_quota' in message_lower:
+        if "insufficient_quota" in message_lower:
             return ("API quota exceeded, notify user", False)
         return ("Retry LLM request", True)
 
     def _record_error(self, error_context: ErrorContext) -> None:
-        """Record error in history for analysis"""
+        """Record error in history for analysis and Prometheus metrics"""
         self._error_history.append(error_context)
+
+        # Record to Prometheus metrics for monitoring
+        record_error(error_context.error_type.value, "agent_error_handler")
 
         # Keep history bounded
         if len(self._error_history) > self._max_history:
-            self._error_history = self._error_history[-self._max_history:]
+            self._error_history = self._error_history[-self._max_history :]
 
-    def get_recovery_prompt(
-        self,
-        error_context: ErrorContext,
-        tool_name: str | None = None
-    ) -> str | None:
+    def get_recovery_prompt(self, error_context: ErrorContext, tool_name: str | None = None) -> str | None:
         """
         Generate a recovery prompt based on error context.
 
@@ -413,10 +397,7 @@ class ErrorHandler:
         return None
 
     def record_tool_error(
-        self,
-        tool_name: str,
-        error_context: ErrorContext,
-        metadata: dict[str, Any] | None = None
+        self, tool_name: str, error_context: ErrorContext, metadata: dict[str, Any] | None = None
     ) -> None:
         """Record a tool error for pattern analysis"""
         try:
@@ -459,7 +440,7 @@ class ErrorHandler:
         max_retries: int = 3,
         context: dict[str, Any] | None = None,
         on_retry: Callable[[ErrorContext, int], Awaitable[None]] | None = None,
-        **kwargs
+        **kwargs,
     ) -> tuple[bool, T | ErrorContext]:
         """Execute operation with automatic retry and exponential backoff.
 
@@ -484,8 +465,7 @@ class ErrorHandler:
                 if attempt > 0 and last_error_context:
                     self._record_recovery_success(last_error_context)
                     logger.info(
-                        f"Recovery successful after {attempt} retries for "
-                        f"{last_error_context.error_type.value}"
+                        f"Recovery successful after {attempt} retries for {last_error_context.error_type.value}"
                     )
 
                 return True, result
@@ -511,8 +491,7 @@ class ErrorHandler:
                 delay = error_context.get_retry_delay()
 
                 logger.info(
-                    f"Retry {attempt + 1}/{max_retries} for {error_context.error_type.value} "
-                    f"after {delay:.2f}s delay"
+                    f"Retry {attempt + 1}/{max_retries} for {error_context.error_type.value} after {delay:.2f}s delay"
                 )
 
                 # Call retry callback if provided
@@ -533,9 +512,7 @@ class ErrorHandler:
             return False, last_error_context
 
         return False, ErrorContext(
-            error_type=ErrorType.UNKNOWN,
-            message="Unexpected retry loop exit",
-            recoverable=False
+            error_type=ErrorType.UNKNOWN, message="Unexpected retry loop exit", recoverable=False
         )
 
     def _record_recovery_success(self, error_context: ErrorContext) -> None:
@@ -562,19 +539,13 @@ class ErrorHandler:
         total_recoveries = self._successful_recoveries + sum(
             stats["failure"] for stats in self._recovery_stats.values()
         )
-        success_rate = (
-            self._successful_recoveries / total_recoveries
-            if total_recoveries > 0 else 0.0
-        )
+        success_rate = self._successful_recoveries / total_recoveries if total_recoveries > 0 else 0.0
 
         return {
             "total_retry_attempts": self._total_retry_attempts,
             "successful_recoveries": self._successful_recoveries,
             "success_rate": success_rate,
-            "by_error_type": {
-                error_type.value: stats
-                for error_type, stats in self._recovery_stats.items()
-            }
+            "by_error_type": {error_type.value: stats for error_type, stats in self._recovery_stats.items()},
         }
 
     def reset_stats(self) -> None:
@@ -582,9 +553,106 @@ class ErrorHandler:
         self._recovery_stats.clear()
         self._total_retry_attempts = 0
         self._successful_recoveries = 0
+        self._retry_outcomes.clear()
+
+    async def retry_with_backoff(
+        self,
+        operation: Callable[[], Awaitable[T]],
+        context: ErrorContext,
+    ) -> T:
+        """Retry an operation with exponential backoff (Phase 4 P1).
+
+        Args:
+            operation: Async operation to retry
+            context: Error context with retry configuration
+
+        Returns:
+            Result of the operation
+
+        Raises:
+            Last exception if all retries exhausted
+        """
+        while context.can_retry():
+            try:
+                result = await operation()
+
+                # Phase 4 P1: Record successful retry
+                self._retry_outcomes[context.error_type].append(True)
+                self._successful_recoveries += 1
+
+                logger.info(
+                    "Retry succeeded",
+                    extra={
+                        "error_type": context.error_type.value,
+                        "retry_attempt": context.retry_count,
+                    },
+                )
+
+                return result
+            except Exception:
+                # Phase 4 P1: Record failed retry attempt
+                self._total_retry_attempts += 1
+
+                context.increment_retry()
+
+                if context.can_retry():
+                    delay = context.get_retry_delay()
+                    logger.warning(
+                        f"Retry failed, waiting {delay:.2f}s before attempt {context.retry_count + 1}",
+                        extra={
+                            "error_type": context.error_type.value,
+                            "retry_attempt": context.retry_count,
+                            "delay": delay,
+                        },
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    self._retry_outcomes[context.error_type].append(False)
+                    logger.error(
+                        f"All retries exhausted for {context.error_type.value}",
+                        extra={
+                            "error_type": context.error_type.value,
+                            "total_attempts": context.retry_count,
+                        },
+                    )
+                    raise
+
+        raise RuntimeError("Retry attempts exhausted")
+
+    def get_retry_success_rate(self, error_type: ErrorType) -> float:
+        """Calculate retry success rate for error type (Phase 4 P1).
+
+        Args:
+            error_type: Error type to calculate rate for
+
+        Returns:
+            Success rate (0.0-1.0) or 0.0 if no data
+        """
+        outcomes = self._retry_outcomes.get(error_type, [])
+        if not outcomes:
+            return 0.0
+        return sum(outcomes) / len(outcomes)
+
+    def get_all_retry_stats(self) -> dict[str, Any]:
+        """Get retry statistics for all error types (Phase 4 P1).
+
+        Returns:
+            Dictionary with retry stats per error type
+        """
+        stats = {}
+        for error_type in ErrorType:
+            outcomes = self._retry_outcomes.get(error_type, [])
+            if outcomes:
+                stats[error_type.value] = {
+                    "total_attempts": len(outcomes),
+                    "successes": sum(outcomes),
+                    "failures": len(outcomes) - sum(outcomes),
+                    "success_rate": sum(outcomes) / len(outcomes),
+                }
+        return stats
 
 
-class TokenLimitExceeded(Exception):
+class TokenLimitExceededError(Exception):
     """Exception raised when token/context limit is exceeded"""
 
     def __init__(self, message: str, current_tokens: int | None = None, max_tokens: int | None = None):

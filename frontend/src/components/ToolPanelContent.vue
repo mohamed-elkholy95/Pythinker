@@ -160,6 +160,13 @@
             :is-executing="isActiveOperation"
           />
 
+          <!-- Wide Research View (parallel multi-source search) -->
+          <WideResearchOverlay
+            v-else-if="currentViewType === 'wide_research'"
+            :state="wideResearchState"
+            :always-show="true"
+          />
+
           <!-- Fallback -->
           <div v-else class="w-full h-full flex items-center justify-center text-[var(--text-tertiary)]">
             No content available
@@ -224,6 +231,8 @@ import TerminalContentView from '@/components/toolViews/TerminalContentView.vue'
 import EditorContentView from '@/components/toolViews/EditorContentView.vue';
 import SearchContentView from '@/components/toolViews/SearchContentView.vue';
 import GenericContentView from '@/components/toolViews/GenericContentView.vue';
+import WideResearchOverlay from '@/components/WideResearchOverlay.vue';
+import { useWideResearchGlobal } from '@/composables/useWideResearch';
 
 const props = defineProps<{
   sessionId?: string;
@@ -254,6 +263,9 @@ const currentToolForProgress = computed(() => {
 
 // Get tool info (icon, name, etc.)
 const { toolInfo } = useToolInfo(toRef(props, 'toolContent'));
+
+// Wide research state
+const { overlayState: wideResearchState } = useWideResearchGlobal();
 
 // Get content config for unified tabs
 const {
@@ -289,23 +301,94 @@ const isFileWriting = computed(() => {
 });
 
 const isSearching = computed(() => {
-  return (toolName.value === 'search' || toolName.value === 'info') && toolStatus.value === 'calling';
+  // Unified search detection - all search operations under one status
+  const isSearchTool = toolName.value === 'search' || toolName.value === 'info' ||
+                       toolName.value === 'wide_research' || toolName.value === 'web_search' ||
+                       toolFunction.value === 'web_search' || toolFunction.value === 'wide_research';
+  return isSearchTool && toolStatus.value === 'calling';
 });
 
-// Tool subtitle
+/**
+ * Format URL for display: "https://example.com/very/long/path" -> "example.com/very/lon..."
+ * Manus-style URL formatting
+ */
+const formatUrl = (url: string, maxLength = 50): string => {
+  try {
+    const u = new URL(url);
+    const display = u.hostname + u.pathname;
+    return display.length > maxLength ? display.slice(0, maxLength) + '...' : display;
+  } catch {
+    return url.length > maxLength ? url.slice(0, maxLength) + '...' : url;
+  }
+};
+
+/**
+ * Format file path: "/home/ubuntu/workspace/file.txt" -> "workspace/file.txt"
+ */
+const formatFilePath = (path: string): string => {
+  return String(path).replace(/^\/home\/ubuntu\//, '');
+};
+
+/**
+ * Truncate string with ellipsis
+ */
+const truncate = (str: string, max: number): string => {
+  const s = String(str);
+  return s.length > max ? s.slice(0, max) + '...' : s;
+};
+
+/**
+ * Tool subtitle - Manus-style standardized format: "Verb Resource"
+ * @see docs/guides/TOOL_STANDARDIZATION.md
+ */
 const toolSubtitle = computed(() => {
-  if (toolName.value === 'file' && (props.toolContent?.args?.file || props.toolContent?.file_path)) {
-    const pathValue = props.toolContent?.args?.file || props.toolContent?.file_path || '';
-    const path = String(pathValue).replace(/^\/home\/ubuntu\//, '');
-    return `Editing file ${path}`;
+  const args = props.toolContent?.args || {};
+
+  // === FILE OPERATIONS ===
+  if (toolName.value === 'file') {
+    const pathValue = args.file || props.toolContent?.file_path || '';
+    if (pathValue) {
+      const verb = toolFunction.value === 'file_read' ? 'Reading' :
+                   toolFunction.value === 'file_write' ? 'Creating' :
+                   toolFunction.value === 'file_str_replace' ? 'Editing' : 'Reading';
+      return `${verb} ${formatFilePath(pathValue)}`;
+    }
   }
-  if (toolName.value === 'shell' && props.toolContent?.args?.command) {
-    const cmd = props.toolContent.command || props.toolContent.args.command;
-    return `Running ${String(cmd).slice(0, 60)}`;
+
+  // === SHELL OPERATIONS ===
+  if (toolName.value === 'shell' || toolName.value === 'code_executor') {
+    const cmd = args.command || props.toolContent?.command;
+    if (cmd) {
+      return `Running ${truncate(cmd, 40)}`;
+    }
   }
-  if (toolName.value === 'browser' && props.toolContent?.args?.url) {
-    return `Browsing ${String(props.toolContent.args.url)}`;
+
+  // === BROWSER OPERATIONS ===
+  if (toolName.value === 'browser' || toolName.value === 'browser_agent' || toolName.value === 'browsing') {
+    if (args.url) {
+      return `Browsing ${formatUrl(args.url)}`;
+    }
+    if (args.task) {
+      return `Browsing ${truncate(args.task, 40)}`;
+    }
   }
+
+  // === SEARCH OPERATIONS (unified) ===
+  // URL-based search (fetching content from URL)
+  if (args.url && (toolFunction.value === 'search' || toolFunction.value === 'browser_get_content')) {
+    return `Searching ${formatUrl(args.url)}`;
+  }
+  // Query-based search
+  if (args.query && (toolFunction.value === 'web_search' || toolFunction.value === 'info_search_web' ||
+                     toolName.value === 'search' || toolName.value === 'info')) {
+    return `Searching ${truncate(args.query, 50)}`;
+  }
+  // Wide research (topic-based)
+  if (args.topic && (toolFunction.value === 'wide_research' || toolName.value === 'wide_research')) {
+    return `Searching ${truncate(args.topic, 50)}`;
+  }
+
+  // === FALLBACK: Use toolInfo ===
   if (toolInfo.value?.function && toolInfo.value?.functionArg) {
     return `${toolInfo.value.function} ${toolInfo.value.functionArg}`;
   }
@@ -329,8 +412,10 @@ const resourceDisplay = computed(() => {
 
 // Content header label - shows function name or specific resource (centered)
 const contentHeaderLabel = computed(() => {
-  // For search/info tools, always show "Search"
-  if (toolName.value === 'search' || toolName.value === 'info') {
+  // For all search-related tools, show unified "Search" header (like Manus)
+  if (toolName.value === 'search' || toolName.value === 'info' ||
+      toolName.value === 'wide_research' || toolName.value === 'web_search' ||
+      toolFunction.value === 'web_search' || toolFunction.value === 'wide_research') {
     return 'Search';
   }
 
@@ -339,11 +424,16 @@ const contentHeaderLabel = computed(() => {
     return 'Browser';
   }
 
+  // For shell/terminal tools, always show "Terminal"
+  const func = props.toolContent?.function;
+  if (func === 'shell_exec' || func === 'shell_execute' || toolName.value === 'shell') {
+    return 'Terminal';
+  }
+
   // If there's a specific resource (file/url), show that
   if (resourceDisplay.value) return resourceDisplay.value;
 
-  // Otherwise show the function name (like "shell_exec", "file_write", etc.)
-  const func = props.toolContent?.function;
+  // Otherwise show the function name
   if (func) return func;
 
   // Fallback to tool name

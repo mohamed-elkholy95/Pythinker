@@ -12,6 +12,7 @@ from typing import Any
 
 class EntryType(str, Enum):
     """Types of repository entries."""
+
     FILE = "file"
     DIRECTORY = "directory"
     CLASS = "class"
@@ -121,7 +122,7 @@ class RepoMapEntry:
         # Docstring summary
         if self.docstring:
             # Truncate docstring to first sentence or 60 chars
-            doc = self.docstring.split('\n')[0][:60]
+            doc = self.docstring.split("\n")[0][:60]
             if len(doc) < len(self.docstring):
                 doc += "..."
             parts.append(f"# {doc}")
@@ -259,18 +260,40 @@ class RepoMapConfig:
     max_depth: int = 10
     """Maximum directory depth."""
 
-    include_patterns: list[str] = field(default_factory=lambda: [
-        "*.py", "*.ts", "*.tsx", "*.js", "*.jsx",
-        "*.java", "*.go", "*.rs", "*.rb", "*.php",
-        "*.c", "*.cpp", "*.h", "*.hpp",
-    ])
+    include_patterns: list[str] = field(
+        default_factory=lambda: [
+            "*.py",
+            "*.ts",
+            "*.tsx",
+            "*.js",
+            "*.jsx",
+            "*.java",
+            "*.go",
+            "*.rs",
+            "*.rb",
+            "*.php",
+            "*.c",
+            "*.cpp",
+            "*.h",
+            "*.hpp",
+        ]
+    )
     """Glob patterns for files to include."""
 
-    exclude_patterns: list[str] = field(default_factory=lambda: [
-        "node_modules/*", "__pycache__/*", "*.pyc",
-        ".git/*", "dist/*", "build/*", ".venv/*",
-        "venv/*", "*.min.js", "*.map",
-    ])
+    exclude_patterns: list[str] = field(
+        default_factory=lambda: [
+            "node_modules/*",
+            "__pycache__/*",
+            "*.pyc",
+            ".git/*",
+            "dist/*",
+            "build/*",
+            ".venv/*",
+            "venv/*",
+            "*.min.js",
+            "*.map",
+        ]
+    )
     """Glob patterns for files to exclude."""
 
     extract_classes: bool = True
@@ -282,9 +305,15 @@ class RepoMapConfig:
     extract_docstrings: bool = True
     """Extract docstrings for entries."""
 
-    importance_boost_patterns: list[str] = field(default_factory=lambda: [
-        "**/main.py", "**/app.py", "**/index.*",
-        "**/config.*", "**/settings.*",
-        "**/routes.*", "**/api.*",
-    ])
+    importance_boost_patterns: list[str] = field(
+        default_factory=lambda: [
+            "**/main.py",
+            "**/app.py",
+            "**/index.*",
+            "**/config.*",
+            "**/settings.*",
+            "**/routes.*",
+            "**/api.*",
+        ]
+    )
     """Patterns for files that get importance boost."""

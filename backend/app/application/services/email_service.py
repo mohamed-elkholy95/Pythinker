@@ -35,7 +35,7 @@ class EmailService:
             "code": code,
             "created_at": now.isoformat(),
             "expires_at": (now + timedelta(seconds=self.VERIFICATION_CODE_EXPIRY_SECONDS)).isoformat(),
-            "attempts": 0
+            "attempts": 0,
         }
 
         # Store in cache with TTL
@@ -81,9 +81,9 @@ class EmailService:
     def _create_verification_email(self, email: str, code: str) -> MIMEMultipart:
         """Create verification email content"""
         msg = MIMEMultipart()
-        msg['From'] = self.settings.email_from or self.settings.email_username
-        msg['To'] = email
-        msg['Subject'] = "Password Reset Verification Code"
+        msg["From"] = self.settings.email_from or self.settings.email_username
+        msg["To"] = email
+        msg["Subject"] = "Password Reset Verification Code"
 
         # Email body
         body = f"""
@@ -100,18 +100,20 @@ class EmailService:
         </html>
         """
 
-        msg.attach(MIMEText(body, 'html'))
+        msg.attach(MIMEText(body, "html"))
         return msg
 
     async def send_verification_code(self, email: str):
         """Send verification code to email address"""
         # Check if email configuration is available
-        if not all([
-            self.settings.email_host,
-            self.settings.email_port,
-            self.settings.email_username,
-            self.settings.email_password
-        ]):
+        if not all(
+            [
+                self.settings.email_host,
+                self.settings.email_port,
+                self.settings.email_username,
+                self.settings.email_password,
+            ]
+        ):
             logger.error("Email configuration is incomplete, simulating email send")
             raise BadRequestError("Email configuration is incomplete")
 
@@ -126,7 +128,9 @@ class EmailService:
 
                 if time_since_creation < 60:
                     remaining_wait = int(60 - time_since_creation)
-                    raise BadRequestError(f"Please wait {remaining_wait} seconds before requesting a new verification code")
+                    raise BadRequestError(
+                        f"Please wait {remaining_wait} seconds before requesting a new verification code"
+                    )
             except (KeyError, ValueError):
                 # Invalid data, continue with new code generation
                 pass
@@ -161,7 +165,7 @@ class EmailService:
 
             # Send email
             text = msg.as_string()
-            result = server.sendmail(msg['From'], email, text)
+            result = server.sendmail(msg["From"], email, text)
             logger.debug(f"SMTP server sendmail result: {result}")
         finally:
             if server:

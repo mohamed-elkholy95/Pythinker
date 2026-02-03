@@ -272,7 +272,9 @@ class SkillListTool(BaseTool):
                 if skill_cat.lower() != category.lower():
                     continue
 
-            invocation = skill.invocation_type.value if hasattr(skill.invocation_type, "value") else skill.invocation_type
+            invocation = (
+                skill.invocation_type.value if hasattr(skill.invocation_type, "value") else skill.invocation_type
+            )
 
             skills_list.append(
                 {

@@ -16,33 +16,36 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
 
 class IntentType(str, Enum):
     """Types of user intent detected."""
-    ACTION = "action"           # Do something
-    QUESTION = "question"       # Answer something
-    CREATION = "creation"       # Create something
+
+    ACTION = "action"  # Do something
+    QUESTION = "question"  # Answer something
+    CREATION = "creation"  # Create something
     MODIFICATION = "modification"  # Change something
-    DELETION = "deletion"       # Remove something
-    ANALYSIS = "analysis"       # Analyze/research something
-    COMPARISON = "comparison"   # Compare things
+    DELETION = "deletion"  # Remove something
+    ANALYSIS = "analysis"  # Analyze/research something
+    COMPARISON = "comparison"  # Compare things
 
 
 class DriftType(str, Enum):
     """Types of scope drift detected."""
-    SCOPE_CREEP = "scope_creep"     # Adding unrequested work
+
+    SCOPE_CREEP = "scope_creep"  # Adding unrequested work
     SCOPE_REDUCTION = "scope_reduction"  # Skipping requested work
-    TOPIC_DRIFT = "topic_drift"     # Going off-topic
-    GOLD_PLATING = "gold_plating"   # Unnecessary enhancements
+    TOPIC_DRIFT = "topic_drift"  # Going off-topic
+    GOLD_PLATING = "gold_plating"  # Unnecessary enhancements
 
 
 @dataclass
 class UserIntent:
     """Represents the user's primary intent."""
+
     intent_type: IntentType
     primary_goal: str
     explicit_requirements: list[str]
@@ -56,6 +59,7 @@ class UserIntent:
 @dataclass
 class DriftAlert:
     """Alert for detected scope drift."""
+
     drift_type: DriftType
     description: str
     severity: float  # 0.0 to 1.0
@@ -66,6 +70,7 @@ class DriftAlert:
 @dataclass
 class IntentTrackingResult:
     """Result of intent tracking check."""
+
     coverage_percent: float  # How many requirements addressed
     unaddressed_requirements: list[str]
     addressed_requirements: list[str]
@@ -100,43 +105,43 @@ class IntentTracker:
     """
 
     # Action verbs for intent type detection
-    INTENT_PATTERNS = {
+    INTENT_PATTERNS: ClassVar[dict[IntentType, list[str]]] = {
         IntentType.CREATION: [
-            r'\b(create|make|build|generate|write|develop|design|implement)\b',
+            r"\b(create|make|build|generate|write|develop|design|implement)\b",
         ],
         IntentType.MODIFICATION: [
-            r'\b(update|modify|change|edit|revise|fix|improve|enhance|refactor)\b',
+            r"\b(update|modify|change|edit|revise|fix|improve|enhance|refactor)\b",
         ],
         IntentType.DELETION: [
-            r'\b(delete|remove|drop|clear|clean|purge)\b',
+            r"\b(delete|remove|drop|clear|clean|purge)\b",
         ],
         IntentType.ANALYSIS: [
-            r'\b(analyze|research|investigate|study|examine|review|assess|evaluate)\b',
+            r"\b(analyze|research|investigate|study|examine|review|assess|evaluate)\b",
         ],
         IntentType.COMPARISON: [
-            r'\b(compare|contrast|versus|vs|differ|between)\b',
+            r"\b(compare|contrast|versus|vs|differ|between)\b",
         ],
         IntentType.QUESTION: [
-            r'^(what|who|when|where|why|how|which|is|are|can|does|do)\b',
-            r'\?\s*$',
+            r"^(what|who|when|where|why|how|which|is|are|can|does|do)\b",
+            r"\?\s*$",
         ],
     }
 
     # Constraint patterns (things NOT to do)
-    CONSTRAINT_PATTERNS = [
+    CONSTRAINT_PATTERNS: ClassVar[list[str]] = [
         r"don'?t\s+(\w+\s+){1,5}",
-        r'do\s+not\s+(\w+\s+){1,5}',
-        r'avoid\s+(\w+\s+){1,5}',
-        r'without\s+(\w+\s+){1,5}',
-        r'no\s+(\w+)',
-        r'never\s+(\w+\s+){1,5}',
+        r"do\s+not\s+(\w+\s+){1,5}",
+        r"avoid\s+(\w+\s+){1,5}",
+        r"without\s+(\w+\s+){1,5}",
+        r"no\s+(\w+)",
+        r"never\s+(\w+\s+){1,5}",
     ]
 
     # Preference patterns
-    PREFERENCE_PATTERNS = {
-        'format': r'(?:in|as|using)\s+(markdown|json|csv|html|pdf|text)',
-        'language': r'(?:in|using)\s+(python|javascript|typescript|java|go|rust)',
-        'style': r'(?:in\s+a?\s*)(professional|casual|formal|simple|detailed)\s+(?:style|tone|manner)',
+    PREFERENCE_PATTERNS: ClassVar[dict[str, str]] = {
+        "format": r"(?:in|as|using)\s+(markdown|json|csv|html|pdf|text)",
+        "language": r"(?:in|using)\s+(python|javascript|typescript|java|go|rust)",
+        "style": r"(?:in\s+a?\s*)(professional|casual|formal|simple|detailed)\s+(?:style|tone|manner)",
     }
 
     def __init__(self):
@@ -147,14 +152,10 @@ class IntentTracker:
 
         # Compile patterns
         self._intent_re = {
-            k: [re.compile(p, re.IGNORECASE) for p in patterns]
-            for k, patterns in self.INTENT_PATTERNS.items()
+            k: [re.compile(p, re.IGNORECASE) for p in patterns] for k, patterns in self.INTENT_PATTERNS.items()
         }
         self._constraint_re = [re.compile(p, re.IGNORECASE) for p in self.CONSTRAINT_PATTERNS]
-        self._preference_re = {
-            k: re.compile(p, re.IGNORECASE)
-            for k, p in self.PREFERENCE_PATTERNS.items()
-        }
+        self._preference_re = {k: re.compile(p, re.IGNORECASE) for k, p in self.PREFERENCE_PATTERNS.items()}
 
     def extract_intent(self, user_prompt: str) -> UserIntent:
         """Extract user intent from the prompt.
@@ -229,11 +230,11 @@ class IntentTracker:
     def _extract_primary_goal(self, text: str) -> str:
         """Extract the primary goal from the prompt."""
         # Get first sentence or up to first newline
-        first_part = text.split('\n')[0].strip()
+        first_part = text.split("\n")[0].strip()
 
         # If it's too long, truncate at sentence boundary
         if len(first_part) > 200:
-            match = re.match(r'^[^.!?]+[.!?]', first_part)
+            match = re.match(r"^[^.!?]+[.!?]", first_part)
             if match:
                 return match.group(0).strip()
             return first_part[:200] + "..."
@@ -245,11 +246,11 @@ class IntentTracker:
         requirements = []
 
         # Numbered items (1. Item, 1) Item)
-        numbered = re.findall(r'(?:^|\n)\s*\d+[.\)]\s*(.+?)(?=\n|$)', text)
+        numbered = re.findall(r"(?:^|\n)\s*\d+[.\)]\s*(.+?)(?=\n|$)", text)
         requirements.extend([r.strip() for r in numbered if r.strip()])
 
         # Bullet items (- Item, * Item)
-        bullets = re.findall(r'(?:^|\n)\s*[-*]\s*(.+?)(?=\n|$)', text)
+        bullets = re.findall(r"(?:^|\n)\s*[-*]\s*(.+?)(?=\n|$)", text)
         requirements.extend([r.strip() for r in bullets if r.strip()])
 
         return requirements
@@ -265,7 +266,7 @@ class IntentTracker:
 
         # Look for "should", "must", "need to" phrases
         should_patterns = [
-            r'(?:should|must|needs?\s+to|has?\s+to|requires?)\s+(.+?)(?:[.,]|$)',
+            r"(?:should|must|needs?\s+to|has?\s+to|requires?)\s+(.+?)(?:[.,]|$)",
         ]
 
         for pattern in should_patterns:
@@ -312,12 +313,14 @@ class IntentTracker:
         """
         self._addressed_requirements.add(requirement.lower())
 
-        self._work_history.append({
-            "step_id": step_id,
-            "requirement": requirement,
-            "summary": work_summary,
-            "timestamp": datetime.now(),
-        })
+        self._work_history.append(
+            {
+                "step_id": step_id,
+                "requirement": requirement,
+                "summary": work_summary,
+                "timestamp": datetime.now(),
+            }
+        )
 
         logger.debug(f"Marked requirement addressed: {requirement[:50]}... by {step_id}")
 
@@ -345,10 +348,7 @@ class IntentTracker:
             )
 
         # Calculate requirement coverage
-        all_requirements = (
-            self._current_intent.explicit_requirements +
-            self._current_intent.implicit_requirements
-        )
+        all_requirements = self._current_intent.explicit_requirements + self._current_intent.implicit_requirements
 
         addressed = []
         unaddressed = []
@@ -402,43 +402,54 @@ class IntentTracker:
 
         # Check for scope creep (adding unrequested features)
         scope_creep_indicators = [
-            'also added', 'bonus feature', 'extra functionality',
-            'while I was at it', 'additionally implemented',
-            'as a bonus', 'I also', 'went ahead and',
+            "also added",
+            "bonus feature",
+            "extra functionality",
+            "while I was at it",
+            "additionally implemented",
+            "as a bonus",
+            "I also",
+            "went ahead and",
         ]
 
         for indicator in scope_creep_indicators:
             if indicator in current_lower:
-                alerts.append(DriftAlert(
-                    drift_type=DriftType.SCOPE_CREEP,
-                    description="Agent may be adding unrequested features",
-                    severity=0.4,
-                    evidence=indicator,
-                    correction="Focus only on explicitly requested features",
-                ))
+                alerts.append(
+                    DriftAlert(
+                        drift_type=DriftType.SCOPE_CREEP,
+                        description="Agent may be adding unrequested features",
+                        severity=0.4,
+                        evidence=indicator,
+                        correction="Focus only on explicitly requested features",
+                    )
+                )
                 break
 
         # Check for constraint violations
         for constraint in intent.constraints:
             if constraint.lower() in current_lower:
-                alerts.append(DriftAlert(
-                    drift_type=DriftType.SCOPE_CREEP,
-                    description=f"Work may violate constraint: {constraint}",
-                    severity=0.7,
-                    evidence=constraint,
-                    correction=f"Avoid: {constraint}",
-                ))
+                alerts.append(
+                    DriftAlert(
+                        drift_type=DriftType.SCOPE_CREEP,
+                        description=f"Work may violate constraint: {constraint}",
+                        severity=0.7,
+                        evidence=constraint,
+                        correction=f"Avoid: {constraint}",
+                    )
+                )
 
         # Check for topic drift (current work not related to goal)
         goal_similarity = self._text_similarity(intent.primary_goal, current_work)
         if goal_similarity < 0.15:
-            alerts.append(DriftAlert(
-                drift_type=DriftType.TOPIC_DRIFT,
-                description="Current work may be off-topic from original goal",
-                severity=0.5,
-                evidence=f"Low similarity ({goal_similarity:.2f}) to goal",
-                correction=f"Return focus to: {intent.primary_goal[:100]}",
-            ))
+            alerts.append(
+                DriftAlert(
+                    drift_type=DriftType.TOPIC_DRIFT,
+                    description="Current work may be off-topic from original goal",
+                    severity=0.5,
+                    evidence=f"Low similarity ({goal_similarity:.2f}) to goal",
+                    correction=f"Return focus to: {intent.primary_goal[:100]}",
+                )
+            )
 
         return alerts
 
@@ -448,11 +459,11 @@ class IntentTracker:
             return 0.0
 
         # Simple word overlap (Jaccard)
-        words1 = set(re.findall(r'\b\w+\b', text1.lower()))
-        words2 = set(re.findall(r'\b\w+\b', text2.lower()))
+        words1 = set(re.findall(r"\b\w+\b", text1.lower()))
+        words2 = set(re.findall(r"\b\w+\b", text2.lower()))
 
         # Remove stop words
-        stop_words = {'the', 'a', 'an', 'is', 'are', 'to', 'for', 'of', 'and', 'in', 'on', 'with'}
+        stop_words = {"the", "a", "an", "is", "are", "to", "for", "of", "and", "in", "on", "with"}
         words1 -= stop_words
         words2 -= stop_words
 
@@ -490,10 +501,7 @@ class IntentTracker:
         if not self._current_intent:
             return {"status": "no_intent_tracked"}
 
-        all_reqs = (
-            self._current_intent.explicit_requirements +
-            self._current_intent.implicit_requirements
-        )
+        all_reqs = self._current_intent.explicit_requirements + self._current_intent.implicit_requirements
 
         return {
             "intent_type": self._current_intent.intent_type.value,

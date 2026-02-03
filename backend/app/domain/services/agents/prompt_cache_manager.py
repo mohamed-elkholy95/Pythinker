@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 class LLMProvider(str, Enum):
     """Supported LLM providers with caching capabilities"""
+
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     UNKNOWN = "unknown"
@@ -24,6 +25,7 @@ class LLMProvider(str, Enum):
 @dataclass
 class CacheMetrics:
     """Metrics for cache performance tracking"""
+
     cache_hits: int = 0
     cache_misses: int = 0
     tokens_saved: int = 0
@@ -48,6 +50,7 @@ class CacheMetrics:
 @dataclass
 class PromptSection:
     """A section of the prompt with caching metadata"""
+
     content: str
     cacheable: bool = True
     stable: bool = True  # Whether content changes between requests
@@ -87,16 +90,14 @@ class PromptCacheManager:
         """Detect LLM provider from model/API name"""
         provider_lower = provider_name.lower()
 
-        if any(term in provider_lower for term in ['openai', 'gpt', 'o1', 'o3']):
+        if any(term in provider_lower for term in ["openai", "gpt", "o1", "o3"]):
             return LLMProvider.OPENAI
-        if any(term in provider_lower for term in ['anthropic', 'claude']):
+        if any(term in provider_lower for term in ["anthropic", "claude"]):
             return LLMProvider.ANTHROPIC
         return LLMProvider.UNKNOWN
 
     def prepare_messages_for_caching(
-        self,
-        messages: list[dict[str, Any]],
-        dynamic_content: str | None = None
+        self, messages: list[dict[str, Any]], dynamic_content: str | None = None
     ) -> list[dict[str, Any]]:
         """
         Prepare messages with optimal structure for caching.
@@ -115,9 +116,7 @@ class PromptCacheManager:
         return messages
 
     def _prepare_openai_caching(
-        self,
-        messages: list[dict[str, Any]],
-        dynamic_content: str | None = None
+        self, messages: list[dict[str, Any]], dynamic_content: str | None = None
     ) -> list[dict[str, Any]]:
         """
         Prepare messages for OpenAI automatic prefix caching.
@@ -145,16 +144,11 @@ class PromptCacheManager:
 
         # Combine system messages into single cacheable block
         if system_messages:
-            combined_system = "\n\n".join(
-                msg.get("content", "") for msg in system_messages
-            )
+            combined_system = "\n\n".join(msg.get("content", "") for msg in system_messages)
 
             if dynamic_content:
                 # Separate stable prefix from dynamic suffix
-                system_msg = {
-                    "role": "system",
-                    "content": combined_system + "\n\n---\n\n" + dynamic_content
-                }
+                system_msg = {"role": "system", "content": combined_system + "\n\n---\n\n" + dynamic_content}
             else:
                 system_msg = {"role": "system", "content": combined_system}
 
@@ -166,9 +160,7 @@ class PromptCacheManager:
         return optimized
 
     def _prepare_anthropic_caching(
-        self,
-        messages: list[dict[str, Any]],
-        dynamic_content: str | None = None
+        self, messages: list[dict[str, Any]], dynamic_content: str | None = None
     ) -> list[dict[str, Any]]:
         """
         Prepare messages for Anthropic cache_control API.
@@ -189,31 +181,22 @@ class PromptCacheManager:
                 # Mark system prompt as cacheable
                 if dynamic_content and i == 0:
                     # Split into cacheable prefix + dynamic suffix
-                    optimized.append({
-                        "role": "system",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": content,
-                                "cache_control": {"type": "ephemeral"}
-                            },
-                            {
-                                "type": "text",
-                                "text": dynamic_content
-                            }
-                        ]
-                    })
+                    optimized.append(
+                        {
+                            "role": "system",
+                            "content": [
+                                {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}},
+                                {"type": "text", "text": dynamic_content},
+                            ],
+                        }
+                    )
                 else:
-                    optimized.append({
-                        "role": "system",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": content,
-                                "cache_control": {"type": "ephemeral"}
-                            }
-                        ]
-                    })
+                    optimized.append(
+                        {
+                            "role": "system",
+                            "content": [{"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}],
+                        }
+                    )
                 self._update_prefix_hash(content)
             else:
                 # Keep other messages as-is
@@ -231,11 +214,7 @@ class PromptCacheManager:
             self._metrics.record_miss()
             self._cached_prefix_hash = new_hash
 
-    def split_prompt(
-        self,
-        full_prompt: str,
-        dynamic_sections: list[str] | None = None
-    ) -> tuple[str, str]:
+    def split_prompt(self, full_prompt: str, dynamic_sections: list[str] | None = None) -> tuple[str, str]:
         """
         Split a prompt into cacheable prefix and dynamic suffix.
 
@@ -249,7 +228,7 @@ class PromptCacheManager:
         if not dynamic_sections:
             return full_prompt, ""
 
-        lines = full_prompt.split('\n')
+        lines = full_prompt.split("\n")
         prefix_lines = []
         suffix_lines = []
         in_dynamic = False
@@ -263,7 +242,7 @@ class PromptCacheManager:
             else:
                 prefix_lines.append(line)
 
-        return '\n'.join(prefix_lines), '\n'.join(suffix_lines)
+        return "\n".join(prefix_lines), "\n".join(suffix_lines)
 
     def track_prompt_version(self, prompt_id: str, content: str) -> bool:
         """
@@ -292,11 +271,7 @@ class PromptCacheManager:
         Returns parameters to add to the LLM API call for caching.
         """
         if self._provider == LLMProvider.ANTHROPIC:
-            return {
-                "extra_headers": {
-                    "anthropic-beta": "prompt-caching-2024-07-31"
-                }
-            }
+            return {"extra_headers": {"anthropic-beta": "prompt-caching-2024-07-31"}}
         # OpenAI: automatic caching, no special params needed
         return {}
 
@@ -308,7 +283,7 @@ class PromptCacheManager:
             "cache_misses": self._metrics.cache_misses,
             "hit_rate": f"{self._metrics.hit_rate:.2%}",
             "tokens_saved_estimate": self._metrics.tokens_saved,
-            "tracked_prompts": len(self._prompt_versions)
+            "tracked_prompts": len(self._prompt_versions),
         }
 
     def reset_metrics(self) -> None:
@@ -320,9 +295,11 @@ class PromptCacheManager:
 # Semantic Response Cache
 # =============================================================================
 
+
 @dataclass
 class CachedResponse:
     """A cached LLM response with metadata."""
+
     response: str
     prompt_hash: str
     created_at: float
@@ -370,10 +347,7 @@ class SemanticResponseCache:
         self._similarity_threshold = similarity_threshold
         self._metrics = CacheMetrics()
 
-        logger.info(
-            f"SemanticResponseCache initialized: "
-            f"ttl={ttl_seconds}s, max_entries={max_entries}"
-        )
+        logger.info(f"SemanticResponseCache initialized: ttl={ttl_seconds}s, max_entries={max_entries}")
 
     def _hash_prompt(self, prompt: str) -> str:
         """Create a hash of the prompt for exact matching."""
@@ -391,21 +365,106 @@ class SemanticResponseCache:
 
         # Remove common filler words
         stop_words = {
-            "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-            "have", "has", "had", "do", "does", "did", "will", "would", "could",
-            "should", "may", "might", "must", "shall", "can", "to", "of", "in",
-            "for", "on", "with", "at", "by", "from", "as", "into", "through",
-            "during", "before", "after", "above", "below", "between", "under",
-            "again", "further", "then", "once", "here", "there", "when", "where",
-            "why", "how", "all", "each", "few", "more", "most", "other", "some",
-            "such", "no", "nor", "not", "only", "own", "same", "so", "than",
-            "too", "very", "just", "and", "but", "if", "or", "because", "until",
-            "while", "although", "please", "help", "me", "i", "you", "we", "they",
-            "it", "this", "that", "these", "those", "what", "which", "who",
+            "the",
+            "a",
+            "an",
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "been",
+            "being",
+            "have",
+            "has",
+            "had",
+            "do",
+            "does",
+            "did",
+            "will",
+            "would",
+            "could",
+            "should",
+            "may",
+            "might",
+            "must",
+            "shall",
+            "can",
+            "to",
+            "of",
+            "in",
+            "for",
+            "on",
+            "with",
+            "at",
+            "by",
+            "from",
+            "as",
+            "into",
+            "through",
+            "during",
+            "before",
+            "after",
+            "above",
+            "below",
+            "between",
+            "under",
+            "again",
+            "further",
+            "then",
+            "once",
+            "here",
+            "there",
+            "when",
+            "where",
+            "why",
+            "how",
+            "all",
+            "each",
+            "few",
+            "more",
+            "most",
+            "other",
+            "some",
+            "such",
+            "no",
+            "nor",
+            "not",
+            "only",
+            "own",
+            "same",
+            "so",
+            "than",
+            "too",
+            "very",
+            "just",
+            "and",
+            "but",
+            "if",
+            "or",
+            "because",
+            "until",
+            "while",
+            "although",
+            "please",
+            "help",
+            "me",
+            "i",
+            "you",
+            "we",
+            "they",
+            "it",
+            "this",
+            "that",
+            "these",
+            "those",
+            "what",
+            "which",
+            "who",
         }
 
         # Extract words, lowercase, filter
-        words = re.findall(r'\b[a-z]+\b', prompt.lower())
+        words = re.findall(r"\b[a-z]+\b", prompt.lower())
         key_words = [w for w in words if w not in stop_words and len(w) > 2]
 
         # Sort for consistent ordering
@@ -440,6 +499,7 @@ class SemanticResponseCache:
             Cached response if found and valid, None otherwise
         """
         import time
+
         current_time = time.time()
 
         # Clean expired entries periodically
@@ -474,10 +534,7 @@ class SemanticResponseCache:
         if best_match:
             best_match.hit_count += 1
             self._metrics.record_hit()
-            logger.debug(
-                f"Cache hit (semantic): similarity={best_similarity:.2f}, "
-                f"key={semantic_key[:30]}..."
-            )
+            logger.debug(f"Cache hit (semantic): similarity={best_similarity:.2f}, key={semantic_key[:30]}...")
             return best_match.response
 
         self._metrics.record_miss()
@@ -515,10 +572,7 @@ class SemanticResponseCache:
         Returns:
             Number of entries evicted
         """
-        expired = [
-            k for k, v in self._cache.items()
-            if current_time - v.created_at >= self._ttl
-        ]
+        expired = [k for k, v in self._cache.items() if current_time - v.created_at >= self._ttl]
         for k in expired:
             del self._cache[k]
 

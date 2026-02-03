@@ -44,15 +44,23 @@ CODE_ENGINES = "github,stackexchange"
 
 # CAPTCHA indicators in response content
 CAPTCHA_INDICATORS = [
-    "captcha", "CAPTCHA", "robot", "bot detection",
-    "unusual traffic", "verify you are human", "access denied",
-    "rate limit", "too many requests", "blocked"
+    "captcha",
+    "CAPTCHA",
+    "robot",
+    "bot detection",
+    "unusual traffic",
+    "verify you are human",
+    "access denied",
+    "rate limit",
+    "too many requests",
+    "blocked",
 ]
 
 
 @dataclass
 class EngineHealth:
     """Track health status of individual search engines."""
+
     failures: int = 0
     last_failure: datetime | None = None
     is_suspended: bool = False
@@ -170,7 +178,7 @@ class SearXNGSearchEngine(SearchEngine):
         timeout: float = 30.0,
         max_retries: int = 3,
         max_retry_delay: float = 30.0,
-        enable_fallback: bool = True
+        enable_fallback: bool = True,
     ):
         """Initialize SearXNG search engine.
 
@@ -181,17 +189,17 @@ class SearXNGSearchEngine(SearchEngine):
             max_retry_delay: Maximum delay between retries in seconds
             enable_fallback: Enable fallback to alternative engines
         """
-        self.base_url = base_url.rstrip('/')
+        self.base_url = base_url.rstrip("/")
         self.search_url = f"{self.base_url}/search"
         self.timeout = timeout
         self.max_retries = max_retries
         self.max_retry_delay = max_retry_delay
         self.enable_fallback = enable_fallback
         self.headers = {
-            'Accept': 'application/json',
-            'User-Agent': 'Pythinker-Agent/1.0',
-            'X-Forwarded-For': '127.0.0.1',
-            'X-Real-IP': '127.0.0.1',
+            "Accept": "application/json",
+            "User-Agent": "Pythinker-Agent/1.0",
+            "X-Forwarded-For": "127.0.0.1",
+            "X-Real-IP": "127.0.0.1",
         }
         # Reusable HTTP client for connection pooling
         self._client: httpx.AsyncClient | None = None
@@ -204,12 +212,8 @@ class SearXNGSearchEngine(SearchEngine):
             self._client = httpx.AsyncClient(
                 headers=self.headers,
                 timeout=httpx.Timeout(self.timeout, connect=10.0),
-                limits=httpx.Limits(
-                    max_connections=100,
-                    max_keepalive_connections=20,
-                    keepalive_expiry=30.0
-                ),
-                follow_redirects=True
+                limits=httpx.Limits(max_connections=100, max_keepalive_connections=20, keepalive_expiry=30.0),
+                follow_redirects=True,
             )
         return self._client
 
@@ -232,11 +236,11 @@ class SearXNGSearchEngine(SearchEngine):
         engines = GENERAL_ENGINES.split(",")
 
         # Academic/research queries
-        if any(kw in query_lower for kw in ['paper', 'research', 'study', 'journal', 'arxiv']):
+        if any(kw in query_lower for kw in ["paper", "research", "study", "journal", "arxiv"]):
             engines.extend(ACADEMIC_ENGINES.split(","))
 
         # Code/programming queries
-        if any(kw in query_lower for kw in ['code', 'programming', 'github', 'stackoverflow', 'api', 'library']):
+        if any(kw in query_lower for kw in ["code", "programming", "github", "stackoverflow", "api", "library"]):
             engines.extend(CODE_ENGINES.split(","))
 
         # Add fallback engines at the end
@@ -279,18 +283,14 @@ class SearXNGSearchEngine(SearchEngine):
                 engine_name, reason = engine_info[0], engine_info[1]
                 # Detect specific issues
                 reason_lower = str(reason).lower()
-                if any(x in reason_lower for x in ['captcha', 'rate', 'too many', 'blocked', 'denied']):
+                if any(x in reason_lower for x in ["captcha", "rate", "too many", "blocked", "denied"]):
                     await self._circuit_breaker.record_failure(engine_name, reason)
-                elif 'timeout' in reason_lower:
+                elif "timeout" in reason_lower:
                     await self._circuit_breaker.record_failure(engine_name, "timeout")
             elif isinstance(engine_info, str):
                 await self._circuit_breaker.record_failure(engine_info, "unresponsive")
 
-    async def search(
-        self,
-        query: str,
-        date_range: str | None = None
-    ) -> ToolResult[SearchResults]:
+    async def search(self, query: str, date_range: str | None = None) -> ToolResult[SearchResults]:
         """Search web pages using SearXNG metasearch with robust error handling.
 
         Args:
@@ -318,7 +318,7 @@ class SearXNGSearchEngine(SearchEngine):
                 "past_day": "day",
                 "past_week": "week",
                 "past_month": "month",
-                "past_year": "year"
+                "past_year": "year",
             }
             mapped_range = date_mapping.get(date_range)
             if mapped_range:
@@ -326,8 +326,7 @@ class SearXNGSearchEngine(SearchEngine):
 
         # Attempt search with exponential backoff retry
         try:
-            result = await self._search_with_retry(query, params, date_range)
-            return result
+            return await self._search_with_retry(query, params, date_range)
         except RetryError as e:
             # All retries exhausted
             last_error = e.last_attempt.exception() if e.last_attempt else None
@@ -338,32 +337,17 @@ class SearXNGSearchEngine(SearchEngine):
             return ToolResult(
                 success=False,
                 message=error_message,
-                data=SearchResults(
-                    query=query,
-                    date_range=date_range,
-                    total_results=0,
-                    results=[]
-                )
+                data=SearchResults(query=query, date_range=date_range, total_results=0, results=[]),
             )
         except Exception as e:
             logger.error(f"Unexpected search error: {type(e).__name__}: {e}")
             return ToolResult(
                 success=False,
                 message=f"Search error: {type(e).__name__}",
-                data=SearchResults(
-                    query=query,
-                    date_range=date_range,
-                    total_results=0,
-                    results=[]
-                )
+                data=SearchResults(query=query, date_range=date_range, total_results=0, results=[]),
             )
 
-    async def _search_with_retry(
-        self,
-        query: str,
-        params: dict,
-        date_range: str | None
-    ) -> ToolResult[SearchResults]:
+    async def _search_with_retry(self, query: str, params: dict, date_range: str | None) -> ToolResult[SearchResults]:
         """Execute search with tenacity-based exponential backoff retry.
 
         Uses exponential backoff with jitter to avoid thundering herd problem.
@@ -373,13 +357,15 @@ class SearXNGSearchEngine(SearchEngine):
         @retry(
             stop=(stop_after_attempt(self.max_retries) | stop_after_delay(60)),
             wait=wait_random_exponential(multiplier=1, min=1, max=self.max_retry_delay),
-            retry=retry_if_exception_type((
-                httpx.TimeoutException,
-                httpx.NetworkError,
-                httpx.ConnectError,
-            )),
+            retry=retry_if_exception_type(
+                (
+                    httpx.TimeoutException,
+                    httpx.NetworkError,
+                    httpx.ConnectError,
+                )
+            ),
             before_sleep=before_sleep_log(logger, logging.WARNING),
-            reraise=True
+            reraise=True,
         )
         async def _do_search():
             nonlocal attempt_count
@@ -430,14 +416,13 @@ class SearXNGSearchEngine(SearchEngine):
                 await self._circuit_breaker.record_success(engine)
 
             results = SearchResults(
-                query=query,
-                date_range=date_range,
-                total_results=total_results,
-                results=search_results
+                query=query, date_range=date_range, total_results=total_results, results=search_results
             )
 
             if search_results:
-                logger.info(f"Search successful: '{query[:50]}' returned {len(search_results)} results (attempt {attempt_count})")
+                logger.info(
+                    f"Search successful: '{query[:50]}' returned {len(search_results)} results (attempt {attempt_count})"
+                )
             else:
                 logger.warning(f"Search returned no results: '{query[:50]}'")
 
@@ -471,11 +456,7 @@ class SearXNGSearchEngine(SearchEngine):
                 if any(r.link == link for r in search_results):
                     continue
 
-                search_results.append(SearchResultItem(
-                    title=title,
-                    link=link,
-                    snippet=snippet or ""
-                ))
+                search_results.append(SearchResultItem(title=title, link=link, snippet=snippet or ""))
 
             except Exception as e:
                 logger.debug(f"Failed to parse result item: {e}")
@@ -491,10 +472,7 @@ class SearXNGSearchEngine(SearchEngine):
         """
         try:
             client = await self._get_client()
-            response = await client.get(
-                f"{self.base_url}/config",
-                timeout=5.0
-            )
+            response = await client.get(f"{self.base_url}/config", timeout=5.0)
             return response.status_code == 200
         except Exception as e:
             logger.warning(f"SearXNG health check failed: {e}")
@@ -547,7 +525,7 @@ if __name__ == "__main__":
             queries = [
                 "Python programming best practices 2026",
                 "LangGraph AI agent framework",
-                "machine learning tutorials"
+                "machine learning tutorials",
             ]
 
             for query in queries:
@@ -556,7 +534,7 @@ if __name__ == "__main__":
                 if result.success:
                     print(f"\nSearch successful! Found {len(result.data.results)} results for: {query[:40]}...")
                     for i, item in enumerate(result.data.results[:3]):
-                        print(f"  {i+1}. {item.title}")
+                        print(f"  {i + 1}. {item.title}")
                 else:
                     print(f"\nSearch failed: {result.message}")
 

@@ -25,6 +25,7 @@ class TestWorkspaceRoutes:
     def mock_user(self):
         """Create a mock user."""
         from app.domain.models.user import User
+
         return User(
             id="user-123",
             fullname="Test User",
@@ -208,9 +209,7 @@ class TestWorkspaceRoutes:
 
     # Get session workspace endpoint tests
     @pytest.mark.asyncio
-    async def test_get_session_workspace_with_structure(
-        self, client, auth_headers, test_session_with_workspace
-    ):
+    async def test_get_session_workspace_with_structure(self, client, auth_headers, test_session_with_workspace):
         """Test getting session workspace when workspace is initialized."""
         with patch("app.interfaces.dependencies.get_agent_service") as mock_get_service:
             mock_service = MagicMock()
@@ -234,9 +233,7 @@ class TestWorkspaceRoutes:
             assert workspace["workspace_root"] == f"/workspace/{test_session_with_workspace.id}"
 
     @pytest.mark.asyncio
-    async def test_get_session_workspace_without_structure(
-        self, client, auth_headers, test_session
-    ):
+    async def test_get_session_workspace_without_structure(self, client, auth_headers, test_session):
         """Test getting session workspace when workspace is not initialized."""
         with patch("app.interfaces.dependencies.get_agent_service") as mock_get_service:
             mock_service = MagicMock()
@@ -324,9 +321,7 @@ class TestWorkspaceRoutes:
         assert "message" in data
 
     @pytest.mark.asyncio
-    async def test_get_session_workspace_response_format(
-        self, client, auth_headers, test_session
-    ):
+    async def test_get_session_workspace_response_format(self, client, auth_headers, test_session):
         """Test that get session workspace response has correct format."""
         with patch("app.interfaces.dependencies.get_agent_service") as mock_get_service:
             mock_service = MagicMock()
@@ -373,9 +368,7 @@ class TestWorkspaceRoutes:
             assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
 
     @pytest.mark.asyncio
-    async def test_get_session_workspace_handles_internal_error(
-        self, client, auth_headers
-    ):
+    async def test_get_session_workspace_handles_internal_error(self, client, auth_headers):
         """Test that get session workspace handles internal errors gracefully."""
         with patch("app.interfaces.dependencies.get_agent_service") as mock_get_service:
             mock_service = MagicMock()
@@ -502,6 +495,7 @@ def client():
     from fastapi.testclient import TestClient
 
     from app.main import app
+
     return TestClient(app)
 
 
@@ -526,7 +520,7 @@ def auth_headers(mock_user):
         "is_active": mock_user.is_active,
         "iat": int(now.timestamp()),
         "exp": int(expire.timestamp()),
-        "type": "access"
+        "type": "access",
     }
 
     token = jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)

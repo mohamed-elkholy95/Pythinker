@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 class DependencyType(str, Enum):
     """Types of dependencies."""
+
     PRODUCTION = "production"
     DEVELOPMENT = "development"
     OPTIONAL = "optional"
@@ -27,6 +28,7 @@ class DependencyType(str, Enum):
 
 class VulnerabilitySeverity(str, Enum):
     """Severity levels."""
+
     CRITICAL = "critical"
     HIGH = "high"
     MODERATE = "moderate"
@@ -36,6 +38,7 @@ class VulnerabilitySeverity(str, Enum):
 @dataclass
 class Dependency:
     """A project dependency."""
+
     name: str
     version: str
     version_constraint: str  # Original constraint (e.g., ">=1.0,<2.0")
@@ -58,6 +61,7 @@ class Dependency:
 @dataclass
 class VulnerabilityInfo:
     """Information about a known vulnerability."""
+
     cve_id: str
     severity: VulnerabilitySeverity
     title: str
@@ -84,6 +88,7 @@ class VulnerabilityInfo:
 @dataclass
 class DependencyIssue:
     """An issue with a dependency."""
+
     dependency: Dependency
     issue_type: str  # "outdated", "vulnerable", "unpinned", "deprecated"
     severity: str
@@ -205,17 +210,17 @@ class DependencyAnalyzer:
         dependencies = []
         issues = []
 
-        lines = content.strip().split('\n')
+        lines = content.strip().split("\n")
 
         for line_num, line in enumerate(lines, 1):
             line = line.strip()
 
             # Skip comments and empty lines
-            if not line or line.startswith('#'):
+            if not line or line.startswith("#"):
                 continue
 
             # Skip editable installs and URLs
-            if line.startswith('-e') or line.startswith('git+') or '://' in line:
+            if line.startswith("-e") or line.startswith("git+") or "://" in line:
                 continue
 
             # Parse dependency
@@ -288,9 +293,9 @@ class DependencyAnalyzer:
         """Parse a single requirement line."""
         # Match patterns like: package==1.0, package>=1.0, package~=1.0
         patterns = [
-            r'^([a-zA-Z0-9_\-\.]+)\s*([=<>!~]+)\s*([a-zA-Z0-9\._\-]+)',
-            r'^([a-zA-Z0-9_\-\.]+)\s*\[.*\]\s*([=<>!~]+)\s*([a-zA-Z0-9\._\-]+)',
-            r'^([a-zA-Z0-9_\-\.]+)$',
+            r"^([a-zA-Z0-9_\-\.]+)\s*([=<>!~]+)\s*([a-zA-Z0-9\._\-]+)",
+            r"^([a-zA-Z0-9_\-\.]+)\s*\[.*\]\s*([=<>!~]+)\s*([a-zA-Z0-9\._\-]+)",
+            r"^([a-zA-Z0-9_\-\.]+)$",
         ]
 
         for pattern in patterns:
@@ -320,8 +325,8 @@ class DependencyAnalyzer:
     def _extract_version(self, version_str: str) -> str:
         """Extract version number from a version constraint."""
         # Remove prefixes like ^, ~, >=, etc.
-        version = re.sub(r'^[\^~>=<]+', '', version_str)
-        return version.split(' ')[0] if ' ' in version else version
+        version = re.sub(r"^[\^~>=<]+", "", version_str)
+        return version.split(" ")[0] if " " in version else version
 
     def _check_dependency(self, dep: Dependency) -> list[DependencyIssue]:
         """Check a dependency for issues."""
@@ -329,13 +334,15 @@ class DependencyAnalyzer:
 
         # Check for unpinned versions
         if dep.version == "unspecified" or dep.version_constraint == "any":
-            issues.append(DependencyIssue(
-                dependency=dep,
-                issue_type="unpinned",
-                severity="warning",
-                description=f"Package '{dep.name}' has no version constraint",
-                recommendation="Pin to a specific version for reproducible builds",
-            ))
+            issues.append(
+                DependencyIssue(
+                    dependency=dep,
+                    issue_type="unpinned",
+                    severity="warning",
+                    description=f"Package '{dep.name}' has no version constraint",
+                    recommendation="Pin to a specific version for reproducible builds",
+                )
+            )
 
         # Check for known vulnerabilities
         if dep.name.lower() in KNOWN_VULNERABILITIES:
@@ -351,14 +358,16 @@ class DependencyAnalyzer:
                         published_date=None,
                     )
 
-                    issues.append(DependencyIssue(
-                        dependency=dep,
-                        issue_type="vulnerable",
-                        severity=vuln_data["severity"],
-                        description=f"Known vulnerability: {vuln_data['title']}",
-                        recommendation=f"Upgrade to version {vuln_data.get('fixed', 'latest')}",
-                        vulnerability=vuln,
-                    ))
+                    issues.append(
+                        DependencyIssue(
+                            dependency=dep,
+                            issue_type="vulnerable",
+                            severity=vuln_data["severity"],
+                            description=f"Known vulnerability: {vuln_data['title']}",
+                            recommendation=f"Upgrade to version {vuln_data.get('fixed', 'latest')}",
+                            vulnerability=vuln,
+                        )
+                    )
 
         return issues
 
@@ -373,16 +382,16 @@ class DependencyAnalyzer:
             current = pkg_version.parse(version)
 
             # Parse affected range (simplified)
-            if affected_range.startswith('<'):
+            if affected_range.startswith("<"):
                 limit = pkg_version.parse(affected_range[1:])
                 return current < limit
-            if affected_range.startswith('>=') and '<' in affected_range:
+            if affected_range.startswith(">=") and "<" in affected_range:
                 # Range like ">=1.0,<2.0"
-                parts = affected_range.split(',')
+                parts = affected_range.split(",")
                 lower = pkg_version.parse(parts[0][2:])
                 upper = pkg_version.parse(parts[1][1:])
                 return lower <= current < upper
-            if affected_range.startswith('<='):
+            if affected_range.startswith("<="):
                 limit = pkg_version.parse(affected_range[2:])
                 return current <= limit
             return True  # Assume affected if can't parse
@@ -410,12 +419,8 @@ class DependencyAnalyzer:
 
         return {
             "total_dependencies": len(dependencies),
-            "production_dependencies": sum(
-                1 for d in dependencies if d.dependency_type == DependencyType.PRODUCTION
-            ),
-            "dev_dependencies": sum(
-                1 for d in dependencies if d.dependency_type == DependencyType.DEVELOPMENT
-            ),
+            "production_dependencies": sum(1 for d in dependencies if d.dependency_type == DependencyType.PRODUCTION),
+            "dev_dependencies": sum(1 for d in dependencies if d.dependency_type == DependencyType.DEVELOPMENT),
             "total_issues": len(issues),
             "vulnerabilities": vuln_count,
             "outdated": outdated_count,

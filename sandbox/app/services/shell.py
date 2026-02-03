@@ -2,14 +2,13 @@
 Shell Service Implementation - Async Version
 """
 import os
-import subprocess
 import uuid
 import getpass
 import socket
 import logging
 import asyncio
 import re
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Any, Dict, List, Optional
 from app.models.shell import (
     ShellExecResult, ShellViewResult, ShellWaitResult,
     ShellWriteResult, ShellKillResult, ShellTask, ConsoleRecord
@@ -183,9 +182,6 @@ class ShellService:
                 logger.warning(f"Exception while waiting for process: {str(e)}")
                 pass
             
-            # Get current console records
-            console = self.get_console_records(session_id)
-            
             return ShellExecResult(
                 session_id=session_id,
                 command=command,
@@ -291,7 +287,7 @@ class ShellService:
         try:
             # Check if the process is still running
             if process.returncode is not None:
-                logger.error(f"Process has already terminated, cannot write input")
+                logger.error("Process has already terminated, cannot write input")
                 raise BadRequestException("Process has ended, cannot write input")
             
             # Prepare input data
@@ -308,7 +304,7 @@ class ShellService:
             process.stdin.write(input_data)
             await process.stdin.drain()
             
-            logger.info(f"Successfully wrote input to process")
+            logger.info("Successfully wrote input to process")
             
             return ShellWriteResult(
                 status="success"
@@ -333,13 +329,13 @@ class ShellService:
             # Check if the process is still running
             if process.returncode is None:
                 # Try to terminate gracefully
-                logger.debug(f"Attempting to terminate process gracefully")
+                logger.debug("Attempting to terminate process gracefully")
                 process.terminate()
                 try:
                     await asyncio.wait_for(process.wait(), timeout=3)
                 except asyncio.TimeoutError:
                     # If graceful termination fails, force kill
-                    logger.warning(f"Forcefully killing the process")
+                    logger.warning("Forcefully killing the process")
                     process.kill()
                     await process.wait()
                 

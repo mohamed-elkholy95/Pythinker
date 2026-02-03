@@ -683,14 +683,32 @@ const handleMessageEvent = (messageData: MessageEventData) => {
     isThinking.value = false;
   }
 
-  // Prevent duplicate user messages (same content appearing consecutively)
+  // Prevent duplicate user messages - check against LAST user message (not just last message)
+  // This handles cases where tool/step events appear between duplicate user messages
   if (messageData.role === 'user' && messages.value.length > 0) {
-    const lastMessage = messages.value[messages.value.length - 1];
-    if (lastMessage.type === 'user') {
-      const lastContent = lastMessage.content as MessageContent;
-      if (lastContent.content === messageData.content) {
-        console.debug('Skipping duplicate user message:', messageData.content?.slice(0, 50));
-        return;
+    // Find the last user message in the array
+    for (let i = messages.value.length - 1; i >= 0; i--) {
+      if (messages.value[i].type === 'user') {
+        const lastUserContent = messages.value[i].content as MessageContent;
+        if (lastUserContent.content === messageData.content) {
+          console.debug('Skipping duplicate user message:', messageData.content?.slice(0, 50));
+          return;
+        }
+        break; // Only check the most recent user message
+      }
+    }
+  }
+
+  // Prevent duplicate assistant messages with same content
+  if (messageData.role === 'assistant' && messages.value.length > 0) {
+    for (let i = messages.value.length - 1; i >= 0; i--) {
+      if (messages.value[i].type === 'assistant') {
+        const lastAssistantContent = messages.value[i].content as MessageContent;
+        if (lastAssistantContent.content === messageData.content) {
+          console.debug('Skipping duplicate assistant message:', messageData.content?.slice(0, 50));
+          return;
+        }
+        break; // Only check the most recent assistant message
       }
     }
   }
@@ -1194,6 +1212,8 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
         size: file.size,
         upload_date: file.upload_date
       })),
+      undefined, // skills
+      undefined, // options
       {
         onOpen: () => {
           console.log('Chat opened');

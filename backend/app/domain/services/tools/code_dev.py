@@ -28,28 +28,20 @@ class CodeDevTool(BaseTool):
         name="code_format",
         description="Format a code file using the appropriate formatter. Auto-detects formatter from file extension. Supports: black (Python), prettier (JS/TS/JSON/CSS/HTML/MD).",
         parameters={
-            "file_path": {
-                "type": "string",
-                "description": "Path to the file to format"
-            },
+            "file_path": {"type": "string", "description": "Path to the file to format"},
             "formatter": {
                 "type": "string",
                 "description": "Formatter to use: 'auto' (detect), 'black', 'isort', 'autopep8', 'prettier'",
-                "enum": ["auto", "black", "isort", "autopep8", "prettier"]
+                "enum": ["auto", "black", "isort", "autopep8", "prettier"],
             },
             "check_only": {
                 "type": "boolean",
-                "description": "Check formatting without modifying the file. Returns diff of what would change."
-            }
+                "description": "Check formatting without modifying the file. Returns diff of what would change.",
+            },
         },
-        required=["file_path"]
+        required=["file_path"],
     )
-    async def code_format(
-        self,
-        file_path: str,
-        formatter: str = "auto",
-        check_only: bool = False
-    ) -> ToolResult:
+    async def code_format(self, file_path: str, formatter: str = "auto", check_only: bool = False) -> ToolResult:
         """Format a code file
 
         Args:
@@ -66,28 +58,17 @@ class CodeDevTool(BaseTool):
         name="code_lint",
         description="Lint code files to find issues and style violations. Auto-detects linter from file type. Supports: flake8, pylint, mypy (Python), eslint (JS/TS).",
         parameters={
-            "path": {
-                "type": "string",
-                "description": "Path to file or directory to lint"
-            },
+            "path": {"type": "string", "description": "Path to file or directory to lint"},
             "linter": {
                 "type": "string",
                 "description": "Linter to use: 'auto' (detect), 'flake8', 'pylint', 'mypy', 'eslint'",
-                "enum": ["auto", "flake8", "pylint", "mypy", "eslint"]
+                "enum": ["auto", "flake8", "pylint", "mypy", "eslint"],
             },
-            "fix": {
-                "type": "boolean",
-                "description": "Automatically fix issues where possible (eslint only)"
-            }
+            "fix": {"type": "boolean", "description": "Automatically fix issues where possible (eslint only)"},
         },
-        required=["path"]
+        required=["path"],
     )
-    async def code_lint(
-        self,
-        path: str,
-        linter: str = "auto",
-        fix: bool = False
-    ) -> ToolResult:
+    async def code_lint(self, path: str, linter: str = "auto", fix: bool = False) -> ToolResult:
         """Lint code files
 
         Args:
@@ -104,23 +85,16 @@ class CodeDevTool(BaseTool):
         name="code_analyze",
         description="Analyze code for security vulnerabilities and complexity issues. Uses bandit for Python security analysis.",
         parameters={
-            "path": {
-                "type": "string",
-                "description": "Path to file or directory to analyze"
-            },
+            "path": {"type": "string", "description": "Path to file or directory to analyze"},
             "analysis_type": {
                 "type": "string",
                 "description": "Type of analysis: 'security', 'complexity', or 'all'",
-                "enum": ["security", "complexity", "all"]
-            }
+                "enum": ["security", "complexity", "all"],
+            },
         },
-        required=["path"]
+        required=["path"],
     )
-    async def code_analyze(
-        self,
-        path: str,
-        analysis_type: str = "all"
-    ) -> ToolResult:
+    async def code_analyze(self, path: str, analysis_type: str = "all") -> ToolResult:
         """Analyze code for security and complexity
 
         Args:
@@ -136,36 +110,16 @@ class CodeDevTool(BaseTool):
         name="code_search",
         description="Search for pattern in code files using ripgrep. Supports regex patterns and returns matches with context.",
         parameters={
-            "directory": {
-                "type": "string",
-                "description": "Directory to search in"
-            },
-            "pattern": {
-                "type": "string",
-                "description": "Search pattern (regex supported)"
-            },
-            "file_glob": {
-                "type": "string",
-                "description": "Glob pattern to filter files (e.g., '*.py', '*.js')"
-            },
-            "context_lines": {
-                "type": "integer",
-                "description": "Number of context lines before/after match (0-10)"
-            },
-            "max_results": {
-                "type": "integer",
-                "description": "Maximum number of results (1-1000)"
-            }
+            "directory": {"type": "string", "description": "Directory to search in"},
+            "pattern": {"type": "string", "description": "Search pattern (regex supported)"},
+            "file_glob": {"type": "string", "description": "Glob pattern to filter files (e.g., '*.py', '*.js')"},
+            "context_lines": {"type": "integer", "description": "Number of context lines before/after match (0-10)"},
+            "max_results": {"type": "integer", "description": "Maximum number of results (1-1000)"},
         },
-        required=["directory", "pattern"]
+        required=["directory", "pattern"],
     )
     async def code_search(
-        self,
-        directory: str,
-        pattern: str,
-        file_glob: str = "*",
-        context_lines: int = 2,
-        max_results: int = 100
+        self, directory: str, pattern: str, file_glob: str = "*", context_lines: int = 2, max_results: int = 100
     ) -> ToolResult:
         """Search for pattern in code files
 

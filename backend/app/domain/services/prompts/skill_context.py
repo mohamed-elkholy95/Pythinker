@@ -30,48 +30,52 @@ logger = logging.getLogger(__name__)
 
 # Allowlist of safe commands for dynamic context expansion
 # Only these executables can be invoked via !command syntax
-ALLOWED_COMMANDS: frozenset[str] = frozenset({
-    # Version/info commands (read-only, safe)
-    "date",
-    "whoami",
-    "hostname",
-    "uname",
-    "pwd",
-    "echo",
-    # Git commands (read-only operations)
-    "git",
-    # Node/Python version info
-    "node",
-    "python",
-    "python3",
-    # Package managers (version/list only - validated below)
-    "npm",
-    "pip",
-    "pip3",
-    # System info
-    "which",
-    "env",
-    "printenv",
-})
+ALLOWED_COMMANDS: frozenset[str] = frozenset(
+    {
+        # Version/info commands (read-only, safe)
+        "date",
+        "whoami",
+        "hostname",
+        "uname",
+        "pwd",
+        "echo",
+        # Git commands (read-only operations)
+        "git",
+        # Node/Python version info
+        "node",
+        "python",
+        "python3",
+        # Package managers (version/list only - validated below)
+        "npm",
+        "pip",
+        "pip3",
+        # System info
+        "which",
+        "env",
+        "printenv",
+    }
+)
 
 # Subcommands that are explicitly blocked even for allowed commands
-BLOCKED_SUBCOMMANDS: frozenset[str] = frozenset({
-    # Destructive git operations
-    "push",
-    "reset",
-    "clean",
-    "checkout",
-    # Package modification
-    "install",
-    "uninstall",
-    "remove",
-    "update",
-    "upgrade",
-    # Execution
-    "exec",
-    "run",
-    "eval",
-})
+BLOCKED_SUBCOMMANDS: frozenset[str] = frozenset(
+    {
+        # Destructive git operations
+        "push",
+        "reset",
+        "clean",
+        "checkout",
+        # Package modification
+        "install",
+        "uninstall",
+        "remove",
+        "update",
+        "upgrade",
+        # Execution
+        "exec",
+        "run",
+        "eval",
+    }
+)
 
 # Shell metacharacters that indicate injection attempts
 DANGEROUS_PATTERNS: tuple[str, ...] = (
@@ -154,9 +158,7 @@ async def expand_dynamic_context(content: str, skill_source: "SkillSource | None
 
     # SECURITY: Only allow dynamic context for OFFICIAL skills
     if skill_source is not None and skill_source != SkillSource.OFFICIAL:
-        logger.warning(
-            f"Dynamic context expansion blocked for non-official skill (source={skill_source})"
-        )
+        logger.warning(f"Dynamic context expansion blocked for non-official skill (source={skill_source})")
         # Return content with placeholders replaced by security notice
         pattern = r'!\`([^`]+)\`|!"([^"]+)"'
         return re.sub(
@@ -201,9 +203,7 @@ async def expand_dynamic_context(content: str, skill_source: "SkillSource | None
                 )
 
                 output = (
-                    result.stdout.strip()
-                    if result.returncode == 0
-                    else f"[Command failed: {result.stderr.strip()}]"
+                    result.stdout.strip() if result.returncode == 0 else f"[Command failed: {result.stderr.strip()}]"
                 )
             except (TimeoutError, subprocess.TimeoutExpired):
                 output = "[Command timed out]"
@@ -292,19 +292,28 @@ def build_skill_context(skills: list["Skill"]) -> str:
 
     prompt_additions = []
     for skill in skills:
+        # Use provided prompt if available; otherwise, generate a minimal activation notice
         if skill.system_prompt_addition and skill.system_prompt_addition.strip():
-            # Add skill name as a header for clarity
-            addition = f"### {skill.name} Skill\n{skill.system_prompt_addition.strip()}"
-            prompt_additions.append(addition)
+            content = skill.system_prompt_addition.strip()
+        else:
+            # Minimal default to make activation visible and guide tool usage
+            tools_list = (
+                ", ".join([*(skill.required_tools or []), *(skill.optional_tools or [])]) or "see skill configuration"
+            )
+            content = f"## {skill.name} Skill Active\nUse tools from this skill when applicable: {tools_list}"
+        # Add skill name as a header for clarity
+        addition = f"### {skill.name} Skill\n{content}"
+        prompt_additions.append(addition)
 
     if not prompt_additions:
         return ""
 
-    # Wrap in XML-style tags for clear boundaries
+    # Wrap in XML-style tags for clear boundaries with strong directive
     return (
-        "\n\n<enabled_skills>\n"
-        "The following skills are enabled for this session. "
-        "Follow their instructions when relevant to the task:\n\n"
+        '\n\n<enabled_skills priority="HIGH">\n'
+        "⚠️ MANDATORY: The following skills are ACTIVE for this session. "
+        "You MUST follow their instructions exactly. Skill instructions OVERRIDE default behavior. "
+        "If a skill specifies an output format (e.g., Excel file), you MUST produce that format.\n\n"
         + "\n\n".join(prompt_additions)
         + "\n</enabled_skills>\n"
     )
@@ -378,9 +387,10 @@ async def build_skill_context_async(skills: list["Skill"]) -> str:
         return ""
 
     return (
-        "\n\n<enabled_skills>\n"
-        "The following skills are enabled for this session. "
-        "Follow their instructions when relevant to the task:\n\n"
+        '\n\n<enabled_skills priority="HIGH">\n'
+        "⚠️ MANDATORY: The following skills are ACTIVE for this session. "
+        "You MUST follow their instructions exactly. Skill instructions OVERRIDE default behavior. "
+        "If a skill specifies an output format (e.g., Excel file), you MUST produce that format.\n\n"
         + "\n\n".join(prompt_additions)
         + "\n</enabled_skills>\n"
     )
@@ -497,10 +507,7 @@ def get_allowed_tools_from_skills(skills: list["Skill"]) -> set[str] | None:
 
         if not result:
             # Even union is empty - this means skills had empty allowed_tools lists
-            logger.error(
-                f"Skills {skill_names} have empty allowed_tools. "
-                "Returning None to allow all tools."
-            )
+            logger.error(f"Skills {skill_names} have empty allowed_tools. Returning None to allow all tools.")
             return None
 
     return result

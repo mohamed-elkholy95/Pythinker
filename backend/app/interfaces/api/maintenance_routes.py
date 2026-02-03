@@ -25,6 +25,7 @@ router = APIRouter(prefix="/maintenance", tags=["maintenance"])
 
 class CleanupResponse(BaseModel):
     """Response schema for cleanup operations"""
+
     dry_run: bool
     sessions_scanned: int
     sessions_affected: int
@@ -37,6 +38,7 @@ class CleanupResponse(BaseModel):
 
 class SessionHealthResponse(BaseModel):
     """Response schema for session health check"""
+
     session_id: str
     found: bool
     status: str | None = None
@@ -68,13 +70,13 @@ async def get_session_health(session_id: str):
         return SessionHealthResponse(**result)
     except Exception as e:
         logger.exception(f"Failed to check session health: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/cleanup/attachments", response_model=CleanupResponse)
 async def cleanup_invalid_attachments(
     session_id: str | None = Query(None, description="Specific session to clean up"),
-    dry_run: bool = Query(True, description="If true, only reports what would be cleaned")
+    dry_run: bool = Query(True, description="If true, only reports what would be cleaned"),
 ):
     """
     Clean up events with invalid attachments (null file_id or filename).
@@ -96,20 +98,15 @@ async def cleanup_invalid_attachments(
         settings = get_settings()
         db = get_mongodb().client[settings.mongodb_database]
         service = MaintenanceService(db)
-        result = await service.cleanup_invalid_attachments(
-            session_id=session_id,
-            dry_run=dry_run
-        )
+        result = await service.cleanup_invalid_attachments(session_id=session_id, dry_run=dry_run)
         return CleanupResponse(**result)
     except Exception as e:
         logger.exception(f"Cleanup operation failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/cleanup/attachments/preview", response_model=CleanupResponse)
-async def preview_attachment_cleanup(
-    session_id: str | None = Query(None, description="Specific session to check")
-):
+async def preview_attachment_cleanup(session_id: str | None = Query(None, description="Specific session to check")):
     """
     Preview what would be cleaned without making any changes.
 
@@ -119,11 +116,8 @@ async def preview_attachment_cleanup(
         settings = get_settings()
         db = get_mongodb().client[settings.mongodb_database]
         service = MaintenanceService(db)
-        result = await service.cleanup_invalid_attachments(
-            session_id=session_id,
-            dry_run=True
-        )
+        result = await service.cleanup_invalid_attachments(session_id=session_id, dry_run=True)
         return CleanupResponse(**result)
     except Exception as e:
         logger.exception(f"Preview operation failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

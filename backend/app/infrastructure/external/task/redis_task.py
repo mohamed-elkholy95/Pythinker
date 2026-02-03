@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import uuid
-from typing import Optional
+from typing import ClassVar, Optional
 
 from app.domain.external.task import Task, TaskRunner
 from app.infrastructure.external.message_queue.redis_stream_queue import MessageQueue, RedisStreamQueue
@@ -12,17 +12,18 @@ logger = logging.getLogger(__name__)
 class RedisStreamTask(Task):
     """Redis Stream-based task implementation following the Task protocol."""
 
-    _task_registry: dict[str, 'RedisStreamTask'] = {}
+    _task_registry: ClassVar[dict[str, "RedisStreamTask"]] = {}
 
     def __init__(self, runner: TaskRunner):
         """Initialize Redis Stream task with a task runner.
-        
+
         Args:
             runner: The TaskRunner instance that will execute this task
         """
         self._runner = runner
         self._id = str(uuid.uuid4())
         self._execution_task: asyncio.Task | None = None
+        self._background_tasks: set[asyncio.Task] = set()
 
         # Create input/output streams based on task ID
         input_stream_name = f"task:input:{self._id}"
@@ -123,7 +124,9 @@ class RedisStreamTask(Task):
         """Called when the task is done."""
         self._task_done = True
         if self._runner:
-            asyncio.create_task(self._runner.on_done(self))
+            task = asyncio.create_task(self._runner.on_done(self))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
         self._cleanup_registry()
 
     def _cleanup_registry(self) -> None:
@@ -144,7 +147,7 @@ class RedisStreamTask(Task):
             self._on_task_done()
 
     @classmethod
-    def get(cls, task_id: str) -> Optional['RedisStreamTask']:
+    def get(cls, task_id: str) -> Optional["RedisStreamTask"]:
         """Get a task by its ID.
 
         Returns:

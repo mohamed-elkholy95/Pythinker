@@ -46,7 +46,7 @@ When using search:
 - Generate 2 search queries: natural language + keyword-focused
 - Include current year for time-sensitive topics
 - Verify key facts before citing
-- Provide Sources section at end with URLs
+- Provide References section at end with URLs
 </search_guidelines>
 """
 
@@ -64,11 +64,7 @@ At the end of your response (if not switching modes), include suggestions:
 """
 
 
-def build_discuss_prompt(
-    message: str,
-    attachments: str = "",
-    language: str = "English"
-) -> str:
+def build_discuss_prompt(message: str, attachments: str = "", language: str = "English") -> str:
     """
     Build discuss mode prompt.
 
@@ -80,8 +76,4 @@ def build_discuss_prompt(
     Returns:
         Formatted discuss prompt
     """
-    return DISCUSS_PROMPT.format(
-        message=message,
-        attachments=attachments if attachments else "None",
-        language=language
-    )
+    return DISCUSS_PROMPT.format(message=message, attachments=attachments if attachments else "None", language=language)

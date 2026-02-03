@@ -10,11 +10,11 @@ import json
 import logging
 import asyncio
 import time
-from typing import Optional, Dict, Any, List, Tuple
-from pathlib import Path
+import contextlib
+from typing import Dict, List, Tuple
 
 from app.models.test_runner import (
-    TestFramework, TestStatus, TestResult, TestFailure,
+    TestFramework, TestResult, TestFailure,
     TestInfo, TestListResult, CoverageResult
 )
 from app.core.exceptions import AppException, BadRequestException, ResourceNotFoundException
@@ -79,10 +79,8 @@ class TestRunnerService:
 
         except asyncio.TimeoutError:
             logger.error(f"Command timed out: {' '.join(cmd)}")
-            try:
+            with contextlib.suppress(Exception):
                 process.kill()
-            except:
-                pass
             raise AppException(f"Test execution timed out after {timeout} seconds")
 
         except Exception as e:
@@ -112,7 +110,7 @@ class TestRunnerService:
                         return TestFramework.MOCHA
                     if "scripts" in pkg and "test" in pkg["scripts"]:
                         return TestFramework.NPM_TEST
-            except:
+            except Exception:
                 pass
 
         # Check for Python files
@@ -217,12 +215,6 @@ class TestRunnerService:
         failures = []
 
         output = stdout + stderr
-
-        # Parse summary line (e.g., "5 passed, 2 failed, 1 skipped")
-        summary_match = re.search(
-            r"(\d+) passed|(\d+) failed|(\d+) skipped|(\d+) error",
-            output
-        )
 
         # More comprehensive parsing
         passed_match = re.search(r"(\d+) passed", output)
@@ -649,7 +641,7 @@ class TestRunnerService:
                     try:
                         pct = float(parts[-1].rstrip("%"))
                         file_coverage[file_path] = pct
-                    except:
+                    except ValueError:
                         pass
 
         report_path = output_dir if output_format == "html" else os.path.join(output_dir, f"coverage.{output_format}")

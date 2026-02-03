@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 class GateStatus(str, Enum):
     """Gate check result status."""
+
     PASSED = "passed"
     FAILED = "failed"
     WARNING = "warning"
@@ -25,6 +26,7 @@ class GateStatus(str, Enum):
 @dataclass
 class GateResult:
     """Result of a compliance gate check."""
+
     gate_name: str
     status: GateStatus
     message: str
@@ -38,6 +40,7 @@ class GateResult:
 @dataclass
 class ComplianceReport:
     """Aggregated report from all compliance gates."""
+
     results: list[GateResult] = field(default_factory=list)
     passed: bool = True
     blocking_issues: list[str] = field(default_factory=list)
@@ -58,14 +61,7 @@ class ComplianceReport:
             "passed": self.passed,
             "blocking_issues": self.blocking_issues,
             "warnings": self.warnings,
-            "results": [
-                {
-                    "gate": r.gate_name,
-                    "status": r.status.value,
-                    "message": r.message
-                }
-                for r in self.results
-            ]
+            "results": [{"gate": r.gate_name, "status": r.status.value, "message": r.message} for r in self.results],
         }
 
 
@@ -90,10 +86,7 @@ class ComplianceGates:
         self._strict_mode = strict_mode
 
     def check_all(
-        self,
-        content: str,
-        artifacts: list[dict[str, Any]] | None = None,
-        sources: list[dict[str, Any]] | None = None
+        self, content: str, artifacts: list[dict[str, Any]] | None = None, sources: list[dict[str, Any]] | None = None
     ) -> ComplianceReport:
         """Run all compliance gates on the output.
 
@@ -137,11 +130,7 @@ class ComplianceGates:
             GateResult with hygiene check status
         """
         if not artifacts:
-            return GateResult(
-                gate_name="artifact_hygiene",
-                status=GateStatus.SKIPPED,
-                message="No artifacts to check"
-            )
+            return GateResult(gate_name="artifact_hygiene", status=GateStatus.SKIPPED, message="No artifacts to check")
 
         issues = []
         seen_paths: set[str] = set()
@@ -170,13 +159,13 @@ class ComplianceGates:
                 gate_name="artifact_hygiene",
                 status=GateStatus.FAILED if self._strict_mode else GateStatus.WARNING,
                 message="; ".join(issues[:3]),
-                details={"all_issues": issues}
+                details={"all_issues": issues},
             )
 
         return GateResult(
             gate_name="artifact_hygiene",
             status=GateStatus.PASSED,
-            message=f"All {len(artifacts)} artifacts pass hygiene checks"
+            message=f"All {len(artifacts)} artifacts pass hygiene checks",
         )
 
     def check_command_context(self, content: str) -> GateResult:
@@ -193,7 +182,7 @@ class ComplianceGates:
         issues = []
 
         # Look for code blocks with commands
-        code_blocks = re.findall(r'```(\w*)\n(.*?)```', content, re.DOTALL)
+        code_blocks = re.findall(r"```(\w*)\n(.*?)```", content, re.DOTALL)
 
         for lang, block in code_blocks:
             # Check for shell commands without language specifier
@@ -205,23 +194,20 @@ class ComplianceGates:
 
         # Check for mixed contexts in single blocks
         for lang, block in code_blocks:
-            if lang in ["bash", "sh", "shell"]:
+            if lang in ["bash", "sh", "shell"] and "function " in block and "export " not in block:
                 # Check for non-shell content
-                if "function " in block and "export " not in block:
-                    issues.append("JavaScript-like code in bash block")
+                issues.append("JavaScript-like code in bash block")
 
         if issues:
             return GateResult(
                 gate_name="command_context",
                 status=GateStatus.WARNING,
                 message="; ".join(issues[:3]),
-                details={"all_issues": issues}
+                details={"all_issues": issues},
             )
 
         return GateResult(
-            gate_name="command_context",
-            status=GateStatus.PASSED,
-            message="Command contexts are properly labeled"
+            gate_name="command_context", status=GateStatus.PASSED, message="Command contexts are properly labeled"
         )
 
     def check_source_labeling(self, sources: list[dict[str, Any]]) -> GateResult:
@@ -234,16 +220,18 @@ class ComplianceGates:
             GateResult with source labeling check status
         """
         if not sources:
-            return GateResult(
-                gate_name="source_labeling",
-                status=GateStatus.SKIPPED,
-                message="No sources to check"
-            )
+            return GateResult(gate_name="source_labeling", status=GateStatus.SKIPPED, message="No sources to check")
 
         unlabeled = []
         official_domains = {
-            "docs.", "developer.", "learn.", "api.",
-            "github.com", "gitlab.com", "npmjs.com", "pypi.org"
+            "docs.",
+            "developer.",
+            "learn.",
+            "api.",
+            "github.com",
+            "gitlab.com",
+            "npmjs.com",
+            "pypi.org",
         }
 
         for source in sources:
@@ -262,13 +250,13 @@ class ComplianceGates:
                 gate_name="source_labeling",
                 status=GateStatus.WARNING,
                 message=f"{len(unlabeled)} source(s) lack type labels",
-                details={"unlabeled_sources": unlabeled[:5]}
+                details={"unlabeled_sources": unlabeled[:5]},
             )
 
         return GateResult(
             gate_name="source_labeling",
             status=GateStatus.PASSED,
-            message=f"All {len(sources)} sources are properly labeled"
+            message=f"All {len(sources)} sources are properly labeled",
         )
 
     def check_content_completeness(self, content: str) -> GateResult:
@@ -284,8 +272,14 @@ class ComplianceGates:
 
         # Check for incomplete markers
         incomplete_markers = [
-            "TODO:", "FIXME:", "TBD", "...", "[placeholder]",
-            "coming soon", "to be added", "insert here"
+            "TODO:",
+            "FIXME:",
+            "TBD",
+            "...",
+            "[placeholder]",
+            "coming soon",
+            "to be added",
+            "insert here",
         ]
 
         content_lower = content.lower()
@@ -308,13 +302,11 @@ class ComplianceGates:
                 gate_name="content_completeness",
                 status=GateStatus.WARNING,
                 message="; ".join(issues[:3]),
-                details={"all_issues": issues}
+                details={"all_issues": issues},
             )
 
         return GateResult(
-            gate_name="content_completeness",
-            status=GateStatus.PASSED,
-            message="Content appears complete"
+            gate_name="content_completeness", status=GateStatus.PASSED, message="Content appears complete"
         )
 
 

@@ -27,11 +27,7 @@ class MaintenanceService:
         """
         self._db = db
 
-    async def cleanup_invalid_attachments(
-        self,
-        session_id: str | None = None,
-        dry_run: bool = True
-    ) -> dict[str, Any]:
+    async def cleanup_invalid_attachments(self, session_id: str | None = None, dry_run: bool = True) -> dict[str, Any]:
         """
         Clean up events with invalid attachments (null file_id or filename).
 
@@ -55,7 +51,7 @@ class MaintenanceService:
             "attachments_removed": 0,
             "affected_sessions": [],
             "errors": [],
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
 
         try:
@@ -69,10 +65,7 @@ class MaintenanceService:
                     query["_id"] = session_id
 
             # Find sessions with events that have attachments
-            cursor = sessions_collection.find(
-                {**query, "events": {"$exists": True}},
-                {"_id": 1, "events": 1}
-            )
+            cursor = sessions_collection.find({**query, "events": {"$exists": True}}, {"_id": 1, "events": 1})
 
             async for session in cursor:
                 stats["sessions_scanned"] += 1
@@ -112,14 +105,16 @@ class MaintenanceService:
                             valid_attachments.append(attachment)
 
                     if invalid_count > 0:
-                        events_to_update.append({
-                            "event_idx": event_idx,
-                            "event_type": event.get("type", "unknown"),
-                            "original_count": len(attachments),
-                            "valid_count": len(valid_attachments),
-                            "invalid_count": invalid_count,
-                            "valid_attachments": valid_attachments if valid_attachments else None
-                        })
+                        events_to_update.append(
+                            {
+                                "event_idx": event_idx,
+                                "event_type": event.get("type", "unknown"),
+                                "original_count": len(attachments),
+                                "valid_count": len(valid_attachments),
+                                "invalid_count": invalid_count,
+                                "valid_attachments": valid_attachments if valid_attachments else None,
+                            }
+                        )
                         session_attachments_removed += invalid_count
 
                 if events_to_update:
@@ -136,10 +131,10 @@ class MaintenanceService:
                                 "event_index": e["event_idx"],
                                 "event_type": e["event_type"],
                                 "attachments_before": e["original_count"],
-                                "attachments_after": e["valid_count"]
+                                "attachments_after": e["valid_count"],
                             }
                             for e in events_to_update
-                        ]
+                        ],
                     }
                     stats["affected_sessions"].append(affected_session_info)
 
@@ -152,7 +147,7 @@ class MaintenanceService:
 
                                 await sessions_collection.update_one(
                                     {"_id": session["_id"]},
-                                    {"$set": {f"events.{event_idx}.attachments": valid_attachments}}
+                                    {"$set": {f"events.{event_idx}.attachments": valid_attachments}},
                                 )
 
                             logger.info(
@@ -204,17 +199,10 @@ class MaintenanceService:
             except Exception:
                 query_id = session_id
 
-            session = await sessions_collection.find_one(
-                {"_id": query_id},
-                {"_id": 1, "status": 1, "events": 1}
-            )
+            session = await sessions_collection.find_one({"_id": query_id}, {"_id": 1, "status": 1, "events": 1})
 
             if not session:
-                return {
-                    "session_id": session_id,
-                    "found": False,
-                    "error": "Session not found"
-                }
+                return {"session_id": session_id, "found": False, "error": "Session not found"}
 
             events = session.get("events", [])
 
@@ -227,15 +215,12 @@ class MaintenanceService:
                 "total_attachments": 0,
                 "valid_attachments": 0,
                 "invalid_attachments": 0,
-                "issues": []
+                "issues": [],
             }
 
             for event_idx, event in enumerate(events):
                 if not event:
-                    health["issues"].append({
-                        "event_index": event_idx,
-                        "issue": "Null event"
-                    })
+                    health["issues"].append({"event_index": event_idx, "issue": "Null event"})
                     continue
 
                 attachments = event.get("attachments")
@@ -248,31 +233,37 @@ class MaintenanceService:
                 for att_idx, attachment in enumerate(attachments):
                     if attachment is None:
                         health["invalid_attachments"] += 1
-                        health["issues"].append({
-                            "event_index": event_idx,
-                            "event_type": event.get("type"),
-                            "attachment_index": att_idx,
-                            "issue": "Null attachment"
-                        })
+                        health["issues"].append(
+                            {
+                                "event_index": event_idx,
+                                "event_type": event.get("type"),
+                                "attachment_index": att_idx,
+                                "issue": "Null attachment",
+                            }
+                        )
                     elif not attachment.get("file_id"):
                         health["invalid_attachments"] += 1
-                        health["issues"].append({
-                            "event_index": event_idx,
-                            "event_type": event.get("type"),
-                            "attachment_index": att_idx,
-                            "issue": "Missing file_id",
-                            "filename": attachment.get("filename"),
-                            "file_path": attachment.get("file_path")
-                        })
+                        health["issues"].append(
+                            {
+                                "event_index": event_idx,
+                                "event_type": event.get("type"),
+                                "attachment_index": att_idx,
+                                "issue": "Missing file_id",
+                                "filename": attachment.get("filename"),
+                                "file_path": attachment.get("file_path"),
+                            }
+                        )
                     elif not attachment.get("filename"):
                         health["invalid_attachments"] += 1
-                        health["issues"].append({
-                            "event_index": event_idx,
-                            "event_type": event.get("type"),
-                            "attachment_index": att_idx,
-                            "issue": "Missing filename",
-                            "file_id": attachment.get("file_id")
-                        })
+                        health["issues"].append(
+                            {
+                                "event_index": event_idx,
+                                "event_type": event.get("type"),
+                                "attachment_index": att_idx,
+                                "issue": "Missing filename",
+                                "file_id": attachment.get("file_id"),
+                            }
+                        )
                     else:
                         health["valid_attachments"] += 1
 
@@ -282,11 +273,7 @@ class MaintenanceService:
 
         except Exception as e:
             logger.exception(f"Failed to check session health for {session_id}: {e}")
-            return {
-                "session_id": session_id,
-                "found": False,
-                "error": str(e)
-            }
+            return {"session_id": session_id, "found": False, "error": str(e)}
 
 
 # Factory function for dependency injection

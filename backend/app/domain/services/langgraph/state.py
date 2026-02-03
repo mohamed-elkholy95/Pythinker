@@ -5,8 +5,9 @@ preserving compatibility with existing agent implementations.
 """
 
 import asyncio
-from typing import Annotated, TypedDict
+from typing import Annotated, Any, TypedDict
 
+from app.core.config import get_feature_flags
 from app.domain.models.event import BaseEvent
 from app.domain.models.message import Message
 from app.domain.models.plan import Plan, Step
@@ -97,6 +98,8 @@ class PlanActState(TypedDict, total=False):
     # Reflection state (Phase 2: Enhanced Self-Reflection)
     reflection_decision: str | None  # "continue", "adjust", "replan", "escalate"
     last_had_error: bool
+    # Plan validation state (Phase 1: Pre-validation)
+    plan_validation_failed: bool
 
     # Stuck pattern analysis (Enhanced with OpenHands patterns)
     stuck_analysis: StuckAnalysis | None
@@ -130,6 +133,17 @@ class PlanActState(TypedDict, total=False):
 
     # Real-time event streaming queue (not serialized in checkpoints)
     event_queue: asyncio.Queue | None
+
+    # Feature flags (for rollout control)
+    feature_flags: dict[str, bool]
+
+    # Phase 2: Browser Node Integration
+    # Browser task for autonomous browser agent node
+    browser_task: str | None
+    # CDP URL for browser connection (from sandbox)
+    cdp_url: str | None
+    # Result from browser agent node execution
+    browser_result: Any  # BrowserNodeResult when feature_browser_node enabled
 
 
 def create_initial_state(
@@ -171,51 +185,48 @@ def create_initial_state(
         user_message=message,
         plan=existing_plan,
         current_step=None,
-
         # Session identifiers
         agent_id=agent_id,
         session_id=session_id,
         user_id=user_id,
-
         # Execution tracking
         iteration_count=0,
         max_iterations=max_iterations,
-
         # Verification state
         verification_verdict=None,
         verification_feedback=None,
         verification_loops=0,
         max_verification_loops=max_verification_loops,
-
         # Reflection state
         reflection_decision=None,
         last_had_error=False,
-
+        # Plan validation state
+        plan_validation_failed=False,
         # Error handling
         error=None,
         error_count=0,
-
         # Human-in-the-loop
         needs_human_input=False,
         human_response=None,
-
         # Event accumulator
         pending_events=[],
-
         # Tool tracking
         recent_tools=[],
-
         # Injected agents
         planner=planner,
         executor=executor,
         verifier=verifier,
         reflection_agent=reflection_agent,
         task_state_manager=task_state_manager,
-
         # Flow control
         plan_created=False,
         all_steps_done=False,
-
         # Real-time event streaming
         event_queue=event_queue,
+        # Feature flags
+        feature_flags=get_feature_flags(),
+        # Phase 2: Browser node fields
+        browser_task=None,
+        cdp_url=None,
+        browser_result=None,
     )

@@ -1,9 +1,12 @@
 """LLM Provider Factory
 
 Registry pattern for dynamically selecting LLM providers based on configuration.
-Supports: openai, anthropic, ollama
+Supports: openai (including OpenRouter and other OpenAI-compatible APIs), ollama
 """
+
+import importlib
 import logging
+from typing import ClassVar
 
 from app.core.config import get_settings
 from app.domain.external.llm import LLM
@@ -17,7 +20,8 @@ class LLMProviderRegistry:
     Allows dynamic registration and retrieval of LLM implementations
     based on provider name configuration.
     """
-    _providers: dict[str, type[LLM]] = {}
+
+    _providers: ClassVar[dict[str, type[LLM]]] = {}
 
     @classmethod
     def register(cls, name: str):
@@ -34,10 +38,12 @@ class LLMProviderRegistry:
             class AnthropicLLM(LLM):
                 ...
         """
+
         def decorator(provider_class: type[LLM]) -> type[LLM]:
             cls._providers[name.lower()] = provider_class
             logger.debug(f"Registered LLM provider: {name}")
             return provider_class
+
         return decorator
 
     @classmethod
@@ -79,37 +85,30 @@ def get_llm_from_factory() -> LLM | None:
     """
     # Import providers to register them
 
+    # Import OpenAI-compatible provider (works with OpenRouter, OpenAI, DeepSeek, etc.)
+    try:
+        importlib.import_module("app.infrastructure.external.llm.openai_llm")
+    except ImportError:
+        logger.debug("OpenAI LLM provider not available")
+
     # Try to import optional providers
     try:
-        from app.infrastructure.external.llm.anthropic_llm import AnthropicLLM
-    except ImportError:
-        logger.debug("Anthropic LLM provider not available")
-
-    try:
-        from app.infrastructure.external.llm.ollama_llm import OllamaLLM
+        importlib.import_module("app.infrastructure.external.llm.ollama_llm")
     except ImportError:
         logger.debug("Ollama LLM provider not available")
 
     settings = get_settings()
-    provider = getattr(settings, 'llm_provider', 'openai')
+    provider = getattr(settings, "llm_provider", "openai")
 
     if not provider:
-        provider = 'openai'  # Default to OpenAI-compatible
+        provider = "openai"  # Default to OpenAI-compatible
 
     # Build provider-specific kwargs
     kwargs = {}
 
-    if provider == "anthropic":
-        if not settings.anthropic_api_key:
-            logger.warning("Anthropic not configured: missing API key, falling back to OpenAI")
-            provider = "openai"
-        else:
-            kwargs["api_key"] = settings.anthropic_api_key
-            kwargs["model_name"] = getattr(settings, 'anthropic_model_name', 'claude-sonnet-4-20250514')
-
-    elif provider == "ollama":
-        kwargs["base_url"] = getattr(settings, 'ollama_base_url', 'http://localhost:11434')
-        kwargs["model_name"] = getattr(settings, 'ollama_model', 'llama3.2')
+    if provider == "ollama":
+        kwargs["base_url"] = getattr(settings, "ollama_base_url", "http://localhost:11434")
+        kwargs["model_name"] = getattr(settings, "ollama_model", "llama3.2")
 
     logger.info(f"Initializing LLM: {provider}")
     return LLMProviderRegistry.get(provider, **kwargs)

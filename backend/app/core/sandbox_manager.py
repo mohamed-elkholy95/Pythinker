@@ -15,6 +15,7 @@ import docker
 import httpx
 from docker.models.containers import Container
 
+from app.core.async_utils import gather_compat
 from app.core.config import get_settings
 from app.core.error_manager import (
     CircuitBreaker,
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 class SandboxState(str, Enum):
     """Sandbox states"""
+
     CREATING = "creating"
     STARTING = "starting"
     HEALTHY = "healthy"
@@ -41,6 +43,7 @@ class SandboxState(str, Enum):
 @dataclass
 class SandboxHealth:
     """Sandbox health status"""
+
     api_responsive: bool = False
     browser_responsive: bool = False
     vnc_responsive: bool = False
@@ -55,6 +58,7 @@ class SandboxHealth:
 @dataclass
 class SandboxMetrics:
     """Sandbox performance metrics"""
+
     creation_time: float = 0.0
     startup_time: float = 0.0
     health_check_failures: int = 0
@@ -71,12 +75,9 @@ class EnhancedSandboxManager:
         self._circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=60)
         self._health_check_interval = 30  # seconds
         self._max_recovery_attempts = 3
+        self._background_tasks: set[asyncio.Task] = set()
 
-    @error_handler(
-        severity=ErrorSeverity.CRITICAL,
-        category=ErrorCategory.SANDBOX,
-        auto_recover=True
-    )
+    @error_handler(severity=ErrorSeverity.CRITICAL, category=ErrorCategory.SANDBOX, auto_recover=True)
     async def create_sandbox(self, session_id: str) -> Optional["ManagedSandbox"]:
         """Create a new sandbox with comprehensive error handling"""
 
@@ -89,7 +90,7 @@ class EnhancedSandboxManager:
             operation="create_sandbox",
             session_id=session_id,
             category=ErrorCategory.SANDBOX,
-            severity=ErrorSeverity.CRITICAL
+            severity=ErrorSeverity.CRITICAL,
         ):
             start_time = time.time()
 
@@ -105,7 +106,9 @@ class EnhancedSandboxManager:
                 self._sandboxes[session_id] = sandbox
 
                 # Start health monitoring
-                asyncio.create_task(self._monitor_sandbox_health(sandbox))
+                task = asyncio.create_task(self._monitor_sandbox_health(sandbox))
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
 
                 self._circuit_breaker.record_success()
                 logger.info(f"Sandbox created successfully for session {session_id}")
@@ -133,11 +136,7 @@ class EnhancedSandboxManager:
         # Create new sandbox
         return await self.create_sandbox(session_id)
 
-    @error_handler(
-        severity=ErrorSeverity.MEDIUM,
-        category=ErrorCategory.SANDBOX,
-        auto_recover=False
-    )
+    @error_handler(severity=ErrorSeverity.MEDIUM, category=ErrorCategory.SANDBOX, auto_recover=False)
     async def destroy_sandbox(self, session_id: str) -> bool:
         """Destroy sandbox with error handling"""
         sandbox = self._sandboxes.get(session_id)
@@ -229,7 +228,8 @@ class EnhancedSandboxManager:
             "healthy_sandboxes": healthy_sandboxes,
             "unhealthy_sandboxes": total_sandboxes - healthy_sandboxes,
             "circuit_breaker_state": self._circuit_breaker.state,
-            "average_creation_time": sum(s.metrics.creation_time for s in self._sandboxes.values()) / max(total_sandboxes, 1)
+            "average_creation_time": sum(s.metrics.creation_time for s in self._sandboxes.values())
+            / max(total_sandboxes, 1),
         }
 
 
@@ -258,6 +258,7 @@ class ManagedSandbox:
 
             # Generate container name
             import uuid
+
             self.container_name = f"{self.manager.settings.sandbox_name_prefix}-{str(uuid.uuid4())[:8]}"
 
             # Create Docker client
@@ -274,10 +275,7 @@ class ManagedSandbox:
             self.ip_address = self._get_container_ip()
 
             # Initialize API client
-            self.api_client = httpx.AsyncClient(
-                base_url=f"http://{self.ip_address}:8080",
-                timeout=30.0
-            )
+            self.api_client = httpx.AsyncClient(base_url=f"http://{self.ip_address}:8080", timeout=30.0)
 
             # Wait for services to start
             self.state = SandboxState.STARTING
@@ -310,7 +308,7 @@ class ManagedSandbox:
             "tmpfs": {
                 "/run": "size=100M,nosuid,nodev",
                 "/tmp": "size=500M,nosuid,nodev",
-                "/home/ubuntu/.cache": "size=200M,nosuid,nodev"
+                "/home/ubuntu/.cache": "size=200M,nosuid,nodev",
             },
             "shm_size": settings.sandbox_shm_size,
             "mem_limit": settings.sandbox_mem_limit,
@@ -321,14 +319,14 @@ class ManagedSandbox:
 
     def _get_container_ip(self) -> str:
         """Get container IP address"""
-        network_settings = self.container.attrs.get('NetworkSettings', {})
-        ip_address = network_settings.get('IPAddress', '')
+        network_settings = self.container.attrs.get("NetworkSettings", {})
+        ip_address = network_settings.get("IPAddress", "")
 
-        if not ip_address and 'Networks' in network_settings:
-            networks = network_settings['Networks']
+        if not ip_address and "Networks" in network_settings:
+            networks = network_settings["Networks"]
             for network_config in networks.values():
-                if network_config.get('IPAddress'):
-                    ip_address = network_config['IPAddress']
+                if network_config.get("IPAddress"):
+                    ip_address = network_config["IPAddress"]
                     break
 
         if not ip_address:
@@ -354,9 +352,16 @@ class ManagedSandbox:
 
         Phase 3 enhancement: Run all health checks concurrently to reduce
         total check time from ~15s (sequential) to ~2-3s (parallel).
+
+        Phase 1 (Agent Enhancement): Uses TaskGroup-based gather when feature flag
+        is enabled for better cancellation and exception handling.
         """
         try:
             self.health.last_check = datetime.now()
+
+            # Check if TaskGroup feature is enabled
+            settings = get_settings()
+            use_taskgroup = settings.feature_taskgroup_enabled
 
             # Run all health checks in parallel for faster response
             api_task = asyncio.create_task(self._check_api_health())
@@ -364,8 +369,9 @@ class ManagedSandbox:
             vnc_task = asyncio.create_task(self._check_vnc_health())
 
             # Wait for all checks with individual exception handling
-            results = await asyncio.gather(
-                api_task, browser_task, vnc_task, return_exceptions=True
+            # Use TaskGroup-based gather if feature flag enabled
+            results = await gather_compat(
+                api_task, browser_task, vnc_task, return_exceptions=True, use_taskgroup=use_taskgroup
             )
 
             # Process results (handle exceptions as False)
@@ -416,10 +422,7 @@ class ManagedSandbox:
         """
         try:
             # Simple TCP connection check
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(self.ip_address, 5900),
-                timeout=2.0
-            )
+            _reader, writer = await asyncio.wait_for(asyncio.open_connection(self.ip_address, 5900), timeout=2.0)
             writer.close()
             await writer.wait_closed()
             return True

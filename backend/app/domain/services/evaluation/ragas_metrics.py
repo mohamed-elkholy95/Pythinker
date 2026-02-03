@@ -46,6 +46,8 @@ class EvalMetricType(str, Enum):
     TOOL_SELECTION_ACCURACY = "tool_selection_accuracy"
     RESPONSE_COMPLETENESS = "response_completeness"
     HALLUCINATION_SCORE = "hallucination_score"
+    DATA_SYMMETRY = "data_symmetry"  # Added for comparison consistency
+    COMPARISON_CONSISTENCY = "comparison_consistency"  # Checks metric types match
 
 
 @dataclass
@@ -97,6 +99,61 @@ class ToolSelectionResult(EvalResult):
 
 
 @dataclass
+class ComparisonItem:
+    """An item being compared with its metric information."""
+
+    name: str
+    metric_value: str | None = None
+    metric_type: str = "none"  # "quantitative", "qualitative", or "none"
+    metric_name: str | None = None  # e.g., "MMLU", "response time"
+
+
+@dataclass
+class AsymmetryIssue:
+    """A detected data asymmetry issue in a comparison."""
+
+    item_a: ComparisonItem
+    item_b: ComparisonItem
+    issue_description: str
+    severity: str = "major"  # "critical", "major", "minor"
+
+
+@dataclass
+class DataSymmetryResult(EvalResult):
+    """Specialized result for data symmetry evaluation.
+
+    Data symmetry ensures that comparisons use equivalent metrics:
+    - If Model A has "92% on MMLU", Model B should have an MMLU score too
+    - Mixing quantitative (numbers) with qualitative (descriptions) is asymmetric
+    """
+
+    comparison_items: list[ComparisonItem] = field(default_factory=list)
+    asymmetry_issues: list[AsymmetryIssue] = field(default_factory=list)
+    symmetric_comparisons: int = 0
+    total_comparisons: int = 0
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.details = {
+            "comparison_items": [
+                {"name": c.name, "metric_type": c.metric_type, "metric_value": c.metric_value}
+                for c in self.comparison_items
+            ],
+            "asymmetry_issues": [
+                {
+                    "item_a": i.item_a.name,
+                    "item_b": i.item_b.name,
+                    "issue": i.issue_description,
+                    "severity": i.severity,
+                }
+                for i in self.asymmetry_issues
+            ],
+            "symmetric_comparisons": self.symmetric_comparisons,
+            "total_comparisons": self.total_comparisons,
+        }
+
+
+@dataclass
 class EvaluationBatch:
     """Batch of evaluation results for aggregate analysis."""
 
@@ -137,8 +194,7 @@ class LLMClientProtocol(Protocol):
         self,
         messages: list[dict[str, str]],
         **kwargs,
-    ) -> dict[str, Any]:
-        ...
+    ) -> dict[str, Any]: ...
 
 
 class EvaluatorInterface(ABC):
@@ -289,12 +345,8 @@ Respond with JSON:
         threshold = threshold or self.default_threshold
 
         if self.use_llm_evaluation and self.llm_client:
-            return await self._evaluate_faithfulness_llm(
-                question, answer, context, threshold
-            )
-        return self._evaluate_faithfulness_heuristic(
-            question, answer, context, threshold
-        )
+            return await self._evaluate_faithfulness_llm(question, answer, context, threshold)
+        return self._evaluate_faithfulness_heuristic(question, answer, context, threshold)
 
     async def _evaluate_faithfulness_llm(
         self,
@@ -333,9 +385,7 @@ Respond with JSON:
 
         except Exception as e:
             logger.warning(f"LLM faithfulness evaluation failed: {e}")
-            return self._evaluate_faithfulness_heuristic(
-                question, answer, context, threshold
-            )
+            return self._evaluate_faithfulness_heuristic(question, answer, context, threshold)
 
     def _evaluate_faithfulness_heuristic(
         self,
@@ -352,8 +402,8 @@ Respond with JSON:
         answer_lower = answer.lower()
 
         # Extract key terms from answer
-        answer_words = set(re.findall(r'\b\w{4,}\b', answer_lower))
-        context_words = set(re.findall(r'\b\w{4,}\b', context_text))
+        answer_words = set(re.findall(r"\b\w{4,}\b", answer_lower))
+        context_words = set(re.findall(r"\b\w{4,}\b", context_text))
 
         if not answer_words:
             return EvalResult(
@@ -369,12 +419,10 @@ Respond with JSON:
 
         # Check for specific factual claims in answer
         # Simple check: numbers and proper nouns should appear in context
-        numbers_in_answer = set(re.findall(r'\b\d+(?:\.\d+)?\b', answer))
-        numbers_in_context = set(re.findall(r'\b\d+(?:\.\d+)?\b', " ".join(context)))
+        numbers_in_answer = set(re.findall(r"\b\d+(?:\.\d+)?\b", answer))
+        numbers_in_context = set(re.findall(r"\b\d+(?:\.\d+)?\b", " ".join(context)))
         number_overlap = (
-            len(numbers_in_answer & numbers_in_context) / len(numbers_in_answer)
-            if numbers_in_answer
-            else 1.0
+            len(numbers_in_answer & numbers_in_context) / len(numbers_in_answer) if numbers_in_answer else 1.0
         )
 
         # Combine scores
@@ -462,9 +510,9 @@ Respond with JSON:
         answer_lower = answer.lower()
 
         # Extract question type
-        is_what_question = question_lower.startswith("what")
-        is_how_question = question_lower.startswith("how")
-        is_why_question = question_lower.startswith("why")
+        question_lower.startswith("what")
+        question_lower.startswith("how")
+        question_lower.startswith("why")
         is_yes_no = question_lower.startswith(("is ", "are ", "does ", "do ", "can ", "will "))
 
         # Check if answer addresses the question type
@@ -472,14 +520,13 @@ Respond with JSON:
         if is_yes_no:
             # Should start with yes/no or contain affirmative/negative
             has_yes_no = any(
-                word in answer_lower.split()[:10]
-                for word in ["yes", "no", "correct", "incorrect", "true", "false"]
+                word in answer_lower.split()[:10] for word in ["yes", "no", "correct", "incorrect", "true", "false"]
             )
             addresses_question = has_yes_no
 
         # Check keyword overlap between question and answer
-        question_words = set(re.findall(r'\b\w{4,}\b', question_lower))
-        answer_words = set(re.findall(r'\b\w{4,}\b', answer_lower))
+        question_words = set(re.findall(r"\b\w{4,}\b", question_lower))
+        answer_words = set(re.findall(r"\b\w{4,}\b", answer_lower))
         stopwords = {"what", "where", "when", "which", "would", "could", "should", "have", "this", "that", "with"}
         question_words -= stopwords
 
@@ -533,18 +580,12 @@ Respond with JSON:
 
         # If expected tools provided, use exact matching
         if expected_tools:
-            return self._evaluate_tool_selection_exact(
-                task, available_tools, selected_tools, expected_tools, threshold
-            )
+            return self._evaluate_tool_selection_exact(task, available_tools, selected_tools, expected_tools, threshold)
 
         # Otherwise, use LLM or heuristic evaluation
         if self.use_llm_evaluation and self.llm_client:
-            return await self._evaluate_tool_selection_llm(
-                task, available_tools, selected_tools, threshold
-            )
-        return self._evaluate_tool_selection_heuristic(
-            task, available_tools, selected_tools, threshold
-        )
+            return await self._evaluate_tool_selection_llm(task, available_tools, selected_tools, threshold)
+        return self._evaluate_tool_selection_heuristic(task, available_tools, selected_tools, threshold)
 
     def _evaluate_tool_selection_exact(
         self,
@@ -566,10 +607,7 @@ Respond with JSON:
         precision = len(correct) / len(selected_set) if selected_set else 0.0
         recall = len(correct) / len(expected_set) if expected_set else 1.0
 
-        if precision + recall > 0:
-            score = 2 * (precision * recall) / (precision + recall)
-        else:
-            score = 0.0
+        score = 2 * (precision * recall) / (precision + recall) if precision + recall > 0 else 0.0
 
         return ToolSelectionResult(
             metric_type=EvalMetricType.TOOL_SELECTION_ACCURACY,
@@ -621,9 +659,7 @@ Respond with JSON:
 
         except Exception as e:
             logger.warning(f"LLM tool selection evaluation failed: {e}")
-            return self._evaluate_tool_selection_heuristic(
-                task, available_tools, selected_tools, threshold
-            )
+            return self._evaluate_tool_selection_heuristic(task, available_tools, selected_tools, threshold)
 
     def _evaluate_tool_selection_heuristic(
         self,
@@ -653,14 +689,12 @@ Respond with JSON:
         # Infer expected tools from task
         expected = []
         for tool, keywords in tool_keywords.items():
-            if tool in available_tools:
-                if any(kw in task_lower for kw in keywords):
-                    expected.append(tool)
+            if tool in available_tools and any(kw in task_lower for kw in keywords):
+                expected.append(tool)
 
         # Default to shell if task mentions running/executing
-        if not expected and any(kw in task_lower for kw in ["run", "execute"]):
-            if "shell_execute" in available_tools:
-                expected = ["shell_execute"]
+        if not expected and any(kw in task_lower for kw in ["run", "execute"]) and "shell_execute" in available_tools:
+            expected = ["shell_execute"]
 
         if not expected:
             # Can't infer expectations, give partial credit if tools were selected
@@ -677,9 +711,7 @@ Respond with JSON:
                 unnecessary_tools=[],
             )
 
-        return self._evaluate_tool_selection_exact(
-            task, available_tools, selected_tools, expected, threshold
-        )
+        return self._evaluate_tool_selection_exact(task, available_tools, selected_tools, expected, threshold)
 
     async def evaluate_context_relevance(
         self,
@@ -703,8 +735,8 @@ Respond with JSON:
         question_lower = question.lower()
         context_text = " ".join(context).lower()
 
-        question_words = set(re.findall(r'\b\w{4,}\b', question_lower))
-        context_words = set(re.findall(r'\b\w{4,}\b', context_text))
+        question_words = set(re.findall(r"\b\w{4,}\b", question_lower))
+        context_words = set(re.findall(r"\b\w{4,}\b", context_text))
 
         stopwords = {"what", "where", "when", "which", "would", "could", "should", "have", "this", "that"}
         question_words -= stopwords
@@ -752,29 +784,23 @@ Respond with JSON:
         """
         threshold = threshold or self.default_threshold
 
-        context_text = " ".join(context).lower()
-        answer_lower = answer.lower()
+        " ".join(context).lower()
+        answer.lower()
 
         # Check for specific factual claims that should be grounded
         # Numbers, dates, proper nouns
 
         # Extract numbers from answer
-        answer_numbers = set(re.findall(r'\b\d+(?:[.,]\d+)?\b', answer))
-        context_numbers = set(re.findall(r'\b\d+(?:[.,]\d+)?\b', " ".join(context)))
+        answer_numbers = set(re.findall(r"\b\d+(?:[.,]\d+)?\b", answer))
+        context_numbers = set(re.findall(r"\b\d+(?:[.,]\d+)?\b", " ".join(context)))
 
         # Extract potential proper nouns (capitalized words not at sentence start)
-        answer_caps = set(re.findall(r'(?<!^)(?<!\. )[A-Z][a-z]+', answer))
-        context_caps = set(re.findall(r'(?<!^)(?<!\. )[A-Z][a-z]+', " ".join(context)))
+        answer_caps = set(re.findall(r"(?<!^)(?<!\. )[A-Z][a-z]+", answer))
+        context_caps = set(re.findall(r"(?<!^)(?<!\. )[A-Z][a-z]+", " ".join(context)))
 
         # Calculate grounding scores
-        number_grounding = (
-            len(answer_numbers & context_numbers) / len(answer_numbers)
-            if answer_numbers
-            else 1.0
-        )
-        name_grounding = (
-            len(answer_caps & context_caps) / len(answer_caps) if answer_caps else 1.0
-        )
+        number_grounding = len(answer_numbers & context_numbers) / len(answer_numbers) if answer_numbers else 1.0
+        name_grounding = len(answer_caps & context_caps) / len(answer_caps) if answer_caps else 1.0
 
         # Combined score (higher = less hallucination)
         score = 0.5 * number_grounding + 0.5 * name_grounding
@@ -793,9 +819,7 @@ Respond with JSON:
             score=score,
             threshold=threshold,
             reasoning=(
-                "No hallucination indicators"
-                if not hallucination_indicators
-                else "; ".join(hallucination_indicators)
+                "No hallucination indicators" if not hallucination_indicators else "; ".join(hallucination_indicators)
             ),
             details={
                 "number_grounding": number_grounding,
@@ -804,6 +828,211 @@ Respond with JSON:
                 "ungrounded_names": list(ungrounded_names),
             },
         )
+
+    async def evaluate_data_symmetry(
+        self,
+        answer: str,
+        threshold: float | None = None,
+    ) -> DataSymmetryResult:
+        """Evaluate data symmetry in comparative content.
+
+        Data symmetry ensures that when comparing items, the same types of
+        metrics are used across all items. This prevents misleading comparisons like:
+        - "Model A: 92% on MMLU" vs "Model B: Strong reasoning capabilities"
+
+        Asymmetric comparisons are a form of unintentional hallucination where
+        the agent provides quantitative data for some items but qualitative
+        descriptions for others, making the comparison misleading.
+
+        Args:
+            answer: The content to analyze for comparison symmetry
+            threshold: Custom passing threshold
+
+        Returns:
+            DataSymmetryResult with symmetry analysis
+        """
+        threshold = threshold or self.default_threshold
+
+        # Detect comparisons and extract items
+        comparison_items = self._extract_comparison_items(answer)
+
+        if len(comparison_items) < 2:
+            # No comparison detected
+            return DataSymmetryResult(
+                metric_type=EvalMetricType.DATA_SYMMETRY,
+                score=1.0,
+                threshold=threshold,
+                reasoning="No comparative content detected",
+                comparison_items=[],
+                asymmetry_issues=[],
+                symmetric_comparisons=0,
+                total_comparisons=0,
+            )
+
+        # Analyze symmetry between items
+        asymmetry_issues = []
+        symmetric_count = 0
+        total_comparisons = 0
+
+        # Group items by metric type
+        quant_items = [c for c in comparison_items if c.metric_type == "quantitative"]
+        qual_items = [c for c in comparison_items if c.metric_type == "qualitative"]
+        none_items = [c for c in comparison_items if c.metric_type == "none"]
+
+        # Check for asymmetry: items with quantitative metrics vs items with only qualitative
+        if quant_items and qual_items:
+            for quant in quant_items:
+                for qual in qual_items:
+                    total_comparisons += 1
+                    issue = AsymmetryIssue(
+                        item_a=quant,
+                        item_b=qual,
+                        issue_description=(
+                            f"{quant.name} has quantitative metric ({quant.metric_value}) "
+                            f"but {qual.name} has only qualitative description ({qual.metric_value})"
+                        ),
+                        severity="critical" if quant.metric_name else "major",
+                    )
+                    asymmetry_issues.append(issue)
+
+        # Check for asymmetry: items with metrics vs items with no metrics
+        if (quant_items or qual_items) and none_items:
+            for item_with_metric in quant_items + qual_items:
+                for no_metric in none_items:
+                    total_comparisons += 1
+                    asymmetry_issues.append(
+                        AsymmetryIssue(
+                            item_a=item_with_metric,
+                            item_b=no_metric,
+                            issue_description=(
+                                f"{item_with_metric.name} has metric but "
+                                f"{no_metric.name} has no comparable information"
+                            ),
+                            severity="major",
+                        )
+                    )
+
+        # Count symmetric comparisons (same metric types)
+        if len(quant_items) > 1:
+            # Check if they use the same metric name
+            metric_names = {c.metric_name for c in quant_items if c.metric_name}
+            if len(metric_names) <= 1:  # Same or no metric name
+                symmetric_count += len(quant_items) * (len(quant_items) - 1) // 2
+                total_comparisons += symmetric_count
+
+        # Calculate score
+        if total_comparisons == 0:
+            score = 1.0
+        else:
+            asymmetric_count = len(asymmetry_issues)
+            # Weight critical issues more heavily
+            critical_count = sum(1 for i in asymmetry_issues if i.severity == "critical")
+            weighted_asymmetric = asymmetric_count + critical_count  # Double-count critical
+            score = max(0.0, 1.0 - (weighted_asymmetric / (total_comparisons + weighted_asymmetric)))
+
+        reasoning_parts = []
+        if asymmetry_issues:
+            critical = [i for i in asymmetry_issues if i.severity == "critical"]
+            if critical:
+                reasoning_parts.append(f"{len(critical)} critical asymmetry issues")
+            reasoning_parts.append(f"{len(asymmetry_issues)} total asymmetry issues found")
+        else:
+            reasoning_parts.append("All comparisons use consistent metric types")
+
+        return DataSymmetryResult(
+            metric_type=EvalMetricType.DATA_SYMMETRY,
+            score=score,
+            threshold=threshold,
+            reasoning="; ".join(reasoning_parts),
+            comparison_items=comparison_items,
+            asymmetry_issues=asymmetry_issues,
+            symmetric_comparisons=symmetric_count,
+            total_comparisons=total_comparisons,
+        )
+
+    def _extract_comparison_items(self, text: str) -> list[ComparisonItem]:
+        """Extract items being compared from text.
+
+        Looks for patterns like:
+        - "Model A: 92% on MMLU" -> ComparisonItem("Model A", "92%", "quantitative", "MMLU")
+        - "Model B: Strong reasoning" -> ComparisonItem("Model B", "Strong reasoning", "qualitative")
+
+        Args:
+            text: Text to analyze
+
+        Returns:
+            List of comparison items found
+        """
+        items = []
+
+        # Pattern 1: "Name: value" or "Name: description" patterns
+        # This captures "Claude: 92.0% on MMLU" type patterns
+        named_patterns = [
+            # Name: number% on/in Benchmark
+            (r"([A-Z][a-zA-Z0-9\-\s]{1,30}):\s*(\d+(?:\.\d+)?%)\s*(?:on|in|for)?\s*([A-Z][A-Za-z0-9\-]+)?",
+             "quantitative"),
+            # Name: number (with units)
+            (r"([A-Z][a-zA-Z0-9\-\s]{1,30}):\s*(\d+(?:\.\d+)?(?:ms|s|MB|GB|K|M|B)?)",
+             "quantitative"),
+            # Name: Qualitative description (capitalized words)
+            (r"([A-Z][a-zA-Z0-9\-\s]{1,30}):\s*([A-Z][a-z]+(?:\s+[a-z]+){0,5}(?:capabilities|performance|support|features|handling|reasoning|quality)?)",
+             "qualitative"),
+        ]
+
+        seen_names = set()
+
+        for pattern, metric_type in named_patterns:
+            for match in re.finditer(pattern, text):
+                name = match.group(1).strip()
+                value = match.group(2).strip()
+                benchmark = match.group(3) if len(match.groups()) > 2 and match.group(3) else None
+
+                # Avoid duplicates
+                name_lower = name.lower()
+                if name_lower in seen_names:
+                    continue
+                seen_names.add(name_lower)
+
+                items.append(ComparisonItem(
+                    name=name,
+                    metric_value=value,
+                    metric_type=metric_type,
+                    metric_name=benchmark,
+                ))
+
+        # Pattern 2: Table-based comparisons (| Name | Value |)
+        table_row_pattern = r"\|\s*([A-Za-z0-9\-\s]+)\s*\|\s*([^|]+)\s*\|"
+        for match in re.finditer(table_row_pattern, text):
+            name = match.group(1).strip()
+            value = match.group(2).strip()
+
+            # Skip header rows and empty values
+            if name.lower() in ["model", "name", "item", "feature", "---", "----"]:
+                continue
+            if not value or value == "-" or value.startswith("---"):
+                continue
+
+            name_lower = name.lower()
+            if name_lower in seen_names:
+                continue
+            seen_names.add(name_lower)
+
+            # Determine metric type
+            is_quantitative = bool(re.search(r"\d+(?:\.\d+)?", value))
+            metric_type = "quantitative" if is_quantitative else "qualitative"
+
+            # Extract benchmark name if present
+            benchmark_match = re.search(r"(?:on|in)\s+([A-Z][A-Za-z0-9]+)", value)
+            benchmark = benchmark_match.group(1) if benchmark_match else None
+
+            items.append(ComparisonItem(
+                name=name,
+                metric_value=value[:50],  # Truncate long values
+                metric_type=metric_type,
+                metric_name=benchmark,
+            ))
+
+        return items
 
     async def evaluate_all(
         self,
@@ -840,6 +1069,10 @@ Respond with JSON:
         hallucination = await self.evaluate_hallucination(answer, context)
         results.append(hallucination)
 
+        # Data symmetry for comparative content
+        data_symmetry = await self.evaluate_data_symmetry(answer)
+        results.append(data_symmetry)
+
         # Tool selection if applicable
         if selected_tools is not None and available_tools is not None:
             tool_eval = await self.evaluate_tool_selection(
@@ -866,7 +1099,7 @@ Respond with JSON:
             return json.loads(content)
         except json.JSONDecodeError:
             # Try to extract JSON from the content
-            json_match = re.search(r'\{[^{}]*\}', content, re.DOTALL)
+            json_match = re.search(r"\{[^{}]*\}", content, re.DOTALL)
             if json_match:
                 try:
                     return json.loads(json_match.group())

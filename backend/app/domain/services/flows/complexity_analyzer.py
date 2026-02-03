@@ -64,24 +64,56 @@ For "branch_strategies", provide 2-3 distinct approach descriptions.
 
 # Heuristic patterns for quick complexity detection
 SIMPLE_PATTERNS = [
-    "read ", "show ", "display ", "print ", "list ", "get ", "what is",
-    "tell me ", "explain ", "define ", "describe "
+    "read ",
+    "show ",
+    "display ",
+    "print ",
+    "list ",
+    "get ",
+    "what is",
+    "tell me ",
+    "explain ",
+    "define ",
+    "describe ",
 ]
 
 MODERATE_PATTERNS = [
-    "create ", "write ", "make ", "build a simple", "add ", "update ",
-    "change ", "modify ", "fix ", "edit "
+    "create ",
+    "write ",
+    "make ",
+    "build a simple",
+    "add ",
+    "update ",
+    "change ",
+    "modify ",
+    "fix ",
+    "edit ",
 ]
 
 COMPLEX_PATTERNS = [
-    "compare ", "analyze ", "investigate ", "research ", "evaluate ",
-    "design ", "architect ", "optimize ", "refactor ", "implement complex",
-    "build a system", "create a framework"
+    "compare ",
+    "analyze ",
+    "investigate ",
+    "research ",
+    "evaluate ",
+    "design ",
+    "architect ",
+    "optimize ",
+    "refactor ",
+    "implement complex",
+    "build a system",
+    "create a framework",
 ]
 
 RESEARCH_PATTERNS = [
-    "find the best", "compare options", "research ", "which is better",
-    "investigate ", "explore alternatives", "survey ", "review "
+    "find the best",
+    "compare options",
+    "research ",
+    "which is better",
+    "investigate ",
+    "explore alternatives",
+    "survey ",
+    "review ",
 ]
 
 
@@ -95,12 +127,7 @@ class TaskComplexityAnalyzer:
     This enables intelligent routing between linear and multi-path execution.
     """
 
-    def __init__(
-        self,
-        llm: LLM,
-        json_parser: JsonParser,
-        config: TreeOfThoughtsConfig | None = None
-    ):
+    def __init__(self, llm: LLM, json_parser: JsonParser, config: TreeOfThoughtsConfig | None = None):
         """Initialize the analyzer.
 
         Args:
@@ -124,15 +151,14 @@ class TaskComplexityAnalyzer:
         task_lower = task.lower()
 
         # Check for simple patterns
-        if any(pattern in task_lower for pattern in SIMPLE_PATTERNS):
-            if len(task.split()) < 15:  # Short, simple request
-                return ComplexityAnalysis(
-                    complexity=TaskComplexity.SIMPLE,
-                    confidence=0.9,
-                    branching_decision=BranchingDecision.LINEAR,
-                    reasoning="Simple task detected via pattern matching",
-                    estimated_steps=2
-                )
+        if any(pattern in task_lower for pattern in SIMPLE_PATTERNS) and len(task.split()) < 15:
+            return ComplexityAnalysis(
+                complexity=TaskComplexity.SIMPLE,
+                confidence=0.9,
+                branching_decision=BranchingDecision.LINEAR,
+                reasoning="Simple task detected via pattern matching",
+                estimated_steps=2,
+            )
 
         # Check for research patterns
         if any(pattern in task_lower for pattern in RESEARCH_PATTERNS):
@@ -143,10 +169,10 @@ class TaskComplexityAnalyzer:
                 suggested_strategies=[
                     "Web search + official sources",
                     "Multiple search engines comparison",
-                    "User reviews + expert opinions"
+                    "User reviews + expert opinions",
                 ],
                 reasoning="Research task detected, multiple sources recommended",
-                estimated_steps=5
+                estimated_steps=5,
             )
 
         # Check for complex patterns
@@ -156,7 +182,7 @@ class TaskComplexityAnalyzer:
                 confidence=0.75,
                 branching_decision=BranchingDecision.BRANCH_STRATEGIES,
                 reasoning="Complex task detected, may benefit from multiple approaches",
-                estimated_steps=7
+                estimated_steps=7,
             )
 
         # Check for moderate patterns
@@ -166,18 +192,13 @@ class TaskComplexityAnalyzer:
                 confidence=0.8,
                 branching_decision=BranchingDecision.LINEAR,
                 reasoning="Moderate task with clear approach",
-                estimated_steps=4
+                estimated_steps=4,
             )
 
         # Can't determine with heuristics
         return None
 
-    async def analyze(
-        self,
-        task: str,
-        context: str = "",
-        tools_summary: str = ""
-    ) -> ComplexityAnalysis:
+    async def analyze(self, task: str, context: str = "", tools_summary: str = "") -> ComplexityAnalysis:
         """Analyze task complexity using LLM when heuristics insufficient.
 
         Args:
@@ -192,8 +213,7 @@ class TaskComplexityAnalyzer:
         quick_result = self.quick_analyze(task)
         if quick_result and quick_result.confidence >= 0.85:
             logger.debug(
-                f"Quick complexity analysis: {quick_result.complexity.value} "
-                f"(confidence: {quick_result.confidence})"
+                f"Quick complexity analysis: {quick_result.complexity.value} (confidence: {quick_result.confidence})"
             )
             return quick_result
 
@@ -204,17 +224,12 @@ class TaskComplexityAnalyzer:
             prompt = COMPLEXITY_ANALYSIS_PROMPT.format(
                 task_description=task,
                 context=context or "No additional context",
-                tools_summary=tools_summary or "Standard web, file, and browser tools"
+                tools_summary=tools_summary or "Standard web, file, and browser tools",
             )
 
-            messages = [
-                {"role": "user", "content": prompt}
-            ]
+            messages = [{"role": "user", "content": prompt}]
 
-            response = await self.llm.ask(
-                messages=messages,
-                response_format={"type": "json_object"}
-            )
+            response = await self.llm.ask(messages=messages, response_format={"type": "json_object"})
 
             content = response.get("content", "")
             parsed = await self.json_parser.parse(content)
@@ -239,7 +254,7 @@ class TaskComplexityAnalyzer:
                 branching_decision=branching,
                 suggested_strategies=parsed.get("suggested_strategies", []),
                 reasoning=parsed.get("reasoning", ""),
-                estimated_steps=int(parsed.get("estimated_steps", 5))
+                estimated_steps=int(parsed.get("estimated_steps", 5)),
             )
 
         except Exception as e:
@@ -249,7 +264,7 @@ class TaskComplexityAnalyzer:
                 complexity=TaskComplexity.MODERATE,
                 confidence=0.5,
                 branching_decision=BranchingDecision.LINEAR,
-                reasoning=f"Analysis error, defaulting to linear: {str(e)[:50]}"
+                reasoning=f"Analysis error, defaulting to linear: {str(e)[:50]}",
             )
 
     def should_use_tot(self, analysis: ComplexityAnalysis) -> bool:
@@ -273,9 +288,7 @@ class TaskComplexityAnalyzer:
         }
 
         task_level = complexity_order.get(analysis.complexity, 0)
-        threshold_level = complexity_order.get(
-            self.config.complexity_threshold, 2
-        )
+        threshold_level = complexity_order.get(self.config.complexity_threshold, 2)
 
         if task_level < threshold_level:
             return False
@@ -284,9 +297,7 @@ class TaskComplexityAnalyzer:
         return analysis.should_branch()
 
     def get_strategy_plans(
-        self,
-        analysis: ComplexityAnalysis,
-        max_strategies: int = None
+        self, analysis: ComplexityAnalysis, max_strategies: int | None = None
     ) -> list[dict[str, Any]]:
         """Generate plan templates for each suggested strategy.
 

@@ -1,9 +1,10 @@
 import asyncio
+import contextlib
 import logging
 import random
 import re
 import time
-from typing import Any
+from typing import Any, ClassVar
 
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 from playwright.async_api import Error as PlaywrightError
@@ -427,10 +428,8 @@ class PlaywrightBrowser:
             return False
         finally:
             if cdp_session:
-                try:
+                with contextlib.suppress(Exception):
                     await cdp_session.detach()
-                except Exception:
-                    pass
 
     async def _new_page_with_bounds(self, context: BrowserContext | None = None) -> Page:
         """Create a new page with proper window positioning for VNC display.
@@ -845,10 +844,8 @@ class PlaywrightBrowser:
                 for page in pages[1:]:
                     try:
                         if not page.is_closed():
-                            try:
+                            with contextlib.suppress(Exception):
                                 await page.goto("about:blank", timeout=5000)
-                            except Exception:
-                                pass
                             await page.close()
                             logger.debug("Closed additional page/window")
                     except Exception as e:
@@ -1643,10 +1640,8 @@ class PlaywrightBrowser:
             try:
                 # Smart scroll even after timeout to load lazy content
                 if auto_extract:
-                    try:
+                    with contextlib.suppress(Exception):
                         await self._smart_scroll_for_lazy_content(max_scrolls=2, scroll_delay=0.3)
-                    except Exception:
-                        pass
 
                 interactive_elements = await self._extract_interactive_elements()
 
@@ -2229,7 +2224,7 @@ class PlaywrightBrowser:
 
             # Get initial metrics for lazy loading detection
             initial_height = await self.page.evaluate("document.body.scrollHeight")
-            initial_scroll = await self.page.evaluate("window.scrollY")
+            await self.page.evaluate("window.scrollY")
             viewport_height = await self.page.evaluate("window.innerHeight")
 
             if to_bottom:
@@ -2288,7 +2283,7 @@ class PlaywrightBrowser:
 
     # SECURITY: Dangerous JavaScript patterns that should be blocked
     # unless browser_allow_dangerous_js is explicitly enabled
-    _DANGEROUS_JS_PATTERNS = [
+    _DANGEROUS_JS_PATTERNS: ClassVar[list[tuple[str, str]]] = [
         # Network exfiltration
         (r'\bfetch\s*\(\s*["\']https?://(?!localhost|127\.0\.0\.1)', "External fetch requests"),
         (r"\bnew\s+XMLHttpRequest\b", "XMLHttpRequest usage"),
@@ -2332,7 +2327,7 @@ class PlaywrightBrowser:
             logger.warning("Dangerous JavaScript validation bypassed via settings")
             return True, ""
 
-        js_lower = javascript.lower()
+        javascript.lower()
 
         for pattern, description in self._DANGEROUS_JS_PATTERNS:
             if re.search(pattern, javascript, re.IGNORECASE):

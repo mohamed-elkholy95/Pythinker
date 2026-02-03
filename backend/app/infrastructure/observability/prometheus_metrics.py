@@ -38,13 +38,13 @@ class Counter:
 
     def inc(self, labels: dict[str, str], value: float = 1.0) -> None:
         """Increment counter with given labels."""
-        label_tuple = tuple(labels.get(l, "") for l in self.labels)
+        label_tuple = tuple(labels.get(label, "") for label in self.labels)
         with self._lock:
             self._values[label_tuple] += value
 
     def get(self, labels: dict[str, str]) -> float:
         """Get counter value for given labels."""
-        label_tuple = tuple(labels.get(l, "") for l in self.labels)
+        label_tuple = tuple(labels.get(label, "") for label in self.labels)
         return self._values.get(label_tuple, 0.0)
 
     def collect(self) -> list[dict[str, Any]]:
@@ -52,7 +52,7 @@ class Counter:
         result = []
         with self._lock:
             for label_tuple, value in self._values.items():
-                label_dict = dict(zip(self.labels, label_tuple))
+                label_dict = dict(zip(self.labels, label_tuple, strict=False))
                 result.append(
                     {
                         "name": self.name,
@@ -76,25 +76,25 @@ class Gauge:
 
     def set(self, labels: dict[str, str], value: float) -> None:
         """Set gauge value for given labels."""
-        label_tuple = tuple(labels.get(l, "") for l in self.labels)
+        label_tuple = tuple(labels.get(label, "") for label in self.labels)
         with self._lock:
             self._values[label_tuple] = value
 
     def inc(self, labels: dict[str, str], value: float = 1.0) -> None:
         """Increment gauge value."""
-        label_tuple = tuple(labels.get(l, "") for l in self.labels)
+        label_tuple = tuple(labels.get(label, "") for label in self.labels)
         with self._lock:
             self._values[label_tuple] += value
 
     def dec(self, labels: dict[str, str], value: float = 1.0) -> None:
         """Decrement gauge value."""
-        label_tuple = tuple(labels.get(l, "") for l in self.labels)
+        label_tuple = tuple(labels.get(label, "") for label in self.labels)
         with self._lock:
             self._values[label_tuple] -= value
 
     def get(self, labels: dict[str, str]) -> float:
         """Get gauge value for given labels."""
-        label_tuple = tuple(labels.get(l, "") for l in self.labels)
+        label_tuple = tuple(labels.get(label, "") for label in self.labels)
         return self._values.get(label_tuple, 0.0)
 
     def collect(self) -> list[dict[str, Any]]:
@@ -102,7 +102,7 @@ class Gauge:
         result = []
         with self._lock:
             for label_tuple, value in self._values.items():
-                label_dict = dict(zip(self.labels, label_tuple))
+                label_dict = dict(zip(self.labels, label_tuple, strict=False))
                 result.append(
                     {
                         "name": self.name,
@@ -127,7 +127,7 @@ class Histogram:
 
     def observe(self, labels: dict[str, str], value: float) -> None:
         """Record an observation."""
-        label_tuple = tuple(labels.get(l, "") for l in self.labels)
+        label_tuple = tuple(labels.get(label, "") for label in self.labels)
         with self._lock:
             self._observations[label_tuple].append(value)
 
@@ -136,7 +136,7 @@ class Histogram:
         result = []
         with self._lock:
             for label_tuple, values in self._observations.items():
-                label_dict = dict(zip(self.labels, label_tuple))
+                label_dict = dict(zip(self.labels, label_tuple, strict=False))
 
                 # Calculate bucket counts
                 bucket_counts = {}
@@ -231,6 +231,32 @@ circuit_breaker_state_changes = Counter(
     labels=["name", "from_state", "to_state"],
 )
 
+# Adaptive circuit breaker metrics
+circuit_breaker_failure_rate = Gauge(
+    name="pythinker_circuit_breaker_failure_rate",
+    help_text="Circuit breaker recent failure rate",
+    labels=["name"],
+)
+
+circuit_breaker_threshold = Gauge(
+    name="pythinker_circuit_breaker_failure_threshold",
+    help_text="Adaptive circuit breaker failure threshold",
+    labels=["name"],
+)
+
+circuit_breaker_recovery = Counter(
+    name="pythinker_circuit_breaker_recovery_total",
+    help_text="Circuit breaker recovery attempts",
+    labels=["name", "result"],  # attempt, success, failure
+)
+
+circuit_breaker_mttr = Histogram(
+    name="pythinker_circuit_breaker_mttr_seconds",
+    help_text="Circuit breaker mean time to recovery (seconds)",
+    labels=["name"],
+    buckets=[5, 15, 30, 60, 120, 300, 600, 1200],
+)
+
 # Phase 6: LLM Concurrency Metrics
 llm_concurrent_requests = Gauge(
     name="pythinker_llm_concurrent_requests",
@@ -291,6 +317,10 @@ _metrics_registry = [
     circuit_breaker_state,
     circuit_breaker_calls,
     circuit_breaker_state_changes,
+    circuit_breaker_failure_rate,
+    circuit_breaker_threshold,
+    circuit_breaker_recovery,
+    circuit_breaker_mttr,
     # Phase 6: Concurrency
     llm_concurrent_requests,
     llm_queue_waiting,
@@ -302,6 +332,114 @@ _metrics_registry = [
     cache_misses,
     cache_size,
 ]
+
+# Workflow Phase Metrics (Monitoring Enhancement)
+workflow_phase_duration = Histogram(
+    name="pythinker_workflow_phase_duration_seconds",
+    help_text="Duration of workflow phases",
+    labels=["phase", "session_id"],
+    buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0],
+)
+
+workflow_phase_transitions = Counter(
+    name="pythinker_workflow_phase_transitions_total",
+    help_text="Workflow phase transitions",
+    labels=["from_phase", "to_phase", "result"],
+)
+
+# Tool Selection Metrics
+tool_selection_accuracy = Counter(
+    name="pythinker_tool_selection_accuracy_total",
+    help_text="Tool selection outcomes",
+    labels=["tool_name", "outcome"],  # success, failure, hallucination
+)
+
+# Plan Quality Metrics
+plan_modifications_total = Counter(
+    name="pythinker_plan_modifications_total",
+    help_text="Plan modification events",
+    labels=["type"],  # expand, prune, replan
+)
+
+# Plan Verification Metrics
+plan_verification_total = Counter(
+    name="pythinker_plan_verification_total",
+    help_text="Plan verification outcomes",
+    labels=["result"],  # pass, revise, fail, skip, error
+)
+
+# Reflection Metrics
+reflection_checks_total = Counter(
+    name="pythinker_reflection_checks_total",
+    help_text="Reflection checks performed",
+    labels=["result"],  # triggered, skipped
+)
+
+reflection_triggers_total = Counter(
+    name="pythinker_reflection_triggers_total",
+    help_text="Reflection triggers by type",
+    labels=["trigger"],  # step_interval, after_error, etc.
+)
+
+reflection_decisions_total = Counter(
+    name="pythinker_reflection_decisions_total",
+    help_text="Reflection decisions",
+    labels=["decision"],  # continue, adjust, replan, escalate, abort
+)
+
+# Reward Hacking Detection Metrics
+reward_hacking_signals_total = Counter(
+    name="pythinker_reward_hacking_signals_total",
+    help_text="Reward hacking detection signals",
+    labels=["signal", "severity"],
+)
+
+# Tool Tracing Metrics
+tool_trace_anomalies_total = Counter(
+    name="pythinker_tool_trace_anomalies_total",
+    help_text="Tool tracing anomaly signals",
+    labels=["tool", "type"],
+)
+
+# Failure Prediction Metrics
+failure_prediction_total = Counter(
+    name="pythinker_failure_prediction_total",
+    help_text="Failure prediction outcomes",
+    labels=["result"],  # predicted, clear
+)
+
+failure_prediction_probability = Histogram(
+    name="pythinker_failure_prediction_probability",
+    help_text="Failure prediction probability distribution",
+    labels=["result"],
+    buckets=[0.1, 0.25, 0.4, 0.6, 0.75, 0.85, 0.95, 1.0],
+)
+
+# Intent Classification Metrics (for simple query issue)
+intent_classification_total = Counter(
+    name="pythinker_intent_classification_total",
+    help_text="Intent classification outcomes",
+    labels=["detected_intent", "selected_mode"],  # greeting/simple_query/complex_task
+)
+
+# Register additional metrics defined after the base registry
+_metrics_registry.extend(
+    [
+        workflow_phase_duration,
+        workflow_phase_transitions,
+        tool_selection_accuracy,
+        plan_modifications_total,
+        plan_verification_total,
+        reflection_checks_total,
+        reflection_triggers_total,
+        reflection_decisions_total,
+        reward_hacking_signals_total,
+        tool_trace_anomalies_total,
+        failure_prediction_total,
+        failure_prediction_probability,
+        intent_classification_total,
+    ]
+)
 
 
 def record_llm_call(
@@ -347,6 +485,61 @@ def record_tool_call(
     """
     tool_calls_total.inc({"tool": tool, "status": status})
     tool_latency.observe({"tool": tool}, latency)
+
+
+def record_plan_verification(result: str) -> None:
+    """Record a plan verification outcome.
+
+    Args:
+        result: Outcome label (pass, revise, fail, skip, error)
+    """
+    normalized = (result or "").strip().lower()
+    if normalized not in {"pass", "revise", "fail", "skip", "error"}:
+        normalized = "error"
+    plan_verification_total.inc({"result": normalized})
+
+
+def record_reflection_check(result: str) -> None:
+    """Record whether a reflection check triggered or skipped."""
+    normalized = (result or "").strip().lower()
+    if normalized not in {"triggered", "skipped"}:
+        normalized = "skipped"
+    reflection_checks_total.inc({"result": normalized})
+
+
+def record_reflection_trigger(trigger: str) -> None:
+    """Record reflection trigger type."""
+    normalized = (trigger or "").strip().lower() or "unknown"
+    reflection_triggers_total.inc({"trigger": normalized})
+
+
+def record_reflection_decision(decision: str) -> None:
+    """Record reflection decision."""
+    normalized = (decision or "").strip().lower() or "unknown"
+    reflection_decisions_total.inc({"decision": normalized})
+
+
+def record_reward_hacking_signal(signal: str, severity: str) -> None:
+    """Record a reward hacking detection signal."""
+    normalized_signal = (signal or "").strip().lower() or "unknown"
+    normalized_severity = (severity or "").strip().lower() or "unknown"
+    reward_hacking_signals_total.inc({"signal": normalized_signal, "severity": normalized_severity})
+
+
+def record_tool_trace_anomaly(tool: str, anomaly_type: str) -> None:
+    """Record a tool tracing anomaly signal."""
+    normalized_tool = (tool or "").strip().lower() or "unknown"
+    normalized_type = (anomaly_type or "").strip().lower() or "unknown"
+    tool_trace_anomalies_total.inc({"tool": normalized_tool, "type": normalized_type})
+
+
+def record_failure_prediction(result: str, probability: float) -> None:
+    """Record failure prediction outcome and probability."""
+    normalized = (result or "").strip().lower()
+    if normalized not in {"predicted", "clear"}:
+        normalized = "clear"
+    failure_prediction_total.inc({"result": normalized})
+    failure_prediction_probability.observe({"result": normalized}, probability)
 
 
 def record_error(error_type: str, component: str) -> None:
@@ -400,6 +593,27 @@ def record_circuit_breaker_state_change(name: str, from_state: str, to_state: st
         to_state: New state
     """
     circuit_breaker_state_changes.inc({"name": name, "from_state": from_state, "to_state": to_state})
+
+
+def record_circuit_breaker_failure_rate(name: str, rate: float) -> None:
+    """Record a circuit breaker failure rate."""
+    circuit_breaker_failure_rate.set({"name": name}, rate)
+
+
+def record_circuit_breaker_threshold(name: str, threshold: int) -> None:
+    """Record adaptive circuit breaker failure threshold."""
+    circuit_breaker_threshold.set({"name": name}, threshold)
+
+
+def record_circuit_breaker_recovery(name: str, result: str) -> None:
+    """Record circuit breaker recovery attempts."""
+    normalized = (result or "").strip().lower() or "attempt"
+    circuit_breaker_recovery.inc({"name": name, "result": normalized})
+
+
+def record_circuit_breaker_mttr(name: str, seconds: float) -> None:
+    """Record circuit breaker mean time to recovery."""
+    circuit_breaker_mttr.observe({"name": name}, seconds)
 
 
 # Phase 6: LLM Concurrency Metric Functions

@@ -16,21 +16,23 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
 
 class ExecutionMode(str, Enum):
     """Tool execution modes."""
+
     SEQUENTIAL = "sequential"  # One at a time
-    PARALLEL = "parallel"      # All at once
-    BATCHED = "batched"        # Groups of parallel calls
+    PARALLEL = "parallel"  # All at once
+    BATCHED = "batched"  # Groups of parallel calls
 
 
 @dataclass
 class ToolCall:
     """Represents a pending tool call."""
+
     id: str
     tool_name: str
     arguments: dict[str, Any]
@@ -41,6 +43,7 @@ class ToolCall:
 @dataclass
 class ToolResult:
     """Result of a tool call execution."""
+
     call_id: str
     tool_name: str
     success: bool
@@ -65,20 +68,19 @@ class ParallelToolExecutor:
     """
 
     # Tools that are safe to run in parallel (no side effects on each other)
-    PARALLELIZABLE_TOOLS = {
+    PARALLELIZABLE_TOOLS: ClassVar[set[str]] = {
         # Read operations (no side effects)
         "file_read",
         "file_list",
         "file_exists",
         "info_search_web",
-        "search_web",
         "browser_get_content",
         # Shell commands that don't modify state
         "shell_exec",  # Context-dependent, but usually safe
     }
 
     # Tools that should never run in parallel
-    SEQUENTIAL_ONLY_TOOLS = {
+    SEQUENTIAL_ONLY_TOOLS: ClassVar[set[str]] = {
         "file_write",
         "file_delete",
         "file_append",
@@ -164,7 +166,7 @@ class ParallelToolExecutor:
         - browser_click depends on prior browser_navigate
         """
         for i, call in enumerate(self._pending_calls):
-            for j, prior_call in enumerate(self._pending_calls[:i]):
+            for _j, prior_call in enumerate(self._pending_calls[:i]):
                 if self._has_dependency(call, prior_call):
                     call.depends_on.add(prior_call.id)
 
@@ -182,18 +184,18 @@ class ParallelToolExecutor:
         if "file_" in call.tool_name and "file_" in prior.tool_name:
             call_path = call.arguments.get("path", "")
             prior_path = prior.arguments.get("path", "")
-            if call_path and prior_path and call_path == prior_path:
+            if (
+                call_path
+                and prior_path
+                and call_path == prior_path
+                and call.tool_name in ("file_write", "file_append", "file_delete")
+            ):
                 # Write after read/write is dependent
-                if call.tool_name in ("file_write", "file_append", "file_delete"):
-                    return True
-
-        # Browser operations
-        if "browser_" in call.tool_name and "browser_" in prior.tool_name:
-            # Most browser operations depend on navigation
-            if prior.tool_name == "browser_navigate":
                 return True
 
-        return False
+        # Browser operations
+        # Most browser operations depend on navigation
+        return "browser_" in call.tool_name and "browser_" in prior.tool_name and prior.tool_name == "browser_navigate"
 
     def create_execution_batches(self) -> list[list[ToolCall]]:
         """Group pending calls into parallel-safe batches.
@@ -213,10 +215,7 @@ class ParallelToolExecutor:
 
         while remaining:
             # Find calls with no unmet dependencies
-            ready = [
-                call for call in remaining
-                if call.depends_on.issubset(completed_ids)
-            ]
+            ready = [call for call in remaining if call.depends_on.issubset(completed_ids)]
 
             if not ready:
                 # Circular dependency or bug - fall back to sequential
@@ -323,10 +322,7 @@ class ParallelToolExecutor:
         start = datetime.now()
 
         try:
-            result = await asyncio.wait_for(
-                executor(call.tool_name, call.arguments),
-                timeout=self.timeout_per_call
-            )
+            result = await asyncio.wait_for(executor(call.tool_name, call.arguments), timeout=self.timeout_per_call)
             execution_time = (datetime.now() - start).total_seconds() * 1000
 
             return ToolResult(
@@ -375,10 +371,7 @@ class ParallelToolExecutor:
         Returns:
             List of ToolResults
         """
-        tasks = [
-            self._execute_single(call, executor)
-            for call in batch
-        ]
+        tasks = [self._execute_single(call, executor) for call in batch]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -386,13 +379,15 @@ class ParallelToolExecutor:
         processed_results: list[ToolResult] = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                processed_results.append(ToolResult(
-                    call_id=batch[i].id,
-                    tool_name=batch[i].tool_name,
-                    success=False,
-                    result=None,
-                    error=str(result),
-                ))
+                processed_results.append(
+                    ToolResult(
+                        call_id=batch[i].id,
+                        tool_name=batch[i].tool_name,
+                        success=False,
+                        result=None,
+                        error=str(result),
+                    )
+                )
             else:
                 processed_results.append(result)
 
@@ -427,10 +422,12 @@ async def execute_tools_parallel(
     parallel_executor = ParallelToolExecutor(max_concurrent=max_concurrent)
 
     for i, call in enumerate(tool_calls):
-        parallel_executor.add_call(ToolCall(
-            id=str(i),
-            tool_name=call.get("name", ""),
-            arguments=call.get("arguments", {}),
-        ))
+        parallel_executor.add_call(
+            ToolCall(
+                id=str(i),
+                tool_name=call.get("name", ""),
+                arguments=call.get("arguments", {}),
+            )
+        )
 
     return await parallel_executor.execute_all(executor)

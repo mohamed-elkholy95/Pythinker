@@ -4,4 +4,4 @@ from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
 
-__all__ = ['LLM', 'Browser', 'Cache', 'Sandbox', 'SearchEngine']
+__all__ = ["LLM", "Browser", "Cache", "Sandbox", "SearchEngine"]

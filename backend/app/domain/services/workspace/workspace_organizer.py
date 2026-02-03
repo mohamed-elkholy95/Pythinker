@@ -1,4 +1,5 @@
 """Workspace organization and deliverable tracking."""
+
 import logging
 
 from app.domain.external.sandbox import Sandbox
@@ -15,11 +16,7 @@ class WorkspaceOrganizer:
         self._workspace_root = workspace_root
         self._deliverables: list[str] = []
 
-    async def initialize_workspace(
-        self,
-        session_id: str,
-        template: WorkspaceTemplate
-    ) -> dict[str, str]:
+    async def initialize_workspace(self, session_id: str, template: WorkspaceTemplate) -> dict[str, str]:
         """Initialize workspace structure from template.
 
         Args:
@@ -37,19 +34,14 @@ class WorkspaceOrganizer:
 
             # Create directory using exec_command
             await self._sandbox.exec_command(
-                session_id=session_id,
-                exec_dir="/workspace",
-                command=f"mkdir -p {folder_path}"
+                session_id=session_id, exec_dir="/workspace", command=f"mkdir -p {folder_path}"
             )
 
             logger.debug(f"Created folder: {folder_path} ({purpose})")
 
         # Create README using file_write
         readme_path = f"{self._workspace_root}/README.md"
-        await self._sandbox.file_write(
-            file=readme_path,
-            content=template.readme_content
-        )
+        await self._sandbox.file_write(file=readme_path, content=template.readme_content)
 
         logger.info(f"Workspace initialized: {len(template.folders)} folders created")
         return template.folders
@@ -82,10 +74,7 @@ class WorkspaceOrganizer:
             manifest_content += f"{i}. `{deliverable}`\n"
 
         # Write manifest using file_write
-        await self._sandbox.file_write(
-            file=manifest_path,
-            content=manifest_content
-        )
+        await self._sandbox.file_write(file=manifest_path, content=manifest_content)
 
         logger.info(f"Generated manifest: {manifest_path}")
         return manifest_path

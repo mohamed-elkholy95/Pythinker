@@ -8,13 +8,14 @@ error states, and iteration count.
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
 
 class ContextType(str, Enum):
     """Types of execution context"""
+
     BROWSER = "browser"
     SHELL = "shell"
     FILE = "file"
@@ -27,6 +28,7 @@ class ContextType(str, Enum):
 @dataclass
 class ExecutionContext:
     """Tracks current execution context"""
+
     recent_tools: list[str] = field(default_factory=list)
     recent_errors: list[str] = field(default_factory=list)
     iteration_count: int = 0
@@ -43,7 +45,7 @@ class PromptAdapter:
     """
 
     # Tool to context mapping
-    TOOL_CONTEXTS = {
+    TOOL_CONTEXTS: ClassVar[dict[str, ContextType]] = {
         "browser_view": ContextType.BROWSER,
         "browser_navigate": ContextType.BROWSER,
         "browser_click": ContextType.BROWSER,
@@ -54,12 +56,12 @@ class PromptAdapter:
         "file_read": ContextType.FILE,
         "file_write": ContextType.FILE,
         "file_list": ContextType.FILE,
-        "search_web": ContextType.SEARCH,
+        "info_search_web": ContextType.SEARCH,
         "message_ask_user": ContextType.MESSAGE,
     }
 
     # Context-specific guidance
-    CONTEXT_GUIDANCE = {
+    CONTEXT_GUIDANCE: ClassVar[dict[ContextType, str]] = {
         ContextType.BROWSER: """
 Browser Context Tips:
 - Elements may not be visible without scrolling - use browser_scroll if elements are not found
@@ -94,7 +96,7 @@ Search Context Tips:
     }
 
     # Iteration warnings
-    ITERATION_THRESHOLDS = {
+    ITERATION_THRESHOLDS: ClassVar[dict[int, str]] = {
         10: "You've made 10 iterations. Consider if your approach is effective.",
         20: "20 iterations reached. Please reassess your strategy and consider asking for user input if blocked.",
         30: "30 iterations reached. This task is taking longer than expected. Summarize progress and blockers.",
@@ -110,6 +112,15 @@ Search Context Tips:
         self._max_recent_tools = max_recent_tools
         self._context = ExecutionContext()
 
+    @property
+    def _iteration(self) -> int:
+        """Backward-compatible iteration alias."""
+        return self._context.iteration_count
+
+    @_iteration.setter
+    def _iteration(self, value: int) -> None:
+        self._context.iteration_count = value
+
     def track_tool_use(self, tool_name: str, success: bool = True, error: str | None = None) -> None:
         """
         Track a tool usage for context analysis.
@@ -123,7 +134,7 @@ Search Context Tips:
 
         # Keep bounded
         if len(self._context.recent_tools) > self._max_recent_tools:
-            self._context.recent_tools = self._context.recent_tools[-self._max_recent_tools:]
+            self._context.recent_tools = self._context.recent_tools[-self._max_recent_tools :]
 
         # Track errors
         if not success and error:
@@ -153,7 +164,7 @@ Search Context Tips:
             normalized_tool = tool
             for prefix in ["mcp_", "mcp"]:
                 if tool.startswith(prefix):
-                    normalized_tool = tool[len(prefix):]
+                    normalized_tool = tool[len(prefix) :]
                     break
 
             # Match to context

@@ -52,10 +52,7 @@ class PathAggregator:
     """
 
     def __init__(
-        self,
-        llm: LLM | None = None,
-        json_parser: JsonParser | None = None,
-        config: TreeOfThoughtsConfig | None = None
+        self, llm: LLM | None = None, json_parser: JsonParser | None = None, config: TreeOfThoughtsConfig | None = None
     ):
         """Initialize the aggregator.
 
@@ -68,11 +65,7 @@ class PathAggregator:
         self.json_parser = json_parser
         self.config = config or TreeOfThoughtsConfig()
 
-    def select_best_path(
-        self,
-        paths: list[PathState],
-        min_score: float = 0.0
-    ) -> PathState | None:
+    def select_best_path(self, paths: list[PathState], min_score: float = 0.0) -> PathState | None:
         """Select the best path from completed paths.
 
         Args:
@@ -83,17 +76,11 @@ class PathAggregator:
             Best path or None if no qualifying paths
         """
         # Filter to completed paths above threshold
-        candidates = [
-            p for p in paths
-            if p.status == PathStatus.COMPLETED and p.score >= min_score
-        ]
+        candidates = [p for p in paths if p.status == PathStatus.COMPLETED and p.score >= min_score]
 
         if not candidates:
             # Try completed paths without score threshold
-            candidates = [
-                p for p in paths
-                if p.status == PathStatus.COMPLETED
-            ]
+            candidates = [p for p in paths if p.status == PathStatus.COMPLETED]
 
         if not candidates:
             logger.warning("No completed paths to select from")
@@ -103,19 +90,11 @@ class PathAggregator:
         best = max(candidates, key=lambda p: p.score)
         best.select()
 
-        logger.info(
-            f"Selected path {best.id} with score {best.score:.2f}: "
-            f"{best.description[:50]}"
-        )
+        logger.info(f"Selected path {best.id} with score {best.score:.2f}: {best.description[:50]}")
 
         return best
 
-    async def aggregate(
-        self,
-        paths: list[PathState],
-        goal: str,
-        synthesize: bool = True
-    ) -> dict[str, Any]:
+    async def aggregate(self, paths: list[PathState], goal: str, synthesize: bool = True) -> dict[str, Any]:
         """Aggregate results from explored paths.
 
         Args:
@@ -146,10 +125,7 @@ class PathAggregator:
         }
 
         # Add synthesis if enabled and multiple good paths
-        good_paths = [
-            p for p in paths
-            if p.status == PathStatus.COMPLETED and p.score >= 0.5
-        ]
+        good_paths = [p for p in paths if p.status == PathStatus.COMPLETED and p.score >= 0.5]
 
         if synthesize and len(good_paths) > 1 and self.llm:
             try:
@@ -161,12 +137,7 @@ class PathAggregator:
 
         return result
 
-    async def _synthesize(
-        self,
-        paths: list[PathState],
-        goal: str,
-        best_path: PathState
-    ) -> str:
+    async def _synthesize(self, paths: list[PathState], goal: str, best_path: PathState) -> str:
         """Synthesize results from multiple paths.
 
         Args:
@@ -181,30 +152,24 @@ class PathAggregator:
         path_summaries = []
         for i, path in enumerate(paths):
             summary = f"""
-### Approach {i+1}: {path.description}
+### Approach {i + 1}: {path.description}
 - Score: {path.score:.2f}
 - Steps: {path.metrics.steps_completed}
-- Results: {path.final_result[:200] if path.final_result else 'No result'}
+- Results: {path.final_result[:200] if path.final_result else "No result"}
 """
             path_summaries.append(summary)
 
         prompt = SYNTHESIS_PROMPT.format(
             goal=goal,
             path_summaries="\n".join(path_summaries),
-            best_path=f"{best_path.description}\n\n{best_path.final_result}"
+            best_path=f"{best_path.description}\n\n{best_path.final_result}",
         )
 
-        response = await self.llm.ask(
-            messages=[{"role": "user", "content": prompt}]
-        )
+        response = await self.llm.ask(messages=[{"role": "user", "content": prompt}])
 
         return response.get("content", "")
 
-    def generate_summary(
-        self,
-        paths: list[PathState],
-        goal: str
-    ) -> str:
+    def generate_summary(self, paths: list[PathState], goal: str) -> str:
         """Generate a summary of path exploration.
 
         Args:
@@ -238,7 +203,7 @@ class PathAggregator:
 
         # Path details
         lines.append("\n## Path Details\n")
-        for i, path in enumerate(sorted(paths, key=lambda p: p.score, reverse=True)):
+        for _i, path in enumerate(sorted(paths, key=lambda p: p.score, reverse=True)):
             emoji = {
                 "selected": "🏆",
                 "completed": "✅",

@@ -1,6 +1,8 @@
 """Task complexity assessment for dynamic iteration limits."""
+
 import logging
 from dataclasses import dataclass
+from typing import ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -8,6 +10,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ComplexityAssessment:
     """Result of complexity assessment"""
+
     score: float  # 0.0 (simple) to 1.0 (very complex)
     category: str  # "simple", "medium", "complex", "very_complex"
     recommended_iterations: int
@@ -26,22 +29,45 @@ class ComplexityAssessor:
     """
 
     # Complexity indicators
-    SIMPLE_KEYWORDS = [
-        "read", "check", "verify", "show", "display", "list", "find",
+    SIMPLE_KEYWORDS: ClassVar[list[str]] = [
+        "read",
+        "check",
+        "verify",
+        "show",
+        "display",
+        "list",
+        "find",
     ]
 
-    MEDIUM_KEYWORDS = [
-        "create", "write", "modify", "update", "search", "analyze",
+    MEDIUM_KEYWORDS: ClassVar[list[str]] = [
+        "create",
+        "write",
+        "modify",
+        "update",
+        "search",
+        "analyze",
     ]
 
-    COMPLEX_KEYWORDS = [
-        "build", "develop", "implement", "design", "refactor",
-        "research", "investigate", "comprehensive",
+    COMPLEX_KEYWORDS: ClassVar[list[str]] = [
+        "build",
+        "develop",
+        "implement",
+        "design",
+        "refactor",
+        "research",
+        "investigate",
+        "comprehensive",
     ]
 
-    VERY_COMPLEX_KEYWORDS = [
-        "multi-task", "pipeline", "system", "architecture", "full-stack",
-        "end-to-end", "comprehensive", "production-grade",
+    VERY_COMPLEX_KEYWORDS: ClassVar[list[str]] = [
+        "multi-task",
+        "pipeline",
+        "system",
+        "architecture",
+        "full-stack",
+        "end-to-end",
+        "comprehensive",
+        "production-grade",
     ]
 
     def assess_task_complexity(

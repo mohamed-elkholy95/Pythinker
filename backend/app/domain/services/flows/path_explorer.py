@@ -10,7 +10,7 @@ The PathExplorer manages the lifecycle of multiple solution paths:
 import asyncio
 import logging
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.domain.models.event import BaseEvent, PathEvent
 from app.domain.models.message import Message
@@ -25,6 +25,9 @@ from app.domain.services.agents.planner import PlannerAgent
 
 logger = logging.getLogger(__name__)
 
+if TYPE_CHECKING:
+    from app.domain.services.flows.path_scorer import PathScorer
+
 
 class PathExplorer:
     """Manages exploration of multiple solution paths.
@@ -36,12 +39,7 @@ class PathExplorer:
     4. Token budget management across paths
     """
 
-    def __init__(
-        self,
-        planner: PlannerAgent,
-        executor: ExecutionAgent,
-        config: TreeOfThoughtsConfig | None = None
-    ):
+    def __init__(self, planner: PlannerAgent, executor: ExecutionAgent, config: TreeOfThoughtsConfig | None = None):
         """Initialize the path explorer.
 
         Args:
@@ -57,11 +55,7 @@ class PathExplorer:
         self._token_budget_used: int = 0
         self._active_path: PathState | None = None
 
-    def create_paths(
-        self,
-        strategies: list[dict[str, Any]],
-        base_message: Message
-    ) -> list[PathState]:
+    def create_paths(self, strategies: list[dict[str, Any]], base_message: Message) -> list[PathState]:
         """Create exploration paths from strategy suggestions.
 
         Args:
@@ -73,28 +67,21 @@ class PathExplorer:
         """
         paths = []
 
-        for i, strategy in enumerate(strategies[:self.config.max_paths]):
+        for i, strategy in enumerate(strategies[: self.config.max_paths]):
             path = PathState(
-                description=strategy.get("description", f"Strategy {i+1}"),
+                description=strategy.get("description", f"Strategy {i + 1}"),
                 strategy=strategy.get("description", ""),
             )
             paths.append(path)
 
-            yield PathEvent(
-                path_id=path.id,
-                action="created",
-                description=path.description
-            )
+            yield PathEvent(path_id=path.id, action="created", description=path.description)
 
         self._paths = paths
         logger.info(f"Created {len(paths)} exploration paths")
         return paths
 
     async def explore_path(
-        self,
-        path: PathState,
-        message: Message,
-        scorer: "PathScorer"
+        self, path: PathState, message: Message, scorer: "PathScorer"
     ) -> AsyncGenerator[BaseEvent, None]:
         """Explore a single path with early abandonment checks.
 
@@ -109,11 +96,7 @@ class PathExplorer:
         path.start()
         self._active_path = path
 
-        yield PathEvent(
-            path_id=path.id,
-            action="exploring",
-            description=f"Starting exploration: {path.description}"
-        )
+        yield PathEvent(path_id=path.id, action="exploring", description=f"Starting exploration: {path.description}")
 
         try:
             # Create plan for this path's strategy
@@ -121,11 +104,7 @@ class PathExplorer:
 
             if not plan or not plan.steps:
                 path.fail("Could not create plan for strategy")
-                yield PathEvent(
-                    path_id=path.id,
-                    action="failed",
-                    description="Planning failed"
-                )
+                yield PathEvent(path_id=path.id, action="failed", description="Planning failed")
                 return
 
             path.steps = [s.model_dump() for s in plan.steps]
@@ -136,21 +115,14 @@ class PathExplorer:
                 if self._should_abandon(path, scorer):
                     path.abandon(f"Score too low ({path.score:.2f})")
                     yield PathEvent(
-                        path_id=path.id,
-                        action="abandoned",
-                        score=path.score,
-                        description="Abandoned due to low score"
+                        path_id=path.id, action="abandoned", score=path.score, description="Abandoned due to low score"
                     )
                     return
 
                 # Check token budget
                 if self._is_budget_exhausted():
                     path.abandon("Token budget exhausted")
-                    yield PathEvent(
-                        path_id=path.id,
-                        action="abandoned",
-                        description="Budget exhausted"
-                    )
+                    yield PathEvent(path_id=path.id, action="abandoned", description="Budget exhausted")
                     return
 
                 # Execute step
@@ -165,8 +137,8 @@ class PathExplorer:
                 # Record result
                 path.add_result(
                     step_id=str(step.id),
-                    result=step.result if hasattr(step, 'result') else None,
-                    confidence=0.8  # Could be extracted from execution
+                    result=step.result if hasattr(step, "result") else None,
+                    confidence=0.8,  # Could be extracted from execution
                 )
 
                 # Update score
@@ -178,26 +150,19 @@ class PathExplorer:
                 path_id=path.id,
                 action="completed",
                 score=path.score,
-                description=f"Completed with score {path.score:.2f}"
+                description=f"Completed with score {path.score:.2f}",
             )
 
         except Exception as e:
             logger.error(f"Path {path.id} exploration failed: {e}")
             path.fail(str(e))
-            yield PathEvent(
-                path_id=path.id,
-                action="failed",
-                description=f"Error: {str(e)[:100]}"
-            )
+            yield PathEvent(path_id=path.id, action="failed", description=f"Error: {str(e)[:100]}")
 
         finally:
             self._active_path = None
 
     async def explore_all_paths(
-        self,
-        message: Message,
-        scorer: "PathScorer",
-        parallel: bool = False
+        self, message: Message, scorer: "PathScorer", parallel: bool = False
     ) -> AsyncGenerator[BaseEvent, None]:
         """Explore all paths.
 
@@ -218,6 +183,7 @@ class PathExplorer:
             logger.info(f"Starting parallel exploration of {len(self._paths)} paths")
             tasks = []
             for path in self._paths:
+
                 async def explore_and_collect(p):
                     events = []
                     async for event in self.explore_path(p, message, scorer):
@@ -245,11 +211,7 @@ class PathExplorer:
                     logger.warning("Token budget exhausted, stopping exploration")
                     break
 
-    async def _create_path_plan(
-        self,
-        path: PathState,
-        message: Message
-    ) -> Plan | None:
+    async def _create_path_plan(self, path: PathState, message: Message) -> Plan | None:
         """Create a plan for a specific strategy path.
 
         Args:
@@ -262,15 +224,13 @@ class PathExplorer:
         try:
             # Augment message with strategy context
             strategy_context = f"\n\nApproach: {path.strategy}"
-            augmented_message = Message(
-                message=message.message + strategy_context,
-                attachments=message.attachments
-            )
+            augmented_message = Message(message=message.message + strategy_context, attachments=message.attachments)
 
             # Get plan from planner
             plan = None
             async for event in self.planner.create_plan(augmented_message):
                 from app.domain.models.event import PlanEvent, PlanStatus
+
                 if isinstance(event, PlanEvent) and event.status == PlanStatus.CREATED:
                     plan = event.plan
                     break
@@ -296,10 +256,7 @@ class PathExplorer:
             return False
 
         # Check score threshold
-        if path.score < self.config.auto_abandon_threshold:
-            return True
-
-        return False
+        return path.score < self.config.auto_abandon_threshold
 
     def _is_budget_exhausted(self) -> bool:
         """Check if token budget is exhausted."""

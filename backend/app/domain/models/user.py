@@ -11,6 +11,7 @@ class UserRole(str, Enum):
 
 class User(BaseModel):
     """User domain model"""
+
     id: str
     fullname: str
     email: str  # Now required field for login
@@ -21,17 +22,17 @@ class User(BaseModel):
     updated_at: datetime = datetime.now(UTC)
     last_login_at: datetime | None = None
 
-    @field_validator('fullname')
+    @field_validator("fullname")
     @classmethod
     def validate_fullname(cls, v):
         if not v or len(v.strip()) < 2:
             raise ValueError("Full name must be at least 2 characters long")
         return v.strip()
 
-    @field_validator('email')
+    @field_validator("email")
     @classmethod
     def validate_email(cls, v):
-        if not v or '@' not in v:
+        if not v or "@" not in v:
             raise ValueError("Valid email is required")
         return v.strip().lower()
 

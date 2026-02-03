@@ -248,7 +248,9 @@ class SemanticCache:
                             match=models.MatchValue(value=context_hash),
                         ),
                     ]
-                ) if context_hash else None,
+                )
+                if context_hash
+                else None,
             )
 
             if not search_results:
@@ -290,7 +292,7 @@ class SemanticCache:
 
             logger.debug(
                 f"Semantic cache hit (similarity={similarity:.3f})",
-                extra={"cache_id": cache_id, "similarity": similarity}
+                extra={"cache_id": cache_id, "similarity": similarity},
             )
 
             return entry.response
@@ -437,8 +439,7 @@ class SemanticCache:
         """Generate embedding for text."""
         try:
             # Use the embedding client to generate embedding
-            embedding = await self._embedding_client.embed(text)
-            return embedding
+            return await self._embedding_client.embed(text)
         except Exception as e:
             logger.warning(f"Failed to generate embedding: {e}")
             return None
@@ -473,6 +474,7 @@ async def get_semantic_cache() -> SemanticCache | None:
 
     try:
         from app.core.config import get_settings
+
         settings = get_settings()
 
         if not settings.semantic_cache_enabled:

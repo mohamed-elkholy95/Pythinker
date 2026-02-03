@@ -92,21 +92,16 @@ class TreeOfThoughtsFlow(BaseFlow):
         self.config = config or TreeOfThoughtsConfig()
 
         # Build tools
-        tools = [
-            ShellTool(sandbox),
-            BrowserTool(browser),
-            FileTool(sandbox),
-            MessageTool(),
-            IdleTool(),
-            mcp_tool
-        ]
+        tools = [ShellTool(sandbox), BrowserTool(browser), FileTool(sandbox), MessageTool(), IdleTool(), mcp_tool]
 
+        # Pass browser to SearchTool for visual search when search_prefer_browser is enabled
         if search_engine:
-            tools.append(SearchTool(search_engine))
+            tools.append(SearchTool(search_engine, browser=browser))
 
         settings = get_settings()
         if cdp_url and settings.browser_agent_enabled:
             from app.domain.services.tools.browser_agent import BrowserAgentTool
+
             tools.append(BrowserAgentTool(cdp_url))
 
         # Create agents
@@ -127,29 +122,13 @@ class TreeOfThoughtsFlow(BaseFlow):
         )
 
         # Create ToT components
-        self.complexity_analyzer = TaskComplexityAnalyzer(
-            llm=llm,
-            json_parser=json_parser,
-            config=self.config
-        )
+        self.complexity_analyzer = TaskComplexityAnalyzer(llm=llm, json_parser=json_parser, config=self.config)
 
-        self.path_explorer = PathExplorer(
-            planner=self.planner,
-            executor=self.executor,
-            config=self.config
-        )
+        self.path_explorer = PathExplorer(planner=self.planner, executor=self.executor, config=self.config)
 
-        self.path_scorer = PathScorer(
-            llm=llm,
-            json_parser=json_parser,
-            config=self.config
-        )
+        self.path_scorer = PathScorer(llm=llm, json_parser=json_parser, config=self.config)
 
-        self.path_aggregator = PathAggregator(
-            llm=llm,
-            json_parser=json_parser,
-            config=self.config
-        )
+        self.path_aggregator = PathAggregator(llm=llm, json_parser=json_parser, config=self.config)
 
         # Track tool descriptions for complexity analysis
         self._tools_summary = self._build_tools_summary(tools)
@@ -179,19 +158,13 @@ class TreeOfThoughtsFlow(BaseFlow):
             "tree-of-thoughts-flow",
             agent_id=self._agent_id,
             session_id=self._session_id,
-            attributes={"message.preview": message.message[:100]}
+            attributes={"message.preview": message.message[:100]},
         ):
             # Step 1: Analyze complexity
             logger.info("Analyzing task complexity")
-            analysis = await self.complexity_analyzer.analyze(
-                task=message.message,
-                tools_summary=self._tools_summary
-            )
+            analysis = await self.complexity_analyzer.analyze(task=message.message, tools_summary=self._tools_summary)
 
-            logger.info(
-                f"Complexity: {analysis.complexity.value}, "
-                f"Branching: {analysis.branching_decision.value}"
-            )
+            logger.info(f"Complexity: {analysis.complexity.value}, Branching: {analysis.branching_decision.value}")
 
             # Step 2: Decide on approach
             if not self.complexity_analyzer.should_use_tot(analysis):
@@ -202,39 +175,31 @@ class TreeOfThoughtsFlow(BaseFlow):
                 return
 
             # Step 3: Multi-path exploration
-            logger.info(
-                f"Using Tree-of-Thoughts with {len(analysis.suggested_strategies)} strategies"
-            )
+            logger.info(f"Using Tree-of-Thoughts with {len(analysis.suggested_strategies)} strategies")
 
             # Initialize path scorer with goal
             self.path_scorer.goal = message.message
 
             # Create paths
             strategies = self.complexity_analyzer.get_strategy_plans(analysis)
-            paths = list(self.path_explorer.create_paths(strategies, message))
+            list(self.path_explorer.create_paths(strategies, message))
 
             # Emit path creation events
             for path in self.path_explorer.get_paths():
-                yield PathEvent(
-                    path_id=path.id,
-                    action="created",
-                    description=path.description
-                )
+                yield PathEvent(path_id=path.id, action="created", description=path.description)
 
             # Explore paths
             async for event in self.path_explorer.explore_all_paths(
                 message=message,
                 scorer=self.path_scorer,
-                parallel=False  # Sequential for now (safer)
+                parallel=False,  # Sequential for now (safer)
             ):
                 yield event
 
             # Step 4: Aggregate results
             logger.info("Aggregating path results")
             aggregation = await self.path_aggregator.aggregate(
-                paths=self.path_explorer.get_paths(),
-                goal=message.message,
-                synthesize=True
+                paths=self.path_explorer.get_paths(), goal=message.message, synthesize=True
             )
 
             if aggregation["success"]:
@@ -244,22 +209,19 @@ class TreeOfThoughtsFlow(BaseFlow):
                         path_id=best_path.id,
                         action="selected",
                         score=best_path.score,
-                        description=f"Selected: {best_path.description}"
+                        description=f"Selected: {best_path.description}",
                     )
 
                 # Generate summary
                 summary = self.path_aggregator.generate_summary(
-                    paths=self.path_explorer.get_paths(),
-                    goal=message.message
+                    paths=self.path_explorer.get_paths(), goal=message.message
                 )
 
                 yield MessageEvent(message=summary)
 
                 # If synthesis available, include it
                 if "synthesis" in aggregation:
-                    yield MessageEvent(
-                        message=f"\n## Synthesized Result\n\n{aggregation['synthesis']}"
-                    )
+                    yield MessageEvent(message=f"\n## Synthesized Result\n\n{aggregation['synthesis']}")
             else:
                 # No successful paths
                 yield MessageEvent(
@@ -285,7 +247,7 @@ class TreeOfThoughtsFlow(BaseFlow):
                 self._current_plan = event.plan
             yield event
 
-        if not hasattr(self, '_current_plan') or not self._current_plan:
+        if not hasattr(self, "_current_plan") or not self._current_plan:
             yield MessageEvent(message="Failed to create plan")
             yield DoneEvent()
             return

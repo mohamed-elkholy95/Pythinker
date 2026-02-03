@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 class ActionType(str, Enum):
     """Types of actions that can be recorded in the timeline."""
+
     # File operations
     FILE_CREATE = "file_create"
     FILE_EDIT = "file_edit"
@@ -46,6 +47,7 @@ class ActionType(str, Enum):
 
 class ActionStatus(str, Enum):
     """Status of a timeline action."""
+
     PENDING = "pending"
     EXECUTING = "executing"
     COMPLETED = "completed"
@@ -54,24 +56,27 @@ class ActionStatus(str, Enum):
 
 class FileChange(BaseModel):
     """Represents a file change within an action."""
+
     path: str
     operation: str  # "create", "edit", "delete", "move"
     content_before: str | None = None  # For edit/delete, previous content
-    content_after: str | None = None   # For create/edit, new content
-    diff: str | None = None            # Unified diff format for edits
+    content_after: str | None = None  # For create/edit, new content
+    diff: str | None = None  # Unified diff format for edits
 
 
 class BrowserAction(BaseModel):
     """Represents a browser action within an action."""
+
     action_type: str  # "navigate", "click", "type", "scroll", etc.
     target: str | None = None  # CSS selector, URL, or element description
-    value: str | None = None   # Input value for type actions
+    value: str | None = None  # Input value for type actions
     screenshot_before: str | None = None  # Base64 screenshot
-    screenshot_after: str | None = None   # Base64 screenshot
+    screenshot_after: str | None = None  # Base64 screenshot
 
 
 class TerminalCommand(BaseModel):
     """Represents a terminal command within an action."""
+
     command: str
     working_directory: str
     exit_code: int | None = None
@@ -81,6 +86,7 @@ class TerminalCommand(BaseModel):
 
 class ActionMetadata(BaseModel):
     """Metadata for a timeline action."""
+
     file_changes: list[FileChange] | None = None
     browser_actions: list[BrowserAction] | None = None
     terminal_commands: list[TerminalCommand] | None = None
@@ -93,6 +99,7 @@ class TimelineAction(BaseModel):
     Represents a single action in the timeline.
     Captures all information needed to replay and reconstruct state.
     """
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     session_id: str
     sequence_number: int  # Ordered position in the timeline

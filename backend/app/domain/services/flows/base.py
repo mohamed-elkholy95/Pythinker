@@ -5,7 +5,6 @@ from app.domain.models.event import BaseEvent
 
 
 class BaseFlow(ABC):
-
     @abstractmethod
     def run(self) -> AsyncGenerator[BaseEvent, None]:
         pass

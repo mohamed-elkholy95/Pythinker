@@ -274,7 +274,6 @@ LOOP_TYPE_CAUSES = {
 - Rate limiting or quota exceeded
 - Environment misconfiguration
 - Transient network failure""",
-
     "repeating_action_observation": """
 - Expected behavior change that won't happen
 - Caching returning stale data
@@ -283,7 +282,6 @@ LOOP_TYPE_CAUSES = {
 - Tool not designed for this use case
 - Data already in desired state
 - Misunderstanding of tool's purpose""",
-
     "alternating_pattern": """
 - Conflicting approaches undoing each other
 - Missing synchronization between operations
@@ -292,7 +290,6 @@ LOOP_TYPE_CAUSES = {
 - Tool side effects not accounted for
 - Race condition in async operations
 - Incomplete state validation""",
-
     "tool_failure_cascade": """
 - Environment not properly initialized
 - Missing global dependency
@@ -301,7 +298,6 @@ LOOP_TYPE_CAUSES = {
 - Resource exhaustion (disk, memory)
 - Service outage affecting multiple integrations
 - Sandbox environment misconfiguration""",
-
     "monologue": """
 - Unclear goal leading to explanation mode
 - Tool unavailability leading to verbal responses
@@ -309,5 +305,5 @@ LOOP_TYPE_CAUSES = {
 - Waiting for input that should be self-provided
 - Over-explaining instead of executing
 - Fear of making errors leading to inaction
-- Unclear next step preventing action"""
+- Unclear next step preventing action""",
 }

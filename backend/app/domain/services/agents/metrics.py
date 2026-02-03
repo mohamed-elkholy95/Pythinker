@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 class MetricType(str, Enum):
     """Types of metrics collected."""
+
     TOKEN_USAGE = "token_usage"
     CACHE_HIT = "cache_hit"
     CACHE_MISS = "cache_miss"
@@ -36,6 +37,7 @@ class MetricType(str, Enum):
 @dataclass
 class MetricEvent:
     """Single metric event."""
+
     metric_type: MetricType
     value: float
     timestamp: datetime = field(default_factory=datetime.now)
@@ -45,6 +47,7 @@ class MetricEvent:
 @dataclass
 class TokenMetrics:
     """Token usage metrics."""
+
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cached_tokens: int = 0
@@ -55,6 +58,7 @@ class TokenMetrics:
 @dataclass
 class CacheMetrics:
     """Cache performance metrics."""
+
     l1_hits: int = 0
     l1_misses: int = 0
     l2_hits: int = 0
@@ -82,6 +86,7 @@ class CacheMetrics:
 @dataclass
 class ToolMetrics:
     """Tool execution metrics."""
+
     total_calls: int = 0
     successful_calls: int = 0
     failed_calls: int = 0
@@ -101,9 +106,10 @@ class ToolMetrics:
 @dataclass
 class LatencyMetrics:
     """Latency distribution metrics."""
+
     count: int = 0
     total_ms: float = 0
-    min_ms: float = float('inf')
+    min_ms: float = float("inf")
     max_ms: float = 0
     p50_ms: float = 0
     p95_ms: float = 0
@@ -144,7 +150,7 @@ class MetricsCollector:
     Supports time-windowed metrics for trend analysis.
     """
 
-    _instance: Optional['MetricsCollector'] = None
+    _instance: Optional["MetricsCollector"] = None
     _lock = threading.Lock()
 
     def __new__(cls):
@@ -204,11 +210,7 @@ class MetricsCollector:
     # ==================== Token Metrics ====================
 
     def record_token_usage(
-        self,
-        prompt_tokens: int,
-        completion_tokens: int,
-        cached: bool = False,
-        cache_savings: int = 0
+        self, prompt_tokens: int, completion_tokens: int, cached: bool = False, cache_savings: int = 0
     ) -> None:
         """Record token usage for an LLM call."""
         self.tokens.prompt_tokens += prompt_tokens
@@ -251,13 +253,7 @@ class MetricsCollector:
 
     # ==================== Tool Metrics ====================
 
-    def record_tool_execution(
-        self,
-        tool_name: str,
-        success: bool,
-        duration_ms: float,
-        parallel: bool = False
-    ) -> None:
+    def record_tool_execution(self, tool_name: str, success: bool, duration_ms: float, parallel: bool = False) -> None:
         """Record a tool execution."""
         self.tools.total_calls += 1
         self.tools.total_duration_ms += duration_ms
@@ -304,12 +300,9 @@ class MetricsCollector:
 
     def record_error(self, error_type: str, message: str, context: dict | None = None) -> None:
         """Record an error event."""
-        self._errors.append({
-            "timestamp": datetime.now(),
-            "type": error_type,
-            "message": message[:200],
-            "context": context or {}
-        })
+        self._errors.append(
+            {"timestamp": datetime.now(), "type": error_type, "message": message[:200], "context": context or {}}
+        )
 
         self._rotate_bucket_if_needed()
         self._current_bucket["errors"] += 1
@@ -339,9 +332,8 @@ class MetricsCollector:
                 "cached_tokens": self.tokens.cached_tokens,
                 "cache_savings": self.tokens.cache_savings,
                 "cache_savings_percent": (
-                    self.tokens.cache_savings / self.tokens.total_tokens * 100
-                    if self.tokens.total_tokens > 0 else 0
-                )
+                    self.tokens.cache_savings / self.tokens.total_tokens * 100 if self.tokens.total_tokens > 0 else 0
+                ),
             },
             "cache": {
                 "l1_hit_rate": f"{self.cache.l1_hit_rate:.1%}",
@@ -364,23 +356,20 @@ class MetricsCollector:
                 "p50_ms": f"{self.latency.p50_ms:.2f}",
                 "p95_ms": f"{self.latency.p95_ms:.2f}",
                 "p99_ms": f"{self.latency.p99_ms:.2f}",
-                "min_ms": f"{self.latency.min_ms:.2f}" if self.latency.min_ms != float('inf') else "N/A",
+                "min_ms": f"{self.latency.min_ms:.2f}" if self.latency.min_ms != float("inf") else "N/A",
                 "max_ms": f"{self.latency.max_ms:.2f}",
             },
             "dynamic_toolset": {
                 "avg_reduction": f"{self.avg_toolset_reduction:.1%}",
                 "samples": len(self._toolset_reductions),
             },
-            "errors": {
-                "total": len(self._errors),
-                "recent": list(self._errors)[-5:] if self._errors else []
-            }
+            "errors": {"total": len(self._errors), "recent": list(self._errors)[-5:] if self._errors else []},
         }
 
     def get_time_series(self, minutes: int = 60) -> list[dict[str, Any]]:
         """Get time-series data for the last N minutes."""
         # Include current bucket
-        all_buckets = list(self._time_series) + [self._current_bucket]
+        all_buckets = [*list(self._time_series), self._current_bucket]
         return all_buckets[-minutes:]
 
     def reset(self) -> None:
@@ -401,30 +390,30 @@ class MetricsCollector:
         lines = [
             "# HELP agent_tokens_total Total tokens used",
             "# TYPE agent_tokens_total counter",
-            f"agent_tokens_total{{type=\"prompt\"}} {self.tokens.prompt_tokens}",
-            f"agent_tokens_total{{type=\"completion\"}} {self.tokens.completion_tokens}",
-            f"agent_tokens_total{{type=\"cached\"}} {self.tokens.cached_tokens}",
+            f'agent_tokens_total{{type="prompt"}} {self.tokens.prompt_tokens}',
+            f'agent_tokens_total{{type="completion"}} {self.tokens.completion_tokens}',
+            f'agent_tokens_total{{type="cached"}} {self.tokens.cached_tokens}',
             "",
             "# HELP agent_cache_hits_total Cache hits by tier",
             "# TYPE agent_cache_hits_total counter",
-            f"agent_cache_hits_total{{tier=\"l1\"}} {self.cache.l1_hits}",
-            f"agent_cache_hits_total{{tier=\"l2\"}} {self.cache.l2_hits}",
+            f'agent_cache_hits_total{{tier="l1"}} {self.cache.l1_hits}',
+            f'agent_cache_hits_total{{tier="l2"}} {self.cache.l2_hits}',
             "",
             "# HELP agent_cache_misses_total Cache misses by tier",
             "# TYPE agent_cache_misses_total counter",
-            f"agent_cache_misses_total{{tier=\"l1\"}} {self.cache.l1_misses}",
-            f"agent_cache_misses_total{{tier=\"l2\"}} {self.cache.l2_misses}",
+            f'agent_cache_misses_total{{tier="l1"}} {self.cache.l1_misses}',
+            f'agent_cache_misses_total{{tier="l2"}} {self.cache.l2_misses}',
             "",
             "# HELP agent_tool_calls_total Total tool calls",
             "# TYPE agent_tool_calls_total counter",
-            f"agent_tool_calls_total{{status=\"success\"}} {self.tools.successful_calls}",
-            f"agent_tool_calls_total{{status=\"failure\"}} {self.tools.failed_calls}",
+            f'agent_tool_calls_total{{status="success"}} {self.tools.successful_calls}',
+            f'agent_tool_calls_total{{status="failure"}} {self.tools.failed_calls}',
             "",
             "# HELP agent_tool_duration_ms Tool execution duration",
             "# TYPE agent_tool_duration_ms summary",
-            f"agent_tool_duration_ms{{quantile=\"0.5\"}} {self.latency.p50_ms}",
-            f"agent_tool_duration_ms{{quantile=\"0.95\"}} {self.latency.p95_ms}",
-            f"agent_tool_duration_ms{{quantile=\"0.99\"}} {self.latency.p99_ms}",
+            f'agent_tool_duration_ms{{quantile="0.5"}} {self.latency.p50_ms}',
+            f'agent_tool_duration_ms{{quantile="0.95"}} {self.latency.p95_ms}',
+            f'agent_tool_duration_ms{{quantile="0.99"}} {self.latency.p99_ms}',
             "",
             "# HELP agent_hallucinations_total Hallucinations detected",
             "# TYPE agent_hallucinations_total counter",

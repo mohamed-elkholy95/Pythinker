@@ -30,19 +30,14 @@ class LLMProtocol(Protocol):
     """Protocol for LLM interface."""
 
     async def ask(
-        self,
-        messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]] | None = None,
-        **kwargs
-    ) -> dict[str, Any]:
-        ...
+        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None, **kwargs
+    ) -> dict[str, Any]: ...
 
 
 class AgentProtocol(Protocol):
     """Protocol for agent interface."""
 
-    async def execute(self, request: str, **kwargs) -> AsyncGenerator[Any, None]:
-        ...
+    async def execute(self, request: str, **kwargs) -> AsyncGenerator[Any, None]: ...
 
 
 # Type for custom evaluators
@@ -138,16 +133,12 @@ class EvalRunner:
         # Log summary
         logger.info(
             f"Evaluation complete: {report.passed_cases}/{report.total_cases} passed "
-            f"({report.pass_rate*100:.1f}%), avg score: {report.average_score:.3f}"
+            f"({report.pass_rate * 100:.1f}%), avg score: {report.average_score:.3f}"
         )
 
         return report
 
-    def _filter_cases(
-        self,
-        cases: list[EvalCase],
-        config: EvalConfig
-    ) -> list[EvalCase]:
+    def _filter_cases(self, cases: list[EvalCase], config: EvalConfig) -> list[EvalCase]:
         """Filter cases based on configuration."""
         filtered = []
 
@@ -162,24 +153,18 @@ class EvalRunner:
                 continue
 
             # Filter by include tags
-            if config.include_tags:
-                if not any(tag in case.tags for tag in config.include_tags):
-                    continue
+            if config.include_tags and not any(tag in case.tags for tag in config.include_tags):
+                continue
 
             # Filter by exclude tags
-            if config.exclude_tags:
-                if any(tag in case.tags for tag in config.exclude_tags):
-                    continue
+            if config.exclude_tags and any(tag in case.tags for tag in config.exclude_tags):
+                continue
 
             filtered.append(case)
 
         return filtered
 
-    async def _run_parallel(
-        self,
-        cases: list[EvalCase],
-        config: EvalConfig
-    ) -> list[EvalResult]:
+    async def _run_parallel(self, cases: list[EvalCase], config: EvalConfig) -> list[EvalResult]:
         """Run cases in parallel with concurrency limit."""
         semaphore = asyncio.Semaphore(config.max_parallel)
 
@@ -187,31 +172,26 @@ class EvalRunner:
             async with semaphore:
                 return await self._run_case(case, config)
 
-        results = await asyncio.gather(
-            *[run_with_semaphore(case) for case in cases],
-            return_exceptions=True
-        )
+        results = await asyncio.gather(*[run_with_semaphore(case) for case in cases], return_exceptions=True)
 
         # Convert exceptions to error results
         final_results = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                final_results.append(EvalResult(
-                    case_id=cases[i].id,
-                    status=EvalStatus.ERROR,
-                    error=str(result),
-                    error_type=type(result).__name__,
-                ))
+                final_results.append(
+                    EvalResult(
+                        case_id=cases[i].id,
+                        status=EvalStatus.ERROR,
+                        error=str(result),
+                        error_type=type(result).__name__,
+                    )
+                )
             else:
                 final_results.append(result)
 
         return final_results
 
-    async def _run_sequential(
-        self,
-        cases: list[EvalCase],
-        config: EvalConfig
-    ) -> list[EvalResult]:
+    async def _run_sequential(self, cases: list[EvalCase], config: EvalConfig) -> list[EvalResult]:
         """Run cases sequentially."""
         results = []
 
@@ -220,20 +200,18 @@ class EvalRunner:
                 result = await self._run_case(case, config)
                 results.append(result)
             except Exception as e:
-                results.append(EvalResult(
-                    case_id=case.id,
-                    status=EvalStatus.ERROR,
-                    error=str(e),
-                    error_type=type(e).__name__,
-                ))
+                results.append(
+                    EvalResult(
+                        case_id=case.id,
+                        status=EvalStatus.ERROR,
+                        error=str(e),
+                        error_type=type(e).__name__,
+                    )
+                )
 
         return results
 
-    async def _run_case(
-        self,
-        case: EvalCase,
-        config: EvalConfig
-    ) -> EvalResult:
+    async def _run_case(self, case: EvalCase, config: EvalConfig) -> EvalResult:
         """Run a single evaluation case."""
         result = EvalResult(case_id=case.id, status=EvalStatus.RUNNING)
 
@@ -283,11 +261,7 @@ class EvalRunner:
 
         return result
 
-    async def _get_output(
-        self,
-        case: EvalCase,
-        config: EvalConfig
-    ) -> tuple[str, dict[str, Any]]:
+    async def _get_output(self, case: EvalCase, config: EvalConfig) -> tuple[str, dict[str, Any]]:
         """Get output from LLM or agent.
 
         Returns:
@@ -303,18 +277,12 @@ class EvalRunner:
             # Mock mode for testing
             return self._get_mock_output(case)
 
-    async def _get_llm_output(
-        self,
-        case: EvalCase
-    ) -> tuple[str, dict[str, Any]]:
+    async def _get_llm_output(self, case: EvalCase) -> tuple[str, dict[str, Any]]:
         """Get output from raw LLM."""
         messages = [{"role": "user", "content": case.input}]
 
         if case.input_context.get("system_prompt"):
-            messages.insert(0, {
-                "role": "system",
-                "content": case.input_context["system_prompt"]
-            })
+            messages.insert(0, {"role": "system", "content": case.input_context["system_prompt"]})
 
         start_time = datetime.utcnow()
         response = await self._llm.ask(messages)
@@ -332,10 +300,7 @@ class EvalRunner:
 
         return output, context
 
-    async def _get_agent_output(
-        self,
-        case: EvalCase
-    ) -> tuple[str, dict[str, Any]]:
+    async def _get_agent_output(self, case: EvalCase) -> tuple[str, dict[str, Any]]:
         """Get output from full agent execution."""
         from app.domain.models.event import ErrorEvent, MessageEvent, ToolEvent
 
@@ -348,11 +313,13 @@ class EvalRunner:
             if isinstance(event, MessageEvent):
                 output_parts.append(event.message)
             elif isinstance(event, ToolEvent):
-                tool_calls.append({
-                    "function_name": event.function_name,
-                    "arguments": event.function_args,
-                    "result": event.function_result.model_dump() if event.function_result else None,
-                })
+                tool_calls.append(
+                    {
+                        "function_name": event.function_name,
+                        "arguments": event.function_args,
+                        "result": event.function_result.model_dump() if event.function_result else None,
+                    }
+                )
             elif isinstance(event, ErrorEvent):
                 raise RuntimeError(event.error)
 
@@ -366,10 +333,7 @@ class EvalRunner:
 
         return output, context
 
-    def _get_mock_output(
-        self,
-        case: EvalCase
-    ) -> tuple[str, dict[str, Any]]:
+    def _get_mock_output(self, case: EvalCase) -> tuple[str, dict[str, Any]]:
         """Get mock output for testing the evaluation framework."""
         # Return a simple mock based on input
         mock_output = f"Mock response to: {case.input[:50]}"
@@ -385,11 +349,7 @@ class EvalRunner:
         return mock_output, context
 
     async def _evaluate_output(
-        self,
-        case: EvalCase,
-        output: str,
-        context: dict[str, Any],
-        config: EvalConfig
+        self, case: EvalCase, output: str, context: dict[str, Any], config: EvalConfig
     ) -> list[MetricScore]:
         """Evaluate output using configured metrics."""
         scores = []
@@ -415,12 +375,9 @@ class EvalRunner:
                     scores.append(score)
                 except Exception as e:
                     logger.warning(f"Metric {metric_name} failed: {e}")
-                    scores.append(MetricScore(
-                        metric_name=metric_name,
-                        score=0.0,
-                        passed=False,
-                        message=f"Metric error: {e!s}"
-                    ))
+                    scores.append(
+                        MetricScore(metric_name=metric_name, score=0.0, passed=False, message=f"Metric error: {e!s}")
+                    )
 
         # Run custom evaluator if specified
         if case.custom_evaluator and case.custom_evaluator in self._custom_evaluators:
@@ -434,11 +391,7 @@ class EvalRunner:
 
         return scores
 
-    def register_custom_evaluator(
-        self,
-        name: str,
-        evaluator: CustomEvaluator
-    ) -> None:
+    def register_custom_evaluator(self, name: str, evaluator: CustomEvaluator) -> None:
         """Register a custom evaluator function.
 
         Args:
@@ -496,10 +449,7 @@ async def main():
     report = await run_evaluation(dataset, config=config)
 
     # Output
-    if args.format == "markdown":
-        output = report.to_markdown()
-    else:
-        output = report.to_json()
+    output = report.to_markdown() if args.format == "markdown" else report.to_json()
 
     if args.output:
         with open(args.output, "w") as f:
@@ -513,4 +463,5 @@ async def main():
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(asyncio.run(main()))

@@ -9,7 +9,8 @@ import json
 import shutil
 import logging
 import zipfile
-from typing import Optional, Dict, Any, List
+import contextlib
+from typing import List
 from datetime import datetime
 from pathlib import Path
 import fnmatch
@@ -265,7 +266,6 @@ class ExportService:
             ReportResult with report details
         """
         workspace_path = self._get_workspace_path(session_id)
-        exports_path = self._get_exports_path(session_id)
         reports_path = os.path.join(workspace_path, "output", "reports")
 
         if not os.path.exists(workspace_path):
@@ -331,10 +331,8 @@ class ExportService:
         for root, dirs, files in os.walk(workspace_path):
             total_files += len(files)
             for f in files:
-                try:
+                with contextlib.suppress(Exception):
                     total_size += os.path.getsize(os.path.join(root, f))
-                except:
-                    pass
 
         content = f"""
 - **Session ID**: {session_id}

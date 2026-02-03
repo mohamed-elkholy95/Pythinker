@@ -2,6 +2,7 @@
 
 Privacy-focused Google search proxy with JSON and HTML fallback parsing.
 """
+
 import logging
 from urllib.parse import parse_qs, urljoin, urlparse
 
@@ -66,11 +67,13 @@ class WhoogleSearchEngine(SearchEngine):
             snippet = item.get("snippet") or item.get("text") or ""
             link = self._clean_link(link)
             if title and link:
-                results.append(SearchResultItem(
-                    title=title,
-                    link=link,
-                    snippet=snippet,
-                ))
+                results.append(
+                    SearchResultItem(
+                        title=title,
+                        link=link,
+                        snippet=snippet,
+                    )
+                )
         return results
 
     def _parse_html_results(self, html: str) -> list[SearchResultItem]:
@@ -89,18 +92,16 @@ class WhoogleSearchEngine(SearchEngine):
             snippet_tag = node.select_one(".result__snippet, .result-snippet, .result-content, .result__body, .st")
             snippet = snippet_tag.get_text(" ", strip=True) if snippet_tag else ""
             if title and link:
-                results.append(SearchResultItem(
-                    title=title,
-                    link=link,
-                    snippet=snippet,
-                ))
+                results.append(
+                    SearchResultItem(
+                        title=title,
+                        link=link,
+                        snippet=snippet,
+                    )
+                )
         return results
 
-    async def search(
-        self,
-        query: str,
-        date_range: str | None = None
-    ) -> ToolResult[SearchResults]:
+    async def search(self, query: str, date_range: str | None = None) -> ToolResult[SearchResults]:
         params = self._build_params(query, date_range)
 
         try:
@@ -133,7 +134,7 @@ class WhoogleSearchEngine(SearchEngine):
                         date_range=date_range,
                         total_results=len(results),
                         results=results,
-                    )
+                    ),
                 )
         except Exception as e:
             logger.error(f"Whoogle Search failed: {e}")

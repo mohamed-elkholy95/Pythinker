@@ -49,30 +49,24 @@ STEP_STATUS_ICONS = {
 @dataclass
 class TaskState:
     """Current state of the task for recitation"""
+
     objective: str = ""
     steps: list[dict[str, Any]] = field(default_factory=list)
     key_findings: list[str] = field(default_factory=list)
     current_step_index: int = 0
     last_updated: datetime = field(default_factory=datetime.now)
 
-    def add_step(
-        self,
-        description: str,
-        status: str = "pending",
-        step_id: str | None = None
-    ) -> None:
+    def add_step(self, description: str, status: str = "pending", step_id: str | None = None) -> None:
         """Add a step to the task"""
-        self.steps.append({
-            "id": step_id or str(len(self.steps) + 1),
-            "description": description,
-            "status": status,
-        })
+        self.steps.append(
+            {
+                "id": step_id or str(len(self.steps) + 1),
+                "description": description,
+                "status": status,
+            }
+        )
 
-    def mark_step_completed(
-        self,
-        step_id: str,
-        result: str | None = None
-    ) -> bool:
+    def mark_step_completed(self, step_id: str, result: str | None = None) -> bool:
         """Mark a step as completed.
 
         Returns:
@@ -153,7 +147,7 @@ class TaskState:
             progress=progress,
             findings=findings,
             current_focus=current_focus,
-            timestamp=self.last_updated.strftime("%Y-%m-%d %H:%M:%S")
+            timestamp=self.last_updated.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
     def to_context_signal(self) -> str:
@@ -216,11 +210,7 @@ class TaskStateManager:
         self._recent_actions: list[dict[str, Any]] = []
         self._max_recent_actions = 10
 
-    def initialize_from_plan(
-        self,
-        objective: str,
-        steps: list[dict[str, Any]]
-    ) -> TaskState:
+    def initialize_from_plan(self, objective: str, steps: list[dict[str, Any]]) -> TaskState:
         """
         Initialize task state from a plan.
 
@@ -235,17 +225,12 @@ class TaskStateManager:
 
         for step in steps:
             self._state.add_step(
-                description=step.get("description", ""),
-                status="pending",
-                step_id=str(step.get("id", ""))
+                description=step.get("description", ""), status="pending", step_id=str(step.get("id", ""))
             )
 
         # Initialize progress metrics for reflection
         self._progress_metrics = ProgressMetrics(
-            steps_completed=0,
-            steps_remaining=len(steps),
-            total_steps=len(steps),
-            started_at=datetime.now()
+            steps_completed=0, steps_remaining=len(steps), total_steps=len(steps), started_at=datetime.now()
         )
 
         # Clear recent actions
@@ -255,18 +240,14 @@ class TaskStateManager:
         return self._state
 
     def update_step_status(
-        self,
-        step_id: str,
-        status: str,
-        result: str | None = None,
-        findings: list[str] | None = None
+        self, step_id: str, status: str, result: str | None = None, findings: list[str] | None = None
     ) -> None:
         """
         Update step status and add any findings.
 
         Args:
             step_id: ID of the step to update
-            status: New status (completed, in_progress, failed)
+            status: New status (completed, in_progress, failed, blocked, skipped)
             result: Optional result summary
             findings: Optional list of key findings from this step
         """
@@ -292,13 +273,30 @@ class TaskStateManager:
                     found = True
                     break
             self._state.last_updated = datetime.now()
+        elif status == "blocked":
+            # Handle blocked status (dependencies not satisfied or upstream failure)
+            for step in self._state.steps:
+                if str(step["id"]) == step_id:
+                    step["status"] = "blocked"
+                    if result:
+                        step["result"] = result
+                    found = True
+                    break
+            self._state.last_updated = datetime.now()
+        elif status == "skipped":
+            # Handle skipped status (iteration limit reached, etc.)
+            for step in self._state.steps:
+                if str(step["id"]) == step_id:
+                    step["status"] = "skipped"
+                    if result:
+                        step["result"] = result
+                    found = True
+                    break
+            self._state.last_updated = datetime.now()
 
         if not found:
             available_ids = [str(s["id"]) for s in self._state.steps]
-            logger.warning(
-                f"Step {step_id} not found in task state. "
-                f"Available step IDs: {available_ids}"
-            )
+            logger.warning(f"Step {step_id} not found in task state. Available step IDs: {available_ids}")
 
         if findings:
             for finding in findings:
@@ -354,7 +352,7 @@ class TaskStateManager:
 
         try:
             result = await self._sandbox.file_read(self._file_path)
-            content = result.output if hasattr(result, 'output') else str(result)
+            content = result.output if hasattr(result, "output") else str(result)
             # Parse basic info from markdown (simplified)
             if "## Objective" in content:
                 # Extract objective
@@ -390,13 +388,7 @@ class TaskStateManager:
         """Get current progress metrics for reflection."""
         return self._progress_metrics
 
-    def record_action(
-        self,
-        function_name: str,
-        success: bool,
-        result: Any = None,
-        error: str | None = None
-    ) -> None:
+    def record_action(self, function_name: str, success: bool, result: Any = None, error: str | None = None) -> None:
         """Record a tool action for progress tracking and reflection context.
 
         Args:
@@ -420,13 +412,13 @@ class TaskStateManager:
             "success": success,
             "result": str(result)[:200] if result else None,
             "error": error,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
         self._recent_actions.append(action_record)
 
         # Keep only recent actions
         if len(self._recent_actions) > self._max_recent_actions:
-            self._recent_actions = self._recent_actions[-self._max_recent_actions:]
+            self._recent_actions = self._recent_actions[-self._max_recent_actions :]
 
     def record_step_complete(self, step_id: str, success: bool = True) -> None:
         """Record step completion for progress tracking.
@@ -439,10 +431,7 @@ class TaskStateManager:
             self._progress_metrics.record_step_completed()
 
         # Also update task state
-        self.update_step_status(
-            step_id,
-            "completed" if success else "failed"
-        )
+        self.update_step_status(step_id, "completed" if success else "failed")
 
     def record_no_progress(self) -> None:
         """Record that an action made no meaningful progress (for stall detection)."""

@@ -6,7 +6,9 @@ reducing session initialization time from 15-20s to 2-5s.
 """
 
 import asyncio
+import contextlib
 import logging
+import time
 from asyncio import CancelledError, Queue, create_task, sleep
 from typing import TYPE_CHECKING, Optional
 
@@ -57,8 +59,14 @@ class SandboxPool:
         self._warmup_interval = warmup_interval or settings.sandbox_pool_warmup_interval
         self._pool: Queue[Sandbox] = Queue(maxsize=self._max_size)
         self._warming_task: asyncio.Task | None = None
+        self._background_tasks: set[asyncio.Task] = set()
         self._started = False
         self._stopping = False
+        # Circuit breaker for sandbox creation failures
+        self._consecutive_failures = 0
+        self._max_consecutive_failures = 5
+        self._circuit_open = False
+        self._circuit_reset_time: float = 0
 
     @property
     def size(self) -> int:
@@ -82,15 +90,16 @@ class SandboxPool:
         self._started = True
         self._stopping = False
         logger.info(
-            f"Starting sandbox pool (min={self._min_size}, max={self._max_size}, "
-            f"interval={self._warmup_interval}s)"
+            f"Starting sandbox pool (min={self._min_size}, max={self._max_size}, interval={self._warmup_interval}s)"
         )
 
         # Start background maintenance loop
         self._warming_task = create_task(self._warm_pool_loop())
 
         # Initial warmup (don't await full completion, let it run in background)
-        create_task(self._warm_pool())
+        task = create_task(self._warm_pool())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
         logger.info("Sandbox pool started")
 
@@ -105,10 +114,8 @@ class SandboxPool:
         # Cancel the warming task
         if self._warming_task:
             self._warming_task.cancel()
-            try:
+            with contextlib.suppress(CancelledError):
                 await self._warming_task
-            except CancelledError:
-                pass
             self._warming_task = None
 
         # Cleanup all pooled sandboxes
@@ -147,15 +154,15 @@ class SandboxPool:
 
             # Trigger background replenishment
             if not self._stopping:
-                create_task(self._replenish_one())
+                task = create_task(self._replenish_one())
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
 
             return sandbox
 
         except TimeoutError:
             # Pool exhausted, create on-demand
-            logger.warning(
-                f"Sandbox pool exhausted (size={self._pool.qsize()}), creating on-demand"
-            )
+            logger.warning(f"Sandbox pool exhausted (size={self._pool.qsize()}), creating on-demand")
             return await self._sandbox_cls.create()
 
     async def _warm_pool(self) -> None:
@@ -167,8 +174,7 @@ class SandboxPool:
                     try:
                         self._pool.put_nowait(sandbox)
                         logger.info(
-                            f"Sandbox pool: added sandbox {sandbox.id}, "
-                            f"size={self._pool.qsize()}/{self._max_size}"
+                            f"Sandbox pool: added sandbox {sandbox.id}, size={self._pool.qsize()}/{self._max_size}"
                         )
                     except asyncio.QueueFull:
                         # Pool is full, destroy the extra sandbox
@@ -183,10 +189,21 @@ class SandboxPool:
         """Create a sandbox and verify it's ready.
 
         Phase 1 enhancement: Also pre-warms browser for instant availability.
+        Includes circuit breaker to prevent rapid failure loops.
 
         Returns:
             A verified sandbox, or None if creation/verification failed
         """
+        # Circuit breaker check
+        if self._circuit_open:
+            if time.time() < self._circuit_reset_time:
+                logger.warning("Circuit breaker open - skipping sandbox creation")
+                return None
+            # Try to reset circuit
+            logger.info("Circuit breaker reset - attempting sandbox creation")
+            self._circuit_open = False
+            self._consecutive_failures = 0
+
         try:
             sandbox = await self._sandbox_cls.create()
 
@@ -197,10 +214,23 @@ class SandboxPool:
             # Phase 1: Pre-warm browser context for instant use
             await self._prewarm_browser(sandbox)
 
+            # Success - reset failure counter
+            self._consecutive_failures = 0
             return sandbox
 
         except Exception as e:
             logger.error(f"Failed to create/verify sandbox for pool: {e}")
+            self._consecutive_failures += 1
+
+            # Open circuit breaker after too many failures
+            if self._consecutive_failures >= self._max_consecutive_failures:
+                self._circuit_open = True
+                self._circuit_reset_time = time.time() + 60  # Reset after 60 seconds
+                logger.error(
+                    f"Circuit breaker opened after {self._consecutive_failures} consecutive failures. "
+                    "Will retry in 60 seconds."
+                )
+
             return None
 
     async def _prewarm_browser(self, sandbox: "Sandbox") -> None:
@@ -295,9 +325,7 @@ async def get_sandbox_pool(sandbox_cls: type["Sandbox"] | None = None) -> Sandbo
 
     if _sandbox_pool is None:
         if sandbox_cls is None:
-            raise RuntimeError(
-                "sandbox_cls must be provided when creating the sandbox pool"
-            )
+            raise RuntimeError("sandbox_cls must be provided when creating the sandbox pool")
         _sandbox_pool = SandboxPool(sandbox_cls)
 
     return _sandbox_pool

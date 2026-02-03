@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Test script to verify browser-use response_format fix"""
+
 import asyncio
 import sys
+
 from app.core.config import get_settings
 from app.infrastructure.external.browser.browseruse_browser import BrowserUseService, is_browser_use_available
+
 
 async def test_browseruse():
     """Test browser-use with a simple task"""
@@ -57,7 +60,7 @@ async def test_browseruse():
             print(f"   - Model used: {result.get('model_used', 'unknown')}")
 
             if result.get("final_result"):
-                print(f"\n📝 Final result:")
+                print("\n📝 Final result:")
                 print(f"   {result['final_result'][:200]}...")
 
             if result.get("actions"):
@@ -73,18 +76,17 @@ async def test_browseruse():
 
             print("\n✅ No response_format errors detected!")
             return True
-        else:
-            error = result.get("error", "Unknown error")
-            print(f"❌ Task failed: {error}")
+        error = result.get("error", "Unknown error")
+        print(f"❌ Task failed: {error}")
 
-            # Check if it's the response_format error
-            if "response_format" in error.lower() or "unavailable" in error.lower():
-                print("❌ RESPONSE_FORMAT ERROR STILL PRESENT!")
-                return False
+        # Check if it's the response_format error
+        if "response_format" in error.lower() or "unavailable" in error.lower():
+            print("❌ RESPONSE_FORMAT ERROR STILL PRESENT!")
+            return False
 
-            # Other errors are acceptable for this test (e.g., connection issues)
-            print("ℹ️  Error is not related to response_format - fix is working")
-            return True
+        # Other errors are acceptable for this test (e.g., connection issues)
+        print("INFO: Error is not related to response_format - fix is working")
+        return True
 
     except Exception as e:
         error_str = str(e)
@@ -96,13 +98,13 @@ async def test_browseruse():
             return False
 
         # Other errors might be infrastructure issues (Chrome not available, etc.)
-        print("ℹ️  Exception is not related to response_format - fix is working")
+        print("INFO: Exception is not related to response_format - fix is working")
         return True
 
     finally:
         # Cleanup
         try:
-            if 'service' in locals():
+            if "service" in locals():
                 await service.cleanup()
                 print("\n✅ Cleaned up browser-use service")
         except Exception as cleanup_error:
@@ -132,5 +134,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n❌ Test failed with exception: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

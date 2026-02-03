@@ -40,7 +40,7 @@ class TestSourceAttribution:
             source_url="https://example.com/article",
             access_status=AccessStatus.FULL,
             confidence=0.95,
-            raw_excerpt="Python programming is discussed in detail"
+            raw_excerpt="Python programming is discussed in detail",
         )
         assert attr.is_verified() is True
         assert attr.requires_caveat() is False
@@ -108,16 +108,20 @@ class TestAttributionSummary:
         """Adding attributions should update statistics."""
         summary = AttributionSummary()
 
-        summary.add_attribution(SourceAttribution(
-            claim="Fact 1",
-            source_type=SourceType.DIRECT_CONTENT,
-            confidence=0.9,
-        ))
-        summary.add_attribution(SourceAttribution(
-            claim="Inference 1",
-            source_type=SourceType.INFERRED,
-            confidence=0.7,
-        ))
+        summary.add_attribution(
+            SourceAttribution(
+                claim="Fact 1",
+                source_type=SourceType.DIRECT_CONTENT,
+                confidence=0.9,
+            )
+        )
+        summary.add_attribution(
+            SourceAttribution(
+                claim="Inference 1",
+                source_type=SourceType.INFERRED,
+                confidence=0.7,
+            )
+        )
 
         assert summary.total_claims == 2
         assert summary.verified_claims == 1
@@ -128,11 +132,13 @@ class TestAttributionSummary:
         """Paywall sources should be flagged in summary."""
         summary = AttributionSummary()
 
-        summary.add_attribution(SourceAttribution(
-            claim="Paywalled content",
-            source_type=SourceType.DIRECT_CONTENT,
-            access_status=AccessStatus.PAYWALL,
-        ))
+        summary.add_attribution(
+            SourceAttribution(
+                claim="Paywalled content",
+                source_type=SourceType.DIRECT_CONTENT,
+                access_status=AccessStatus.PAYWALL,
+            )
+        )
 
         assert summary.has_paywall_sources is True
         assert summary.needs_caveats() is True
@@ -142,21 +148,25 @@ class TestAttributionSummary:
         # High quality
         high_quality = AttributionSummary()
         for i in range(5):
-            high_quality.add_attribution(SourceAttribution(
-                claim=f"Verified fact {i}",
-                source_type=SourceType.DIRECT_CONTENT,
-                confidence=0.95,
-            ))
+            high_quality.add_attribution(
+                SourceAttribution(
+                    claim=f"Verified fact {i}",
+                    source_type=SourceType.DIRECT_CONTENT,
+                    confidence=0.95,
+                )
+            )
         assert high_quality.get_reliability_score() > 0.9
 
         # Low quality (all inferred)
         low_quality = AttributionSummary()
         for i in range(5):
-            low_quality.add_attribution(SourceAttribution(
-                claim=f"Inferred claim {i}",
-                source_type=SourceType.INFERRED,
-                confidence=0.5,
-            ))
+            low_quality.add_attribution(
+                SourceAttribution(
+                    claim=f"Inferred claim {i}",
+                    source_type=SourceType.INFERRED,
+                    confidence=0.5,
+                )
+            )
         assert low_quality.get_reliability_score() < 0.5
 
 
@@ -305,7 +315,7 @@ class TestContentHallucinationDetector:
         text = "The article has 1.5K claps."
         verified_claims = {"The article has 1.5K claps."}
 
-        result = detector.analyze(text, verified_claims)
+        detector.analyze(text, verified_claims)
 
         # The claim should not be flagged since it's verified
         # Note: Partial matching might still flag it, depending on implementation
@@ -329,9 +339,10 @@ class TestContentHallucinationDetector:
             no_attr_risks = [i.risk for i in result_no_attr.issues]
             with_attr_risks = [i.risk for i in result_with_attr.issues]
             # At minimum, attributed version shouldn't have higher risk
-            assert max(with_attr_risks, default=HallucinationRisk.LOW).value <= max(
-                no_attr_risks, default=HallucinationRisk.HIGH
-            ).value
+            assert (
+                max(with_attr_risks, default=HallucinationRisk.LOW).value
+                <= max(no_attr_risks, default=HallucinationRisk.HIGH).value
+            )
 
     def test_extract_quantitative_claims(self):
         """Should extract all quantitative claims for verification."""
@@ -437,8 +448,8 @@ class TestIntegration:
                 "url": "https://example.com/article",
                 "access_status": "paywall",
                 "paywall_confidence": 0.85,
-                "paywall_indicators": ["subscribe to read"]
-            }
+                "paywall_indicators": ["subscribe to read"],
+            },
         )
 
         assert result.data["access_status"] == "paywall"

@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 class BenchmarkCategory(str, Enum):
     """Categories of benchmarks."""
+
     TOKEN_EFFICIENCY = "token_efficiency"
     LATENCY = "latency"
     CACHE_PERFORMANCE = "cache_performance"
@@ -34,6 +35,7 @@ class BenchmarkCategory(str, Enum):
 @dataclass
 class BenchmarkResult:
     """Result of a single benchmark run."""
+
     name: str
     category: BenchmarkCategory
     passed: bool
@@ -47,6 +49,7 @@ class BenchmarkResult:
 @dataclass
 class BenchmarkSuite:
     """Collection of benchmark results."""
+
     name: str
     results: list[BenchmarkResult] = field(default_factory=list)
     started_at: datetime = field(default_factory=datetime.now)
@@ -125,13 +128,11 @@ class AgentBenchmarks:
                 status = "PASS" if result.passed else "FAIL"
                 logger.info(f"Benchmark {name}: {status} (score: {result.score:.2f})")
             except Exception as e:
-                suite.results.append(BenchmarkResult(
-                    name=name,
-                    category=BenchmarkCategory.TOKEN_EFFICIENCY,
-                    passed=False,
-                    score=0.0,
-                    error=str(e)
-                ))
+                suite.results.append(
+                    BenchmarkResult(
+                        name=name, category=BenchmarkCategory.TOKEN_EFFICIENCY, passed=False, score=0.0, error=str(e)
+                    )
+                )
                 logger.error(f"Benchmark {name} failed: {e}")
 
         suite.completed_at = datetime.now()
@@ -142,21 +143,19 @@ class AgentBenchmarks:
         suite = BenchmarkSuite(name=f"{category.value} Benchmarks")
 
         category_benchmarks = {
-            BenchmarkCategory.TOKEN_EFFICIENCY: [
-                "token_dynamic_toolset", "token_prompt_caching", "token_count_cache"
-            ],
+            BenchmarkCategory.TOKEN_EFFICIENCY: ["token_dynamic_toolset", "token_prompt_caching", "token_count_cache"],
             BenchmarkCategory.CACHE_PERFORMANCE: [
-                "cache_l1_performance", "cache_l2_performance", "cache_combined_hit_rate"
+                "cache_l1_performance",
+                "cache_l2_performance",
+                "cache_combined_hit_rate",
             ],
             BenchmarkCategory.TOOL_SELECTION: [
-                "tool_category_detection", "tool_semantic_search", "tool_task_filtering"
+                "tool_category_detection",
+                "tool_semantic_search",
+                "tool_task_filtering",
             ],
-            BenchmarkCategory.HALLUCINATION: [
-                "hallucination_detection", "hallucination_suggestions"
-            ],
-            BenchmarkCategory.MEMORY: [
-                "memory_pressure_detection", "memory_token_manager"
-            ],
+            BenchmarkCategory.HALLUCINATION: ["hallucination_detection", "hallucination_suggestions"],
+            BenchmarkCategory.MEMORY: ["memory_pressure_detection", "memory_token_manager"],
         }
 
         for name in category_benchmarks.get(category, []):
@@ -165,13 +164,9 @@ class AgentBenchmarks:
                     result = await self._benchmarks[name]()
                     suite.results.append(result)
                 except Exception as e:
-                    suite.results.append(BenchmarkResult(
-                        name=name,
-                        category=category,
-                        passed=False,
-                        score=0.0,
-                        error=str(e)
-                    ))
+                    suite.results.append(
+                        BenchmarkResult(name=name, category=category, passed=False, score=0.0, error=str(e))
+                    )
 
         suite.completed_at = datetime.now()
         return suite
@@ -189,12 +184,14 @@ class AgentBenchmarks:
         for i in range(50):
             categories = ["file", "browser", "search", "shell", "mcp"]
             cat = categories[i % len(categories)]
-            sample_tools.append({
-                "function": {
-                    "name": f"{cat}_tool_{i}",
-                    "description": f"Tool {i} for {cat} operations with detailed description"
+            sample_tools.append(
+                {
+                    "function": {
+                        "name": f"{cat}_tool_{i}",
+                        "description": f"Tool {i} for {cat} operations with detailed description",
+                    }
                 }
-            })
+            )
 
         manager = DynamicToolsetManager()
         manager.register_tools(sample_tools)
@@ -207,7 +204,7 @@ class AgentBenchmarks:
         ]
 
         reductions = []
-        for task, expected_type in test_cases:
+        for task, _expected_type in test_cases:
             filtered = manager.get_tools_for_task(task)
             reduction = 1 - (len(filtered) / len(sample_tools))
             reductions.append(reduction)
@@ -228,9 +225,9 @@ class AgentBenchmarks:
                 "total_tools": len(sample_tools),
                 "average_reduction": f"{avg_reduction:.1%}",
                 "reductions": [f"{r:.1%}" for r in reductions],
-                "test_cases": len(test_cases)
+                "test_cases": len(test_cases),
             },
-            duration_ms=duration
+            duration_ms=duration,
         )
 
     async def _bench_prompt_caching(self) -> BenchmarkResult:
@@ -261,9 +258,9 @@ class AgentBenchmarks:
                 "system_prompt_tokens": len(system_prompt.split()),
                 "requests_per_session": requests_per_session,
                 "potential_savings": f"{savings_ratio:.1%}",
-                "cached_tokens_saved": cached_tokens
+                "cached_tokens_saved": cached_tokens,
             },
-            duration_ms=duration
+            duration_ms=duration,
         )
 
     async def _bench_token_count_cache(self) -> BenchmarkResult:
@@ -304,9 +301,9 @@ class AgentBenchmarks:
                 "cache_hits": cache_stats.get("hits", 0),
                 "cache_misses": cache_stats.get("misses", 0),
                 "hit_rate": f"{hit_rate:.1%}",
-                "cache_size": cache_stats.get("size", 0)
+                "cache_size": cache_stats.get("size", 0),
             },
-            duration_ms=duration
+            duration_ms=duration,
         )
 
     # ==================== Cache Performance Benchmarks ====================
@@ -352,9 +349,9 @@ class AgentBenchmarks:
                 "avg_write_ms": f"{avg_write:.4f}",
                 "avg_read_ms": f"{avg_read:.4f}",
                 "hit_rate": f"{stats['hit_rate']:.1%}",
-                "cache_size": stats["size"]
+                "cache_size": stats["size"],
             },
-            duration_ms=duration
+            duration_ms=duration,
         )
 
     async def _bench_l2_cache(self) -> BenchmarkResult:
@@ -363,6 +360,7 @@ class AgentBenchmarks:
 
         try:
             from app.infrastructure.external.cache import get_cache
+
             cache = get_cache()
 
             # Write test
@@ -397,12 +395,8 @@ class AgentBenchmarks:
                 category=BenchmarkCategory.CACHE_PERFORMANCE,
                 passed=passed,
                 score=score,
-                metrics={
-                    "avg_write_ms": f"{avg_write:.2f}",
-                    "avg_read_ms": f"{avg_read:.2f}",
-                    "operations": 20
-                },
-                duration_ms=duration
+                metrics={"avg_write_ms": f"{avg_write:.2f}", "avg_read_ms": f"{avg_read:.2f}", "operations": 20},
+                duration_ms=duration,
             )
 
         except Exception as e:
@@ -412,7 +406,7 @@ class AgentBenchmarks:
                 passed=False,
                 score=0.0,
                 error=f"Redis not available: {e}",
-                duration_ms=(time.perf_counter() - start) * 1000
+                duration_ms=(time.perf_counter() - start) * 1000,
             )
 
     async def _bench_combined_cache(self) -> BenchmarkResult:
@@ -447,9 +441,9 @@ class AgentBenchmarks:
                 "l1_hit_rate": f"{l1_hit_rate:.1%}",
                 "l1_size": stats["l1"]["size"],
                 "l2_hits": stats["l2"]["hits"],
-                "l2_misses": stats["l2"]["misses"]
+                "l2_misses": stats["l2"]["misses"],
             },
-            duration_ms=duration
+            duration_ms=duration,
         )
 
     # ==================== Tool Selection Benchmarks ====================
@@ -483,12 +477,9 @@ class AgentBenchmarks:
             matched = detected == expected_category
             if matched:
                 correct += 1
-            results_detail.append({
-                "tool": tool_name,
-                "expected": expected_category.value,
-                "detected": detected.value,
-                "matched": matched
-            })
+            results_detail.append(
+                {"tool": tool_name, "expected": expected_category.value, "detected": detected.value, "matched": matched}
+            )
 
         accuracy = correct / len(test_cases)
         duration = (time.perf_counter() - start) * 1000
@@ -506,9 +497,9 @@ class AgentBenchmarks:
                 "test_cases": len(test_cases),
                 "correct": correct,
                 "accuracy": f"{accuracy:.1%}",
-                "mismatches": [r for r in results_detail if not r["matched"]]
+                "mismatches": [r for r in results_detail if not r["matched"]],
             },
-            duration_ms=duration
+            duration_ms=duration,
         )
 
     async def _bench_semantic_search(self) -> BenchmarkResult:
@@ -552,12 +543,8 @@ class AgentBenchmarks:
             category=BenchmarkCategory.TOOL_SELECTION,
             passed=passed,
             score=score,
-            metrics={
-                "test_cases": len(test_cases),
-                "correct": correct,
-                "accuracy": f"{accuracy:.1%}"
-            },
-            duration_ms=duration
+            metrics={"test_cases": len(test_cases), "correct": correct, "accuracy": f"{accuracy:.1%}"},
+            duration_ms=duration,
         )
 
     async def _bench_task_filtering(self) -> BenchmarkResult:
@@ -603,12 +590,8 @@ class AgentBenchmarks:
             category=BenchmarkCategory.TOOL_SELECTION,
             passed=passed,
             score=score,
-            metrics={
-                "test_cases": len(test_cases),
-                "correct": correct,
-                "accuracy": f"{accuracy:.1%}"
-            },
-            duration_ms=duration
+            metrics={"test_cases": len(test_cases), "correct": correct, "accuracy": f"{accuracy:.1%}"},
+            duration_ms=duration,
         )
 
     # ==================== Hallucination Benchmarks ====================
@@ -655,9 +638,9 @@ class AgentBenchmarks:
                 "test_cases": len(test_cases),
                 "correct": correct,
                 "accuracy": f"{accuracy:.1%}",
-                "total_hallucinations": detector.hallucination_count
+                "total_hallucinations": detector.hallucination_count,
             },
-            duration_ms=duration
+            duration_ms=duration,
         )
 
     async def _bench_hallucination_suggestions(self) -> BenchmarkResult:
@@ -696,9 +679,9 @@ class AgentBenchmarks:
             metrics={
                 "test_cases": len(test_cases),
                 "correct_suggestions": correct_suggestions,
-                "accuracy": f"{accuracy:.1%}"
+                "accuracy": f"{accuracy:.1%}",
             },
-            duration_ms=duration
+            duration_ms=duration,
         )
 
     # ==================== Memory Benchmarks ====================
@@ -717,9 +700,9 @@ class AgentBenchmarks:
         # warning at ~73,464 tokens, critical at ~83,259, overflow at ~93,054
 
         test_cases = [
-            (1000, PressureLevel.NORMAL),     # ~1% usage
-            (50000, PressureLevel.NORMAL),    # ~51% usage
-            (75000, PressureLevel.WARNING),   # ~77% usage
+            (1000, PressureLevel.NORMAL),  # ~1% usage
+            (50000, PressureLevel.NORMAL),  # ~51% usage
+            (75000, PressureLevel.WARNING),  # ~77% usage
             (85000, PressureLevel.CRITICAL),  # ~87% usage
             (95000, PressureLevel.OVERFLOW),  # ~97% usage
         ]
@@ -735,13 +718,15 @@ class AgentBenchmarks:
             matched = pressure.level == expected_level
             if matched:
                 correct += 1
-            results_detail.append({
-                "target": target_tokens,
-                "expected": expected_level.value,
-                "actual": pressure.level.value,
-                "usage": f"{pressure.usage_percent:.1%}",
-                "matched": matched
-            })
+            results_detail.append(
+                {
+                    "target": target_tokens,
+                    "expected": expected_level.value,
+                    "actual": pressure.level.value,
+                    "usage": f"{pressure.usage_percent:.1%}",
+                    "matched": matched,
+                }
+            )
 
         accuracy = correct / len(test_cases)
         duration = (time.perf_counter() - start) * 1000
@@ -758,9 +743,9 @@ class AgentBenchmarks:
                 "test_cases": len(test_cases),
                 "correct": correct,
                 "accuracy": f"{accuracy:.1%}",
-                "details": results_detail[:3]  # First 3 for brevity
+                "details": results_detail[:3],  # First 3 for brevity
             },
-            duration_ms=duration
+            duration_ms=duration,
         )
 
     async def _bench_token_manager(self) -> BenchmarkResult:
@@ -811,9 +796,9 @@ class AgentBenchmarks:
                 "trim_time_ms": f"{trim_time:.2f}",
                 "messages_trimmed": len(messages) - len(trimmed),
                 "tokens_removed": removed,
-                "cache_hit_rate": f"{stats['cache']['hit_rate']:.1%}"
+                "cache_hit_rate": f"{stats['cache']['hit_rate']:.1%}",
             },
-            duration_ms=duration
+            duration_ms=duration,
         )
 
     # ==================== Report Generation ====================

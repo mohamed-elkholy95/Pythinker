@@ -40,10 +40,7 @@ class Browser(Protocol):
         ...
 
     async def click(
-        self,
-        index: int | None = None,
-        coordinate_x: float | None = None,
-        coordinate_y: float | None = None
+        self, index: int | None = None, coordinate_x: float | None = None, coordinate_y: float | None = None
     ) -> ToolResult:
         """Click element"""
         ...
@@ -54,16 +51,12 @@ class Browser(Protocol):
         press_enter: bool,
         index: int | None = None,
         coordinate_x: float | None = None,
-        coordinate_y: float | None = None
+        coordinate_y: float | None = None,
     ) -> ToolResult:
         """Input text"""
         ...
 
-    async def move_mouse(
-        self,
-        coordinate_x: float,
-        coordinate_y: float
-    ) -> ToolResult:
+    async def move_mouse(self, coordinate_x: float, coordinate_y: float) -> ToolResult:
         """Move mouse"""
         ...
 
@@ -71,32 +64,19 @@ class Browser(Protocol):
         """Simulate key press"""
         ...
 
-    async def select_option(
-        self,
-        index: int,
-        option: int
-    ) -> ToolResult:
+    async def select_option(self, index: int, option: int) -> ToolResult:
         """Select dropdown option"""
         ...
 
-    async def scroll_up(
-        self,
-        to_top: bool | None = None
-    ) -> ToolResult:
+    async def scroll_up(self, to_top: bool | None = None) -> ToolResult:
         """Scroll up"""
         ...
 
-    async def scroll_down(
-        self,
-        to_bottom: bool | None = None
-    ) -> ToolResult:
+    async def scroll_down(self, to_bottom: bool | None = None) -> ToolResult:
         """Scroll down"""
         ...
 
-    async def screenshot(
-        self,
-        full_page: bool | None = False
-    ) -> bytes:
+    async def screenshot(self, full_page: bool | None = False) -> bytes:
         """Take a screenshot of the current page"""
         ...
 

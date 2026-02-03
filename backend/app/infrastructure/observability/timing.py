@@ -27,11 +27,11 @@ import time
 from collections.abc import Callable
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
-from typing import Any, TypeVar
+from typing import Any, ClassVar, TypeVar
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 @dataclass
@@ -66,7 +66,7 @@ class TimingStats:
     name: str
     count: int = 0
     total_ms: float = 0.0
-    min_ms: float = float('inf')
+    min_ms: float = float("inf")
     max_ms: float = 0.0
     success_count: int = 0
     error_count: int = 0
@@ -129,7 +129,7 @@ class TimingStats:
             "count": self.count,
             "total_ms": round(self.total_ms, 2),
             "avg_ms": round(self.avg_ms, 2),
-            "min_ms": round(self.min_ms, 2) if self.min_ms != float('inf') else 0,
+            "min_ms": round(self.min_ms, 2) if self.min_ms != float("inf") else 0,
             "max_ms": round(self.max_ms, 2),
             "p50_ms": round(self.p50_ms, 2),
             "p95_ms": round(self.p95_ms, 2),
@@ -142,7 +142,7 @@ class TimingStats:
 class TimingRegistry:
     """Registry for collecting timing statistics."""
 
-    _stats: dict[str, TimingStats] = {}
+    _stats: ClassVar[dict[str, TimingStats]] = {}
 
     @classmethod
     def record(
@@ -164,10 +164,7 @@ class TimingRegistry:
     @classmethod
     def get_all_stats(cls) -> dict[str, dict[str, Any]]:
         """Get stats for all operations."""
-        return {
-            name: stats.to_dict()
-            for name, stats in cls._stats.items()
-        }
+        return {name: stats.to_dict() for name, stats in cls._stats.items()}
 
     @classmethod
     def reset(cls, name: str | None = None) -> None:
@@ -196,6 +193,7 @@ def timed(
     Returns:
         Decorated function
     """
+
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         operation_name = name or func.__name__
 
@@ -219,19 +217,11 @@ def timed(
 
                 # Log based on threshold and success
                 if not success:
-                    logger.warning(
-                        f"{operation_name} failed in {duration_ms:.2f}ms: {error_msg}"
-                    )
+                    logger.warning(f"{operation_name} failed in {duration_ms:.2f}ms: {error_msg}")
                 elif threshold_ms and duration_ms > threshold_ms:
-                    logger.warning(
-                        f"{operation_name} exceeded threshold: "
-                        f"{duration_ms:.2f}ms > {threshold_ms}ms"
-                    )
+                    logger.warning(f"{operation_name} exceeded threshold: {duration_ms:.2f}ms > {threshold_ms}ms")
                 else:
-                    logger.log(
-                        log_level,
-                        f"{operation_name} completed in {duration_ms:.2f}ms"
-                    )
+                    logger.log(log_level, f"{operation_name} completed in {duration_ms:.2f}ms")
 
         @functools.wraps(func)
         def sync_wrapper(*args, **kwargs) -> T:
@@ -252,19 +242,11 @@ def timed(
                     TimingRegistry.record(operation_name, duration_ms, success)
 
                 if not success:
-                    logger.warning(
-                        f"{operation_name} failed in {duration_ms:.2f}ms: {error_msg}"
-                    )
+                    logger.warning(f"{operation_name} failed in {duration_ms:.2f}ms: {error_msg}")
                 elif threshold_ms and duration_ms > threshold_ms:
-                    logger.warning(
-                        f"{operation_name} exceeded threshold: "
-                        f"{duration_ms:.2f}ms > {threshold_ms}ms"
-                    )
+                    logger.warning(f"{operation_name} exceeded threshold: {duration_ms:.2f}ms > {threshold_ms}ms")
                 else:
-                    logger.log(
-                        log_level,
-                        f"{operation_name} completed in {duration_ms:.2f}ms"
-                    )
+                    logger.log(log_level, f"{operation_name} completed in {duration_ms:.2f}ms")
 
         return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
 
@@ -302,13 +284,9 @@ async def timed_block(
             TimingRegistry.record(name, result.duration_ms, result.success)
 
         if not result.success:
-            logger.warning(
-                f"{name} failed in {result.duration_ms:.2f}ms: {result.error}"
-            )
+            logger.warning(f"{name} failed in {result.duration_ms:.2f}ms: {result.error}")
         elif threshold_ms and result.duration_ms > threshold_ms:
-            logger.warning(
-                f"{name} exceeded threshold: {result.duration_ms:.2f}ms > {threshold_ms}ms"
-            )
+            logger.warning(f"{name} exceeded threshold: {result.duration_ms:.2f}ms > {threshold_ms}ms")
 
 
 @contextmanager
@@ -336,13 +314,9 @@ def timed_block_sync(
             TimingRegistry.record(name, result.duration_ms, result.success)
 
         if not result.success:
-            logger.warning(
-                f"{name} failed in {result.duration_ms:.2f}ms: {result.error}"
-            )
+            logger.warning(f"{name} failed in {result.duration_ms:.2f}ms: {result.error}")
         elif threshold_ms and result.duration_ms > threshold_ms:
-            logger.warning(
-                f"{name} exceeded threshold: {result.duration_ms:.2f}ms > {threshold_ms}ms"
-            )
+            logger.warning(f"{name} exceeded threshold: {result.duration_ms:.2f}ms > {threshold_ms}ms")
 
 
 def get_timing_stats() -> dict[str, dict[str, Any]]:

@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Vulnerability:
     """Represents a security vulnerability found in the code."""
+
     type: str
     severity: str
     description: str
@@ -25,7 +26,7 @@ class Vulnerability:
             "severity": self.severity,
             "description": self.description,
             "file_path": self.file_path,
-            "line_number": self.line_number
+            "line_number": self.line_number,
         }
 
 
@@ -79,5 +80,5 @@ class SecurityAnalyzer:
             "critical_count": critical,
             "high_count": high,
             "medium_count": medium,
-            "low_count": low
+            "low_count": low,
         }

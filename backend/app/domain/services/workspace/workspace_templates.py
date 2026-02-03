@@ -1,10 +1,12 @@
 """Workspace templates for different task types."""
+
 from dataclasses import dataclass
 
 
 @dataclass
 class WorkspaceTemplate:
     """Template for workspace structure"""
+
     name: str
     description: str
     folders: dict[str, str]  # folder_name -> purpose
@@ -34,7 +36,7 @@ RESEARCH_TEMPLATE = WorkspaceTemplate(
 ## Usage
 Place source materials in `/inputs`. Final reports go in `/deliverables`.
 """,
-    trigger_keywords=["research", "investigate", "find information", "gather data", "analyze"]
+    trigger_keywords=["research", "investigate", "find information", "gather data", "analyze"],
 )
 
 
@@ -65,7 +67,7 @@ DATA_ANALYSIS_TEMPLATE = WorkspaceTemplate(
 3. Run analysis from `/analysis`
 4. Save outputs to `/deliverables`
 """,
-    trigger_keywords=["analyze data", "process dataset", "data analysis", "statistics", "visualize"]
+    trigger_keywords=["analyze data", "process dataset", "data analysis", "statistics", "visualize"],
 )
 
 
@@ -93,7 +95,7 @@ CODE_PROJECT_TEMPLATE = WorkspaceTemplate(
 ## Development
 Write code in `/src`, tests in `/tests`. Build outputs go to `/deliverables`.
 """,
-    trigger_keywords=["write code", "develop", "build", "implement", "create application"]
+    trigger_keywords=["write code", "develop", "build", "implement", "create application"],
 )
 
 
@@ -122,7 +124,7 @@ DOCUMENT_GENERATION_TEMPLATE = WorkspaceTemplate(
 3. Add visuals to `/assets`
 4. Finalize in `/deliverables`
 """,
-    trigger_keywords=["write document", "create report", "generate documentation", "compose"]
+    trigger_keywords=["write document", "create report", "generate documentation", "compose"],
 )
 
 

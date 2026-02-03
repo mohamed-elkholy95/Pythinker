@@ -12,16 +12,16 @@ from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.shell import ShellTool
 
 __all__ = [
-    'BaseTool',
-    'BrowserTool',
-    'CodeExecutorTool',
-    'CommandFormatter',
-    'DeepScanAnalyzerTool',
-    'FileTool',
-    'IdleTool',
-    'MCPTool',
-    'MessageTool',
-    'PlaywrightTool',
-    'SearchTool',
-    'ShellTool',
+    "BaseTool",
+    "BrowserTool",
+    "CodeExecutorTool",
+    "CommandFormatter",
+    "DeepScanAnalyzerTool",
+    "FileTool",
+    "IdleTool",
+    "MCPTool",
+    "MessageTool",
+    "PlaywrightTool",
+    "SearchTool",
+    "ShellTool",
 ]

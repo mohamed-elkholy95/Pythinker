@@ -16,13 +16,15 @@ import logging
 import re
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import ClassVar
 
 logger = logging.getLogger(__name__)
 
 
 class RequirementPriority(str, Enum):
     """Priority levels for requirements."""
-    MUST_HAVE = "must_have"      # Explicit requirements
+
+    MUST_HAVE = "must_have"  # Explicit requirements
     SHOULD_HAVE = "should_have"  # Implied or suggested
     NICE_TO_HAVE = "nice_to_have"  # Optional enhancements
 
@@ -30,6 +32,7 @@ class RequirementPriority(str, Enum):
 @dataclass
 class Requirement:
     """A single extracted requirement."""
+
     id: str
     description: str
     priority: RequirementPriority
@@ -46,6 +49,7 @@ class Requirement:
 @dataclass
 class RequirementSet:
     """Collection of requirements extracted from a user prompt."""
+
     requirements: list[Requirement] = field(default_factory=list)
     original_prompt: str = ""
 
@@ -118,29 +122,41 @@ class RequirementExtractor:
     """
 
     # Patterns for numbered lists (1. Item, 1) Item, etc.)
-    NUMBERED_PATTERN = re.compile(
-        r'(?:^|\n)\s*(\d+)[.\)]\s*(.+?)(?=\n\s*\d+[.\)]|\n\n|\Z)',
-        re.MULTILINE | re.DOTALL
-    )
+    NUMBERED_PATTERN = re.compile(r"(?:^|\n)\s*(\d+)[.\)]\s*(.+?)(?=\n\s*\d+[.\)]|\n\n|\Z)", re.MULTILINE | re.DOTALL)
 
     # Patterns for bullet lists (- Item, * Item, • Item)
-    BULLET_PATTERN = re.compile(
-        r'(?:^|\n)\s*[-*•]\s*(.+?)(?=\n\s*[-*•]|\n\n|\Z)',
-        re.MULTILINE | re.DOTALL
-    )
+    BULLET_PATTERN = re.compile(r"(?:^|\n)\s*[-*•]\s*(.+?)(?=\n\s*[-*•]|\n\n|\Z)", re.MULTILINE | re.DOTALL)
 
     # Must-have indicators
-    MUST_INDICATORS = [
-        "must", "should", "need to", "needs to", "required",
-        "ensure", "make sure", "important", "critical", "essential",
-        "definitely", "always", "never", "don't forget",
+    MUST_INDICATORS: ClassVar[list[str]] = [
+        "must",
+        "should",
+        "need to",
+        "needs to",
+        "required",
+        "ensure",
+        "make sure",
+        "important",
+        "critical",
+        "essential",
+        "definitely",
+        "always",
+        "never",
+        "don't forget",
     ]
 
     # Nice-to-have indicators
-    OPTIONAL_INDICATORS = [
-        "optionally", "if possible", "bonus", "extra",
-        "nice to have", "would be nice", "could also",
-        "maybe", "perhaps", "consider",
+    OPTIONAL_INDICATORS: ClassVar[list[str]] = [
+        "optionally",
+        "if possible",
+        "bonus",
+        "extra",
+        "nice to have",
+        "would be nice",
+        "could also",
+        "maybe",
+        "perhaps",
+        "consider",
     ]
 
     def __init__(self):
@@ -185,10 +201,7 @@ class RequirementExtractor:
                 f"({sum(1 for r in requirements if r.priority == RequirementPriority.MUST_HAVE)} must-haves)"
             )
 
-        return RequirementSet(
-            requirements=requirements,
-            original_prompt=prompt
-        )
+        return RequirementSet(requirements=requirements, original_prompt=prompt)
 
     def _extract_numbered_items(self, text: str) -> list[Requirement]:
         """Extract requirements from numbered lists."""
@@ -198,12 +211,14 @@ class RequirementExtractor:
             item_text = match.group(2).strip()
             if item_text and len(item_text) > 3:
                 self._req_counter += 1
-                requirements.append(Requirement(
-                    id=f"REQ-{self._req_counter:03d}",
-                    description=self._clean_text(item_text),
-                    priority=self._determine_priority(item_text),
-                    source_text=match.group(0).strip()
-                ))
+                requirements.append(
+                    Requirement(
+                        id=f"REQ-{self._req_counter:03d}",
+                        description=self._clean_text(item_text),
+                        priority=self._determine_priority(item_text),
+                        source_text=match.group(0).strip(),
+                    )
+                )
 
         return requirements
 
@@ -215,12 +230,14 @@ class RequirementExtractor:
             item_text = match.group(1).strip()
             if item_text and len(item_text) > 3:
                 self._req_counter += 1
-                requirements.append(Requirement(
-                    id=f"REQ-{self._req_counter:03d}",
-                    description=self._clean_text(item_text),
-                    priority=self._determine_priority(item_text),
-                    source_text=match.group(0).strip()
-                ))
+                requirements.append(
+                    Requirement(
+                        id=f"REQ-{self._req_counter:03d}",
+                        description=self._clean_text(item_text),
+                        priority=self._determine_priority(item_text),
+                        source_text=match.group(0).strip(),
+                    )
+                )
 
         return requirements
 
@@ -230,7 +247,7 @@ class RequirementExtractor:
 
         # Look for patterns like "do X, Y, and Z" or "X and also Y"
         # Split on common conjunctions
-        parts = re.split(r'\s+and\s+(?:also\s+)?|\s*,\s+and\s+|\s*,\s+', text)
+        parts = re.split(r"\s+and\s+(?:also\s+)?|\s*,\s+and\s+|\s*,\s+", text)
 
         # Only extract if we have multiple substantial parts
         if len(parts) >= 2:
@@ -239,17 +256,34 @@ class RequirementExtractor:
                 # Filter out very short or very long parts
                 if 5 < len(part) < 200:
                     # Check if it looks like a task/action
-                    action_words = ["create", "make", "build", "write", "add", "remove",
-                                    "update", "change", "fix", "implement", "design",
-                                    "find", "search", "get", "fetch", "download"]
+                    action_words = [
+                        "create",
+                        "make",
+                        "build",
+                        "write",
+                        "add",
+                        "remove",
+                        "update",
+                        "change",
+                        "fix",
+                        "implement",
+                        "design",
+                        "find",
+                        "search",
+                        "get",
+                        "fetch",
+                        "download",
+                    ]
                     if any(word in part.lower() for word in action_words):
                         self._req_counter += 1
-                        requirements.append(Requirement(
-                            id=f"REQ-{self._req_counter:03d}",
-                            description=self._clean_text(part),
-                            priority=RequirementPriority.SHOULD_HAVE,
-                            source_text=part
-                        ))
+                        requirements.append(
+                            Requirement(
+                                id=f"REQ-{self._req_counter:03d}",
+                                description=self._clean_text(part),
+                                priority=RequirementPriority.SHOULD_HAVE,
+                                source_text=part,
+                            )
+                        )
 
         return requirements
 
@@ -296,11 +330,7 @@ class RequirementExtractor:
 
         return unique
 
-    def match_requirement_to_step(
-        self,
-        requirement: Requirement,
-        step_description: str
-    ) -> float:
+    def match_requirement_to_step(self, requirement: Requirement, step_description: str) -> float:
         """Calculate how well a step addresses a requirement.
 
         Args:

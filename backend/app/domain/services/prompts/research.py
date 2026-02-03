@@ -7,26 +7,31 @@ Research standards for comparison and recommendation tasks:
 Source verification:
 - Visit official product pages rather than relying on search snippets
 - Verify specifications directly from manufacturer documentation
-- Mark unverifiable claims explicitly
+- Omit unverifiable claims rather than adding disclaimers
+- NEVER fabricate benchmark scores, pricing, or statistics
 
 Cross-validation:
-- Gather information from at least 3 sources
-- Source priority: official manufacturer > verified reviews > user forums
+- Gather information from at least 5-7 diverse sources
+- Source priority: official manufacturer > benchmark leaderboards > verified reviews > user forums
 - Note contradictions between sources and cite the more authoritative
+- Cross-reference numeric claims (prices, scores, limits) across multiple sources
 
 Citations:
-- Include source URLs for factual claims
-- Mark claims from prior knowledge as "unverified"
+- Include source URLs for ALL factual claims
+- Do not include claims that cannot be verified
+- Every benchmark score MUST have a source URL
 
 Coverage:
 - Search for alternatives, competitors, and recent releases
-- Include 4-5 options from different brands
-- Expand searches with comparison and review queries
+- Include 5-8 options from different providers/brands
+- Expand searches with comparison, benchmark, and review queries
+- Search SPECIFICALLY for benchmark leaderboards and performance comparison sites
 
 Consistency:
 - Compare products within the same category and technology type
 - Honor user-specified technologies and requirements
 - Note price tier differences when relevant
+- Include BOTH free-tier AND paid pricing when comparing services
 </research_verification>
 
 <domain_awareness>
@@ -50,6 +55,37 @@ Terminology clarity:
 - Distinguish marketing claims from technical specifications
 - Note when terms are used loosely or inconsistently
 </domain_awareness>
+
+<benchmark_research>
+CRITICAL: When researching benchmarks, performance, or comparisons:
+
+Benchmark source hunting:
+- Search for "[topic] benchmark leaderboard" and "[topic] performance comparison"
+- Look for established benchmark sites (e.g., Berkeley Function Calling Leaderboard, LMSYS, HuggingFace leaderboards)
+- Search for "[product] benchmark scores [current year]"
+- Find industry-specific evaluation frameworks
+
+Benchmark verification:
+- Visit the actual benchmark leaderboard pages
+- Extract scores directly from benchmark tables
+- Note the benchmark methodology and date
+- If no benchmark data exists, state "No benchmark data available" - NEVER fabricate scores
+
+Pricing research depth:
+- Visit official pricing pages, not just overview pages
+- Extract BOTH free-tier limits AND post-free-tier costs
+- Note per-unit pricing (per token, per request, per GB, etc.)
+- Calculate example costs for typical usage scenarios
+- Search for "[product] pricing [current year]" to find current rates
+
+Multi-tier comparison:
+- When comparing services with free tiers:
+  * Document what's included in free tier (limits, restrictions)
+  * Document paid tier pricing (per-unit costs)
+  * Compare across BOTH dimensions
+- Do not limit research to only free-tier-only products
+- Include products that have free tiers AS WELL AS paid options
+</benchmark_research>
 """
 
 RESEARCH_PLANNING_PROMPT = """
@@ -68,8 +104,7 @@ Verification:
 
 Synthesis:
 - Compile verified information with citations
-- Flag unverified claims
-- Structure report with sources section
+- Structure report with references section
 
 Domain-aware approach:
 - Learn terminology before searching products
@@ -84,39 +119,95 @@ RESEARCH_EXECUTION_PROMPT = """
 FIRST: Send an acknowledgment message (1-2 sentences) stating what research you will conduct.
 Example: "I will conduct comprehensive research on [topics] to provide you with a detailed report."
 
-THEN: Execute the research and deliver results.
+THEN: Execute the research following this MANDATORY workflow:
+
+## Tool Guide (All Browser-Visible)
+| Tool | Use For | VNC |
+|------|---------|-----|
+| `info_search_web` | Search queries | Yes |
+| `browser_get_content` | Fast HTTP fetch for known URLs | No |
+| `browser_navigate` | Navigate to URL (with optional intent/focus) | Yes |
+| `browsing` | Complex multi-step browser tasks | Yes |
+
+## Step 1: BROAD Search (visible in VNC)
+- Use `info_search_web` to find relevant sources
+- User can watch the search happen in the browser
+- Note all URLs returned in results
+- Run MULTIPLE search queries:
+  * Main topic search
+  * Benchmark/leaderboard search: "[topic] benchmark leaderboard [year]"
+  * Pricing search: "[topic] pricing comparison [year]"
+  * Review/analysis search: "[topic] analysis review [year]"
+
+## Step 2: FETCH/BROWSE PAGES (CRITICAL - DO NOT SKIP)
+- Use `browser_get_content` for fast content extraction (bulk URLs)
+- Use `browser_navigate` to visit and interact with pages
+- Extract content directly from the pages
+- Do NOT rely on search snippets - they are outdated/incomplete
+- Visit at least 5-8 authoritative sources including:
+  * Official product/service pages
+  * Benchmark leaderboard sites
+  * Pricing pages
+  * Independent review/analysis sites
+
+## Step 3: DEEP DIVE on Benchmarks & Pricing
+- Visit SPECIFIC benchmark leaderboard URLs
+- Extract actual scores from benchmark tables
+- Visit official pricing pages (not just overview pages)
+- Extract per-unit costs (per token, per request, etc.)
+- If benchmark data not found, explicitly state "No benchmark data available"
+- NEVER fabricate scores or pricing - only report what you actually found
+
+## Step 4: Compile with Citations
+- Base your report on ACTUAL extracted page content
+- Include inline citations [1], [2] for ALL factual claims
+- Every benchmark score MUST have a citation
+- Every price point MUST have a citation
+- Add comprehensive References section with all visited URLs
 
 Before delivering results, verify:
+- You actually VISITED pages (not just searched)
 - Official pages visited for recommended items
-- Category and type claims confirmed from specifications
-- Key specs cross-referenced across sources
-- Source URLs included for factual claims
-- Contradictions flagged
-- Alternatives and competitors searched
-- Products match user specifications
-- Like-for-like comparison (same category, similar tier)
+- Key specs extracted from actual page content
+- Source URLs are from pages you browsed
+- Information is current (check page dates)
+- Benchmark scores have source citations
+- Pricing data has source citations
+- At least 4-5 references in the final report
 
-Quality considerations:
-- Verify technology type matches user request
-- Distinguish marketing from specifications
-- Include competitors from major brands
-- Confirm professional features if applicable
-- Check data freshness
+CRITICAL: Never write a research report based only on:
+- Search result snippets
+- Your training knowledge
+- Assumptions about products/topics
+
+CRITICAL: For benchmark/performance claims:
+- If you cannot find benchmark data, state "No benchmark data found"
+- NEVER invent benchmark scores
+- NEVER estimate benchmark scores
+- Only report scores you extracted from actual benchmark pages
+
+You MUST browse actual pages to extract current, accurate information.
 </research_execution>
 """
 
 RESEARCH_SUMMARIZE_PROMPT = """
 Structure research results as a clean, professional report:
 
+# [Clear, Descriptive Title]
+
 ## Introduction
 Brief context of the research scope (1-2 sentences).
 
-## Key Findings
+## [Main Section 1]
+### [Subsection if needed]
 Present findings organized by topic with inline citations [1].
 Use **bold** for key terms. Use tables for comparisons.
 
-## Recommendations
-Actionable conclusions based on the research.
+## [Main Section 2]
+Continue with clear, factual content.
+
+## Conclusion
+Key takeaways and recommendations.
 
 ## References
 [1] Source Title - URL
@@ -164,6 +255,7 @@ RESEARCH_TASK_INDICATORS = [
     "summary",
     "insights",
 ]
+
 
 def is_research_task(message: str) -> bool:
     """Detect if a task requires research-mode verification"""

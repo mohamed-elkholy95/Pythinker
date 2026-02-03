@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 class ProcessInfo(BaseModel):
     """Process information model"""
+
     name: str = Field(..., description="Process name")
     group: str = Field(..., description="Process group")
     description: str = Field(..., description="Process description")
@@ -25,6 +26,7 @@ class ProcessInfo(BaseModel):
 
 class SupervisorActionResult(BaseModel):
     """Supervisor operation result model"""
+
     status: str = Field(..., description="Operation status")
     result: list[str] | None = Field(None, description="Operation result")
     stop_result: list[str] | None = Field(None, description="Stop result")
@@ -34,6 +36,7 @@ class SupervisorActionResult(BaseModel):
 
 class SupervisorTimeout(BaseModel):
     """Supervisor timeout model"""
+
     status: str | None = Field(None, description="Timeout setting status")
     active: bool = Field(False, description="Whether timeout is active")
     shutdown_time: str | None = Field(None, description="Shutdown time")

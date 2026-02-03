@@ -249,6 +249,7 @@ class TestWorkspaceSelector:
     def test_template_selection_is_fast(self, selector):
         """Test that template selection completes quickly."""
         import time
+
         task = "Research machine learning algorithms and create a report"
         start = time.time()
         for _ in range(100):

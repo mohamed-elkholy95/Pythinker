@@ -24,12 +24,7 @@ class ToolCallMetric(BaseMetric):
         expected_calls = expected.get("expected_tool_calls", [])
 
         if not expected_calls:
-            return MetricScore(
-                metric_name=self.name,
-                score=1.0,
-                passed=True,
-                message="No tool calls expected"
-            )
+            return MetricScore(metric_name=self.name, score=1.0, passed=True, message="No tool calls expected")
 
         actual_calls = context.get("tool_calls", [])
 
@@ -42,7 +37,7 @@ class ToolCallMetric(BaseMetric):
                     "expected_calls": len(expected_calls),
                     "actual_calls": 0,
                 },
-                message=f"Expected {len(expected_calls)} tool calls but none were made"
+                message=f"Expected {len(expected_calls)} tool calls but none were made",
             )
 
         # Match expected calls to actual calls
@@ -56,10 +51,12 @@ class ToolCallMetric(BaseMetric):
                 if i not in extra_actual:
                     continue
                 if self._calls_match(exp, act):
-                    matched.append({
-                        "expected": exp,
-                        "actual": act,
-                    })
+                    matched.append(
+                        {
+                            "expected": exp,
+                            "actual": act,
+                        }
+                    )
                     extra_actual.remove(i)
                     found = True
                     break
@@ -73,9 +70,7 @@ class ToolCallMetric(BaseMetric):
         order_correct = True
         if expected.get("tool_call_order_matters", False) and matched:
             matched_indices = [
-                next(i for i, a in enumerate(actual_calls)
-                     if self._calls_match(m["expected"], a))
-                for m in matched
+                next(i for i, a in enumerate(actual_calls) if self._calls_match(m["expected"], a)) for m in matched
             ]
             order_correct = matched_indices == sorted(matched_indices)
             if not order_correct:
@@ -96,15 +91,14 @@ class ToolCallMetric(BaseMetric):
                 "extra_actual": len(extra_actual),
                 "order_correct": order_correct,
             },
-            message=f"Matched {len(matched)}/{len(expected_calls)} expected tool calls"
+            message=f"Matched {len(matched)}/{len(expected_calls)} expected tool calls",
         )
 
     def _calls_match(self, expected: dict[str, Any], actual: dict[str, Any]) -> bool:
         """Check if an actual call matches expected criteria."""
         # Match function name
         exp_name = expected.get("function_name") or expected.get("name")
-        act_name = actual.get("function_name") or actual.get("name") or \
-                   actual.get("function", {}).get("name")
+        act_name = actual.get("function_name") or actual.get("name") or actual.get("function", {}).get("name")
 
         if exp_name and act_name != exp_name:
             return False
@@ -112,12 +106,12 @@ class ToolCallMetric(BaseMetric):
         # Match arguments if specified
         exp_args = expected.get("arguments") or expected.get("args")
         if exp_args:
-            act_args = actual.get("arguments") or actual.get("args") or \
-                       actual.get("function", {}).get("arguments", {})
+            act_args = actual.get("arguments") or actual.get("args") or actual.get("function", {}).get("arguments", {})
 
             # Parse args if string
             if isinstance(act_args, str):
                 import json
+
                 try:
                     act_args = json.loads(act_args)
                 except json.JSONDecodeError:
@@ -127,10 +121,9 @@ class ToolCallMetric(BaseMetric):
             for key, value in exp_args.items():
                 if key not in act_args:
                     return False
-                if value is not None and act_args[key] != value:
+                if value is not None and act_args[key] != value and str(act_args[key]).lower() != str(value).lower():
                     # Loose comparison for strings
-                    if str(act_args[key]).lower() != str(value).lower():
-                        return False
+                    return False
 
         return True
 
@@ -156,7 +149,7 @@ class ResponseTimeMetric(BaseMetric):
                 score=1.0,
                 passed=True,
                 details={"note": "No timing data available"},
-                message="No timing data available"
+                message="No timing data available",
             )
 
         # Calculate score (1.0 at half the limit, decreasing after)
@@ -180,7 +173,7 @@ class ResponseTimeMetric(BaseMetric):
                 "max_seconds": max_time,
                 "percent_of_limit": (actual_time / max_time * 100) if max_time > 0 else 0,
             },
-            message=f"Response time: {actual_time:.2f}s (limit: {max_time}s)"
+            message=f"Response time: {actual_time:.2f}s (limit: {max_time}s)",
         )
 
 
@@ -229,7 +222,7 @@ class TokenCountMetric(BaseMetric):
                 "max_tokens": max_tokens,
                 "percent_of_limit": (total_tokens / max_tokens * 100) if max_tokens > 0 else 0,
             },
-            message=f"Token usage: {total_tokens:,} (limit: {max_tokens:,})"
+            message=f"Token usage: {total_tokens:,} (limit: {max_tokens:,})",
         )
 
 
@@ -257,14 +250,11 @@ class ErrorFreeMetric(BaseMetric):
                     "error": error,
                     "error_type": error_type,
                 },
-                message=f"Execution error: {error}"
+                message=f"Execution error: {error}",
             )
 
         # Check for error indicators in output
-        error_patterns = [
-            "error:", "exception:", "failed:", "traceback",
-            "could not", "unable to", "invalid"
-        ]
+        error_patterns = ["error:", "exception:", "failed:", "traceback", "could not", "unable to", "invalid"]
 
         output_lower = actual_output.lower()
         detected_errors = [p for p in error_patterns if p in output_lower]
@@ -279,15 +269,10 @@ class ErrorFreeMetric(BaseMetric):
                     "warning": "Error-like text detected but no actual error",
                     "patterns_found": detected_errors,
                 },
-                message="Completed without errors (some error-like text present)"
+                message="Completed without errors (some error-like text present)",
             )
 
-        return MetricScore(
-            metric_name=self.name,
-            score=1.0,
-            passed=True,
-            message="Execution completed without errors"
-        )
+        return MetricScore(metric_name=self.name, score=1.0, passed=True, message="Execution completed without errors")
 
 
 class ToolSuccessMetric(BaseMetric):
@@ -305,33 +290,24 @@ class ToolSuccessMetric(BaseMetric):
         tool_calls = context.get("tool_calls", [])
 
         if not tool_calls:
-            return MetricScore(
-                metric_name=self.name,
-                score=1.0,
-                passed=True,
-                message="No tool calls to evaluate"
-            )
+            return MetricScore(metric_name=self.name, score=1.0, passed=True, message="No tool calls to evaluate")
 
         successful = 0
         failed = []
 
         for call in tool_calls:
             result = call.get("result") or call.get("function_result")
-            if result:
-                if isinstance(result, dict):
-                    success = result.get("success", True)
-                else:
-                    success = True
-            else:
-                success = True
+            success = (result.get("success", True) if isinstance(result, dict) else True) if result else True
 
             if success:
                 successful += 1
             else:
-                failed.append({
-                    "function": call.get("function_name") or call.get("name"),
-                    "result": result,
-                })
+                failed.append(
+                    {
+                        "function": call.get("function_name") or call.get("name"),
+                        "result": result,
+                    }
+                )
 
         score = successful / len(tool_calls)
         passed = len(failed) == 0
@@ -346,5 +322,5 @@ class ToolSuccessMetric(BaseMetric):
                 "total": len(tool_calls),
                 "failed_calls": failed,
             },
-            message=f"Tool success rate: {successful}/{len(tool_calls)}"
+            message=f"Tool success rate: {successful}/{len(tool_calls)}",
         )

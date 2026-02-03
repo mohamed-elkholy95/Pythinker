@@ -10,7 +10,7 @@ import logging
 
 from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -21,11 +21,7 @@ async def test_browser_positioning():
     # Note: This assumes a sandbox is running locally on port 8222
     cdp_url = "http://localhost:8222"
 
-    browser = PlaywrightBrowser(
-        cdp_url=cdp_url,
-        block_resources=False,
-        randomize_fingerprint=False
-    )
+    browser = PlaywrightBrowser(cdp_url=cdp_url, block_resources=False, randomize_fingerprint=False)
 
     try:
         logger.info("=" * 80)
@@ -91,10 +87,10 @@ async def test_browser_positioning():
         # Test 5: Multiple restarts
         logger.info("\n[TEST 5] Testing multiple restarts...")
         for i in range(3):
-            logger.info(f"  Restart {i+1}/3...")
+            logger.info(f"  Restart {i + 1}/3...")
             result = await browser.restart("https://example.com")
             if not result.success:
-                logger.error(f"❌ Restart {i+1} failed: {result.message}")
+                logger.error(f"❌ Restart {i + 1} failed: {result.message}")
                 return False
 
             if browser.context:
@@ -146,9 +142,8 @@ async def main():
         if success:
             logger.info("\n✓ All tests passed!")
             return 0
-        else:
-            logger.error("\n❌ Some tests failed")
-            return 1
+        logger.error("\n❌ Some tests failed")
+        return 1
     except Exception as e:
         logger.error(f"❌ Test suite failed: {e}", exc_info=True)
         return 1

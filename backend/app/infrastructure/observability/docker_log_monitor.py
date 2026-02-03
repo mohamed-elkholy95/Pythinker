@@ -11,6 +11,7 @@ from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+
 class DockerLogMonitor:
     def __init__(self, project_network: str | None = None, throttle_seconds: int | None = None):
         self._project_network = project_network
@@ -19,11 +20,22 @@ class DockerLogMonitor:
         self._threads: list[threading.Thread] = []
         self._last_alert_by_key: dict[str, float] = {}
         self._patterns: list[tuple[re.Pattern, int]] = [
-            (re.compile(r"\b(error|exception|critical|panic|traceback|failed|unauthorized|timeout)\b", re.IGNORECASE), logging.ERROR),
-            (re.compile(r"\bconnection refused|network unreachable|broken pipe|reset by peer\b", re.IGNORECASE), logging.ERROR),
+            (
+                re.compile(
+                    r"\b(error|exception|critical|panic|traceback|failed|unauthorized|timeout)\b", re.IGNORECASE
+                ),
+                logging.ERROR,
+            ),
+            (
+                re.compile(r"\bconnection refused|network unreachable|broken pipe|reset by peer\b", re.IGNORECASE),
+                logging.ERROR,
+            ),
             (re.compile(r"\boom|out\s*of\s*memory|oom-killer|killed process\b", re.IGNORECASE), logging.CRITICAL),
             (re.compile(r"\bdeprecation warning|deprecated endpoint\b", re.IGNORECASE), logging.WARNING),
-            (re.compile(r"\bstuck pattern detected|shutdown timed out|failed to create task\b", re.IGNORECASE), logging.WARNING),
+            (
+                re.compile(r"\bstuck pattern detected|shutdown timed out|failed to create task\b", re.IGNORECASE),
+                logging.WARNING,
+            ),
         ]
         self._client = None
 
@@ -59,7 +71,7 @@ class DockerLogMonitor:
                 containers = []
                 for c in self._client.containers.list(all=False):
                     try:
-                        networks = (c.attrs.get("NetworkSettings", {}).get("Networks", {}) or {})
+                        networks = c.attrs.get("NetworkSettings", {}).get("Networks", {}) or {}
                         if self._project_network in networks:
                             containers.append(c)
                     except Exception as e:
@@ -80,7 +92,7 @@ class DockerLogMonitor:
             log_stream = container.logs(
                 stream=True,
                 follow=True,
-                tail=50  # Get last 50 lines instead of using 'since'
+                tail=50,  # Get last 50 lines instead of using 'since'
             )
             for raw in log_stream:
                 if self._stop_event.is_set():

@@ -21,12 +21,13 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel, Field, field_validator
 
-T = TypeVar('T', bound=BaseModel)
+T = TypeVar("T", bound=BaseModel)
 
 
 # =============================================================================
 # Shell/Command Tool Schemas
 # =============================================================================
+
 
 class ShellExecuteArgs(BaseModel):
     """Arguments for shell command execution."""
@@ -52,17 +53,17 @@ class ShellExecuteArgs(BaseModel):
         description="Whether to capture command output",
     )
 
-    @field_validator('command')
+    @field_validator("command")
     @classmethod
     def validate_command(cls, v: str) -> str:
         """Validate command doesn't contain obvious dangerous patterns."""
         # Block commands that could cause system-wide damage
         dangerous_patterns = [
-            r'rm\s+-rf\s+/',
-            r'dd\s+if=/dev/zero',
-            r'mkfs\.',
-            r':\(\)\s*{\s*:\|:\s*&\s*}',  # Fork bomb
-            r'>\s*/dev/sd[a-z]',  # Direct disk writes
+            r"rm\s+-rf\s+/",
+            r"dd\s+if=/dev/zero",
+            r"mkfs\.",
+            r":\(\)\s*{\s*:\|:\s*&\s*}",  # Fork bomb
+            r">\s*/dev/sd[a-z]",  # Direct disk writes
         ]
 
         for pattern in dangerous_patterns:
@@ -71,7 +72,7 @@ class ShellExecuteArgs(BaseModel):
 
         return v
 
-    @field_validator('working_directory')
+    @field_validator("working_directory")
     @classmethod
     def validate_working_directory(cls, v: str | None) -> str | None:
         """Validate working directory path format."""
@@ -79,12 +80,12 @@ class ShellExecuteArgs(BaseModel):
             return v
 
         # Must be absolute path starting with / or ~ or relative
-        if not v.startswith(('/home', '/tmp', '/var', '~', '.', '/workspace')):
+        if not v.startswith(("/home", "/tmp", "/var", "~", ".", "/workspace")):
             # Allow other paths but warn
             pass
 
         # Block obvious traversal attempts
-        if '..' in v and v.count('..') > 3:
+        if ".." in v and v.count("..") > 3:
             raise ValueError("Excessive path traversal in working directory")
 
         return v
@@ -103,6 +104,7 @@ class ShellBackgroundArgs(ShellExecuteArgs):
 # =============================================================================
 # File Tool Schemas
 # =============================================================================
+
 
 class FileReadArgs(BaseModel):
     """Arguments for file read operations."""
@@ -129,14 +131,11 @@ class FileReadArgs(BaseModel):
         description="Line number to start reading from",
     )
 
-    @field_validator('encoding')
+    @field_validator("encoding")
     @classmethod
     def validate_encoding(cls, v: str) -> str:
         """Validate encoding is supported."""
-        valid_encodings = {
-            'utf-8', 'utf-16', 'utf-32', 'ascii', 'latin-1',
-            'iso-8859-1', 'cp1252', 'utf-8-sig'
-        }
+        valid_encodings = {"utf-8", "utf-16", "utf-32", "ascii", "latin-1", "iso-8859-1", "cp1252", "utf-8-sig"}
         if v.lower() not in valid_encodings:
             raise ValueError(f"Unsupported encoding: {v}")
         return v.lower()
@@ -169,14 +168,21 @@ class FileWriteArgs(BaseModel):
         description="Whether to overwrite existing file",
     )
 
-    @field_validator('path')
+    @field_validator("path")
     @classmethod
     def validate_path(cls, v: str) -> str:
         """Validate path doesn't target sensitive locations."""
         blocked_paths = [
-            '/etc/passwd', '/etc/shadow', '/etc/sudoers',
-            '~/.ssh/', '~/.gnupg/', '~/.aws/credentials',
-            '/root/', '/boot/', '/sys/', '/proc/',
+            "/etc/passwd",
+            "/etc/shadow",
+            "/etc/sudoers",
+            "~/.ssh/",
+            "~/.gnupg/",
+            "~/.aws/credentials",
+            "/root/",
+            "/boot/",
+            "/sys/",
+            "/proc/",
         ]
 
         for blocked in blocked_paths:
@@ -219,6 +225,7 @@ class FileSearchArgs(BaseModel):
 # Browser Tool Schemas
 # =============================================================================
 
+
 class BrowserNavigateArgs(BaseModel):
     """Arguments for browser navigation."""
 
@@ -239,21 +246,22 @@ class BrowserNavigateArgs(BaseModel):
         description="Navigation timeout in seconds",
     )
 
-    @field_validator('url')
+    @field_validator("url")
     @classmethod
     def validate_url(cls, v: str) -> str:
         """Validate URL format and block dangerous protocols."""
-        blocked_protocols = ['file://', 'javascript:', 'data:text/html']
+        blocked_protocols = ["file://", "javascript:", "data:text/html"]
 
         for protocol in blocked_protocols:
             if v.lower().startswith(protocol):
                 raise ValueError(f"Blocked protocol: {protocol}")
 
         # Basic URL format check
-        if not (v.startswith('http://') or v.startswith('https://') or v.startswith('about:')):
+        if not (v.startswith("http://") or v.startswith("https://") or v.startswith("about:")) and not v.startswith(
+            "/"
+        ):
             # Allow relative URLs
-            if not v.startswith('/'):
-                raise ValueError("URL must start with http://, https://, or be a relative path")
+            raise ValueError("URL must start with http://, https://, or be a relative path")
 
         return v
 
@@ -276,10 +284,10 @@ class BrowserClickArgs(BaseModel):
         description="Whether to double-click",
     )
 
-    @field_validator('button')
+    @field_validator("button")
     @classmethod
     def validate_button(cls, v: str) -> str:
-        valid_buttons = {'left', 'right', 'middle'}
+        valid_buttons = {"left", "right", "middle"}
         if v.lower() not in valid_buttons:
             raise ValueError(f"Invalid button: {v}. Must be one of {valid_buttons}")
         return v.lower()
@@ -310,8 +318,57 @@ class BrowserInputArgs(BaseModel):
 
 
 # =============================================================================
+# Search Tool Schemas
+# =============================================================================
+
+
+class SearchWebArgs(BaseModel):
+    """Arguments for enhanced multi-type web search."""
+
+    query: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+        description="Search query in Google search style",
+    )
+    search_type: str = Field(
+        default="info",
+        description="Type of search: info, news, image, academic, api, data, tool",
+    )
+    date_range: str | None = Field(
+        None,
+        description="Time range filter for search results",
+    )
+    expand_queries: bool = Field(
+        default=False,
+        description="Whether to search multiple query variants",
+    )
+
+    @field_validator("search_type")
+    @classmethod
+    def validate_search_type(cls, v: str) -> str:
+        """Validate search type is supported."""
+        valid_types = {"info", "news", "image", "academic", "api", "data", "tool"}
+        if v.lower() not in valid_types:
+            raise ValueError(f"Invalid search type: {v}. Must be one of {valid_types}")
+        return v.lower()
+
+    @field_validator("date_range")
+    @classmethod
+    def validate_date_range(cls, v: str | None) -> str | None:
+        """Validate date range is supported."""
+        if v is None:
+            return v
+        valid_ranges = {"all", "past_hour", "past_day", "past_week", "past_month", "past_year"}
+        if v.lower() not in valid_ranges:
+            raise ValueError(f"Invalid date range: {v}. Must be one of {valid_ranges}")
+        return v.lower()
+
+
+# =============================================================================
 # MCP Tool Schemas
 # =============================================================================
+
 
 class MCPToolCallArgs(BaseModel):
     """Arguments for MCP tool calls."""
@@ -333,11 +390,11 @@ class MCPToolCallArgs(BaseModel):
         description="Tool arguments",
     )
 
-    @field_validator('server_name', 'tool_name')
+    @field_validator("server_name", "tool_name")
     @classmethod
     def validate_names(cls, v: str) -> str:
         """Validate names don't contain injection characters."""
-        if any(c in v for c in [';', '|', '&', '$', '`', '\n', '\r']):
+        if any(c in v for c in [";", "|", "&", "$", "`", "\n", "\r"]):
             raise ValueError("Name contains invalid characters")
         return v
 
@@ -345,6 +402,7 @@ class MCPToolCallArgs(BaseModel):
 # =============================================================================
 # Validation Utilities
 # =============================================================================
+
 
 def validate_tool_args(schema_class: type[T]) -> Callable:
     """Decorator to validate tool arguments against a Pydantic schema.
@@ -355,6 +413,7 @@ def validate_tool_args(schema_class: type[T]) -> Callable:
             # kwargs are now validated
             ...
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -368,6 +427,7 @@ def validate_tool_args(schema_class: type[T]) -> Callable:
             return func(*args, **validated.model_dump())
 
         import asyncio
+
         return wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
 
     return decorator
@@ -400,6 +460,7 @@ TOOL_SCHEMAS: dict[str, type[BaseModel]] = {
     "browser_click": BrowserClickArgs,
     "browser_input": BrowserInputArgs,
     "mcp_call": MCPToolCallArgs,
+    "info_search_web": SearchWebArgs,
 }
 
 

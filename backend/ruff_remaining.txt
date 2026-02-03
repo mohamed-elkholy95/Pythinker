@@ -1,0 +1,2732 @@
+N818 Exception name `AppException` should be named with an Error suffix
+ --> app/application/errors/exceptions.py:1:7
+  |
+1 | class AppException(RuntimeError):
+  |       ^^^^^^^^^^^^
+2 |     def __init__(
+3 |         self,
+  |
+
+RUF006 Store a reference to the return value of `asyncio.create_task`
+  --> app/application/services/agent_service.py:87:13
+   |
+85 |         settings = get_settings()
+86 |         if settings.sandbox_eager_init:
+87 |             asyncio.create_task(self._warm_sandbox_for_session(session.id))
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+88 |             logger.info(f"Started background sandbox warm-up for session {session.id}")
+   |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> app/application/services/scheduler_service.py:204:13
+    |
+203 |               # Remove from active tasks if completed
+204 | /             if task.status == ScheduledTaskStatus.COMPLETED:
+205 | |                 if self._user_active_tasks.get(task.user_id) == task_id:
+    | |________________________________________________________________________^
+206 |                       del self._user_active_tasks[task.user_id]
+    |
+help: Combine `if` statements using `and`
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/core/circuit_breaker_registry.py:365:44
+    |
+363 |     """
+364 |
+365 |     _breakers: dict[str, CircuitBreaker] = {}
+    |                                            ^^
+366 |     _lock = asyncio.Lock()
+    |
+
+SIM105 Use `contextlib.suppress(Exception)` instead of `try`-`except`-`pass`
+   --> app/core/retry.py:266:21
+    |
+264 |                   # Call on_retry callback if provided
+265 |                   if config.on_retry:
+266 | /                     try:
+267 | |                         config.on_retry(e, attempt, delay)
+268 | |                     except Exception:
+269 | |                         pass  # Don't let callback errors affect retry
+    | |____________________________^
+270 |
+271 |                   # Wait before retry
+    |
+help: Replace `try`-`except`-`pass` with `with contextlib.suppress(Exception): ...`
+
+RUF006 Store a reference to the return value of `asyncio.create_task`
+   --> app/core/sandbox_manager.py:108:17
+    |
+107 |                 # Start health monitoring
+108 |                 asyncio.create_task(self._monitor_sandbox_health(sandbox))
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+109 |
+110 |                 self._circuit_breaker.record_success()
+    |
+
+RUF006 Store a reference to the return value of `asyncio.create_task`
+  --> app/core/sandbox_pool.py:94:9
+   |
+93 |         # Initial warmup (don't await full completion, let it run in background)
+94 |         create_task(self._warm_pool())
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+95 |
+96 |         logger.info("Sandbox pool started")
+   |
+
+RUF006 Store a reference to the return value of `asyncio.create_task`
+   --> app/core/sandbox_pool.py:149:17
+    |
+147 |             # Trigger background replenishment
+148 |             if not self._stopping:
+149 |                 create_task(self._replenish_one())
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+150 |
+151 |             return sandbox
+    |
+
+UP007 Use `X | Y` for type annotations
+  --> app/domain/models/event.py:85:15
+   |
+83 |       steps_taken: int = 0
+84 |
+85 |   ToolContent = Union[
+   |  _______________^
+86 | |     BrowserToolContent,
+87 | |     SearchToolContent,
+88 | |     ShellToolContent,
+89 | |     FileToolContent,
+90 | |     McpToolContent,
+91 | |     BrowserAgentToolContent
+92 | | ]
+   | |_^
+93 |
+94 |   class ToolEvent(BaseEvent):
+   |
+help: Convert to `X | Y`
+
+UP007 Use `X | Y` for type annotations
+   --> app/domain/models/event.py:390:14
+    |
+390 |   AgentEvent = Union[
+    |  ______________^
+391 | |     ErrorEvent,
+392 | |     PlanEvent,
+393 | |     ToolEvent,
+394 | |     StepEvent,
+395 | |     MessageEvent,
+396 | |     DoneEvent,
+397 | |     TitleEvent,
+398 | |     WaitEvent,
+399 | |     KnowledgeEvent,
+400 | |     DatasourceEvent,
+401 | |     IdleEvent,
+402 | |     MCPHealthEvent,
+403 | |     ModeChangeEvent,
+404 | |     SuggestionEvent,
+405 | |     ReportEvent,
+406 | |     StreamEvent,
+407 | |     VerificationEvent,
+408 | |     ReflectionEvent,
+409 | |     PathEvent,
+410 | |     MultiTaskEvent,
+411 | |     WorkspaceEvent,
+412 | |     BudgetEvent,
+413 | |     ProgressEvent,
+414 | |     DeepResearchEvent,
+415 | |     ThoughtEvent,
+416 | |     ConfidenceEvent,
+417 | | ]
+    | |_^
+    |
+help: Convert to `X | Y`
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/models/flow_state.py:124:25
+    |
+123 |       class Config:
+124 |           json_encoders = {
+    |  _________________________^
+125 | |             datetime: lambda v: v.isoformat()
+126 | |         }
+    | |_________^
+    |
+
+N815 Variable `mcpServers` in class scope should not be mixedCase
+  --> app/domain/models/mcp_config.py:57:5
+   |
+55 |     MCP configuration model containing all server configurations
+56 |     """
+57 |     mcpServers: dict[str, MCPServerConfig] = Field(default_factory=dict)
+   |     ^^^^^^^^^^
+58 |
+59 |     class Config:
+   |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> app/domain/models/memory.py:101:13
+    |
+ 99 |           """Compact memory (legacy method, use smart_compact for better results)"""
+100 |           for message in self.messages:
+101 | /             if message.get("role") == "tool":
+102 | |                 if message.get("function_name") in ["browser_view", "browser_navigate"]:
+    | |________________________________________________________________________________________^
+103 |                       message["content"] = ToolResult(success=True, data='(removed)').model_dump_json()
+104 |                       logger.debug(f"Removed tool result from memory: {message['function_name']}")
+    |
+help: Combine `if` statements using `and`
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+  --> app/domain/models/scheduled_task.py:64:9
+   |
+62 |       def validate_interval(self) -> bool:
+63 |           """Validate that recurring tasks have minimum interval"""
+64 | /         if self.schedule_type == ScheduleType.RECURRING:
+65 | |             if not self.interval_seconds or self.interval_seconds < self.MIN_INTERVAL_SECONDS:
+   | |______________________________________________________________________________________________^
+66 |                   return False
+67 |           return True
+   |
+help: Combine `if` statements using `and`
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/domain/models/source_citation.py:26:25
+   |
+25 |       class Config:
+26 |           json_encoders = {
+   |  _________________________^
+27 | |             datetime: lambda v: v.isoformat()
+28 | |         }
+   | |_________^
+   |
+
+UP007 Use `X | Y` for type annotations
+  --> app/domain/services/agent_task_runner.py:65:24
+   |
+63 | # Type alias for events that contain attachments requiring storage sync
+64 | # Both MessageEvent and ReportEvent have an 'attachments' field of type Optional[List[FileInfo]]
+65 | EventWithAttachments = Union[MessageEvent, ReportEvent]
+   |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+help: Convert to `X | Y`
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> app/domain/services/agent_task_runner.py:922:17
+    |
+920 |                       # This resolves file_path to file_id for proper frontend access
+921 |                       await self._sync_event_attachments_to_storage(event)
+922 | /                 elif isinstance(event, ModeChangeEvent):
+923 | |                     # Handle mode switch from Discuss to Agent
+924 | |                     if event.mode == "agent" and self._mode == AgentMode.DISCUSS:
+    | |_________________________________________________________________________________^
+925 |                           # Get the task from the discuss flow
+926 |                           if self._discuss_flow and self._discuss_flow.mode_switch_task:
+    |
+help: Combine `if` statements using `and`
+
+B024 `BaseAgent` is an abstract base class, but it has no abstract methods or properties
+  --> app/domain/services/agents/base.py:62:7
+   |
+62 | class BaseAgent(ABC):
+   |       ^^^^^^^^^
+63 |     """
+64 |     Base agent class, defining the basic behavior of the agent
+   |
+
+RUF006 Store a reference to the return value of `asyncio.create_task`
+   --> app/domain/services/agents/base.py:822:9
+    |
+820 |                 logger.warning(f"Background memory save failed after token limit handling: {e}")
+821 |
+822 |         asyncio.create_task(_save_background())
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+823 |         logger.info(f"Handled token limit by trimming {tokens_removed} tokens (save in background)")
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/domain/services/agents/complexity_assessor.py:29:23
+   |
+28 |       # Complexity indicators
+29 |       SIMPLE_KEYWORDS = [
+   |  _______________________^
+30 | |         "read", "check", "verify", "show", "display", "list", "find",
+31 | |     ]
+   | |_____^
+32 |
+33 |       MEDIUM_KEYWORDS = [
+   |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/domain/services/agents/complexity_assessor.py:33:23
+   |
+31 |       ]
+32 |
+33 |       MEDIUM_KEYWORDS = [
+   |  _______________________^
+34 | |         "create", "write", "modify", "update", "search", "analyze",
+35 | |     ]
+   | |_____^
+36 |
+37 |       COMPLEX_KEYWORDS = [
+   |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/domain/services/agents/complexity_assessor.py:37:24
+   |
+35 |       ]
+36 |
+37 |       COMPLEX_KEYWORDS = [
+   |  ________________________^
+38 | |         "build", "develop", "implement", "design", "refactor",
+39 | |         "research", "investigate", "comprehensive",
+40 | |     ]
+   | |_____^
+41 |
+42 |       VERY_COMPLEX_KEYWORDS = [
+   |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/domain/services/agents/complexity_assessor.py:42:29
+   |
+40 |       ]
+41 |
+42 |       VERY_COMPLEX_KEYWORDS = [
+   |  _____________________________^
+43 | |         "multi-task", "pipeline", "system", "architecture", "full-stack",
+44 | |         "end-to-end", "comprehensive", "production-grade",
+45 | |     ]
+   | |_____^
+46 |
+47 |       def assess_task_complexity(
+   |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> app/domain/services/agents/compliance_gates.py:208:13
+    |
+206 |           # Check for mixed contexts in single blocks
+207 |           for lang, block in code_blocks:
+208 | /             if lang in ["bash", "sh", "shell"]:
+209 | |                 # Check for non-shell content
+210 | |                 if "function " in block and "export " not in block:
+    | |___________________________________________________________________^
+211 |                       issues.append("JavaScript-like code in bash block")
+    |
+help: Combine `if` statements using `and`
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> app/domain/services/agents/content_hallucination_detector.py:297:17
+    |
+295 |                   # Check if there's nearby attribution
+296 |                   effective_risk = risk
+297 | /                 if self.check_attribution:
+298 | |                     if self._has_nearby_attribution(text, match.start(), match.end()):
+    | |______________________________________________________________________________________^
+299 |                           # Reduce risk if properly attributed
+300 |                           if risk == HallucinationRisk.HIGH:
+    |
+help: Combine `if` statements using `and`
+
+N818 Exception name `TokenLimitExceeded` should be named with an Error suffix
+   --> app/domain/services/agents/error_handler.py:587:7
+    |
+587 | class TokenLimitExceeded(Exception):
+    |       ^^^^^^^^^^^^^^^^^^
+588 |     """Exception raised when token/context limit is exceeded"""
+    |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> app/domain/services/agents/error_pattern_analyzer.py:391:13
+    |
+389 |           # Also check for general patterns that apply to all tools
+390 |           for pattern in patterns:
+391 | /             if not pattern.affected_tools:  # Patterns like rate limits
+392 | |                 if pattern.confidence >= 0.5:
+    | |_____________________________________________^
+393 |                       warnings.append(
+394 |                           f"WARNING: {pattern.suggestion}"
+    |
+help: Combine `if` statements using `and`
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/grounding_validator.py:101:22
+    |
+100 |       # Patterns for hedged/uncertain language (not factual claims)
+101 |       HEDGE_PATTERNS = [
+    |  ______________________^
+102 | |         r'\b(might|may|could|possibly|perhaps|likely|probably|seems?|appears?)\b',
+103 | |         r'\b(I think|I believe|In my opinion|It seems)\b',
+104 | |         r'\b(approximately|around|about|roughly|estimated)\b',
+105 | |         r'\b(often|sometimes|usually|generally|typically)\b',
+106 | |     ]
+    | |_____^
+107 |
+108 |       # Patterns for citations/references (already grounded)
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/grounding_validator.py:109:25
+    |
+108 |       # Patterns for citations/references (already grounded)
+109 |       CITATION_PATTERNS = [
+    |  _________________________^
+110 | |         r'\[\d+\]',           # [1], [2] style
+111 | |         r'\(source:.*?\)',    # (source: ...) style
+112 | |         r'according to',      # Attribution
+113 | |         r'based on',          # Attribution
+114 | |     ]
+    | |_____^
+115 |
+116 |       # Common stop words for similarity calculation
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/grounding_validator.py:117:18
+    |
+116 |       # Common stop words for similarity calculation
+117 |       STOP_WORDS = {
+    |  __________________^
+118 | |         'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+119 | |         'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+120 | |         'should', 'may', 'might', 'must', 'shall', 'can', 'to', 'of', 'in',
+121 | |         'for', 'on', 'with', 'at', 'by', 'from', 'as', 'into', 'through',
+122 | |         'and', 'but', 'or', 'nor', 'so', 'yet', 'both', 'either', 'neither',
+123 | |         'this', 'that', 'these', 'those', 'it', 'its',
+124 | |     }
+    | |_____^
+125 |
+126 |       def __init__(
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/guardrails.py:110:26
+    |
+109 |       # Prompt injection patterns
+110 |       INJECTION_PATTERNS = [
+    |  __________________________^
+111 | |         r'ignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?|rules?)',
+112 | |         r'disregard\s+(all\s+)?(previous|prior|above)',
+113 | |         r'forget\s+(everything|all)\s+(you\s+)?(know|learned|were told)',
+114 | |         r'your\s+new\s+(instructions?|rules?|role)\s+(are|is)',
+115 | |         r'you\s+are\s+now\s+(?:a|an|the)',
+116 | |         r'pretend\s+(?:you\s+are|to\s+be)',
+117 | |         r'act\s+as\s+(?:if|though)',
+118 | |         r'roleplay\s+as',
+119 | |         r'system\s*:\s*',  # Trying to inject system message
+120 | |         r'\[\s*INST\s*\]',  # Llama-style injection
+121 | |         r'<\|im_start\|>',  # ChatML injection
+122 | |     ]
+    | |_____^
+123 |
+124 |       # Jailbreak patterns
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/guardrails.py:125:26
+    |
+124 |       # Jailbreak patterns
+125 |       JAILBREAK_PATTERNS = [
+    |  __________________________^
+126 | |         r'DAN\s+mode',
+127 | |         r'do\s+anything\s+now',
+128 | |         r'bypass\s+(safety|content|filter)',
+129 | |         r'without\s+(restrictions?|limits?|filters?)',
+130 | |         r'no\s+(ethical|moral|safety)\s+(guidelines?|restrictions?)',
+131 | |         r'hypothetically\s+speaking',
+132 | |         r'for\s+(educational|research)\s+purposes?\s+only',
+133 | |         r'pretend\s+there\s+are\s+no\s+(rules?|restrictions?)',
+134 | |     ]
+    | |_____^
+135 |
+136 |       # Sensitive data patterns (basic)
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/guardrails.py:137:26
+    |
+136 |       # Sensitive data patterns (basic)
+137 |       SENSITIVE_PATTERNS = [
+    |  __________________________^
+138 | |         r'\b\d{3}[-.]?\d{2}[-.]?\d{4}\b',  # SSN
+139 | |         r'\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b',  # Credit card
+140 | |         r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',  # Email (not always sensitive)
+141 | |         r'password\s*[:=]\s*\S+',  # Password in input
+142 | |         r'api[_-]?key\s*[:=]\s*\S+',  # API key
+143 | |         r'secret\s*[:=]\s*\S+',  # Secret
+144 | |     ]
+    | |_____^
+145 |
+146 |       # Enhanced PII patterns (Phase 4 Enhancement)
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/guardrails.py:147:20
+    |
+146 |       # Enhanced PII patterns (Phase 4 Enhancement)
+147 |       PII_PATTERNS = [
+    |  ____________________^
+148 | |         # SSN (US)
+149 | |         (r'\b\d{3}-\d{2}-\d{4}\b', 'ssn'),
+150 | |         (r'\b\d{9}\b', 'ssn_no_dash'),  # SSN without dashes
+151 | |         # Passport numbers (various formats)
+152 | |         (r'\b[A-Z]{1,2}\d{6,9}\b', 'passport'),
+153 | |         # Credit card patterns (Visa, MC, Amex, etc.)
+154 | |         (r'\b4\d{3}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b', 'credit_card_visa'),
+155 | |         (r'\b5[1-5]\d{2}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b', 'credit_card_mc'),
+156 | |         (r'\b3[47]\d{2}[-\s]?\d{6}[-\s]?\d{5}\b', 'credit_card_amex'),
+157 | |         # Password values in common formats
+158 | |         (r'(?:password|passwd|pwd)\s*[:=]\s*["\']?([^"\'\s]+)["\']?', 'password_value'),
+159 | |         (r'(?:pass|pw)\s*[:=]\s*["\']?([^"\'\s]+)["\']?', 'password_value'),
+160 | |         # Bearer tokens and API keys
+161 | |         (r'(?:bearer|token|auth)\s+[A-Za-z0-9\-._~+/]+=*', 'bearer_token'),
+162 | |         (r'(?:api[_-]?key|apikey)\s*[:=]\s*["\']?([A-Za-z0-9\-._~+/]{20,})["\']?', 'api_key'),
+163 | |         (r'sk-[A-Za-z0-9]{20,}', 'openai_key'),  # OpenAI API keys
+164 | |         (r'sk_live_[A-Za-z0-9]{20,}', 'stripe_key'),  # Stripe live keys
+165 | |         # AWS credentials
+166 | |         (r'AKIA[0-9A-Z]{16}', 'aws_access_key'),
+167 | |         (r'(?:aws_secret|secret_access)\s*[:=]\s*["\']?([A-Za-z0-9/+=]{40})["\']?', 'aws_secret'),
+168 | |         # Private keys
+169 | |         (r'-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----', 'private_key'),
+170 | |         (r'-----BEGIN\s+PGP\s+PRIVATE\s+KEY-----', 'pgp_private_key'),
+171 | |         # Phone numbers (US format)
+172 | |         (r'\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b', 'phone_us'),
+173 | |         (r'\+1[-.\s]?\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b', 'phone_us_intl'),
+174 | |         # Bank account numbers (basic pattern)
+175 | |         (r'\b\d{8,17}\b', 'potential_account_number'),
+176 | |         # IPv4 addresses (may indicate sensitive config)
+177 | |         (r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', 'ip_address'),
+178 | |     ]
+    | |_____^
+179 |
+180 |       # Ambiguity indicators
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/guardrails.py:181:28
+    |
+180 |       # Ambiguity indicators
+181 |       AMBIGUITY_INDICATORS = [
+    |  ____________________________^
+182 | |         'something', 'anything', 'whatever', 'somehow',
+183 | |         'it', 'this', 'that', 'stuff', 'things',
+184 | |     ]
+    | |_____^
+185 |
+186 |       # PII type risk scores (higher = more sensitive)
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/guardrails.py:187:23
+    |
+186 |       # PII type risk scores (higher = more sensitive)
+187 |       PII_RISK_SCORES = {
+    |  _______________________^
+188 | |         'ssn': 1.0,
+189 | |         'ssn_no_dash': 0.8,
+190 | |         'passport': 0.9,
+191 | |         'credit_card_visa': 1.0,
+192 | |         'credit_card_mc': 1.0,
+193 | |         'credit_card_amex': 1.0,
+194 | |         'password_value': 1.0,
+195 | |         'bearer_token': 0.9,
+196 | |         'api_key': 0.9,
+197 | |         'openai_key': 0.95,
+198 | |         'stripe_key': 0.95,
+199 | |         'aws_access_key': 0.95,
+200 | |         'aws_secret': 1.0,
+201 | |         'private_key': 1.0,
+202 | |         'pgp_private_key': 1.0,
+203 | |         'phone_us': 0.4,
+204 | |         'phone_us_intl': 0.4,
+205 | |         'potential_account_number': 0.3,
+206 | |         'ip_address': 0.2,
+207 | |     }
+    | |_____^
+208 |
+209 |       def __init__(
+    |
+
+F841 Local variable `match` is assigned to but never used
+   --> app/domain/services/agents/guardrails.py:398:16
+    |
+397 |         for pattern in self._sensitive_re:
+398 |             if match := pattern.search(text):
+    |                ^^^^^
+399 |                 issues.append(InputIssue(
+400 |                     issue_type=InputIssueType.SENSITIVE_DATA,
+    |
+help: Remove assignment to unused variable `match`
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/guardrails.py:548:33
+    |
+547 |       # Patterns that might indicate system prompt leakage
+548 |       INSTRUCTION_LEAK_PATTERNS = [
+    |  _________________________________^
+549 | |         r'system\s+prompt',
+550 | |         r'my\s+instructions?',
+551 | |         r'I\s+was\s+told\s+to',
+552 | |         r'my\s+programming',
+553 | |         r'I\s+am\s+programmed\s+to',
+554 | |         r'my\s+guidelines?\s+(?:say|tell|instruct)',
+555 | |     ]
+    | |_____^
+556 |
+557 |       # Patterns for potentially harmful content
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/guardrails.py:558:24
+    |
+557 |       # Patterns for potentially harmful content
+558 |       HARMFUL_PATTERNS = [
+    |  ________________________^
+559 | |         r'how\s+to\s+(hack|steal|break\s+into)',
+560 | |         r'instructions?\s+for\s+(making|creating)\s+(weapons?|explosives?|drugs?)',
+561 | |         r'ways?\s+to\s+(harm|hurt|kill)',
+562 | |     ]
+    | |_____^
+563 |
+564 |       def __init__(
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/intent_tracker.py:103:23
+    |
+102 |       # Action verbs for intent type detection
+103 |       INTENT_PATTERNS = {
+    |  _______________________^
+104 | |         IntentType.CREATION: [
+105 | |             r'\b(create|make|build|generate|write|develop|design|implement)\b',
+106 | |         ],
+107 | |         IntentType.MODIFICATION: [
+108 | |             r'\b(update|modify|change|edit|revise|fix|improve|enhance|refactor)\b',
+109 | |         ],
+110 | |         IntentType.DELETION: [
+111 | |             r'\b(delete|remove|drop|clear|clean|purge)\b',
+112 | |         ],
+113 | |         IntentType.ANALYSIS: [
+114 | |             r'\b(analyze|research|investigate|study|examine|review|assess|evaluate)\b',
+115 | |         ],
+116 | |         IntentType.COMPARISON: [
+117 | |             r'\b(compare|contrast|versus|vs|differ|between)\b',
+118 | |         ],
+119 | |         IntentType.QUESTION: [
+120 | |             r'^(what|who|when|where|why|how|which|is|are|can|does|do)\b',
+121 | |             r'\?\s*$',
+122 | |         ],
+123 | |     }
+    | |_____^
+124 |
+125 |       # Constraint patterns (things NOT to do)
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/intent_tracker.py:126:27
+    |
+125 |       # Constraint patterns (things NOT to do)
+126 |       CONSTRAINT_PATTERNS = [
+    |  ___________________________^
+127 | |         r"don'?t\s+(\w+\s+){1,5}",
+128 | |         r'do\s+not\s+(\w+\s+){1,5}',
+129 | |         r'avoid\s+(\w+\s+){1,5}',
+130 | |         r'without\s+(\w+\s+){1,5}',
+131 | |         r'no\s+(\w+)',
+132 | |         r'never\s+(\w+\s+){1,5}',
+133 | |     ]
+    | |_____^
+134 |
+135 |       # Preference patterns
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/intent_tracker.py:136:27
+    |
+135 |       # Preference patterns
+136 |       PREFERENCE_PATTERNS = {
+    |  ___________________________^
+137 | |         'format': r'(?:in|as|using)\s+(markdown|json|csv|html|pdf|text)',
+138 | |         'language': r'(?:in|using)\s+(python|javascript|typescript|java|go|rust)',
+139 | |         'style': r'(?:in\s+a?\s*)(professional|casual|formal|simple|detailed)\s+(?:style|tone|manner)',
+140 | |     }
+    | |_____^
+141 |
+142 |       def __init__(self):
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/memory_manager.py:92:30
+    |
+ 91 |       # Functions whose outputs should be summarized, not just compacted
+ 92 |       SUMMARIZABLE_FUNCTIONS = {
+    |  ______________________________^
+ 93 | |         "browser_view": "browser content",
+ 94 | |         "browser_navigate": "navigation result",
+ 95 | |         "shell_exec": "command output",
+ 96 | |         "file_read": "file content",
+ 97 | |         "file_list": "directory listing",
+ 98 | |         "info_search_web": "search results",
+ 99 | |         "browser_get_content": "page content",
+100 | |     }
+    | |_____^
+101 |
+102 |       # Maximum tokens for a compacted summary
+    |
+
+E741 Ambiguous variable name: `l`
+   --> app/domain/services/agents/memory_manager.py:404:26
+    |
+403 |         # Count file types
+404 |         dirs = sum(1 for l in lines if l.endswith('/') or 'dir' in l.lower())
+    |                          ^
+405 |         if dirs:
+406 |             facts.append(f"{dirs} directories")
+    |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> app/domain/services/agents/memory_manager.py:535:9
+    |
+534 |           # Rule 5: Approaching warning threshold with upward trend
+535 | /         if pressure.level == PressureLevel.NORMAL and pressure.usage_ratio > 0.6:
+536 | |             if len(self._token_history) >= 3:
+    | |_____________________________________________^
+537 |                   # Check if trending upward
+538 |                   recent_trend = self._token_history[-1] - self._token_history[-3]
+    |
+help: Combine `if` statements using `and`
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/model_router.py:127:25
+    |
+126 |       # Simple task indicators (single action, clear intent)
+127 |       SIMPLE_INDICATORS = [
+    |  _________________________^
+128 | |         "what is", "how to", "define", "list", "show me",
+129 | |         "create a file", "read file", "delete", "rename",
+130 | |         "run command", "execute", "install", "start", "stop",
+131 | |         "simple", "quick", "just", "only", "single",
+132 | |     ]
+    | |_____^
+133 |
+134 |       # Complex task indicators (research, multi-step reasoning)
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/model_router.py:135:26
+    |
+134 |       # Complex task indicators (research, multi-step reasoning)
+135 |       COMPLEX_INDICATORS = [
+    |  __________________________^
+136 | |         "research", "investigate", "analyze", "compare",
+137 | |         "comprehensive", "detailed", "in-depth", "thorough",
+138 | |         "multiple sources", "synthesize", "evaluate",
+139 | |         "pros and cons", "trade-offs", "recommendation",
+140 | |         "architecture", "design", "plan", "strategy",
+141 | |         "debug", "troubleshoot", "diagnose", "optimize",
+142 | |         "refactor", "rewrite", "redesign",
+143 | |     ]
+    | |_____^
+144 |
+145 |       # Patterns that indicate complexity
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/model_router.py:146:27
+    |
+145 |       # Patterns that indicate complexity
+146 |       COMPLEXITY_PATTERNS = [
+    |  ___________________________^
+147 | |         r'\d+\.\s+\w+',          # Numbered lists (1. Item)
+148 | |         r'[-*]\s+\w+',           # Bullet lists
+149 | |         r'\bif\b.*\bthen\b',     # Conditional logic
+150 | |         r'\band\b.*\band\b',     # Multiple conjunctions
+151 | |         r'\bor\b.*\bor\b',       # Multiple alternatives
+152 | |     ]
+    | |_____^
+153 |
+154 |       def __init__(
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/domain/services/agents/parallel_executor.py:68:28
+   |
+67 |       # Tools that are safe to run in parallel (no side effects on each other)
+68 |       PARALLELIZABLE_TOOLS = {
+   |  ____________________________^
+69 | |         # Read operations (no side effects)
+70 | |         "file_read",
+71 | |         "file_list",
+72 | |         "file_exists",
+73 | |         "info_search_web",
+74 | |         "search_web",
+75 | |         "browser_get_content",
+76 | |         # Shell commands that don't modify state
+77 | |         "shell_exec",  # Context-dependent, but usually safe
+78 | |     }
+   | |_____^
+79 |
+80 |       # Tools that should never run in parallel
+   |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/domain/services/agents/parallel_executor.py:81:29
+   |
+80 |       # Tools that should never run in parallel
+81 |       SEQUENTIAL_ONLY_TOOLS = {
+   |  _____________________________^
+82 | |         "file_write",
+83 | |         "file_delete",
+84 | |         "file_append",
+85 | |         "browser_navigate",
+86 | |         "browser_click",
+87 | |         "browser_type",
+88 | |     }
+   | |_____^
+89 |
+90 |       def __init__(
+   |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> app/domain/services/agents/parallel_executor.py:185:13
+    |
+183 |               call_path = call.arguments.get("path", "")
+184 |               prior_path = prior.arguments.get("path", "")
+185 | /             if call_path and prior_path and call_path == prior_path:
+186 | |                 # Write after read/write is dependent
+187 | |                 if call.tool_name in ("file_write", "file_append", "file_delete"):
+    | |__________________________________________________________________________________^
+188 |                       return True
+    |
+help: Combine `if` statements using `and`
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> app/domain/services/agents/parallel_executor.py:191:9
+    |
+190 |           # Browser operations
+191 | /         if "browser_" in call.tool_name and "browser_" in prior.tool_name:
+192 | |             # Most browser operations depend on navigation
+193 | |             if prior.tool_name == "browser_navigate":
+    | |_____________________________________________________^
+194 |                   return True
+    |
+help: Combine `if` statements using `and`
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/domain/services/agents/prompt_adapter.py:46:21
+   |
+45 |       # Tool to context mapping
+46 |       TOOL_CONTEXTS = {
+   |  _____________________^
+47 | |         "browser_view": ContextType.BROWSER,
+48 | |         "browser_navigate": ContextType.BROWSER,
+49 | |         "browser_click": ContextType.BROWSER,
+50 | |         "browser_scroll": ContextType.BROWSER,
+51 | |         "browser_input": ContextType.BROWSER,
+52 | |         "shell_exec": ContextType.SHELL,
+53 | |         "shell_run": ContextType.SHELL,
+54 | |         "file_read": ContextType.FILE,
+55 | |         "file_write": ContextType.FILE,
+56 | |         "file_list": ContextType.FILE,
+57 | |         "search_web": ContextType.SEARCH,
+58 | |         "message_ask_user": ContextType.MESSAGE,
+59 | |     }
+   | |_____^
+60 |
+61 |       # Context-specific guidance
+   |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/domain/services/agents/prompt_adapter.py:62:24
+   |
+61 |       # Context-specific guidance
+62 |       CONTEXT_GUIDANCE = {
+   |  ________________________^
+63 | |         ContextType.BROWSER: """
+64 | | Browser Context Tips:
+65 | | - Elements may not be visible without scrolling - use browser_scroll if elements are not found
+66 | | - Wait for dynamic content to load before interacting
+67 | | - Use specific CSS selectors when possible for reliability
+68 | | - If an element is not clickable, it may be obscured by another element
+69 | | - Consider using keyboard navigation for complex interactions
+70 | | """,
+71 | |         ContextType.SHELL: """
+72 | | Shell Context Tips:
+73 | | - Use non-interactive flags (-y, --yes, --no-input) for commands that might prompt
+74 | | - Long-running commands should use timeout or background execution
+75 | | - Check command exit codes to verify success
+76 | | - Use absolute paths when possible for reliability
+77 | | - Escape special characters in arguments properly
+78 | | """,
+79 | |         ContextType.FILE: """
+80 | | File Context Tips:
+81 | | - Always check if a file exists before reading
+82 | | - Use appropriate encodings for text files
+83 | | - Be careful with file permissions
+84 | | - Consider file size before reading entire files
+85 | | - Use relative paths from the working directory when appropriate
+86 | | """,
+87 | |         ContextType.SEARCH: """
+88 | | Search Context Tips:
+89 | | - Formulate specific, targeted search queries
+90 | | - Consider using multiple searches with different phrasings
+91 | | - Extract and verify information from multiple sources
+92 | | - Be aware of recency - search results may be outdated
+93 | | """,
+94 | |     }
+   | |_____^
+95 |
+96 |       # Iteration warnings
+   |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/prompt_adapter.py:97:28
+    |
+ 96 |       # Iteration warnings
+ 97 |       ITERATION_THRESHOLDS = {
+    |  ____________________________^
+ 98 | |         10: "You've made 10 iterations. Consider if your approach is effective.",
+ 99 | |         20: "20 iterations reached. Please reassess your strategy and consider asking for user input if blocked.",
+100 | |         30: "30 iterations reached. This task is taking longer than expected. Summarize progress and blockers.",
+101 | |     }
+    | |_____^
+102 |
+103 |       def __init__(self, max_recent_tools: int = 10):
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/domain/services/agents/prompt_compressor.py:65:26
+   |
+64 |       # Patterns for content that can be safely reduced
+65 |       REDUCIBLE_PATTERNS = {
+   |  __________________________^
+66 | |         # Repeated whitespace
+67 | |         r'\n{3,}': '\n\n',
+68 | |         r' {2,}': ' ',
+69 | |         r'\t+': ' ',
+70 | |
+71 | |         # Verbose logging patterns
+72 | |         r'\[\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}[^\]]*\]': '[timestamp]',
+73 | |         r'DEBUG:.*?\n': '',
+74 | |         r'INFO:.*?(?=\n[A-Z])': '',
+75 | |
+76 | |         # Stack traces (keep first and last)
+77 | |         r'(Traceback.*?\n(?:  File.*?\n)+)': lambda m: _summarize_traceback(m.group(1)),
+78 | |
+79 | |         # Long paths
+80 | |         r'/(?:home|Users)/[^/]+/': '~/',
+81 | |
+82 | |         # UUIDs (keep first 8 chars)
+83 | |         r'([0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}': r'\1...',
+84 | |     }
+   | |_____^
+85 |
+86 |       # Content markers for importance detection
+   |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/domain/services/agents/prompt_compressor.py:87:25
+   |
+86 |       # Content markers for importance detection
+87 |       IMPORTANT_MARKERS = [
+   |  _________________________^
+88 | |         'error', 'exception', 'failed', 'success', 'warning',
+89 | |         'result', 'output', 'created', 'modified', 'deleted',
+90 | |         'important', 'note', 'todo', 'fixme',
+91 | |     ]
+   | |_____^
+92 |
+93 |       def __init__(
+   |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/requirement_extractor.py:133:23
+    |
+132 |       # Must-have indicators
+133 |       MUST_INDICATORS = [
+    |  _______________________^
+134 | |         "must", "should", "need to", "needs to", "required",
+135 | |         "ensure", "make sure", "important", "critical", "essential",
+136 | |         "definitely", "always", "never", "don't forget",
+137 | |     ]
+    | |_____^
+138 |
+139 |       # Nice-to-have indicators
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/requirement_extractor.py:140:27
+    |
+139 |       # Nice-to-have indicators
+140 |       OPTIONAL_INDICATORS = [
+    |  ___________________________^
+141 | |         "optionally", "if possible", "bonus", "extra",
+142 | |         "nice to have", "would be nice", "could also",
+143 | |         "maybe", "perhaps", "consider",
+144 | |     ]
+    | |_____^
+145 |
+146 |       def __init__(self):
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/domain/services/agents/smart_router.py:61:32
+   |
+60 |       # Patterns for direct responses (no LLM needed)
+61 |       DIRECT_RESPONSE_PATTERNS = {
+   |  ________________________________^
+62 | |         # Greetings
+63 | |         r'^(hi|hello|hey|greetings)[\s!.]*$': "Hello! How can I help you today?",
+64 | |         r'^(thanks|thank you|thx)[\s!.]*$': "You're welcome! Is there anything else I can help with?",
+65 | |         r'^(bye|goodbye|see you)[\s!.]*$': "Goodbye! Feel free to return if you need assistance.",
+66 | |
+67 | |         # Identity questions (use configured identity)
+68 | |         r'^who\s+(are|r)\s+you[\s?]*$': "I am Pythinker, an AI assistant created by the Pythinker Team.",
+69 | |         r'^what\s+(are|r)\s+you[\s?]*$': "I am Pythinker, an AI assistant that helps with research, coding, and problem-solving.",
+70 | |     }
+   | |_____^
+71 |
+72 |       # Patterns for direct tool calls (no LLM reasoning needed)
+   |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/domain/services/agents/smart_router.py:73:28
+   |
+72 |       # Patterns for direct tool calls (no LLM reasoning needed)
+73 |       DIRECT_TOOL_PATTERNS = {
+   |  ____________________________^
+74 | |         # File operations
+75 | |         r'^(?:read|show|display|cat)\s+(?:the\s+)?(?:file\s+)?["\']?([^\s"\']+)["\']?$': (
+76 | |             "file_read", lambda m: {"path": m.group(1)}
+77 | |         ),
+78 | |         r'^(?:list|ls|show)\s+(?:files\s+in\s+)?(?:the\s+)?(?:directory\s+)?["\']?([^\s"\']+)["\']?$': (
+79 | |             "file_list", lambda m: {"path": m.group(1)}
+80 | |         ),
+81 | |
+82 | |         # Shell commands
+83 | |         r'^run\s+["\']?(.+)["\']?$': (
+84 | |             "shell_exec", lambda m: {"command": m.group(1)}
+85 | |         ),
+86 | |         r'^exec(?:ute)?\s+["\']?(.+)["\']?$': (
+87 | |             "shell_exec", lambda m: {"command": m.group(1)}
+88 | |         ),
+89 | |
+90 | |         # Search
+91 | |         r'^search\s+(?:for\s+)?["\']?(.+)["\']?$': (
+92 | |             "info_search_web", lambda m: {"query": m.group(1)}
+93 | |         ),
+94 | |         r'^google\s+["\']?(.+)["\']?$': (
+95 | |             "info_search_web", lambda m: {"query": m.group(1)}
+96 | |         ),
+97 | |     }
+   | |_____^
+98 |
+99 |       # Patterns indicating task completion
+   |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/smart_router.py:100:27
+    |
+ 99 |       # Patterns indicating task completion
+100 |       COMPLETION_PATTERNS = [
+    |  ___________________________^
+101 | |         r'\b(done|finished|completed|all\s+set)\b',
+102 | |         r'^(that\'?s?\s+)?all\s*(for\s+now)?[\s!.]*$',
+103 | |         r'^nothing\s+(else|more)[\s!.]*$',
+104 | |         r'^no\s+(thanks|thank\s+you)[\s!.]*$',
+105 | |     ]
+    | |_____^
+106 |
+107 |       # Patterns indicating need for clarification
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/smart_router.py:108:26
+    |
+107 |       # Patterns indicating need for clarification
+108 |       AMBIGUOUS_PATTERNS = [
+    |  __________________________^
+109 | |         r'^(it|this|that|the\s+thing)$',  # Too vague
+110 | |         r'^[a-z]{1,2}$',  # Single letters
+111 | |         r'^\?+$',  # Just question marks
+112 | |     ]
+    | |_____^
+113 |
+114 |       # Simple questions that can be answered from context
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/smart_router.py:115:31
+    |
+114 |       # Simple questions that can be answered from context
+115 |       CONTEXT_ANSWER_PATTERNS = [
+    |  _______________________________^
+116 | |         (r'what\s+(?:is|was)\s+the\s+(?:last|previous)\s+(?:file|path)', "last_file"),
+117 | |         (r'what\s+(?:did|was)\s+(?:i|we)\s+(?:just\s+)?(?:do|did)', "last_action"),
+118 | |     ]
+    | |_____^
+119 |
+120 |       def __init__(
+    |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> app/domain/services/agents/smart_router.py:276:13
+    |
+275 |           for signal in completion_signals:
+276 | /             if signal in result_lower:
+277 | |                 # If this is the primary goal, we might be done
+278 | |                 if remaining_steps <= 2:  # Only suggest if few steps left
+    | |________________________________________^
+279 |                       return True, f"Completion signal detected: '{signal}'"
+    |
+help: Combine `if` statements using `and`
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/task_decomposer.py:119:29
+    |
+118 |       # Patterns for detecting task complexity
+119 |       COMPLEXITY_INDICATORS = {
+    |  _____________________________^
+120 | |         "research": ["research", "find", "search", "gather", "collect", "discover"],
+121 | |         "analysis": ["analyze", "compare", "evaluate", "assess", "examine", "review"],
+122 | |         "creation": ["create", "build", "make", "generate", "write", "develop"],
+123 | |         "modification": ["update", "modify", "change", "edit", "fix", "improve"],
+124 | |         "multi_step": ["then", "after that", "next", "finally", "also", "and then"],
+125 | |     }
+    | |_____^
+126 |
+127 |       # Subtask type detection patterns
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/task_decomposer.py:128:29
+    |
+127 |       # Subtask type detection patterns
+128 |       SUBTASK_TYPE_PATTERNS = {
+    |  _____________________________^
+129 | |         SubtaskType.RESEARCH: [
+130 | |             r'\b(search|find|research|look\s+up|gather|collect)\b',
+131 | |         ],
+132 | |         SubtaskType.ANALYSIS: [
+133 | |             r'\b(analyze|compare|evaluate|assess|review|examine)\b',
+134 | |         ],
+135 | |         SubtaskType.CREATION: [
+136 | |             r'\b(create|write|generate|build|make|develop|design)\b',
+137 | |         ],
+138 | |         SubtaskType.MODIFICATION: [
+139 | |             r'\b(update|modify|change|edit|fix|improve|refactor)\b',
+140 | |         ],
+141 | |         SubtaskType.VALIDATION: [
+142 | |             r'\b(verify|validate|check|test|confirm|ensure)\b',
+143 | |         ],
+144 | |         SubtaskType.AGGREGATION: [
+145 | |             r'\b(combine|merge|aggregate|summarize|compile)\b',
+146 | |         ],
+147 | |     }
+    | |_____^
+148 |
+149 |       # Maximum subtask depth for recursive decomposition
+    |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> app/domain/services/agents/task_decomposer.py:285:9
+    |
+284 |           # No multi-step indicators
+285 | /         if not any(ind in task.lower() for ind in self.COMPLEXITY_INDICATORS["multi_step"]):
+286 | |             # Check for list markers
+287 | |             if not re.search(r'(?:^|\n)\s*(?:\d+[.\)]|[-*])\s', task):
+    | |______________________________________________________________________^
+288 |                   return True
+    |
+help: Combine `if` statements using `and`
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/domain/services/agents/token_manager.py:90:27
+   |
+89 |       # Context pressure thresholds (fraction of max tokens)
+90 |       PRESSURE_THRESHOLDS = {
+   |  ___________________________^
+91 | |         "warning": 0.75,   # 75% - suggest planning for summarization
+92 | |         "critical": 0.85,  # 85% - begin proactive trimming
+93 | |         "overflow": 0.95,  # 95% - force summarization
+94 | |     }
+   | |_____^
+95 |
+96 |       # Default model context limits
+   |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/agents/token_manager.py:97:20
+    |
+ 96 |       # Default model context limits
+ 97 |       MODEL_LIMITS = {
+    |  ____________________^
+ 98 | |         "gpt-4": 8192,
+ 99 | |         "gpt-4-32k": 32768,
+100 | |         "gpt-4-turbo": 128000,
+101 | |         "gpt-4o": 128000,
+102 | |         "gpt-4o-mini": 128000,
+103 | |         "gpt-5": 128000,
+104 | |         "gpt-5.2": 128000,
+105 | |         "gpt-5-nano": 128000,
+106 | |         "gpt-5-mini": 128000,
+107 | |         "o1": 128000,
+108 | |         "o1-mini": 128000,
+109 | |         "o3-mini": 128000,
+110 | |         "claude-3": 200000,
+111 | |         "deepseek": 128000,  # DeepSeek V3.2 supports 128K context
+112 | |         "qwen": 32768,       # Qwen models typically support 32K
+113 | |         "default": 8192
+114 | |     }
+    | |_____^
+115 |
+116 |       # Safety margin (reserve tokens for response) - reduced from 4096 for better context utilization
+    |
+
+SIM108 Use ternary operator `count = len(self._encoding.encode(text)) if self._encoding else len(text) // self.CHARS_PER_TOKEN` instead of `if`-`else`-block
+   --> app/domain/services/agents/token_manager.py:210:9
+    |
+209 |           # Count tokens
+210 | /         if self._encoding:
+211 | |             count = len(self._encoding.encode(text))
+212 | |         else:
+213 | |             # Fallback: approximate by character count
+214 | |             count = len(text) // self.CHARS_PER_TOKEN
+    | |_____________________________________________________^
+215 |
+216 |           # Store in cache
+    |
+help: Replace `if`-`else`-block with `count = len(self._encoding.encode(text)) if self._encoding else len(text) // self.CHARS_PER_TOKEN`
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> app/domain/services/agents/verifier.py:335:21
+    |
+333 |                   if len(accumulated) > 50:  # Need some content
+334 |                       # Check for "verdict": "pass" pattern
+335 | /                     if '"verdict"' in accumulated_lower and '"pass"' in accumulated_lower:
+336 | |                         # Also check there's no revision feedback yet
+337 | |                         if '"revision_feedback": null' in accumulated_lower or \
+338 | |                            '"revision_feedback":null' in accumulated_lower:
+    | |___________________________________________________________________________^
+339 |                               # Early PASS detected
+340 |                               logger.info(f"Verification streaming: early PASS detected at {len(accumulated)} chars")
+    |
+help: Combine `if` statements using `and`
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> app/domain/services/agents/verifier.py:352:21
+    |
+351 |                       # If we see REVISE or FAIL early, don't short-circuit - need full response
+352 | /                     if '"verdict"' in accumulated_lower:
+353 | |                         if '"revise"' in accumulated_lower or '"fail"' in accumulated_lower:
+    | |____________________________________________________________________________________________^
+354 |                               return None  # Fall back to full verification
+    |
+help: Combine `if` statements using `and`
+
+E741 Ambiguous variable name: `l`
+   --> app/domain/services/analyzers/quality_analyzer.py:408:32
+    |
+406 |         lines = code.split('\n')
+407 |         total_lines = len(lines)
+408 |         code_lines = sum(1 for l in lines if l.strip() and not l.strip().startswith(('//', '#', '*')))
+    |                                ^
+409 |         comment_lines = sum(1 for l in lines if l.strip().startswith(('//', '#', '*')))
+410 |         blank_lines = sum(1 for l in lines if not l.strip())
+    |
+
+E741 Ambiguous variable name: `l`
+   --> app/domain/services/analyzers/quality_analyzer.py:409:35
+    |
+407 |         total_lines = len(lines)
+408 |         code_lines = sum(1 for l in lines if l.strip() and not l.strip().startswith(('//', '#', '*')))
+409 |         comment_lines = sum(1 for l in lines if l.strip().startswith(('//', '#', '*')))
+    |                                   ^
+410 |         blank_lines = sum(1 for l in lines if not l.strip())
+    |
+
+E741 Ambiguous variable name: `l`
+   --> app/domain/services/analyzers/quality_analyzer.py:410:33
+    |
+408 |         code_lines = sum(1 for l in lines if l.strip() and not l.strip().startswith(('//', '#', '*')))
+409 |         comment_lines = sum(1 for l in lines if l.strip().startswith(('//', '#', '*')))
+410 |         blank_lines = sum(1 for l in lines if not l.strip())
+    |                                 ^
+411 |
+412 |         metrics = CodeMetrics(
+    |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> app/domain/services/evaluation/ragas_metrics.py:657:9
+    |
+656 |           # Default to shell if task mentions running/executing
+657 | /         if not expected and any(kw in task_lower for kw in ["run", "execute"]):
+658 | |             if "shell_execute" in available_tools:
+    | |__________________________________________________^
+659 |                   expected = ["shell_execute"]
+    |
+help: Combine `if` statements using `and`
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> app/domain/services/flows/complexity_analyzer.py:127:9
+    |
+126 |           # Check for simple patterns
+127 | /         if any(pattern in task_lower for pattern in SIMPLE_PATTERNS):
+128 | |             if len(task.split()) < 15:  # Short, simple request
+    | |______________________________________^
+129 |                   return ComplexityAnalysis(
+130 |                       complexity=TaskComplexity.SIMPLE,
+    |
+help: Combine `if` statements using `and`
+
+F821 Undefined name `PathScorer`
+  --> app/domain/services/flows/path_explorer.py:97:18
+   |
+95 |         path: PathState,
+96 |         message: Message,
+97 |         scorer: "PathScorer"
+   |                  ^^^^^^^^^^
+98 |     ) -> AsyncGenerator[BaseEvent, None]:
+99 |         """Explore a single path with early abandonment checks.
+   |
+
+F821 Undefined name `PathScorer`
+   --> app/domain/services/flows/path_explorer.py:199:18
+    |
+197 |         self,
+198 |         message: Message,
+199 |         scorer: "PathScorer",
+    |                  ^^^^^^^^^^
+200 |         parallel: bool = False
+201 |     ) -> AsyncGenerator[BaseEvent, None]:
+    |
+
+F821 Undefined name `PathScorer`
+   --> app/domain/services/flows/path_explorer.py:284:57
+    |
+282 |             return None
+283 |
+284 |     def _should_abandon(self, path: PathState, scorer: "PathScorer") -> bool:
+    |                                                         ^^^^^^^^^^
+285 |         """Check if a path should be abandoned due to low score.
+    |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> app/domain/services/langgraph/nodes/execution.py:154:17
+    |
+153 |                   # Periodically check for stuck patterns
+154 | /                 if step_tool_calls % STUCK_CHECK_INTERVAL == 0:
+155 | |                     # Check if executor has detected stuck pattern
+156 | |                     if hasattr(executor, '_stuck_detector'):
+    | |____________________________________________________________^
+157 |                           analysis = executor._stuck_detector.get_analysis()
+158 |                           if analysis:
+    |
+help: Combine `if` statements using `and`
+
+F821 Undefined name `Memory`
+    --> app/domain/services/memory_service.py:1008:41
+     |
+1006 |         self._steps_since_summary = 0
+1007 |
+1008 |     def should_summarize(self, memory: "Memory") -> bool:
+     |                                         ^^^^^^
+1009 |         """Check if memory should be summarized.
+     |
+
+F821 Undefined name `Memory`
+    --> app/domain/services/memory_service.py:1032:18
+     |
+1030 |     async def summarize_and_store(
+1031 |         self,
+1032 |         memory: "Memory",
+     |                  ^^^^^^
+1033 |         preserve_recent: int = 10
+1034 |     ) -> ContextChunk | None:
+     |
+
+F821 Undefined name `Memory`
+    --> app/domain/services/memory_service.py:1152:18
+     |
+1150 |     async def inject_context(
+1151 |         self,
+1152 |         memory: "Memory",
+     |                  ^^^^^^
+1153 |         step_description: str
+1154 |     ) -> bool:
+     |
+
+SIM108 Use ternary operator `spec = registry.get(AgentType.EXECUTOR) if not candidates else candidates[0]` instead of `if`-`else`-block
+   --> app/domain/services/orchestration/coordinator_flow.py:329:9
+    |
+327 |           )
+328 |
+329 | /         if not candidates:
+330 | |             # Fall back to executor
+331 | |             spec = registry.get(AgentType.EXECUTOR)
+332 | |         else:
+333 | |             spec = candidates[0]
+    | |________________________________^
+334 |
+335 |           logger.info(f"Selected agent: {spec.agent_type.value}")
+    |
+help: Replace `if`-`else`-block with `spec = registry.get(AgentType.EXECUTOR) if not candidates else candidates[0]`
+
+E722 Do not use bare `except`
+   --> app/domain/services/prompts/sandbox_context.py:454:13
+    |
+452 |                 gen_time = datetime.fromisoformat(generated_at.replace('Z', '+00:00'))
+453 |                 age = datetime.utcnow() - gen_time
+454 |             except:
+    |             ^^^^^^
+455 |                 pass
+    |
+
+SIM105 Use `contextlib.suppress(BaseException)` instead of `try`-`except`-`pass`
+   --> app/domain/services/prompts/sandbox_context.py:488:1
+    |
+487 |   # Auto-load context on module import for caching
+488 | / try:
+489 | |     SandboxContextManager.load_context()
+490 | | except:
+491 | |     pass  # Silent failure - will use fallback
+    | |________^
+    |
+help: Replace `try`-`except`-`pass` with `with contextlib.suppress(BaseException): ...`
+
+E722 Do not use bare `except`
+   --> app/domain/services/prompts/sandbox_context.py:490:1
+    |
+488 | try:
+489 |     SandboxContextManager.load_context()
+490 | except:
+    | ^^^^^^
+491 |     pass  # Silent failure - will use fallback
+    |
+
+SIM105 Use `contextlib.suppress(AttributeError)` instead of `try`-`except`-`pass`
+   --> app/domain/services/tools/browser_agent.py:187:17
+    |
+185 |                   )
+186 |                   # Modify content in place if possible, otherwise return as-is
+187 | /                 try:
+188 | |                     response.content = sanitized_content
+189 | |                 except AttributeError:
+190 | |                     pass  # Read-only, return as-is
+    | |________________________^
+191 |
+192 |               return response
+    |
+help: Replace `try`-`except`-`pass` with `with contextlib.suppress(AttributeError): ...`
+
+E741 Ambiguous variable name: `l`
+   --> app/domain/services/tools/command_formatter.py:105:32
+    |
+104 |         # Extract first meaningful line
+105 |         lines = [l.strip() for l in code.split("\n") if l.strip() and not l.strip().startswith("#")]
+    |                                ^
+106 |         first_line = lines[0] if lines else code[:50]
+    |
+
+RUF059 Unpacked variable `deps` is never used
+   --> app/domain/services/tools/deep_scan_analyzer.py:591:25
+    |
+589 |                 if language in ["requirements.txt", "package.json"]:
+590 |                     if language == "requirements.txt":
+591 |                         deps, dep_issues = self._dependency_analyzer.analyze_requirements_txt(
+    |                         ^^^^
+592 |                             content, path
+593 |                         )
+    |
+help: Prefix it with an underscore or any other dummy variable pattern
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/tools/mcp.py:883:22
+    |
+882 |       # Built-in resource management tools
+883 |       RESOURCE_TOOLS = [
+    |  ______________________^
+884 | |         {
+885 | |             "type": "function",
+886 | |             "function": {
+887 | |                 "name": "mcp_list_resources",
+888 | |                 "description": "List all available MCP resources across connected servers. Returns URIs, names, and descriptions of r…
+889 | |                 "parameters": {
+890 | |                     "type": "object",
+891 | |                     "properties": {
+892 | |                         "server_name": {
+893 | |                             "type": "string",
+894 | |                             "description": "Optional: Filter by specific MCP server name"
+895 | |                         }
+896 | |                     },
+897 | |                     "required": []
+898 | |                 }
+899 | |             }
+900 | |         },
+901 | |         {
+902 | |             "type": "function",
+903 | |             "function": {
+904 | |                 "name": "mcp_read_resource",
+905 | |                 "description": "Read content from an MCP resource by its URI. Returns the text or binary content of the resource.",
+906 | |                 "parameters": {
+907 | |                     "type": "object",
+908 | |                     "properties": {
+909 | |                         "uri": {
+910 | |                             "type": "string",
+911 | |                             "description": "The URI of the resource to read (e.g., 'file:///path/to/file', 'db://table/record')"
+912 | |                         },
+913 | |                         "server_name": {
+914 | |                             "type": "string",
+915 | |                             "description": "Optional: Specific server to read from (auto-detected if not provided)"
+916 | |                         }
+917 | |                     },
+918 | |                     "required": ["uri"]
+919 | |                 }
+920 | |             }
+921 | |         },
+922 | |         {
+923 | |             "type": "function",
+924 | |             "function": {
+925 | |                 "name": "mcp_server_status",
+926 | |                 "description": "Get health status and statistics for connected MCP servers.",
+927 | |                 "parameters": {
+928 | |                     "type": "object",
+929 | |                     "properties": {},
+930 | |                     "required": []
+931 | |                 }
+932 | |             }
+933 | |         }
+934 | |     ]
+    | |_____^
+935 |
+936 |       def __init__(self):
+    |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> app/domain/services/tools/paywall_detector.py:310:9
+    |
+309 |           # Medium-specific patterns
+310 | /         if "medium.com" in url_lower or "towardsdatascience.com" in url_lower:
+311 | |             if "member-only" in html.lower() or "metered-paywall" in html.lower():
+    | |__________________________________________________________________________________^
+312 |                   indicators.append("medium_member_only")
+313 |                   weights.append(0.95)
+    |
+help: Combine `if` statements using `and`
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> app/domain/services/tools/paywall_detector.py:322:9
+    |
+320 |           # News site patterns
+321 |           news_domains = ["nytimes.com", "wsj.com", "washingtonpost.com", "ft.com"]
+322 | /         if any(domain in url_lower for domain in news_domains):
+323 | |             if "subscribe" in html.lower() and "article" in html.lower():
+    | |_________________________________________________________________________^
+324 |                   indicators.append("news_subscription_gate")
+325 |                   weights.append(0.8)
+    |
+help: Combine `if` statements using `and`
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/tools/playwright_tool.py:111:19
+    |
+110 |       # Stealth mode user agents for rotation
+111 |       USER_AGENTS = [
+    |  ___________________^
+112 | |         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+113 | |         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+114 | |         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+115 | |         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0",
+116 | |         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+117 | |     ]
+    | |_____^
+118 |
+119 |       # Stealth viewport sizes for randomization
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/tools/playwright_tool.py:120:17
+    |
+119 |       # Stealth viewport sizes for randomization
+120 |       VIEWPORTS = [
+    |  _________________^
+121 | |         {"width": 1920, "height": 1080},
+122 | |         {"width": 1440, "height": 900},
+123 | |         {"width": 1536, "height": 864},
+124 | |         {"width": 1366, "height": 768},
+125 | |         {"width": 1280, "height": 720},
+126 | |     ]
+    | |_____^
+127 |
+128 |       # Stealth Chromium args to disable automation detection
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/domain/services/tools/playwright_tool.py:129:20
+    |
+128 |       # Stealth Chromium args to disable automation detection
+129 |       STEALTH_ARGS = [
+    |  ____________________^
+130 | |         "--disable-blink-features=AutomationControlled",
+131 | |         "--disable-features=IsolateOrigins,site-per-process",
+132 | |         "--disable-site-isolation-trials",
+133 | |         "--disable-web-security",
+134 | |         "--disable-features=BlockInsecurePrivateNetworkRequests",
+135 | |         "--no-sandbox",
+136 | |         "--disable-setuid-sandbox",
+137 | |         "--disable-dev-shm-usage",
+138 | |         "--disable-accelerated-2d-canvas",
+139 | |         "--no-first-run",
+140 | |         "--no-zygote",
+141 | |         "--disable-gpu",
+142 | |     ]
+    | |_____^
+143 |
+144 |       def __init__(
+    |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> app/domain/services/tools/schemas.py:253:9
+    |
+252 |           # Basic URL format check
+253 | /         if not (v.startswith('http://') or v.startswith('https://') or v.startswith('about:')):
+254 | |             # Allow relative URLs
+255 | |             if not v.startswith('/'):
+    | |_____________________________________^
+256 |                   raise ValueError("URL must start with http://, https://, or be a relative path")
+    |
+help: Combine `if` statements using `and`
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/domain/services/tools/search.py:51:44
+   |
+50 |     # Class-level cache shared across instances
+51 |     _cache: dict[str, tuple[float, Any]] = {}
+   |                                            ^^
+52 |     _cache_ttl: int = 3600  # 1 hour cache TTL
+53 |     _cache_max_size: int = 100  # Maximum cache entries
+   |
+
+SIM117 Use a single `with` statement with multiple contexts instead of nested `with` statements
+   --> app/infrastructure/external/browser/browseruse_browser.py:181:13
+    |
+180 |               # Get all targets from CDP
+181 | /             async with aiohttp.ClientSession() as http_session:
+182 | |                 async with http_session.get(f"{self.cdp_url}/json") as resp:
+    | |____________________________________________________________________________^
+183 |                       if resp.status != 200:
+184 |                           return False
+    |
+help: Combine `with` statements
+
+SIM117 Use a single `with` statement with multiple contexts instead of nested `with` statements
+   --> app/infrastructure/external/browser/browseruse_browser.py:197:21
+    |
+196 |                   try:
+197 | /                     async with aiohttp.ClientSession() as ws_session:
+198 | |                         async with ws_session.ws_connect(ws_url) as ws:
+    | |_______________________________________________________________________^
+199 |                               # Get window ID
+200 |                               await ws.send_json({
+    |
+help: Combine `with` statements
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+    --> app/infrastructure/external/browser/playwright_browser.py:2286:30
+     |
+2284 |       # SECURITY: Dangerous JavaScript patterns that should be blocked
+2285 |       # unless browser_allow_dangerous_js is explicitly enabled
+2286 |       _DANGEROUS_JS_PATTERNS = [
+     |  ______________________________^
+2287 | |         # Network exfiltration
+2288 | |         (r'\bfetch\s*\(\s*["\']https?://(?!localhost|127\.0\.0\.1)', "External fetch requests"),
+2289 | |         (r"\bnew\s+XMLHttpRequest\b", "XMLHttpRequest usage"),
+2290 | |         (r"\bnew\s+WebSocket\b", "WebSocket connections"),
+2291 | |         (r"\bnavigator\.sendBeacon\b", "Data beaconing"),
+2292 | |         # Cookie/credential theft
+2293 | |         (r"\bdocument\.cookie\b", "Cookie access"),
+2294 | |         (r"\blocalStorage\b", "localStorage access"),
+2295 | |         (r"\bsessionStorage\b", "sessionStorage access"),
+2296 | |         (r"\bindexedDB\b", "IndexedDB access"),
+2297 | |         # Code injection vectors
+2298 | |         (r"\beval\s*\(", "eval() usage"),
+2299 | |         (r"\bnew\s+Function\s*\(", "Function constructor"),
+2300 | |         (r'\bsetTimeout\s*\(\s*["\']', "setTimeout with string"),
+2301 | |         (r'\bsetInterval\s*\(\s*["\']', "setInterval with string"),
+2302 | |         # DOM manipulation that could enable XSS
+2303 | |         (r"\.innerHTML\s*=", "innerHTML assignment"),
+2304 | |         (r"\.outerHTML\s*=", "outerHTML assignment"),
+2305 | |         (r"\bdocument\.write\b", "document.write"),
+2306 | |         (r"\bdocument\.writeln\b", "document.writeln"),
+2307 | |         # Window manipulation
+2308 | |         (r"\bwindow\.open\s*\(", "window.open"),
+2309 | |         (r"\bwindow\.location\s*=", "window.location assignment"),
+2310 | |         (r"\blocation\.href\s*=", "location.href assignment"),
+2311 | |         (r"\blocation\.replace\s*\(", "location.replace"),
+2312 | |         # Script injection
+2313 | |         (r'createElement\s*\(\s*["\']script', "Script element creation"),
+2314 | |         (r'\.src\s*=\s*["\']https?://', "External script source"),
+2315 | |     ]
+     | |_____^
+2316 |
+2317 |       def _validate_javascript(self, javascript: str) -> tuple[bool, str]:
+     |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+   --> app/infrastructure/external/file/gridfsfile.py:124:17
+    |
+122 |                 obj_id = ObjectId(file_id)
+123 |             except Exception:
+124 |                 raise ValueError(f"Invalid file ID format: {file_id}")
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+125 |
+126 |             # Get file information and check user ownership
+    |
+
+B025 try-except block with duplicate exception `FileNotFoundError`
+   --> app/infrastructure/external/file/gridfsfile.py:143:17
+    |
+141 |         except FileNotFoundError:
+142 |             raise
+143 |         except (FileNotFoundError, PermissionError):
+    |                 ^^^^^^^^^^^^^^^^^
+144 |             raise
+145 |         except Exception as e:
+    |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+   --> app/infrastructure/external/file/gridfsfile.py:159:17
+    |
+157 |                 obj_id = ObjectId(file_id)
+158 |             except Exception:
+159 |                 raise ValueError(f"Invalid file ID format: {file_id}")
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+160 |
+161 |             # Check if file exists and belongs to user
+    |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+   --> app/infrastructure/external/file/gridfsfile.py:190:17
+    |
+188 |                 obj_id = ObjectId(file_id)
+189 |             except Exception:
+190 |                 raise ValueError(f"Invalid file ID format: {file_id}")
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+191 |
+192 |             # Get file information and check user ownership
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/infrastructure/external/http_pool.py:166:46
+    |
+164 |     """Pool of managed HTTP clients for different services."""
+165 |
+166 |     _clients: dict[str, ManagedHTTPClient] = {}
+    |                                              ^^
+167 |     _lock = asyncio.Lock()
+    |
+
+F401 `typing.Optional` imported but unused
+  --> app/infrastructure/external/llm/__init__.py:12:20
+   |
+10 | import logging
+11 | from functools import lru_cache
+12 | from typing import Optional
+   |                    ^^^^^^^^
+13 |
+14 | from app.domain.external.llm import LLM
+   |
+help: Remove unused import: `typing.Optional`
+
+N818 Exception name `TokenLimitExceeded` should be named with an Error suffix
+  --> app/infrastructure/external/llm/anthropic_llm.py:33:7
+   |
+33 | class TokenLimitExceeded(Exception):
+   |       ^^^^^^^^^^^^^^^^^^
+34 |     """Raised when the token limit is exceeded."""
+35 |     pass
+   |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+   --> app/infrastructure/external/llm/anthropic_llm.py:405:21
+    |
+403 |                 error_msg = str(e).lower()
+404 |                 if "token" in error_msg or "context" in error_msg:
+405 |                     raise TokenLimitExceeded(str(e))
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+406 |                 raise
+    |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+   --> app/infrastructure/external/llm/anthropic_llm.py:530:17
+    |
+528 |             error_msg = str(e).lower()
+529 |             if "token" in error_msg or "context" in error_msg:
+530 |                 raise TokenLimitExceeded(str(e))
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+531 |             raise
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/infrastructure/external/llm/factory.py:20:40
+   |
+18 |     based on provider name configuration.
+19 |     """
+20 |     _providers: dict[str, type[LLM]] = {}
+   |                                        ^^
+21 |
+22 |     @classmethod
+   |
+
+F401 `app.infrastructure.external.llm.anthropic_llm.AnthropicLLM` imported but unused; consider using `importlib.util.find_spec` to test for availability
+  --> app/infrastructure/external/llm/factory.py:84:67
+   |
+82 |     # Try to import optional providers
+83 |     try:
+84 |         from app.infrastructure.external.llm.anthropic_llm import AnthropicLLM
+   |                                                                   ^^^^^^^^^^^^
+85 |     except ImportError:
+86 |         logger.debug("Anthropic LLM provider not available")
+   |
+help: Remove unused import: `app.infrastructure.external.llm.anthropic_llm.AnthropicLLM`
+
+F401 `app.infrastructure.external.llm.ollama_llm.OllamaLLM` imported but unused; consider using `importlib.util.find_spec` to test for availability
+  --> app/infrastructure/external/llm/factory.py:89:64
+   |
+88 |     try:
+89 |         from app.infrastructure.external.llm.ollama_llm import OllamaLLM
+   |                                                                ^^^^^^^^^
+90 |     except ImportError:
+91 |         logger.debug("Ollama LLM provider not available")
+   |
+help: Remove unused import: `app.infrastructure.external.llm.ollama_llm.OllamaLLM`
+
+N818 Exception name `TokenLimitExceeded` should be named with an Error suffix
+  --> app/infrastructure/external/llm/ollama_llm.py:26:7
+   |
+26 | class TokenLimitExceeded(Exception):
+   |       ^^^^^^^^^^^^^^^^^^
+27 |     """Raised when the token limit is exceeded."""
+28 |     pass
+   |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+   --> app/infrastructure/external/llm/ollama_llm.py:353:21
+    |
+351 |                 error_msg = str(e).lower()
+352 |                 if "context" in error_msg or "token" in error_msg:
+353 |                     raise TokenLimitExceeded(str(e))
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+354 |                 logger.error(f"Ollama HTTP error on attempt {attempt + 1}: {e}")
+355 |                 if attempt == max_retries:
+    |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+   --> app/infrastructure/external/llm/ollama_llm.py:422:21
+    |
+420 |                 logger.warning(f"JSON decode error on attempt {attempt + 1}: {e}")
+421 |                 if attempt == max_retries:
+422 |                     raise ValueError(f"Failed to parse JSON response: {e}")
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+423 |
+424 |         raise ValueError("Failed to get structured response after all retries")
+    |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+   --> app/infrastructure/external/llm/ollama_llm.py:502:17
+    |
+500 |             error_msg = str(e).lower()
+501 |             if "context" in error_msg or "token" in error_msg:
+502 |                 raise TokenLimitExceeded(str(e))
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+503 |             raise
+    |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+   --> app/infrastructure/external/llm/openai_llm.py:545:21
+    |
+543 |                 ]):
+544 |                     logger.warning(f"Token limit exceeded: {e}")
+545 |                     raise TokenLimitExceeded(str(e))
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+546 |
+547 |                 error_log = f"Error calling API on attempt {attempt + 1}: {e!s}"
+    |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+   --> app/infrastructure/external/llm/openai_llm.py:657:21
+    |
+655 |                 logger.warning(f"JSON decode error on attempt {attempt + 1}: {e}")
+656 |                 if attempt == max_retries:
+657 |                     raise ValueError(f"Failed to parse JSON response: {e}")
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+658 |             except Exception as e:
+659 |                 error_msg = str(e).lower()
+    |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+   --> app/infrastructure/external/llm/openai_llm.py:664:21
+    |
+662 |                     'too many tokens', 'max_tokens', 'context window'
+663 |                 ]):
+664 |                     raise TokenLimitExceeded(str(e))
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+665 |                 if attempt == max_retries:
+666 |                     raise
+    |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+   --> app/infrastructure/external/llm/openai_llm.py:809:17
+    |
+807 |                 'too many tokens', 'max_tokens', 'context window'
+808 |             ]):
+809 |                 raise TokenLimitExceeded(str(e))
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+810 |             raise
+    |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+   --> app/infrastructure/external/sandbox/docker_sandbox.py:180:13
+    |
+179 |         except Exception as e:
+180 |             raise Exception(f"Failed to create Docker sandbox: {e!s}")
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+181 |
+182 |     async def _verify_cdp_connection(self) -> bool:
+    |
+
+F401 `typing.Optional` imported but unused
+  --> app/infrastructure/external/search/__init__.py:16:20
+   |
+14 | import logging
+15 | from functools import lru_cache
+16 | from typing import Optional
+   |                    ^^^^^^^^
+17 |
+18 | from app.domain.external.search import SearchEngine
+   |
+help: Remove unused import: `typing.Optional`
+
+RUF001 String contains ambiguous `！` (FULLWIDTH EXCLAMATION MARK). Did you mean `!` (EXCLAMATION MARK)?
+   --> app/infrastructure/external/search/baidu_search.py:138:54
+    |
+136 | …                     all_text = div.get_text(strip=True)
+137 | …                     # Extract first sentence-like text
+138 | …                     sentences = re.split(r'[。！？\n]', all_text)
+    |                                                 ^^
+139 | …                     for sentence in sentences:
+140 | …                         if len(sentence.strip()) > 20:
+    |
+
+RUF001 String contains ambiguous `？` (FULLWIDTH QUESTION MARK). Did you mean `?` (QUESTION MARK)?
+   --> app/infrastructure/external/search/baidu_search.py:138:55
+    |
+136 | …                     all_text = div.get_text(strip=True)
+137 | …                     # Extract first sentence-like text
+138 | …                     sentences = re.split(r'[。！？\n]', all_text)
+    |                                                   ^^
+139 | …                     for sentence in sentences:
+140 | …                         if len(sentence.strip()) > 20:
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/infrastructure/external/search/factory.py:20:49
+   |
+18 |     based on provider name configuration.
+19 |     """
+20 |     _providers: dict[str, type[SearchEngine]] = {}
+   |                                                 ^^
+21 |
+22 |     @classmethod
+   |
+
+F401 `app.infrastructure.external.search.duckduckgo_search.DuckDuckGoSearchEngine` imported but unused; consider using `importlib.util.find_spec` to test for availability
+  --> app/infrastructure/external/search/factory.py:84:74
+   |
+82 |     # Try to import optional providers
+83 |     try:
+84 |         from app.infrastructure.external.search.duckduckgo_search import DuckDuckGoSearchEngine
+   |                                                                          ^^^^^^^^^^^^^^^^^^^^^^
+85 |     except ImportError:
+86 |         logger.debug("DuckDuckGo search provider not available")
+   |
+help: Remove unused import: `app.infrastructure.external.search.duckduckgo_search.DuckDuckGoSearchEngine`
+
+F401 `app.infrastructure.external.search.brave_search.BraveSearchEngine` imported but unused; consider using `importlib.util.find_spec` to test for availability
+  --> app/infrastructure/external/search/factory.py:89:69
+   |
+88 |     try:
+89 |         from app.infrastructure.external.search.brave_search import BraveSearchEngine
+   |                                                                     ^^^^^^^^^^^^^^^^^
+90 |     except ImportError:
+91 |         logger.debug("Brave search provider not available")
+   |
+help: Remove unused import: `app.infrastructure.external.search.brave_search.BraveSearchEngine`
+
+F401 `app.infrastructure.external.search.tavily_search.TavilySearchEngine` imported but unused; consider using `importlib.util.find_spec` to test for availability
+  --> app/infrastructure/external/search/factory.py:94:70
+   |
+93 |     try:
+94 |         from app.infrastructure.external.search.tavily_search import TavilySearchEngine
+   |                                                                      ^^^^^^^^^^^^^^^^^^
+95 |     except ImportError:
+96 |         logger.debug("Tavily search provider not available")
+   |
+help: Remove unused import: `app.infrastructure.external.search.tavily_search.TavilySearchEngine`
+
+F401 `app.infrastructure.external.search.searxng_search.SearXNGSearchEngine` imported but unused; consider using `importlib.util.find_spec` to test for availability
+   --> app/infrastructure/external/search/factory.py:99:71
+    |
+ 98 |     try:
+ 99 |         from app.infrastructure.external.search.searxng_search import SearXNGSearchEngine
+    |                                                                       ^^^^^^^^^^^^^^^^^^^
+100 |     except ImportError:
+101 |         logger.debug("SearXNG search provider not available")
+    |
+help: Remove unused import: `app.infrastructure.external.search.searxng_search.SearXNGSearchEngine`
+
+F401 `app.infrastructure.external.search.whoogle_search.WhoogleSearchEngine` imported but unused; consider using `importlib.util.find_spec` to test for availability
+   --> app/infrastructure/external/search/factory.py:104:71
+    |
+103 |     try:
+104 |         from app.infrastructure.external.search.whoogle_search import WhoogleSearchEngine
+    |                                                                       ^^^^^^^^^^^^^^^^^^^
+105 |     except ImportError:
+106 |         logger.debug("Whoogle search provider not available")
+    |
+help: Remove unused import: `app.infrastructure.external.search.whoogle_search.WhoogleSearchEngine`
+
+F401 `app.infrastructure.external.search.bing_search.BingSearchEngine` imported but unused; consider using `importlib.util.find_spec` to test for availability
+   --> app/infrastructure/external/search/factory.py:109:68
+    |
+108 |     try:
+109 |         from app.infrastructure.external.search.bing_search import BingSearchEngine
+    |                                                                    ^^^^^^^^^^^^^^^^
+110 |     except ImportError:
+111 |         logger.debug("Bing search provider not available")
+    |
+help: Remove unused import: `app.infrastructure.external.search.bing_search.BingSearchEngine`
+
+F401 `app.infrastructure.external.search.baidu_search.BaiduSearchEngine` imported but unused; consider using `importlib.util.find_spec` to test for availability
+   --> app/infrastructure/external/search/factory.py:114:69
+    |
+113 |     try:
+114 |         from app.infrastructure.external.search.baidu_search import BaiduSearchEngine
+    |                                                                     ^^^^^^^^^^^^^^^^^
+115 |     except ImportError:
+116 |         logger.debug("Baidu search provider not available")
+    |
+help: Remove unused import: `app.infrastructure.external.search.baidu_search.BaiduSearchEngine`
+
+F401 `app.infrastructure.external.search.google_search.GoogleSearchEngine` imported but unused; consider using `importlib.util.find_spec` to test for availability
+   --> app/infrastructure/external/search/factory.py:119:70
+    |
+118 |     try:
+119 |         from app.infrastructure.external.search.google_search import GoogleSearchEngine
+    |                                                                      ^^^^^^^^^^^^^^^^^^
+120 |     except ImportError:
+121 |         logger.debug("Google search provider not available")
+    |
+help: Remove unused import: `app.infrastructure.external.search.google_search.GoogleSearchEngine`
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/infrastructure/external/task/redis_task.py:15:52
+   |
+13 |     """Redis Stream-based task implementation following the Task protocol."""
+14 |
+15 |     _task_registry: dict[str, 'RedisStreamTask'] = {}
+   |                                                    ^^
+16 |
+17 |     def __init__(self, runner: TaskRunner):
+   |
+
+RUF006 Store a reference to the return value of `asyncio.create_task`
+   --> app/infrastructure/external/task/redis_task.py:126:13
+    |
+124 |         self._task_done = True
+125 |         if self._runner:
+126 |             asyncio.create_task(self._runner.on_done(self))
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+127 |         self._cleanup_registry()
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/infrastructure/logging.py:52:23
+   |
+51 |       # Fields that should be at the top level of the JSON
+52 |       STANDARD_FIELDS = {
+   |  _______________________^
+53 | |         'request_id', 'session_id', 'user_id', 'agent_id',
+54 | |         'trace_id', 'span_id', 'path', 'method', 'duration_ms',
+55 | |         'status_code', 'error_type', 'error_code'
+56 | |     }
+   | |_____^
+57 |
+58 |       def format(self, record: logging.LogRecord) -> str:
+   |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> app/infrastructure/logging.py:181:13
+    |
+179 |               message = record.getMessage()
+180 |               should_alert = record.levelno >= logging.ERROR
+181 | /             if not should_alert and record.levelno == logging.WARNING:
+182 | |                 if "Stuck pattern detected" in message or "shutdown timed out" in message or "Failed to create task" in message:
+    | |________________________________________________________________________________________________________________________________^
+183 |                       should_alert = True
+    |
+help: Combine `if` statements using `and`
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/infrastructure/models/documents.py:64:19
+   |
+62 |       class Settings:
+63 |           name = "users"
+64 |           indexes = [
+   |  ___________________^
+65 | |             "user_id",
+66 | |             "fullname",  # Keep fullname index but not unique
+67 | |             IndexModel([("email", ASCENDING)], unique=True),  # Email as unique index
+68 | |         ]
+   | |_________^
+69 |
+70 |   class AgentDocument(BaseDocument[Agent], id_field="agent_id", domain_model_class=Agent):
+   |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/infrastructure/models/documents.py:76:35
+   |
+74 |     temperature: float
+75 |     max_tokens: int
+76 |     memories: dict[str, Memory] = {}
+   |                                   ^^
+77 |     created_at: datetime = datetime.now(UTC)
+78 |     updated_at: datetime = datetime.now(UTC)
+   |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/infrastructure/models/documents.py:82:19
+   |
+80 |       class Settings:
+81 |           name = "agents"
+82 |           indexes = [
+   |  ___________________^
+83 | |             "agent_id",
+84 | |             IndexModel([("created_at", DESCENDING)]),  # Agents by creation time
+85 | |         ]
+   | |_________^
+   |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/infrastructure/models/documents.py:103:29
+    |
+101 |     events: list[AgentEvent]
+102 |     status: SessionStatus
+103 |     files: list[FileInfo] = []
+    |                             ^^
+104 |     is_shared: bool | None = False
+105 |     mode: AgentMode = AgentMode.DISCUSS  # Agent mode: discuss or agent
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/infrastructure/models/documents.py:147:19
+    |
+145 |       class Settings:
+146 |           name = "sessions"
+147 |           indexes = [
+    |  ___________________^
+148 | |             "session_id",
+149 | |             "user_id",  # Index for user_id queries
+150 | |             "status",  # Index for status filtering
+151 | |             "is_shared",  # Index for finding shared sessions
+152 | |             # Compound indexes for common query patterns
+153 | |             IndexModel([("user_id", ASCENDING), ("status", ASCENDING)]),  # User's sessions by status
+154 | |             IndexModel([("user_id", ASCENDING), ("created_at", DESCENDING)]),  # User's sessions chronologically
+155 | |             IndexModel([("user_id", ASCENDING), ("updated_at", DESCENDING)]),  # User's sessions by recent activity
+156 | |             IndexModel([("is_shared", ASCENDING), ("created_at", DESCENDING)]),  # Shared sessions chronologically
+157 | |         ]
+    | |_________^
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/infrastructure/models/documents.py:177:27
+    |
+176 |     # Snapshot data stored as JSON
+177 |     snapshot_data: dict = {}
+    |                           ^^
+178 |
+179 |     # Compression info
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/infrastructure/models/documents.py:185:19
+    |
+183 |       class Settings:
+184 |           name = "snapshots"
+185 |           indexes = [
+    |  ___________________^
+186 | |             "snapshot_id",
+187 | |             "session_id",
+188 | |             IndexModel([("session_id", ASCENDING), ("sequence_number", ASCENDING)]),
+189 | |             IndexModel([("session_id", ASCENDING), ("created_at", ASCENDING)]),
+190 | |             "action_id",
+191 | |         ]
+    | |_________^
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/infrastructure/models/documents.py:220:19
+    |
+218 |       class Settings:
+219 |           name = "usage"
+220 |           indexes = [
+    |  ___________________^
+221 | |             "usage_id",
+222 | |             "user_id",
+223 | |             "session_id",
+224 | |             IndexModel([("user_id", ASCENDING), ("created_at", DESCENDING)]),
+225 | |             IndexModel([("session_id", ASCENDING), ("created_at", ASCENDING)]),
+226 | |         ]
+    | |_________^
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/infrastructure/models/documents.py:251:39
+    |
+250 |     # Model breakdown
+251 |     tokens_by_model: dict[str, int] = {}
+    |                                       ^^
+252 |     cost_by_model: dict[str, float] = {}
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/infrastructure/models/documents.py:252:39
+    |
+250 |     # Model breakdown
+251 |     tokens_by_model: dict[str, int] = {}
+252 |     cost_by_model: dict[str, float] = {}
+    |                                       ^^
+253 |
+254 |     # Sessions active this day
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/infrastructure/models/documents.py:255:34
+    |
+254 |     # Sessions active this day
+255 |     active_sessions: list[str] = []
+    |                                  ^^
+256 |
+257 |     # Timestamps
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/infrastructure/models/documents.py:263:19
+    |
+261 |       class Settings:
+262 |           name = "daily_usage"
+263 |           indexes = [
+    |  ___________________^
+264 | |             "usage_id",
+265 | |             "user_id",
+266 | |             IndexModel([("user_id", ASCENDING), ("date", DESCENDING)]),
+267 | |         ]
+    | |_________^
+    |
+
+F401 `langfuse.client.StatefulGenerationClient` imported but unused; consider using `importlib.util.find_spec` to test for availability
+  --> app/infrastructure/observability/langfuse_tracer.py:36:33
+   |
+34 | try:
+35 |     from langfuse import Langfuse
+36 |     from langfuse.client import StatefulGenerationClient
+   |                                 ^^^^^^^^^^^^^^^^^^^^^^^^
+37 |     LANGFUSE_AVAILABLE = True
+38 | except ImportError:
+   |
+help: Remove unused import: `langfuse.client.StatefulGenerationClient`
+
+E741 Ambiguous variable name: `l`
+  --> app/infrastructure/observability/prometheus_metrics.py:41:51
+   |
+39 |     def inc(self, labels: dict[str, str], value: float = 1.0) -> None:
+40 |         """Increment counter with given labels."""
+41 |         label_tuple = tuple(labels.get(l, "") for l in self.labels)
+   |                                                   ^
+42 |         with self._lock:
+43 |             self._values[label_tuple] += value
+   |
+
+E741 Ambiguous variable name: `l`
+  --> app/infrastructure/observability/prometheus_metrics.py:47:51
+   |
+45 |     def get(self, labels: dict[str, str]) -> float:
+46 |         """Get counter value for given labels."""
+47 |         label_tuple = tuple(labels.get(l, "") for l in self.labels)
+   |                                                   ^
+48 |         return self._values.get(label_tuple, 0.0)
+   |
+
+E741 Ambiguous variable name: `l`
+  --> app/infrastructure/observability/prometheus_metrics.py:79:51
+   |
+77 |     def set(self, labels: dict[str, str], value: float) -> None:
+78 |         """Set gauge value for given labels."""
+79 |         label_tuple = tuple(labels.get(l, "") for l in self.labels)
+   |                                                   ^
+80 |         with self._lock:
+81 |             self._values[label_tuple] = value
+   |
+
+E741 Ambiguous variable name: `l`
+  --> app/infrastructure/observability/prometheus_metrics.py:85:51
+   |
+83 |     def inc(self, labels: dict[str, str], value: float = 1.0) -> None:
+84 |         """Increment gauge value."""
+85 |         label_tuple = tuple(labels.get(l, "") for l in self.labels)
+   |                                                   ^
+86 |         with self._lock:
+87 |             self._values[label_tuple] += value
+   |
+
+E741 Ambiguous variable name: `l`
+  --> app/infrastructure/observability/prometheus_metrics.py:91:51
+   |
+89 |     def dec(self, labels: dict[str, str], value: float = 1.0) -> None:
+90 |         """Decrement gauge value."""
+91 |         label_tuple = tuple(labels.get(l, "") for l in self.labels)
+   |                                                   ^
+92 |         with self._lock:
+93 |             self._values[label_tuple] -= value
+   |
+
+E741 Ambiguous variable name: `l`
+  --> app/infrastructure/observability/prometheus_metrics.py:97:51
+   |
+95 |     def get(self, labels: dict[str, str]) -> float:
+96 |         """Get gauge value for given labels."""
+97 |         label_tuple = tuple(labels.get(l, "") for l in self.labels)
+   |                                                   ^
+98 |         return self._values.get(label_tuple, 0.0)
+   |
+
+E741 Ambiguous variable name: `l`
+   --> app/infrastructure/observability/prometheus_metrics.py:130:51
+    |
+128 |     def observe(self, labels: dict[str, str], value: float) -> None:
+129 |         """Record an observation."""
+130 |         label_tuple = tuple(labels.get(l, "") for l in self.labels)
+    |                                                   ^
+131 |         with self._lock:
+132 |             self._observations[label_tuple].append(value)
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/infrastructure/observability/timing.py:145:38
+    |
+143 |     """Registry for collecting timing statistics."""
+144 |
+145 |     _stats: dict[str, TimingStats] = {}
+    |                                      ^^
+146 |
+147 |     @classmethod
+    |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+  --> app/interfaces/api/file_routes.py:53:9
+   |
+51 |         file_data, file_info = await file_service.download_file(file_id)
+52 |     except FileNotFoundError:
+53 |         raise NotFoundError("File not found")
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+54 |     except PermissionError:
+55 |         raise NotFoundError("File not found")  # Don't reveal if file exists but user has no access
+   |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+  --> app/interfaces/api/file_routes.py:55:9
+   |
+53 |         raise NotFoundError("File not found")
+54 |     except PermissionError:
+55 |         raise NotFoundError("File not found")  # Don't reveal if file exists but user has no access
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+56 |
+57 |     # Encode filename properly for Content-Disposition header
+   |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+  --> app/interfaces/api/file_routes.py:84:9
+   |
+82 |         file_data, file_info = await file_service.download_file(file_id, current_user.id if current_user else None)
+83 |     except FileNotFoundError:
+84 |         raise NotFoundError("File not found")
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+85 |     except PermissionError:
+86 |         raise NotFoundError("File not found")  # Don't reveal if file exists but user has no access
+   |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+  --> app/interfaces/api/file_routes.py:86:9
+   |
+84 |         raise NotFoundError("File not found")
+85 |     except PermissionError:
+86 |         raise NotFoundError("File not found")  # Don't reveal if file exists but user has no access
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+87 |
+88 |     # Encode filename properly for Content-Disposition header
+   |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+   --> app/interfaces/api/file_routes.py:155:9
+    |
+153 |         ))
+154 |     except FileNotFoundError:
+155 |         raise NotFoundError("File not found")
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+   --> app/interfaces/api/file_routes.py:189:9
+    |
+187 |     except Exception as e:
+188 |         logger.error(f"Failed to create zip archive: {e!s}")
+189 |         raise NotFoundError("Failed to create archive")
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+  --> app/interfaces/api/maintenance_routes.py:71:9
+   |
+69 |     except Exception as e:
+70 |         logger.exception(f"Failed to check session health: {e}")
+71 |         raise HTTPException(status_code=500, detail=str(e))
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+   --> app/interfaces/api/maintenance_routes.py:106:9
+    |
+104 |     except Exception as e:
+105 |         logger.exception(f"Cleanup operation failed: {e}")
+106 |         raise HTTPException(status_code=500, detail=str(e))
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+   --> app/interfaces/api/maintenance_routes.py:129:9
+    |
+127 |     except Exception as e:
+128 |         logger.exception(f"Preview operation failed: {e}")
+129 |         raise HTTPException(status_code=500, detail=str(e))
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+   --> app/interfaces/api/session_routes.py:534:9
+    |
+532 |     except Exception as e:
+533 |         logger.error(f"Failed to fetch VNC screenshot: {e}")
+534 |         raise HTTPException(status_code=500, detail=f"Failed to fetch screenshot: {e!s}")
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+  --> app/interfaces/api/workspace_routes.py:70:9
+   |
+68 |     except Exception as e:
+69 |         logger.error(f"Error listing workspace templates: {e}")
+70 |         raise HTTPException(status_code=500, detail="Failed to list workspace templates")
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+   --> app/interfaces/api/workspace_routes.py:107:9
+    |
+105 |     except Exception as e:
+106 |         logger.error(f"Error getting workspace template '{template_name}': {e}")
+107 |         raise HTTPException(status_code=500, detail="Failed to get workspace template")
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+   --> app/interfaces/api/workspace_routes.py:149:9
+    |
+147 |     except Exception as e:
+148 |         logger.error(f"Error getting workspace for session '{session_id}': {e}")
+149 |         raise HTTPException(status_code=500, detail="Failed to get session workspace")
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+
+B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+   --> app/interfaces/dependencies.py:180:63
+    |
+179 | async def get_current_user(
+180 |     bearer_credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),
+    |                                                               ^^^^^^^^^^^^^^^^^^^^^^^^
+181 |     auth_service: AuthService = Depends(get_auth_service)
+182 | ) -> User:
+    |
+
+B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+   --> app/interfaces/dependencies.py:181:33
+    |
+179 | async def get_current_user(
+180 |     bearer_credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),
+181 |     auth_service: AuthService = Depends(get_auth_service)
+    |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+182 | ) -> User:
+183 |     """
+    |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+   --> app/interfaces/dependencies.py:219:9
+    |
+217 |     except Exception as e:
+218 |         logger.warning(f"Authentication failed: {e}")
+219 |         raise UnauthorizedError("Authentication failed")
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+
+B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+   --> app/interfaces/dependencies.py:223:63
+    |
+222 | async def get_optional_current_user(
+223 |     bearer_credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),
+    |                                                               ^^^^^^^^^^^^^^^^^^^^^^^^
+224 |     auth_service: AuthService = Depends(get_auth_service)
+225 | ) -> User | None:
+    |
+
+B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+   --> app/interfaces/dependencies.py:224:33
+    |
+222 | async def get_optional_current_user(
+223 |     bearer_credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),
+224 |     auth_service: AuthService = Depends(get_auth_service)
+    |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+225 | ) -> User | None:
+226 |     """
+    |
+
+B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+   --> app/interfaces/dependencies.py:265:35
+    |
+263 |     request: Request,
+264 |     signature: str | None = Query(None),
+265 |     token_service: TokenService = Depends(get_token_service)
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+266 | ) -> str:
+267 |     return await _verify_signature(request, signature, token_service)
+    |
+
+B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+   --> app/interfaces/dependencies.py:272:35
+    |
+270 |     request: WebSocket,
+271 |     signature: str | None = Query(None),
+272 |     token_service: TokenService = Depends(get_token_service)
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+273 | ) -> str:
+274 |     return await _verify_signature(request, signature, token_service)
+    |
+
+B008 Do not perform function call `Depends` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+   --> app/interfaces/dependencies.py:279:35
+    |
+277 |     request: Request | WebSocket,
+278 |     signature: str | None = Query(None),
+279 |     token_service: TokenService = Depends(get_token_service)
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+280 | ) -> str:
+281 |     """
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/interfaces/schemas/event.py:27:25
+   |
+26 |       class Config:
+27 |           json_encoders = {
+   |  _________________________^
+28 | |             datetime: lambda v: int(v.timestamp())
+29 | |         }
+   | |_________^
+30 |
+31 |       @classmethod
+   |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/interfaces/schemas/event.py:47:25
+   |
+45 |   class CommonEventData(BaseEventData):
+46 |       class Config:
+47 |           json_encoders = {
+   |  _________________________^
+48 | |             datetime: lambda v: int(v.timestamp())
+49 | |         }
+   | |_________^
+50 |           extra = "allow"
+   |
+
+UP007 Use `X | Y` for type annotations
+   --> app/interfaces/schemas/event.py:316:17
+    |
+316 |   AgentSSEEvent = Union[
+    |  _________________^
+317 | |     CommonSSEEvent,
+318 | |     PlanSSEEvent,
+319 | |     MessageSSEEvent,
+320 | |     TitleSSEEvent,
+321 | |     ToolSSEEvent,
+322 | |     StepSSEEvent,
+323 | |     DoneSSEEvent,
+324 | |     ErrorSSEEvent,
+325 | |     WaitSSEEvent,
+326 | |     ReportSSEEvent,
+327 | |     SuggestionSSEEvent,
+328 | |     ModeChangeSSEEvent,
+329 | |     StreamSSEEvent,
+330 | |     DeepResearchSSEEvent,
+331 | | ]
+    | |_^
+332 |
+333 |   @dataclass
+    |
+help: Convert to `X | Y`
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/main.py:50:22
+   |
+49 |     # Paths to exclude from logging (health checks, static files)
+50 |     EXCLUDED_PATHS = {"/health", "/api/v1/health", "/favicon.ico"}
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+51 |     # Sensitive headers to redact
+52 |     SENSITIVE_HEADERS = {"authorization", "cookie", "x-api-key"}
+   |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+  --> app/main.py:52:25
+   |
+50 |     EXCLUDED_PATHS = {"/health", "/api/v1/health", "/favicon.ico"}
+51 |     # Sensitive headers to redact
+52 |     SENSITIVE_HEADERS = {"authorization", "cookie", "x-api-key"}
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+53 |
+54 |     def __init__(self, app: Callable):
+   |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/main.py:122:18
+    |
+121 |     # Auth endpoints have stricter limits
+122 |     AUTH_PATHS = {"/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/refresh"}
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+123 |
+124 |     # In-memory fallback storage: {key: (count, window_start_time)}
+    |
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> app/main.py:125:31
+    |
+124 |     # In-memory fallback storage: {key: (count, window_start_time)}
+125 |     _fallback_storage: dict = {}
+    |                               ^^
+126 |     _fallback_window_seconds: int = 60
+127 |     _fallback_cleanup_counter: int = 0
+    |
+
+RUF001 String contains ambiguous `ℹ` (INFORMATION SOURCE). Did you mean `i` (LATIN SMALL LETTER I)?
+  --> test_browseruse_fix.py:87:16
+   |
+86 |         # Other errors are acceptable for this test (e.g., connection issues)
+87 |         print("ℹ️  Error is not related to response_format - fix is working")
+   |                ^
+88 |         return True
+   |
+
+RUF001 String contains ambiguous `ℹ` (INFORMATION SOURCE). Did you mean `i` (LATIN SMALL LETTER I)?
+   --> test_browseruse_fix.py:100:16
+    |
+ 99 |         # Other errors might be infrastructure issues (Chrome not available, etc.)
+100 |         print("ℹ️  Exception is not related to response_format - fix is working")
+    |                ^
+101 |         return True
+    |
+
+SIM102 Use a single `if` statement instead of nested `if` statements
+   --> tests/evals/metrics/execution_metrics.py:130:17
+    |
+128 |                   if key not in act_args:
+129 |                       return False
+130 | /                 if value is not None and act_args[key] != value:
+131 | |                     # Loose comparison for strings
+132 | |                     if str(act_args[key]).lower() != str(value).lower():
+    | |________________________________________________________________________^
+133 |                           return False
+    |
+help: Combine `if` statements using `and`
+
+RUF012 Mutable class attributes should be annotated with `typing.ClassVar`
+   --> tests/evals/metrics/semantic_metrics.py:104:18
+    |
+103 |       # Common words to ignore
+104 |       STOP_WORDS = {
+    |  __________________^
+105 | |         "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+106 | |         "have", "has", "had", "do", "does", "did", "will", "would", "could",
+107 | |         "should", "may", "might", "must", "shall", "can", "need", "dare",
+108 | |         "ought", "used", "to", "of", "in", "for", "on", "with", "at", "by",
+109 | |         "from", "as", "into", "through", "during", "before", "after",
+110 | |         "above", "below", "between", "under", "again", "further", "then",
+111 | |         "once", "here", "there", "when", "where", "why", "how", "all",
+112 | |         "each", "few", "more", "most", "other", "some", "such", "no", "nor",
+113 | |         "not", "only", "own", "same", "so", "than", "too", "very", "just",
+114 | |         "and", "but", "if", "or", "because", "until", "while", "this",
+115 | |         "that", "these", "those", "what", "which", "who", "whom", "i", "you",
+116 | |         "he", "she", "it", "we", "they", "me", "him", "her", "us", "them",
+117 | |     }
+    | |_____^
+118 |
+119 |       def evaluate(
+    |
+
+E402 Module level import not at top of file
+   --> tests/test_quick_wins.py:107:1
+    |
+106 |   # Requirement Extractor tests
+107 | / from app.domain.services.agents.requirement_extractor import (
+108 | |     RequirementPriority,
+109 | |     extract_requirements,
+110 | | )
+    | |_^
+    |
+
+E402 Module level import not at top of file
+   --> tests/test_quick_wins.py:187:1
+    |
+186 |   # Semantic Cache tests
+187 | / from app.domain.services.agents.prompt_cache_manager import (
+188 | |     SemanticResponseCache,
+189 | | )
+    | |_^
+    |
+
+E402 Module level import not at top of file
+   --> tests/test_quick_wins.py:253:1
+    |
+252 |   # Parallel Executor tests
+253 | / from app.domain.services.agents.parallel_executor import (
+254 | |     ParallelToolExecutor,
+255 | |     ToolCall,
+256 | | )
+    | |_^
+    |
+
+B017 Do not assert blind exception: `Exception`
+   --> tests/test_sandbox_file.py:162:10
+    |
+161 |     # This should raise an exception or return an error
+162 |     with pytest.raises(Exception):
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^
+163 |         await sandbox_instance.file_download(nonexistent_path)
+    |
+
+Found 197 errors.
+ERROR conda.cli.main_run:execute(127): `conda run ruff check .` failed. (See above for error)
+

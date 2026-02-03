@@ -18,6 +18,7 @@ Usage:
         service_name="pythinker-agent",
     )
 """
+
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -34,6 +35,7 @@ try:
     from opentelemetry.sdk.resources import SERVICE_NAME, Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
     OTEL_AVAILABLE = True
 except ImportError:
     logger.debug("OpenTelemetry packages not installed. OTEL export disabled.")
@@ -42,6 +44,7 @@ except ImportError:
 @dataclass
 class OTELConfig:
     """Configuration for OpenTelemetry export."""
+
     enabled: bool = False
     endpoint: str = ""
     service_name: str = "pythinker-agent"
@@ -79,7 +82,7 @@ def configure_otel(
     # Try to get endpoint from settings if not provided
     if endpoint is None:
         settings = get_settings()
-        endpoint = getattr(settings, 'otel_endpoint', None)
+        endpoint = getattr(settings, "otel_endpoint", None)
 
     if not endpoint:
         logger.debug("No OTEL endpoint configured, skipping OTEL setup")
@@ -173,9 +176,7 @@ class OTELSpanContext:
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self._span is not None:
             if exc_type is not None:
-                self._span.set_status(
-                    trace.Status(trace.StatusCode.ERROR, str(exc_val))
-                )
+                self._span.set_status(trace.Status(trace.StatusCode.ERROR, str(exc_val)))
             else:
                 self._span.set_status(trace.Status(trace.StatusCode.OK))
             self._span.end()

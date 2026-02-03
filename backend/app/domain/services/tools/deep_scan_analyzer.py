@@ -52,31 +52,21 @@ class DeepScanAnalyzerTool(BaseTool):
         name="deep_scan_code",
         description="Perform comprehensive code analysis including security, quality, and dependency scanning. Analyzes source code for vulnerabilities, measures complexity and maintainability, and checks dependencies for known issues.",
         parameters={
-            "code": {
-                "type": "string",
-                "description": "Source code to analyze"
-            },
-            "file_path": {
-                "type": "string",
-                "description": "Path to the file (for reporting context)"
-            },
+            "code": {"type": "string", "description": "Source code to analyze"},
+            "file_path": {"type": "string", "description": "Path to the file (for reporting context)"},
             "language": {
                 "type": "string",
                 "description": "Programming language (python, javascript)",
-                "enum": ["python", "javascript"]
+                "enum": ["python", "javascript"],
             },
             "include_security": {
                 "type": "boolean",
                 "description": "Include security vulnerability scan",
-                "default": True
+                "default": True,
             },
-            "include_quality": {
-                "type": "boolean",
-                "description": "Include code quality analysis",
-                "default": True
-            },
+            "include_quality": {"type": "boolean", "description": "Include code quality analysis", "default": True},
         },
-        required=["code", "file_path", "language"]
+        required=["code", "file_path", "language"],
     )
     async def deep_scan_code(
         self,
@@ -109,43 +99,29 @@ class DeepScanAnalyzerTool(BaseTool):
 
             # Security analysis
             if include_security:
-                vulnerabilities = self._security_analyzer.analyze(
-                    code, file_path, language
-                )
+                vulnerabilities = self._security_analyzer.analyze(code, file_path, language)
                 security_summary = self._security_analyzer.get_summary(vulnerabilities)
                 results["security"] = {
                     "vulnerabilities": [v.to_dict() for v in vulnerabilities],
                     "summary": security_summary,
                 }
                 if security_summary["critical_count"] > 0:
-                    issues_summary.append(
-                        f"🚨 {security_summary['critical_count']} CRITICAL security issues"
-                    )
+                    issues_summary.append(f"🚨 {security_summary['critical_count']} CRITICAL security issues")
                 if security_summary["high_count"] > 0:
-                    issues_summary.append(
-                        f"⚠️ {security_summary['high_count']} HIGH security issues"
-                    )
+                    issues_summary.append(f"⚠️ {security_summary['high_count']} HIGH security issues")
 
             # Quality analysis
             if include_quality:
-                metrics, quality_issues = self._quality_analyzer.analyze(
-                    code, file_path, language
-                )
+                metrics, quality_issues = self._quality_analyzer.analyze(code, file_path, language)
                 results["quality"] = {
                     "metrics": metrics.to_dict(),
                     "issues": [i.to_dict() for i in quality_issues],
                 }
                 if metrics.quality_rating.value in ["poor", "critical"]:
-                    issues_summary.append(
-                        f"📉 Quality rating: {metrics.quality_rating.value.upper()}"
-                    )
-                critical_quality = sum(
-                    1 for i in quality_issues if i.severity == "critical"
-                )
+                    issues_summary.append(f"📉 Quality rating: {metrics.quality_rating.value.upper()}")
+                critical_quality = sum(1 for i in quality_issues if i.severity == "critical")
                 if critical_quality > 0:
-                    issues_summary.append(
-                        f"🔧 {critical_quality} critical quality issues"
-                    )
+                    issues_summary.append(f"🔧 {critical_quality} critical quality issues")
 
             # Build message
             message_parts = [f"## Deep Scan Results: {file_path}\n"]
@@ -163,9 +139,7 @@ class DeepScanAnalyzerTool(BaseTool):
                             f"  - [{v['severity'].upper()}] {v['type']}: {v['description']} (line {v['line_number']})"
                         )
                     if len(results["security"]["vulnerabilities"]) > 5:
-                        message_parts.append(
-                            f"  ... and {len(results['security']['vulnerabilities']) - 5} more"
-                        )
+                        message_parts.append(f"  ... and {len(results['security']['vulnerabilities']) - 5} more")
                 message_parts.append("")
 
             if include_quality:
@@ -174,24 +148,16 @@ class DeepScanAnalyzerTool(BaseTool):
                 message_parts.append(f"- Lines of code: {met['code_lines']}")
                 message_parts.append(f"- Functions: {len(met['functions'])}")
                 message_parts.append(f"- Classes: {met['classes']}")
-                message_parts.append(
-                    f"- Average complexity: {met['average_complexity']}"
-                )
-                message_parts.append(
-                    f"- Maintainability index: {met['maintainability_index']}"
-                )
+                message_parts.append(f"- Average complexity: {met['average_complexity']}")
+                message_parts.append(f"- Maintainability index: {met['maintainability_index']}")
                 message_parts.append(f"- Quality rating: **{met['quality_rating']}**")
                 if results["quality"]["issues"]:
                     message_parts.append("\n**Quality Issues:**")
                     for i in results["quality"]["issues"][:5]:
                         func = f" in {i['function_name']}" if i["function_name"] else ""
-                        message_parts.append(
-                            f"  - [{i['severity'].upper()}] {i['type']}{func}: {i['description']}"
-                        )
+                        message_parts.append(f"  - [{i['severity'].upper()}] {i['type']}{func}: {i['description']}")
                     if len(results["quality"]["issues"]) > 5:
-                        message_parts.append(
-                            f"  ... and {len(results['quality']['issues']) - 5} more"
-                        )
+                        message_parts.append(f"  ... and {len(results['quality']['issues']) - 5} more")
                 message_parts.append("")
 
             if issues_summary:
@@ -217,21 +183,11 @@ class DeepScanAnalyzerTool(BaseTool):
         name="deep_scan_security",
         description="Perform security vulnerability scan on source code. Detects SQL injection, XSS, hardcoded secrets, insecure functions, path traversal, and more.",
         parameters={
-            "code": {
-                "type": "string",
-                "description": "Source code to analyze"
-            },
-            "file_path": {
-                "type": "string",
-                "description": "Path to the file (for reporting)"
-            },
-            "language": {
-                "type": "string",
-                "description": "Programming language",
-                "enum": ["python", "javascript"]
-            },
+            "code": {"type": "string", "description": "Source code to analyze"},
+            "file_path": {"type": "string", "description": "Path to the file (for reporting)"},
+            "language": {"type": "string", "description": "Programming language", "enum": ["python", "javascript"]},
         },
-        required=["code", "file_path", "language"]
+        required=["code", "file_path", "language"],
     )
     async def deep_scan_security(
         self,
@@ -258,20 +214,20 @@ class DeepScanAnalyzerTool(BaseTool):
             message_parts.append(f"**Total vulnerabilities found:** {summary['total']}")
             message_parts.append(f"- Critical: {summary['critical_count']}")
             message_parts.append(f"- High: {summary['high_count']}")
-            message_parts.append(
-                f"- Medium: {summary['by_severity'].get('medium', 0)}"
-            )
+            message_parts.append(f"- Medium: {summary['by_severity'].get('medium', 0)}")
             message_parts.append(f"- Low: {summary['by_severity'].get('low', 0)}")
             message_parts.append("")
 
             if vulnerabilities:
                 message_parts.append("### Vulnerabilities\n")
                 for v in vulnerabilities:
-                    message_parts.append(
-                        f"**[{v.severity.value.upper()}] {v.type.value}** (line {v.line_number})"
-                    )
+                    message_parts.append(f"**[{v.severity.value.upper()}] {v.type.value}** (line {v.line_number})")
                     message_parts.append(f"  {v.description}")
-                    message_parts.append(f"  Code: `{v.code_snippet[:100]}...`" if len(v.code_snippet) > 100 else f"  Code: `{v.code_snippet}`")
+                    message_parts.append(
+                        f"  Code: `{v.code_snippet[:100]}...`"
+                        if len(v.code_snippet) > 100
+                        else f"  Code: `{v.code_snippet}`"
+                    )
                     message_parts.append(f"  Recommendation: {v.recommendation}")
                     if v.cwe_id:
                         message_parts.append(f"  CWE: {v.cwe_id}")
@@ -299,21 +255,11 @@ class DeepScanAnalyzerTool(BaseTool):
         name="deep_scan_quality",
         description="Analyze code quality metrics including cyclomatic complexity, maintainability index, function length, nesting depth, and code duplication.",
         parameters={
-            "code": {
-                "type": "string",
-                "description": "Source code to analyze"
-            },
-            "file_path": {
-                "type": "string",
-                "description": "Path to the file"
-            },
-            "language": {
-                "type": "string",
-                "description": "Programming language",
-                "enum": ["python", "javascript"]
-            },
+            "code": {"type": "string", "description": "Source code to analyze"},
+            "file_path": {"type": "string", "description": "Path to the file"},
+            "language": {"type": "string", "description": "Programming language", "enum": ["python", "javascript"]},
         },
-        required=["code", "file_path", "language"]
+        required=["code", "file_path", "language"],
     )
     async def deep_scan_quality(
         self,
@@ -349,20 +295,12 @@ class DeepScanAnalyzerTool(BaseTool):
             message_parts.append(f"- Imports: {metrics.imports}")
             message_parts.append("")
             message_parts.append("### Complexity")
-            message_parts.append(
-                f"- Average cyclomatic complexity: {metrics.average_complexity:.2f}"
-            )
+            message_parts.append(f"- Average cyclomatic complexity: {metrics.average_complexity:.2f}")
             message_parts.append(f"- Max complexity: {metrics.max_complexity}")
-            message_parts.append(
-                f"- Maintainability index: {metrics.maintainability_index:.2f}"
-            )
-            message_parts.append(
-                f"- Duplication ratio: {metrics.duplication_ratio:.2%}"
-            )
+            message_parts.append(f"- Maintainability index: {metrics.maintainability_index:.2f}")
+            message_parts.append(f"- Duplication ratio: {metrics.duplication_ratio:.2%}")
             message_parts.append("")
-            message_parts.append(
-                f"### Quality Rating: **{metrics.quality_rating.value.upper()}**"
-            )
+            message_parts.append(f"### Quality Rating: **{metrics.quality_rating.value.upper()}**")
             message_parts.append("")
 
             if metrics.functions:
@@ -381,9 +319,7 @@ class DeepScanAnalyzerTool(BaseTool):
                 message_parts.append("### Issues Found")
                 for issue in issues:
                     func = f" in `{issue.function_name}`" if issue.function_name else ""
-                    message_parts.append(
-                        f"- [{issue.severity.upper()}] {issue.type}{func}: {issue.description}"
-                    )
+                    message_parts.append(f"- [{issue.severity.upper()}] {issue.type}{func}: {issue.description}")
                     message_parts.append(f"  → {issue.recommendation}")
             else:
                 message_parts.append("✅ No quality issues detected.")
@@ -408,27 +344,21 @@ class DeepScanAnalyzerTool(BaseTool):
         name="deep_scan_dependencies",
         description="Analyze project dependencies for security vulnerabilities (CVEs), outdated packages, and unpinned versions. Supports requirements.txt (Python) and package.json (Node.js).",
         parameters={
-            "content": {
-                "type": "string",
-                "description": "Content of the dependency file"
-            },
+            "content": {"type": "string", "description": "Content of the dependency file"},
             "file_type": {
                 "type": "string",
                 "description": "Type of dependency file",
-                "enum": ["requirements.txt", "package.json"]
+                "enum": ["requirements.txt", "package.json"],
             },
-            "file_path": {
-                "type": "string",
-                "description": "Path to the file (for reporting)"
-            },
+            "file_path": {"type": "string", "description": "Path to the file (for reporting)"},
         },
-        required=["content", "file_type"]
+        required=["content", "file_type"],
     )
     async def deep_scan_dependencies(
         self,
         content: str,
         file_type: str,
-        file_path: str = None,
+        file_path: str | None = None,
     ) -> ToolResult:
         """
         Analyze dependencies for vulnerabilities and issues.
@@ -445,13 +375,9 @@ class DeepScanAnalyzerTool(BaseTool):
             file_path = file_path or file_type
 
             if file_type == "requirements.txt":
-                dependencies, issues = self._dependency_analyzer.analyze_requirements_txt(
-                    content, file_path
-                )
+                dependencies, issues = self._dependency_analyzer.analyze_requirements_txt(content, file_path)
             elif file_type == "package.json":
-                dependencies, issues = self._dependency_analyzer.analyze_package_json(
-                    content, file_path
-                )
+                dependencies, issues = self._dependency_analyzer.analyze_package_json(content, file_path)
             else:
                 return ToolResult(
                     success=False,
@@ -463,9 +389,7 @@ class DeepScanAnalyzerTool(BaseTool):
             message_parts = [f"## Dependency Analysis: {file_path}\n"]
             message_parts.append("### Overview")
             message_parts.append(f"- Total dependencies: {summary['total_dependencies']}")
-            message_parts.append(
-                f"- Production dependencies: {summary['production_dependencies']}"
-            )
+            message_parts.append(f"- Production dependencies: {summary['production_dependencies']}")
             message_parts.append(f"- Dev dependencies: {summary['dev_dependencies']}")
             message_parts.append("")
 
@@ -487,9 +411,7 @@ class DeepScanAnalyzerTool(BaseTool):
                 message_parts.append("### 🚨 Vulnerable Dependencies")
                 for issue in vuln_issues:
                     v = issue.vulnerability
-                    message_parts.append(
-                        f"**{issue.dependency.name}** ({issue.dependency.version})"
-                    )
+                    message_parts.append(f"**{issue.dependency.name}** ({issue.dependency.version})")
                     message_parts.append(f"  - {v.cve_id}: {v.title}")
                     message_parts.append(f"  - Severity: {v.severity.value.upper()}")
                     message_parts.append(f"  - Affected: {v.affected_versions}")
@@ -501,9 +423,7 @@ class DeepScanAnalyzerTool(BaseTool):
             if unpinned_issues:
                 message_parts.append("### ⚠️ Unpinned Dependencies")
                 for issue in unpinned_issues:
-                    message_parts.append(
-                        f"- `{issue.dependency.name}`: {issue.recommendation}"
-                    )
+                    message_parts.append(f"- `{issue.dependency.name}`: {issue.recommendation}")
                 message_parts.append("")
 
             if not issues:
@@ -541,14 +461,14 @@ class DeepScanAnalyzerTool(BaseTool):
                         "language": {
                             "type": "string",
                             "description": "Language or file type",
-                            "enum": ["python", "javascript", "requirements.txt", "package.json"]
+                            "enum": ["python", "javascript", "requirements.txt", "package.json"],
                         },
                     },
-                    "required": ["content", "path", "language"]
-                }
+                    "required": ["content", "path", "language"],
+                },
             },
         },
-        required=["files"]
+        required=["files"],
     )
     async def deep_scan_project(
         self,
@@ -588,13 +508,9 @@ class DeepScanAnalyzerTool(BaseTool):
                 # Handle dependency files
                 if language in ["requirements.txt", "package.json"]:
                     if language == "requirements.txt":
-                        deps, dep_issues = self._dependency_analyzer.analyze_requirements_txt(
-                            content, path
-                        )
+                        _deps, dep_issues = self._dependency_analyzer.analyze_requirements_txt(content, path)
                     else:
-                        deps, dep_issues = self._dependency_analyzer.analyze_package_json(
-                            content, path
-                        )
+                        _deps, dep_issues = self._dependency_analyzer.analyze_package_json(content, path)
 
                     all_dependency_issues.extend(dep_issues)
                     project_results["total_dependency_issues"] += len(dep_issues)
@@ -609,9 +525,7 @@ class DeepScanAnalyzerTool(BaseTool):
                     file_result["security_issues"] = len(vulns)
 
                     # Quality analysis
-                    metrics, q_issues = self._quality_analyzer.analyze(
-                        content, path, language
-                    )
+                    metrics, q_issues = self._quality_analyzer.analyze(content, path, language)
                     all_quality_issues.extend(q_issues)
                     all_metrics.append(metrics)
                     project_results["total_quality_issues"] += len(q_issues)
@@ -622,11 +536,7 @@ class DeepScanAnalyzerTool(BaseTool):
 
             # Generate summaries
             security_summary = self._security_analyzer.get_summary(all_vulnerabilities)
-            quality_summary = (
-                self._quality_analyzer.get_summary(all_metrics)
-                if all_metrics
-                else {"files": 0}
-            )
+            quality_summary = self._quality_analyzer.get_summary(all_metrics) if all_metrics else {"files": 0}
 
             project_results["security_summary"] = security_summary
             project_results["quality_summary"] = quality_summary
@@ -647,9 +557,7 @@ class DeepScanAnalyzerTool(BaseTool):
             if quality_summary.get("files_analyzed", 0) > 0:
                 message_parts.append("### Quality")
                 message_parts.append(f"- Total issues: {project_results['total_quality_issues']}")
-                message_parts.append(
-                    f"- Total lines of code: {quality_summary.get('total_lines_of_code', 0)}"
-                )
+                message_parts.append(f"- Total lines of code: {quality_summary.get('total_lines_of_code', 0)}")
                 message_parts.append(
                     f"- Average maintainability: {quality_summary.get('average_maintainability', 'N/A')}"
                 )
@@ -663,9 +571,7 @@ class DeepScanAnalyzerTool(BaseTool):
             # Dependency summary
             if all_dependency_issues:
                 message_parts.append("### Dependencies")
-                message_parts.append(
-                    f"- Total issues: {project_results['total_dependency_issues']}"
-                )
+                message_parts.append(f"- Total issues: {project_results['total_dependency_issues']}")
                 vuln_count = sum(1 for i in all_dependency_issues if i.issue_type == "vulnerable")
                 message_parts.append(f"- Vulnerable packages: {vuln_count}")
                 message_parts.append("")

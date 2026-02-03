@@ -8,6 +8,7 @@ class CreateSessionRequest(BaseModel):
     """Create session request schema"""
 
     mode: AgentMode | None = AgentMode.AGENT
+    message: str | None = None  # Phase 4 P0: Initial message for intent classification
 
 
 class ChatRequest(BaseModel):
@@ -17,6 +18,8 @@ class ChatRequest(BaseModel):
     message: str | None = None
     attachments: list[dict] | None = None
     event_id: str | None = None
+    skills: list[str] | None = None
+    deep_research: bool | None = None  # Enable deep research mode (parallel wide_research)
 
 
 class ResumeSessionRequest(BaseModel):

@@ -3,6 +3,7 @@
 Provides integration with Ollama for running local LLMs.
 Supports all Ollama-compatible models including Llama, Mistral, Phi, etc.
 """
+
 import asyncio
 import json
 import logging
@@ -18,13 +19,14 @@ from app.domain.services.agents.token_manager import TokenManager
 from app.domain.services.agents.usage_context import get_usage_context
 from app.infrastructure.external.llm.factory import LLMProviderRegistry
 
-T = TypeVar('T', bound=BaseModel)
+T = TypeVar("T", bound=BaseModel)
 
 logger = logging.getLogger(__name__)
 
 
-class TokenLimitExceeded(Exception):
+class TokenLimitExceededError(Exception):
     """Raised when the token limit is exceeded."""
+
     pass
 
 
@@ -53,17 +55,11 @@ class OllamaLLM(LLM):
         """
         settings = get_settings()
 
-        self._base_url = (
-            base_url or
-            getattr(settings, 'ollama_base_url', None) or
-            'http://localhost:11434'
-        ).rstrip('/')
-
-        self._model_name = (
-            model_name or
-            getattr(settings, 'ollama_model', None) or
-            'llama3.2'
+        self._base_url = (base_url or getattr(settings, "ollama_base_url", None) or "http://localhost:11434").rstrip(
+            "/"
         )
+
+        self._model_name = model_name or getattr(settings, "ollama_model", None) or "llama3.2"
 
         self._temperature = temperature if temperature is not None else settings.temperature
         self._max_tokens = max_tokens if max_tokens is not None else settings.max_tokens
@@ -122,9 +118,7 @@ class OllamaLLM(LLM):
         return "\n".join(tool_descriptions)
 
     def _inject_tools_into_messages(
-        self,
-        messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]]
+        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         """Inject tool definitions into the system prompt.
 
@@ -168,10 +162,7 @@ Do not include any text before or after the JSON when calling a tool.
 
         return new_messages
 
-    def _convert_messages_for_ollama(
-        self,
-        messages: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    def _convert_messages_for_ollama(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Convert messages to Ollama format.
 
         Handles tool calls and tool responses.
@@ -202,12 +193,7 @@ Do not include any text before or after the JSON when calling a tool.
                         except json.JSONDecodeError:
                             args = {}
 
-                    tool_json = {
-                        "tool_call": {
-                            "name": func.get("name"),
-                            "arguments": args
-                        }
-                    }
+                    tool_json = {"tool_call": {"name": func.get("name"), "arguments": args}}
                     content += f"\n```json\n{json.dumps(tool_json, indent=2)}\n```"
 
                 msg_copy["content"] = content.strip() or "I'll use a tool."
@@ -217,10 +203,7 @@ Do not include any text before or after the JSON when calling a tool.
             elif role == "tool":
                 tool_content = msg_copy.get("content", "")
                 tool_name = msg_copy.get("name", "tool")
-                msg_copy = {
-                    "role": "user",
-                    "content": f"[Tool Result from {tool_name}]:\n{tool_content}"
-                }
+                msg_copy = {"role": "user", "content": f"[Tool Result from {tool_name}]:\n{tool_content}"}
 
             # Ensure content is always a string
             if msg_copy.get("content") is None:
@@ -261,14 +244,16 @@ Do not include any text before or after the JSON when calling a tool.
                         return {
                             "role": "assistant",
                             "content": None,
-                            "tool_calls": [{
-                                "id": f"call_{uuid.uuid4().hex[:8]}",
-                                "type": "function",
-                                "function": {
-                                    "name": tc.get("name"),
-                                    "arguments": json.dumps(tc.get("arguments", {}))
+                            "tool_calls": [
+                                {
+                                    "id": f"call_{uuid.uuid4().hex[:8]}",
+                                    "type": "function",
+                                    "function": {
+                                        "name": tc.get("name"),
+                                        "arguments": json.dumps(tc.get("arguments", {})),
+                                    },
                                 }
-                            }]
+                            ],
                         }
                 except json.JSONDecodeError:
                     continue
@@ -281,7 +266,7 @@ Do not include any text before or after the JSON when calling a tool.
         tools: list[dict[str, Any]] | None = None,
         response_format: dict[str, Any] | None = None,
         tool_choice: str | None = None,
-        enable_caching: bool = True
+        enable_caching: bool = True,
     ) -> dict[str, Any]:
         """Send chat request to Ollama API.
 
@@ -322,8 +307,8 @@ Do not include any text before or after the JSON when calling a tool.
                             "options": {
                                 "temperature": self._temperature,
                                 "num_predict": self._max_tokens,
-                            }
-                        }
+                            },
+                        },
                     )
                     response.raise_for_status()
 
@@ -336,11 +321,7 @@ Do not include any text before or after the JSON when calling a tool.
                         if parsed_tool_call:
                             return parsed_tool_call
 
-                    return {
-                        "role": "assistant",
-                        "content": content,
-                        "tool_calls": None
-                    }
+                    return {"role": "assistant", "content": content, "tool_calls": None}
 
             except httpx.TimeoutException as e:
                 logger.warning(f"Ollama timeout on attempt {attempt + 1}: {e}")
@@ -350,7 +331,7 @@ Do not include any text before or after the JSON when calling a tool.
             except httpx.HTTPStatusError as e:
                 error_msg = str(e).lower()
                 if "context" in error_msg or "token" in error_msg:
-                    raise TokenLimitExceeded(str(e))
+                    raise TokenLimitExceededError(str(e)) from e
                 logger.error(f"Ollama HTTP error on attempt {attempt + 1}: {e}")
                 if attempt == max_retries:
                     raise
@@ -368,7 +349,7 @@ Do not include any text before or after the JSON when calling a tool.
         response_model: type[T],
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | None = None,
-        enable_caching: bool = True
+        enable_caching: bool = True,
     ) -> T:
         """Send chat request with structured output validation.
 
@@ -392,24 +373,22 @@ Do not include any text before or after the JSON when calling a tool.
             "content": f"""You must respond with valid JSON matching this schema:
 {json.dumps(schema, indent=2)}
 
-Respond ONLY with the JSON object, no other text."""
+Respond ONLY with the JSON object, no other text.""",
         }
 
-        enhanced_messages = [schema_instruction] + list(messages)
+        enhanced_messages = [schema_instruction, *list(messages)]
 
         max_retries = 3
         for attempt in range(max_retries + 1):
             try:
-                response = await self.ask(
-                    messages=enhanced_messages,
-                    enable_caching=enable_caching
-                )
+                response = await self.ask(messages=enhanced_messages, enable_caching=enable_caching)
 
                 content = response.get("content", "")
 
                 # Try to extract JSON from response
                 import re
-                json_match = re.search(r'\{[\s\S]*\}', content)
+
+                json_match = re.search(r"\{[\s\S]*\}", content)
                 if json_match:
                     parsed = json.loads(json_match.group())
                     return response_model.model_validate(parsed)
@@ -419,7 +398,7 @@ Respond ONLY with the JSON object, no other text."""
             except json.JSONDecodeError as e:
                 logger.warning(f"JSON decode error on attempt {attempt + 1}: {e}")
                 if attempt == max_retries:
-                    raise ValueError(f"Failed to parse JSON response: {e}")
+                    raise ValueError(f"Failed to parse JSON response: {e}") from e
 
         raise ValueError("Failed to get structured response after all retries")
 
@@ -429,7 +408,7 @@ Respond ONLY with the JSON object, no other text."""
         tools: list[dict[str, Any]] | None = None,
         response_format: dict[str, Any] | None = None,
         tool_choice: str | None = None,
-        enable_caching: bool = True
+        enable_caching: bool = True,
     ) -> AsyncGenerator[str, None]:
         """Stream chat response from Ollama API.
 
@@ -453,19 +432,22 @@ Respond ONLY with the JSON object, no other text."""
         usage_counts: dict[str, int] | None = None
 
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client, client.stream(
-                "POST",
-                f"{self._api_url}/chat",
-                json={
-                    "model": self._model_name,
-                    "messages": ollama_messages,
-                    "stream": True,
-                    "options": {
-                        "temperature": self._temperature,
-                        "num_predict": self._max_tokens,
-                    }
-                }
-            ) as response:
+            async with (
+                httpx.AsyncClient(timeout=120.0) as client,
+                client.stream(
+                    "POST",
+                    f"{self._api_url}/chat",
+                    json={
+                        "model": self._model_name,
+                        "messages": ollama_messages,
+                        "stream": True,
+                        "options": {
+                            "temperature": self._temperature,
+                            "num_predict": self._max_tokens,
+                        },
+                    },
+                ) as response,
+            ):
                 response.raise_for_status()
 
                 async for line in response.aiter_lines():
@@ -499,7 +481,7 @@ Respond ONLY with the JSON object, no other text."""
         except httpx.HTTPStatusError as e:
             error_msg = str(e).lower()
             if "context" in error_msg or "token" in error_msg:
-                raise TokenLimitExceeded(str(e))
+                raise TokenLimitExceededError(str(e)) from e
             raise
 
     async def _record_usage_counts(
@@ -516,6 +498,7 @@ Respond ONLY with the JSON object, no other text."""
 
         try:
             from app.application.services.usage_service import get_usage_service
+
             usage_service = get_usage_service()
             model_name = model_override or ctx.model_override or self._model_name
             await usage_service.record_llm_usage(
@@ -564,9 +547,7 @@ if __name__ == "__main__":
         llm = OllamaLLM()
 
         try:
-            response = await llm.ask([
-                {"role": "user", "content": "What is 2 + 2? Answer briefly."}
-            ])
+            response = await llm.ask([{"role": "user", "content": "What is 2 + 2? Answer briefly."}])
             print(f"Response: {response}")
         except Exception as e:
             print(f"Error: {e}")

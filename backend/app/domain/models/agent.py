@@ -11,6 +11,7 @@ class Agent(BaseModel):
     Agent aggregate root that manages the lifecycle and state of an AI agent
     Including its execution context, memory, and current plan
     """
+
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:16])
     memories: dict[str, Memory] = Field(default_factory=dict)
     model_name: str = Field(default="")
@@ -22,6 +23,7 @@ class Agent(BaseModel):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))  # Last update timestamp
 
     @field_validator("temperature")
+    @classmethod
     def validate_temperature(cls, v: float) -> float:
         """Validate temperature is between 0 and 1"""
         if not 0 <= v <= 1:
@@ -29,6 +31,7 @@ class Agent(BaseModel):
         return v
 
     @field_validator("max_tokens")
+    @classmethod
     def validate_max_tokens(cls, v: int | None) -> int | None:
         """Validate max_tokens is positive if provided"""
         if v is not None and v <= 0:

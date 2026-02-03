@@ -1,7 +1,7 @@
 """Source citation model for tracking references in reports."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel
 
@@ -16,6 +16,7 @@ class SourceCitation(BaseModel):
         access_time: When the source was accessed
         source_type: Type of source - search result, browser navigation, or file
     """
+
     url: str
     title: str
     snippet: str | None = None
@@ -23,6 +24,4 @@ class SourceCitation(BaseModel):
     source_type: Literal["search", "browser", "file"]
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders: ClassVar[dict[type, Any]] = {datetime: lambda v: v.isoformat()}

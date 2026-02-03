@@ -51,16 +51,18 @@ logger = logging.getLogger(__name__)
 
 class CoordinatorMode(str, Enum):
     """Modes of operation for the coordinator."""
-    AUTO = "auto"               # Automatically decide when to use swarm
-    SWARM = "swarm"             # Always use swarm for multi-agent
-    SINGLE = "single"           # Single agent mode (no swarm)
+
+    AUTO = "auto"  # Automatically decide when to use swarm
+    SWARM = "swarm"  # Always use swarm for multi-agent
+    SINGLE = "single"  # Single agent mode (no swarm)
 
 
 class TaskComplexity(str, Enum):
     """Complexity levels for task classification."""
-    SIMPLE = "simple"           # Single agent can handle
-    MODERATE = "moderate"       # May benefit from specialization
-    COMPLEX = "complex"         # Requires multi-agent collaboration
+
+    SIMPLE = "simple"  # Single agent can handle
+    MODERATE = "moderate"  # May benefit from specialization
+    COMPLEX = "complex"  # Requires multi-agent collaboration
 
 
 class CoordinatorFlow(BaseFlow):
@@ -198,15 +200,29 @@ class CoordinatorFlow(BaseFlow):
         # Simple heuristics for task complexity
         complexity_indicators = {
             TaskComplexity.COMPLEX: [
-                "multiple", "several", "comprehensive", "full",
-                "analyze and", "research and", "build and",
-                "compare", "contrast", "evaluate all",
-                "create a complete", "develop a system",
+                "multiple",
+                "several",
+                "comprehensive",
+                "full",
+                "analyze and",
+                "research and",
+                "build and",
+                "compare",
+                "contrast",
+                "evaluate all",
+                "create a complete",
+                "develop a system",
             ],
             TaskComplexity.MODERATE: [
-                "research", "investigate", "analyze",
-                "write code", "implement", "create",
-                "browse", "search for", "find",
+                "research",
+                "investigate",
+                "analyze",
+                "write code",
+                "implement",
+                "create",
+                "browse",
+                "search for",
+                "find",
             ],
         }
 
@@ -221,7 +237,7 @@ class CoordinatorFlow(BaseFlow):
             return TaskComplexity.MODERATE
 
         # Check for multiple sentences/tasks
-        sentence_count = text.count('.') + text.count('?') + text.count('!')
+        sentence_count = text.count(".") + text.count("?") + text.count("!")
         if sentence_count > 3:
             return TaskComplexity.MODERATE
 
@@ -326,11 +342,7 @@ class CoordinatorFlow(BaseFlow):
             context={"session_id": self._session_id},
         )
 
-        if not candidates:
-            # Fall back to executor
-            spec = registry.get(AgentType.EXECUTOR)
-        else:
-            spec = candidates[0]
+        spec = registry.get(AgentType.EXECUTOR) if not candidates else candidates[0]
 
         logger.info(f"Selected agent: {spec.agent_type.value}")
 
@@ -364,33 +376,23 @@ class CoordinatorFlow(BaseFlow):
         # Capability keyword mapping
         keyword_map = {
             AgentCapability.CODE_WRITING: [
-                "code", "implement", "write function", "script", "program",
-                "create class", "build", "develop"
+                "code",
+                "implement",
+                "write function",
+                "script",
+                "program",
+                "create class",
+                "build",
+                "develop",
             ],
-            AgentCapability.CODE_REVIEW: [
-                "review", "check code", "find bugs", "audit", "critique"
-            ],
-            AgentCapability.WEB_BROWSING: [
-                "browse", "visit", "navigate", "website", "page", "click"
-            ],
-            AgentCapability.WEB_SEARCH: [
-                "search", "find", "look up", "google", "query"
-            ],
-            AgentCapability.RESEARCH: [
-                "research", "investigate", "study", "learn about", "analyze"
-            ],
-            AgentCapability.FILE_OPERATIONS: [
-                "file", "read", "write", "save", "create file", "modify file"
-            ],
-            AgentCapability.SHELL_COMMANDS: [
-                "run", "execute", "shell", "command", "terminal", "bash"
-            ],
-            AgentCapability.SUMMARIZATION: [
-                "summarize", "summary", "brief", "overview", "condense"
-            ],
-            AgentCapability.ANALYSIS: [
-                "analyze", "examine", "evaluate", "assess", "review"
-            ],
+            AgentCapability.CODE_REVIEW: ["review", "check code", "find bugs", "audit", "critique"],
+            AgentCapability.WEB_BROWSING: ["browse", "visit", "navigate", "website", "page", "click"],
+            AgentCapability.WEB_SEARCH: ["search", "find", "look up", "google", "query"],
+            AgentCapability.RESEARCH: ["research", "investigate", "study", "learn about", "analyze"],
+            AgentCapability.FILE_OPERATIONS: ["file", "read", "write", "save", "create file", "modify file"],
+            AgentCapability.SHELL_COMMANDS: ["run", "execute", "shell", "command", "terminal", "bash"],
+            AgentCapability.SUMMARIZATION: ["summarize", "summary", "brief", "overview", "condense"],
+            AgentCapability.ANALYSIS: ["analyze", "examine", "evaluate", "assess", "review"],
         }
 
         for capability, keywords in keyword_map.items():

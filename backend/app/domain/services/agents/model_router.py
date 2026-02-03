@@ -12,20 +12,23 @@ import logging
 import re
 from dataclasses import dataclass
 from enum import Enum
+from typing import ClassVar
 
 logger = logging.getLogger(__name__)
 
 
 class TaskComplexity(str, Enum):
     """Task complexity levels for model routing."""
-    SIMPLE = "simple"      # Single action, clear intent, < 2s expected
-    MEDIUM = "medium"      # Multi-step, some reasoning required
-    COMPLEX = "complex"    # Research, analysis, multi-source synthesis
+
+    SIMPLE = "simple"  # Single action, clear intent, < 2s expected
+    MEDIUM = "medium"  # Multi-step, some reasoning required
+    COMPLEX = "complex"  # Research, analysis, multi-source synthesis
 
 
 class ModelTier(str, Enum):
     """Model performance tiers."""
-    FAST = "fast"          # Optimized for speed (GPT-4o-mini, Haiku)
+
+    FAST = "fast"  # Optimized for speed (GPT-4o-mini, Haiku)
     BALANCED = "balanced"  # Good balance (GPT-4o, Sonnet)
     POWERFUL = "powerful"  # Maximum capability (GPT-4, Opus)
 
@@ -33,6 +36,7 @@ class ModelTier(str, Enum):
 @dataclass
 class ModelConfig:
     """Configuration for a specific model."""
+
     provider: str
     model_name: str
     tier: ModelTier
@@ -44,25 +48,13 @@ class ModelConfig:
 MODEL_CONFIGS = {
     "openai": {
         ModelTier.FAST: ModelConfig(
-            provider="openai",
-            model_name="gpt-4o-mini",
-            tier=ModelTier.FAST,
-            max_tokens=4096,
-            temperature=0.2
+            provider="openai", model_name="gpt-4o-mini", tier=ModelTier.FAST, max_tokens=4096, temperature=0.2
         ),
         ModelTier.BALANCED: ModelConfig(
-            provider="openai",
-            model_name="gpt-4o",
-            tier=ModelTier.BALANCED,
-            max_tokens=8192,
-            temperature=0.3
+            provider="openai", model_name="gpt-4o", tier=ModelTier.BALANCED, max_tokens=8192, temperature=0.3
         ),
         ModelTier.POWERFUL: ModelConfig(
-            provider="openai",
-            model_name="gpt-4o",
-            tier=ModelTier.POWERFUL,
-            max_tokens=16384,
-            temperature=0.3
+            provider="openai", model_name="gpt-4o", tier=ModelTier.POWERFUL, max_tokens=16384, temperature=0.3
         ),
     },
     "anthropic": {
@@ -71,44 +63,36 @@ MODEL_CONFIGS = {
             model_name="claude-3-5-haiku-20241022",
             tier=ModelTier.FAST,
             max_tokens=4096,
-            temperature=0.2
+            temperature=0.2,
         ),
         ModelTier.BALANCED: ModelConfig(
             provider="anthropic",
             model_name="claude-sonnet-4-20250514",
             tier=ModelTier.BALANCED,
             max_tokens=8192,
-            temperature=0.3
+            temperature=0.3,
         ),
         ModelTier.POWERFUL: ModelConfig(
             provider="anthropic",
             model_name="claude-sonnet-4-20250514",
             tier=ModelTier.POWERFUL,
             max_tokens=16384,
-            temperature=0.3
+            temperature=0.3,
         ),
     },
     "deepseek": {
         ModelTier.FAST: ModelConfig(
-            provider="deepseek",
-            model_name="deepseek-chat",
-            tier=ModelTier.FAST,
-            max_tokens=4096,
-            temperature=0.2
+            provider="deepseek", model_name="deepseek-chat", tier=ModelTier.FAST, max_tokens=4096, temperature=0.2
         ),
         ModelTier.BALANCED: ModelConfig(
-            provider="deepseek",
-            model_name="deepseek-chat",
-            tier=ModelTier.BALANCED,
-            max_tokens=8192,
-            temperature=0.3
+            provider="deepseek", model_name="deepseek-chat", tier=ModelTier.BALANCED, max_tokens=8192, temperature=0.3
         ),
         ModelTier.POWERFUL: ModelConfig(
             provider="deepseek",
             model_name="deepseek-reasoner",
             tier=ModelTier.POWERFUL,
             max_tokens=16384,
-            temperature=0.3
+            temperature=0.3,
         ),
     },
 }
@@ -124,31 +108,64 @@ class ModelRouter:
     """
 
     # Simple task indicators (single action, clear intent)
-    SIMPLE_INDICATORS = [
-        "what is", "how to", "define", "list", "show me",
-        "create a file", "read file", "delete", "rename",
-        "run command", "execute", "install", "start", "stop",
-        "simple", "quick", "just", "only", "single",
+    SIMPLE_INDICATORS: ClassVar[list[str]] = [
+        "what is",
+        "how to",
+        "define",
+        "list",
+        "show me",
+        "create a file",
+        "read file",
+        "delete",
+        "rename",
+        "run command",
+        "execute",
+        "install",
+        "start",
+        "stop",
+        "simple",
+        "quick",
+        "just",
+        "only",
+        "single",
     ]
 
     # Complex task indicators (research, multi-step reasoning)
-    COMPLEX_INDICATORS = [
-        "research", "investigate", "analyze", "compare",
-        "comprehensive", "detailed", "in-depth", "thorough",
-        "multiple sources", "synthesize", "evaluate",
-        "pros and cons", "trade-offs", "recommendation",
-        "architecture", "design", "plan", "strategy",
-        "debug", "troubleshoot", "diagnose", "optimize",
-        "refactor", "rewrite", "redesign",
+    COMPLEX_INDICATORS: ClassVar[list[str]] = [
+        "research",
+        "investigate",
+        "analyze",
+        "compare",
+        "comprehensive",
+        "detailed",
+        "in-depth",
+        "thorough",
+        "multiple sources",
+        "synthesize",
+        "evaluate",
+        "pros and cons",
+        "trade-offs",
+        "recommendation",
+        "architecture",
+        "design",
+        "plan",
+        "strategy",
+        "debug",
+        "troubleshoot",
+        "diagnose",
+        "optimize",
+        "refactor",
+        "rewrite",
+        "redesign",
     ]
 
     # Patterns that indicate complexity
-    COMPLEXITY_PATTERNS = [
-        r'\d+\.\s+\w+',          # Numbered lists (1. Item)
-        r'[-*]\s+\w+',           # Bullet lists
-        r'\bif\b.*\bthen\b',     # Conditional logic
-        r'\band\b.*\band\b',     # Multiple conjunctions
-        r'\bor\b.*\bor\b',       # Multiple alternatives
+    COMPLEXITY_PATTERNS: ClassVar[list[str]] = [
+        r"\d+\.\s+\w+",  # Numbered lists (1. Item)
+        r"[-*]\s+\w+",  # Bullet lists
+        r"\bif\b.*\bthen\b",  # Conditional logic
+        r"\band\b.*\band\b",  # Multiple conjunctions
+        r"\bor\b.*\bor\b",  # Multiple alternatives
     ]
 
     def __init__(
@@ -191,20 +208,11 @@ class ModelRouter:
         word_count = len(task.split())
 
         # Count indicators
-        simple_count = sum(
-            1 for indicator in self.SIMPLE_INDICATORS
-            if indicator in task_lower
-        )
-        complex_count = sum(
-            1 for indicator in self.COMPLEX_INDICATORS
-            if indicator in task_lower
-        )
+        simple_count = sum(1 for indicator in self.SIMPLE_INDICATORS if indicator in task_lower)
+        complex_count = sum(1 for indicator in self.COMPLEX_INDICATORS if indicator in task_lower)
 
         # Check for complexity patterns
-        pattern_matches = sum(
-            1 for pattern in self.COMPLEXITY_PATTERNS
-            if re.search(pattern, task, re.IGNORECASE)
-        )
+        pattern_matches = sum(1 for pattern in self.COMPLEXITY_PATTERNS if re.search(pattern, task, re.IGNORECASE))
 
         # Short, simple requests
         if word_count < 10 and simple_count > 0 and complex_count == 0:
@@ -219,8 +227,8 @@ class ModelRouter:
             return TaskComplexity.COMPLEX
 
         # Check for multi-part requests
-        numbered_items = len(re.findall(r'(?:^|\n)\s*\d+[\.\)]\s', task))
-        bullet_items = len(re.findall(r'(?:^|\n)\s*[-*]\s', task))
+        numbered_items = len(re.findall(r"(?:^|\n)\s*\d+[\.\)]\s", task))
+        bullet_items = len(re.findall(r"(?:^|\n)\s*[-*]\s", task))
 
         if numbered_items >= 3 or bullet_items >= 3:
             return TaskComplexity.COMPLEX
@@ -273,10 +281,7 @@ class ModelRouter:
 
         config = self._get_config(provider, tier)
 
-        logger.debug(
-            f"Model routing: complexity={complexity.value}, "
-            f"tier={tier.value}, model={config.model_name}"
-        )
+        logger.debug(f"Model routing: complexity={complexity.value}, tier={tier.value}, model={config.model_name}")
 
         return config
 
@@ -291,7 +296,7 @@ class ModelRouter:
             return provider_configs[tier]
 
         # Fallback to balanced
-        return provider_configs.get(ModelTier.BALANCED, list(provider_configs.values())[0])
+        return provider_configs.get(ModelTier.BALANCED, next(iter(provider_configs.values())))
 
     def get_stats(self) -> dict:
         """Get routing statistics."""

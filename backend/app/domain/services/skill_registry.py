@@ -100,7 +100,13 @@ class SkillRegistry:
 
             self._last_refresh = datetime.now(UTC)
             self._initialized = True
-            logger.info(f"SkillRegistry loaded {len(skills)} skills")
+            skill_sources = {
+                skill.source.value: len([s for s in skills if s.source.value == skill.source.value]) for skill in skills
+            }
+            logger.info(
+                f"✓ SkillRegistry loaded {len(skills)} skills "
+                f"(sources: {skill_sources}, patterns: {len(self._compiled_patterns)})"
+            )
 
         except Exception as e:
             logger.warning(f"Failed to load skills into registry: {e}")

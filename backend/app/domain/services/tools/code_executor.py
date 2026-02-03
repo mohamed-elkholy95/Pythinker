@@ -6,6 +6,7 @@ Provides a high-level interface for executing code in multiple languages
 isolated execution directories, artifact collection, and resource limits.
 """
 
+import contextlib
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 class Language(str, Enum):
     """Supported programming languages."""
+
     PYTHON = "python"
     JAVASCRIPT = "javascript"
     BASH = "bash"
@@ -72,6 +74,7 @@ LANGUAGE_CONFIG: dict[str, dict[str, Any]] = {
 @dataclass
 class ExecutionResult:
     """Result of code execution."""
+
     success: bool
     output: str
     error: str | None = None
@@ -98,6 +101,7 @@ class ExecutionResult:
 @dataclass
 class Artifact:
     """A file artifact produced by code execution."""
+
     filename: str
     path: str
     size_bytes: int
@@ -156,11 +160,7 @@ class CodeExecutorTool(BaseTool):
             return
 
         # Create workspace directory
-        result = await self.sandbox.exec_command(
-            self.session_id,
-            "/",
-            f"mkdir -p {self._workspace_path}"
-        )
+        result = await self.sandbox.exec_command(self.session_id, "/", f"mkdir -p {self._workspace_path}")
 
         if not result.success:
             logger.warning(f"Failed to create workspace: {result.message}")
@@ -201,11 +201,7 @@ class CodeExecutorTool(BaseTool):
                 continue
 
             cmd = f"{install_cmd} {package}"
-            result = await self.sandbox.exec_command(
-                self.session_id,
-                self._workspace_path,
-                cmd
-            )
+            result = await self.sandbox.exec_command(self.session_id, self._workspace_path, cmd)
 
             if result.success:
                 installed.append(package)
@@ -220,7 +216,8 @@ class CodeExecutorTool(BaseTool):
         """Basic validation of package name to prevent command injection."""
         # Allow alphanumeric, dash, underscore, dot, and version specifiers
         import re
-        pattern = r'^[a-zA-Z0-9_\-\.]+([<>=!]+[a-zA-Z0-9_\-\.]+)?$'
+
+        pattern = r"^[a-zA-Z0-9_\-\.]+([<>=!]+[a-zA-Z0-9_\-\.]+)?$"
         return bool(re.match(pattern, package))
 
     async def _collect_artifacts(self) -> list[Artifact]:
@@ -238,47 +235,43 @@ class CodeExecutorTool(BaseTool):
             return artifacts
 
         # Parse file list from result
-        files_data = result.data or []
         if isinstance(result.message, str):
             # Try to parse as file listing
-            lines = result.message.strip().split('\n')
+            lines = result.message.strip().split("\n")
             for line in lines:
                 if line.strip():
                     # Skip directories, get file info
                     parts = line.split()
                     if len(parts) >= 1:
                         filename = parts[-1]
-                        if filename not in ['.', '..'] and not filename.startswith('.'):
+                        if filename not in [".", ".."] and not filename.startswith("."):
                             file_path = f"{self._workspace_path}/{filename}"
                             # Get file size
                             size_result = await self.sandbox.exec_command(
                                 self.session_id,
                                 self._workspace_path,
-                                f"stat -f%z '{filename}' 2>/dev/null || stat -c%s '{filename}' 2>/dev/null || echo 0"
+                                f"stat -f%z '{filename}' 2>/dev/null || stat -c%s '{filename}' 2>/dev/null || echo 0",
                             )
                             size = 0
                             if size_result.success and size_result.message:
-                                try:
+                                with contextlib.suppress(ValueError):
                                     size = int(size_result.message.strip())
-                                except ValueError:
-                                    pass
 
                             # Get content preview for text files
                             preview = None
                             if size < 10000:  # Only preview small files
-                                preview_result = await self.sandbox.file_read(
-                                    file_path,
-                                    end_line=10
-                                )
+                                preview_result = await self.sandbox.file_read(file_path, end_line=10)
                                 if preview_result.success:
                                     preview = preview_result.message[:500] if preview_result.message else None
 
-                            artifacts.append(Artifact(
-                                filename=filename,
-                                path=file_path,
-                                size_bytes=size,
-                                content_preview=preview,
-                            ))
+                            artifacts.append(
+                                Artifact(
+                                    filename=filename,
+                                    path=file_path,
+                                    size_bytes=size,
+                                    content_preview=preview,
+                                )
+                            )
 
         return artifacts
 
@@ -289,31 +282,25 @@ class CodeExecutorTool(BaseTool):
             "language": {
                 "type": "string",
                 "description": "Programming language to use",
-                "enum": ["python", "javascript", "bash", "sql"]
+                "enum": ["python", "javascript", "bash", "sql"],
             },
-            "code": {
-                "type": "string",
-                "description": "The code to execute"
-            },
+            "code": {"type": "string", "description": "The code to execute"},
             "packages": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "List of packages to install before execution (e.g., ['requests', 'pandas'])"
+                "description": "List of packages to install before execution (e.g., ['requests', 'pandas'])",
             },
             "timeout": {
                 "type": "integer",
-                "description": "Execution timeout in seconds (default: 300 for Python/JS, 120 for Bash)"
+                "description": "Execution timeout in seconds (default: 300 for Python/JS, 120 for Bash)",
             },
-            "env_vars": {
-                "type": "object",
-                "description": "Environment variables to set during execution"
-            },
+            "env_vars": {"type": "object", "description": "Environment variables to set during execution"},
             "working_dir": {
                 "type": "string",
-                "description": "Working directory for execution (defaults to session workspace)"
-            }
+                "description": "Working directory for execution (defaults to session workspace)",
+            },
         },
-        required=["language", "code"]
+        required=["language", "code"],
     )
     async def code_execute(
         self,
@@ -345,8 +332,7 @@ class CodeExecutorTool(BaseTool):
             lang = Language(language.lower())
         except ValueError:
             return ToolResult(
-                success=False,
-                message=f"Unsupported language: {language}. Supported: python, javascript, bash, sql"
+                success=False, message=f"Unsupported language: {language}. Supported: python, javascript, bash, sql"
             )
 
         # Get language config
@@ -365,14 +351,9 @@ class CodeExecutorTool(BaseTool):
         # Install packages if specified
         packages_installed = []
         if packages:
-            pkg_success, packages_installed, pkg_output = await self._install_packages(
-                lang, packages
-            )
+            pkg_success, packages_installed, pkg_output = await self._install_packages(lang, packages)
             if not pkg_success and not packages_installed:
-                return ToolResult(
-                    success=False,
-                    message=f"Failed to install packages:\n{pkg_output}"
-                )
+                return ToolResult(success=False, message=f"Failed to install packages:\n{pkg_output}")
             logger.info(f"Installed packages: {packages_installed}")
 
         # Generate unique filename for the code
@@ -388,10 +369,7 @@ class CodeExecutorTool(BaseTool):
         # Write code to file
         write_result = await self.sandbox.file_write(code_path, code)
         if not write_result.success:
-            return ToolResult(
-                success=False,
-                message=f"Failed to write code file: {write_result.message}"
-            )
+            return ToolResult(success=False, message=f"Failed to write code file: {write_result.message}")
 
         # Build execution command
         run_cmd = config["run_cmd"]
@@ -405,11 +383,7 @@ class CodeExecutorTool(BaseTool):
         # Execute the code
         if lang == Language.BASH:
             # Make bash script executable
-            await self.sandbox.exec_command(
-                self.session_id,
-                work_dir,
-                f"chmod +x {code_file}"
-            )
+            await self.sandbox.exec_command(self.session_id, work_dir, f"chmod +x {code_file}")
             exec_cmd = f"{env_prefix}./{code_file}"
         elif lang == Language.SQL:
             # SQL execution with sqlite3
@@ -418,11 +392,7 @@ class CodeExecutorTool(BaseTool):
             exec_cmd = f"{env_prefix}{run_cmd} {code_file}"
 
         # Execute with timeout
-        exec_result = await self.sandbox.exec_command(
-            self.session_id,
-            work_dir,
-            f"timeout {timeout}s {exec_cmd} 2>&1"
-        )
+        exec_result = await self.sandbox.exec_command(self.session_id, work_dir, f"timeout {timeout}s {exec_cmd} 2>&1")
 
         # Calculate execution time
         execution_time_ms = int((datetime.now() - start_time).total_seconds() * 1000)
@@ -463,31 +433,21 @@ class CodeExecutorTool(BaseTool):
             if len(artifacts) > 5:
                 message_parts.append(f"  ... and {len(artifacts) - 5} more files")
 
-        return ToolResult(
-            success=exec_result.success,
-            message="\n".join(message_parts),
-            data=result.to_dict()
-        )
+        return ToolResult(success=exec_result.success, message="\n".join(message_parts), data=result.to_dict())
 
     @tool(
         name="code_execute_python",
         description="Execute Python code with optional package installation. Shortcut for code_execute with language='python'.",
         parameters={
-            "code": {
-                "type": "string",
-                "description": "Python code to execute"
-            },
+            "code": {"type": "string", "description": "Python code to execute"},
             "packages": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Python packages to install via pip (e.g., ['requests', 'pandas'])"
+                "description": "Python packages to install via pip (e.g., ['requests', 'pandas'])",
             },
-            "timeout": {
-                "type": "integer",
-                "description": "Execution timeout in seconds (default: 300)"
-            }
+            "timeout": {"type": "integer", "description": "Execution timeout in seconds (default: 300)"},
         },
-        required=["code"]
+        required=["code"],
     )
     async def code_execute_python(
         self,
@@ -517,21 +477,15 @@ class CodeExecutorTool(BaseTool):
         name="code_execute_javascript",
         description="Execute JavaScript (Node.js) code with optional npm package installation.",
         parameters={
-            "code": {
-                "type": "string",
-                "description": "JavaScript code to execute"
-            },
+            "code": {"type": "string", "description": "JavaScript code to execute"},
             "packages": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "NPM packages to install (e.g., ['axios', 'lodash'])"
+                "description": "NPM packages to install (e.g., ['axios', 'lodash'])",
             },
-            "timeout": {
-                "type": "integer",
-                "description": "Execution timeout in seconds (default: 300)"
-            }
+            "timeout": {"type": "integer", "description": "Execution timeout in seconds (default: 300)"},
         },
-        required=["code"]
+        required=["code"],
     )
     async def code_execute_javascript(
         self,
@@ -561,7 +515,7 @@ class CodeExecutorTool(BaseTool):
         name="code_list_artifacts",
         description="List all artifacts (files) in the current session's workspace directory.",
         parameters={},
-        required=[]
+        required=[],
     )
     async def code_list_artifacts(self) -> ToolResult:
         """
@@ -578,14 +532,12 @@ class CodeExecutorTool(BaseTool):
             return ToolResult(
                 success=True,
                 message="No artifacts found in workspace.",
-                data={"artifacts": [], "workspace": self._workspace_path}
+                data={"artifacts": [], "workspace": self._workspace_path},
             )
 
         message_parts = [f"📁 Workspace: {self._workspace_path}", ""]
         for artifact in artifacts:
-            message_parts.append(
-                f"  {artifact.filename} ({artifact.size_bytes} bytes)"
-            )
+            message_parts.append(f"  {artifact.filename} ({artifact.size_bytes} bytes)")
 
         return ToolResult(
             success=True,
@@ -593,19 +545,14 @@ class CodeExecutorTool(BaseTool):
             data={
                 "artifacts": [a.to_dict() for a in artifacts],
                 "workspace": self._workspace_path,
-            }
+            },
         )
 
     @tool(
         name="code_read_artifact",
         description="Read the contents of an artifact file from the workspace.",
-        parameters={
-            "filename": {
-                "type": "string",
-                "description": "Name of the artifact file to read"
-            }
-        },
-        required=["filename"]
+        parameters={"filename": {"type": "string", "description": "Name of the artifact file to read"}},
+        required=["filename"],
     )
     async def code_read_artifact(self, filename: str) -> ToolResult:
         """
@@ -624,27 +571,19 @@ class CodeExecutorTool(BaseTool):
         result = await self.sandbox.file_read(file_path)
 
         if not result.success:
-            return ToolResult(
-                success=False,
-                message=f"Failed to read artifact: {result.message}"
-            )
+            return ToolResult(success=False, message=f"Failed to read artifact: {result.message}")
 
         return ToolResult(
             success=True,
             message=f"📄 Contents of {filename}:\n\n{result.message}",
-            data={"filename": filename, "content": result.message}
+            data={"filename": filename, "content": result.message},
         )
 
     @tool(
         name="code_cleanup_workspace",
         description="Clean up the session workspace by removing all files.",
-        parameters={
-            "confirm": {
-                "type": "boolean",
-                "description": "Confirm cleanup operation (must be true)"
-            }
-        },
-        required=["confirm"]
+        parameters={"confirm": {"type": "boolean", "description": "Confirm cleanup operation (must be true)"}},
+        required=["confirm"],
     )
     async def code_cleanup_workspace(self, confirm: bool = False) -> ToolResult:
         """
@@ -657,10 +596,7 @@ class CodeExecutorTool(BaseTool):
             ToolResult with cleanup status
         """
         if not confirm:
-            return ToolResult(
-                success=False,
-                message="Cleanup not confirmed. Set confirm=true to proceed."
-            )
+            return ToolResult(success=False, message="Cleanup not confirmed. Set confirm=true to proceed.")
 
         await self._ensure_workspace()
 
@@ -668,33 +604,21 @@ class CodeExecutorTool(BaseTool):
         result = await self.sandbox.exec_command(
             self.session_id,
             self._workspace_path,
-            "rm -rf ./* 2>/dev/null; rm -rf ./.[!.]* 2>/dev/null; echo 'Cleanup complete'"
+            "rm -rf ./* 2>/dev/null; rm -rf ./.[!.]* 2>/dev/null; echo 'Cleanup complete'",
         )
 
         if result.success:
-            return ToolResult(
-                success=True,
-                message=f"🧹 Workspace cleaned: {self._workspace_path}"
-            )
-        return ToolResult(
-            success=False,
-            message=f"Cleanup failed: {result.message}"
-        )
+            return ToolResult(success=True, message=f"🧹 Workspace cleaned: {self._workspace_path}")
+        return ToolResult(success=False, message=f"Cleanup failed: {result.message}")
 
     @tool(
         name="code_save_artifact",
         description="Save content to a file in the workspace as an artifact.",
         parameters={
-            "filename": {
-                "type": "string",
-                "description": "Name for the artifact file"
-            },
-            "content": {
-                "type": "string",
-                "description": "Content to save to the file"
-            }
+            "filename": {"type": "string", "description": "Name for the artifact file"},
+            "content": {"type": "string", "description": "Content to save to the file"},
         },
-        required=["filename", "content"]
+        required=["filename", "content"],
     )
     async def code_save_artifact(
         self,
@@ -721,9 +645,6 @@ class CodeExecutorTool(BaseTool):
             return ToolResult(
                 success=True,
                 message=f"💾 Saved artifact: {filename} ({len(content)} bytes)",
-                data={"filename": filename, "path": file_path, "size": len(content)}
+                data={"filename": filename, "path": file_path, "size": len(content)},
             )
-        return ToolResult(
-            success=False,
-            message=f"Failed to save artifact: {result.message}"
-        )
+        return ToolResult(success=False, message=f"Failed to save artifact: {result.message}")

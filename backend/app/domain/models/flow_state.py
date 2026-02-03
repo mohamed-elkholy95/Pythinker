@@ -6,13 +6,14 @@ Enables resumption of agent flows after crashes or interruptions.
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field
 
 
 class FlowStatus(str, Enum):
     """Status of a flow execution"""
+
     IDLE = "idle"
     PLANNING = "planning"
     EXECUTING = "executing"
@@ -74,18 +75,12 @@ class FlowStateSnapshot(BaseModel):
         new_completed = self.completed_steps.copy()
         if step_id not in new_completed:
             new_completed.append(step_id)
-        return self.update(
-            completed_steps=new_completed,
-            current_step_id=None
-        )
+        return self.update(completed_steps=new_completed, current_step_id=None)
 
     def enter_error_state(self, error_message: str, error_type: str | None = None) -> "FlowStateSnapshot":
         """Transition to error state"""
         return self.update(
-            previous_status=self.status,
-            status=FlowStatus.ERROR,
-            error_message=error_message,
-            error_type=error_type
+            previous_status=self.status, status=FlowStatus.ERROR, error_message=error_message, error_type=error_type
         )
 
     def recover_from_error(self) -> "FlowStateSnapshot":
@@ -98,15 +93,12 @@ class FlowStateSnapshot(BaseModel):
             previous_status=FlowStatus.ERROR,
             recovery_attempts=self.recovery_attempts + 1,
             error_message=None,
-            error_type=None
+            error_type=None,
         )
 
     def can_recover(self, max_attempts: int = 3) -> bool:
         """Check if recovery is possible"""
-        return (
-            self.status == FlowStatus.ERROR and
-            self.recovery_attempts < max_attempts
-        )
+        return self.status == FlowStatus.ERROR and self.recovery_attempts < max_attempts
 
     def increment_iteration(self) -> "FlowStateSnapshot":
         """Increment iteration count"""
@@ -121,6 +113,4 @@ class FlowStateSnapshot(BaseModel):
         return self.status == FlowStatus.ERROR
 
     class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders: ClassVar[dict[type, Any]] = {datetime: lambda v: v.isoformat()}

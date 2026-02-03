@@ -24,18 +24,20 @@ logger = logging.getLogger(__name__)
 
 class HandoffReason(str, Enum):
     """Reasons for agent handoffs."""
-    SPECIALIZATION = "specialization"       # Need specialized skills
-    CAPABILITY_REQUIRED = "capability"      # Specific capability needed
-    TASK_COMPLETE = "task_complete"         # This agent's part is done
-    STUCK = "stuck"                         # Agent is stuck, need help
-    VERIFICATION = "verification"           # Need output verified
-    ERROR_RECOVERY = "error_recovery"       # Handoff due to error
-    PARALLEL_EXECUTION = "parallel"         # Spawn parallel agent
-    USER_REQUEST = "user_request"           # User requested specific agent
+
+    SPECIALIZATION = "specialization"  # Need specialized skills
+    CAPABILITY_REQUIRED = "capability"  # Specific capability needed
+    TASK_COMPLETE = "task_complete"  # This agent's part is done
+    STUCK = "stuck"  # Agent is stuck, need help
+    VERIFICATION = "verification"  # Need output verified
+    ERROR_RECOVERY = "error_recovery"  # Handoff due to error
+    PARALLEL_EXECUTION = "parallel"  # Spawn parallel agent
+    USER_REQUEST = "user_request"  # User requested specific agent
 
 
 class HandoffStatus(str, Enum):
     """Status of a handoff request."""
+
     PENDING = "pending"
     ACCEPTED = "accepted"
     REJECTED = "rejected"
@@ -50,6 +52,7 @@ class HandoffContext:
     Contains all information the receiving agent needs to continue the work.
     Enhanced with step results, shared resources, and rollback support.
     """
+
     # Task information
     task_description: str
     original_request: str
@@ -93,11 +96,13 @@ class HandoffContext:
     def add_step_result(self, step_id: str, result: Any) -> None:
         """Add a step result to the context."""
         self.step_results[step_id] = result
-        self.step_history.append({
-            "step_id": step_id,
-            "timestamp": datetime.utcnow().isoformat(),
-            "result_preview": str(result)[:200] if result else None,
-        })
+        self.step_history.append(
+            {
+                "step_id": step_id,
+                "timestamp": datetime.utcnow().isoformat(),
+                "result_preview": str(result)[:200] if result else None,
+            }
+        )
         self.completed_steps += 1
 
     def get_shared_resource(self, name: str) -> Any | None:
@@ -167,7 +172,7 @@ class HandoffContext:
         # Shared resources
         if self.shared_resources:
             sections.append("\n**Available Shared Resources:**\n")
-            for name in self.shared_resources.keys():
+            for name in self.shared_resources:
                 sections.append(f"- {name}\n")
 
         if self.memory_summary:
@@ -233,6 +238,7 @@ class Handoff:
 
     Represents the complete handoff including request, context, and result.
     """
+
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime = field(default_factory=datetime.utcnow)
 
@@ -284,6 +290,7 @@ class Handoff:
 
 class HandoffResult(BaseModel):
     """Result of a completed handoff."""
+
     handoff_id: str
     success: bool
     output: str = ""
@@ -499,24 +506,31 @@ class HandoffProtocol:
             Aggregated results dictionary
         """
         results = []
-        all_artifacts = []
-        all_summaries = []
-        all_next_steps = []
 
         for hid in handoff_ids:
             handoff = self.get_handoff(hid)
             if handoff and handoff.status == HandoffStatus.COMPLETED:
-                results.append({
-                    "id": hid,
-                    "source": handoff.source_agent.value,
-                    "target": handoff.target_agent.value if handoff.target_agent else "unknown",
-                    "output": handoff.result,
-                })
+                results.append(
+                    {
+                        "id": hid,
+                        "source": handoff.source_agent.value,
+                        "target": handoff.target_agent.value if handoff.target_agent else "unknown",
+                        "output": handoff.result,
+                    }
+                )
 
         return {
             "total": len(handoff_ids),
-            "completed": len([h for h in handoff_ids if self.get_handoff(h) and self.get_handoff(h).status == HandoffStatus.COMPLETED]),
-            "failed": len([h for h in handoff_ids if self.get_handoff(h) and self.get_handoff(h).status == HandoffStatus.FAILED]),
+            "completed": len(
+                [
+                    h
+                    for h in handoff_ids
+                    if self.get_handoff(h) and self.get_handoff(h).status == HandoffStatus.COMPLETED
+                ]
+            ),
+            "failed": len(
+                [h for h in handoff_ids if self.get_handoff(h) and self.get_handoff(h).status == HandoffStatus.FAILED]
+            ),
             "results": results,
         }
 
@@ -552,7 +566,7 @@ class HandoffProtocol:
 
         # Trim history if needed
         if len(self._history) > self._max_history:
-            self._history = self._history[-self._max_history:]
+            self._history = self._history[-self._max_history :]
 
     def on_handoff_created(self, callback: Callable[[Handoff], Awaitable[None]]) -> None:
         """Register a callback for when handoffs are created."""
@@ -683,10 +697,7 @@ class HandoffProtocol:
         Returns:
             Progress summary dictionary
         """
-        workflow_handoffs = [
-            h for h in self._history
-            if h.context and h.context.workflow_id == workflow_id
-        ]
+        workflow_handoffs = [h for h in self._history if h.context and h.context.workflow_id == workflow_id]
 
         total_handoffs = len(workflow_handoffs)
         completed = sum(1 for h in workflow_handoffs if h.status == HandoffStatus.COMPLETED)

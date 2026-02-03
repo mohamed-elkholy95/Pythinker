@@ -1,4 +1,5 @@
 """Human-readable command formatting for tool calls."""
+
 import logging
 from typing import Any
 
@@ -38,11 +39,7 @@ class CommandFormatter:
                 return formatter(function_name, function_args)
 
         # Default formatting
-        return (
-            f"{function_name}({', '.join(f'{k}={v}' for k, v in function_args.items())})",
-            "other",
-            function_name
-        )
+        return (f"{function_name}({', '.join(f'{k}={v}' for k, v in function_args.items())})", "other", function_name)
 
     @staticmethod
     def _format_search(function_name: str, args: dict) -> tuple[str, str, str]:
@@ -50,16 +47,8 @@ class CommandFormatter:
         query = args.get("query", "")
 
         if "web" in function_name:
-            return (
-                f"Searching '{query}'",
-                "search",
-                f"Search: {query[:40]}"
-            )
-        return (
-            f"Search: {query}",
-            "search",
-            f"Search: {query[:40]}"
-        )
+            return (f"Searching '{query}'", "search", f"Search: {query[:40]}")
+        return (f"Search: {query}", "search", f"Search: {query[:40]}")
 
     @staticmethod
     def _format_browser(function_name: str, args: dict) -> tuple[str, str, str]:
@@ -67,33 +56,17 @@ class CommandFormatter:
         if "navigate" in function_name:
             url = args.get("url", "")
             domain = url.split("/")[2] if "//" in url else url[:30]
-            return (
-                f"Browsing {domain}",
-                "browse",
-                f"Browse: {domain}"
-            )
+            return (f"Browsing {domain}", "browse", f"Browse: {domain}")
 
         if "click" in function_name:
             selector = args.get("selector", "element")
-            return (
-                f"Clicking {selector}",
-                "browse",
-                f"Click: {selector[:30]}"
-            )
+            return (f"Clicking {selector}", "browse", f"Click: {selector[:30]}")
 
         if "type" in function_name or "input" in function_name:
             text = args.get("text", args.get("value", ""))
-            return (
-                f"Typing '{text[:30]}...'",
-                "browse",
-                f"Type: {text[:20]}"
-            )
+            return (f"Typing '{text[:30]}...'", "browse", f"Type: {text[:20]}")
 
-        return (
-            f"Browser: {function_name}",
-            "browse",
-            function_name
-        )
+        return (f"Browser: {function_name}", "browse", function_name)
 
     @staticmethod
     def _format_shell(function_name: str, args: dict) -> tuple[str, str, str]:
@@ -102,14 +75,10 @@ class CommandFormatter:
         code = args.get("code", "")
 
         # Extract first meaningful line
-        lines = [l.strip() for l in code.split("\n") if l.strip() and not l.strip().startswith("#")]
+        lines = [line.strip() for line in code.split("\n") if line.strip() and not line.strip().startswith("#")]
         first_line = lines[0] if lines else code[:50]
 
-        return (
-            f"Running {language}: {first_line}",
-            "shell",
-            f"{language}: {first_line[:30]}"
-        )
+        return (f"Running {language}: {first_line}", "shell", f"{language}: {first_line[:30]}")
 
     @staticmethod
     def _format_file(function_name: str, args: dict) -> tuple[str, str, str]:
@@ -117,32 +86,16 @@ class CommandFormatter:
         path = args.get("path", args.get("file_path", ""))
 
         if "read" in function_name:
-            return (
-                f"Reading {path}",
-                "file",
-                f"Read: {path.split('/')[-1]}"
-            )
+            return (f"Reading {path}", "file", f"Read: {path.split('/')[-1]}")
 
         if "write" in function_name or "create" in function_name:
-            return (
-                f"Creating {path}",
-                "file",
-                f"Create: {path.split('/')[-1]}"
-            )
+            return (f"Creating {path}", "file", f"Create: {path.split('/')[-1]}")
 
         if "list" in function_name:
             directory = path or args.get("directory", ".")
-            return (
-                f"Listing files in {directory}",
-                "file",
-                f"List: {directory}"
-            )
+            return (f"Listing files in {directory}", "file", f"List: {directory}")
 
-        return (
-            f"File operation: {path}",
-            "file",
-            path.split('/')[-1]
-        )
+        return (f"File operation: {path}", "file", path.split("/")[-1])
 
     @staticmethod
     def _format_mcp(function_name: str, args: dict) -> tuple[str, str, str]:
@@ -150,8 +103,4 @@ class CommandFormatter:
         server = args.get("server", "")
         resource = args.get("resource", "")
 
-        return (
-            f"MCP: {server}/{resource}",
-            "mcp",
-            f"{server}: {resource}"
-        )
+        return (f"MCP: {server}/{resource}", "mcp", f"{server}: {resource}")

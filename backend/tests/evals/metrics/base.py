@@ -20,6 +20,7 @@ class MetricScore:
         details: Additional details about the evaluation
         message: Human-readable message about the result
     """
+
     metric_name: str
     score: float  # 0.0 to 1.0
     passed: bool

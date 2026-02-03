@@ -70,6 +70,7 @@ services:
       - .env
     environment:
       - SANDBOX_ADDRESS=sandbox # Use single container as sandbox
+      - "LOCAL_AUTH_PASSWORD=admin*123"  # Override .env to handle special chars
 
   sandbox:
     build:

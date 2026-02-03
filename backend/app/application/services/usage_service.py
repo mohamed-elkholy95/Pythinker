@@ -6,6 +6,7 @@ This service handles:
 - Rolling up daily/monthly usage summaries
 - Providing usage statistics for the API layer
 """
+
 import logging
 from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
@@ -24,6 +25,15 @@ from app.domain.services.usage.pricing import (
 from app.infrastructure.models.documents import DailyUsageDocument, UsageDocument
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_model_key(model_name: str) -> str:
+    """Sanitize model name for use as MongoDB dictionary key.
+
+    MongoDB interprets '.' and '/' as path separators in field names,
+    so we replace them with safe characters.
+    """
+    return model_name.replace("/", "_").replace(".", "_")
 
 
 class UsageService:
@@ -109,11 +119,13 @@ class UsageService:
         )
 
         if doc:
-            await doc.update({
-                "$inc": {"tool_call_count": 1},
-                "$addToSet": {"active_sessions": session_id},
-                "$set": {"updated_at": datetime.now(UTC)},
-            })
+            await doc.update(
+                {
+                    "$inc": {"tool_call_count": 1},
+                    "$addToSet": {"active_sessions": session_id},
+                    "$set": {"updated_at": datetime.now(UTC)},
+                }
+            )
         else:
             # Create new daily aggregate with just tool call
             doc = DailyUsageDocument(
@@ -135,6 +147,9 @@ class UsageService:
             DailyUsageDocument.date == today,
         )
 
+        # Sanitize model name for MongoDB key (/ and . are path separators)
+        safe_model_key = _sanitize_model_key(record.model)
+
         if doc:
             # Update existing aggregate
             update_ops = {
@@ -146,8 +161,8 @@ class UsageService:
                     "total_completion_cost": record.completion_cost,
                     "total_cost": record.total_cost,
                     "llm_call_count": 1 if record.usage_type == UsageType.LLM_CALL else 0,
-                    f"tokens_by_model.{record.model}": record.prompt_tokens + record.completion_tokens,
-                    f"cost_by_model.{record.model}": record.total_cost,
+                    f"tokens_by_model.{safe_model_key}": record.prompt_tokens + record.completion_tokens,
+                    f"cost_by_model.{safe_model_key}": record.total_cost,
                 },
                 "$addToSet": {"active_sessions": record.session_id},
                 "$set": {"updated_at": datetime.now(UTC)},
@@ -166,8 +181,8 @@ class UsageService:
                 total_completion_cost=record.completion_cost,
                 total_cost=record.total_cost,
                 llm_call_count=1 if record.usage_type == UsageType.LLM_CALL else 0,
-                tokens_by_model={record.model: record.prompt_tokens + record.completion_tokens},
-                cost_by_model={record.model: record.total_cost},
+                tokens_by_model={safe_model_key: record.prompt_tokens + record.completion_tokens},
+                cost_by_model={safe_model_key: record.total_cost},
                 active_sessions=[record.session_id],
             )
             await doc.save()
@@ -182,9 +197,7 @@ class UsageService:
             SessionUsage with totals for the session
         """
         # Query all usage records for this session
-        docs = await UsageDocument.find(
-            UsageDocument.session_id == session_id
-        ).to_list()
+        docs = await UsageDocument.find(UsageDocument.session_id == session_id).to_list()
 
         if not docs:
             # Return empty usage for new sessions
@@ -259,10 +272,14 @@ class UsageService:
         """
         start_date = date.today() - timedelta(days=days - 1)
 
-        docs = await DailyUsageDocument.find(
-            DailyUsageDocument.user_id == user_id,
-            DailyUsageDocument.date >= start_date,
-        ).sort("date").to_list()
+        docs = (
+            await DailyUsageDocument.find(
+                DailyUsageDocument.user_id == user_id,
+                DailyUsageDocument.date >= start_date,
+            )
+            .sort("date")
+            .to_list()
+        )
 
         return [doc.to_domain() for doc in docs]
 
@@ -322,20 +339,22 @@ class UsageService:
         # Convert to summaries
         summaries = []
         for (year, month), data in sorted(monthly_data.items()):
-            summaries.append(MonthlyUsageSummary(
-                user_id=user_id,
-                year=year,
-                month=month,
-                total_prompt_tokens=data["total_prompt_tokens"],
-                total_completion_tokens=data["total_completion_tokens"],
-                total_cached_tokens=data["total_cached_tokens"],
-                total_cost=data["total_cost"],
-                total_llm_calls=data["total_llm_calls"],
-                total_tool_calls=data["total_tool_calls"],
-                total_sessions=len(data["sessions"]),
-                active_days=data["active_days"],
-                cost_by_model=dict(data["cost_by_model"]),
-            ))
+            summaries.append(
+                MonthlyUsageSummary(
+                    user_id=user_id,
+                    year=year,
+                    month=month,
+                    total_prompt_tokens=data["total_prompt_tokens"],
+                    total_completion_tokens=data["total_completion_tokens"],
+                    total_cached_tokens=data["total_cached_tokens"],
+                    total_cost=data["total_cost"],
+                    total_llm_calls=data["total_llm_calls"],
+                    total_tool_calls=data["total_tool_calls"],
+                    total_sessions=len(data["sessions"]),
+                    active_days=data["active_days"],
+                    cost_by_model=dict(data["cost_by_model"]),
+                )
+            )
 
         return summaries
 

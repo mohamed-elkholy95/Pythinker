@@ -44,9 +44,7 @@ class WriteCoalescer:
         # Execute all writes
         for key, (agent_id, name, memory) in batch.items():
             try:
-                await AgentDocument.find_one(
-                    AgentDocument.agent_id == agent_id
-                ).update(
+                await AgentDocument.find_one(AgentDocument.agent_id == agent_id).update(
                     {"$set": {f"memories.{name}": memory, "updated_at": datetime.now(UTC)}}
                 )
             except Exception as e:
@@ -78,9 +76,7 @@ class MongoAgentRepository(AgentRepository):
 
     async def save(self, agent: Agent) -> None:
         """Save or update an agent"""
-        mongo_agent = await AgentDocument.find_one(
-            AgentDocument.agent_id == agent.id
-        )
+        mongo_agent = await AgentDocument.find_one(AgentDocument.agent_id == agent.id)
 
         if not mongo_agent:
             mongo_agent = AgentDocument.from_domain(agent)
@@ -93,18 +89,12 @@ class MongoAgentRepository(AgentRepository):
 
     async def find_by_id(self, agent_id: str) -> Agent | None:
         """Find an agent by its ID"""
-        mongo_agent = await AgentDocument.find_one(
-            AgentDocument.agent_id == agent_id
-        )
+        mongo_agent = await AgentDocument.find_one(AgentDocument.agent_id == agent_id)
         return mongo_agent.to_domain() if mongo_agent else None
 
-    async def add_memory(self, agent_id: str,
-                          name: str,
-                          memory: Memory) -> None:
+    async def add_memory(self, agent_id: str, name: str, memory: Memory) -> None:
         """Add or update a memory for an agent"""
-        result = await AgentDocument.find_one(
-            AgentDocument.agent_id == agent_id
-        ).update(
+        result = await AgentDocument.find_one(AgentDocument.agent_id == agent_id).update(
             {"$set": {f"memories.{name}": memory, "updated_at": datetime.now(UTC)}}
         )
         if not result:
@@ -112,9 +102,7 @@ class MongoAgentRepository(AgentRepository):
 
     async def get_memory(self, agent_id: str, name: str) -> Memory:
         """Get memory by name from agent, create if not exists"""
-        mongo_agent = await AgentDocument.find_one(
-            AgentDocument.agent_id == agent_id
-        )
+        mongo_agent = await AgentDocument.find_one(AgentDocument.agent_id == agent_id)
         if not mongo_agent:
             raise ValueError(f"Agent {agent_id} not found")
         return mongo_agent.memories.get(name, Memory(messages=[]))
@@ -126,9 +114,7 @@ class MongoAgentRepository(AgentRepository):
             await get_write_coalescer().schedule_write(agent_id, name, memory)
         else:
             # Direct write
-            result = await AgentDocument.find_one(
-                AgentDocument.agent_id == agent_id
-            ).update(
+            result = await AgentDocument.find_one(AgentDocument.agent_id == agent_id).update(
                 {"$set": {f"memories.{name}": memory, "updated_at": datetime.now(UTC)}}
             )
             if not result:

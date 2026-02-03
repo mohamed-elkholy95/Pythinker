@@ -5,8 +5,6 @@ import os
 import re
 import glob
 import asyncio
-import subprocess
-import mimetypes
 import tempfile
 from typing import Optional
 from fastapi import UploadFile

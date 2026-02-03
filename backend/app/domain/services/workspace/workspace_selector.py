@@ -1,4 +1,5 @@
 """Workspace template selection based on task analysis."""
+
 import logging
 
 from app.domain.services.workspace.workspace_templates import (

@@ -8,8 +8,11 @@ Provides comprehensive fixtures for:
 - Database and cache mocking
 - HTTP client mocking
 """
+
 import asyncio
+import importlib.util
 import json
+import site
 import sys
 import tempfile
 from pathlib import Path
@@ -18,6 +21,38 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
+
+# Fix langgraph import shadowing issue BEFORE any app imports
+# The local app/domain/services/langgraph module shadows the installed langgraph package
+def _preload_langgraph():
+    """Preload the langgraph package from site-packages to prevent shadowing."""
+    # Get site-packages directories
+    site_packages = site.getsitepackages()
+    if hasattr(site, 'getusersitepackages'):
+        user_site = site.getusersitepackages()
+        if user_site:
+            site_packages.append(user_site)
+
+    for sp in site_packages:
+        pkg_path = Path(sp) / 'langgraph'
+        if pkg_path.exists():
+            # Load the checkpoint module directly from site-packages
+            checkpoint_init = pkg_path / 'checkpoint' / 'base' / '__init__.py'
+            if checkpoint_init.exists():
+                spec = importlib.util.spec_from_file_location(
+                    'langgraph.checkpoint.base',
+                    checkpoint_init,
+                    submodule_search_locations=[str(pkg_path / 'checkpoint' / 'base')]
+                )
+                if spec and spec.loader:
+                    module = importlib.util.module_from_spec(spec)
+                    sys.modules['langgraph.checkpoint.base'] = module
+                    spec.loader.exec_module(module)
+                    return True
+    return False
+
+# Preload langgraph before any app imports
+_preload_langgraph()
 
 # Add the parent directory to Python path so we can import app modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -32,12 +67,12 @@ BASE_URL = "http://localhost:8000/api/v1"
 # HTTP Client Fixtures
 # =============================================================================
 
+
 @pytest.fixture
 def client():
     """Create requests session for synchronous API testing."""
-    session = requests.Session()
+    return requests.Session()
     # Don't set default Content-Type to allow multipart/form-data for file uploads
-    return session
 
 
 @pytest.fixture
@@ -53,9 +88,11 @@ def auth_headers():
 # Mock LLM Fixtures
 # =============================================================================
 
+
 @pytest.fixture
 def mock_llm_response():
     """Factory for creating mock LLM responses."""
+
     def _create_response(
         content: str = "Test response",
         tool_calls: list[dict] | None = None,
@@ -68,6 +105,7 @@ def mock_llm_response():
         if tool_calls:
             response["tool_calls"] = tool_calls
         return response
+
     return _create_response
 
 
@@ -107,13 +145,9 @@ def mock_llm_with_tool_call(mock_llm):
     tool_call_response = {
         "role": "assistant",
         "content": None,
-        "tool_calls": [{
-            "id": "call_123",
-            "function": {
-                "name": "file_read",
-                "arguments": json.dumps({"path": "/test/file.txt"})
-            }
-        }]
+        "tool_calls": [
+            {"id": "call_123", "function": {"name": "file_read", "arguments": json.dumps({"path": "/test/file.txt"})}}
+        ],
     }
     mock_llm.ask.return_value = tool_call_response
     return mock_llm
@@ -124,11 +158,7 @@ def mock_llm_json_response(mock_llm):
     """Mock LLM that returns valid JSON responses."""
     json_response = {
         "role": "assistant",
-        "content": json.dumps({
-            "action": "complete",
-            "result": "Task completed successfully",
-            "confidence": 0.95
-        })
+        "content": json.dumps({"action": "complete", "result": "Task completed successfully", "confidence": 0.95}),
     }
     mock_llm.ask.return_value = json_response
     return mock_llm
@@ -137,6 +167,7 @@ def mock_llm_json_response(mock_llm):
 # =============================================================================
 # Mock Sandbox Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def mock_sandbox():
@@ -162,6 +193,7 @@ def mock_sandbox():
             "exit_code": 0,
             "duration_ms": 100,
         }
+
     sandbox.shell_execute = AsyncMock(side_effect=mock_shell_execute)
 
     # File operations
@@ -171,10 +203,12 @@ def mock_sandbox():
             "encoding": "utf-8",
             "size": 100,
         }
+
     sandbox.file_read = AsyncMock(side_effect=mock_file_read)
 
     async def mock_file_write(path: str, content: str, **kwargs):
         return {"success": True, "path": path}
+
     sandbox.file_write = AsyncMock(side_effect=mock_file_write)
 
     # Browser mock
@@ -203,6 +237,7 @@ def mock_sandbox_manager(mock_sandbox):
 # =============================================================================
 # Mock Database Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def mock_mongodb():
@@ -257,6 +292,7 @@ def mock_qdrant():
 # Session Fixtures
 # =============================================================================
 
+
 @pytest_asyncio.fixture
 async def test_session(mock_llm, mock_sandbox):
     """Create a test session with mocked dependencies.
@@ -297,6 +333,7 @@ def mock_session_repository():
 # Agent Fixtures
 # =============================================================================
 
+
 @pytest.fixture
 def mock_agent_repository():
     """Mock agent repository for testing."""
@@ -331,6 +368,7 @@ def mock_json_parser():
 # Tool Fixtures
 # =============================================================================
 
+
 @pytest.fixture
 def mock_tool_result():
     """Factory for creating mock tool results."""
@@ -346,6 +384,7 @@ def mock_tool_result():
             message=message,
             data=data,
         )
+
     return _create_result
 
 
@@ -354,15 +393,15 @@ def mock_file_tool(mock_tool_result):
     """Mock file tool for testing."""
     tool = AsyncMock()
     tool.name = "file"
-    tool.get_tools = MagicMock(return_value=[
-        {"function": {"name": "file_read"}},
-        {"function": {"name": "file_write"}},
-        {"function": {"name": "file_search"}},
-    ])
-    tool.has_function = MagicMock(return_value=True)
-    tool.invoke_function = AsyncMock(
-        return_value=mock_tool_result(message="File operation successful")
+    tool.get_tools = MagicMock(
+        return_value=[
+            {"function": {"name": "file_read"}},
+            {"function": {"name": "file_write"}},
+            {"function": {"name": "file_search"}},
+        ]
     )
+    tool.has_function = MagicMock(return_value=True)
+    tool.invoke_function = AsyncMock(return_value=mock_tool_result(message="File operation successful"))
     return tool
 
 
@@ -371,19 +410,20 @@ def mock_shell_tool(mock_tool_result):
     """Mock shell tool for testing."""
     tool = AsyncMock()
     tool.name = "shell"
-    tool.get_tools = MagicMock(return_value=[
-        {"function": {"name": "shell_execute"}},
-    ])
-    tool.has_function = MagicMock(return_value=True)
-    tool.invoke_function = AsyncMock(
-        return_value=mock_tool_result(message="Command executed: exit code 0")
+    tool.get_tools = MagicMock(
+        return_value=[
+            {"function": {"name": "shell_execute"}},
+        ]
     )
+    tool.has_function = MagicMock(return_value=True)
+    tool.invoke_function = AsyncMock(return_value=mock_tool_result(message="Command executed: exit code 0"))
     return tool
 
 
 # =============================================================================
 # Configuration Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def mock_settings():
@@ -421,6 +461,7 @@ def mock_settings():
 # Event Loop Configuration
 # =============================================================================
 
+
 @pytest.fixture(scope="session")
 def event_loop():
     """Create an event loop for the test session."""
@@ -432,6 +473,7 @@ def event_loop():
 # =============================================================================
 # Temporary File Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def temp_directory():
@@ -457,6 +499,7 @@ def temp_file(temp_directory):
 # HTTP Mocking Fixtures
 # =============================================================================
 
+
 @pytest.fixture
 def mock_httpx():
     """Mock httpx for external API testing."""
@@ -476,3 +519,286 @@ def mock_httpx():
         instance.delete.return_value = mock_response
 
         yield instance
+
+
+# =============================================================================
+# LLM Response Factories (Agent Testing)
+# =============================================================================
+
+
+@pytest.fixture
+def mock_llm_plan_response():
+    """Factory for creating mock planning responses.
+
+    Returns a factory function that creates PlanResponse-like dicts.
+    """
+
+    def _create(
+        steps: list[dict] | None = None,
+        complexity: str = "medium",
+        goal: str = "Test goal",
+        title: str = "Test Plan",
+    ) -> dict[str, Any]:
+        if steps is None:
+            steps = [{"step": 1, "description": "Default step"}]
+
+        return {
+            "title": title,
+            "goal": goal,
+            "language": "en",
+            "message": "Planning complete",
+            "steps": steps,
+            "complexity": complexity,
+            "estimated_iterations": len(steps),
+        }
+
+    return _create
+
+
+@pytest.fixture
+def mock_llm_execution_response():
+    """Factory for creating mock execution responses.
+
+    Returns a factory function that creates ExecutionResponse-like dicts.
+    """
+
+    def _create(
+        tool_calls: list[dict] | None = None,
+        final_answer: str | None = None,
+        reasoning: str = "Test reasoning",
+    ) -> dict[str, Any]:
+        response = {
+            "reasoning": reasoning,
+            "tool_calls": tool_calls or [],
+        }
+        if final_answer:
+            response["final_answer"] = final_answer
+        return response
+
+    return _create
+
+
+@pytest.fixture
+def mock_llm_reflection_response():
+    """Factory for creating mock reflection responses.
+
+    Returns a factory function that creates ReflectionResponse-like dicts.
+    """
+
+    def _create(
+        decision: str = "continue",
+        feedback: str = "",
+        confidence: float = 0.85,
+    ) -> dict[str, Any]:
+        return {
+            "decision": decision,  # continue, adjust, replan, escalate
+            "feedback": feedback,
+            "confidence": confidence,
+            "reasoning": "Test reflection reasoning",
+        }
+
+    return _create
+
+
+# =============================================================================
+# LangGraph State Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def initial_plan_act_state():
+    """Base state for LangGraph workflow tests.
+
+    Provides a minimal valid state for starting Plan-Act workflows.
+    """
+    return {
+        "user_message": "test message",
+        "plan": None,
+        "current_step": 0,
+        "iteration_count": 0,
+        "verification_loops": 0,
+        "error_count": 0,
+        "pending_events": [],
+        "recent_tools": [],
+        "plan_created": False,
+        "all_steps_done": False,
+        "max_iterations": 400,
+        "error": None,
+        "recovery_attempts": 0,
+    }
+
+
+@pytest.fixture
+def state_with_plan(initial_plan_act_state, mock_llm_plan_response):
+    """State with an existing plan for mid-workflow tests."""
+    from app.domain.models.plan import Plan, Step
+
+    state = initial_plan_act_state.copy()
+
+    # Create a proper Plan object
+    plan = Plan(
+        title="Test Plan",
+        goal="Test goal",
+        steps=[
+            Step(id="1", description="Search for info"),
+            Step(id="2", description="Analyze results"),
+        ],
+    )
+
+    state["plan"] = plan
+    state["plan_created"] = True
+    return state
+
+
+# =============================================================================
+# Tool Mock Registry
+# =============================================================================
+
+
+@pytest.fixture
+def mock_tool_registry():
+    """Registry of mock tools with configurable responses and call tracking.
+
+    Useful for testing tool execution, retry logic, and tool selection.
+    """
+
+    class MockToolRegistry:
+        def __init__(self):
+            self.tools: dict[str, dict[str, Any]] = {}
+            self.call_history: list[dict[str, Any]] = []
+
+        def register(
+            self,
+            name: str,
+            response: Any = None,
+            error: Exception | None = None,
+        ) -> None:
+            """Register a mock tool with optional response or error."""
+            self.tools[name] = {"response": response or {"success": True}, "error": error}
+
+        async def execute(self, name: str, args: dict) -> Any:
+            """Execute a mock tool and record the call."""
+            self.call_history.append({"tool": name, "args": args, "timestamp": None})
+
+            tool = self.tools.get(name)
+            if not tool:
+                # Return default response for unregistered tools
+                return {"success": True, "message": f"Mock response for {name}"}
+
+            if tool.get("error"):
+                raise tool["error"]
+
+            return tool["response"]
+
+        def get_call_count(self, name: str | None = None) -> int:
+            """Get number of calls, optionally filtered by tool name."""
+            if name:
+                return sum(1 for c in self.call_history if c["tool"] == name)
+            return len(self.call_history)
+
+        def reset(self) -> None:
+            """Reset call history for clean test isolation."""
+            self.call_history = []
+
+    return MockToolRegistry()
+
+
+# =============================================================================
+# Agent Instance Factories
+# =============================================================================
+
+
+@pytest.fixture
+def mock_tools():
+    """List of mock tools for agent initialization."""
+    from unittest.mock import MagicMock
+
+    mock_tool = MagicMock()
+    mock_tool.name = "mock_tool"
+    mock_tool.get_tools = MagicMock(
+        return_value=[
+            {"function": {"name": "web_search"}},
+            {"function": {"name": "file_read"}},
+            {"function": {"name": "file_write"}},
+        ]
+    )
+    mock_tool.has_function = MagicMock(return_value=True)
+    mock_tool.invoke_function = AsyncMock(return_value=MagicMock(success=True, message="Success"))
+
+    return [mock_tool]
+
+
+@pytest.fixture
+def mock_message():
+    """Factory for creating test Message objects."""
+    from app.domain.models.message import Message
+
+    def _create(
+        message: str = "Test message",
+        attachments: list[str] | None = None,
+        skills: list[str] | None = None,
+    ) -> Message:
+        return Message(
+            message=message,
+            attachments=attachments or [],
+            skills=skills or [],
+        )
+
+    return _create
+
+
+# =============================================================================
+# Plan & Step Factories
+# =============================================================================
+
+
+@pytest.fixture
+def plan_factory():
+    """Factory for creating test Plan objects."""
+    from app.domain.models.plan import ExecutionStatus, Plan, Step
+
+    def _create(
+        steps: list[dict] | None = None,
+        title: str = "Test Plan",
+        goal: str = "Test goal",
+        status: ExecutionStatus = ExecutionStatus.PENDING,
+    ) -> Plan:
+        if steps is None:
+            steps = [{"id": "1", "description": "Default step"}]
+
+        plan_steps = []
+        for i, step_data in enumerate(steps):
+            step = Step(
+                id=step_data.get("id", str(i + 1)),
+                description=step_data.get("description", f"Step {i + 1}"),
+                status=step_data.get("status", ExecutionStatus.PENDING),
+            )
+            plan_steps.append(step)
+
+        return Plan(title=title, goal=goal, steps=plan_steps, status=status)
+
+    return _create
+
+
+@pytest.fixture
+def step_factory():
+    """Factory for creating test Step objects."""
+    from app.domain.models.plan import ExecutionStatus, Step
+
+    def _create(
+        step_id: str = "1",
+        description: str = "Test step",
+        status: ExecutionStatus = ExecutionStatus.PENDING,
+        result: str | None = None,
+        error: str | None = None,
+    ) -> Step:
+        return Step(
+            id=step_id,
+            description=description,
+            status=status,
+            result=result,
+            error=error,
+            success=status == ExecutionStatus.COMPLETED,
+        )
+
+    return _create

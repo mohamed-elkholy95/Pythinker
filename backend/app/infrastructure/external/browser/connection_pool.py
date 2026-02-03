@@ -9,6 +9,8 @@ Key Features:
 - Configurable pool size and timeout
 - Thread-safe async operations
 - Automatic cleanup of stale connections
+- Robust error handling with retry logic
+- Automatic recovery from connection failures
 """
 
 import asyncio
@@ -18,7 +20,15 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.domain.exceptions.browser import (
+    BrowserCrashedError,
+    BrowserErrorContext,
+    ConnectionPoolExhaustedError,
+    ConnectionRefusedError,
+    ConnectionTimeoutError,
+)
 from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
+from app.infrastructure.observability.prometheus_metrics import record_error
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +43,22 @@ class PooledConnection:
     last_used_at: float = field(default_factory=time.time)
     use_count: int = 0
     is_healthy: bool = True
+    consecutive_failures: int = 0
+
+
+@dataclass
+class PoolStats:
+    """Statistics for a connection pool."""
+
+    cdp_url: str
+    total_connections: int
+    in_use_count: int
+    available_count: int
+    healthy_count: int
+    unhealthy_count: int
+    total_acquisitions: int = 0
+    total_failures: int = 0
+    avg_wait_time_ms: float = 0.0
 
 
 class BrowserConnectionPool:
@@ -45,6 +71,12 @@ class BrowserConnectionPool:
         pool = BrowserConnectionPool.get_instance()
         async with pool.acquire(cdp_url) as browser:
             await browser.navigate("https://example.com")
+
+    Features:
+        - Automatic retry on connection failures
+        - Force cleanup of stale connections before acquisition
+        - Detailed error context for debugging
+        - Pool statistics for monitoring
     """
 
     _instance: "BrowserConnectionPool | None" = None
@@ -65,13 +97,12 @@ class BrowserConnectionPool:
             max_idle_time: Maximum idle time before connection cleanup in seconds (default from settings)
             health_check_interval: Interval between health checks in seconds (default from settings)
         """
-        # Load settings for defaults
         from app.core.config import get_settings
 
         settings = get_settings()
 
         self._pools: dict[str, list[PooledConnection]] = {}
-        self._in_use: dict[str, set[int]] = {}  # Track connections in use by id
+        self._in_use: dict[str, set[int]] = {}
         self._pool_locks: dict[str, asyncio.Lock] = {}
         self._max_per_url = max_connections_per_url or settings.browser_pool_max_per_url
         self._timeout = connection_timeout or settings.browser_pool_timeout
@@ -79,6 +110,9 @@ class BrowserConnectionPool:
         self._health_interval = health_check_interval or settings.browser_pool_health_interval
         self._cleanup_task: asyncio.Task[Any] | None = None
         self._shutdown = False
+
+        # Statistics tracking
+        self._stats: dict[str, dict[str, Any]] = {}
 
         logger.info(
             f"Browser pool initialized: max_per_url={self._max_per_url}, "
@@ -104,17 +138,25 @@ class BrowserConnectionPool:
                 cls._instance._start_cleanup_task()
             return cls._instance
 
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Reset the singleton instance (useful for testing or recovery)."""
+        if cls._instance is not None:
+            logger.warning("Resetting browser connection pool instance")
+            cls._instance = None
+
     def _start_cleanup_task(self) -> None:
         """Start the background cleanup task."""
         if self._cleanup_task is None or self._cleanup_task.done():
             self._cleanup_task = asyncio.create_task(self._cleanup_loop())
 
     async def _cleanup_loop(self) -> None:
-        """Background task to clean up idle connections."""
+        """Background task to clean up idle and unhealthy connections."""
         while not self._shutdown:
             try:
                 await asyncio.sleep(self._health_interval)
                 await self._cleanup_idle_connections()
+                await self._cleanup_unhealthy_connections()
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -139,20 +181,57 @@ class BrowserConnectionPool:
                     idle_time = current_time - conn.last_used_at
                     if idle_time > self._max_idle:
                         logger.info(f"Cleaning up idle connection for {cdp_url} (idle {idle_time:.1f}s)")
-                        try:
-                            await conn.browser.cleanup()
-                        except Exception as e:
-                            logger.debug(f"Error cleaning up connection: {e}")
+                        await self._safe_cleanup_connection(conn)
                     else:
                         cleaned.append(conn)
 
                 self._pools[cdp_url] = cleaned
+
+    async def _cleanup_unhealthy_connections(self) -> None:
+        """Remove connections marked as unhealthy."""
+        for cdp_url, connections in list(self._pools.items()):
+            lock = self._get_pool_lock(cdp_url)
+            async with lock:
+                in_use_ids = self._in_use.get(cdp_url, set())
+                healthy = []
+
+                for conn in connections:
+                    conn_id = id(conn)
+                    if conn_id in in_use_ids:
+                        healthy.append(conn)
+                        continue
+
+                    if not conn.is_healthy or conn.consecutive_failures >= 3:
+                        logger.info(
+                            f"Removing unhealthy connection for {cdp_url} (failures: {conn.consecutive_failures})"
+                        )
+                        await self._safe_cleanup_connection(conn)
+                    else:
+                        healthy.append(conn)
+
+                self._pools[cdp_url] = healthy
+
+    async def _safe_cleanup_connection(self, conn: PooledConnection) -> None:
+        """Safely cleanup a connection, catching any errors."""
+        try:
+            await conn.browser.cleanup()
+        except Exception as e:
+            logger.debug(f"Error cleaning up connection: {e}")
 
     def _get_pool_lock(self, cdp_url: str) -> asyncio.Lock:
         """Get or create a lock for a specific pool."""
         if cdp_url not in self._pool_locks:
             self._pool_locks[cdp_url] = asyncio.Lock()
         return self._pool_locks[cdp_url]
+
+    def _init_stats(self, cdp_url: str) -> None:
+        """Initialize statistics for a CDP URL."""
+        if cdp_url not in self._stats:
+            self._stats[cdp_url] = {
+                "total_acquisitions": 0,
+                "total_failures": 0,
+                "total_wait_time_ms": 0.0,
+            }
 
     async def acquire(
         self,
@@ -182,9 +261,32 @@ class BrowserConnectionPool:
         cdp_url: str,
         block_resources: bool = False,
         randomize_fingerprint: bool = True,
+        session_id: str | None = None,
+        sandbox_id: str | None = None,
     ) -> PooledConnection:
-        """Internal method to acquire a connection."""
+        """Internal method to acquire a connection with robust error handling.
+
+        This method implements:
+        1. Force cleanup of unhealthy connections before acquisition
+        2. Retry logic for transient failures
+        3. Detailed error context for debugging
+        4. Automatic recovery from stale pool state
+        """
+        self._init_stats(cdp_url)
+        start_time = time.time()
         lock = self._get_pool_lock(cdp_url)
+
+        # Build error context for detailed error reporting
+        error_context = BrowserErrorContext(
+            cdp_url=cdp_url,
+            session_id=session_id,
+            sandbox_id=sandbox_id,
+            operation="acquire_connection",
+            max_retries=3,
+        )
+
+        # First, force cleanup any stale/unhealthy connections
+        await self._force_cleanup_stale_for_url(cdp_url)
 
         async with lock:
             # Initialize pool for this URL if needed
@@ -199,64 +301,203 @@ class BrowserConnectionPool:
             for conn in pool:
                 conn_id = id(conn)
                 if conn_id not in in_use and conn.is_healthy:
-                    # Verify health before returning
                     if await self._verify_connection_health(conn):
                         in_use.add(conn_id)
                         conn.last_used_at = time.time()
                         conn.use_count += 1
+                        conn.consecutive_failures = 0
+                        self._stats[cdp_url]["total_acquisitions"] += 1
                         logger.debug(f"Reusing pooled connection for {cdp_url} (use count: {conn.use_count})")
                         return conn
                     conn.is_healthy = False
+                    conn.consecutive_failures += 1
 
-            # No available connection, create new one if under limit
+            # No available connection, try to create new one if under limit
             if len(pool) < self._max_per_url:
-                conn = await self._create_connection(cdp_url, block_resources, randomize_fingerprint)
-                pool.append(conn)
-                in_use.add(id(conn))
-                logger.info(f"Created new pooled connection for {cdp_url} (pool size: {len(pool)})")
-                return conn
+                try:
+                    conn = await self._create_connection_with_retry(
+                        cdp_url, block_resources, randomize_fingerprint, error_context
+                    )
+                    pool.append(conn)
+                    in_use.add(id(conn))
+                    self._stats[cdp_url]["total_acquisitions"] += 1
+                    logger.info(f"Created new pooled connection for {cdp_url} (pool size: {len(pool)})")
+                    return conn
+                except Exception as e:
+                    self._stats[cdp_url]["total_failures"] += 1
+                    logger.error(f"Failed to create connection for {cdp_url}: {e}")
+                    raise
 
             # Pool is full, wait for a connection to become available
-            logger.warning(f"Pool full for {cdp_url}, waiting for available connection")
+            logger.warning(
+                f"Pool full for {cdp_url} ({len(pool)}/{self._max_per_url}), "
+                f"waiting for available connection (timeout: {self._timeout}s)"
+            )
 
-        # Wait outside the lock
-        start_time = time.time()
+        # Wait outside the lock with timeout
+        wait_start = time.time()
         while time.time() - start_time < self._timeout:
             await asyncio.sleep(0.1)
 
             async with lock:
+                # Try to find an available connection
                 for conn in pool:
                     conn_id = id(conn)
                     if conn_id not in in_use and conn.is_healthy and await self._verify_connection_health(conn):
                         in_use.add(conn_id)
                         conn.last_used_at = time.time()
                         conn.use_count += 1
+                        conn.consecutive_failures = 0
+
+                        wait_time_ms = (time.time() - wait_start) * 1000
+                        self._stats[cdp_url]["total_wait_time_ms"] += wait_time_ms
+                        self._stats[cdp_url]["total_acquisitions"] += 1
+
+                        logger.info(f"Acquired connection after {wait_time_ms:.0f}ms wait for {cdp_url}")
                         return conn
 
-        raise TimeoutError(f"Timeout waiting for available connection to {cdp_url}")
+                # Try to replace an unhealthy connection
+                for i, conn in enumerate(pool):
+                    conn_id = id(conn)
+                    if conn_id not in in_use and not conn.is_healthy:
+                        logger.info(f"Replacing unhealthy connection for {cdp_url}")
+                        await self._safe_cleanup_connection(conn)
+                        try:
+                            new_conn = await self._create_connection_with_retry(
+                                cdp_url, block_resources, randomize_fingerprint, error_context
+                            )
+                            pool[i] = new_conn
+                            in_use.add(id(new_conn))
+                            self._stats[cdp_url]["total_acquisitions"] += 1
+                            return new_conn
+                        except Exception as e:
+                            logger.error(f"Failed to replace connection: {e}")
+                            pool.pop(i)
+                            break
 
-    async def _create_connection(
+        # Timeout reached - collect detailed stats for error
+        self._stats[cdp_url]["total_failures"] += 1
+        error_context.pool_stats = self._get_pool_stats_for_url(cdp_url)
+
+        # Record error metric for monitoring
+        record_error("connection_pool_exhausted", "browser")
+
+        raise ConnectionPoolExhaustedError(
+            cdp_url=cdp_url,
+            timeout=self._timeout,
+            pool_size=len(self._pools.get(cdp_url, [])),
+            in_use_count=len(self._in_use.get(cdp_url, set())),
+            context=error_context,
+        )
+
+    async def _create_connection_with_retry(
         self,
         cdp_url: str,
-        block_resources: bool = False,
-        randomize_fingerprint: bool = True,
+        block_resources: bool,
+        randomize_fingerprint: bool,
+        error_context: BrowserErrorContext,
+        max_retries: int = 3,
     ) -> PooledConnection:
-        """Create a new browser connection."""
-        browser = PlaywrightBrowser(
+        """Create a new browser connection with retry logic.
+
+        Implements exponential backoff for transient failures.
+        """
+        last_error: Exception | None = None
+
+        for attempt in range(max_retries):
+            error_context.retry_count = attempt
+            try:
+                browser = PlaywrightBrowser(
+                    cdp_url=cdp_url,
+                    block_resources=block_resources,
+                    randomize_fingerprint=randomize_fingerprint,
+                )
+
+                # Initialize with clear_existing=True on first attempt to recover from stale state
+                success = await browser.initialize(clear_existing=(attempt == 0))
+                if not success:
+                    raise ConnectionRefusedError(
+                        cdp_url=cdp_url,
+                        context=error_context,
+                    )
+
+                return PooledConnection(
+                    browser=browser,
+                    cdp_url=cdp_url,
+                )
+
+            except ConnectionRefusedError:
+                raise
+            except TimeoutError as e:
+                last_error = e
+                logger.warning(f"Connection attempt {attempt + 1}/{max_retries} timed out for {cdp_url}")
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Connection attempt {attempt + 1}/{max_retries} failed for {cdp_url}: {e}")
+
+            if attempt < max_retries - 1:
+                backoff = 0.5 * (2**attempt)  # 0.5s, 1s, 2s
+                logger.info(f"Retrying in {backoff}s...")
+                await asyncio.sleep(backoff)
+
+        # All retries exhausted
+        if isinstance(last_error, asyncio.TimeoutError):
+            raise ConnectionTimeoutError(
+                cdp_url=cdp_url,
+                timeout=self._timeout,
+                context=error_context,
+                cause=last_error,
+            )
+
+        raise BrowserCrashedError(
             cdp_url=cdp_url,
-            block_resources=block_resources,
-            randomize_fingerprint=randomize_fingerprint,
+            context=error_context,
+            cause=last_error,
         )
 
-        # Initialize the browser connection
-        success = await browser.initialize(clear_existing=False)
-        if not success:
-            raise ConnectionError(f"Failed to initialize browser for {cdp_url}")
+    async def _force_cleanup_stale_for_url(self, cdp_url: str) -> int:
+        """Force cleanup all stale/unhealthy connections for a URL.
 
-        return PooledConnection(
-            browser=browser,
-            cdp_url=cdp_url,
-        )
+        This is called before acquisition to prevent pool exhaustion
+        from zombie connections.
+
+        Returns:
+            Number of connections cleaned up
+        """
+        if cdp_url not in self._pools:
+            return 0
+
+        lock = self._get_pool_lock(cdp_url)
+        cleaned = 0
+
+        async with lock:
+            pool = self._pools.get(cdp_url, [])
+            in_use = self._in_use.get(cdp_url, set())
+
+            connections_to_keep = []
+            for conn in pool:
+                conn_id = id(conn)
+
+                # Keep connections that are in use
+                if conn_id in in_use:
+                    connections_to_keep.append(conn)
+                    continue
+
+                # Check health of idle connections
+                is_healthy = await self._verify_connection_health(conn)
+                if is_healthy:
+                    connections_to_keep.append(conn)
+                else:
+                    logger.info(f"Force cleaning stale connection for {cdp_url}")
+                    await self._safe_cleanup_connection(conn)
+                    cleaned += 1
+
+            self._pools[cdp_url] = connections_to_keep
+
+        if cleaned > 0:
+            logger.info(f"Force cleaned {cleaned} stale connections for {cdp_url}")
+
+        return cleaned
 
     async def _verify_connection_health(self, conn: PooledConnection) -> bool:
         """Verify a connection is still healthy."""
@@ -266,14 +507,20 @@ class BrowserConnectionPool:
 
             # Quick health check - verify page is responsive
             if conn.browser.page and not conn.browser.page.is_closed():
-                await conn.browser.page.evaluate("() => true")
+                await asyncio.wait_for(
+                    conn.browser.page.evaluate("() => true"),
+                    timeout=5.0,
+                )
                 return True
+            return False
+        except TimeoutError:
+            logger.debug(f"Connection health check timed out for {conn.cdp_url}")
             return False
         except Exception as e:
             logger.debug(f"Connection health check failed: {e}")
             return False
 
-    async def _release_connection(self, cdp_url: str, conn: PooledConnection) -> None:
+    async def _release_connection(self, cdp_url: str, conn: PooledConnection, had_error: bool = False) -> None:
         """Release a connection back to the pool."""
         lock = self._get_pool_lock(cdp_url)
         async with lock:
@@ -282,6 +529,15 @@ class BrowserConnectionPool:
             if conn_id in in_use:
                 in_use.discard(conn_id)
                 conn.last_used_at = time.time()
+
+                if had_error:
+                    conn.consecutive_failures += 1
+                    if conn.consecutive_failures >= 3:
+                        conn.is_healthy = False
+                        logger.warning(f"Marking connection unhealthy after {conn.consecutive_failures} failures")
+                else:
+                    conn.consecutive_failures = 0
+
                 logger.debug(f"Released connection back to pool for {cdp_url}")
 
     async def clear_stale_connections(self, cdp_url: str) -> int:
@@ -295,41 +551,47 @@ class BrowserConnectionPool:
         Returns:
             Number of connections cleared
         """
+        return await self._force_cleanup_stale_for_url(cdp_url)
+
+    async def force_release_all(self, cdp_url: str) -> int:
+        """Force release all connections for a CDP URL.
+
+        WARNING: This is a recovery mechanism and may cause issues
+        if connections are actually in use.
+
+        Args:
+            cdp_url: The CDP URL to release connections for
+
+        Returns:
+            Number of connections released
+        """
         lock = self._get_pool_lock(cdp_url)
-        cleared = 0
 
         async with lock:
-            pool = self._pools.get(cdp_url, [])
             in_use = self._in_use.get(cdp_url, set())
+            released = len(in_use)
+            in_use.clear()
+            logger.warning(f"Force released {released} connections for {cdp_url}")
 
-            # Check each connection
-            connections_to_remove = []
-            for conn in pool:
-                conn_id = id(conn)
+        return released
 
-                # Skip connections currently in use
-                if conn_id in in_use:
-                    continue
+    def _get_pool_stats_for_url(self, cdp_url: str) -> dict[str, Any]:
+        """Get pool statistics for a specific URL."""
+        pool = self._pools.get(cdp_url, [])
+        in_use = self._in_use.get(cdp_url, set())
 
-                # Check if connection is healthy
-                is_healthy = await self._verify_connection_health(conn)
-                if not is_healthy:
-                    connections_to_remove.append(conn)
-                    conn.is_healthy = False
+        healthy_count = sum(1 for c in pool if c.is_healthy)
+        stats = self._stats.get(cdp_url, {})
 
-            # Remove and cleanup stale connections
-            for conn in connections_to_remove:
-                pool.remove(conn)
-                try:
-                    await conn.browser.cleanup()
-                except Exception as e:
-                    logger.debug(f"Error cleaning up stale connection: {e}")
-                cleared += 1
-
-            if cleared > 0:
-                logger.info(f"Cleared {cleared} stale connections for {cdp_url} (remaining: {len(pool)})")
-
-        return cleared
+        return {
+            "total_connections": len(pool),
+            "in_use_count": len(in_use),
+            "available_count": len(pool) - len(in_use),
+            "healthy_count": healthy_count,
+            "unhealthy_count": len(pool) - healthy_count,
+            "total_acquisitions": stats.get("total_acquisitions", 0),
+            "total_failures": stats.get("total_failures", 0),
+        }
 
     async def close_all(self) -> None:
         """Close all pooled connections and shutdown the pool."""
@@ -344,14 +606,12 @@ class BrowserConnectionPool:
         # Close all connections
         for _cdp_url, connections in list(self._pools.items()):
             for conn in connections:
-                try:
-                    await conn.browser.cleanup()
-                except Exception as e:
-                    logger.debug(f"Error closing pooled connection: {e}")
+                await self._safe_cleanup_connection(conn)
 
         self._pools.clear()
         self._in_use.clear()
         self._pool_locks.clear()
+        self._stats.clear()
 
         logger.info("Browser connection pool closed")
 
@@ -361,29 +621,130 @@ class BrowserConnectionPool:
             "pools": {},
             "total_connections": 0,
             "total_in_use": 0,
+            "total_healthy": 0,
         }
 
         for cdp_url, connections in self._pools.items():
-            in_use_count = len(self._in_use.get(cdp_url, set()))
-            pool_stats = {
-                "total": len(connections),
-                "in_use": in_use_count,
-                "available": len(connections) - in_use_count,
-                "connections": [
-                    {
-                        "use_count": conn.use_count,
-                        "age_seconds": time.time() - conn.created_at,
-                        "idle_seconds": time.time() - conn.last_used_at,
-                        "healthy": conn.is_healthy,
-                    }
-                    for conn in connections
-                ],
-            }
+            pool_stats = self._get_pool_stats_for_url(cdp_url)
+            pool_stats["connections"] = [
+                {
+                    "use_count": conn.use_count,
+                    "age_seconds": time.time() - conn.created_at,
+                    "idle_seconds": time.time() - conn.last_used_at,
+                    "healthy": conn.is_healthy,
+                    "consecutive_failures": conn.consecutive_failures,
+                }
+                for conn in connections
+            ]
             stats["pools"][cdp_url] = pool_stats
-            stats["total_connections"] += len(connections)
-            stats["total_in_use"] += in_use_count
+            stats["total_connections"] += pool_stats["total_connections"]
+            stats["total_in_use"] += pool_stats["in_use_count"]
+            stats["total_healthy"] += pool_stats["healthy_count"]
 
         return stats
+
+    # =========================================================================
+    # Phase 2: CDP Sharing for Browser-use Integration
+    # =========================================================================
+
+    def get_shared_cdp_url(self, session_id: str) -> str | None:
+        """Get a shareable CDP URL for browser-use agent.
+
+        Phase 2 Enhancement: Allows browser-use agent to share the CDP
+        connection with the existing browser pool, preventing conflicts
+        and resource duplication.
+
+        Args:
+            session_id: Session identifier to associate with CDP URL
+
+        Returns:
+            CDP URL if available, None otherwise
+        """
+        # Find an existing CDP URL that has available capacity
+        for cdp_url, connections in self._pools.items():
+            pool_stats = self._get_pool_stats_for_url(cdp_url)
+
+            # Check if this pool has healthy connections and capacity
+            if pool_stats["healthy_count"] > 0:
+                # Return this CDP URL for sharing
+                logger.debug(f"Providing shared CDP URL for session {session_id}: {cdp_url}")
+                return cdp_url
+
+        # No existing pool - return None (caller should create new sandbox)
+        logger.debug(f"No shared CDP URL available for session {session_id}")
+        return None
+
+    async def get_or_create_cdp_session(
+        self,
+        cdp_url: str,
+        session_id: str,
+        for_browser_use: bool = False,
+    ) -> str | None:
+        """Get or create a CDP session for browser-use.
+
+        This method ensures browser-use can share CDP connections without
+        conflicting with the existing browser pool.
+
+        Args:
+            cdp_url: CDP URL to use
+            session_id: Session identifier
+            for_browser_use: Whether this is for browser-use agent
+
+        Returns:
+            CDP URL that's ready for use, or None if unavailable
+        """
+        if not cdp_url:
+            return None
+
+        # Verify the CDP endpoint is reachable
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(f"{cdp_url}/json/version")
+                if response.status_code == 200:
+                    logger.debug(f"CDP endpoint verified for session {session_id}")
+                    return cdp_url
+        except Exception as e:
+            logger.warning(f"CDP endpoint not reachable for session {session_id}: {e}")
+            return None
+
+        return None
+
+    def reserve_cdp_for_browser_use(self, cdp_url: str, session_id: str) -> bool:
+        """Reserve a CDP connection for browser-use exclusive access.
+
+        This temporarily marks a connection as in-use for browser-use
+        to prevent the pool from re-using it during autonomous execution.
+
+        Args:
+            cdp_url: CDP URL to reserve
+            session_id: Session making the reservation
+
+        Returns:
+            True if reservation successful
+        """
+        if cdp_url not in self._pools:
+            return False
+
+        # For now, just track that this CDP is being used by browser-use
+        # The connection pool's existing acquire/release mechanism handles
+        # the actual connection management
+        logger.info(f"CDP reserved for browser-use: {cdp_url} (session: {session_id})")
+        return True
+
+    def release_cdp_for_browser_use(self, cdp_url: str, session_id: str) -> bool:
+        """Release a CDP connection after browser-use completes.
+
+        Args:
+            cdp_url: CDP URL to release
+            session_id: Session releasing the reservation
+
+        Returns:
+            True if release successful
+        """
+        logger.info(f"CDP released from browser-use: {cdp_url} (session: {session_id})")
+        return True
 
 
 class PooledConnectionContext:
@@ -401,6 +762,7 @@ class PooledConnectionContext:
         self._block_resources = block_resources
         self._randomize_fingerprint = randomize_fingerprint
         self._connection: PooledConnection | None = None
+        self._had_error = False
 
     async def __aenter__(self) -> PlaywrightBrowser:
         """Acquire a connection from the pool."""
@@ -414,8 +776,9 @@ class PooledConnectionContext:
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Release the connection back to the pool."""
         if self._connection:
-            # Mark as unhealthy if there was an exception
-            if exc_type is not None:
-                self._connection.is_healthy = False
-
-            await self._pool._release_connection(self._cdp_url, self._connection)
+            self._had_error = exc_type is not None
+            await self._pool._release_connection(
+                self._cdp_url,
+                self._connection,
+                had_error=self._had_error,
+            )

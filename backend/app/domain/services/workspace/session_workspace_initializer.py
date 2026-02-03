@@ -28,10 +28,7 @@ class SessionWorkspaceInitializer:
         self._selector = WorkspaceSelector()
 
     async def initialize_workspace_if_needed(
-        self,
-        session: Session,
-        sandbox: Sandbox,
-        task_description: str
+        self, session: Session, sandbox: Sandbox, task_description: str
     ) -> dict[str, str] | None:
         """Initialize workspace for session if not already initialized.
 
@@ -64,15 +61,9 @@ class SessionWorkspaceInitializer:
 
             # Store in session
             session.workspace_structure = workspace_structure
-            await self._session_repository.update_by_id(
-                session.id,
-                {"workspace_structure": workspace_structure}
-            )
+            await self._session_repository.update_by_id(session.id, {"workspace_structure": workspace_structure})
 
-            logger.info(
-                f"Initialized {len(workspace_structure)} workspace folders "
-                f"for session {session.id}"
-            )
+            logger.info(f"Initialized {len(workspace_structure)} workspace folders for session {session.id}")
 
             return workspace_structure
 
@@ -81,11 +72,7 @@ class SessionWorkspaceInitializer:
             # Non-critical - continue without workspace
             return None
 
-    async def mark_deliverable(
-        self,
-        session_id: str,
-        file_path: str
-    ) -> None:
+    async def mark_deliverable(self, session_id: str, file_path: str) -> None:
         """Mark a file as a deliverable for tracking.
 
         Args:
@@ -103,9 +90,7 @@ class SessionWorkspaceInitializer:
 _initializer: SessionWorkspaceInitializer | None = None
 
 
-def get_session_workspace_initializer(
-    session_repository: SessionRepository
-) -> SessionWorkspaceInitializer:
+def get_session_workspace_initializer(session_repository: SessionRepository) -> SessionWorkspaceInitializer:
     """Get or create session workspace initializer.
 
     Args:

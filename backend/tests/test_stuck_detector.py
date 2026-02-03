@@ -15,10 +15,7 @@ class TestResponseRecord:
     def test_create_record(self):
         """Test creating a response record"""
         record = ResponseRecord(
-            content_hash="abc123",
-            timestamp=None,
-            tool_calls=["tool1"],
-            content_preview="Test content"
+            content_hash="abc123", timestamp=None, tool_calls=["tool1"], content_preview="Test content"
         )
         assert record.content_hash == "abc123"
         assert record.tool_calls == ["tool1"]
@@ -51,7 +48,7 @@ class TestStuckDetector:
         ]
 
         for response in responses:
-            is_stuck = detector.track_response(response)
+            is_stuck, _confidence = detector.track_response(response)
             assert is_stuck is False
 
     def test_detect_stuck_identical_responses(self):
@@ -66,7 +63,7 @@ class TestStuckDetector:
         assert detector.is_stuck() is False
 
         # Third identical response should trigger
-        is_stuck = detector.track_response(identical_response)
+        is_stuck, _confidence = detector.track_response(identical_response)
         assert is_stuck is True
         assert detector.is_stuck() is True
 
@@ -77,12 +74,7 @@ class TestStuckDetector:
         response_with_tool = {
             "content": "",
             "role": "assistant",
-            "tool_calls": [{
-                "function": {
-                    "name": "shell_exec",
-                    "arguments": '{"command": "ls"}'
-                }
-            }]
+            "tool_calls": [{"function": {"name": "shell_exec", "arguments": '{"command": "ls"}'}}],
         }
 
         for _ in range(3):
@@ -199,10 +191,7 @@ class TestBrowserStuckPatterns:
         same_url_args = {"url": "https://example.com/page"}
         for _ in range(4):
             analysis = detector.track_tool_action(
-                tool_name="browser_navigate",
-                tool_args=same_url_args,
-                success=True,
-                result="Page loaded"
+                tool_name="browser_navigate", tool_args=same_url_args, success=True, result="Page loaded"
             )
 
         # Should detect browser same page loop
@@ -216,10 +205,7 @@ class TestBrowserStuckPatterns:
         # Simulate repeated scrolling without browser_view
         for _ in range(5):
             analysis = detector.track_tool_action(
-                tool_name="browser_scroll_down",
-                tool_args={},
-                success=True,
-                result="Scrolled down"
+                tool_name="browser_scroll_down", tool_args={}, success=True, result="Scrolled down"
             )
 
         # Should detect scroll without progress
@@ -234,10 +220,7 @@ class TestBrowserStuckPatterns:
         click_args = {"index": 5}
         for _ in range(4):
             analysis = detector.track_tool_action(
-                tool_name="browser_click",
-                tool_args=click_args,
-                success=False,
-                error="Element not found"
+                tool_name="browser_click", tool_args=click_args, success=False, error="Element not found"
             )
 
         # Should detect click failures
@@ -250,17 +233,9 @@ class TestBrowserStuckPatterns:
 
         # Scroll, view, scroll, view - should not trigger
         for _ in range(3):
-            detector.track_tool_action(
-                tool_name="browser_scroll_down",
-                tool_args={},
-                success=True,
-                result="Scrolled"
-            )
+            detector.track_tool_action(tool_name="browser_scroll_down", tool_args={}, success=True, result="Scrolled")
             analysis = detector.track_tool_action(
-                tool_name="browser_view",
-                tool_args={},
-                success=True,
-                result="Page content extracted"
+                tool_name="browser_view", tool_args={}, success=True, result="Page content extracted"
             )
 
         # Should NOT detect stuck pattern
@@ -279,10 +254,7 @@ class TestBrowserStuckPatterns:
 
         for url in urls:
             analysis = detector.track_tool_action(
-                tool_name="browser_navigate",
-                tool_args={"url": url},
-                success=True,
-                result="Page loaded"
+                tool_name="browser_navigate", tool_args={"url": url}, success=True, result="Page loaded"
             )
 
         # Should NOT detect same page loop
@@ -295,10 +267,7 @@ class TestBrowserStuckPatterns:
         # Trigger browser click failures
         for _ in range(4):
             detector.track_tool_action(
-                tool_name="browser_click",
-                tool_args={"index": 5},
-                success=False,
-                error="Element not found"
+                tool_name="browser_click", tool_args={"index": 5}, success=False, error="Element not found"
             )
 
         guidance = detector.get_recovery_guidance()

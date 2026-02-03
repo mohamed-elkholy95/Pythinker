@@ -24,6 +24,7 @@ Usage:
 """
 
 import asyncio
+import contextlib
 import logging
 import random
 import time
@@ -34,7 +35,7 @@ from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 @dataclass
@@ -124,9 +125,8 @@ def is_retryable(exception: Exception, config: RetryConfig) -> bool:
         True if the exception should be retried
     """
     # Non-retryable exceptions take precedence
-    if config.non_retryable_exceptions:
-        if isinstance(exception, config.non_retryable_exceptions):
-            return False
+    if config.non_retryable_exceptions and isinstance(exception, config.non_retryable_exceptions):
+        return False
 
     # Check if it's a retryable exception
     return isinstance(exception, config.retryable_exceptions)
@@ -210,7 +210,7 @@ def _create_retry_wrapper(
                             "function": func.__name__,
                             "attempt": attempt,
                             "total_delay": stats.total_delay,
-                        }
+                        },
                     )
 
                 return result
@@ -228,7 +228,7 @@ def _create_retry_wrapper(
                                 "function": func.__name__,
                                 "exception": type(e).__name__,
                                 "attempt": attempt,
-                            }
+                            },
                         )
                     raise
 
@@ -242,7 +242,7 @@ def _create_retry_wrapper(
                                 "exception": type(e).__name__,
                                 "attempts": attempt,
                                 "total_delay": stats.total_delay,
-                            }
+                            },
                         )
                     raise
 
@@ -259,15 +259,13 @@ def _create_retry_wrapper(
                             "attempt": attempt,
                             "delay": delay,
                             "exception": type(e).__name__,
-                        }
+                        },
                     )
 
                 # Call on_retry callback if provided
                 if config.on_retry:
-                    try:
+                    with contextlib.suppress(Exception):
                         config.on_retry(e, attempt, delay)
-                    except Exception:
-                        pass  # Don't let callback errors affect retry
 
                 # Wait before retry
                 await asyncio.sleep(delay)
@@ -323,6 +321,89 @@ llm_retry = with_retry(
         ),
     )
 )
+
+
+def _log_validation_retry(exception: Exception, attempt: int, delay: float) -> None:
+    """Log validation retry with details about the validation error."""
+    logger.warning(
+        f"LLM output validation failed (attempt {attempt}), retrying in {delay:.2f}s: {exception!s}",
+        extra={
+            "exception_type": type(exception).__name__,
+            "attempt": attempt,
+            "delay": delay,
+        },
+    )
+
+
+# Import ValidationError lazily to avoid circular imports
+def _get_validation_error() -> type[Exception]:
+    """Lazily import Pydantic ValidationError."""
+    from pydantic import ValidationError
+
+    return ValidationError
+
+
+# LLM validation retry - retries on Pydantic ValidationError to force LLM to fix output
+# This is critical for anti-hallucination: if LLM returns malformed output, retry with feedback
+llm_validation_retry = with_retry(
+    RetryConfig(
+        max_attempts=3,
+        base_delay=1.0,
+        max_delay=10.0,
+        exponential_base=2.0,
+        jitter=True,
+        retryable_exceptions=(
+            TimeoutError,
+            ConnectionError,
+            ConnectionResetError,
+        ),
+        on_retry=_log_validation_retry,
+    )
+)
+
+
+def with_validation_retry(
+    max_attempts: int = 3,
+    base_delay: float = 1.0,
+) -> Callable:
+    """Decorator for LLM calls that should retry on Pydantic ValidationError.
+
+    This decorator is essential for anti-hallucination defense. When an LLM
+    returns malformed output that fails Pydantic validation, we retry the call
+    instead of immediately failing. This gives the LLM a chance to correct
+    its output.
+
+    Usage:
+        @with_validation_retry()
+        async def ask_structured(self, messages, response_model):
+            response = await self.client.messages.create(...)
+            return response_model.model_validate(parsed_response)
+
+    Args:
+        max_attempts: Maximum retry attempts (default 3)
+        base_delay: Initial delay between retries (default 1.0s)
+
+    Returns:
+        Decorated async function with validation retry behavior
+    """
+    from pydantic import ValidationError
+
+    return with_retry(
+        RetryConfig(
+            max_attempts=max_attempts,
+            base_delay=base_delay,
+            max_delay=10.0,
+            exponential_base=2.0,
+            jitter=True,
+            retryable_exceptions=(
+                ValidationError,
+                TimeoutError,
+                ConnectionError,
+                ConnectionResetError,
+            ),
+            on_retry=_log_validation_retry,
+        )
+    )
 
 
 # Tool retry - quick retries for tool execution

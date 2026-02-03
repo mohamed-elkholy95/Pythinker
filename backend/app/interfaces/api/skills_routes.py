@@ -15,6 +15,8 @@ from app.infrastructure.storage.mongodb import get_mongodb
 from app.interfaces.dependencies import get_current_user
 from app.interfaces.schemas.base import APIResponse
 from app.interfaces.schemas.skill import (
+    CommandListResponse,
+    CommandResponse,
     CreateCustomSkillRequest,
     CustomSkillListResponse,
     EnableSkillsRequest,
@@ -64,10 +66,18 @@ def _skill_to_response(skill, include_prompt: bool = False) -> SkillResponse:
         parent_skill_id=skill.parent_skill_id,
         system_prompt_addition=skill.system_prompt_addition if include_prompt else None,
         # Claude-style configuration fields
-        invocation_type=skill.invocation_type.value if hasattr(skill.invocation_type, "value") else skill.invocation_type,
+        invocation_type=skill.invocation_type.value
+        if hasattr(skill.invocation_type, "value")
+        else skill.invocation_type,
         allowed_tools=skill.allowed_tools,
         supports_dynamic_context=skill.supports_dynamic_context,
         trigger_patterns=skill.trigger_patterns,
+        # Marketplace fields
+        community_rating=getattr(skill, "community_rating", 0.0),
+        rating_count=getattr(skill, "rating_count", 0),
+        install_count=getattr(skill, "install_count", 0),
+        is_featured=getattr(skill, "is_featured", False),
+        tags=getattr(skill, "tags", []),
     )
 
 
@@ -130,10 +140,7 @@ async def get_community_skills(
     # Filter by search term if specified
     if search:
         search_lower = search.lower()
-        skills = [
-            s for s in skills
-            if search_lower in s.name.lower() or search_lower in s.description.lower()
-        ]
+        skills = [s for s in skills if search_lower in s.name.lower() or search_lower in s.description.lower()]
 
     skill_responses = [_skill_to_response(skill) for skill in skills]
 
@@ -143,6 +150,199 @@ async def get_community_skills(
             total=len(skill_responses),
         )
     )
+
+
+# =============================================================================
+# MARKETPLACE ENDPOINTS (Phase 2: Skill Marketplace)
+# =============================================================================
+
+
+@router.get("/marketplace/search", response_model=APIResponse[SkillListResponse])
+async def search_marketplace_skills(
+    q: str | None = None,
+    category: str | None = None,
+    tags: str | None = None,  # Comma-separated tags
+    min_rating: float | None = None,
+    featured: bool | None = None,
+    sort_by: str = "community_rating",
+    sort_order: str = "desc",
+    page: int = 1,
+    page_size: int = 20,
+    current_user: User = Depends(get_current_user),
+) -> APIResponse[SkillListResponse]:
+    """Search the skill marketplace with filters.
+
+    Args:
+        q: Search query for name/description
+        category: Category filter
+        tags: Comma-separated tags to filter by
+        min_rating: Minimum community rating (1-5)
+        featured: Filter to featured skills only
+        sort_by: Field to sort by (community_rating, install_count, created_at)
+        sort_order: Sort direction (asc, desc)
+        page: Page number (1-indexed)
+        page_size: Results per page (max 50)
+
+    Returns:
+        Paginated list of matching skills
+    """
+    from app.infrastructure.repositories.mongo_skill_repository import (
+        MongoSkillRepository,
+        SkillSearchFilters,
+    )
+
+    # Parse inputs
+    skill_category = None
+    if category:
+        try:
+            skill_category = SkillCategory(category)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid category: {category}") from exc
+
+    tag_list = [t.strip() for t in tags.split(",")] if tags else None
+
+    # Build filters
+    filters = SkillSearchFilters(
+        query=q,
+        category=skill_category,
+        min_rating=min_rating,
+        tags=tag_list,
+        is_featured=featured,
+        is_public=True,
+    )
+
+    # Validate pagination
+    page = max(1, page)
+    page_size = min(50, max(1, page_size))
+    skip = (page - 1) * page_size
+
+    # Sort order
+    order = -1 if sort_order.lower() == "desc" else 1
+
+    # Search
+    repo = MongoSkillRepository()
+    skills, total = await repo.search(filters, skip=skip, limit=page_size, sort_by=sort_by, sort_order=order)
+
+    return APIResponse.success(
+        SkillListResponse(
+            skills=[_skill_to_response(s) for s in skills],
+            total=total,
+        )
+    )
+
+
+@router.get("/marketplace/featured", response_model=APIResponse[SkillListResponse])
+async def get_featured_skills(
+    limit: int = 10,
+    current_user: User = Depends(get_current_user),
+) -> APIResponse[SkillListResponse]:
+    """Get featured skills from the marketplace."""
+    from app.infrastructure.repositories.mongo_skill_repository import MongoSkillRepository
+
+    repo = MongoSkillRepository()
+    skills = await repo.get_featured(limit=min(limit, 20))
+
+    return APIResponse.success(
+        SkillListResponse(
+            skills=[_skill_to_response(s) for s in skills],
+            total=len(skills),
+        )
+    )
+
+
+@router.get("/marketplace/popular", response_model=APIResponse[SkillListResponse])
+async def get_popular_skills(
+    limit: int = 10,
+    current_user: User = Depends(get_current_user),
+) -> APIResponse[SkillListResponse]:
+    """Get most popular skills by usage and rating."""
+    from app.infrastructure.repositories.mongo_skill_repository import MongoSkillRepository
+
+    repo = MongoSkillRepository()
+    skills = await repo.get_popular(limit=min(limit, 20))
+
+    return APIResponse.success(
+        SkillListResponse(
+            skills=[_skill_to_response(s) for s in skills],
+            total=len(skills),
+        )
+    )
+
+
+@router.get("/marketplace/recent", response_model=APIResponse[SkillListResponse])
+async def get_recent_skills(
+    limit: int = 10,
+    current_user: User = Depends(get_current_user),
+) -> APIResponse[SkillListResponse]:
+    """Get recently added public skills."""
+    from app.infrastructure.repositories.mongo_skill_repository import MongoSkillRepository
+
+    repo = MongoSkillRepository()
+    skills = await repo.get_recent(limit=min(limit, 20))
+
+    return APIResponse.success(
+        SkillListResponse(
+            skills=[_skill_to_response(s) for s in skills],
+            total=len(skills),
+        )
+    )
+
+
+@router.post("/marketplace/{skill_id}/rate", response_model=APIResponse[dict])
+async def rate_skill(
+    skill_id: str,
+    rating: float,
+    current_user: User = Depends(get_current_user),
+) -> APIResponse[dict]:
+    """Rate a skill in the marketplace.
+
+    Args:
+        skill_id: Skill to rate
+        rating: Rating value (1-5)
+
+    Returns:
+        Success confirmation
+    """
+    from app.infrastructure.repositories.mongo_skill_repository import MongoSkillRepository
+
+    if not 1 <= rating <= 5:
+        raise HTTPException(status_code=400, detail="Rating must be between 1 and 5")
+
+    repo = MongoSkillRepository()
+    success = await repo.rate_skill(skill_id, str(current_user.id), rating)
+
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Skill not found: {skill_id}")
+
+    return APIResponse.success({"rated": True, "skill_id": skill_id, "rating": rating})
+
+
+@router.post("/marketplace/{skill_id}/fork", response_model=APIResponse[SkillResponse])
+async def fork_skill(
+    skill_id: str,
+    new_name: str | None = None,
+    current_user: User = Depends(get_current_user),
+) -> APIResponse[SkillResponse]:
+    """Fork a public skill to customize it.
+
+    Args:
+        skill_id: Skill to fork
+        new_name: Optional new name for the fork
+
+    Returns:
+        The newly created forked skill
+    """
+    from app.infrastructure.repositories.mongo_skill_repository import MongoSkillRepository
+
+    repo = MongoSkillRepository()
+    forked = await repo.fork_skill(skill_id, str(current_user.id), new_name)
+
+    if not forked:
+        raise HTTPException(status_code=404, detail=f"Skill not found: {skill_id}")
+
+    logger.info(f"User {current_user.id} forked skill {skill_id} to {forked.id}")
+
+    return APIResponse.success(_skill_to_response(forked, include_prompt=True))
 
 
 # User config routes must come BEFORE /{skill_id} to avoid path conflicts
@@ -939,6 +1139,40 @@ async def install_skill_from_package(
     logger.info(f"Installed skill {skill_id} from package {package_id} for user {current_user.id}")
 
     return APIResponse.success(_skill_to_response(created_skill, include_prompt=True))
+
+
+# =============================================================================
+# COMMAND SYSTEM (Superpowers integration)
+# =============================================================================
+
+
+@router.get("/commands/available", response_model=APIResponse[CommandListResponse])
+async def get_available_commands(
+    current_user: User = Depends(get_current_user),
+) -> APIResponse[CommandListResponse]:
+    """Get list of available Superpowers commands.
+
+    Commands provide user-friendly shortcuts for skill invocation:
+    - /brainstorm → brainstorming skill
+    - /write-plan → writing-plans skill
+    - /tdd → test-driven-development skill
+    etc.
+    """
+    from app.domain.services.command_registry import get_command_registry
+
+    registry = get_command_registry()
+    commands_list = registry.get_available_commands()
+
+    command_responses = [
+        CommandResponse(command=cmd, skill_id=skill_id, description=desc) for cmd, skill_id, desc in commands_list
+    ]
+
+    return APIResponse.success(
+        CommandListResponse(
+            commands=command_responses,
+            count=len(command_responses),
+        )
+    )
 
 
 # =============================================================================

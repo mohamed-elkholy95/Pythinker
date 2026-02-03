@@ -16,7 +16,7 @@ import sys
 import threading
 import time
 from datetime import datetime
-from typing import Any
+from typing import Any, ClassVar
 
 try:
     import httpx
@@ -49,10 +49,19 @@ class StructuredFormatter(logging.Formatter):
     """
 
     # Fields that should be at the top level of the JSON
-    STANDARD_FIELDS = {
-        'request_id', 'session_id', 'user_id', 'agent_id',
-        'trace_id', 'span_id', 'path', 'method', 'duration_ms',
-        'status_code', 'error_type', 'error_code'
+    STANDARD_FIELDS: ClassVar[set[str]] = {
+        "request_id",
+        "session_id",
+        "user_id",
+        "agent_id",
+        "trace_id",
+        "span_id",
+        "path",
+        "method",
+        "duration_ms",
+        "status_code",
+        "error_type",
+        "error_code",
     }
 
     def format(self, record: logging.LogRecord) -> str:
@@ -65,6 +74,7 @@ class StructuredFormatter(logging.Formatter):
 
         try:
             from app.infrastructure.observability.context import get_request_context
+
             ctx = get_request_context()
             request_id = ctx.request_id
             session_id = ctx.session_id
@@ -72,10 +82,10 @@ class StructuredFormatter(logging.Formatter):
             agent_id = ctx.agent_id
         except Exception:
             # Context not available, use record extras
-            request_id = getattr(record, 'request_id', None)
-            session_id = getattr(record, 'session_id', None)
-            user_id = getattr(record, 'user_id', None)
-            agent_id = getattr(record, 'agent_id', None)
+            request_id = getattr(record, "request_id", None)
+            session_id = getattr(record, "session_id", None)
+            user_id = getattr(record, "user_id", None)
+            agent_id = getattr(record, "agent_id", None)
 
         # Build base log entry
         log_entry: dict[str, Any] = {
@@ -116,13 +126,34 @@ class StructuredFormatter(logging.Formatter):
         # Collect any extra fields not in STANDARD_FIELDS
         extra_fields = {}
         for key, value in record.__dict__.items():
-            if (key not in logging.LogRecord.__dict__ and
-                key not in self.STANDARD_FIELDS and
-                key not in {'message', 'msg', 'args', 'exc_info', 'exc_text',
-                            'stack_info', 'created', 'msecs', 'relativeCreated',
-                            'levelno', 'levelname', 'pathname', 'filename',
-                            'module', 'funcName', 'lineno', 'name', 'thread',
-                            'threadName', 'processName', 'process'}):
+            if (
+                key not in logging.LogRecord.__dict__
+                and key not in self.STANDARD_FIELDS
+                and key
+                not in {
+                    "message",
+                    "msg",
+                    "args",
+                    "exc_info",
+                    "exc_text",
+                    "stack_info",
+                    "created",
+                    "msecs",
+                    "relativeCreated",
+                    "levelno",
+                    "levelname",
+                    "pathname",
+                    "filename",
+                    "module",
+                    "funcName",
+                    "lineno",
+                    "name",
+                    "thread",
+                    "threadName",
+                    "processName",
+                    "process",
+                }
+            ):
                 try:
                     # Ensure value is JSON serializable
                     json.dumps(value)
@@ -143,6 +174,7 @@ class RequestContextFilter(logging.Filter):
         """Add request context fields to the log record."""
         try:
             from app.infrastructure.observability.context import get_request_context
+
             ctx = get_request_context()
             record.request_id = ctx.request_id
             record.session_id = ctx.session_id
@@ -150,13 +182,13 @@ class RequestContextFilter(logging.Filter):
             record.agent_id = ctx.agent_id
         except Exception:
             # Context not available
-            if not hasattr(record, 'request_id'):
+            if not hasattr(record, "request_id"):
                 record.request_id = None
-            if not hasattr(record, 'session_id'):
+            if not hasattr(record, "session_id"):
                 record.session_id = None
-            if not hasattr(record, 'user_id'):
+            if not hasattr(record, "user_id"):
                 record.user_id = None
-            if not hasattr(record, 'agent_id'):
+            if not hasattr(record, "agent_id"):
                 record.agent_id = None
 
         return True
@@ -178,9 +210,16 @@ class LogAlertHandler(logging.Handler):
         try:
             message = record.getMessage()
             should_alert = record.levelno >= logging.ERROR
-            if not should_alert and record.levelno == logging.WARNING:
-                if "Stuck pattern detected" in message or "shutdown timed out" in message or "Failed to create task" in message:
-                    should_alert = True
+            if (
+                not should_alert
+                and record.levelno == logging.WARNING
+                and (
+                    "Stuck pattern detected" in message
+                    or "shutdown timed out" in message
+                    or "Failed to create task" in message
+                )
+            ):
+                should_alert = True
 
             if not should_alert:
                 return
@@ -208,13 +247,16 @@ class LogAlertHandler(logging.Handler):
             def _send() -> None:
                 try:
                     with httpx.Client(timeout=self._timeout_seconds) as client:
-                        client.post(self._webhook_url, content=json.dumps(payload), headers={"Content-Type": "application/json"})
+                        client.post(
+                            self._webhook_url, content=json.dumps(payload), headers={"Content-Type": "application/json"}
+                        )
                 except Exception:
                     return
 
             threading.Thread(target=_send, daemon=True).start()
         except Exception:
             return
+
 
 def setup_logging(use_json: bool | None = None):
     """Configure the application logging system.
@@ -249,9 +291,9 @@ def setup_logging(use_json: bool | None = None):
     else:
         # Human-readable format with request ID
         formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - [%(request_id)s] %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S',
-            defaults={'request_id': '-'}
+            "%(asctime)s - %(name)s - %(levelname)s - [%(request_id)s] %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+            defaults={"request_id": "-"},
         )
 
     # Create console handler
@@ -287,9 +329,7 @@ def setup_logging(use_json: bool | None = None):
 
     # Log initialization
     format_type = "JSON structured" if use_json else "human-readable"
-    root_logger.info(
-        f"Logging system initialized - {format_type} format, level={settings.log_level}"
-    )
+    root_logger.info(f"Logging system initialized - {format_type} format, level={settings.log_level}")
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -301,6 +341,5 @@ def get_logger(name: str) -> logging.Logger:
     Returns:
         Configured logger instance
     """
-    logger = logging.getLogger(name)
+    return logging.getLogger(name)
     # Filter is added at handler level, not logger level
-    return logger

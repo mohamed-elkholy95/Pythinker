@@ -24,6 +24,7 @@ class AutonomyLevel(str, Enum):
     AUTONOMOUS: Only requires confirmation for payments and irreversible actions
     UNRESTRICTED: No confirmation required (use with caution)
     """
+
     SUPERVISED = "supervised"
     GUIDED = "guided"
     AUTONOMOUS = "autonomous"
@@ -32,6 +33,7 @@ class AutonomyLevel(str, Enum):
 
 class ActionCategory(str, Enum):
     """Categories of actions for permission checking."""
+
     CREDENTIAL_ACCESS = "credential_access"
     EXTERNAL_REQUEST = "external_request"
     FILE_WRITE = "file_write"
@@ -70,6 +72,7 @@ class PermissionFlags:
     These flags override autonomy level settings when set to False,
     completely disabling certain capabilities regardless of level.
     """
+
     allow_credential_access: bool = True
     allow_external_requests: bool = True
     allow_file_system_write: bool = True
@@ -82,23 +85,27 @@ class PermissionFlags:
 
     # Domain/URL restrictions for external requests
     allowed_domains: set[str] | None = None  # None = all allowed
-    blocked_domains: set[str] = field(default_factory=lambda: {
-        "localhost",
-        "127.0.0.1",
-        "0.0.0.0",
-        "internal",
-    })
+    blocked_domains: set[str] = field(
+        default_factory=lambda: {
+            "localhost",
+            "127.0.0.1",
+            "0.0.0.0",
+            "internal",
+        }
+    )
 
     # Path restrictions for file operations
     allowed_paths: set[str] | None = None  # None = all allowed
-    blocked_paths: set[str] = field(default_factory=lambda: {
-        "/etc",
-        "/var",
-        "/usr",
-        "/root",
-        "/home",
-        "~",
-    })
+    blocked_paths: set[str] = field(
+        default_factory=lambda: {
+            "/etc",
+            "/var",
+            "/usr",
+            "/root",
+            "/home",
+            "~",
+        }
+    )
 
     def is_domain_allowed(self, domain: str) -> bool:
         """Check if a domain is allowed for external requests."""
@@ -119,6 +126,7 @@ class PermissionFlags:
         """Check if a file path is allowed for operations."""
         # Normalize path
         import os
+
         path_normalized = os.path.normpath(os.path.expanduser(path))
 
         # Check blocked list first
@@ -145,6 +153,7 @@ class SafetyLimits:
     These are hard limits that cannot be overridden by autonomy level.
     When any limit is exceeded, the agent pauses for user intervention.
     """
+
     max_iterations: int = 200  # Maximum loop iterations per run (increased for complex tasks)
     max_tool_calls: int = 300  # Maximum tool invocations per run (codebase analysis needs more)
     max_execution_time_seconds: int = 3600  # 60 minutes for complex tasks
@@ -176,9 +185,7 @@ class SafetyLimits:
         """
         self.current_iterations += 1
         if self.current_iterations > self.max_iterations:
-            logger.warning(
-                f"Iteration limit exceeded: {self.current_iterations}/{self.max_iterations}"
-            )
+            logger.warning(f"Iteration limit exceeded: {self.current_iterations}/{self.max_iterations}")
             return False
         return True
 
@@ -191,9 +198,7 @@ class SafetyLimits:
         """
         self.current_tool_calls += count
         if self.current_tool_calls > self.max_tool_calls:
-            logger.warning(
-                f"Tool call limit exceeded: {self.current_tool_calls}/{self.max_tool_calls}"
-            )
+            logger.warning(f"Tool call limit exceeded: {self.current_tool_calls}/{self.max_tool_calls}")
             return False
         return True
 
@@ -206,9 +211,7 @@ class SafetyLimits:
         """
         self.current_tokens += tokens
         if self.current_tokens > self.max_tokens_per_run:
-            logger.warning(
-                f"Token limit exceeded: {self.current_tokens}/{self.max_tokens_per_run}"
-            )
+            logger.warning(f"Token limit exceeded: {self.current_tokens}/{self.max_tokens_per_run}")
             return False
         return True
 
@@ -221,9 +224,7 @@ class SafetyLimits:
         """
         self.current_cost += cost
         if self.max_cost_usd is not None and self.current_cost > self.max_cost_usd:
-            logger.warning(
-                f"Cost limit exceeded: ${self.current_cost:.4f}/${self.max_cost_usd:.4f}"
-            )
+            logger.warning(f"Cost limit exceeded: ${self.current_cost:.4f}/${self.max_cost_usd:.4f}")
             return False
         return True
 
@@ -239,9 +240,7 @@ class SafetyLimits:
 
         elapsed = (datetime.now() - self.start_time).total_seconds()
         if elapsed > self.max_execution_time_seconds:
-            logger.warning(
-                f"Time limit exceeded: {elapsed:.0f}s/{self.max_execution_time_seconds}s"
-            )
+            logger.warning(f"Time limit exceeded: {elapsed:.0f}s/{self.max_execution_time_seconds}s")
             return False
         return True
 
@@ -280,16 +279,14 @@ class SafetyLimits:
             "tool_calls": self.max_tool_calls - self.current_tool_calls,
             "tokens": self.max_tokens_per_run - self.current_tokens,
             "time_seconds": max(0, self.max_execution_time_seconds - elapsed),
-            "cost_usd": (
-                self.max_cost_usd - self.current_cost
-                if self.max_cost_usd else None
-            ),
+            "cost_usd": (self.max_cost_usd - self.current_cost if self.max_cost_usd else None),
         }
 
 
 @dataclass
 class ApprovalRequest:
     """Request for user approval of an action."""
+
     action_category: ActionCategory
     action_description: str
     tool_name: str | None = None
@@ -425,9 +422,7 @@ class AutonomyConfig:
         """
         # Check if action is allowed at all
         if not self.is_action_allowed(action_category):
-            logger.warning(
-                f"Action blocked by permissions: {action_category.value} - {action_description}"
-            )
+            logger.warning(f"Action blocked by permissions: {action_category.value} - {action_description}")
             return False
 
         # Check if approval is required
@@ -459,9 +454,7 @@ class AutonomyConfig:
 
         # No callback - add to pending and block
         self._pending_approvals.append(request)
-        logger.warning(
-            f"Action requires approval but no callback set: {action_description}"
-        )
+        logger.warning(f"Action requires approval but no callback set: {action_description}")
         return False
 
     def categorize_tool(self, tool_name: str) -> ActionCategory:

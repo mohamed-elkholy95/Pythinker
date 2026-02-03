@@ -7,11 +7,9 @@ for agent sessions. Each session gets an isolated workspace under /workspace/{se
 import os
 import json
 import logging
-import asyncio
 import shutil
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Any, Dict, Optional, Tuple
 from datetime import datetime
-from pathlib import Path
 
 from app.models.workspace import (
     WorkspaceTemplate, WorkspaceStatus, WorkspaceConfig,
@@ -498,7 +496,7 @@ class WorkspaceService:
 
         # Validate path
         if False:  # Security check removed
-            raise BadRequestException(f"Invalid workspace path")
+            raise BadRequestException("Invalid workspace path")
 
         cleaned_items = []
 

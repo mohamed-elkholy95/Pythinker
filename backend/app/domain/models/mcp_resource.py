@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 class ResourceType(str, Enum):
     """Type of resource content."""
+
     TEXT = "text"
     BLOB = "blob"
 
@@ -30,6 +31,7 @@ class MCPResource(BaseModel):
     Represents a resource that can be read through the MCP protocol.
     Resources are identified by URIs and can contain text or binary content.
     """
+
     uri: str = Field(description="Unique identifier for the resource (URI format)")
     name: str = Field(description="Human-readable name for the resource")
     description: str | None = Field(default=None, description="Description of the resource")
@@ -47,6 +49,7 @@ class MCPResourceContent(BaseModel):
 
     Contains the actual data from a resource read operation.
     """
+
     uri: str = Field(description="URI of the resource that was read")
     resource_type: ResourceType = Field(description="Type of content (text or blob)")
     text: str | None = Field(default=None, description="Text content if resource_type is text")
@@ -70,6 +73,7 @@ class ResourceTemplate(BaseModel):
     Templates allow dynamic resource generation based on parameters.
     For example: "file://{path}" or "db://users/{user_id}"
     """
+
     uri_template: str = Field(description="URI template with placeholders")
     name: str = Field(description="Human-readable name for the template")
     description: str | None = Field(default=None, description="Description of the template")
@@ -82,6 +86,7 @@ class ResourceSubscription(BaseModel):
 
     Allows clients to receive notifications when resources change.
     """
+
     uri: str = Field(description="URI of the subscribed resource")
     server_name: str = Field(description="MCP server providing the resource")
     subscribed_at: datetime = Field(default_factory=datetime.now)
@@ -90,6 +95,7 @@ class ResourceSubscription(BaseModel):
 
 class ResourceListResult(BaseModel):
     """Result of listing resources from MCP servers."""
+
     resources: list[MCPResource] = Field(default_factory=list)
     templates: list[ResourceTemplate] = Field(default_factory=list)
     total_count: int = Field(default=0)
@@ -99,6 +105,7 @@ class ResourceListResult(BaseModel):
 
 class ResourceReadResult(BaseModel):
     """Result of reading a resource."""
+
     success: bool = Field(description="Whether the read was successful")
     content: MCPResourceContent | None = Field(default=None)
     error: str | None = Field(default=None, description="Error message if read failed")

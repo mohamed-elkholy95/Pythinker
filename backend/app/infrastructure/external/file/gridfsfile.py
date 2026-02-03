@@ -21,7 +21,7 @@ class GridFSFileStorage(FileStorage):
     def __init__(self, mongodb: MongoDB, bucket_name: str = "fs"):
         """
         Initialize GridFS file storage
-        
+
         Args:
             mongodb: MongoDB connection instance
             bucket_name: GridFS bucket name, default is 'fs'
@@ -49,15 +49,15 @@ class GridFSFileStorage(FileStorage):
 
     def _create_file_info(self, file_info: dict[str, Any], file_id: str) -> FileInfo:
         """Create FileInfo object from GridFS file metadata"""
-        metadata = file_info.get('metadata', {})
+        metadata = file_info.get("metadata", {})
         return FileInfo(
-            file_id=str(file_info['_id']),
-            filename=file_info.get('filename', f"file_{file_id}"),
-            content_type=metadata.get('contentType'),
-            size=file_info.get('length', 0),
-            upload_date=file_info.get('uploadDate', datetime.utcnow()),
+            file_id=str(file_info["_id"]),
+            filename=file_info.get("filename", f"file_{file_id}"),
+            content_type=metadata.get("contentType"),
+            size=file_info.get("length", 0),
+            upload_date=file_info.get("uploadDate", datetime.utcnow()),
             metadata=metadata,
-            user_id=metadata.get('user_id', '')  # Get user_id from metadata
+            user_id=metadata.get("user_id", ""),  # Get user_id from metadata
         )
 
     async def upload_file(
@@ -66,7 +66,7 @@ class GridFSFileStorage(FileStorage):
         filename: str,
         user_id: str,
         content_type: str | None = None,
-        metadata: dict[str, Any] | None = None
+        metadata: dict[str, Any] | None = None,
     ) -> FileInfo:
         """Upload file to GridFS"""
         try:
@@ -74,26 +74,22 @@ class GridFSFileStorage(FileStorage):
 
             # Prepare metadata
             file_metadata = {
-                'filename': filename,
-                'uploadDate': datetime.utcnow(),
-                'user_id': user_id,  # Store user_id in metadata
-                **(metadata or {})
+                "filename": filename,
+                "uploadDate": datetime.utcnow(),
+                "user_id": user_id,  # Store user_id in metadata
+                **(metadata or {}),
             }
 
             if content_type:
-                file_metadata['contentType'] = content_type
+                file_metadata["contentType"] = content_type
 
             # Upload directly from file stream to avoid loading entire file into memory
-            file_id = await bucket.upload_from_stream(
-                filename,
-                file_data,
-                metadata=file_metadata
-            )
+            file_id = await bucket.upload_from_stream(filename, file_data, metadata=file_metadata)
 
             # Get file size (can be retrieved from GridFS if needed)
             files_collection = self._get_files_collection()
             file_info = await files_collection.find_one({"_id": file_id})
-            file_size = file_info.get('length', 0) if file_info else 0
+            file_size = file_info.get("length", 0) if file_info else 0
 
             logger.info(f"File uploaded successfully: {filename} (ID: {file_id}) for user {user_id}")
 
@@ -102,9 +98,9 @@ class GridFSFileStorage(FileStorage):
                 filename=filename,
                 size=file_size,
                 content_type=content_type,
-                upload_date=file_metadata['uploadDate'],
+                upload_date=file_metadata["uploadDate"],
                 metadata=file_metadata,
-                user_id=user_id
+                user_id=user_id,
             )
 
         except Exception as e:
@@ -120,8 +116,8 @@ class GridFSFileStorage(FileStorage):
             # Convert ObjectId
             try:
                 obj_id = ObjectId(file_id)
-            except Exception:
-                raise ValueError(f"Invalid file ID format: {file_id}")
+            except Exception as e:
+                raise ValueError(f"Invalid file ID format: {file_id}") from e
 
             # Get file information and check user ownership
             file_info = await files_collection.find_one({"_id": obj_id})
@@ -130,7 +126,7 @@ class GridFSFileStorage(FileStorage):
 
             # Check if file belongs to the user (skip check if user_id is None)
             if user_id is not None:
-                file_user_id = file_info.get('metadata', {}).get('user_id')
+                file_user_id = file_info.get("metadata", {}).get("user_id")
                 if file_user_id != user_id:
                     raise PermissionError(f"Access denied: file {file_id} does not belong to user {user_id}")
             stream = io.BytesIO()
@@ -138,8 +134,6 @@ class GridFSFileStorage(FileStorage):
             stream.seek(0)
             return stream, self._create_file_info(file_info, file_id)
 
-        except FileNotFoundError:
-            raise
         except (FileNotFoundError, PermissionError):
             raise
         except Exception as e:
@@ -155,8 +149,8 @@ class GridFSFileStorage(FileStorage):
             # Convert ObjectId
             try:
                 obj_id = ObjectId(file_id)
-            except Exception:
-                raise ValueError(f"Invalid file ID format: {file_id}")
+            except Exception as e:
+                raise ValueError(f"Invalid file ID format: {file_id}") from e
 
             # Check if file exists and belongs to user
             file_info = await files_collection.find_one({"_id": obj_id})
@@ -164,7 +158,7 @@ class GridFSFileStorage(FileStorage):
                 return False
 
             # Check if file belongs to the user
-            file_user_id = file_info.get('metadata', {}).get('user_id')
+            file_user_id = file_info.get("metadata", {}).get("user_id")
             if file_user_id != user_id:
                 logger.warning(f"Delete access denied: file {file_id} does not belong to user {user_id}")
                 return False
@@ -186,8 +180,8 @@ class GridFSFileStorage(FileStorage):
             # Convert ObjectId
             try:
                 obj_id = ObjectId(file_id)
-            except Exception:
-                raise ValueError(f"Invalid file ID format: {file_id}")
+            except Exception as e:
+                raise ValueError(f"Invalid file ID format: {file_id}") from e
 
             # Get file information and check user ownership
             file_info = await files_collection.find_one({"_id": obj_id})
@@ -195,7 +189,7 @@ class GridFSFileStorage(FileStorage):
                 return None
 
             # Check if file belongs to the user
-            file_user_id = file_info.get('metadata', {}).get('user_id')
+            file_user_id = file_info.get("metadata", {}).get("user_id")
             if user_id is not None and file_user_id != user_id:
                 logger.warning(f"Access denied: file {file_id} does not belong to user {user_id}")
                 return None
@@ -206,8 +200,10 @@ class GridFSFileStorage(FileStorage):
             logger.error(f"Failed to get file info {file_id} for user {user_id}: {e!s}")
             return None
 
+
 @lru_cache
 def get_file_storage() -> FileStorage:
     """Get file storage instance"""
     from app.infrastructure.storage.mongodb import get_mongodb
+
     return GridFSFileStorage(mongodb=get_mongodb())

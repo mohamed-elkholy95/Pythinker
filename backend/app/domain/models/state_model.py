@@ -10,6 +10,7 @@ from enum import Enum
 
 class AgentStatus(str, Enum):
     """Agent status states for the PlanActFlow."""
+
     IDLE = "idle"
     PLANNING = "planning"
     VERIFYING = "verifying"
@@ -68,12 +69,7 @@ VALID_TRANSITIONS: dict[AgentStatus, list[AgentStatus]] = {
 class StateTransitionError(Exception):
     """Raised when an invalid state transition is attempted."""
 
-    def __init__(
-        self,
-        from_status: AgentStatus,
-        to_status: AgentStatus,
-        message: str | None = None
-    ):
+    def __init__(self, from_status: AgentStatus, to_status: AgentStatus, message: str | None = None):
         self.from_status = from_status
         self.to_status = to_status
         if message:
@@ -159,12 +155,7 @@ class StatusTransitionGuard:
             # Auto-validates transition and handles errors
     """
 
-    def __init__(
-        self,
-        flow,
-        target_status: AgentStatus,
-        validate: bool = True
-    ):
+    def __init__(self, flow, target_status: AgentStatus, validate: bool = True):
         self.flow = flow
         self.target_status = target_status
         self.validate = validate

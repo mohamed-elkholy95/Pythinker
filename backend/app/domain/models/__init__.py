@@ -3,6 +3,8 @@ from .event import (
     BaseEvent,
     BudgetEvent,
     MultiTaskEvent,
+    SkillDeliveryEvent,
+    SkillPackageFileData,
     WorkspaceEvent,
 )
 from .multi_task import (
@@ -15,6 +17,8 @@ from .multi_task import (
 )
 from .search import SearchResultItem as SearchResultItem
 from .search import SearchResults as SearchResults
+from .skill import Skill, SkillCategory, SkillSource, UserSkillConfig
+from .skill_package import SkillPackage, SkillPackageFile, SkillPackageMetadata
 from .usage import SessionMetrics
 
 __all__ = [
@@ -28,8 +32,17 @@ __all__ = [
     "SearchResultItem",
     "SearchResults",
     "SessionMetrics",
+    "Skill",
+    "SkillCategory",
+    "SkillDeliveryEvent",
+    "SkillPackage",
+    "SkillPackageFile",
+    "SkillPackageFileData",
+    "SkillPackageMetadata",
+    "SkillSource",
     "TaskDefinition",
     "TaskResult",
     "TaskStatus",
+    "UserSkillConfig",
     "WorkspaceEvent",
 ]

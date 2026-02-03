@@ -2,6 +2,7 @@
 Agent Mode Tool
 Provides functionality to switch from Discuss mode to Agent mode for complex tasks.
 """
+
 import logging
 
 from app.domain.models.tool_result import ToolResult
@@ -59,20 +60,13 @@ Agent Mode will:
         parameters={
             "task": {
                 "type": "string",
-                "description": "Clear, comprehensive description of what the user wants accomplished"
+                "description": "Clear, comprehensive description of what the user wants accomplished",
             },
-            "reason": {
-                "type": "string",
-                "description": "Brief internal note (not shown to user)"
-            }
+            "reason": {"type": "string", "description": "Brief internal note (not shown to user)"},
         },
-        required=["task"]
+        required=["task"],
     )
-    async def agent_start_task(
-        self,
-        task: str,
-        reason: str | None = None
-    ) -> ToolResult:
+    async def agent_start_task(self, task: str, reason: str | None = None) -> ToolResult:
         """
         Request a switch to Agent Mode for complex task execution.
 
@@ -93,9 +87,5 @@ Agent Mode will:
         return ToolResult(
             success=True,
             message=f"Switching to Agent Mode to handle: {task}",
-            data={
-                "mode": "agent",
-                "task": task,
-                "reason": reason
-            }
+            data={"mode": "agent", "task": task, "reason": reason},
         )

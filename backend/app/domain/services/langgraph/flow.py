@@ -2,14 +2,20 @@
 
 This module provides the LangGraphPlanActFlow class that wraps the LangGraph
 workflow in a BaseFlow-compatible interface.
+
+Phase 3 Enhancement: SSE Streaming v2
+- Added support for LangGraph astream_events(version="v2") API
+- Improved disconnect handling and event streaming
 """
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
 from app.core.config import get_settings
+from app.domain.models.event import StreamEvent, ToolEvent
 from app.domain.external.browser import Browser
 from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
@@ -47,6 +53,9 @@ try:
 except ImportError:
     BrowserAgentTool = None
     BROWSER_USE_AVAILABLE = False
+
+# P1.2: Maximum size for the event queue to prevent unbounded memory growth
+MAX_EVENT_QUEUE_SIZE = 1000
 
 logger = logging.getLogger(__name__)
 
@@ -117,11 +126,12 @@ class LangGraphPlanActFlow(BaseFlow):
             CodeExecutorTool(sandbox=sandbox, session_id=session_id),
             MessageTool(),
             IdleTool(),
-            mcp_tool
+            mcp_tool,
         ]
 
+        # Pass browser to SearchTool for visual search when search_prefer_browser is enabled
         if search_engine:
-            tools.append(SearchTool(search_engine))
+            tools.append(SearchTool(search_engine, browser=browser))
 
         settings = get_settings()
         if cdp_url and settings.browser_agent_enabled and BROWSER_USE_AVAILABLE and BrowserAgentTool:
@@ -167,7 +177,7 @@ class LangGraphPlanActFlow(BaseFlow):
                     skip_simple_plans=True,
                     simple_plan_max_steps=2,
                     max_revision_loops=2,
-                )
+                ),
             )
             logger.info(f"VerifierAgent enabled for Agent {agent_id}")
 
@@ -181,12 +191,14 @@ class LangGraphPlanActFlow(BaseFlow):
                     enabled=True,
                     max_reflections_per_task=10,
                     min_steps_between_reflections=1,
-                )
+                ),
             )
             logger.info(f"ReflectionAgent enabled for Agent {agent_id}")
 
         # Task state manager
         self._task_state_manager = TaskStateManager(sandbox)
+        self.planner._task_state_manager = self._task_state_manager
+        self.executor._task_state_manager = self._task_state_manager
 
         # Create checkpointer if enabled
         checkpointer = None
@@ -208,21 +220,24 @@ class LangGraphPlanActFlow(BaseFlow):
 
         Yields:
             Events from workflow execution (streamed in real-time)
+
+        Phase 3 Enhancement: SSE Streaming v2
+        When feature_sse_v2 is enabled, uses LangGraph's astream_events(version="v2")
+        API for improved token-level streaming and better event handling.
         """
         tracer = get_tracer()
+        settings = get_settings()
 
         # Handle session state
         session = await self._session_repository.find_by_id(self._session_id)
         if not session:
             raise ValueError(f"Session {self._session_id} not found")
 
-        await self._session_repository.update_status(
-            self._session_id,
-            SessionStatus.RUNNING
-        )
+        await self._session_repository.update_status(self._session_id, SessionStatus.RUNNING)
 
         # Create event queue for real-time streaming
-        event_queue: asyncio.Queue[BaseEvent | None] = asyncio.Queue()
+        # P1.2: Limit queue size to prevent unbounded memory growth
+        event_queue: asyncio.Queue[BaseEvent | None] = asyncio.Queue(maxsize=MAX_EVENT_QUEUE_SIZE)
 
         # Create initial state with event queue for real-time streaming
         initial_state = create_initial_state(
@@ -246,6 +261,9 @@ class LangGraphPlanActFlow(BaseFlow):
             }
         }
 
+        # Phase 3: Choose streaming method based on feature flag
+        use_sse_v2 = settings.feature_sse_v2
+
         async def run_graph():
             """Run the graph and signal completion via queue."""
             try:
@@ -253,17 +271,60 @@ class LangGraphPlanActFlow(BaseFlow):
                     "langgraph-plan-act",
                     agent_id=self._agent_id,
                     session_id=self._session_id,
-                    attributes={"message.preview": message.message[:100]}
+                    attributes={"message.preview": message.message[:100]},
                 ):
-                    async for chunk in self._graph.astream(initial_state, config):
-                        # Each chunk is a dict with node_name -> state_update
-                        for node_name, state_update in chunk.items():
-                            logger.debug(f"LangGraph node completed: {node_name}")
+                    if use_sse_v2:
+                        # Phase 3: Use astream_events v2 for token-level streaming
+                        async for event in self._graph.astream_events(initial_state, config, version="v2"):
+                            event_type = event.get("event", "")
 
-                            # Also yield any batched pending_events (fallback)
-                            pending_events = state_update.get("pending_events", [])
-                            for event in pending_events:
-                                await event_queue.put(event)
+                            # Handle token streaming from chat models
+                            if event_type == "on_chat_model_stream":
+                                chunk_data = event.get("data", {})
+                                chunk = chunk_data.get("chunk")
+                                if chunk and hasattr(chunk, "content") and chunk.content:
+                                    await event_queue.put(
+                                        StreamEvent(content=chunk.content, is_final=False)
+                                    )
+
+                            # Handle tool start events
+                            elif event_type == "on_tool_start":
+                                tool_name = event.get("name", "unknown")
+                                await event_queue.put(
+                                    ToolEvent(name=tool_name, status="started")
+                                )
+
+                            # Handle tool end events
+                            elif event_type == "on_tool_end":
+                                tool_name = event.get("name", "unknown")
+                                tool_output = event.get("data", {}).get("output")
+                                await event_queue.put(
+                                    ToolEvent(
+                                        name=tool_name,
+                                        status="completed",
+                                        result=str(tool_output)[:500] if tool_output else None,
+                                    )
+                                )
+
+                            # Handle chain/node end events for pending_events
+                            elif event_type == "on_chain_end":
+                                output = event.get("data", {}).get("output", {})
+                                if isinstance(output, dict):
+                                    pending_events = output.get("pending_events", [])
+                                    for evt in pending_events:
+                                        await event_queue.put(evt)
+
+                    else:
+                        # Original streaming method
+                        async for chunk in self._graph.astream(initial_state, config):
+                            # Each chunk is a dict with node_name -> state_update
+                            for node_name, state_update in chunk.items():
+                                logger.debug(f"LangGraph node completed: {node_name}")
+
+                                # Also yield any batched pending_events (fallback)
+                                pending_events = state_update.get("pending_events", [])
+                                for event in pending_events:
+                                    await event_queue.put(event)
             except Exception as e:
                 logger.error(f"Graph execution error: {e}")
             finally:
@@ -284,10 +345,8 @@ class LangGraphPlanActFlow(BaseFlow):
             # Ensure graph task completes
             if not graph_task.done():
                 graph_task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await graph_task
-                except asyncio.CancelledError:
-                    pass
 
         logger.info(f"LangGraphPlanActFlow completed for Agent {self._agent_id}")
 

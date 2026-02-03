@@ -6,11 +6,14 @@ from typing import Any
 
 from app.domain.utils.json_parser import JsonParser
 from app.infrastructure.external.llm.openai_llm import OpenAILLM
+from app.infrastructure.observability.prometheus_metrics import record_error
 
 logger = logging.getLogger(__name__)
 
+
 class ParseStrategy(Enum):
     """JSON parsing strategy enumeration"""
+
     DIRECT = "direct"
     CHANNEL_MARKERS = "channel_markers"
     MARKDOWN_BLOCK = "markdown_block"
@@ -32,7 +35,7 @@ class LLMJsonParser(JsonParser):
             self._try_direct_parse,
             self._try_channel_markers_parse,
             self._try_markdown_block_parse,
-            #self._try_regex_extract,
+            # self._try_regex_extract,
             self._try_cleanup_and_parse,
             self._try_llm_extract_and_fix,
         ]
@@ -76,8 +79,12 @@ class LLMJsonParser(JsonParser):
         # If all strategies fail
         if default_value is not None:
             logger.warning("All parsing strategies failed, returning default value")
+            # Record JSON parse failure in Prometheus metrics
+            record_error("json_parse", "llm_json_parser")
             return default_value
 
+        # Record JSON parse failure in Prometheus metrics before raising
+        record_error("json_parse", "llm_json_parser")
         raise ValueError(f"Failed to parse JSON from LLM output: {text[:1000]}...")
 
     async def _try_direct_parse(self, text: str) -> Any | None:
@@ -91,17 +98,17 @@ class LLMJsonParser(JsonParser):
         <|channel|>analysis<|message|>...<|end|><|start|>assistant<|channel|>final<|message|>{json}
         """
         # Check if text contains channel markers
-        if '<|channel|>' not in text and '<|message|>' not in text:
+        if "<|channel|>" not in text and "<|message|>" not in text:
             return None
 
         # Try to extract content after final channel marker
         patterns = [
             # Match content after <|channel|>final<|message|>
-            r'<\|channel\|>final<\|message\|>(.+?)(?:<\|end\|>|$)',
+            r"<\|channel\|>final<\|message\|>(.+?)(?:<\|end\|>|$)",
             # Match content after last <|message|>
-            r'<\|message\|>([^<]+)(?:<\|end\|>|$)',
+            r"<\|message\|>([^<]+)(?:<\|end\|>|$)",
             # Match any JSON object in the text after stripping markers
-            r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}',
+            r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}",
         ]
 
         for pattern in patterns:
@@ -111,11 +118,11 @@ class LLMJsonParser(JsonParser):
                 # Try to find and parse JSON in the content
                 try:
                     # Direct parse if it looks like JSON
-                    if content.startswith('{') or content.startswith('['):
+                    if content.startswith("{") or content.startswith("["):
                         return json.loads(content)
                 except json.JSONDecodeError:
                     # Try to extract JSON object from the content
-                    json_match = re.search(r'(\{.*\}|\[.*\])', content, re.DOTALL)
+                    json_match = re.search(r"(\{.*\}|\[.*\])", content, re.DOTALL)
                     if json_match:
                         try:
                             return json.loads(json_match.group(1))
@@ -123,9 +130,9 @@ class LLMJsonParser(JsonParser):
                             continue
 
         # Fallback: strip all channel markers and try to find JSON
-        stripped = re.sub(r'<\|[^|]+\|>[^<]*', '', text)
-        stripped = re.sub(r'<\|[^|]+\|>', '', stripped)
-        json_match = re.search(r'(\{.*\}|\[.*\])', stripped, re.DOTALL)
+        stripped = re.sub(r"<\|[^|]+\|>[^<]*", "", text)
+        stripped = re.sub(r"<\|[^|]+\|>", "", stripped)
+        json_match = re.search(r"(\{.*\}|\[.*\])", stripped, re.DOTALL)
         if json_match:
             try:
                 return json.loads(json_match.group(1))
@@ -138,9 +145,9 @@ class LLMJsonParser(JsonParser):
         """Extract and parse JSON from markdown code blocks"""
         # Pattern to match JSON in markdown code blocks
         patterns = [
-            r'```json\s*\n(.*?)\n```',
-            r'```\s*\n(.*?)\n```',
-            r'`([^`]*)`',
+            r"```json\s*\n(.*?)\n```",
+            r"```\s*\n(.*?)\n```",
+            r"`([^`]*)`",
         ]
 
         for pattern in patterns:
@@ -157,8 +164,8 @@ class LLMJsonParser(JsonParser):
         """Extract JSON using regex patterns"""
         # Look for JSON object patterns
         json_patterns = [
-            r'\{.*\}',  # Object
-            r'\[.*\]',  # Array
+            r"\{.*\}",  # Object
+            r"\[.*\]",  # Array
         ]
 
         for pattern in json_patterns:
@@ -182,12 +189,12 @@ class LLMJsonParser(JsonParser):
         # Remove prefixes
         for prefix in prefixes:
             if cleaned.lower().startswith(prefix.lower()):
-                cleaned = cleaned[len(prefix):].strip()
+                cleaned = cleaned[len(prefix) :].strip()
 
         # Remove suffixes
         for suffix in suffixes:
             if cleaned.endswith(suffix):
-                cleaned = cleaned[:-len(suffix)].strip()
+                cleaned = cleaned[: -len(suffix)].strip()
 
         # Fix common JSON formatting issues
         cleaned = self._fix_json_formatting(cleaned)
@@ -201,8 +208,7 @@ class LLMJsonParser(JsonParser):
         """Use LLM to extract and fix JSON from the text"""
         try:
             # Run async LLM call in event loop
-            result = await self._llm_extract_and_fix_async(text)
-            return result
+            return await self._llm_extract_and_fix_async(text)
         except Exception as e:
             logger.warning(f"LLM extract and fix failed: {e!s}")
             return None
@@ -223,18 +229,10 @@ Requirements:
 
 JSON:"""
 
-        messages = [
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
+        messages = [{"role": "user", "content": prompt}]
 
         try:
-            response = await self.llm.ask(
-                messages=messages,
-                response_format={"type": "json_object"}
-            )
+            response = await self.llm.ask(messages=messages, response_format={"type": "json_object"})
 
             content = response.get("content", "").strip()
             if content and content != "null":
@@ -252,10 +250,10 @@ JSON:"""
         text = re.sub(r"(?<!\\)'([^']*?)(?<!\\)'", r'"\1"', text)
 
         # Fix trailing commas
-        text = re.sub(r',(\s*[}\]])', r'\1', text)
+        text = re.sub(r",(\s*[}\]])", r"\1", text)
 
         # Fix missing quotes around keys
-        text = re.sub(r'(\w+):', r'"\1":', text)
+        text = re.sub(r"(\w+):", r'"\1":', text)
 
         # Fix unescaped double quotes in string values
         # This handles cases like: "key": "value with " unescaped quotes"
@@ -286,9 +284,7 @@ JSON:"""
 
         # Pattern to match string values in arrays: "content with potential " quotes"
         # Look for quotes that are preceded by [ or , (with optional whitespace) and followed by , or ] (with optional whitespace)
-        text = re.sub(r'(?<=[\[,]\s*)(".*?)"(?=\s*[,\]])', fix_unescaped_quotes_in_array_values, text)
-
-        return text
+        return re.sub(r'(?<=[\[,]\s*)(".*?)"(?=\s*[,\]])', fix_unescaped_quotes_in_array_values, text)
 
     def _strip_thinking_tags(self, text: str) -> str:
         """Strip Qwen3 <think>...</think> reasoning tags from output.
@@ -297,10 +293,10 @@ JSON:"""
         before the actual response. This removes those tags to expose the JSON.
         """
         # Remove <think>...</think> blocks (including multiline)
-        stripped = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+        stripped = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
 
         # Also handle unclosed <think> tags (model might have been cut off)
-        stripped = re.sub(r'<think>.*$', '', stripped, flags=re.DOTALL | re.IGNORECASE)
+        stripped = re.sub(r"<think>.*$", "", stripped, flags=re.DOTALL | re.IGNORECASE)
 
         # Clean up any leading/trailing whitespace
         stripped = stripped.strip()

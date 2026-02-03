@@ -1,10 +1,10 @@
 import asyncio
 import logging
 import uuid
-from abc import ABC
 from collections.abc import AsyncGenerator
 from typing import Any
 
+from app.core.config import get_feature_flags
 from app.domain.external.llm import LLM
 from app.domain.models.agent import Agent
 from app.domain.models.event import (
@@ -19,7 +19,7 @@ from app.domain.models.event import (
 from app.domain.models.message import Message
 from app.domain.models.tool_result import ToolResult
 from app.domain.repositories.agent_repository import AgentRepository
-from app.domain.services.agents.error_handler import ErrorHandler, ErrorType, TokenLimitExceeded
+from app.domain.services.agents.error_handler import ErrorHandler, ErrorType, TokenLimitExceededError
 from app.domain.services.agents.hallucination_detector import ToolHallucinationDetector
 from app.domain.services.agents.security_assessor import ActionSecurityRisk, SecurityAssessor
 from app.domain.services.agents.stuck_detector import StuckDetector
@@ -28,6 +28,7 @@ from app.domain.services.tools.base import BaseTool
 from app.domain.services.tools.command_formatter import CommandFormatter
 from app.domain.services.tools.dynamic_toolset import get_toolset_manager
 from app.domain.services.tools.tool_profiler import get_tool_profiler
+from app.domain.services.tools.tool_tracing import get_tool_tracer
 from app.domain.utils.json_parser import JsonParser
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,7 @@ SAFE_MCP_PREFIXES = {"mcp_get_", "mcp_list_", "mcp_search_", "mcp_read_", "mcp_f
 MAX_CONCURRENT_TOOLS = 5
 
 
-class BaseAgent(ABC):
+class BaseAgent:
     """
     Base agent class, defining the basic behavior of the agent
     """
@@ -83,14 +84,17 @@ class BaseAgent(ABC):
         agent_repository: AgentRepository,
         llm: LLM,
         json_parser: JsonParser,
-        tools: list[BaseTool] = [],
+        tools: list[BaseTool] | None = None,
     ):
+        if tools is None:
+            tools = []
         self._agent_id = agent_id
         self._repository = agent_repository
         self.llm = llm
         self.json_parser = json_parser
         self.tools = tools
         self.memory = None
+        self._background_tasks: set[asyncio.Task] = set()
 
         # Initialize reliability components
         self._stuck_detector = StuckDetector(window_size=5, threshold=3)
@@ -249,7 +253,24 @@ class BaseAgent(ABC):
         import time
 
         profiler = get_tool_profiler()
+        tool_tracer = None
+        flags = get_feature_flags()
+        if flags.get("tool_tracing"):
+            tool_tracer = get_tool_tracer()
         start_time = time.perf_counter()
+
+        # Log tool invocation with parameter preview
+        logger.info(
+            "Tool invocation started",
+            extra={
+                "function_name": function_name,
+                "tool_name": tool.name,
+                "argument_keys": list(arguments.keys()),
+                "argument_preview": self._truncate_args_for_logging(arguments, max_len=100),
+                "session_id": getattr(self, "_session_id", None),
+                "agent_id": getattr(self, "_agent_id", None),
+            },
+        )
 
         # Security assessment before execution (skip for user-confirmed actions)
         if not skip_security:
@@ -279,6 +300,14 @@ class BaseAgent(ABC):
                     error=result.message if result and not result.success else None,
                 )
 
+                if tool_tracer:
+                    tool_tracer.trace_execution(
+                        tool_name=function_name,
+                        arguments=arguments,
+                        result=result,
+                        duration_ms=duration_ms,
+                    )
+
                 # Record for dynamic toolset prioritization
                 self._record_tool_usage(
                     function_name, success=result.success if result else False, duration_ms=duration_ms
@@ -293,6 +322,24 @@ class BaseAgent(ABC):
                     result=result_preview,
                     error=result.message if result and not result.success else None,
                 )
+
+                # Record action for reflection context (best-effort)
+                try:
+                    from app.domain.services.agents.task_state_manager import get_task_state_manager
+
+                    task_state_manager = getattr(self, "_task_state_manager", None) or get_task_state_manager()
+                    task_state_manager.record_action(
+                        function_name=function_name,
+                        success=result.success if result else False,
+                        result=result.data
+                        if result and result.data is not None
+                        else result.message
+                        if result
+                        else None,
+                        error=result.message if result and not result.success else None,
+                    )
+                except Exception:
+                    pass
 
                 return result
             except Exception as e:
@@ -311,6 +358,15 @@ class BaseAgent(ABC):
             tool_name=function_name, duration_ms=duration_ms, success=False, error=last_error[:200]
         )
 
+        if tool_tracer:
+            tool_tracer.trace_execution(
+                tool_name=function_name,
+                arguments=arguments,
+                result=None,
+                duration_ms=duration_ms,
+                error=last_error[:200],
+            )
+
         # Track failed action for stuck detection
         self._stuck_detector.track_tool_action(
             tool_name=function_name,
@@ -319,7 +375,31 @@ class BaseAgent(ABC):
             error=last_error[:200],
         )
 
+        try:
+            from app.domain.services.agents.task_state_manager import get_task_state_manager
+
+            task_state_manager = getattr(self, "_task_state_manager", None) or get_task_state_manager()
+            task_state_manager.record_action(
+                function_name=function_name,
+                success=False,
+                result=None,
+                error=last_error[:200],
+            )
+        except Exception:
+            pass
+
         return ToolResult(success=False, message=last_error)
+
+    def _truncate_args_for_logging(self, arguments: dict[str, Any], max_len: int = 100) -> dict[str, str]:
+        """Truncate large argument values for logging to prevent log bloat."""
+        truncated = {}
+        for key, value in arguments.items():
+            str_value = str(value)
+            if len(str_value) > max_len:
+                truncated[key] = f"{str_value[:max_len]}... (truncated, {len(str_value)} chars total)"
+            else:
+                truncated[key] = str_value
+        return truncated
 
     def _can_parallelize_tools(self, tool_calls: list[dict]) -> bool:
         """Check if all tool calls in the list can be executed in parallel.
@@ -512,7 +592,7 @@ class BaseAgent(ABC):
 
                 # Process results and emit CALLED events
                 for (tool_call, tool_call_id, function_args, tool, security_assessment), result in zip(
-                    parsed_calls, results
+                    parsed_calls, results, strict=False
                 ):
                     function_name = tool_call["function"]["name"]
                     if isinstance(result, Exception):
@@ -701,7 +781,7 @@ class BaseAgent(ABC):
         if format:
             response_format = {"type": format}
 
-        for retry in range(self.max_retries):
+        for _retry in range(self.max_retries):
             try:
                 message = await self.llm.ask(
                     self.memory.get_messages(),
@@ -709,7 +789,7 @@ class BaseAgent(ABC):
                     response_format=response_format,
                     tool_choice=self.tool_choice,
                 )
-            except TokenLimitExceeded as e:
+            except TokenLimitExceededError as e:
                 logger.warning(f"Token limit exceeded, trimming context: {e}")
                 await self._handle_token_limit_exceeded()
                 continue
@@ -746,14 +826,26 @@ class BaseAgent(ABC):
                 logger.warning(f"Unknown message role: {message.get('role')}")
                 filtered_message = message
 
-            # Track response for stuck detection (response-level)
-            is_response_stuck = self._stuck_detector.track_response(filtered_message)
+            # Track response for stuck detection (response-level) (Phase 4 P1: with confidence)
+            is_response_stuck, confidence = self._stuck_detector.track_response(filtered_message)
 
             # Also check for action-level stuck patterns
             action_analysis = self._stuck_detector.get_analysis()
             is_action_stuck = action_analysis is not None
 
             is_stuck = is_response_stuck or is_action_stuck
+
+            # Log stuck detection with confidence
+            if is_stuck:
+                logger.info(
+                    "Stuck detection triggered",
+                    extra={
+                        "response_stuck": is_response_stuck,
+                        "action_stuck": is_action_stuck,
+                        "confidence": confidence,
+                        "session_id": getattr(self, "_session_id", None),
+                    },
+                )
 
             if is_stuck and self._stuck_detector.can_attempt_recovery():
                 self._stuck_detector.record_recovery_attempt()
@@ -813,11 +905,13 @@ class BaseAgent(ABC):
         async def _save_background():
             try:
                 await self._repository.save_memory(self._agent_id, self.name, self.memory)
-                logger.debug(f"Background memory save completed after token limit handling")
+                logger.debug("Background memory save completed after token limit handling")
             except Exception as e:
                 logger.warning(f"Background memory save failed after token limit handling: {e}")
 
-        asyncio.create_task(_save_background())
+        task = asyncio.create_task(_save_background())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
         logger.info(f"Handled token limit by trimming {tokens_removed} tokens (save in background)")
 
     async def ask(self, request: str, format: str | None = None) -> dict[str, Any]:

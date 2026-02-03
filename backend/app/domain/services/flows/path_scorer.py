@@ -68,7 +68,7 @@ class PathScorer:
         llm: LLM | None = None,
         json_parser: JsonParser | None = None,
         config: TreeOfThoughtsConfig | None = None,
-        goal: str = ""
+        goal: str = "",
     ):
         """Initialize the scorer.
 
@@ -116,17 +116,14 @@ class PathScorer:
 
         # Calculate weighted score
         total_weight = (
-            self.weights.confidence +
-            self.weights.efficiency +
-            self.weights.error_penalty +
-            self.weights.result_quality
+            self.weights.confidence + self.weights.efficiency + self.weights.error_penalty + self.weights.result_quality
         )
 
         weighted_score = (
-            scores["confidence"] * self.weights.confidence +
-            scores["efficiency"] * self.weights.efficiency +
-            scores["error_penalty"] * self.weights.error_penalty +
-            scores["result_quality"] * self.weights.result_quality
+            scores["confidence"] * self.weights.confidence
+            + scores["efficiency"] * self.weights.efficiency
+            + scores["error_penalty"] * self.weights.error_penalty
+            + scores["result_quality"] * self.weights.result_quality
         ) / total_weight
 
         # Store breakdown
@@ -177,22 +174,23 @@ class PathScorer:
             Quality score from 0.0 to 1.0
         """
         # Format results
-        results_text = "\n".join([
-            f"- Step {r['step_id']}: {str(r.get('result', 'No result'))[:100]}"
-            for r in path.intermediate_results[-5:]  # Last 5 results
-        ])
+        results_text = "\n".join(
+            [
+                f"- Step {r['step_id']}: {str(r.get('result', 'No result'))[:100]}"
+                for r in path.intermediate_results[-5:]  # Last 5 results
+            ]
+        )
 
         prompt = QUALITY_ASSESSMENT_PROMPT.format(
             goal=self.goal,
             strategy=path.strategy,
             results=results_text or "No results recorded",
             steps_completed=path.metrics.steps_completed,
-            error_count=path.metrics.errors_encountered
+            error_count=path.metrics.errors_encountered,
         )
 
         response = await self.llm.ask(
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
+            messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"}
         )
 
         content = response.get("content", "")
@@ -237,16 +235,10 @@ class PathScorer:
                 "failed": "!",
             }.get(path.status.value, "?")
 
-            lines.append(
-                f"{i+1}. {status_emoji} **{path.description[:50]}** "
-                f"(Score: {path.score:.2f})"
-            )
+            lines.append(f"{i + 1}. {status_emoji} **{path.description[:50]}** (Score: {path.score:.2f})")
 
             if path.score_breakdown:
-                breakdown = ", ".join(
-                    f"{k}: {v:.2f}"
-                    for k, v in path.score_breakdown.items()
-                )
+                breakdown = ", ".join(f"{k}: {v:.2f}" for k, v in path.score_breakdown.items())
                 lines.append(f"   - {breakdown}")
 
         return "\n".join(lines)

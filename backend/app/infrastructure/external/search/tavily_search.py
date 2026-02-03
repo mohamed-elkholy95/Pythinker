@@ -3,6 +3,7 @@
 Tavily AI-powered Search API implementation.
 Requires a Tavily API key from https://tavily.com/
 """
+
 import logging
 
 import httpx
@@ -35,11 +36,7 @@ class TavilySearchEngine(SearchEngine):
         self.api_key = api_key
         self.base_url = "https://api.tavily.com/search"
 
-    async def search(
-        self,
-        query: str,
-        date_range: str | None = None
-    ) -> ToolResult[SearchResults]:
+    async def search(self, query: str, date_range: str | None = None) -> ToolResult[SearchResults]:
         """Search web pages using Tavily Search API.
 
         Args:
@@ -80,11 +77,7 @@ class TavilySearchEngine(SearchEngine):
 
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    self.base_url,
-                    json=payload,
-                    headers=headers
-                )
+                response = await client.post(self.base_url, json=payload, headers=headers)
                 response.raise_for_status()
 
                 data = response.json()
@@ -104,20 +97,13 @@ class TavilySearchEngine(SearchEngine):
                             snippet = snippet[:497] + "..."
 
                         if title and link:
-                            search_results.append(SearchResultItem(
-                                title=title,
-                                link=link,
-                                snippet=snippet
-                            ))
+                            search_results.append(SearchResultItem(title=title, link=link, snippet=snippet))
                     except Exception as e:
                         logger.warning(f"Failed to parse Tavily result: {e}")
                         continue
 
                 results = SearchResults(
-                    query=query,
-                    date_range=date_range,
-                    total_results=len(search_results),
-                    results=search_results
+                    query=query, date_range=date_range, total_results=len(search_results), results=search_results
                 )
 
                 return ToolResult(success=True, data=results)
@@ -136,28 +122,14 @@ class TavilySearchEngine(SearchEngine):
                 logger.error(f"Tavily Search HTTP error: {e}")
                 message = f"Tavily Search HTTP error: {e.response.status_code}"
 
-            error_results = SearchResults(
-                query=query,
-                date_range=date_range,
-                total_results=0,
-                results=[]
-            )
+            error_results = SearchResults(query=query, date_range=date_range, total_results=0, results=[])
             return ToolResult(success=False, message=message, data=error_results)
 
         except Exception as e:
             logger.error(f"Tavily Search failed: {e}")
-            error_results = SearchResults(
-                query=query,
-                date_range=date_range,
-                total_results=0,
-                results=[]
-            )
+            error_results = SearchResults(query=query, date_range=date_range, total_results=0, results=[])
 
-            return ToolResult(
-                success=False,
-                message=f"Tavily Search failed: {e}",
-                data=error_results
-            )
+            return ToolResult(success=False, message=f"Tavily Search failed: {e}", data=error_results)
 
 
 # Simple test
@@ -177,7 +149,7 @@ if __name__ == "__main__":
         if result.success:
             print(f"Search successful! Found {len(result.data.results)} results")
             for i, item in enumerate(result.data.results[:3]):
-                print(f"{i+1}. {item.title}")
+                print(f"{i + 1}. {item.title}")
                 print(f"   {item.link}")
                 print(f"   {item.snippet[:100]}...")
                 print()

@@ -89,9 +89,7 @@ class RequestContext:
 
 
 # ContextVar for request-scoped context
-_request_context: ContextVar[RequestContext | None] = ContextVar(
-    'request_context', default=None
-)
+_request_context: ContextVar[RequestContext | None] = ContextVar("request_context", default=None)
 
 
 def get_request_context() -> RequestContext:
@@ -125,7 +123,7 @@ def request_context_scope(
     session_id: str | None = None,
     user_id: str | None = None,
     agent_id: str | None = None,
-    **kwargs
+    **kwargs,
 ):
     """Context manager for setting request context.
 
@@ -142,7 +140,7 @@ def request_context_scope(
         user_id=user_id,
         agent_id=agent_id,
         start_time_ms=time.time() * 1000,
-        **kwargs
+        **kwargs,
     )
 
     token = set_request_context(ctx)

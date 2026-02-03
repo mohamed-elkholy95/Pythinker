@@ -1,4 +1,5 @@
 """Multi-task challenge domain models."""
+
 import uuid
 from datetime import datetime
 from enum import Enum
@@ -8,6 +9,7 @@ from pydantic import BaseModel, Field
 
 class TaskStatus(str, Enum):
     """Status of individual task within challenge"""
+
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -17,6 +19,7 @@ class TaskStatus(str, Enum):
 
 class DeliverableType(str, Enum):
     """Type of deliverable"""
+
     FILE = "file"
     DIRECTORY = "directory"
     REPORT = "report"
@@ -27,6 +30,7 @@ class DeliverableType(str, Enum):
 
 class Deliverable(BaseModel):
     """Expected deliverable for a task"""
+
     name: str
     type: DeliverableType
     path: str  # Expected path in workspace
@@ -37,6 +41,7 @@ class Deliverable(BaseModel):
 
 class TaskDefinition(BaseModel):
     """Definition of a single task within multi-task challenge"""
+
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
     title: str
     description: str
@@ -56,6 +61,7 @@ class TaskDefinition(BaseModel):
 
 class TaskResult(BaseModel):
     """Result of task execution"""
+
     task_id: str
     status: TaskStatus
     deliverables_created: list[str] = []  # File paths
@@ -68,6 +74,7 @@ class TaskResult(BaseModel):
 
 class MultiTaskChallenge(BaseModel):
     """Container for multi-task challenge execution"""
+
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:16])
     title: str
     description: str

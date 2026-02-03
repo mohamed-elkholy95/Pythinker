@@ -2,15 +2,10 @@
   <SimpleBar>
     <div
       class="flex flex-col h-full flex-1 min-w-0 mx-auto w-full sm:min-w-[390px] px-5 justify-center items-start gap-2 relative max-w-full sm:max-w-full">
-      <div class="w-full pt-4 pb-4 px-5 bg-[var(--background-gray-main)] sticky top-0 z-10 mx-[-1.25]">
-        <div class="flex justify-between items-center w-full absolute left-0 right-0">
+      <!-- Minimal header - logo and user avatar -->
+      <div class="w-full pt-4 pb-4 px-5 bg-[var(--background-gray-main)] sticky top-0 z-10">
+        <div class="flex justify-between items-center w-full">
           <div class="h-8 relative z-20 overflow-hidden flex gap-2 items-center flex-shrink-0">
-            <div class="relative flex items-center">
-              <div @click="toggleLeftPanel" v-if="!isLeftPanelShow"
-                class="flex h-7 w-7 items-center justify-center cursor-pointer rounded-md hover:bg-[var(--fill-tsp-gray-main)]">
-                <PanelLeft class="size-5 text-[var(--icon-secondary)]" />
-              </div>
-            </div>
             <div class="flex">
               <Bot :size="30" />
               <PythinkerLogoTextIcon />
@@ -33,7 +28,6 @@
             </div>
           </div>
         </div>
-        <div class="h-8"></div>
       </div>
       <div class="home-content">
         <!-- Greeting -->
@@ -110,12 +104,11 @@ import ChatBox from '../components/ChatBox.vue';
 import { createSession, type AgentMode } from '../api/agent';
 import { showErrorToast } from '../utils/toast';
 import {
-  Bot, PanelLeft, Search, Palette,
+  Bot, Search, Palette,
   Calendar, Table2, BarChart3, Video, AudioLines, MessageSquare, BookOpen
 } from 'lucide-vue-next';
 import PythinkerLogoTextIcon from '../components/icons/PythinkerLogoTextIcon.vue';
 import type { FileInfo } from '../api/file';
-import { useLeftPanel } from '../composables/useLeftPanel';
 import { useFilePanel } from '../composables/useFilePanel';
 import { useAuth } from '../composables/useAuth';
 import UserMenu from '../components/UserMenu.vue';
@@ -134,7 +127,6 @@ const router = useRouter();
 const message = ref('');
 const isSubmitting = ref(false);
 const attachments = ref<FileInfo[]>([]);
-const { toggleLeftPanel, isLeftPanelShow } = useLeftPanel();
 const { hideFilePanel } = useFilePanel();
 const { currentUser } = useAuth();
 
@@ -264,13 +256,21 @@ const handleClickOutside = (event: MouseEvent) => {
   }
 };
 
+// Handle insert message event from settings
+const handleInsertMessage = (event: CustomEvent<{ message: string }>) => {
+  message.value = event.detail.message;
+};
+
 onMounted(() => {
   hideFilePanel();
   document.addEventListener('click', handleClickOutside);
+  // Listen for message insert event from settings dialog
+  window.addEventListener('pythinker:insert-chat-message', handleInsertMessage as EventListener);
 });
 
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside);
+  window.removeEventListener('pythinker:insert-chat-message', handleInsertMessage as EventListener);
 });
 
 // Handle feature button click
@@ -315,8 +315,9 @@ const createSessionWithMode = async (mode: AgentMode, initialMessage?: string) =
   }
 };
 
-const handleSubmit = async () => {
-  if (message.value.trim() && !isSubmitting.value) {
+const handleSubmit = async (skillIds: string[] = []) => {
+  const trimmedMessage = message.value.trim();
+  if ((trimmedMessage || skillIds.includes('skill-creator')) && !isSubmitting.value) {
     isSubmitting.value = true;
 
     try {
@@ -324,11 +325,24 @@ const handleSubmit = async () => {
       const session = await createSession('agent');
       const sessionId = session.session_id;
 
+      let submitMessage = message.value;
+      if (skillIds.includes('skill-creator')) {
+        const trimmed = submitMessage.trim();
+        const hasCommand = trimmed.toLowerCase().includes('/skill-creator');
+        if (!trimmed) {
+          submitMessage = 'Help me create a skill together using /skill-creator. First ask me what the skill should do.';
+        } else if (!hasCommand) {
+          submitMessage = `/skill-creator ${trimmed}`;
+        }
+      }
+
       // Navigate to new route with session_id, passing initial message via state
       router.push({
         path: `/chat/${sessionId}`,
         state: {
-          message: message.value, files: attachments.value.map((file: FileInfo) => ({
+          message: submitMessage,
+          skills: skillIds,
+          files: attachments.value.map((file: FileInfo) => ({
             file_id: file.file_id,
             filename: file.filename,
             content_type: file.content_type,
@@ -350,44 +364,90 @@ const handleSubmit = async () => {
 /* ===== CONTENT AREA ===== */
 .home-content {
   width: 100%;
-  max-width: 768px;
+  max-width: 860px;
   min-width: 390px;
   margin: 0 auto;
-  margin-top: 100px;
-  margin-bottom: auto;
+  /* Position content centered vertically */
+  padding-top: 18vh;
+  padding-bottom: 100px;
 }
 
 @media (max-width: 640px) {
   .home-content {
     max-width: 100%;
     min-width: 0;
+    padding-top: 12vh;
   }
 }
 
 /* ===== GREETING ===== */
 .greeting-section {
   padding: 0 16px;
-  margin-bottom: 24px;
+  margin-bottom: 28px;
+  text-align: center;
 }
 
 .greeting-primary {
-  font-size: 32px;
+  font-size: 22px;
   font-weight: 600;
-  line-height: 1.25;
+  line-height: 1.3;
   color: var(--text-primary);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .greeting-secondary {
-  font-size: 32px;
-  font-weight: 600;
-  line-height: 1.25;
-  color: var(--text-tertiary);
+  font-size: 42px;
+  font-weight: 500;
+  line-height: 1.15;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
 }
 
 /* ===== CHAT INPUT WRAPPER ===== */
 .chat-input-wrapper {
   width: 100%;
+  margin-top: 8px;
+  padding: 0 8px;
+}
+
+/* Home page chatbox styling - Manus-like large input */
+:deep(.chat-input-wrapper .chatbox-container) {
+  background: #ffffff;
+  border-radius: 24px;
+  border: 1px solid var(--border-main);
+  padding: 20px 0;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+}
+
+:root[data-theme="dark"] :deep(.chat-input-wrapper .chatbox-container) {
+  background: var(--background-white-main);
+}
+
+:deep(.chat-input-wrapper .chatbox-container:focus-within) {
+  border-color: #d1d5db;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+}
+
+:deep(.chat-input-wrapper .chatbox-input-area) {
+  padding-left: 24px;
+  padding-right: 24px;
+}
+
+:deep(.chat-input-wrapper .chatbox-textarea) {
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 1.6;
+  min-height: 72px;
+  color: #1a1a1a;
+}
+
+:deep(.chat-input-wrapper .chatbox-textarea::placeholder) {
+  color: #9ca3af;
+}
+
+:deep(.chat-input-wrapper .chatbox-footer) {
+  padding: 0 18px;
+  margin-top: 8px;
 }
 
 /* ===== FEATURE BUTTONS ===== */
@@ -396,8 +456,8 @@ const handleSubmit = async () => {
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  margin-top: 16px;
+  gap: 10px;
+  margin-top: 24px;
   padding: 0 16px;
 }
 
@@ -406,42 +466,63 @@ const handleSubmit = async () => {
   align-items: center;
   gap: 8px;
   padding: 10px 18px;
-  border-radius: 24px;
+  border-radius: 999px;
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
-  background: var(--bolt-elements-bg-depth-1);
-  border: 1px solid var(--bolt-elements-borderColor);
-  color: var(--bolt-elements-textSecondary);
+  background: #ffffff;
+  border: 1px solid var(--border-main);
+  color: var(--text-secondary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 .feature-btn:hover {
-  background: var(--bolt-elements-item-backgroundActive);
-  border-color: var(--bolt-elements-borderColorActive);
-  color: var(--bolt-elements-textPrimary);
-  transform: translateY(-1px);
+  background: #f9fafb;
+  border-color: #d1d5db;
+  color: var(--text-primary);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
 }
 
 .feature-btn:active {
-  transform: translateY(0);
+  transform: scale(0.98);
 }
 
 .feature-icon {
-  color: var(--bolt-elements-textTertiary);
+  color: var(--icon-secondary);
   transition: color 0.2s ease;
 }
 
 .feature-btn:hover .feature-icon {
-  color: var(--bolt-elements-item-contentAccent);
+  color: var(--icon-primary);
 }
 
 .feature-btn-more {
-  padding-left: 20px;
-  padding-right: 20px;
+  padding-left: 22px;
+  padding-right: 22px;
 }
 
 .feature-btn-more.active {
+  background: #f9fafb;
+  border-color: #d1d5db;
+}
+
+/* Dark mode keeps existing blue-accent hover */
+:root[data-theme="dark"] .feature-btn {
+  background: var(--background-white-main);
+}
+
+:root[data-theme="dark"] .feature-btn:hover {
+  background: var(--bolt-elements-item-backgroundActive);
+  border-color: var(--bolt-elements-borderColorActive);
+  color: var(--bolt-elements-textPrimary);
+}
+
+:root[data-theme="dark"] .feature-btn:hover .feature-icon {
+  color: var(--bolt-elements-item-contentAccent);
+}
+
+:root[data-theme="dark"] .feature-btn-more.active {
   background: var(--bolt-elements-item-backgroundActive);
   border-color: var(--bolt-elements-borderColorActive);
 }

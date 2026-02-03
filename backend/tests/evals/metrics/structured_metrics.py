@@ -30,12 +30,7 @@ class JsonSchemaMetric(BaseMetric):
         schema = expected.get("expected_json_schema")
 
         if not schema:
-            return MetricScore(
-                metric_name=self.name,
-                score=1.0,
-                passed=True,
-                message="No JSON schema specified"
-            )
+            return MetricScore(metric_name=self.name, score=1.0, passed=True, message="No JSON schema specified")
 
         # Try to parse output as JSON
         parsed = self._extract_json(actual_output)
@@ -46,12 +41,13 @@ class JsonSchemaMetric(BaseMetric):
                 score=0.0,
                 passed=False,
                 details={"error": "Could not parse output as JSON"},
-                message="Failed to parse output as JSON"
+                message="Failed to parse output as JSON",
             )
 
         # Try jsonschema validation first
         try:
             import jsonschema
+
             validator = jsonschema.Draft7Validator(schema)
             errors = list(validator.iter_errors(parsed))
 
@@ -68,7 +64,7 @@ class JsonSchemaMetric(BaseMetric):
                         "validation_errors": error_messages,
                         "total_errors": len(errors),
                     },
-                    message=f"Schema validation failed with {len(errors)} errors"
+                    message=f"Schema validation failed with {len(errors)} errors",
                 )
 
             return MetricScore(
@@ -76,7 +72,7 @@ class JsonSchemaMetric(BaseMetric):
                 score=1.0,
                 passed=True,
                 details={"validated": True},
-                message="JSON schema validation passed"
+                message="JSON schema validation passed",
             )
 
         except ImportError:
@@ -93,27 +89,23 @@ class JsonSchemaMetric(BaseMetric):
 
         # Try to find JSON in code blocks
         patterns = [
-            r'```json\s*([\s\S]*?)\s*```',
-            r'```\s*([\s\S]*?)\s*```',
-            r'\{[\s\S]*\}',
+            r"```json\s*([\s\S]*?)\s*```",
+            r"```\s*([\s\S]*?)\s*```",
+            r"\{[\s\S]*\}",
         ]
 
         for pattern in patterns:
             match = re.search(pattern, text)
             if match:
                 try:
-                    json_str = match.group(1) if '```' in pattern else match.group(0)
+                    json_str = match.group(1) if "```" in pattern else match.group(0)
                     return json.loads(json_str.strip())
                 except json.JSONDecodeError:
                     continue
 
         return None
 
-    def _basic_schema_check(
-        self,
-        data: dict[str, Any],
-        schema: dict[str, Any]
-    ) -> MetricScore:
+    def _basic_schema_check(self, data: dict[str, Any], schema: dict[str, Any]) -> MetricScore:
         """Basic schema validation without jsonschema library."""
         errors = []
 
@@ -147,7 +139,7 @@ class JsonSchemaMetric(BaseMetric):
                 "validation_errors": errors,
                 "method": "basic",
             },
-            message="Basic schema check " + ("passed" if passed else f"failed with {len(errors)} errors")
+            message="Basic schema check " + ("passed" if passed else f"failed with {len(errors)} errors"),
         )
 
     def _check_type(self, value: Any, expected_type: str | None) -> bool:
@@ -187,12 +179,7 @@ class JsonFieldMetric(BaseMetric):
         expected_fields = expected.get("expected_json_fields", {})
 
         if not expected_fields:
-            return MetricScore(
-                metric_name=self.name,
-                score=1.0,
-                passed=True,
-                message="No JSON fields to check"
-            )
+            return MetricScore(metric_name=self.name, score=1.0, passed=True, message="No JSON fields to check")
 
         # Parse JSON
         try:
@@ -200,24 +187,16 @@ class JsonFieldMetric(BaseMetric):
             parsed = json.loads(actual_output)
         except json.JSONDecodeError:
             # Try to extract JSON
-            match = re.search(r'\{[\s\S]*\}', actual_output)
+            match = re.search(r"\{[\s\S]*\}", actual_output)
             if match:
                 try:
                     parsed = json.loads(match.group(0))
                 except json.JSONDecodeError:
                     return MetricScore(
-                        metric_name=self.name,
-                        score=0.0,
-                        passed=False,
-                        message="Could not parse JSON from output"
+                        metric_name=self.name, score=0.0, passed=False, message="Could not parse JSON from output"
                     )
             else:
-                return MetricScore(
-                    metric_name=self.name,
-                    score=0.0,
-                    passed=False,
-                    message="No JSON found in output"
-                )
+                return MetricScore(metric_name=self.name, score=0.0, passed=False, message="No JSON found in output")
 
         # Check each expected field
         matched = []
@@ -232,11 +211,13 @@ class JsonFieldMetric(BaseMetric):
             elif self._values_match(actual_value, expected_value):
                 matched.append(field_path)
             else:
-                mismatched.append({
-                    "field": field_path,
-                    "expected": expected_value,
-                    "actual": actual_value,
-                })
+                mismatched.append(
+                    {
+                        "field": field_path,
+                        "expected": expected_value,
+                        "actual": actual_value,
+                    }
+                )
 
         total = len(expected_fields)
         score = len(matched) / total if total > 0 else 1.0
@@ -251,7 +232,7 @@ class JsonFieldMetric(BaseMetric):
                 "mismatched": mismatched,
                 "missing": missing,
             },
-            message=f"Matched {len(matched)}/{total} JSON fields"
+            message=f"Matched {len(matched)}/{total} JSON fields",
         )
 
     def _get_nested_value(self, data: dict[str, Any], path: str) -> Any:
@@ -306,12 +287,7 @@ class StructuredOutputMetric(BaseMetric):
         rules = expected.get("structured_rules", [])
 
         if not rules:
-            return MetricScore(
-                metric_name=self.name,
-                score=1.0,
-                passed=True,
-                message="No structured rules specified"
-            )
+            return MetricScore(metric_name=self.name, score=1.0, passed=True, message="No structured rules specified")
 
         # Try to parse as JSON
         try:
@@ -343,15 +319,10 @@ class StructuredOutputMetric(BaseMetric):
                 "passed_rules": passed_rules,
                 "failed_rules": failed_rules,
             },
-            message=f"Passed {len(passed_rules)}/{total} structural rules"
+            message=f"Passed {len(passed_rules)}/{total} structural rules",
         )
 
-    def _evaluate_rule(
-        self,
-        text: str,
-        parsed: dict[str, Any] | None,
-        rule: dict[str, Any]
-    ) -> bool:
+    def _evaluate_rule(self, text: str, parsed: dict[str, Any] | None, rule: dict[str, Any]) -> bool:
         """Evaluate a single structural rule."""
         rule_type = rule.get("type")
 

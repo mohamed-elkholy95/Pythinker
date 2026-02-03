@@ -17,31 +17,33 @@ import logging
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
 
 class RouteDecision(str, Enum):
     """Possible routing decisions."""
-    NEEDS_LLM = "needs_llm"           # Requires LLM reasoning
+
+    NEEDS_LLM = "needs_llm"  # Requires LLM reasoning
     DIRECT_RESPONSE = "direct_response"  # Can respond directly
-    TOOL_CALL = "tool_call"           # Direct tool call
-    CLARIFICATION = "clarification"   # Need user clarification
+    TOOL_CALL = "tool_call"  # Direct tool call
+    CLARIFICATION = "clarification"  # Need user clarification
     EARLY_TERMINATE = "early_terminate"  # Task is complete
-    ERROR = "error"                   # Error condition
+    ERROR = "error"  # Error condition
 
 
 @dataclass
 class RoutingResult:
     """Result of smart routing."""
+
     decision: RouteDecision
-    response: str | None = None      # Direct response if applicable
-    tool_name: str | None = None     # Tool to call if applicable
+    response: str | None = None  # Direct response if applicable
+    tool_name: str | None = None  # Tool to call if applicable
     tool_args: dict[str, Any] | None = None
-    confidence: float = 1.0             # How confident we are in the decision
-    reason: str = ""                    # Explanation for the decision
-    bypass_llm: bool = False            # Whether to skip LLM entirely
+    confidence: float = 1.0  # How confident we are in the decision
+    reason: str = ""  # Explanation for the decision
+    bypass_llm: bool = False  # Whether to skip LLM entirely
 
 
 class SmartRouter:
@@ -58,63 +60,54 @@ class SmartRouter:
     """
 
     # Patterns for direct responses (no LLM needed)
-    DIRECT_RESPONSE_PATTERNS = {
+    DIRECT_RESPONSE_PATTERNS: ClassVar[dict[str, str]] = {
         # Greetings
-        r'^(hi|hello|hey|greetings)[\s!.]*$': "Hello! How can I help you today?",
-        r'^(thanks|thank you|thx)[\s!.]*$': "You're welcome! Is there anything else I can help with?",
-        r'^(bye|goodbye|see you)[\s!.]*$': "Goodbye! Feel free to return if you need assistance.",
-
+        r"^(hi|hello|hey|greetings)[\s!.]*$": "Hello! How can I help you today?",
+        r"^(thanks|thank you|thx)[\s!.]*$": "You're welcome! Is there anything else I can help with?",
+        r"^(bye|goodbye|see you)[\s!.]*$": "Goodbye! Feel free to return if you need assistance.",
         # Identity questions (use configured identity)
-        r'^who\s+(are|r)\s+you[\s?]*$': "I am Pythinker, an AI assistant created by the Pythinker Team.",
-        r'^what\s+(are|r)\s+you[\s?]*$': "I am Pythinker, an AI assistant that helps with research, coding, and problem-solving.",
+        r"^who\s+(are|r)\s+you[\s?]*$": "I am Pythinker, an AI assistant created by the Pythinker Team.",
+        r"^what\s+(are|r)\s+you[\s?]*$": "I am Pythinker, an AI assistant that helps with research, coding, and problem-solving.",
     }
 
     # Patterns for direct tool calls (no LLM reasoning needed)
-    DIRECT_TOOL_PATTERNS = {
+    DIRECT_TOOL_PATTERNS: ClassVar[dict[str, tuple[str, Any]]] = {
         # File operations
         r'^(?:read|show|display|cat)\s+(?:the\s+)?(?:file\s+)?["\']?([^\s"\']+)["\']?$': (
-            "file_read", lambda m: {"path": m.group(1)}
+            "file_read",
+            lambda m: {"path": m.group(1)},
         ),
         r'^(?:list|ls|show)\s+(?:files\s+in\s+)?(?:the\s+)?(?:directory\s+)?["\']?([^\s"\']+)["\']?$': (
-            "file_list", lambda m: {"path": m.group(1)}
+            "file_list",
+            lambda m: {"path": m.group(1)},
         ),
-
         # Shell commands
-        r'^run\s+["\']?(.+)["\']?$': (
-            "shell_exec", lambda m: {"command": m.group(1)}
-        ),
-        r'^exec(?:ute)?\s+["\']?(.+)["\']?$': (
-            "shell_exec", lambda m: {"command": m.group(1)}
-        ),
-
+        r'^run\s+["\']?(.+)["\']?$': ("shell_exec", lambda m: {"command": m.group(1)}),
+        r'^exec(?:ute)?\s+["\']?(.+)["\']?$': ("shell_exec", lambda m: {"command": m.group(1)}),
         # Search
-        r'^search\s+(?:for\s+)?["\']?(.+)["\']?$': (
-            "info_search_web", lambda m: {"query": m.group(1)}
-        ),
-        r'^google\s+["\']?(.+)["\']?$': (
-            "info_search_web", lambda m: {"query": m.group(1)}
-        ),
+        r'^search\s+(?:for\s+)?["\']?(.+)["\']?$': ("info_search_web", lambda m: {"query": m.group(1)}),
+        r'^google\s+["\']?(.+)["\']?$': ("info_search_web", lambda m: {"query": m.group(1)}),
     }
 
     # Patterns indicating task completion
-    COMPLETION_PATTERNS = [
-        r'\b(done|finished|completed|all\s+set)\b',
-        r'^(that\'?s?\s+)?all\s*(for\s+now)?[\s!.]*$',
-        r'^nothing\s+(else|more)[\s!.]*$',
-        r'^no\s+(thanks|thank\s+you)[\s!.]*$',
+    COMPLETION_PATTERNS: ClassVar[list[str]] = [
+        r"\b(done|finished|completed|all\s+set)\b",
+        r"^(that\'?s?\s+)?all\s*(for\s+now)?[\s!.]*$",
+        r"^nothing\s+(else|more)[\s!.]*$",
+        r"^no\s+(thanks|thank\s+you)[\s!.]*$",
     ]
 
     # Patterns indicating need for clarification
-    AMBIGUOUS_PATTERNS = [
-        r'^(it|this|that|the\s+thing)$',  # Too vague
-        r'^[a-z]{1,2}$',  # Single letters
-        r'^\?+$',  # Just question marks
+    AMBIGUOUS_PATTERNS: ClassVar[list[str]] = [
+        r"^(it|this|that|the\s+thing)$",  # Too vague
+        r"^[a-z]{1,2}$",  # Single letters
+        r"^\?+$",  # Just question marks
     ]
 
     # Simple questions that can be answered from context
-    CONTEXT_ANSWER_PATTERNS = [
-        (r'what\s+(?:is|was)\s+the\s+(?:last|previous)\s+(?:file|path)', "last_file"),
-        (r'what\s+(?:did|was)\s+(?:i|we)\s+(?:just\s+)?(?:do|did)', "last_action"),
+    CONTEXT_ANSWER_PATTERNS: ClassVar[list[tuple[str, str]]] = [
+        (r"what\s+(?:is|was)\s+the\s+(?:last|previous)\s+(?:file|path)", "last_file"),
+        (r"what\s+(?:did|was)\s+(?:i|we)\s+(?:just\s+)?(?:do|did)", "last_action"),
     ]
 
     def __init__(
@@ -135,13 +128,9 @@ class SmartRouter:
         self.confidence_threshold = confidence_threshold
 
         # Compile patterns
-        self._direct_response_re = {
-            re.compile(p, re.IGNORECASE): r
-            for p, r in self.DIRECT_RESPONSE_PATTERNS.items()
-        }
+        self._direct_response_re = {re.compile(p, re.IGNORECASE): r for p, r in self.DIRECT_RESPONSE_PATTERNS.items()}
         self._direct_tool_re = {
-            re.compile(p, re.IGNORECASE): (tool, arg_fn)
-            for p, (tool, arg_fn) in self.DIRECT_TOOL_PATTERNS.items()
+            re.compile(p, re.IGNORECASE): (tool, arg_fn) for p, (tool, arg_fn) in self.DIRECT_TOOL_PATTERNS.items()
         }
         self._completion_re = [re.compile(p, re.IGNORECASE) for p in self.COMPLETION_PATTERNS]
         self._ambiguous_re = [re.compile(p, re.IGNORECASE) for p in self.AMBIGUOUS_PATTERNS]
@@ -273,10 +262,9 @@ class SmartRouter:
         ]
 
         for signal in completion_signals:
-            if signal in result_lower:
-                # If this is the primary goal, we might be done
-                if remaining_steps <= 2:  # Only suggest if few steps left
-                    return True, f"Completion signal detected: '{signal}'"
+            # If this is the primary goal, we might be done
+            if signal in result_lower and remaining_steps <= 2:  # Only suggest if few steps left
+                return True, f"Completion signal detected: '{signal}'"
 
         # Check for error states that should stop execution
         error_signals = [
@@ -396,18 +384,19 @@ class ResponseValidator:
         if not path:
             return False
         # Basic validation
-        return not any(c in path for c in ['<', '>', '|', '\0'])
+        return not any(c in path for c in ["<", ">", "|", "\0"])
 
     @staticmethod
     def is_valid_url(url: str) -> bool:
         """Validate URL format."""
         url_pattern = re.compile(
-            r'^https?://'
-            r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'
-            r'localhost|'
-            r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'
-            r'(?::\d+)?'
-            r'(?:/?|[/?]\S+)$', re.IGNORECASE
+            r"^https?://"
+            r"(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|"
+            r"localhost|"
+            r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"
+            r"(?::\d+)?"
+            r"(?:/?|[/?]\S+)$",
+            re.IGNORECASE,
         )
         return bool(url_pattern.match(url))
 
@@ -415,6 +404,7 @@ class ResponseValidator:
     def is_valid_json(text: str) -> bool:
         """Validate JSON format."""
         import json
+
         try:
             json.loads(text)
             return True
@@ -428,7 +418,7 @@ class ResponseValidator:
         Returns:
             List of (language, code) tuples
         """
-        pattern = re.compile(r'```(\w*)\n(.*?)```', re.DOTALL)
+        pattern = re.compile(r"```(\w*)\n(.*?)```", re.DOTALL)
         matches = pattern.findall(text)
         return [(lang or "text", code.strip()) for lang, code in matches]
 

@@ -41,7 +41,7 @@ Execute planned steps sequentially until completion.
 
 <message_rules>
 - Communicate through the messaging interface
-- Provide deliverables as file attachments
+- Provide deliverables as file attachments when a file is requested or output is long/structured
 
 CRITICAL - Task Acknowledgment and Execution:
 
@@ -69,7 +69,7 @@ General rules:
 When using information from search results:
 - Every sentence citing search results MUST end with a numbered citation [N]
 - Use [1], [2], [3] etc. to reference different sources
-- At the end of responses with citations, include a "Sources:" section with numbered URLs
+- At the end of responses with citations, include a "References:" section with numbered URLs
 - Format: 1. [Source Title](URL)
 - Only cite sources you have actually retrieved and verified
 - Do not fabricate citations or URLs
@@ -94,21 +94,6 @@ When searching for information:
 - Verify information from official sources before citing
 </search_strategy>
 
-<suggestions_rules>
-After completing a task, end with 2-3 actionable follow-up suggestions.
-Format as JSON at the end:
-```json
-{"suggestions": ["Follow-up action 1", "Follow-up action 2", "Follow-up action 3"]}
-```
-Suggestions must be:
-- Follow-up actions AFTER work is done (not questions before starting)
-- Phrased as actions: "Compare with...", "Export to PDF", "Add section on..."
-- NEVER ask questions like "Would you like...", "Should I...", "Do you want..."
-- NEVER include: format preferences, methodology review, budget questions
-
-DO NOT include suggestions when starting a new task - only after delivering results.
-</suggestions_rules>
-
 <markdown_rules>
 Format responses using markdown for readability:
 - Use headers (##, ###) to organize sections
@@ -119,9 +104,23 @@ Format responses using markdown for readability:
 </markdown_rules>
 
 <tool_use_rules>
-- Always take action through tools; respond with actions, not explanations
+- Use tools only when needed to gather information or take actions
+- If the task is general and the answer is known, respond without tools
 - Never expose tool names or technical details to users
 - Work within available capabilities
+
+CRITICAL - User Input Requirement:
+When you need to ask the user questions or gather user input:
+- You MUST call the `message_ask_user` tool
+- Do NOT just write questions as text in your response
+- The system only pauses for user input when `message_ask_user` is called
+- Without the tool call, the system will continue to the next step without waiting
+
+Example - WRONG (system continues without waiting):
+"What would you like me to help with?"
+
+Example - CORRECT (system pauses and waits):
+Call message_ask_user with text: "What would you like me to help with?"
 </tool_use_rules>
 
 <error_handling>
@@ -532,6 +531,7 @@ def build_system_prompt(
     include_sandbox_context: bool = True,
     available_tools: list[str] | None = None,
     task_context: str | None = None,
+    skill_context: str | None = None,
 ) -> str:
     """Build system prompt dynamically based on task context and available tools.
 
@@ -553,11 +553,17 @@ def build_system_prompt(
         include_sandbox_context: Include pre-loaded sandbox environment knowledge (default: True)
         available_tools: List of available tool names for dynamic section selection
         task_context: Optional task-specific context to append
+        skill_context: Optional skill-based context from enabled skills (from skill_context.py)
 
     Returns:
         Assembled system prompt string
     """
     prompt = CORE_PROMPT
+
+    # Add skill context early (after core, before other sections)
+    # This ensures skill instructions are prominent and not buried
+    if skill_context:
+        prompt += f"\n{skill_context}\n"
 
     # Always include efficiency rules at the start (lightweight, ~50 tokens)
     if include_efficiency:
@@ -651,7 +657,6 @@ TOOL_SECTION_MAP: dict[str, str] = {
     "file_append": "file",
     # Search tools -> RESEARCH_RULES
     "info_search_web": "research",
-    "search_web": "research",
     # MCP tools -> DATASOURCE_RULES (prefix match)
     "mcp_": "datasource",
     # Message tools (no special rules needed)

@@ -15,17 +15,19 @@ from pydantic import BaseModel, Field
 
 class PathStatus(str, Enum):
     """Status of a path in multi-path exploration."""
-    CREATED = "created"           # Path created but not started
-    EXPLORING = "exploring"       # Currently being explored
-    COMPLETED = "completed"       # Successfully completed
-    ABANDONED = "abandoned"       # Abandoned due to low score
-    FAILED = "failed"             # Failed during exploration
-    SELECTED = "selected"         # Selected as the winning path
+
+    CREATED = "created"  # Path created but not started
+    EXPLORING = "exploring"  # Currently being explored
+    COMPLETED = "completed"  # Successfully completed
+    ABANDONED = "abandoned"  # Abandoned due to low score
+    FAILED = "failed"  # Failed during exploration
+    SELECTED = "selected"  # Selected as the winning path
 
 
 class BranchingDecision(str, Enum):
     """Decision on how to approach a task."""
-    LINEAR = "linear"                       # No branching, single path
+
+    LINEAR = "linear"  # No branching, single path
     BRANCH_STRATEGIES = "branch_strategies"  # 2-3 different approaches
     BRANCH_PARAMETERS = "branch_parameters"  # Same approach, different params
     BRANCH_VERIFICATION = "branch_verification"  # Main + verification path
@@ -34,6 +36,7 @@ class BranchingDecision(str, Enum):
 @dataclass
 class PathMetrics:
     """Metrics for scoring a path."""
+
     steps_completed: int = 0
     errors_encountered: int = 0
     tokens_consumed: int = 0
@@ -60,6 +63,7 @@ class PathMetrics:
 @dataclass
 class PathState:
     """State of a single exploration path."""
+
     id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     description: str = ""
     strategy: str = ""  # Description of the approach being used
@@ -114,12 +118,9 @@ class PathState:
 
     def add_result(self, step_id: str, result: Any, confidence: float = 0.8) -> None:
         """Add an intermediate result."""
-        self.intermediate_results.append({
-            "step_id": step_id,
-            "result": result,
-            "confidence": confidence,
-            "timestamp": datetime.now().isoformat()
-        })
+        self.intermediate_results.append(
+            {"step_id": step_id, "result": result, "confidence": confidence, "timestamp": datetime.now().isoformat()}
+        )
         self.metrics.confidence_scores.append(confidence)
         self.metrics.steps_completed += 1
 
@@ -146,15 +147,17 @@ class PathState:
 
 class TaskComplexity(str, Enum):
     """Task complexity levels."""
-    SIMPLE = "simple"        # 1-2 straightforward steps
-    MODERATE = "moderate"    # 3-5 steps, single approach clear
-    COMPLEX = "complex"      # 5+ steps, multiple approaches possible
-    RESEARCH = "research"    # Requires exploring multiple sources/strategies
+
+    SIMPLE = "simple"  # 1-2 straightforward steps
+    MODERATE = "moderate"  # 3-5 steps, single approach clear
+    COMPLEX = "complex"  # 5+ steps, multiple approaches possible
+    RESEARCH = "research"  # Requires exploring multiple sources/strategies
 
 
 @dataclass
 class ComplexityAnalysis:
     """Result of analyzing task complexity."""
+
     complexity: TaskComplexity
     confidence: float
     branching_decision: BranchingDecision
@@ -170,6 +173,7 @@ class ComplexityAnalysis:
 
 class PathScoreWeights(BaseModel):
     """Weights for path scoring components."""
+
     result_quality: float = Field(default=0.4, ge=0.0, le=1.0)
     confidence: float = Field(default=0.25, ge=0.0, le=1.0)
     efficiency: float = Field(default=0.2, ge=0.0, le=1.0)
@@ -179,6 +183,7 @@ class PathScoreWeights(BaseModel):
 @dataclass
 class TreeOfThoughtsConfig:
     """Configuration for Tree-of-Thoughts exploration."""
+
     enabled: bool = True
     max_paths: int = 3
     min_paths: int = 2

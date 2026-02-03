@@ -19,14 +19,16 @@ logger = logging.getLogger(__name__)
 
 class ErrorSeverity(str, Enum):
     """Error severity levels"""
+
     CRITICAL = "critical"  # System failure, requires immediate attention
-    HIGH = "high"         # Service degradation, affects functionality
-    MEDIUM = "medium"     # Recoverable errors, may affect performance
-    LOW = "low"          # Minor issues, logging only
+    HIGH = "high"  # Service degradation, affects functionality
+    MEDIUM = "medium"  # Recoverable errors, may affect performance
+    LOW = "low"  # Minor issues, logging only
 
 
 class ErrorCategory(str, Enum):
     """Error categories for classification"""
+
     SANDBOX = "sandbox"
     AGENT = "agent"
     DATABASE = "database"
@@ -50,10 +52,11 @@ class ErrorRecoverability(str, Enum):
     - DEGRADED: Partial success possible - may retry with different params
     - UNKNOWN: Unclassified - conservative handling
     """
-    TRANSIENT = "transient"   # Network timeouts, rate limits - retry with backoff
-    PERMANENT = "permanent"   # Validation errors, auth failures - don't retry
-    DEGRADED = "degraded"     # Partial success possible, may need fallback
-    UNKNOWN = "unknown"       # Unclassified error
+
+    TRANSIENT = "transient"  # Network timeouts, rate limits - retry with backoff
+    PERMANENT = "permanent"  # Validation errors, auth failures - don't retry
+    DEGRADED = "degraded"  # Partial success possible, may need fallback
+    UNKNOWN = "unknown"  # Unclassified error
 
 
 # Mapping of exception types to recoverability
@@ -97,23 +100,23 @@ def classify_recoverability(exception: Exception) -> ErrorRecoverability:
     error_msg = str(exception).lower()
 
     # Rate limit indicators
-    if any(term in error_msg for term in ['rate limit', 'too many requests', '429', 'throttle']):
+    if any(term in error_msg for term in ["rate limit", "too many requests", "429", "throttle"]):
         return ErrorRecoverability.TRANSIENT
 
     # Timeout indicators
-    if any(term in error_msg for term in ['timeout', 'timed out', 'deadline']):
+    if any(term in error_msg for term in ["timeout", "timed out", "deadline"]):
         return ErrorRecoverability.TRANSIENT
 
     # Auth/permission indicators
-    if any(term in error_msg for term in ['unauthorized', 'forbidden', 'permission', '401', '403']):
+    if any(term in error_msg for term in ["unauthorized", "forbidden", "permission", "401", "403"]):
         return ErrorRecoverability.PERMANENT
 
     # Validation indicators
-    if any(term in error_msg for term in ['invalid', 'validation', 'missing required']):
+    if any(term in error_msg for term in ["invalid", "validation", "missing required"]):
         return ErrorRecoverability.PERMANENT
 
     # Resource exhaustion - might recover
-    if any(term in error_msg for term in ['out of memory', 'quota', 'limit exceeded']):
+    if any(term in error_msg for term in ["out of memory", "quota", "limit exceeded"]):
         return ErrorRecoverability.DEGRADED
 
     return ErrorRecoverability.UNKNOWN
@@ -122,6 +125,7 @@ def classify_recoverability(exception: Exception) -> ErrorRecoverability:
 @dataclass
 class ErrorContext:
     """Context information for error tracking"""
+
     component: str
     operation: str
     user_id: str | None = None
@@ -133,6 +137,7 @@ class ErrorContext:
 @dataclass
 class ErrorRecord:
     """Complete error record for tracking and analysis"""
+
     id: str
     timestamp: datetime
     severity: ErrorSeverity
@@ -192,11 +197,11 @@ class ErrorManager:
         context: ErrorContext,
         severity: ErrorSeverity = ErrorSeverity.MEDIUM,
         category: ErrorCategory = ErrorCategory.AGENT,
-        auto_recover: bool = True
+        auto_recover: bool = True,
     ) -> bool:
         """
         Handle an error with automatic recovery attempts
-        
+
         Returns:
             bool: True if error was recovered, False otherwise
         """
@@ -209,7 +214,7 @@ class ErrorManager:
             category=category,
             context=context,
             exception=exception,
-            traceback_str=traceback.format_exc()
+            traceback_str=traceback.format_exc(),
         )
 
         # Log the error
@@ -217,7 +222,7 @@ class ErrorManager:
             ErrorSeverity.CRITICAL: logging.CRITICAL,
             ErrorSeverity.HIGH: logging.ERROR,
             ErrorSeverity.MEDIUM: logging.WARNING,
-            ErrorSeverity.LOW: logging.INFO
+            ErrorSeverity.LOW: logging.INFO,
         }[severity]
 
         logger.log(
@@ -228,8 +233,8 @@ class ErrorManager:
                 "user_id": context.user_id,
                 "session_id": context.session_id,
                 "agent_id": context.agent_id,
-                "metadata": context.metadata
-            }
+                "metadata": context.metadata,
+            },
         )
 
         # Attempt recovery if enabled
@@ -275,7 +280,7 @@ class ErrorManager:
             "total_errors": len(recent_errors),
             "by_severity": {s.value: len([e for e in recent_errors if e.severity == s]) for s in ErrorSeverity},
             "by_category": {c.value: len([e for e in recent_errors if e.category == c]) for c in ErrorCategory},
-            "recovery_rate": len([e for e in recent_errors if e.recovery_successful]) / max(len(recent_errors), 1)
+            "recovery_rate": len([e for e in recent_errors if e.recovery_successful]) / max(len(recent_errors), 1),
         }
 
 
@@ -328,9 +333,10 @@ def error_handler(
     severity: ErrorSeverity = ErrorSeverity.MEDIUM,
     category: ErrorCategory = ErrorCategory.AGENT,
     auto_recover: bool = True,
-    reraise: bool = False
+    reraise: bool = False,
 ):
     """Decorator for automatic error handling"""
+
     def decorator(func):
         @wraps(func)
         async def async_wrapper(*args, **kwargs):
@@ -340,12 +346,10 @@ def error_handler(
                 context = ErrorContext(
                     component=func.__module__,
                     operation=func.__name__,
-                    metadata={"args": str(args), "kwargs": str(kwargs)}
+                    metadata={"args": str(args), "kwargs": str(kwargs)},
                 )
 
-                recovered = await _error_manager.handle_error(
-                    e, context, severity, category, auto_recover
-                )
+                recovered = await _error_manager.handle_error(e, context, severity, category, auto_recover)
 
                 if not recovered and reraise:
                     raise
@@ -357,10 +361,10 @@ def error_handler(
             try:
                 return func(*args, **kwargs)
             except Exception as e:
-                context = ErrorContext(
+                ErrorContext(
                     component=func.__module__,
                     operation=func.__name__,
-                    metadata={"args": str(args), "kwargs": str(kwargs)}
+                    metadata={"args": str(args), "kwargs": str(kwargs)},
                 )
 
                 # For sync functions, we can't do async recovery
@@ -372,6 +376,7 @@ def error_handler(
                 return None
 
         return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
+
     return decorator
 
 
@@ -384,23 +389,17 @@ async def error_context(
     agent_id: str | None = None,
     severity: ErrorSeverity = ErrorSeverity.MEDIUM,
     category: ErrorCategory = ErrorCategory.AGENT,
-    auto_recover: bool = True
+    auto_recover: bool = True,
 ):
     """Context manager for error handling"""
     try:
         yield
     except Exception as e:
         context = ErrorContext(
-            component=component,
-            operation=operation,
-            user_id=user_id,
-            session_id=session_id,
-            agent_id=agent_id
+            component=component, operation=operation, user_id=user_id, session_id=session_id, agent_id=agent_id
         )
 
-        recovered = await _error_manager.handle_error(
-            e, context, severity, category, auto_recover
-        )
+        recovered = await _error_manager.handle_error(e, context, severity, category, auto_recover)
 
         if not recovered:
             raise

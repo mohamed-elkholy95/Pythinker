@@ -96,34 +96,34 @@ from app.domain.services.orchestration.swarm import (
 )
 
 __all__ = [
+    "AgentCapability",
+    "AgentInstance",
+    "AgentRegistry",
+    "AgentSpec",
     # Agent Types
     "AgentType",
-    "AgentCapability",
-    "AgentSpec",
-    "AgentRegistry",
-    "get_agent_registry",
-    # Handoff Protocol
-    "Handoff",
-    "HandoffContext",
-    "HandoffReason",
-    "HandoffResult",
-    "HandoffStatus",
-    "HandoffProtocol",
-    "get_handoff_protocol",
-    # Swarm
-    "Swarm",
-    "SwarmConfig",
-    "SwarmTask",
-    "SwarmResult",
-    "SwarmAgentStatus",
-    "AgentInstance",
-    # Agent Factory
-    "SwarmAgent",
-    "DefaultAgentFactory",
-    "SpecializedAgentFactory",
     # Coordinator Flow
     "CoordinatorFlow",
     "CoordinatorMode",
+    "DefaultAgentFactory",
+    # Handoff Protocol
+    "Handoff",
+    "HandoffContext",
+    "HandoffProtocol",
+    "HandoffReason",
+    "HandoffResult",
+    "HandoffStatus",
+    "SpecializedAgentFactory",
+    # Swarm
+    "Swarm",
+    # Agent Factory
+    "SwarmAgent",
+    "SwarmAgentStatus",
+    "SwarmConfig",
+    "SwarmResult",
+    "SwarmTask",
     "TaskComplexity",
     "create_coordinator_flow",
+    "get_agent_registry",
+    "get_handoff_protocol",
 ]

@@ -12,6 +12,7 @@ from app.domain.models.plan import Plan
 
 class SessionStatus(str, Enum):
     """Session status enum"""
+
     PENDING = "pending"
     INITIALIZING = "initializing"  # Sandbox being prepared (Phase 2: Eager init)
     RUNNING = "running"
@@ -22,12 +23,14 @@ class SessionStatus(str, Enum):
 
 class AgentMode(str, Enum):
     """Agent mode enum - determines which flow to use"""
+
     DISCUSS = "discuss"  # Simple Q&A with search, no planning
-    AGENT = "agent"      # Full PlanAct capabilities
+    AGENT = "agent"  # Full PlanAct capabilities
 
 
 class Session(BaseModel):
     """Session model"""
+
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:16])
     user_id: str  # User ID that owns this session
     sandbox_id: str | None = Field(default=None)  # Identifier for the sandbox environment

@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 class ComponentStatus(str, Enum):
     """Component health status"""
+
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     UNHEALTHY = "unhealthy"
@@ -27,6 +28,7 @@ class ComponentStatus(str, Enum):
 @dataclass
 class HealthMetric:
     """Individual health metric"""
+
     name: str
     value: float
     status: ComponentStatus
@@ -37,6 +39,7 @@ class HealthMetric:
 @dataclass
 class ComponentHealth:
     """Health status for a system component"""
+
     component: str
     status: ComponentStatus
     metrics: list[HealthMetric] = field(default_factory=list)
@@ -69,14 +72,7 @@ class HealthMonitor:
         logger.info("Starting health monitoring")
 
         # Start monitoring tasks for each component
-        components = [
-            "error_manager",
-            "sandbox_manager",
-            "workflow_manager",
-            "database",
-            "redis",
-            "qdrant"
-        ]
+        components = ["error_manager", "sandbox_manager", "workflow_manager", "database", "redis", "qdrant"]
 
         for component in components:
             task = asyncio.create_task(self._monitor_component(component))
@@ -148,13 +144,11 @@ class HealthMonitor:
         else:
             health.status = ComponentStatus.HEALTHY
 
-        health.add_metric(HealthMetric(
-            name="error_rate",
-            value=error_rate,
-            status=health.status,
-            timestamp=datetime.now(),
-            metadata=stats
-        ))
+        health.add_metric(
+            HealthMetric(
+                name="error_rate", value=error_rate, status=health.status, timestamp=datetime.now(), metadata=stats
+            )
+        )
 
     async def _check_sandbox_manager_health(self, health: ComponentHealth):
         """Check sandbox manager health"""
@@ -173,25 +167,22 @@ class HealthMonitor:
         else:
             health.status = ComponentStatus.HEALTHY
 
-        health.add_metric(HealthMetric(
-            name="healthy_sandbox_ratio",
-            value=healthy_ratio,
-            status=health.status,
-            timestamp=datetime.now(),
-            metadata=stats
-        ))
+        health.add_metric(
+            HealthMetric(
+                name="healthy_sandbox_ratio",
+                value=healthy_ratio,
+                status=health.status,
+                timestamp=datetime.now(),
+                metadata=stats,
+            )
+        )
 
     async def _check_workflow_manager_health(self, health: ComponentHealth):
         """Check workflow manager health"""
         # For now, assume healthy if no exceptions
         health.status = ComponentStatus.HEALTHY
 
-        health.add_metric(HealthMetric(
-            name="status",
-            value=1.0,
-            status=health.status,
-            timestamp=datetime.now()
-        ))
+        health.add_metric(HealthMetric(name="status", value=1.0, status=health.status, timestamp=datetime.now()))
 
     async def _check_database_health(self, health: ComponentHealth):
         """Check database connectivity"""
@@ -200,7 +191,7 @@ class HealthMonitor:
 
             # Simple ping test
             mongodb = get_mongodb()
-            await mongodb.client.admin.command('ping')
+            await mongodb.client.admin.command("ping")
 
             health.status = ComponentStatus.HEALTHY
             response_time = 0.1  # Placeholder
@@ -210,12 +201,9 @@ class HealthMonitor:
             response_time = -1
             logger.warning(f"Database health check failed: {e}")
 
-        health.add_metric(HealthMetric(
-            name="response_time",
-            value=response_time,
-            status=health.status,
-            timestamp=datetime.now()
-        ))
+        health.add_metric(
+            HealthMetric(name="response_time", value=response_time, status=health.status, timestamp=datetime.now())
+        )
 
     async def _check_redis_health(self, health: ComponentHealth):
         """Check Redis connectivity"""
@@ -234,12 +222,9 @@ class HealthMonitor:
             response_time = -1
             logger.warning(f"Redis health check failed: {e}")
 
-        health.add_metric(HealthMetric(
-            name="response_time",
-            value=response_time,
-            status=health.status,
-            timestamp=datetime.now()
-        ))
+        health.add_metric(
+            HealthMetric(name="response_time", value=response_time, status=health.status, timestamp=datetime.now())
+        )
 
     async def _check_qdrant_health(self, health: ComponentHealth):
         """Check Qdrant connectivity"""
@@ -247,7 +232,7 @@ class HealthMonitor:
             from app.infrastructure.storage.qdrant import get_qdrant
 
             # Simple health check
-            qdrant = get_qdrant()
+            get_qdrant()
             # Placeholder health check
 
             health.status = ComponentStatus.HEALTHY
@@ -258,12 +243,9 @@ class HealthMonitor:
             response_time = -1
             logger.warning(f"Qdrant health check failed: {e}")
 
-        health.add_metric(HealthMetric(
-            name="response_time",
-            value=response_time,
-            status=health.status,
-            timestamp=datetime.now()
-        ))
+        health.add_metric(
+            HealthMetric(name="response_time", value=response_time, status=health.status, timestamp=datetime.now())
+        )
 
     def get_system_health(self) -> dict[str, Any]:
         """Get overall system health status"""
@@ -281,7 +263,7 @@ class HealthMonitor:
             "overall_status": overall_status.value,
             "components": component_statuses,
             "last_check": datetime.now().isoformat(),
-            "monitoring_active": self._is_monitoring
+            "monitoring_active": self._is_monitoring,
         }
 
     def get_component_health(self, component: str) -> dict[str, Any] | None:
@@ -301,10 +283,10 @@ class HealthMonitor:
                     "value": m.value,
                     "status": m.status.value,
                     "timestamp": m.timestamp.isoformat(),
-                    "metadata": m.metadata
+                    "metadata": m.metadata,
                 }
                 for m in health.metrics[-10:]  # Last 10 metrics
-            ]
+            ],
         }
 
 

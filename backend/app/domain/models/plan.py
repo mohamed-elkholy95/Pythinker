@@ -1,13 +1,14 @@
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field
 
 
 class ExecutionStatus(str, Enum):
     """Execution status for plan steps with enhanced state tracking."""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -66,6 +67,7 @@ class ExecutionStatus(str, Enum):
 
 class Step(BaseModel):
     """Step in a plan with enhanced status tracking."""
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     description: str = ""
     status: ExecutionStatus = ExecutionStatus.PENDING
@@ -107,8 +109,10 @@ class Step(BaseModel):
         marks = ExecutionStatus.get_status_marks()
         return marks.get(self.status.value, "[ ]")
 
+
 class Plan(BaseModel):
     """Plan with steps and enhanced progress tracking."""
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     title: str = ""
     goal: str = ""
@@ -141,7 +145,16 @@ class Plan(BaseModel):
         """Get progress statistics for the plan."""
         total = len(self.steps)
         if total == 0:
-            return {"total": 0, "completed": 0, "failed": 0, "blocked": 0, "skipped": 0, "pending": 0, "running": 0, "progress_pct": 0.0}
+            return {
+                "total": 0,
+                "completed": 0,
+                "failed": 0,
+                "blocked": 0,
+                "skipped": 0,
+                "pending": 0,
+                "running": 0,
+                "progress_pct": 0.0,
+            }
 
         status_counts = {status.value: 0 for status in ExecutionStatus}
         for step in self.steps:
@@ -160,7 +173,7 @@ class Plan(BaseModel):
             "skipped": skipped,
             "pending": status_counts[ExecutionStatus.PENDING.value],
             "running": status_counts[ExecutionStatus.RUNNING.value],
-            "progress_pct": progress_pct
+            "progress_pct": progress_pct,
         }
 
     def format_progress_text(self) -> str:
@@ -170,25 +183,25 @@ class Plan(BaseModel):
         steps are actively being executed (fixes "0/4" stall issue).
         """
         progress = self.get_progress()
-        marks = ExecutionStatus.get_status_marks()
+        ExecutionStatus.get_status_marks()
 
         # Build progress string with running indicator for better visibility
         progress_parts = []
-        if progress['running'] > 0:
+        if progress["running"] > 0:
             progress_parts.append(f"{progress['running']} running")
         progress_parts.append(f"{progress['completed']}/{progress['total']} completed")
-        if progress['failed'] > 0:
+        if progress["failed"] > 0:
             progress_parts.append(f"{progress['failed']} failed")
 
         lines = [
             f"Plan: {self.title or self.goal[:50]}",
             f"Progress: {', '.join(progress_parts)} ({progress['progress_pct']:.1f}%)",
-            ""
+            "",
         ]
 
         for i, step in enumerate(self.steps):
             mark = step.get_status_mark()
-            lines.append(f"{i+1}. {mark} {step.description}")
+            lines.append(f"{i + 1}. {mark} {step.description}")
             if step.notes:
                 lines.append(f"   Notes: {step.notes}")
 
@@ -208,10 +221,7 @@ class Plan(BaseModel):
 
         for step in self.steps:
             if blocked_step_id in step.dependencies and step.status == ExecutionStatus.PENDING:
-                step.mark_blocked(
-                    reason=f"Blocked by step {blocked_step_id}: {reason}",
-                    blocked_by=blocked_step_id
-                )
+                step.mark_blocked(reason=f"Blocked by step {blocked_step_id}: {reason}", blocked_by=blocked_step_id)
                 blocked_ids.append(step.id)
                 # Recursively block dependents
                 blocked_ids.extend(self.mark_blocked_cascade(step.id, reason))
@@ -230,16 +240,60 @@ class Plan(BaseModel):
                 prev_step = self.steps[i - 1]
                 step.dependencies = [prev_step.id]
 
-    def infer_smart_dependencies(self) -> None:
+    def infer_smart_dependencies(self, use_sequential_fallback: bool = True) -> None:
         """Infer dependencies based on step descriptions.
 
         Analyzes step descriptions to identify logical dependencies
-        based on keyword patterns like "using results from", "after", etc.
+        based on keyword patterns. Supports:
+        - Previous step dependencies (most common)
+        - All-previous dependencies for aggregation steps
+        - Independent steps that don't need dependencies
+
+        Args:
+            use_sequential_fallback: If True, steps without detected patterns
+                default to depending on the previous step. If False, they
+                remain independent (useful for parallel execution).
         """
-        # Keywords that indicate dependency on previous steps
-        dependency_patterns = [
-            "using the", "based on", "from the", "with the",
-            "using results", "after", "once", "then",
+        # Patterns indicating dependency on the previous step
+        previous_step_patterns = [
+            "using the",
+            "based on",
+            "from the",
+            "with the",
+            "using results",
+            "after",
+            "once",
+            "then",
+            "following",
+            "continue",
+            "next",
+            "proceed with",
+            "take the",
+        ]
+
+        # Patterns indicating aggregation (depends on ALL previous steps)
+        aggregation_patterns = [
+            "combine",
+            "summarize",
+            "compile",
+            "aggregate",
+            "consolidate",
+            "merge",
+            "finalize",
+            "conclude",
+            "final report",
+            "all findings",
+            "all results",
+            "everything",
+        ]
+
+        # Patterns indicating independent steps (no dependencies needed)
+        independent_patterns = [
+            "first,",
+            "start by",
+            "begin with",
+            "initially",
+            "to begin",
         ]
 
         for i, step in enumerate(self.steps):
@@ -248,17 +302,28 @@ class Plan(BaseModel):
 
             desc_lower = step.description.lower()
 
-            # Check for explicit dependency patterns
-            has_dependency_pattern = any(
-                pattern in desc_lower for pattern in dependency_patterns
-            )
+            # Check for independent step (typically first step)
+            is_independent = any(pattern in desc_lower for pattern in independent_patterns)
+            if is_independent or i == 0:
+                step.dependencies = []
+                continue
 
-            if has_dependency_pattern and i > 0:
-                # Depends on previous step
+            # Check for aggregation pattern (depends on all previous)
+            is_aggregation = any(pattern in desc_lower for pattern in aggregation_patterns)
+            if is_aggregation and i > 0:
+                step.dependencies = [s.id for s in self.steps[:i]]
+                continue
+
+            # Check for explicit previous-step dependency patterns
+            has_previous_pattern = any(pattern in desc_lower for pattern in previous_step_patterns)
+            if has_previous_pattern and i > 0:
                 step.dependencies = [self.steps[i - 1].id]
-            elif i > 0:
-                # Default: sequential dependency
+                continue
+
+            # Fallback behavior
+            if use_sequential_fallback and i > 0:
                 step.dependencies = [self.steps[i - 1].id]
+            # else: leave dependencies empty for parallel execution
 
     def get_step_by_id(self, step_id: str) -> Step | None:
         """Get a step by its ID."""
@@ -269,6 +334,23 @@ class Plan(BaseModel):
 
     def dump_json(self) -> str:
         return self.model_dump_json(include={"goal", "language", "steps"})
+
+    def get_quality_metrics(
+        self,
+        user_request: str = "",
+        available_tools: list[str] | None = None,
+    ) -> "PlanQualityMetrics":
+        """Get comprehensive quality metrics for this plan.
+
+        Args:
+            user_request: Original user request for completeness analysis
+            available_tools: List of available tool names for feasibility check
+
+        Returns:
+            PlanQualityMetrics with scores across all dimensions
+        """
+        analyzer = PlanQualityAnalyzer(available_tools=available_tools)
+        return analyzer.analyze(self, user_request)
 
     def validate_plan(self) -> "ValidationResult":
         """Pre-execution plan validation.
@@ -288,7 +370,15 @@ class Plan(BaseModel):
             errors.append("Plan has no steps")
             return ValidationResult(passed=False, errors=errors, warnings=warnings)
 
-        step_ids = {step.id for step in self.steps}
+        step_ids_list = [step.id for step in self.steps]
+        step_ids = set(step_ids_list)
+        if len(step_ids_list) != len(step_ids):
+            seen = set()
+            for step_id in step_ids_list:
+                if step_id in seen:
+                    errors.append(f"Duplicate step id detected: {step_id}")
+                else:
+                    seen.add(step_id)
 
         # Check for empty/invalid steps
         for step in self.steps:
@@ -299,9 +389,7 @@ class Plan(BaseModel):
         for step in self.steps:
             for dep_id in step.dependencies:
                 if dep_id not in step_ids:
-                    errors.append(
-                        f"Step {step.id} depends on non-existent step {dep_id}"
-                    )
+                    errors.append(f"Step {step.id} depends on non-existent step {dep_id}")
 
         # Check for circular dependencies using DFS
         def has_cycle(step_id: str, visited: set, rec_stack: set) -> bool:
@@ -322,12 +410,9 @@ class Plan(BaseModel):
 
         visited: set = set()
         for step in self.steps:
-            if step.id not in visited:
-                if has_cycle(step.id, visited, set()):
-                    errors.append(
-                        f"Circular dependency detected involving step {step.id}"
-                    )
-                    break
+            if step.id not in visited and has_cycle(step.id, visited, set()):
+                errors.append(f"Circular dependency detected involving step {step.id}")
+                break
 
         # Check for self-dependencies
         for step in self.steps:
@@ -336,36 +421,531 @@ class Plan(BaseModel):
 
         # Warnings for potentially problematic plans
         if len(self.steps) > 12:
-            warnings.append(
-                f"Plan has {len(self.steps)} steps, consider simplifying"
-            )
+            warnings.append(f"Plan has {len(self.steps)} steps, consider simplifying")
 
         # Check for steps with too many dependencies
         for step in self.steps:
             if len(step.dependencies) > 5:
-                warnings.append(
-                    f"Step {step.id} has {len(step.dependencies)} dependencies, "
-                    "may be overly complex"
-                )
+                warnings.append(f"Step {step.id} has {len(step.dependencies)} dependencies, may be overly complex")
 
-        return ValidationResult(
-            passed=len(errors) == 0,
-            errors=errors,
-            warnings=warnings
-        )
+        return ValidationResult(passed=len(errors) == 0, errors=errors, warnings=warnings)
 
 
 @dataclass
 class ValidationResult:
     """Result of plan validation."""
+
     passed: bool
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
+        return {"passed": self.passed, "errors": self.errors, "warnings": self.warnings}
+
+
+class QualityDimension(str, Enum):
+    """Dimensions of plan quality assessment."""
+
+    CLARITY = "clarity"  # How clear and actionable are steps
+    COMPLETENESS = "completeness"  # Does plan cover all task aspects
+    STRUCTURE = "structure"  # Dependency and organization quality
+    FEASIBILITY = "feasibility"  # Risk and executability
+    EFFICIENCY = "efficiency"  # Optimal step count and parallelism
+
+
+@dataclass
+class DimensionScore:
+    """Score for a single quality dimension."""
+
+    dimension: QualityDimension
+    score: float  # 0.0-1.0
+    issues: list[str] = field(default_factory=list)
+    suggestions: list[str] = field(default_factory=list)
+
+    @property
+    def grade(self) -> str:
+        """Get letter grade for this dimension."""
+        if self.score >= 0.9:
+            return "A"
+        if self.score >= 0.8:
+            return "B"
+        if self.score >= 0.7:
+            return "C"
+        if self.score >= 0.6:
+            return "D"
+        return "F"
+
+
+@dataclass
+class PlanQualityMetrics:
+    """Comprehensive quality assessment for a plan.
+
+    Evaluates plans across multiple dimensions:
+    - Clarity: Step descriptions are clear, specific, and actionable
+    - Completeness: Plan addresses all aspects of the task
+    - Structure: Dependencies are well-defined, no circular refs
+    - Feasibility: Steps are realistic and executable
+    - Efficiency: Optimal step count, parallelism opportunities
+    """
+
+    dimensions: dict[QualityDimension, DimensionScore] = field(default_factory=dict)
+    overall_score: float = 0.0
+    overall_grade: str = "F"
+    risk_factors: list[str] = field(default_factory=list)
+    improvement_suggestions: list[str] = field(default_factory=list)
+    analyzed_at: str = field(default_factory=lambda: "")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
         return {
-            "passed": self.passed,
-            "errors": self.errors,
-            "warnings": self.warnings
+            "dimensions": {
+                d.value: {
+                    "score": ds.score,
+                    "grade": ds.grade,
+                    "issues": ds.issues,
+                    "suggestions": ds.suggestions,
+                }
+                for d, ds in self.dimensions.items()
+            },
+            "overall_score": self.overall_score,
+            "overall_grade": self.overall_grade,
+            "risk_factors": self.risk_factors,
+            "improvement_suggestions": self.improvement_suggestions,
+            "analyzed_at": self.analyzed_at,
         }
+
+    @property
+    def needs_improvement(self) -> bool:
+        """Check if plan needs improvement (score < 0.7)."""
+        return self.overall_score < 0.7
+
+    @property
+    def is_high_quality(self) -> bool:
+        """Check if plan is high quality (score >= 0.85)."""
+        return self.overall_score >= 0.85
+
+    @property
+    def worst_dimension(self) -> DimensionScore | None:
+        """Get the lowest-scoring dimension."""
+        if not self.dimensions:
+            return None
+        return min(self.dimensions.values(), key=lambda d: d.score)
+
+
+class PlanQualityAnalyzer:
+    """Analyzes plan quality across multiple dimensions.
+
+    Provides actionable feedback for improving plans before execution.
+    """
+
+    # Vague words that reduce clarity
+    VAGUE_WORDS: ClassVar[list[str]] = [
+        "maybe",
+        "perhaps",
+        "possibly",
+        "somehow",
+        "something",
+        "stuff",
+        "things",
+        "etc",
+        "various",
+        "some",
+        "certain",
+        "might",
+        "could be",
+        "kind of",
+        "sort of",
+        "probably",
+    ]
+
+    # Action verbs that indicate clear, actionable steps
+    ACTION_VERBS: ClassVar[list[str]] = [
+        "search",
+        "find",
+        "read",
+        "write",
+        "create",
+        "update",
+        "delete",
+        "browse",
+        "navigate",
+        "click",
+        "extract",
+        "download",
+        "upload",
+        "run",
+        "execute",
+        "install",
+        "configure",
+        "analyze",
+        "summarize",
+        "compare",
+        "compile",
+        "test",
+        "verify",
+        "validate",
+        "deploy",
+    ]
+
+    # Risk indicators
+    RISK_INDICATORS: ClassVar[list[str]] = [
+        "if possible",
+        "try to",
+        "attempt",
+        "hopefully",
+        "delete",
+        "remove",
+        "overwrite",
+        "force",
+        "production",
+        "live",
+        "real data",
+        "admin",
+        "root",
+        "sudo",
+    ]
+
+    def __init__(self, available_tools: list[str] | None = None):
+        """Initialize analyzer with available tools context.
+
+        Args:
+            available_tools: List of available tool names for feasibility check
+        """
+        self.available_tools = set(available_tools or [])
+
+    def analyze(self, plan: "Plan", user_request: str = "") -> PlanQualityMetrics:
+        """Analyze plan quality and return comprehensive metrics.
+
+        Args:
+            plan: The plan to analyze
+            user_request: Original user request for completeness check
+
+        Returns:
+            PlanQualityMetrics with scores and suggestions
+        """
+        from datetime import UTC, datetime
+
+        dimensions = {}
+
+        # Analyze each dimension
+        dimensions[QualityDimension.CLARITY] = self._analyze_clarity(plan)
+        dimensions[QualityDimension.COMPLETENESS] = self._analyze_completeness(plan, user_request)
+        dimensions[QualityDimension.STRUCTURE] = self._analyze_structure(plan)
+        dimensions[QualityDimension.FEASIBILITY] = self._analyze_feasibility(plan)
+        dimensions[QualityDimension.EFFICIENCY] = self._analyze_efficiency(plan)
+
+        # Calculate overall score (weighted average)
+        weights = {
+            QualityDimension.CLARITY: 0.25,
+            QualityDimension.COMPLETENESS: 0.25,
+            QualityDimension.STRUCTURE: 0.20,
+            QualityDimension.FEASIBILITY: 0.15,
+            QualityDimension.EFFICIENCY: 0.15,
+        }
+
+        overall_score = sum(dimensions[dim].score * weights[dim] for dim in dimensions)
+
+        # Determine overall grade
+        if overall_score >= 0.9:
+            overall_grade = "A"
+        elif overall_score >= 0.8:
+            overall_grade = "B"
+        elif overall_score >= 0.7:
+            overall_grade = "C"
+        elif overall_score >= 0.6:
+            overall_grade = "D"
+        else:
+            overall_grade = "F"
+
+        # Collect risk factors
+        risk_factors = self._identify_risk_factors(plan)
+
+        # Generate improvement suggestions
+        improvement_suggestions = self._generate_suggestions(dimensions)
+
+        return PlanQualityMetrics(
+            dimensions=dimensions,
+            overall_score=overall_score,
+            overall_grade=overall_grade,
+            risk_factors=risk_factors,
+            improvement_suggestions=improvement_suggestions,
+            analyzed_at=datetime.now(UTC).isoformat(),
+        )
+
+    def _analyze_clarity(self, plan: Plan) -> DimensionScore:
+        """Analyze clarity of step descriptions."""
+        issues: list[str] = []
+        suggestions: list[str] = []
+        scores: list[float] = []
+
+        for step in plan.steps:
+            step_score = 1.0
+            desc = step.description.lower()
+
+            # Check for vague words
+            vague_count = sum(1 for v in self.VAGUE_WORDS if v in desc)
+            if vague_count > 0:
+                step_score -= 0.1 * min(vague_count, 3)
+                issues.append(f"Step '{step.description[:30]}...' contains vague language")
+
+            # Check for action verbs
+            has_action_verb = any(v in desc for v in self.ACTION_VERBS)
+            if not has_action_verb:
+                step_score -= 0.15
+                suggestions.append(f"Step '{step.description[:30]}...' lacks clear action verb")
+
+            # Check description length
+            word_count = len(step.description.split())
+            if word_count < 3:
+                step_score -= 0.2
+                issues.append(f"Step '{step.description}' is too short")
+            elif word_count > 50:
+                step_score -= 0.1
+                suggestions.append(f"Step '{step.description[:30]}...' is verbose, consider simplifying")
+
+            # Check for specific targets
+            has_specific = any(c in step.description for c in ["/", '"', "'", "http", ".py", ".md", ".json"])
+            if has_specific:
+                step_score += 0.05  # Bonus for specificity
+
+            scores.append(max(0.0, min(1.0, step_score)))
+
+        avg_score = sum(scores) / len(scores) if scores else 0.5
+
+        return DimensionScore(
+            dimension=QualityDimension.CLARITY,
+            score=avg_score,
+            issues=issues[:5],  # Limit to top 5
+            suggestions=suggestions[:3],
+        )
+
+    def _analyze_completeness(self, plan: Plan, user_request: str) -> DimensionScore:
+        """Analyze if plan covers all aspects of the task."""
+        issues: list[str] = []
+        suggestions: list[str] = []
+        score = 1.0
+
+        # Check if plan has goal
+        if not plan.goal or len(plan.goal) < 10:
+            score -= 0.2
+            issues.append("Plan lacks clear goal statement")
+
+        # Check minimum step count
+        if len(plan.steps) == 0:
+            score = 0.0
+            issues.append("Plan has no steps")
+        elif len(plan.steps) == 1:
+            score -= 0.1
+            suggestions.append("Single-step plans may be oversimplified")
+
+        # Check for output/deliverable step
+        all_descs = " ".join(s.description.lower() for s in plan.steps)
+        output_indicators = ["write", "create", "save", "output", "report", "summarize", "deliver"]
+        has_output = any(ind in all_descs for ind in output_indicators)
+        if not has_output:
+            score -= 0.15
+            suggestions.append("Consider adding a step to produce deliverable output")
+
+        # Check coverage of user request keywords
+        if user_request:
+            request_words = set(user_request.lower().split())
+            # Filter to meaningful words
+            meaningful = {w for w in request_words if len(w) > 3}
+            covered = sum(1 for w in meaningful if w in all_descs)
+            coverage_ratio = covered / len(meaningful) if meaningful else 1.0
+            if coverage_ratio < 0.5:
+                score -= 0.2
+                issues.append("Plan may not fully address the request")
+
+        return DimensionScore(
+            dimension=QualityDimension.COMPLETENESS,
+            score=max(0.0, min(1.0, score)),
+            issues=issues,
+            suggestions=suggestions,
+        )
+
+    def _analyze_structure(self, plan: Plan) -> DimensionScore:
+        """Analyze structural quality of the plan."""
+        issues: list[str] = []
+        suggestions: list[str] = []
+        score = 1.0
+
+        # Run validation
+        validation = plan.validate_plan()
+        if not validation.passed:
+            score -= 0.3
+            issues.extend(validation.errors[:3])
+
+        if validation.warnings:
+            score -= 0.05 * len(validation.warnings)
+            suggestions.extend(validation.warnings[:2])
+
+        # Check dependency structure
+        steps_with_deps = sum(1 for s in plan.steps if s.dependencies)
+        if len(plan.steps) > 2 and steps_with_deps == 0:
+            score -= 0.1
+            suggestions.append("Consider adding dependencies between steps")
+
+        # Check for potential parallel execution
+        independent_steps = sum(1 for s in plan.steps if not s.dependencies)
+        if independent_steps > 3 and len(plan.steps) > 4:
+            score -= 0.05
+            suggestions.append("Many independent steps could run in parallel")
+
+        # Check for consistent ID format
+        step_ids = [s.id for s in plan.steps]
+        if any("-" in sid for sid in step_ids):
+            # UUID format - this is fine
+            pass
+        elif not all(sid.isdigit() or sid.startswith("step") for sid in step_ids):
+            score -= 0.05
+            issues.append("Inconsistent step ID format")
+
+        return DimensionScore(
+            dimension=QualityDimension.STRUCTURE,
+            score=max(0.0, min(1.0, score)),
+            issues=issues,
+            suggestions=suggestions,
+        )
+
+    def _analyze_feasibility(self, plan: Plan) -> DimensionScore:
+        """Analyze feasibility and risks of the plan."""
+        issues: list[str] = []
+        suggestions: list[str] = []
+        score = 1.0
+
+        all_descs = " ".join(s.description.lower() for s in plan.steps)
+
+        # Check for risk indicators
+        for risk in self.RISK_INDICATORS:
+            if risk in all_descs:
+                score -= 0.05
+                issues.append(f"Potentially risky operation: '{risk}'")
+
+        # Check for overly complex steps
+        for step in plan.steps:
+            word_count = len(step.description.split())
+            if word_count > 40:
+                score -= 0.05
+                issues.append(f"Step '{step.description[:30]}...' may be too complex to execute atomically")
+
+        # Check for tool availability if tools context provided
+        if self.available_tools:
+            tool_keywords = {
+                "search": ["search", "find", "query", "look up"],
+                "browser": ["browse", "navigate", "click", "visit", "webpage", "website"],
+                "file": ["read", "write", "create file", "save", "open file"],
+                "shell": ["run", "execute", "command", "terminal", "install", "pip", "npm"],
+            }
+            for tool, keywords in tool_keywords.items():
+                if any(k in all_descs for k in keywords) and tool not in self.available_tools:
+                    score -= 0.1
+                    issues.append(f"Plan requires '{tool}' tool which may not be available")
+
+        # Bonus for explicit error handling mentions
+        if "if" in all_descs and ("fail" in all_descs or "error" in all_descs):
+            score += 0.05
+            suggestions.append("Good: Plan considers error scenarios")
+
+        return DimensionScore(
+            dimension=QualityDimension.FEASIBILITY,
+            score=max(0.0, min(1.0, score)),
+            issues=issues[:5],
+            suggestions=suggestions[:2],
+        )
+
+    def _analyze_efficiency(self, plan: Plan) -> DimensionScore:
+        """Analyze efficiency of the plan."""
+        issues: list[str] = []
+        suggestions: list[str] = []
+        score = 1.0
+
+        step_count = len(plan.steps)
+
+        # Check step count
+        if step_count > 10:
+            score -= 0.1 * ((step_count - 10) / 5)
+            issues.append(f"Plan has {step_count} steps, may be overly detailed")
+        elif step_count < 2 and plan.goal and len(plan.goal) > 50:
+            score -= 0.1
+            suggestions.append("Complex goal may need more steps")
+
+        # Check for duplicate-looking steps
+        descriptions = [s.description.lower()[:50] for s in plan.steps]
+        seen = set()
+        duplicates = 0
+        for desc in descriptions:
+            if desc in seen:
+                duplicates += 1
+            seen.add(desc)
+        if duplicates > 0:
+            score -= 0.1 * duplicates
+            issues.append(f"{duplicates} potentially duplicate steps detected")
+
+        # Check for parallelization opportunities
+        max_parallel = sum(1 for s in plan.steps if not s.dependencies)
+        if step_count > 3 and max_parallel > 2:
+            suggestions.append(f"{max_parallel} steps could potentially run in parallel")
+
+        # Check for sequential vs batch operations
+        batch_keywords = ["each", "all", "every", "batch"]
+        has_batch = any(k in plan.goal.lower() for k in batch_keywords)
+        if has_batch and step_count > 5:
+            score -= 0.05
+            suggestions.append("Consider batching similar operations")
+
+        return DimensionScore(
+            dimension=QualityDimension.EFFICIENCY,
+            score=max(0.0, min(1.0, score)),
+            issues=issues,
+            suggestions=suggestions,
+        )
+
+    def _identify_risk_factors(self, plan: Plan) -> list[str]:
+        """Identify risk factors in the plan."""
+        risks: list[str] = []
+
+        all_descs = " ".join(s.description.lower() for s in plan.steps)
+
+        # Data loss risks
+        if any(w in all_descs for w in ["delete", "remove", "overwrite", "truncate"]):
+            risks.append("Plan involves destructive operations - ensure backups exist")
+
+        # Permission risks
+        if any(w in all_descs for w in ["sudo", "root", "admin", "permission"]):
+            risks.append("Plan may require elevated permissions")
+
+        # External dependency risks
+        if any(w in all_descs for w in ["api", "external", "third-party", "download"]):
+            risks.append("Plan depends on external services - consider availability")
+
+        # Long-running risks
+        if len(plan.steps) > 8:
+            risks.append("Long plan may be affected by token limits or timeouts")
+
+        # Rate limiting risks
+        if all_descs.count("search") > 3 or all_descs.count("browse") > 5:
+            risks.append("Multiple search/browse operations may hit rate limits")
+
+        return risks[:5]  # Limit to top 5 risks
+
+    def _generate_suggestions(
+        self,
+        dimensions: dict[QualityDimension, DimensionScore],
+    ) -> list[str]:
+        """Generate improvement suggestions based on dimension scores."""
+        suggestions: list[str] = []
+
+        # Prioritize suggestions from lowest-scoring dimensions
+        sorted_dims = sorted(dimensions.values(), key=lambda d: d.score)
+
+        for dim_score in sorted_dims[:3]:  # Focus on bottom 3
+            if dim_score.score < 0.8:
+                suggestions.extend(dim_score.suggestions)
+
+        # Add general suggestions for low overall scores
+        if all(d.score < 0.7 for d in dimensions.values()):
+            suggestions.append("Consider rewriting the plan with more specific, actionable steps")
+
+        return suggestions[:5]  # Limit to 5 suggestions

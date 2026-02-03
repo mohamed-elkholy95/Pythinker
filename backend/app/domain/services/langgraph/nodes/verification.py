@@ -55,9 +55,7 @@ async def verification_node(state: PlanActState) -> dict[str, Any]:
     loops = state.get("verification_loops", 0)
 
     async for event in verifier.verify_plan(
-        plan=plan,
-        user_request=user_message.message if user_message else "",
-        task_context=""
+        plan=plan, user_request=user_message.message if user_message else "", task_context=""
     ):
         # Stream event in real-time if queue available
         if event_queue:

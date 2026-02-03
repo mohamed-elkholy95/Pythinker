@@ -1,7 +1,7 @@
 """
 Test Runner business model definitions
 """
-from typing import Optional, List, Dict, Any
+from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
 from enum import Enum
 

@@ -1,4 +1,5 @@
 """API routes for usage tracking and statistics."""
+
 import logging
 
 from fastapi import APIRouter, Depends, Query

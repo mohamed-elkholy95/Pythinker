@@ -6,7 +6,7 @@ from app.domain.external.message_queue import MessageQueue
 
 class TaskRunner(ABC):
     """Abstract base class defining the interface for task runners.
-    
+
     This interface defines two essential lifecycle methods:
     - run: Main task execution logic
     - on_stop: Called when task execution needs to stop
@@ -15,7 +15,7 @@ class TaskRunner(ABC):
     @abstractmethod
     async def run(self, task: "Task") -> None:
         """Main task execution logic.
-        
+
         This method contains the core functionality of the task.
         Implementations should handle setup, execution, and cleanup.
         """
@@ -24,7 +24,7 @@ class TaskRunner(ABC):
     @abstractmethod
     async def destroy(self) -> None:
         """Destroy the task and release resources.
-        
+
         Called when the task needs to be destroyed.
         This method is responsible for cleaning up and releasing all resources used by the task,
         including but not limited to:
@@ -38,11 +38,12 @@ class TaskRunner(ABC):
     @abstractmethod
     async def on_done(self, task: "Task") -> None:
         """Called when task execution is done.
-        
+
         Use this method to handle graceful shutdown and cleanup.
         This method should ensure all resources are properly released.
         """
         ...
+
 
 class Task(Protocol):
     """Protocol defining the interface for task management operations."""
@@ -129,7 +130,7 @@ class Task(Protocol):
     @classmethod
     async def destroy(cls) -> None:
         """Destroy all task instances.
-        
+
         Cleans up all running tasks and releases associated resources.
         """
         ...

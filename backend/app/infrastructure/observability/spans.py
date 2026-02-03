@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 class SpanKind(str, Enum):
     """Type of span being traced."""
+
     LLM_CALL = "llm_call"
     TOOL_EXECUTION = "tool_execution"
     FLOW_STATE = "flow_state"
@@ -34,6 +35,7 @@ class SpanKind(str, Enum):
 
 class SpanStatus(str, Enum):
     """Status of a span."""
+
     OK = "ok"
     ERROR = "error"
     UNSET = "unset"
@@ -42,6 +44,7 @@ class SpanStatus(str, Enum):
 @dataclass
 class SpanEvent:
     """An event that occurred during a span's lifetime."""
+
     name: str
     timestamp: float = field(default_factory=time.time)
     attributes: dict[str, Any] = field(default_factory=dict)
@@ -50,6 +53,7 @@ class SpanEvent:
 @dataclass
 class TokenUsage:
     """Token usage information for LLM calls."""
+
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
@@ -77,6 +81,7 @@ class Span:
         events: List of events that occurred during the span
         token_usage: Token usage if this is an LLM call span
     """
+
     span_id: str = field(default_factory=lambda: str(uuid.uuid4())[:16])
     trace_id: str = ""
     parent_span_id: str | None = None
@@ -100,10 +105,7 @@ class Span:
 
     def add_event(self, name: str, attributes: dict[str, Any] | None = None) -> None:
         """Add an event to the span timeline."""
-        self.events.append(SpanEvent(
-            name=name,
-            attributes=attributes or {}
-        ))
+        self.events.append(SpanEvent(name=name, attributes=attributes or {}))
 
     def set_status(self, status: SpanStatus, message: str | None = None) -> None:
         """Set the span's final status."""
@@ -111,18 +113,13 @@ class Span:
         if message:
             self.status_message = message
 
-    def set_token_usage(
-        self,
-        prompt_tokens: int = 0,
-        completion_tokens: int = 0,
-        cached_tokens: int = 0
-    ) -> None:
+    def set_token_usage(self, prompt_tokens: int = 0, completion_tokens: int = 0, cached_tokens: int = 0) -> None:
         """Record token usage for an LLM call span."""
         self.token_usage = TokenUsage(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=prompt_tokens + completion_tokens,
-            cached_tokens=cached_tokens
+            cached_tokens=cached_tokens,
         )
 
     def end(self, status: SpanStatus | None = None) -> None:
@@ -154,67 +151,39 @@ class Span:
             "status": self.status.value,
             "status_message": self.status_message,
             "attributes": self.attributes,
-            "events": [
-                {"name": e.name, "timestamp": e.timestamp, "attributes": e.attributes}
-                for e in self.events
-            ],
+            "events": [{"name": e.name, "timestamp": e.timestamp, "attributes": e.attributes} for e in self.events],
             "token_usage": {
                 "prompt_tokens": self.token_usage.prompt_tokens,
                 "completion_tokens": self.token_usage.completion_tokens,
                 "total_tokens": self.token_usage.total_tokens,
                 "cached_tokens": self.token_usage.cached_tokens,
-            } if self.token_usage else None
+            }
+            if self.token_usage
+            else None,
         }
 
 
-def create_llm_span(
-    trace_id: str,
-    name: str,
-    model: str,
-    parent_span_id: str | None = None
-) -> Span:
+def create_llm_span(trace_id: str, name: str, model: str, parent_span_id: str | None = None) -> Span:
     """Create a span for an LLM call."""
-    span = Span(
-        trace_id=trace_id,
-        parent_span_id=parent_span_id,
-        name=name,
-        kind=SpanKind.LLM_CALL
-    )
+    span = Span(trace_id=trace_id, parent_span_id=parent_span_id, name=name, kind=SpanKind.LLM_CALL)
     span.set_attribute("llm.model", model)
     return span
 
 
-def create_tool_span(
-    trace_id: str,
-    tool_name: str,
-    function_name: str,
-    parent_span_id: str | None = None
-) -> Span:
+def create_tool_span(trace_id: str, tool_name: str, function_name: str, parent_span_id: str | None = None) -> Span:
     """Create a span for a tool execution."""
     span = Span(
         trace_id=trace_id,
         parent_span_id=parent_span_id,
         name=f"tool:{tool_name}.{function_name}",
-        kind=SpanKind.TOOL_EXECUTION
+        kind=SpanKind.TOOL_EXECUTION,
     )
-    span.set_attributes({
-        "tool.name": tool_name,
-        "tool.function": function_name
-    })
+    span.set_attributes({"tool.name": tool_name, "tool.function": function_name})
     return span
 
 
-def create_flow_span(
-    trace_id: str,
-    state: str,
-    parent_span_id: str | None = None
-) -> Span:
+def create_flow_span(trace_id: str, state: str, parent_span_id: str | None = None) -> Span:
     """Create a span for a flow state transition."""
-    span = Span(
-        trace_id=trace_id,
-        parent_span_id=parent_span_id,
-        name=f"flow:{state}",
-        kind=SpanKind.FLOW_STATE
-    )
+    span = Span(trace_id=trace_id, parent_span_id=parent_span_id, name=f"flow:{state}", kind=SpanKind.FLOW_STATE)
     span.set_attribute("flow.state", state)
     return span

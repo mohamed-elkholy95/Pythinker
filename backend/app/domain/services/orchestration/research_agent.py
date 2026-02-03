@@ -2,6 +2,7 @@
 
 Integrates with existing AgentRegistry for automatic dispatch.
 """
+
 import logging
 from collections.abc import AsyncGenerator
 
@@ -87,17 +88,11 @@ Prioritize authoritative sources and recent information."""
         logger.info(f"Starting research: {topic}")
 
         # Step 1: Generate search queries
-        yield MessageEvent(
-            message=f"Generating search queries for: {topic}",
-            role="assistant"
-        )
+        yield MessageEvent(message=f"Generating search queries for: {topic}", role="assistant")
 
         queries = await self._generate_queries(topic, requirements)
 
-        yield MessageEvent(
-            message=f"Generated {len(queries)} search queries",
-            role="assistant"
-        )
+        yield MessageEvent(message=f"Generated {len(queries)} search queries", role="assistant")
 
         # Step 2: Execute searches
         all_results = []
@@ -105,8 +100,8 @@ Prioritize authoritative sources and recent information."""
             for query in queries:
                 yield ToolEvent(
                     tool_call_id=f"search_{hash(query)}",
-                    tool_name="search_web",
-                    function_name="search_web",
+                    tool_name="search",
+                    function_name="info_search_web",
                     function_args={"query": query},
                     status=ToolStatus.CALLING,
                     display_command=f"Searching '{query}'",
@@ -120,12 +115,9 @@ Prioritize authoritative sources and recent information."""
                     logger.error(f"Search failed for query '{query}': {e}")
 
         # Deduplicate and rank
-        ranked_sources = self._rank_sources(all_results)[:self._max_sources]
+        ranked_sources = self._rank_sources(all_results)[: self._max_sources]
 
-        yield MessageEvent(
-            message=f"Found {len(ranked_sources)} relevant sources",
-            role="assistant"
-        )
+        yield MessageEvent(message=f"Found {len(ranked_sources)} relevant sources", role="assistant")
 
         # Step 3: Browse and extract
         extracted_content = []
@@ -135,28 +127,27 @@ Prioritize authoritative sources and recent information."""
                     tool_call_id=f"browse_{hash(source.get('url', ''))}",
                     tool_name="browser_navigate",
                     function_name="browser_navigate",
-                    function_args={"url": source.get('url', '')},
+                    function_args={"url": source.get("url", "")},
                     status=ToolStatus.CALLING,
                     display_command=f"Browsing {source.get('url', '')}",
                     command_category="browse",
                 )
 
                 try:
-                    content = await self._browser.get_page_content(source.get('url', ''))
-                    extracted_content.append({
-                        "url": source.get('url', ''),
-                        "title": source.get('title', 'Unknown'),
-                        "content": content,
-                        "credibility": source.get('credibility', 'medium'),
-                    })
+                    content = await self._browser.get_page_content(source.get("url", ""))
+                    extracted_content.append(
+                        {
+                            "url": source.get("url", ""),
+                            "title": source.get("title", "Unknown"),
+                            "content": content,
+                            "credibility": source.get("credibility", "medium"),
+                        }
+                    )
                 except Exception as e:
                     logger.error(f"Failed to browse {source.get('url', '')}: {e}")
 
         # Step 4: Synthesize findings
-        yield MessageEvent(
-            message="Synthesizing research findings...",
-            role="assistant"
-        )
+        yield MessageEvent(message="Synthesizing research findings...", role="assistant")
 
         synthesis = await self._synthesize_findings(
             topic=topic,
@@ -171,10 +162,7 @@ Prioritize authoritative sources and recent information."""
             sources=extracted_content,
         )
 
-        yield MessageEvent(
-            message=report,
-            role="assistant"
-        )
+        yield MessageEvent(message=report, role="assistant")
 
         logger.info("Research complete")
 
@@ -207,24 +195,25 @@ Return JSON array of queries:
 
     def _rank_sources(self, results: list[dict]) -> list[dict]:
         """Rank sources by credibility and relevance"""
+
         def credibility_score(result):
-            url = result.get('url', '')
+            url = result.get("url", "")
             score = 0
 
             # High credibility domains
-            if any(domain in url for domain in ['.edu', '.gov', '.org']):
+            if any(domain in url for domain in [".edu", ".gov", ".org"]):
                 score += 3
 
             # Academic/research indicators
-            if any(term in url.lower() for term in ['scholar', 'research', 'journal', 'arxiv']):
+            if any(term in url.lower() for term in ["scholar", "research", "journal", "arxiv"]):
                 score += 2
 
             # Penalize low-quality sources
-            if any(term in url.lower() for term in ['blog', 'forum', 'reddit']):
+            if any(term in url.lower() for term in ["blog", "forum", "reddit"]):
                 score -= 1
 
-            result['credibility_score'] = score
-            result['credibility'] = 'high' if score >= 3 else 'medium' if score >= 1 else 'low'
+            result["credibility_score"] = score
+            result["credibility"] = "high" if score >= 3 else "medium" if score >= 1 else "low"
 
             return score
 
@@ -235,7 +224,7 @@ Return JSON array of queries:
         seen_urls = set()
         unique_results = []
         for result in sorted_results:
-            url = result.get('url', '')
+            url = result.get("url", "")
             if url not in seen_urls:
                 seen_urls.add(url)
                 unique_results.append(result)
@@ -250,10 +239,12 @@ Return JSON array of queries:
     ) -> str:
         """Synthesize findings using LLM"""
         # Build context from sources
-        context = "\n\n".join([
-            f"Source: {s['title']} ({s['url']})\nCredibility: {s['credibility']}\n{s['content'][:1000]}..."
-            for s in sources[:10]  # Limit to top 10 sources
-        ])
+        context = "\n\n".join(
+            [
+                f"Source: {s['title']} ({s['url']})\nCredibility: {s['credibility']}\n{s['content'][:1000]}..."
+                for s in sources[:10]  # Limit to top 10 sources
+            ]
+        )
 
         prompt = f"""Synthesize comprehensive findings on: {topic}
 

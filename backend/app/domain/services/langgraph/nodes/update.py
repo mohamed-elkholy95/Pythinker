@@ -1,6 +1,7 @@
 """Update node for the LangGraph PlanAct workflow.
 
 This node updates the plan after step completion using the PlannerAgent.
+Also handles state pruning to prevent unbounded growth.
 """
 
 import asyncio
@@ -10,6 +11,50 @@ from typing import Any
 from app.domain.services.langgraph.state import PlanActState
 
 logger = logging.getLogger(__name__)
+
+# P1.3: State pruning limits to prevent unbounded memory growth
+MAX_PENDING_EVENTS = 100
+MAX_RECENT_ACTIONS = 50
+MAX_RECENT_TOOLS = 100
+
+
+def prune_accumulated_state(state: PlanActState) -> dict[str, Any]:
+    """Prune accumulated state fields to prevent unbounded growth.
+
+    This function is called during the update node to ensure that
+    accumulated lists don't grow indefinitely, which could cause
+    memory issues during long-running workflows.
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        Dict with pruned state updates (only fields that need pruning)
+    """
+    updates: dict[str, Any] = {}
+
+    # Prune pending_events - keep most recent
+    pending_events = state.get("pending_events", [])
+    if len(pending_events) > MAX_PENDING_EVENTS:
+        pruned_count = len(pending_events) - MAX_PENDING_EVENTS
+        updates["pending_events"] = pending_events[-MAX_PENDING_EVENTS:]
+        logger.debug(f"Pruned {pruned_count} old events from pending_events")
+
+    # Prune recent_actions - keep most recent
+    recent_actions = state.get("recent_actions", [])
+    if recent_actions and len(recent_actions) > MAX_RECENT_ACTIONS:
+        pruned_count = len(recent_actions) - MAX_RECENT_ACTIONS
+        updates["recent_actions"] = recent_actions[-MAX_RECENT_ACTIONS:]
+        logger.debug(f"Pruned {pruned_count} old actions from recent_actions")
+
+    # Prune recent_tools - keep most recent
+    recent_tools = state.get("recent_tools", [])
+    if recent_tools and len(recent_tools) > MAX_RECENT_TOOLS:
+        pruned_count = len(recent_tools) - MAX_RECENT_TOOLS
+        updates["recent_tools"] = recent_tools[-MAX_RECENT_TOOLS:]
+        logger.debug(f"Pruned {pruned_count} old tools from recent_tools")
+
+    return updates
 
 
 async def update_node(state: PlanActState) -> dict[str, Any]:
@@ -43,7 +88,7 @@ async def update_node(state: PlanActState) -> dict[str, Any]:
     if iteration_count >= max_iterations * 0.9:
         logger.warning(
             f"Approaching iteration limit: {iteration_count}/{max_iterations} "
-            f"({iteration_count/max_iterations*100:.0f}%)"
+            f"({iteration_count / max_iterations * 100:.0f}%)"
         )
 
     # Check if limit exceeded - trigger graceful completion
@@ -54,6 +99,7 @@ async def update_node(state: PlanActState) -> dict[str, Any]:
         )
         # Mark remaining steps as blocked
         from app.domain.models.plan import ExecutionStatus
+
         for step in plan.steps:
             if step.status == ExecutionStatus.PENDING:
                 step.status = ExecutionStatus.BLOCKED
@@ -78,8 +124,12 @@ async def update_node(state: PlanActState) -> dict[str, Any]:
         else:
             pending_events.append(event)
 
+    # P1.3: Prune accumulated state to prevent memory growth
+    pruned_updates = prune_accumulated_state(state)
+
     return {
         "plan": plan,
         "iteration_count": iteration_count,
         "pending_events": pending_events,
+        **pruned_updates,  # Apply any pruning updates
     }

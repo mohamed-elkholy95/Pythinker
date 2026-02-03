@@ -63,23 +63,23 @@ for metric in _builtin_metrics:
 __all__ = [
     # Base
     "BaseMetric",
-    "MetricScore",
-    "register_metric",
-    "get_metric",
-    "get_all_metrics",
+    "ContainsMetric",
     # Text metrics
     "ExactMatchMetric",
-    "ContainsMetric",
-    "NotContainsMetric",
-    "RegexMatchMetric",
-    # Semantic metrics
-    "SimilarityMetric",
-    "KeywordCoverageMetric",
+    "JsonFieldMetric",
     # Structured metrics
     "JsonSchemaMetric",
-    "JsonFieldMetric",
+    "KeywordCoverageMetric",
+    "MetricScore",
+    "NotContainsMetric",
+    "RegexMatchMetric",
+    "ResponseTimeMetric",
+    # Semantic metrics
+    "SimilarityMetric",
+    "TokenCountMetric",
     # Execution metrics
     "ToolCallMetric",
-    "ResponseTimeMetric",
-    "TokenCountMetric",
+    "get_all_metrics",
+    "get_metric",
+    "register_metric",
 ]

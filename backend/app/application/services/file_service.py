@@ -10,12 +10,20 @@ from app.domain.models.file import FileInfo
 # Set up logger
 logger = logging.getLogger(__name__)
 
+
 class FileService:
     def __init__(self, file_storage: FileStorage | None = None, token_service: TokenService | None = None):
         self._file_storage = file_storage
         self._token_service = token_service
 
-    async def upload_file(self, file_data: BinaryIO, filename: str, user_id: str, content_type: str | None = None, metadata: dict[str, Any] | None = None) -> FileInfo:
+    async def upload_file(
+        self,
+        file_data: BinaryIO,
+        filename: str,
+        user_id: str,
+        content_type: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> FileInfo:
         """Upload file"""
         logger.info(f"Upload file request: filename={filename}, user_id={user_id}, content_type={content_type}")
         if not self._file_storage:
@@ -113,10 +121,7 @@ class FileService:
 
         # Create signed URL for file download
         base_url = f"/api/v1/files/{file_id}"
-        signed_url = self._token_service.create_signed_url(
-            base_url=base_url,
-            expire_minutes=expire_minutes
-        )
+        signed_url = self._token_service.create_signed_url(base_url=base_url, expire_minutes=expire_minutes)
 
         logger.info(f"Created signed URL for file download for user {user_id}, file {file_id}")
 
@@ -141,7 +146,7 @@ class FileService:
         # Create in-memory zip file
         zip_buffer = io.BytesIO()
 
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
             filenames_count: dict[str, int] = {}
 
             for file_id in file_ids:
@@ -152,7 +157,7 @@ class FileService:
                     filename = file_info.filename
                     if filename in filenames_count:
                         filenames_count[filename] += 1
-                        name_parts = filename.rsplit('.', 1)
+                        name_parts = filename.rsplit(".", 1)
                         if len(name_parts) > 1:
                             filename = f"{name_parts[0]}_{filenames_count[filename]}.{name_parts[1]}"
                         else:
@@ -173,6 +178,7 @@ class FileService:
 
         # Generate archive filename
         from datetime import datetime
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         archive_name = f"files_{timestamp}.zip"
 

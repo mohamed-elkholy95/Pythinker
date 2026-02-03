@@ -19,8 +19,4 @@ async def health_check() -> dict[str, Any]:
     Returns basic system health without detailed component checks.
     Use /monitoring/health for comprehensive health information.
     """
-    return {
-        "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
-        "service": "pythinker-backend"
-    }
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat(), "service": "pythinker-backend"}

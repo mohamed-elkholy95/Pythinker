@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import logging
 import re
@@ -8,6 +9,7 @@ from urllib.parse import urlparse
 # browser_use is an optional dependency
 try:
     from browser_use import Agent, Browser, ChatOpenAI
+
     BROWSER_USE_AVAILABLE = True
 except ImportError:
     BROWSER_USE_AVAILABLE = False
@@ -26,11 +28,26 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 VIDEO_DOMAINS: set[str] = {
-    "youtube.com", "youtu.be", "vimeo.com", "dailymotion.com",
-    "twitch.tv", "tiktok.com", "netflix.com", "hulu.com",
-    "disneyplus.com", "primevideo.com", "hbomax.com", "max.com",
-    "crunchyroll.com", "rumble.com", "bitchute.com", "odysee.com",
-    "bilibili.com", "nicovideo.jp", "pornhub.com", "xvideos.com",
+    "youtube.com",
+    "youtu.be",
+    "vimeo.com",
+    "dailymotion.com",
+    "twitch.tv",
+    "tiktok.com",
+    "netflix.com",
+    "hulu.com",
+    "disneyplus.com",
+    "primevideo.com",
+    "hbomax.com",
+    "max.com",
+    "crunchyroll.com",
+    "rumble.com",
+    "bitchute.com",
+    "odysee.com",
+    "bilibili.com",
+    "nicovideo.jp",
+    "pornhub.com",
+    "xvideos.com",
 }
 
 VIDEO_EXTENSIONS: set[str] = {".mp4", ".webm", ".avi", ".mov", ".mkv", ".flv", ".m3u8"}
@@ -77,8 +94,8 @@ def extract_first_json(text: str) -> str:
         return text
 
     # Remove markdown code fences first
-    text = re.sub(r'^```(?:json)?\s*', '', text.strip(), flags=re.MULTILINE)
-    text = re.sub(r'\s*```$', '', text, flags=re.MULTILINE)
+    text = re.sub(r"^```(?:json)?\s*", "", text.strip(), flags=re.MULTILINE)
+    text = re.sub(r"\s*```$", "", text, flags=re.MULTILINE)
     text = text.strip()
 
     # Try to find and extract the first complete JSON object
@@ -95,7 +112,7 @@ def extract_first_json(text: str) -> str:
             escape_next = False
             continue
 
-        if char == '\\' and in_string:
+        if char == "\\" and in_string:
             escape_next = True
             continue
 
@@ -106,20 +123,20 @@ def extract_first_json(text: str) -> str:
         if in_string:
             continue
 
-        if char == '{':
+        if char == "{":
             if brace_count == 0 and bracket_count == 0:
                 json_start = i
             brace_count += 1
-        elif char == '}':
+        elif char == "}":
             brace_count -= 1
             if brace_count == 0 and bracket_count == 0 and json_start != -1:
                 json_end = i + 1
                 break
-        elif char == '[':
+        elif char == "[":
             if brace_count == 0 and bracket_count == 0 and json_start == -1:
                 json_start = i
             bracket_count += 1
-        elif char == ']':
+        elif char == "]":
             bracket_count -= 1
             if bracket_count == 0 and brace_count == 0 and json_start != -1:
                 json_end = i + 1
@@ -136,9 +153,9 @@ def extract_first_json(text: str) -> str:
             pass
 
     # Fallback: try line-by-line to find valid JSON
-    for line in text.split('\n'):
+    for line in text.split("\n"):
         line = line.strip()
-        if line.startswith('{') or line.startswith('['):
+        if line.startswith("{") or line.startswith("["):
             try:
                 json.loads(line)
                 return line
@@ -151,6 +168,7 @@ def extract_first_json(text: str) -> str:
 
 # SanitizedChatOpenAI is only available when browser_use is installed
 if BROWSER_USE_AVAILABLE and ChatOpenAI is not None:
+
     class SanitizedChatOpenAI(ChatOpenAI):
         """Custom ChatOpenAI wrapper that sanitizes LLM output to fix JSON parsing issues.
 
@@ -172,7 +190,7 @@ if BROWSER_USE_AVAILABLE and ChatOpenAI is not None:
             Returns:
                 Response with sanitized content
             """
-            if not hasattr(response, 'content') or not isinstance(response.content, str):
+            if not hasattr(response, "content") or not isinstance(response.content, str):
                 return response
 
             original_content = response.content
@@ -184,10 +202,8 @@ if BROWSER_USE_AVAILABLE and ChatOpenAI is not None:
                     f"trailing characters"
                 )
                 # Modify content in place if possible, otherwise return as-is
-                try:
+                with contextlib.suppress(AttributeError):
                     response.content = sanitized_content
-                except AttributeError:
-                    pass  # Read-only, return as-is
 
             return response
 
@@ -217,7 +233,7 @@ class BrowserAgentTool(BaseTool):
     - Structured output validation
     """
 
-    name: str = "browser_agent"
+    name: str = "browsing"
 
     def __init__(self, cdp_url: str):
         """Initialize browser agent tool class
@@ -229,10 +245,7 @@ class BrowserAgentTool(BaseTool):
             ImportError: If browser_use package is not installed
         """
         if not BROWSER_USE_AVAILABLE:
-            raise ImportError(
-                "browser_use package is not installed. "
-                "Install it with: pip install browser-use"
-            )
+            raise ImportError("browser_use package is not installed. Install it with: pip install browser-use")
         super().__init__()
         self._cdp_url = cdp_url
         self._browser: Browser | None = None
@@ -350,10 +363,7 @@ CRITICAL INSTRUCTIONS:
 
         try:
             # Run with overall timeout protection
-            history = await asyncio.wait_for(
-                agent.run(max_steps=effective_max_steps),
-                timeout=timeout
-            )
+            history = await asyncio.wait_for(agent.run(max_steps=effective_max_steps), timeout=timeout)
 
             # Extract result information using AgentHistoryList methods
             final_result = history.final_result() if history else None
@@ -366,7 +376,7 @@ CRITICAL INSTRUCTIONS:
             urls_visited = []
             skipped_video_urls = []
 
-            for url in (all_urls or []):
+            for url in all_urls or []:
                 if is_video_url(url):
                     skipped_video_urls.append(url)
                     logger.debug(f"Filtered video URL from results: {url}")
@@ -434,17 +444,17 @@ CRITICAL INSTRUCTIONS:
             return response
 
         # Remove markdown code fences
-        response = re.sub(r'^```(?:json)?\s*', '', response, flags=re.MULTILINE)
-        response = re.sub(r'\s*```$', '', response, flags=re.MULTILINE)
+        response = re.sub(r"^```(?:json)?\s*", "", response, flags=re.MULTILINE)
+        response = re.sub(r"\s*```$", "", response, flags=re.MULTILINE)
 
         # Remove leading/trailing whitespace
-        response = response.strip()
-
-        return response
+        return response.strip()
 
     @tool(
         name="browsing",
         description="""Execute web tasks autonomously using AI-powered browser agent.
+
+ALL ACTIONS VISIBLE IN REAL-TIME VIA VNC.
 
 Use this tool when you need to perform tasks that require:
 - Multiple interactions across different pages
@@ -452,28 +462,31 @@ Use this tool when you need to perform tasks that require:
 - Navigation through multi-step workflows
 - Tasks that require reading and responding to page content
 - Complex web scraping that needs context awareness
+- Search queries (will navigate to search engine visually)
 
 Examples:
+- "Search for 'best LLMs 2026' and extract top 5 results"
 - "Fill out the contact form with name 'John Doe' and email 'john@example.com', then submit"
 - "Search for 'laptop' on Amazon, filter by price under $500, and list the top 3 results"
 - "Log into the dashboard with provided credentials and download the monthly report"
 
-Note: For simple single-action tasks (click, navigate, input), use the regular browser_* tools instead.""",
+Note: For simple single-action tasks (click, navigate, input), use the regular browser_* tools instead.
+For fast content extraction from known URLs, use browser_get_content instead.""",
         parameters={
             "task": {
                 "type": "string",
-                "description": "Natural language description of the web task to perform. Be specific about what needs to be done."
+                "description": "Natural language description of the web task to perform. Be specific about what needs to be done.",
             },
             "start_url": {
                 "type": "string",
-                "description": "(Optional) URL to navigate to before starting the task. If not provided, agent uses current page."
+                "description": "(Optional) URL to navigate to before starting the task. If not provided, agent uses current page.",
             },
             "max_steps": {
                 "type": "integer",
-                "description": "(Optional) Maximum number of steps the agent can take. Default is 25."
-            }
+                "description": "(Optional) Maximum number of steps the agent can take. Default is 25.",
+            },
         },
-        required=["task"]
+        required=["task"],
     )
     async def browsing(
         self,
@@ -496,19 +509,11 @@ Note: For simple single-action tasks (click, navigate, input), use the regular b
         result = await self._run_agent_task(task, start_url, max_steps)
 
         if result.get("success"):
-            steps_taken = result.get('steps_taken', 0)
-            has_errors = result.get('has_errors', False)
+            steps_taken = result.get("steps_taken", 0)
+            has_errors = result.get("has_errors", False)
             status_msg = "with some recoverable errors" if has_errors else "successfully"
-            return ToolResult(
-                success=True,
-                message=f"Task completed {status_msg} in {steps_taken} steps",
-                data=result
-            )
-        return ToolResult(
-            success=False,
-            message=result.get("error", "Task failed"),
-            data=result
-        )
+            return ToolResult(success=True, message=f"Task completed {status_msg} in {steps_taken} steps", data=result)
+        return ToolResult(success=False, message=result.get("error", "Task failed"), data=result)
 
     @tool(
         name="browser_agent_extract",
@@ -529,14 +534,14 @@ The agent will navigate and interact with the page as needed to extract the requ
         parameters={
             "extraction_goal": {
                 "type": "string",
-                "description": "Description of what data to extract from the page. Be specific about the fields and format needed."
+                "description": "Description of what data to extract from the page. Be specific about the fields and format needed.",
             },
             "url": {
                 "type": "string",
-                "description": "(Optional) URL to extract data from. If not provided, extracts from current page."
-            }
+                "description": "(Optional) URL to extract data from. If not provided, extracts from current page.",
+            },
         },
-        required=["extraction_goal"]
+        required=["extraction_goal"],
     )
     async def browser_agent_extract(
         self,
@@ -553,10 +558,7 @@ The agent will navigate and interact with the page as needed to extract the requ
             Extracted data
         """
         # Frame the extraction as a task for the agent with clear JSON output instruction
-        task = (
-            f"Extract the following information and return it in a structured JSON format: "
-            f"{extraction_goal}"
-        )
+        task = f"Extract the following information and return it in a structured JSON format: {extraction_goal}"
 
         logger.info(f"Browser agent starting extraction: {extraction_goal[:100]}...")
 
@@ -564,16 +566,8 @@ The agent will navigate and interact with the page as needed to extract the requ
         result = await self._run_agent_task(task, url, max_steps=15)
 
         if result.get("success"):
-            return ToolResult(
-                success=True,
-                message="Data extraction completed successfully",
-                data=result
-            )
-        return ToolResult(
-            success=False,
-            message=result.get("error", "Extraction failed"),
-            data=result
-        )
+            return ToolResult(success=True, message="Data extraction completed successfully", data=result)
+        return ToolResult(success=False, message=result.get("error", "Extraction failed"), data=result)
 
     async def cleanup(self) -> None:
         """Cleanup browser resources"""

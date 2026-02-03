@@ -7,9 +7,9 @@ Supported providers:
 - anthropic: Anthropic Claude models (requires anthropic package)
 - ollama: Local Ollama models
 """
+
 import logging
 from functools import lru_cache
-from typing import Optional
 
 from app.domain.external.llm import LLM
 from app.infrastructure.external.llm.factory import (

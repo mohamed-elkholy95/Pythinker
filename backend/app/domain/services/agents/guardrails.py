@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +25,10 @@ logger = logging.getLogger(__name__)
 # Input Guardrails
 # =============================================================================
 
+
 class InputRiskLevel(str, Enum):
     """Risk levels for input analysis."""
+
     SAFE = "safe"
     LOW_RISK = "low_risk"
     MEDIUM_RISK = "medium_risk"
@@ -36,6 +38,7 @@ class InputRiskLevel(str, Enum):
 
 class InputIssueType(str, Enum):
     """Types of input issues detected."""
+
     PROMPT_INJECTION = "prompt_injection"
     JAILBREAK_ATTEMPT = "jailbreak_attempt"
     AMBIGUOUS_REQUEST = "ambiguous_request"
@@ -48,6 +51,7 @@ class InputIssueType(str, Enum):
 @dataclass
 class PIIDetectionResult:
     """Result of PII detection scan."""
+
     contains_pii: bool
     pii_types: list[str] = field(default_factory=list)
     redacted_text: str | None = None
@@ -67,6 +71,7 @@ class PIIDetectionResult:
 @dataclass
 class InputIssue:
     """A detected issue in user input."""
+
     issue_type: InputIssueType
     description: str
     severity: float  # 0.0 to 1.0
@@ -77,6 +82,7 @@ class InputIssue:
 @dataclass
 class InputAnalysisResult:
     """Result of input guardrail analysis."""
+
     risk_level: InputRiskLevel
     issues: list[InputIssue]
     cleaned_input: str | None = None  # Sanitized version if applicable
@@ -107,103 +113,110 @@ class InputGuardrails:
     """
 
     # Prompt injection patterns
-    INJECTION_PATTERNS = [
-        r'ignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?|rules?)',
-        r'disregard\s+(all\s+)?(previous|prior|above)',
-        r'forget\s+(everything|all)\s+(you\s+)?(know|learned|were told)',
-        r'your\s+new\s+(instructions?|rules?|role)\s+(are|is)',
-        r'you\s+are\s+now\s+(?:a|an|the)',
-        r'pretend\s+(?:you\s+are|to\s+be)',
-        r'act\s+as\s+(?:if|though)',
-        r'roleplay\s+as',
-        r'system\s*:\s*',  # Trying to inject system message
-        r'\[\s*INST\s*\]',  # Llama-style injection
-        r'<\|im_start\|>',  # ChatML injection
+    INJECTION_PATTERNS: ClassVar[list[str]] = [
+        r"ignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?|rules?)",
+        r"disregard\s+(all\s+)?(previous|prior|above)",
+        r"forget\s+(everything|all)\s+(you\s+)?(know|learned|were told)",
+        r"your\s+new\s+(instructions?|rules?|role)\s+(are|is)",
+        r"you\s+are\s+now\s+(?:a|an|the)",
+        r"pretend\s+(?:you\s+are|to\s+be)",
+        r"act\s+as\s+(?:if|though)",
+        r"roleplay\s+as",
+        r"system\s*:\s*",  # Trying to inject system message
+        r"\[\s*INST\s*\]",  # Llama-style injection
+        r"<\|im_start\|>",  # ChatML injection
     ]
 
     # Jailbreak patterns
-    JAILBREAK_PATTERNS = [
-        r'DAN\s+mode',
-        r'do\s+anything\s+now',
-        r'bypass\s+(safety|content|filter)',
-        r'without\s+(restrictions?|limits?|filters?)',
-        r'no\s+(ethical|moral|safety)\s+(guidelines?|restrictions?)',
-        r'hypothetically\s+speaking',
-        r'for\s+(educational|research)\s+purposes?\s+only',
-        r'pretend\s+there\s+are\s+no\s+(rules?|restrictions?)',
+    JAILBREAK_PATTERNS: ClassVar[list[str]] = [
+        r"DAN\s+mode",
+        r"do\s+anything\s+now",
+        r"bypass\s+(safety|content|filter)",
+        r"without\s+(restrictions?|limits?|filters?)",
+        r"no\s+(ethical|moral|safety)\s+(guidelines?|restrictions?)",
+        r"hypothetically\s+speaking",
+        r"for\s+(educational|research)\s+purposes?\s+only",
+        r"pretend\s+there\s+are\s+no\s+(rules?|restrictions?)",
     ]
 
     # Sensitive data patterns (basic)
-    SENSITIVE_PATTERNS = [
-        r'\b\d{3}[-.]?\d{2}[-.]?\d{4}\b',  # SSN
-        r'\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b',  # Credit card
-        r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',  # Email (not always sensitive)
-        r'password\s*[:=]\s*\S+',  # Password in input
-        r'api[_-]?key\s*[:=]\s*\S+',  # API key
-        r'secret\s*[:=]\s*\S+',  # Secret
+    SENSITIVE_PATTERNS: ClassVar[list[str]] = [
+        r"\b\d{3}[-.]?\d{2}[-.]?\d{4}\b",  # SSN
+        r"\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b",  # Credit card
+        r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",  # Email (not always sensitive)
+        r"password\s*[:=]\s*\S+",  # Password in input
+        r"api[_-]?key\s*[:=]\s*\S+",  # API key
+        r"secret\s*[:=]\s*\S+",  # Secret
     ]
 
     # Enhanced PII patterns (Phase 4 Enhancement)
-    PII_PATTERNS = [
+    PII_PATTERNS: ClassVar[list[tuple[str, str]]] = [
         # SSN (US)
-        (r'\b\d{3}-\d{2}-\d{4}\b', 'ssn'),
-        (r'\b\d{9}\b', 'ssn_no_dash'),  # SSN without dashes
+        (r"\b\d{3}-\d{2}-\d{4}\b", "ssn"),
+        (r"\b\d{9}\b", "ssn_no_dash"),  # SSN without dashes
         # Passport numbers (various formats)
-        (r'\b[A-Z]{1,2}\d{6,9}\b', 'passport'),
+        (r"\b[A-Z]{1,2}\d{6,9}\b", "passport"),
         # Credit card patterns (Visa, MC, Amex, etc.)
-        (r'\b4\d{3}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b', 'credit_card_visa'),
-        (r'\b5[1-5]\d{2}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b', 'credit_card_mc'),
-        (r'\b3[47]\d{2}[-\s]?\d{6}[-\s]?\d{5}\b', 'credit_card_amex'),
+        (r"\b4\d{3}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b", "credit_card_visa"),
+        (r"\b5[1-5]\d{2}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b", "credit_card_mc"),
+        (r"\b3[47]\d{2}[-\s]?\d{6}[-\s]?\d{5}\b", "credit_card_amex"),
         # Password values in common formats
-        (r'(?:password|passwd|pwd)\s*[:=]\s*["\']?([^"\'\s]+)["\']?', 'password_value'),
-        (r'(?:pass|pw)\s*[:=]\s*["\']?([^"\'\s]+)["\']?', 'password_value'),
+        (r'(?:password|passwd|pwd)\s*[:=]\s*["\']?([^"\'\s]+)["\']?', "password_value"),
+        (r'(?:pass|pw)\s*[:=]\s*["\']?([^"\'\s]+)["\']?', "password_value"),
         # Bearer tokens and API keys
-        (r'(?:bearer|token|auth)\s+[A-Za-z0-9\-._~+/]+=*', 'bearer_token'),
-        (r'(?:api[_-]?key|apikey)\s*[:=]\s*["\']?([A-Za-z0-9\-._~+/]{20,})["\']?', 'api_key'),
-        (r'sk-[A-Za-z0-9]{20,}', 'openai_key'),  # OpenAI API keys
-        (r'sk_live_[A-Za-z0-9]{20,}', 'stripe_key'),  # Stripe live keys
+        (r"(?:bearer|token|auth)\s+[A-Za-z0-9\-._~+/]+=*", "bearer_token"),
+        (r'(?:api[_-]?key|apikey)\s*[:=]\s*["\']?([A-Za-z0-9\-._~+/]{20,})["\']?', "api_key"),
+        (r"sk-[A-Za-z0-9]{20,}", "openai_key"),  # OpenAI API keys
+        (r"sk_live_[A-Za-z0-9]{20,}", "stripe_key"),  # Stripe live keys
         # AWS credentials
-        (r'AKIA[0-9A-Z]{16}', 'aws_access_key'),
-        (r'(?:aws_secret|secret_access)\s*[:=]\s*["\']?([A-Za-z0-9/+=]{40})["\']?', 'aws_secret'),
+        (r"AKIA[0-9A-Z]{16}", "aws_access_key"),
+        (r'(?:aws_secret|secret_access)\s*[:=]\s*["\']?([A-Za-z0-9/+=]{40})["\']?', "aws_secret"),
         # Private keys
-        (r'-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----', 'private_key'),
-        (r'-----BEGIN\s+PGP\s+PRIVATE\s+KEY-----', 'pgp_private_key'),
+        (r"-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----", "private_key"),
+        (r"-----BEGIN\s+PGP\s+PRIVATE\s+KEY-----", "pgp_private_key"),
         # Phone numbers (US format)
-        (r'\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b', 'phone_us'),
-        (r'\+1[-.\s]?\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b', 'phone_us_intl'),
+        (r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b", "phone_us"),
+        (r"\+1[-.\s]?\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b", "phone_us_intl"),
         # Bank account numbers (basic pattern)
-        (r'\b\d{8,17}\b', 'potential_account_number'),
+        (r"\b\d{8,17}\b", "potential_account_number"),
         # IPv4 addresses (may indicate sensitive config)
-        (r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', 'ip_address'),
+        (r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", "ip_address"),
     ]
 
     # Ambiguity indicators
-    AMBIGUITY_INDICATORS = [
-        'something', 'anything', 'whatever', 'somehow',
-        'it', 'this', 'that', 'stuff', 'things',
+    AMBIGUITY_INDICATORS: ClassVar[list[str]] = [
+        "something",
+        "anything",
+        "whatever",
+        "somehow",
+        "it",
+        "this",
+        "that",
+        "stuff",
+        "things",
     ]
 
     # PII type risk scores (higher = more sensitive)
-    PII_RISK_SCORES = {
-        'ssn': 1.0,
-        'ssn_no_dash': 0.8,
-        'passport': 0.9,
-        'credit_card_visa': 1.0,
-        'credit_card_mc': 1.0,
-        'credit_card_amex': 1.0,
-        'password_value': 1.0,
-        'bearer_token': 0.9,
-        'api_key': 0.9,
-        'openai_key': 0.95,
-        'stripe_key': 0.95,
-        'aws_access_key': 0.95,
-        'aws_secret': 1.0,
-        'private_key': 1.0,
-        'pgp_private_key': 1.0,
-        'phone_us': 0.4,
-        'phone_us_intl': 0.4,
-        'potential_account_number': 0.3,
-        'ip_address': 0.2,
+    PII_RISK_SCORES: ClassVar[dict[str, float]] = {
+        "ssn": 1.0,
+        "ssn_no_dash": 0.8,
+        "passport": 0.9,
+        "credit_card_visa": 1.0,
+        "credit_card_mc": 1.0,
+        "credit_card_amex": 1.0,
+        "password_value": 1.0,
+        "bearer_token": 0.9,
+        "api_key": 0.9,
+        "openai_key": 0.95,
+        "stripe_key": 0.95,
+        "aws_access_key": 0.95,
+        "aws_secret": 1.0,
+        "private_key": 1.0,
+        "pgp_private_key": 1.0,
+        "phone_us": 0.4,
+        "phone_us_intl": 0.4,
+        "potential_account_number": 0.3,
+        "ip_address": 0.2,
     }
 
     def __init__(
@@ -229,10 +242,7 @@ class InputGuardrails:
         self._sensitive_re = [re.compile(p, re.IGNORECASE) for p in self.SENSITIVE_PATTERNS]
 
         # Compile PII patterns
-        self._pii_patterns = [
-            (re.compile(pattern, re.IGNORECASE), pii_type)
-            for pattern, pii_type in self.PII_PATTERNS
-        ]
+        self._pii_patterns = [(re.compile(pattern, re.IGNORECASE), pii_type) for pattern, pii_type in self.PII_PATTERNS]
 
         self._stats = {
             "analyzed": 0,
@@ -278,7 +288,7 @@ class InputGuardrails:
             if self.log_issues:
                 logger.warning(
                     f"PII detected: {', '.join(detected_types)}",
-                    extra={"pii_types": list(detected_types), "count": pii_count}
+                    extra={"pii_types": list(detected_types), "count": pii_count},
                 )
 
         # Normalize risk score (0-1 range)
@@ -341,10 +351,7 @@ class InputGuardrails:
         cleaned_input = self._sanitize_input(user_input) if issues else user_input
 
         if self.log_issues and issues:
-            logger.warning(
-                f"Input guardrail issues detected: {len(issues)} issues, "
-                f"risk_level={risk_level.value}"
-            )
+            logger.warning(f"Input guardrail issues detected: {len(issues)} issues, risk_level={risk_level.value}")
 
         if risk_level == InputRiskLevel.BLOCKED:
             self._stats["blocked"] += 1
@@ -366,12 +373,14 @@ class InputGuardrails:
 
         for pattern in self._injection_re:
             if match := pattern.search(text):
-                issues.append(InputIssue(
-                    issue_type=InputIssueType.PROMPT_INJECTION,
-                    description="Potential prompt injection detected",
-                    severity=0.9,
-                    location=match.group(0),
-                ))
+                issues.append(
+                    InputIssue(
+                        issue_type=InputIssueType.PROMPT_INJECTION,
+                        description="Potential prompt injection detected",
+                        severity=0.9,
+                        location=match.group(0),
+                    )
+                )
 
         return issues
 
@@ -381,12 +390,14 @@ class InputGuardrails:
 
         for pattern in self._jailbreak_re:
             if match := pattern.search(text):
-                issues.append(InputIssue(
-                    issue_type=InputIssueType.JAILBREAK_ATTEMPT,
-                    description="Potential jailbreak attempt detected",
-                    severity=0.85,
-                    location=match.group(0),
-                ))
+                issues.append(
+                    InputIssue(
+                        issue_type=InputIssueType.JAILBREAK_ATTEMPT,
+                        description="Potential jailbreak attempt detected",
+                        severity=0.85,
+                        location=match.group(0),
+                    )
+                )
 
         return issues
 
@@ -395,14 +406,16 @@ class InputGuardrails:
         issues = []
 
         for pattern in self._sensitive_re:
-            if match := pattern.search(text):
-                issues.append(InputIssue(
-                    issue_type=InputIssueType.SENSITIVE_DATA,
-                    description="Potential sensitive data detected",
-                    severity=0.5,
-                    location="[REDACTED]",
-                    suggestion="Consider removing sensitive information",
-                ))
+            if pattern.search(text):
+                issues.append(
+                    InputIssue(
+                        issue_type=InputIssueType.SENSITIVE_DATA,
+                        description="Potential sensitive data detected",
+                        severity=0.5,
+                        location="[REDACTED]",
+                        suggestion="Consider removing sensitive information",
+                    )
+                )
 
         return issues
 
@@ -417,19 +430,23 @@ class InputGuardrails:
 
         # Very short requests are often underspecified
         if len(words) < 5:
-            issues.append(InputIssue(
-                issue_type=InputIssueType.UNDERSPECIFIED,
-                description="Request may be too brief for accurate understanding",
-                severity=0.3,
-                suggestion="Consider adding more details about what you need",
-            ))
+            issues.append(
+                InputIssue(
+                    issue_type=InputIssueType.UNDERSPECIFIED,
+                    description="Request may be too brief for accurate understanding",
+                    severity=0.3,
+                    suggestion="Consider adding more details about what you need",
+                )
+            )
         elif ambiguous_count >= 3:
-            issues.append(InputIssue(
-                issue_type=InputIssueType.AMBIGUOUS_REQUEST,
-                description="Request contains ambiguous references",
-                severity=0.4,
-                suggestion="Consider being more specific about what 'it', 'this', etc. refers to",
-            ))
+            issues.append(
+                InputIssue(
+                    issue_type=InputIssueType.AMBIGUOUS_REQUEST,
+                    description="Request contains ambiguous references",
+                    severity=0.4,
+                    suggestion="Consider being more specific about what 'it', 'this', etc. refers to",
+                )
+            )
 
         return issues
 
@@ -474,11 +491,11 @@ class InputGuardrails:
 
         # Remove injection patterns
         for pattern in self._injection_re:
-            cleaned = pattern.sub('[REMOVED]', cleaned)
+            cleaned = pattern.sub("[REMOVED]", cleaned)
 
         # Remove jailbreak patterns
         for pattern in self._jailbreak_re:
-            cleaned = pattern.sub('[REMOVED]', cleaned)
+            cleaned = pattern.sub("[REMOVED]", cleaned)
 
         return cleaned
 
@@ -491,8 +508,10 @@ class InputGuardrails:
 # Output Guardrails
 # =============================================================================
 
+
 class OutputIssueType(str, Enum):
     """Types of output issues detected."""
+
     OFF_TOPIC = "off_topic"
     CONTRADICTORY = "contradictory"
     UNVERIFIED_CLAIM = "unverified_claim"
@@ -505,6 +524,7 @@ class OutputIssueType(str, Enum):
 @dataclass
 class OutputIssue:
     """A detected issue in agent output."""
+
     issue_type: OutputIssueType
     description: str
     severity: float
@@ -515,6 +535,7 @@ class OutputIssue:
 @dataclass
 class OutputAnalysisResult:
     """Result of output guardrail analysis."""
+
     is_safe: bool
     issues: list[OutputIssue]
     filtered_output: str | None = None
@@ -545,20 +566,20 @@ class OutputGuardrails:
     """
 
     # Patterns that might indicate system prompt leakage
-    INSTRUCTION_LEAK_PATTERNS = [
-        r'system\s+prompt',
-        r'my\s+instructions?',
-        r'I\s+was\s+told\s+to',
-        r'my\s+programming',
-        r'I\s+am\s+programmed\s+to',
-        r'my\s+guidelines?\s+(?:say|tell|instruct)',
+    INSTRUCTION_LEAK_PATTERNS: ClassVar[list[str]] = [
+        r"system\s+prompt",
+        r"my\s+instructions?",
+        r"I\s+was\s+told\s+to",
+        r"my\s+programming",
+        r"I\s+am\s+programmed\s+to",
+        r"my\s+guidelines?\s+(?:say|tell|instruct)",
     ]
 
     # Patterns for potentially harmful content
-    HARMFUL_PATTERNS = [
-        r'how\s+to\s+(hack|steal|break\s+into)',
-        r'instructions?\s+for\s+(making|creating)\s+(weapons?|explosives?|drugs?)',
-        r'ways?\s+to\s+(harm|hurt|kill)',
+    HARMFUL_PATTERNS: ClassVar[list[str]] = [
+        r"how\s+to\s+(hack|steal|break\s+into)",
+        r"instructions?\s+for\s+(making|creating)\s+(weapons?|explosives?|drugs?)",
+        r"ways?\s+to\s+(harm|hurt|kill)",
     ]
 
     def __init__(
@@ -653,13 +674,15 @@ class OutputGuardrails:
 
         for pattern in self._instruction_re:
             if match := pattern.search(text):
-                issues.append(OutputIssue(
-                    issue_type=OutputIssueType.INSTRUCTION_LEAK,
-                    description="Potential system instruction leakage",
-                    severity=0.7,
-                    location=match.group(0),
-                    fix_suggestion="Remove references to internal instructions",
-                ))
+                issues.append(
+                    OutputIssue(
+                        issue_type=OutputIssueType.INSTRUCTION_LEAK,
+                        description="Potential system instruction leakage",
+                        severity=0.7,
+                        location=match.group(0),
+                        fix_suggestion="Remove references to internal instructions",
+                    )
+                )
 
         return issues
 
@@ -669,12 +692,14 @@ class OutputGuardrails:
 
         for pattern in self._harmful_re:
             if match := pattern.search(text):
-                issues.append(OutputIssue(
-                    issue_type=OutputIssueType.HARMFUL_CONTENT,
-                    description="Potentially harmful content detected",
-                    severity=0.95,
-                    location=match.group(0),
-                ))
+                issues.append(
+                    OutputIssue(
+                        issue_type=OutputIssueType.HARMFUL_CONTENT,
+                        description="Potentially harmful content detected",
+                        severity=0.95,
+                        location=match.group(0),
+                    )
+                )
 
         return issues
 
@@ -691,7 +716,7 @@ class OutputGuardrails:
         output_words = set(output.lower().split())
 
         # Remove common stop words
-        stop_words = {'the', 'a', 'an', 'is', 'are', 'to', 'for', 'of', 'and', 'in', 'on', 'with'}
+        stop_words = {"the", "a", "an", "is", "are", "to", "for", "of", "and", "in", "on", "with"}
         query_words -= stop_words
         output_words -= stop_words
 
@@ -699,12 +724,14 @@ class OutputGuardrails:
             overlap = len(query_words & output_words) / len(query_words)
 
             if overlap < self.relevance_threshold:
-                issues.append(OutputIssue(
-                    issue_type=OutputIssueType.OFF_TOPIC,
-                    description="Output may not be relevant to the original query",
-                    severity=0.5,
-                    fix_suggestion="Ensure the response addresses the user's question",
-                ))
+                issues.append(
+                    OutputIssue(
+                        issue_type=OutputIssueType.OFF_TOPIC,
+                        description="Output may not be relevant to the original query",
+                        severity=0.5,
+                        fix_suggestion="Ensure the response addresses the user's question",
+                    )
+                )
 
         return issues
 
@@ -714,10 +741,10 @@ class OutputGuardrails:
 
         # Simple check for contradiction patterns
         contradiction_patterns = [
-            (r'\bis\b', r'\bis\s+not\b'),
-            (r'\bcan\b', r'\bcannot\b'),
-            (r'\bwill\b', r'\bwill\s+not\b'),
-            (r'\btrue\b', r'\bfalse\b'),
+            (r"\bis\b", r"\bis\s+not\b"),
+            (r"\bcan\b", r"\bcannot\b"),
+            (r"\bwill\b", r"\bwill\s+not\b"),
+            (r"\btrue\b", r"\bfalse\b"),
         ]
 
         for pos_pattern, neg_pattern in contradiction_patterns:
@@ -726,12 +753,14 @@ class OutputGuardrails:
 
             if has_positive and has_negative:
                 # Could be a legitimate contrast, so low severity
-                issues.append(OutputIssue(
-                    issue_type=OutputIssueType.CONTRADICTORY,
-                    description="Output may contain contradictory statements",
-                    severity=0.3,
-                    fix_suggestion="Review for clarity and consistency",
-                ))
+                issues.append(
+                    OutputIssue(
+                        issue_type=OutputIssueType.CONTRADICTORY,
+                        description="Output may contain contradictory statements",
+                        severity=0.3,
+                        fix_suggestion="Review for clarity and consistency",
+                    )
+                )
                 break  # Only report once
 
         return issues
@@ -756,6 +785,7 @@ class OutputGuardrails:
 # =============================================================================
 # Combined Guardrails Manager
 # =============================================================================
+
 
 class GuardrailsManager:
     """Unified manager for input and output guardrails.

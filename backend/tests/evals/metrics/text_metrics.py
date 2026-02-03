@@ -29,7 +29,7 @@ class ExactMatchMetric(BaseMetric):
                 metric_name=self.name,
                 score=1.0,
                 passed=True,
-                message="No expected output specified, skipping exact match"
+                message="No expected output specified, skipping exact match",
             )
 
         # Check for case sensitivity option
@@ -49,7 +49,7 @@ class ExactMatchMetric(BaseMetric):
                 "actual": actual_output[:200],
                 "case_sensitive": case_sensitive,
             },
-            message="Exact match" if matches else "Output does not match expected"
+            message="Exact match" if matches else "Output does not match expected",
         )
 
 
@@ -68,12 +68,7 @@ class ContainsMetric(BaseMetric):
         required_strings = expected.get("expected_output_contains", [])
 
         if not required_strings:
-            return MetricScore(
-                metric_name=self.name,
-                score=1.0,
-                passed=True,
-                message="No required strings specified"
-            )
+            return MetricScore(metric_name=self.name, score=1.0, passed=True, message="No required strings specified")
 
         case_sensitive = expected.get("case_sensitive", False)
         search_text = actual_output if case_sensitive else actual_output.lower()
@@ -102,7 +97,7 @@ class ContainsMetric(BaseMetric):
                 "total_required": len(required_strings),
                 "threshold": threshold,
             },
-            message=f"Found {len(found)}/{len(required_strings)} required strings"
+            message=f"Found {len(found)}/{len(required_strings)} required strings",
         )
 
 
@@ -121,12 +116,7 @@ class NotContainsMetric(BaseMetric):
         forbidden_strings = expected.get("expected_output_not_contains", [])
 
         if not forbidden_strings:
-            return MetricScore(
-                metric_name=self.name,
-                score=1.0,
-                passed=True,
-                message="No forbidden strings specified"
-            )
+            return MetricScore(metric_name=self.name, score=1.0, passed=True, message="No forbidden strings specified")
 
         case_sensitive = expected.get("case_sensitive", False)
         search_text = actual_output if case_sensitive else actual_output.lower()
@@ -148,7 +138,7 @@ class NotContainsMetric(BaseMetric):
                 "found_forbidden": found_forbidden,
                 "total_forbidden": len(forbidden_strings),
             },
-            message="No forbidden strings found" if passed else f"Found {len(found_forbidden)} forbidden strings"
+            message="No forbidden strings found" if passed else f"Found {len(found_forbidden)} forbidden strings",
         )
 
 
@@ -167,12 +157,7 @@ class RegexMatchMetric(BaseMetric):
         patterns = expected.get("expected_regex_patterns", [])
 
         if not patterns:
-            return MetricScore(
-                metric_name=self.name,
-                score=1.0,
-                passed=True,
-                message="No regex patterns specified"
-            )
+            return MetricScore(metric_name=self.name, score=1.0, passed=True, message="No regex patterns specified")
 
         flags = 0
         if not expected.get("case_sensitive", False):
@@ -208,7 +193,7 @@ class RegexMatchMetric(BaseMetric):
                 "total_patterns": len(patterns),
                 "threshold": threshold,
             },
-            message=f"Matched {len(matched)}/{total_valid} patterns"
+            message=f"Matched {len(matched)}/{total_valid} patterns",
         )
 
 
@@ -247,5 +232,5 @@ class LengthMetric(BaseMetric):
                 "min_length": min_length,
                 "max_length": max_length if max_length != float("inf") else None,
             },
-            message=f"Length {actual_length} is {'within' if within_range else 'outside'} expected range"
+            message=f"Length {actual_length} is {'within' if within_range else 'outside'} expected range",
         )

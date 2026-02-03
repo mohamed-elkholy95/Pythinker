@@ -4,6 +4,7 @@ Integration tests for sandbox file upload and download functionality
 These tests require a running sandbox container. They are skipped if the sandbox
 is not accessible.
 """
+
 import io
 import logging
 import os
@@ -18,10 +19,11 @@ logger = logging.getLogger(__name__)
 
 # Sandbox addresses to try (Docker network name first, then localhost)
 SANDBOX_ADDRESSES = [
-    ("sandbox", 8080),      # Docker Compose network
-    ("127.0.0.1", 8080),    # Local development
-    ("localhost", 8080),    # Alternative local
+    ("sandbox", 8080),  # Docker Compose network
+    ("127.0.0.1", 8080),  # Local development
+    ("localhost", 8080),  # Alternative local
 ]
+
 
 def _get_sandbox_address():
     """Find reachable sandbox address, trying Docker network first."""
@@ -34,12 +36,12 @@ def _get_sandbox_address():
             continue
     return None
 
+
 _SANDBOX_ADDRESS = _get_sandbox_address()
 
 # Skip all tests in this module if sandbox is not available
 pytestmark = pytest.mark.skipif(
-    _SANDBOX_ADDRESS is None,
-    reason="Sandbox container not reachable (tried: sandbox:8080, 127.0.0.1:8080)"
+    _SANDBOX_ADDRESS is None, reason="Sandbox container not reachable (tried: sandbox:8080, 127.0.0.1:8080)"
 )
 
 
@@ -70,12 +72,11 @@ def temp_file_path():
 
 # Upload Tests
 
+
 async def test_file_upload_success(sandbox_instance, sample_binary_stream, temp_file_path):
     """Test successful file upload to sandbox"""
     result = await sandbox_instance.file_upload(
-        file_data=sample_binary_stream,
-        path=temp_file_path,
-        filename="test_file.txt"
+        file_data=sample_binary_stream, path=temp_file_path, filename="test_file.txt"
     )
 
     # Verify result
@@ -86,10 +87,7 @@ async def test_file_upload_success(sandbox_instance, sample_binary_stream, temp_
 
 async def test_file_upload_without_filename(sandbox_instance, sample_binary_stream, temp_file_path):
     """Test file upload without specifying filename"""
-    result = await sandbox_instance.file_upload(
-        file_data=sample_binary_stream,
-        path=temp_file_path
-    )
+    result = await sandbox_instance.file_upload(file_data=sample_binary_stream, path=temp_file_path)
 
     # Verify result
     assert isinstance(result, ToolResult)
@@ -102,11 +100,7 @@ async def test_file_upload_large_file(sandbox_instance, temp_file_path):
     large_content = b"A" * (1024 * 1024)
     large_stream = io.BytesIO(large_content)
 
-    result = await sandbox_instance.file_upload(
-        file_data=large_stream,
-        path=temp_file_path,
-        filename="large_file.bin"
-    )
+    result = await sandbox_instance.file_upload(file_data=large_stream, path=temp_file_path, filename="large_file.bin")
 
     # Verify result
     assert isinstance(result, ToolResult)
@@ -117,11 +111,7 @@ async def test_file_upload_empty_file(sandbox_instance, temp_file_path):
     """Test uploading an empty file"""
     empty_stream = io.BytesIO(b"")
 
-    result = await sandbox_instance.file_upload(
-        file_data=empty_stream,
-        path=temp_file_path,
-        filename="empty_file.txt"
-    )
+    result = await sandbox_instance.file_upload(file_data=empty_stream, path=temp_file_path, filename="empty_file.txt")
 
     # Verify result
     assert isinstance(result, ToolResult)
@@ -130,13 +120,12 @@ async def test_file_upload_empty_file(sandbox_instance, temp_file_path):
 
 # Download Tests
 
+
 async def test_file_download_success(sandbox_instance, sample_binary_stream, sample_file_content, temp_file_path):
     """Test successful file download from sandbox"""
     # First upload a file
     upload_result = await sandbox_instance.file_upload(
-        file_data=sample_binary_stream,
-        path=temp_file_path,
-        filename="download_test.txt"
+        file_data=sample_binary_stream, path=temp_file_path, filename="download_test.txt"
     )
     logger.info(f"Upload for download test response: {upload_result.success} - {upload_result.message}")
     assert upload_result.success is True
@@ -159,7 +148,7 @@ async def test_file_download_nonexistent_file(sandbox_instance):
     nonexistent_path = f"/tmp/nonexistent_{os.urandom(8).hex()}.txt"
 
     # This should raise an exception or return an error
-    with pytest.raises(Exception):
+    with pytest.raises(httpx.HTTPStatusError):
         await sandbox_instance.file_download(nonexistent_path)
 
 
@@ -168,9 +157,7 @@ async def test_file_download_empty_file(sandbox_instance, temp_file_path):
     # Upload empty file first
     empty_stream = io.BytesIO(b"")
     upload_result = await sandbox_instance.file_upload(
-        file_data=empty_stream,
-        path=temp_file_path,
-        filename="empty.txt"
+        file_data=empty_stream, path=temp_file_path, filename="empty.txt"
     )
     assert upload_result.success is True
 
@@ -189,9 +176,7 @@ async def test_file_download_large_file(sandbox_instance, temp_file_path):
     large_stream = io.BytesIO(large_content)
 
     upload_result = await sandbox_instance.file_upload(
-        file_data=large_stream,
-        path=temp_file_path,
-        filename="large_download.bin"
+        file_data=large_stream, path=temp_file_path, filename="large_download.bin"
     )
     assert upload_result.success is True
 
@@ -206,15 +191,14 @@ async def test_file_download_large_file(sandbox_instance, temp_file_path):
 
 # Integration Tests
 
+
 async def test_upload_then_download_cycle(sandbox_instance, sample_file_content, temp_file_path):
     """Test uploading a file and then downloading it"""
     sample_stream = io.BytesIO(sample_file_content)
 
     # Upload file
     upload_result = await sandbox_instance.file_upload(
-        file_data=sample_stream,
-        path=temp_file_path,
-        filename="cycle_test.txt"
+        file_data=sample_stream, path=temp_file_path, filename="cycle_test.txt"
     )
 
     # Verify upload success
@@ -244,11 +228,7 @@ async def test_multiple_file_operations(sandbox_instance, temp_file_path):
         file_path = f"{temp_file_path}_{i}"
         stream = io.BytesIO(content)
 
-        upload_result = await sandbox_instance.file_upload(
-            file_data=stream,
-            path=file_path,
-            filename=filename
-        )
+        upload_result = await sandbox_instance.file_upload(file_data=stream, path=file_path, filename=filename)
 
         assert upload_result.success is True
         uploaded_paths.append((file_path, content))
@@ -267,9 +247,7 @@ async def test_file_overwrite(sandbox_instance, temp_file_path):
     initial_stream = io.BytesIO(initial_content)
 
     upload_result1 = await sandbox_instance.file_upload(
-        file_data=initial_stream,
-        path=temp_file_path,
-        filename="overwrite_test.txt"
+        file_data=initial_stream, path=temp_file_path, filename="overwrite_test.txt"
     )
     assert upload_result1.success is True
 
@@ -278,9 +256,7 @@ async def test_file_overwrite(sandbox_instance, temp_file_path):
     new_stream = io.BytesIO(new_content)
 
     upload_result2 = await sandbox_instance.file_upload(
-        file_data=new_stream,
-        path=temp_file_path,
-        filename="overwrite_test.txt"
+        file_data=new_stream, path=temp_file_path, filename="overwrite_test.txt"
     )
     assert upload_result2.success is True
 

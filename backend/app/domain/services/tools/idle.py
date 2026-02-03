@@ -14,7 +14,7 @@ class IdleTool(BaseTool):
         name="idle",
         description="Enter idle state when all tasks are completed or user explicitly requests to stop. Use this tool to signal that the agent is ready to wait for new tasks.",
         parameters={},
-        required=[]
+        required=[],
     )
     async def idle(self) -> ToolResult:
         """Enter idle state and wait for new tasks

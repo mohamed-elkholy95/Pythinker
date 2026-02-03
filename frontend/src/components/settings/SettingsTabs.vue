@@ -139,6 +139,7 @@ const tabDescriptions: Record<string, string> = {
   model: 'Configure AI behavior',
   search: 'Set up search preferences',
   agent: 'Fine-tune automation settings',
+  skills: 'Enable agent capabilities',
   usage: 'Monitor your activity and costs'
 }
 

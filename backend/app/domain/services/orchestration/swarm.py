@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 
 class AgentStatus(str, Enum):
     """Status of an agent in the swarm."""
+
     IDLE = "idle"
     WORKING = "working"
     WAITING = "waiting"
@@ -53,6 +54,7 @@ class AgentStatus(str, Enum):
 @dataclass
 class SwarmTask:
     """A task for the swarm to execute."""
+
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     description: str = ""
     original_request: str = ""
@@ -78,6 +80,7 @@ class SwarmTask:
 @dataclass
 class SwarmResult:
     """Result of swarm task execution."""
+
     task_id: str
     success: bool
     output: str = ""
@@ -114,6 +117,7 @@ class AgentFactory(Protocol):
 
 class SwarmConfig(BaseModel):
     """Configuration for the Swarm orchestrator."""
+
     # Concurrency settings
     max_concurrent_agents: int = Field(default=3, ge=1, le=10)
     max_parallel_tasks: int = Field(default=5, ge=1, le=20)
@@ -139,6 +143,7 @@ class SwarmConfig(BaseModel):
 @dataclass
 class AgentInstance:
     """An active agent instance in the swarm."""
+
     id: str
     agent_type: AgentType
     spec: AgentSpec
@@ -280,9 +285,7 @@ class Swarm:
 
             try:
                 # Build the prompt
-                prompt = self._build_agent_prompt(
-                    task, spec, is_coordinator, handoff_context
-                )
+                prompt = self._build_agent_prompt(task, spec, is_coordinator, handoff_context)
 
                 # Execute the agent
                 async for event in self._factory.execute_agent(
@@ -295,9 +298,7 @@ class Swarm:
                         handoff = self._detect_handoff_request(event.message, task)
                         if handoff:
                             # Process handoff
-                            async for handoff_event in self._process_handoff(
-                                handoff, task, instance
-                            ):
+                            async for handoff_event in self._process_handoff(handoff, task, instance):
                                 yield handoff_event
                             continue
 
@@ -368,7 +369,7 @@ class Swarm:
                     yield event
 
             # Complete handoff
-            result = self._protocol.complete_handoff(
+            self._protocol.complete_handoff(
                 handoff.id,
                 output=task.result or "",
                 summary=f"Completed by {target_spec.agent_type.value}",
@@ -396,9 +397,7 @@ class Swarm:
             Results dict containing all task outputs
         """
         if len(tasks) > self._config.max_parallel_tasks:
-            raise ValueError(
-                f"Too many parallel tasks: {len(tasks)} > {self._config.max_parallel_tasks}"
-            )
+            raise ValueError(f"Too many parallel tasks: {len(tasks)} > {self._config.max_parallel_tasks}")
 
         logger.info(f"Executing {len(tasks)} tasks in parallel")
 
@@ -427,20 +426,19 @@ class Swarm:
             }
 
         # Execute all tasks concurrently
-        results = await asyncio.gather(
-            *[collect_events(task) for task in tasks],
-            return_exceptions=True
-        )
+        results = await asyncio.gather(*[collect_events(task) for task in tasks], return_exceptions=True)
 
         # Process results
         final_results = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                final_results.append({
-                    "task_id": tasks[i].id,
-                    "success": False,
-                    "error": str(result),
-                })
+                final_results.append(
+                    {
+                        "task_id": tasks[i].id,
+                        "success": False,
+                        "error": str(result),
+                    }
+                )
             else:
                 final_results.append(result)
 
@@ -484,8 +482,7 @@ class Swarm:
                 {
                     "target_agent": st.get("preferred_agent"),
                     "target_capability": (
-                        list(st.get("required_capabilities", set()))[0]
-                        if st.get("required_capabilities") else None
+                        next(iter(st.get("required_capabilities", set()))) if st.get("required_capabilities") else None
                     ),
                     "instructions": st.get("description", ""),
                     "expected_output": st.get("expected_output", ""),
@@ -498,7 +495,7 @@ class Swarm:
         # Execute handoffs in parallel
         if self._config.enable_parallel_execution:
             tasks_to_run = []
-            for handoff, subtask_spec in zip(handoffs, subtasks):
+            for _handoff, subtask_spec in zip(handoffs, subtasks, strict=False):
                 subtask = SwarmTask(
                     description=subtask_spec.get("description", ""),
                     original_request=parent_task.original_request,
@@ -509,12 +506,10 @@ class Swarm:
                 tasks_to_run.append(subtask)
 
             async for result in self.execute_parallel(tasks_to_run):
-                yield MessageEvent(
-                    message=f"Completed {result['completed']}/{len(tasks_to_run)} subtasks"
-                )
+                yield MessageEvent(message=f"Completed {result['completed']}/{len(tasks_to_run)} subtasks")
         else:
             # Sequential execution
-            for handoff, subtask_spec in zip(handoffs, subtasks):
+            for _handoff, subtask_spec in zip(handoffs, subtasks, strict=False):
                 subtask = SwarmTask(
                     description=subtask_spec.get("description", ""),
                     original_request=parent_task.original_request,
@@ -559,9 +554,7 @@ class Swarm:
 
         # Create new instance
         instance_id = str(uuid.uuid4())
-        agent = await self._factory.create_agent(
-            spec.agent_type, instance_id, spec
-        )
+        agent = await self._factory.create_agent(spec.agent_type, instance_id, spec)
 
         instance = AgentInstance(
             id=instance_id,
@@ -647,7 +640,7 @@ You can delegate multiple tasks in parallel when they are independent.
         import re
 
         # Look for handoff markers
-        pattern = r'\[HANDOFF\](.*?)\[/HANDOFF\]'
+        pattern = r"\[HANDOFF\](.*?)\[/HANDOFF\]"
         match = re.search(pattern, message, re.DOTALL)
 
         if not match:
@@ -656,9 +649,9 @@ You can delegate multiple tasks in parallel when they are independent.
         handoff_text = match.group(1)
 
         # Parse handoff details
-        agent_match = re.search(r'agent:\s*(\w+)', handoff_text, re.IGNORECASE)
-        task_match = re.search(r'task:\s*(.+?)(?=expected_output:|$)', handoff_text, re.IGNORECASE | re.DOTALL)
-        output_match = re.search(r'expected_output:\s*(.+)', handoff_text, re.IGNORECASE | re.DOTALL)
+        agent_match = re.search(r"agent:\s*(\w+)", handoff_text, re.IGNORECASE)
+        task_match = re.search(r"task:\s*(.+?)(?=expected_output:|$)", handoff_text, re.IGNORECASE | re.DOTALL)
+        output_match = re.search(r"expected_output:\s*(.+)", handoff_text, re.IGNORECASE | re.DOTALL)
 
         if not agent_match:
             return None
@@ -690,7 +683,7 @@ You can delegate multiple tasks in parallel when they are independent.
         )
 
         # Create handoff
-        handoff = self._protocol.create_handoff(
+        return self._protocol.create_handoff(
             source_agent=task.assigned_agent or AgentType.COORDINATOR,
             target_agent=target_agent,
             reason=HandoffReason.SPECIALIZATION,
@@ -698,8 +691,6 @@ You can delegate multiple tasks in parallel when they are independent.
             instructions=task_match.group(1).strip() if task_match else "",
             expected_output=output_match.group(1).strip() if output_match else "",
         )
-
-        return handoff
 
     def get_stats(self) -> dict[str, Any]:
         """Get swarm statistics.

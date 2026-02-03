@@ -239,6 +239,142 @@ Provide feedback in the following structured format:
 }}"""
 
 
+# 5-Check Framework Prompt (Phase 3/5 Enhancement)
+# Addresses data asymmetry, comparison consistency, and pre-verification issues
+FIVE_CHECK_PROMPT = """Perform a comprehensive 5-check review on this output.
+
+## Output to Review:
+{output}
+
+## Original User Request:
+{user_request}
+
+## Available Sources/Context:
+{sources_context}
+
+## Pre-Verification Issues (Automated Checks)
+{pre_verification_issues}
+
+---
+
+## THE 5-CHECK FRAMEWORK
+
+IMPORTANT: The "Pre-Verification Issues" section above contains issues detected by automated
+systems BEFORE this LLM review. These are FACTS, not opinions. If the pre-verification found:
+- URL does not exist → the URL is definitively fabricated
+- Number not in source → the metric was not found in any visited source
+- Entity claim unverified → no source contained information about this entity
+
+You MUST incorporate these pre-verified issues into your check results. Do NOT override them.
+
+Perform each check carefully and provide detailed findings:
+
+### CHECK 1: FACTUAL ACCURACY
+Are all claims verifiable and accurate?
+- Identify specific factual claims (numbers, dates, statistics, benchmarks)
+- Determine if each claim is supported by evidence
+- Flag unsupported or potentially hallucinated claims
+
+### CHECK 2: COMPLETENESS
+Does the output fully address the user's request?
+- Compare output against all aspects of the original request
+- Identify any missing components or partially addressed points
+- Check if conclusions/summaries capture all findings
+
+### CHECK 3: INTERNAL CONSISTENCY
+Is the output internally consistent?
+- Check for contradictions between statements
+- Verify numbers/statistics are used consistently throughout
+- Ensure claims in different sections don't conflict
+
+### CHECK 4: DATA SYMMETRY (CRITICAL FOR COMPARISONS)
+Are comparisons using equivalent metrics?
+
+This is CRITICAL. When comparing items, they MUST be evaluated using the same criteria.
+
+EXAMPLES OF ASYMMETRY TO DETECT:
+❌ "Model A: 92.0% on MMLU" vs "Model B: Strong reasoning capabilities"
+   - Item A has quantitative metric (92.0%)
+   - Item B has qualitative description (no number)
+   - This is ASYMMETRIC and UNACCEPTABLE
+
+❌ "Framework X: 2.3ms response time" vs "Framework Y: Easy to configure"
+   - Item X has performance metric
+   - Item Y has usability description
+   - Comparing different dimensions
+
+✅ SYMMETRIC COMPARISONS:
+   "Model A: 92.0% on MMLU" vs "Model B: 88.5% on MMLU" (same metric)
+   "Model A: 92.0% on MMLU" vs "Model B: MMLU score not published" (explicitly notes missing data)
+
+For EACH comparison in the output, verify:
+1. Are the same metrics/criteria applied to all items?
+2. If a metric exists for one item, is it provided for all items?
+3. Are qualitative and quantitative descriptions mixed inappropriately?
+
+### CHECK 5: SOURCE GROUNDING
+Is the output grounded in actual sources/tools?
+- Are factual claims traceable to sources used?
+- Were claims inferred beyond what sources state?
+- Are there claims that appear to come from nowhere?
+
+---
+
+## Response Format
+
+Respond with this JSON structure:
+{{
+    "accuracy_check": {{
+        "passed": boolean,
+        "severity": "critical|major|minor|pass",
+        "issues": ["list of accuracy issues"],
+        "confidence": 0.0-1.0,
+        "remediation": "how to fix, or null if passed"
+    }},
+    "completeness_check": {{
+        "passed": boolean,
+        "severity": "critical|major|minor|pass",
+        "issues": ["list of completeness issues"],
+        "confidence": 0.0-1.0,
+        "remediation": "how to fix, or null if passed"
+    }},
+    "consistency_check": {{
+        "passed": boolean,
+        "severity": "critical|major|minor|pass",
+        "issues": ["list of consistency issues"],
+        "confidence": 0.0-1.0,
+        "remediation": "how to fix, or null if passed"
+    }},
+    "symmetry_check": {{
+        "passed": boolean,
+        "severity": "critical|major|minor|pass",
+        "issues": ["list of data asymmetry issues found"],
+        "confidence": 0.0-1.0,
+        "remediation": "how to fix, or null if passed"
+    }},
+    "grounding_check": {{
+        "passed": boolean,
+        "severity": "critical|major|minor|pass",
+        "issues": ["list of grounding issues"],
+        "confidence": 0.0-1.0,
+        "remediation": "how to fix, or null if passed"
+    }},
+    "overall_passed": boolean,
+    "overall_confidence": 0.0-1.0,
+    "critical_issues": ["list of most critical issues to address first"],
+    "asymmetry_issues": [
+        {{
+            "item_a": "first item name",
+            "item_a_metric_type": "quantitative|qualitative|none",
+            "item_b": "second item name",
+            "item_b_metric_type": "quantitative|qualitative|none",
+            "context": "the comparison being made",
+            "suggestion": "how to make this symmetric"
+        }}
+    ]
+}}"""
+
+
 # Quick validation prompt for simple checks
 QUICK_VALIDATE_PROMPT = """Perform a quick validation check on this output.
 

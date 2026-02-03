@@ -17,9 +17,11 @@ import type {
   ProgressEventData,
   StreamEventData,
   DeepResearchEventData,
+  WideResearchEventData,
   WaitEventData,
   ReportEventData
 } from '../types/event'
+import { useWideResearchGlobal } from './useWideResearch'
 
 // Event statistics for debugging
 interface EventStats {
@@ -49,6 +51,18 @@ const toolStartTimes = new Map<string, number>()
 function handleToolEvent(data: ToolEventData): void {
   stats.value.toolEvents++
   stats.value.totalEvents++
+
+  // Handle wide_research tool events to update overlay state
+  if (data.name === 'wide_research' || data.function === 'wide_research') {
+    const wideResearch = useWideResearchGlobal()
+    wideResearch.handleToolEvent({
+      name: data.name,
+      function: data.function,
+      args: data.args,
+      content: data.content,
+      status: data.status
+    })
+  }
 
   if (data.status === 'calling') {
     // Tool execution starting
@@ -224,6 +238,52 @@ function handleDeepResearchEvent(data: DeepResearchEventData): void {
 }
 
 /**
+ * Track a wide research event (parallel multi-source search)
+ */
+function handleWideResearchEvent(data: WideResearchEventData): void {
+  stats.value.totalEvents++
+
+  // Update the global wide research state
+  const wideResearch = useWideResearchGlobal()
+
+  if (data.status === 'pending') {
+    wideResearch.startResearch({
+      research_id: data.research_id,
+      topic: data.topic,
+      search_types: data.search_types,
+      aggregation_strategy: data.aggregation_strategy
+    })
+  } else if (data.status === 'searching' || data.status === 'aggregating') {
+    wideResearch.updateProgress({
+      research_id: data.research_id,
+      total_queries: data.total_queries,
+      completed_queries: data.completed_queries,
+      sources_found: data.sources_found,
+      current_query: data.current_query
+    })
+  } else if (data.status === 'completed') {
+    wideResearch.completeResearch({
+      research_id: data.research_id,
+      sources_count: data.sources_found
+    })
+  } else if (data.status === 'failed') {
+    wideResearch.failResearch(data.research_id, data.errors?.join(', ') || 'Unknown error')
+  }
+
+  // Track to OpenReplay timeline
+  trackEvent('agent_wide_research', {
+    research_id: data.research_id,
+    topic: data.topic,
+    status: data.status,
+    total_queries: data.total_queries,
+    completed_queries: data.completed_queries,
+    sources_found: data.sources_found,
+    search_types: data.search_types,
+    progress_percent: data.total_queries > 0 ? Math.round((data.completed_queries / data.total_queries) * 100) : 0
+  })
+}
+
+/**
  * Track a report event (report generated)
  */
 function handleReportEvent(data: ReportEventData): void {
@@ -313,6 +373,9 @@ function handleAgentEvent(event: AgentSSEEvent): void {
       break
     case 'deep_research':
       handleDeepResearchEvent(event.data as DeepResearchEventData)
+      break
+    case 'wide_research':
+      handleWideResearchEvent(event.data as WideResearchEventData)
       break
     case 'report':
       handleReportEvent(event.data as ReportEventData)

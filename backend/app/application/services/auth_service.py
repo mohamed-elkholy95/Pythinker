@@ -30,21 +30,21 @@ class AuthService:
 
     def _hash_password(self, password: str) -> str:
         """Hash password using configured algorithm"""
-        salt = self.settings.password_salt or ''
+        salt = self.settings.password_salt or ""
         if not salt:
             logger.warning("[SECURITY] Password salt is not configured - using empty salt")
         return self._pbkdf2_sha256(password, salt)
 
     def _pbkdf2_sha256(self, password: str, salt: str) -> str:
         """PBKDF2 with SHA-256 implementation"""
-        password_bytes = password.encode('utf-8')
-        salt_bytes = salt.encode('utf-8')
+        password_bytes = password.encode("utf-8")
+        salt_bytes = salt.encode("utf-8")
 
         # Use configured rounds (default is now 600000)
         rounds = self.settings.password_hash_rounds
 
         # Generate hash
-        hash_bytes = hashlib.pbkdf2_hmac('sha256', password_bytes, salt_bytes, rounds)
+        hash_bytes = hashlib.pbkdf2_hmac("sha256", password_bytes, salt_bytes, rounds)
 
         # Return salt + hash as hex string
         return salt + hash_bytes.hex()
@@ -78,13 +78,13 @@ class AuthService:
         if len(password) < self.settings.password_min_length:
             errors.append(f"Password must be at least {self.settings.password_min_length} characters long")
 
-        if self.settings.password_require_uppercase and not re.search(r'[A-Z]', password):
+        if self.settings.password_require_uppercase and not re.search(r"[A-Z]", password):
             errors.append("Password must contain at least one uppercase letter")
 
-        if self.settings.password_require_lowercase and not re.search(r'[a-z]', password):
+        if self.settings.password_require_lowercase and not re.search(r"[a-z]", password):
             errors.append("Password must contain at least one lowercase letter")
 
-        if self.settings.password_require_digit and not re.search(r'\d', password):
+        if self.settings.password_require_digit and not re.search(r"\d", password):
             errors.append("Password must contain at least one digit")
 
         if self.settings.password_require_special and not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
@@ -195,7 +195,7 @@ class AuthService:
         if not fullname or len(fullname.strip()) < 2:
             raise ValidationError("Full name must be at least 2 characters long")
 
-        if not email or '@' not in email:
+        if not email or "@" not in email:
             raise ValidationError("Valid email is required")
 
         # Validate password complexity
@@ -222,7 +222,7 @@ class AuthService:
             role=role,
             is_active=True,
             created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            updated_at=datetime.utcnow(),
         )
 
         # Save to database
@@ -239,11 +239,7 @@ class AuthService:
         if self.settings.auth_provider == "none":
             # No authentication required - return a default user
             return User(
-                id="anonymous",
-                fullname="anonymous",
-                email="anonymous@localhost",
-                role=UserRole.USER,
-                is_active=True
+                id="anonymous", fullname="anonymous", email="anonymous@localhost", role=UserRole.USER, is_active=True
             )
 
         if self.settings.auth_provider == "local":
@@ -256,18 +252,14 @@ class AuthService:
                 )
 
             # Local authentication using configured credentials
-            if (self.settings.local_auth_email and
-                self.settings.local_auth_password and
-                email == self.settings.local_auth_email and
-                hmac.compare_digest(password, self.settings.local_auth_password)):
+            if (
+                self.settings.local_auth_email
+                and self.settings.local_auth_password
+                and email == self.settings.local_auth_email
+                and hmac.compare_digest(password, self.settings.local_auth_password)
+            ):
                 await self._clear_failed_attempts(email)
-                return User(
-                    id="local_admin",
-                    fullname="Local Admin",
-                    email=email,
-                    role=UserRole.ADMIN,
-                    is_active=True
-                )
+                return User(id="local_admin", fullname="Local Admin", email=email, role=UserRole.ADMIN, is_active=True)
             # Track failed attempt
             attempts = await self._increment_failed_attempts(email)
             if attempts >= self.settings.account_lockout_threshold:
@@ -333,12 +325,7 @@ class AuthService:
         access_token = self.token_service.create_access_token(user)
         refresh_token = self.token_service.create_refresh_token(user)
 
-        return AuthToken(
-            access_token=access_token,
-            refresh_token=refresh_token,
-            token_type="bearer",
-            user=user
-        )
+        return AuthToken(access_token=access_token, refresh_token=refresh_token, token_type="bearer", user=user)
 
     async def refresh_access_token(self, refresh_token: str) -> AuthToken:
         """Refresh access token using refresh token"""
@@ -360,10 +347,7 @@ class AuthService:
         # Generate new access token
         new_access_token = self.token_service.create_access_token(user)
 
-        return AuthToken(
-            access_token=new_access_token,
-            token_type="bearer"
-        )
+        return AuthToken(access_token=new_access_token, token_type="bearer")
 
     async def verify_token(self, token: str) -> User | None:
         """Verify JWT token and return user"""
@@ -385,7 +369,7 @@ class AuthService:
             fullname=user_info["fullname"],
             email=user_info.get("email"),
             role=UserRole(user_info.get("role", "user")),
-            is_active=user_info.get("is_active", True)
+            is_active=user_info.get("is_active", True),
         )
 
     async def logout(self, token: str) -> bool:

@@ -18,7 +18,8 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from typing import Optional
 
-from app.core.config import get_settings
+from app.core.alert_manager import get_alert_manager
+from app.core.config import get_feature_flags, get_settings
 from app.domain.external.browser import Browser
 from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
@@ -34,22 +35,25 @@ from app.domain.models.event import (
 )
 from app.domain.models.message import Message
 from app.domain.models.plan import ExecutionStatus, Plan, Step
-from app.domain.models.reflection import ReflectionConfig
+from app.domain.models.reflection import ReflectionConfig, ReflectionTriggerType
 from app.domain.models.session import SessionStatus
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.agents.execution import ExecutionAgent
+from app.domain.services.agents.memory_manager import get_memory_manager
 from app.domain.services.agents.planner import PlannerAgent
 from app.domain.services.agents.reflection import ReflectionAgent
 from app.domain.services.agents.task_state_manager import TaskStateManager
 from app.domain.services.agents.verifier import VerifierAgent, VerifierConfig
 from app.domain.services.flows.base import BaseFlow
+from app.domain.services.flows.graph_checkpoint_manager import get_graph_checkpoint_manager
 from app.domain.services.flows.workflow_graph import (
     END,
     WorkflowBuilder,
     WorkflowGraph,
     WorkflowState,
 )
+from app.domain.services.prediction.failure_predictor import FailurePredictor
 from app.domain.services.tools.browser import BrowserTool
 from app.domain.services.tools.browser_agent import BrowserAgentTool
 from app.domain.services.tools.file import FileTool
@@ -58,8 +62,10 @@ from app.domain.services.tools.mcp import MCPTool
 from app.domain.services.tools.message import MessageTool
 from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.shell import ShellTool
+from app.domain.services.validation.plan_validator import PlanValidator
 from app.domain.utils.json_parser import JsonParser
 from app.infrastructure.observability import get_tracer
+from app.infrastructure.observability.prometheus_metrics import record_failure_prediction
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +73,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class PlanActState(WorkflowState):
     """State for the PlanAct workflow."""
+
     # Core data
     message: Message | None = None
     plan: Plan | None = None
@@ -122,10 +129,7 @@ def create_plan_act_graph() -> WorkflowGraph:
             replan_context = state.verification_feedback
             logger.info("Replanning with verification feedback")
 
-        async for event in state.planner.create_plan(
-            state.message,
-            replan_context=replan_context
-        ):
+        async for event in state.planner.create_plan(state.message, replan_context=replan_context):
             if isinstance(event, PlanEvent) and event.status == PlanStatus.CREATED:
                 state.plan = event.plan
                 state.plan_created = True
@@ -134,8 +138,7 @@ def create_plan_act_graph() -> WorkflowGraph:
                 if state.task_state_manager:
                     state.task_state_manager.initialize_from_plan(
                         objective=state.message.message,
-                        steps=[{"id": s.id, "description": s.description}
-                               for s in event.plan.steps]
+                        steps=[{"id": s.id, "description": s.description} for s in event.plan.steps],
                     )
 
                 yield TitleEvent(title=event.plan.title)
@@ -144,6 +147,25 @@ def create_plan_act_graph() -> WorkflowGraph:
         # Reset verification state after replanning
         state.verification_verdict = None
         state.verification_feedback = None
+
+        # Plan validation (Phase 1)
+        if state.plan:
+            flags = state.metadata.get("feature_flags", {})
+            if flags.get("plan_validation_v2"):
+                tool_names = [
+                    t.get("function", {}).get("name", "")
+                    for t in (state.planner.get_available_tools() if state.planner else []) or []
+                ]
+                validation = PlanValidator(tool_names=tool_names).validate(state.plan)
+                if not validation.passed:
+                    summary = validation.to_summary()
+                    if flags.get("shadow_mode", True):
+                        logger.warning(f"Plan pre-validation errors (shadow): {summary}")
+                    else:
+                        state.verification_verdict = "revise"
+                        state.verification_feedback = "Plan validation failed:" + summary
+                        if state.verification_loops < state.max_verification_loops:
+                            state.verification_loops += 1
 
         # Check if plan has no steps
         if state.plan and len(state.plan.steps) == 0:
@@ -159,9 +181,7 @@ def create_plan_act_graph() -> WorkflowGraph:
         logger.info(f"Verifying plan: {state.plan.title}")
 
         async for event in state.verifier.verify_plan(
-            plan=state.plan,
-            user_request=state.message.message if state.message else "",
-            task_context=""
+            plan=state.plan, user_request=state.message.message if state.message else "", task_context=""
         ):
             yield event
 
@@ -199,6 +219,7 @@ def create_plan_act_graph() -> WorkflowGraph:
         async for event in state.executor.execute_step(state.plan, step, state.message):
             # Check for wait event
             from app.domain.models.event import WaitEvent
+
             if isinstance(event, WaitEvent):
                 state.needs_wait = True
             yield event
@@ -206,6 +227,32 @@ def create_plan_act_graph() -> WorkflowGraph:
         # Mark step as completed
         if state.task_state_manager:
             state.task_state_manager.update_step_status(str(step.id), "completed")
+
+        # Optional context optimization (Phase 3)
+        flags = state.metadata.get("feature_flags", {})
+        if flags.get("context_optimization") and state.executor:
+            try:
+                memory_manager = get_memory_manager()
+                await state.executor._ensure_memory()
+                messages = state.executor.memory.get_messages()
+                optimized_messages, report = memory_manager.optimize_context(
+                    messages,
+                    preserve_recent=10,
+                    token_threshold=int(
+                        memory_manager.get_pressure_status(state.executor.memory.estimate_tokens()).max_tokens * 0.65
+                    ),
+                )
+                if report.tokens_saved > 0:
+                    state.executor.memory.messages = optimized_messages
+                    await state.executor._repository.save_memory(
+                        state.agent_id, state.executor.name, state.executor.memory
+                    )
+                    logger.info(
+                        f"PlanActGraph context optimization saved {report.tokens_saved} tokens "
+                        f"(semantic={report.semantic_compacted}, temporal={report.temporal_compacted})"
+                    )
+            except Exception as e:
+                logger.warning(f"PlanActGraph context optimization failed: {e}")
 
     async def updating_node(state: PlanActState) -> AsyncGenerator[BaseEvent, None]:
         """Update the plan after step completion."""
@@ -234,8 +281,44 @@ def create_plan_act_graph() -> WorkflowGraph:
         trigger_type = state.reflection_agent.should_reflect(
             progress=progress,
             last_had_error=state.last_had_error,
-            confidence=1.0  # Could be dynamic based on context
+            confidence=1.0,  # Could be dynamic based on context
+            recent_actions=state.task_state_manager.get_recent_actions() if state.task_state_manager else None,
         )
+
+        # Failure prediction (Phase 5, shadow mode)
+        prediction = None
+        flags = state.metadata.get("feature_flags", {})
+        if flags.get("failure_prediction"):
+            try:
+                token_usage_pct = None
+                if state.executor:
+                    try:
+                        memory_manager = get_memory_manager()
+                        await state.executor._ensure_memory()
+                        pressure = memory_manager.get_pressure_status(state.executor.memory.estimate_tokens())
+                        token_usage_pct = pressure.usage_ratio
+                    except Exception as e:
+                        logger.debug(f"Token pressure lookup failed: {e}")
+
+                predictor = FailurePredictor()
+                prediction = predictor.predict(
+                    progress=progress,
+                    recent_actions=state.task_state_manager.get_recent_actions(),
+                    stuck_analysis=None,
+                    token_usage_pct=token_usage_pct,
+                )
+                record_failure_prediction(
+                    "predicted" if prediction.will_fail else "clear",
+                    prediction.probability,
+                )
+                await get_alert_manager().check_thresholds(
+                    state.session_id,
+                    {"failure_prediction_probability": prediction.probability},
+                )
+                if prediction.will_fail and not trigger_type:
+                    trigger_type = ReflectionTriggerType.EXPLICIT
+            except Exception as e:
+                logger.debug(f"Failure prediction failed: {e}")
 
         if not trigger_type:
             state.reflection_decision = "continue"
@@ -245,13 +328,14 @@ def create_plan_act_graph() -> WorkflowGraph:
 
         # Perform reflection
         from app.domain.models.event import ReflectionEvent, ReflectionStatus
+
         async for event in state.reflection_agent.reflect(
             goal=state.plan.goal,
             plan=state.plan,
             progress=progress,
             trigger_type=trigger_type,
             recent_actions=state.task_state_manager.get_recent_actions(),
-            last_error=state.task_state_manager.get_last_error()
+            last_error=state.task_state_manager.get_last_error(),
         ):
             yield event
 
@@ -260,6 +344,17 @@ def create_plan_act_graph() -> WorkflowGraph:
                 state.reflection_decision = event.decision
                 if event.decision in ["adjust", "replan"]:
                     state.reflection_feedback = event.summary
+
+        if prediction and prediction.will_fail and (state.reflection_decision or "continue") == "continue":
+            state.reflection_decision = "adjust"
+            feedback = (
+                f"Failure prediction: {prediction.probability:.0%} risk. "
+                f"Factors: {', '.join(prediction.factors) or 'unknown'}. "
+                f"Recommended: {prediction.recommended_action}."
+            )
+            state.reflection_feedback = (
+                f"{state.reflection_feedback}\n\n{feedback}" if state.reflection_feedback else feedback
+            )
 
         # Reset error flag after reflection
         state.last_had_error = False
@@ -294,6 +389,13 @@ def create_plan_act_graph() -> WorkflowGraph:
         """Route after planning based on state."""
         if state.all_steps_done:
             return "summarizing"
+        if state.verification_verdict == "revise":
+            if state.verification_loops >= state.max_verification_loops:
+                logger.warning(
+                    f"Max validation loops ({state.max_verification_loops}) reached, proceeding with execution"
+                )
+                return "executing"
+            return "planning"
         # Route to verification if verifier is available
         if state.verifier:
             return "verifying"
@@ -307,8 +409,7 @@ def create_plan_act_graph() -> WorkflowGraph:
             # Check if we've exceeded max revision loops
             if state.verification_loops >= state.max_verification_loops:
                 logger.warning(
-                    f"Max verification loops ({state.max_verification_loops}) reached, "
-                    "proceeding with execution"
+                    f"Max verification loops ({state.max_verification_loops}) reached, proceeding with execution"
                 )
                 return "executing"
             # Return to planning with feedback
@@ -346,7 +447,7 @@ def create_plan_act_graph() -> WorkflowGraph:
         return "updating"
 
     # Build the graph with verification and reflection steps
-    graph = (
+    return (
         WorkflowBuilder("plan-act", "Plan, verify, execute, and reflect with iterative updates")
         .node("planning", planning_node, "Create execution plan from user request")
         .conditional(route_after_planning, ["verifying", "executing", "summarizing"])
@@ -363,8 +464,6 @@ def create_plan_act_graph() -> WorkflowGraph:
         .entry("planning")
         .build()
     )
-
-    return graph
 
 
 class PlanActGraphFlow(BaseFlow):
@@ -398,17 +497,11 @@ class PlanActGraphFlow(BaseFlow):
         self._session_repository = session_repository
 
         # Build tools list
-        tools = [
-            ShellTool(sandbox),
-            BrowserTool(browser),
-            FileTool(sandbox),
-            MessageTool(),
-            IdleTool(),
-            mcp_tool
-        ]
+        tools = [ShellTool(sandbox), BrowserTool(browser), FileTool(sandbox), MessageTool(), IdleTool(), mcp_tool]
 
+        # Pass browser to SearchTool for visual search when search_prefer_browser is enabled
         if search_engine:
-            tools.append(SearchTool(search_engine))
+            tools.append(SearchTool(search_engine, browser=browser))
 
         settings = get_settings()
         if cdp_url and settings.browser_agent_enabled:
@@ -443,7 +536,7 @@ class PlanActGraphFlow(BaseFlow):
                     skip_simple_plans=True,
                     simple_plan_max_steps=2,
                     max_revision_loops=2,
-                )
+                ),
             )
             logger.info(f"VerifierAgent enabled for agent {agent_id}")
 
@@ -455,12 +548,14 @@ class PlanActGraphFlow(BaseFlow):
                 enabled=True,
                 max_reflections_per_task=10,
                 min_steps_between_reflections=1,
-            )
+            ),
         )
         logger.info(f"ReflectionAgent enabled for agent {agent_id}")
 
         # Task state manager
         self._task_state_manager = TaskStateManager(sandbox)
+        self.planner._task_state_manager = self._task_state_manager
+        self.executor._task_state_manager = self._task_state_manager
 
         # Create workflow graph
         self._graph = create_plan_act_graph()
@@ -481,10 +576,7 @@ class PlanActGraphFlow(BaseFlow):
         if not session:
             raise ValueError(f"Session {self._session_id} not found")
 
-        await self._session_repository.update_status(
-            self._session_id,
-            SessionStatus.RUNNING
-        )
+        await self._session_repository.update_status(self._session_id, SessionStatus.RUNNING)
 
         # Create initial state
         state = PlanActState(
@@ -498,14 +590,15 @@ class PlanActGraphFlow(BaseFlow):
             session_id=self._session_id,
             task_state_manager=self._task_state_manager,
         )
+        state.metadata["feature_flags"] = get_feature_flags()
 
         # Run with tracing
         with tracer.trace(
             "plan-act-graph",
             agent_id=self._agent_id,
             session_id=self._session_id,
-            attributes={"message.preview": message.message[:100]}
-        ) as trace_ctx:
+            attributes={"message.preview": message.message[:100]},
+        ):
 
             def on_node_start(node_name: str, state: PlanActState):
                 logger.info(f"Graph node starting: {node_name}")
@@ -516,10 +609,15 @@ class PlanActGraphFlow(BaseFlow):
                     f"[{execution.duration_ms:.0f}ms, {execution.events_emitted} events]"
                 )
 
+            checkpoint_manager = None
+            if state.metadata.get("feature_flags", {}).get("workflow_checkpointing"):
+                checkpoint_manager = get_graph_checkpoint_manager()
+
             async for event in self._graph.run(
                 state,
                 on_node_start=on_node_start,
-                on_node_end=on_node_end
+                on_node_end=on_node_end,
+                checkpoint_manager=checkpoint_manager,
             ):
                 yield event
 

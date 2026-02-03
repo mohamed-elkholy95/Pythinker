@@ -31,8 +31,8 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Context variables for trace correlation
-current_trace_id: ContextVar[str | None] = ContextVar('current_trace_id', default=None)
-current_span_id: ContextVar[str | None] = ContextVar('current_span_id', default=None)
+current_trace_id: ContextVar[str | None] = ContextVar("current_trace_id", default=None)
+current_span_id: ContextVar[str | None] = ContextVar("current_span_id", default=None)
 
 
 # Token cost estimates per 1K tokens (USD) - 2026 pricing
@@ -60,11 +60,7 @@ MODEL_COSTS: dict[str, dict[str, float]] = {
 }
 
 
-def estimate_cost(
-    model: str,
-    prompt_tokens: int,
-    completion_tokens: int
-) -> float:
+def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
     """Estimate cost in USD for token usage.
 
     Args:
@@ -97,6 +93,7 @@ def estimate_cost(
 @dataclass
 class LLMTrace:
     """Complete trace record for an LLM call."""
+
     trace_id: str
     span_id: str
     parent_span_id: str | None = None
@@ -135,7 +132,7 @@ class LLMTrace:
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
         cached_tokens: int = 0,
-        error: str | None = None
+        error: str | None = None,
     ) -> None:
         """Complete the trace with results."""
         self.end_time = datetime.now()
@@ -148,9 +145,7 @@ class LLMTrace:
         self.prompt_tokens = prompt_tokens
         self.completion_tokens = completion_tokens
         self.cached_tokens = cached_tokens
-        self.total_cost_usd = estimate_cost(
-            self.model, prompt_tokens, completion_tokens
-        )
+        self.total_cost_usd = estimate_cost(self.model, prompt_tokens, completion_tokens)
 
         if error:
             self.error = error
@@ -186,6 +181,7 @@ class LLMTrace:
 @dataclass
 class ToolTrace:
     """Trace record for a tool call."""
+
     trace_id: str
     span_id: str
     parent_span_id: str | None = None
@@ -206,12 +202,7 @@ class ToolTrace:
     metadata: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
 
-    def complete(
-        self,
-        result: str = "",
-        success: bool = True,
-        error: str | None = None
-    ) -> None:
+    def complete(self, result: str = "", success: bool = True, error: str | None = None) -> None:
         """Complete the tool trace."""
         self.end_time = datetime.now()
         self.latency_ms = (self.end_time - self.start_time).total_seconds() * 1000

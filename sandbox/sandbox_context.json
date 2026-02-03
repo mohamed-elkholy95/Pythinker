@@ -1,10 +1,10 @@
 {
-  "generated_at": "2026-01-31T03:12:00.264663",
+  "generated_at": "2026-02-03T17:44:12.707495",
   "version": "1.0.0",
   "environment": {
     "os": {
       "distribution": "Ubuntu 22.04.5 LTS",
-      "kernel": "6.12.65-linuxkit",
+      "kernel": "6.12.67-linuxkit",
       "architecture": "aarch64",
       "hostname": "sandbox",
       "user": "ubuntu",
@@ -14,7 +14,7 @@
     "python": {
       "version": "Python 3.11.14",
       "path": "/usr/bin/python3",
-      "pip_version": "pip 25.3 from /usr/local/lib/python3.11/dist-packages/pip (python 3.11)",
+      "pip_version": "pip 26.0 from /usr/local/lib/python3.11/dist-packages/pip (python 3.11)",
       "installed_packages": {
         "aiofiles": "25.1.0",
         "aiohappyeyeballs": "2.6.1",
@@ -35,7 +35,7 @@
         "beautifulsoup4": "4.14.3",
         "black": "26.1.0",
         "boolean.py": "5.0",
-        "browser-use": "0.11.5",
+        "browser-use": "0.11.7",
         "browser-use-sdk": "2.0.14",
         "bubus": "1.5.6",
         "cdp-use": "1.4.4",
@@ -77,7 +77,7 @@
         "inquirerpy": "0.3.4",
         "isoduration": "20.11.0",
         "isort": "7.0.0",
-        "jiter": "0.12.0",
+        "jiter": "0.13.0",
         "jsonpointer": "3.0.0",
         "jsonschema": "4.26.0",
         "jsonschema-specifications": "2025.9.1",
@@ -94,7 +94,7 @@
         "multidict": "6.7.1",
         "mypy": "1.19.1",
         "mypy_extensions": "1.1.0",
-        "numpy": "2.4.1",
+        "numpy": "1.21.5",
         "ollama": "0.6.1",
         "openai": "2.16.0",
         "packageurl-python": "0.17.6",
@@ -102,7 +102,7 @@
         "pathspec": "1.0.4",
         "pfzy": "0.3.4",
         "pillow": "12.1.0",
-        "pip": "25.3",
+        "pip": "26.0",
         "pip-requirements-parser": "32.0.1",
         "platformdirs": "4.5.1",
         "playwright": "1.58.0",
@@ -112,7 +112,7 @@
         "posthog": "7.8.0",
         "prompt_toolkit": "3.0.52",
         "propcache": "0.4.1",
-        "proto-plus": "1.27.0",
+        "proto-plus": "1.27.1",
         "protobuf": "6.33.5",
         "psutil": "7.2.2",
         "py": "1.11.0",
@@ -149,7 +149,7 @@
         "rfc3339-validator": "0.1.4",
         "rfc3986-validator": "0.1.1",
         "rfc3987-syntax": "1.1.0",
-        "rich": "14.3.1",
+        "rich": "14.3.2",
         "rpds-py": "0.30.0",
         "rsa": "4.9.1",
         "screeninfo": "0.8.1",
@@ -174,7 +174,7 @@
         "urllib3": "2.6.3",
         "uuid7": "0.1.0",
         "uvicorn": "0.37.0",
-        "wcwidth": "0.5.2",
+        "wcwidth": "0.5.3",
         "webcolors": "25.10.0",
         "websockets": "15.0.1",
         "websockify": "0.13.0",
@@ -196,7 +196,7 @@
         "requests": "2.32.5",
         "httpx": "0.28.1",
         "aiohttp": "3.13.3",
-        "numpy": "2.4.1"
+        "numpy": "1.21.5"
       }
     },
     "nodejs": {
@@ -207,7 +207,7 @@
       "yarn_version": "1.22.22",
       "global_packages": {
         "@cyclonedx/cyclonedx-npm": "4.1.2",
-        "@types/node": "25.1.0",
+        "@types/node": "25.2.0",
         "corepack": "0.30.0",
         "eslint": "9.39.2",
         "jest": "30.2.0",
@@ -863,11 +863,11 @@
       "shared_memory": "2gb",
       "disk": {
         "total": "79G",
-        "used": "56G",
-        "available": "20G",
-        "use_percent": "75%"
+        "used": "46G",
+        "available": "29G",
+        "use_percent": "62%"
       }
     }
   },
-  "checksum": "5c906b6c577a9521"
+  "checksum": "0ca22d40e0617895"
 }

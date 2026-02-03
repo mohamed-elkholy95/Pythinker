@@ -8,4 +8,5 @@ def get_cache():
     """Get cache implementation"""
     return RedisCache()
 
-__all__ = ['RedisCache', 'get_cache']
+
+__all__ = ["RedisCache", "get_cache"]

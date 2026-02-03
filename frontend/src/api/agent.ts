@@ -150,7 +150,21 @@ export interface ChatAttachment {
 }
 
 /**
+ * Chat options for additional features
+ */
+export interface ChatOptions {
+  deep_research?: boolean;  // Enable deep research mode (parallel searches with approval)
+}
+
+/**
  * Chat with Session (using SSE to receive streaming responses)
+ * @param sessionId Session ID
+ * @param message User message
+ * @param eventId Optional last event ID for resumption
+ * @param attachments Optional file attachments
+ * @param skills Optional skill IDs to enable for this message
+ * @param options Optional chat options (deep_research, etc.)
+ * @param callbacks SSE callbacks for events
  * @returns A function to cancel the SSE connection
  */
 export const chatWithSession = async (
@@ -158,17 +172,21 @@ export const chatWithSession = async (
   message: string = '',
   eventId?: string,
   attachments?: ChatAttachment[],
+  skills?: string[],
+  options?: ChatOptions,
   callbacks?: SSECallbacks<AgentSSEEvent['data']>
 ): Promise<() => void> => {
   return createSSEConnection<AgentSSEEvent['data']>(
     `/sessions/${sessionId}/chat`,
     {
       method: 'POST',
-      body: { 
-        message, 
-        timestamp: Math.floor(Date.now() / 1000), 
+      body: {
+        message,
+        timestamp: Math.floor(Date.now() / 1000),
         event_id: eventId,
-        attachments
+        attachments,
+        skills,
+        deep_research: options?.deep_research
       }
     },
     callbacks

@@ -21,7 +21,7 @@ Usage:
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 
@@ -94,12 +94,7 @@ class ManagedHTTPClient:
         self.stats = ClientStats()
         self._closed = False
 
-    async def request(
-        self,
-        method: str,
-        url: str,
-        **kwargs
-    ) -> httpx.Response:
+    async def request(self, method: str, url: str, **kwargs) -> httpx.Response:
         """Make an HTTP request with stats tracking."""
         import time
 
@@ -118,9 +113,7 @@ class ManagedHTTPClient:
 
         except Exception as e:
             self.stats.requests_failed += 1
-            logger.warning(
-                f"HTTP request failed for {self.name}: {method} {url} - {e}"
-            )
+            logger.warning(f"HTTP request failed for {self.name}: {method} {url} - {e}")
             raise
 
     async def get(self, url: str, **kwargs) -> httpx.Response:
@@ -163,8 +156,8 @@ class ManagedHTTPClient:
 class HTTPClientPool:
     """Pool of managed HTTP clients for different services."""
 
-    _clients: dict[str, ManagedHTTPClient] = {}
-    _lock = asyncio.Lock()
+    _clients: ClassVar[dict[str, ManagedHTTPClient]] = {}
+    _lock: ClassVar[asyncio.Lock] = asyncio.Lock()
 
     @classmethod
     async def get_client(
@@ -174,7 +167,7 @@ class HTTPClientPool:
         timeout: float = 30.0,
         headers: dict[str, str] | None = None,
         config: HTTPClientConfig | None = None,
-        **kwargs
+        **kwargs,
     ) -> ManagedHTTPClient:
         """Get or create an HTTP client for a service.
 
@@ -228,17 +221,14 @@ class HTTPClientPool:
                 headers=config.headers,
                 verify=config.verify_ssl,
                 http2=config.http2,
-                **kwargs
+                **kwargs,
             )
 
             # Wrap in managed client
             managed = ManagedHTTPClient(name, httpx_client, config)
             cls._clients[name] = managed
 
-            logger.info(
-                f"Created HTTP client: {name}",
-                extra={"client": name, "base_url": config.base_url}
-            )
+            logger.info(f"Created HTTP client: {name}", extra={"client": name, "base_url": config.base_url})
 
             return managed
 
@@ -269,10 +259,7 @@ class HTTPClientPool:
         async with cls._lock:
             count = len(cls._clients)
 
-            close_tasks = [
-                client.close()
-                for client in cls._clients.values()
-            ]
+            close_tasks = [client.close() for client in cls._clients.values()]
 
             if close_tasks:
                 await asyncio.gather(*close_tasks, return_exceptions=True)
@@ -284,10 +271,7 @@ class HTTPClientPool:
     @classmethod
     def get_all_stats(cls) -> dict[str, dict[str, Any]]:
         """Get statistics for all clients."""
-        return {
-            name: client.get_stats()
-            for name, client in cls._clients.items()
-        }
+        return {name: client.get_stats() for name, client in cls._clients.items()}
 
     @classmethod
     def get_client_names(cls) -> list:
@@ -296,11 +280,7 @@ class HTTPClientPool:
 
 
 # Convenience function
-async def get_http_client(
-    name: str,
-    base_url: str | None = None,
-    **kwargs
-) -> ManagedHTTPClient:
+async def get_http_client(name: str, base_url: str | None = None, **kwargs) -> ManagedHTTPClient:
     """Get or create an HTTP client.
 
     Convenience wrapper for HTTPClientPool.get_client.

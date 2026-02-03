@@ -22,11 +22,12 @@ from app.domain.services.agents.error_handler import (
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class RecoveryStrategy(str, Enum):
     """Available recovery strategies for different error types."""
+
     RETRY = "retry"  # Simple retry with backoff
     RETRY_WITH_CONTEXT = "retry_with_context"  # Retry with error context in prompt
     ALTERNATIVE_TOOL = "alternative_tool"  # Try different tool for same goal
@@ -41,6 +42,7 @@ class RecoveryStrategy(str, Enum):
 @dataclass
 class RecoveryAttempt:
     """Record of a recovery attempt."""
+
     strategy: RecoveryStrategy
     error_type: ErrorType
     original_error: str
@@ -65,6 +67,7 @@ class RecoveryAttempt:
 @dataclass
 class SelfReflectionResult:
     """Result of a self-reflection cycle."""
+
     iteration: int
     observations: list[str]
     issues_identified: list[str]
@@ -190,8 +193,7 @@ class SelfHealingLoop:
 
         if self._error_patterns[signature] >= self._pattern_threshold:
             logger.info(
-                f"Recurring error pattern detected ({self._error_patterns[signature]} occurrences): "
-                f"{signature}"
+                f"Recurring error pattern detected ({self._error_patterns[signature]} occurrences): {signature}"
             )
 
     def select_recovery_strategy(
@@ -398,10 +400,7 @@ class SelfHealingLoop:
             error_key = f"{error_context.error_type.value}:{tool_name or 'general'}"
             self._successful_strategies[error_key] = strategy
 
-            logger.info(
-                f"Recovery successful with strategy {strategy.value} "
-                f"in {attempt.duration_ms}ms"
-            )
+            logger.info(f"Recovery successful with strategy {strategy.value} in {attempt.duration_ms}ms")
 
             self._recovery_attempts.append(attempt)
             return True, result, attempt
@@ -412,19 +411,14 @@ class SelfHealingLoop:
             attempt.result = str(e)[:200]
             attempt.duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
 
-            logger.warning(
-                f"Recovery attempt failed with strategy {strategy.value}: {e}"
-            )
+            logger.warning(f"Recovery attempt failed with strategy {strategy.value}: {e}")
 
             self._recovery_attempts.append(attempt)
             return False, None, attempt
 
     def should_reflect(self) -> bool:
         """Check if it's time for a self-reflection cycle."""
-        return (
-            self._iteration_count > 0 and
-            self._iteration_count % self._reflection_interval == 0
-        )
+        return self._iteration_count > 0 and self._iteration_count % self._reflection_interval == 0
 
     def perform_reflection(self) -> SelfReflectionResult:
         """
@@ -452,8 +446,7 @@ class SelfHealingLoop:
 
         # Analyze error patterns
         recurring_patterns = [
-            (sig, count) for sig, count in self._error_patterns.items()
-            if count >= self._pattern_threshold
+            (sig, count) for sig, count in self._error_patterns.items() if count >= self._pattern_threshold
         ]
 
         if recurring_patterns:
@@ -469,10 +462,7 @@ class SelfHealingLoop:
             if attempt.strategy not in strategy_success:
                 strategy_success[attempt.strategy] = (0, 0)
             success, total = strategy_success[attempt.strategy]
-            strategy_success[attempt.strategy] = (
-                success + (1 if attempt.success else 0),
-                total + 1
-            )
+            strategy_success[attempt.strategy] = (success + (1 if attempt.success else 0), total + 1)
 
         for strategy, (success, total) in strategy_success.items():
             rate = success / total if total > 0 else 0
@@ -570,6 +560,7 @@ class SelfHealingLoop:
 @dataclass
 class HealingLoopConfig:
     """Configuration for self-healing loop behavior."""
+
     max_recovery_attempts: int = 3
     reflection_interval: int = 5
     enable_learning: bool = True

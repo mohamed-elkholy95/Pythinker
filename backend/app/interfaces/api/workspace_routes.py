@@ -22,6 +22,7 @@ router = APIRouter(prefix="/workspace", tags=["workspace"])
 # Response schemas
 class WorkspaceTemplateResponse(BaseModel):
     """Response schema for workspace template."""
+
     name: str
     description: str
     folders: dict[str, str]
@@ -30,11 +31,13 @@ class WorkspaceTemplateResponse(BaseModel):
 
 class WorkspaceTemplateListResponse(BaseModel):
     """Response schema for list of workspace templates."""
+
     templates: list[WorkspaceTemplateResponse]
 
 
 class SessionWorkspaceResponse(BaseModel):
     """Response schema for session workspace structure."""
+
     session_id: str
     workspace_structure: dict[str, str] | None
     workspace_root: str | None
@@ -62,12 +65,10 @@ async def list_workspace_templates(
             for template in templates
         ]
 
-        return APIResponse.success(
-            WorkspaceTemplateListResponse(templates=template_responses)
-        )
+        return APIResponse.success(WorkspaceTemplateListResponse(templates=template_responses))
     except Exception as e:
         logger.error(f"Error listing workspace templates: {e}")
-        raise HTTPException(status_code=500, detail="Failed to list workspace templates")
+        raise HTTPException(status_code=500, detail="Failed to list workspace templates") from e
 
 
 @router.get("/templates/{template_name}", response_model=APIResponse[WorkspaceTemplateResponse])
@@ -87,10 +88,7 @@ async def get_workspace_template(
         template = get_template(template_name)
 
         if not template:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Workspace template '{template_name}' not found"
-            )
+            raise HTTPException(status_code=404, detail=f"Workspace template '{template_name}' not found")
 
         return APIResponse.success(
             WorkspaceTemplateResponse(
@@ -104,7 +102,7 @@ async def get_workspace_template(
         raise
     except Exception as e:
         logger.error(f"Error getting workspace template '{template_name}': {e}")
-        raise HTTPException(status_code=500, detail="Failed to get workspace template")
+        raise HTTPException(status_code=500, detail="Failed to get workspace template") from e
 
 
 @router.get("/sessions/{session_id}", response_model=APIResponse[SessionWorkspaceResponse])
@@ -125,10 +123,7 @@ async def get_session_workspace(
         session = await agent_service.get_session(session_id, current_user.id)
 
         if not session:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Session '{session_id}' not found"
-            )
+            raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
 
         # Determine workspace root
         workspace_root = None
@@ -146,4 +141,4 @@ async def get_session_workspace(
         raise
     except Exception as e:
         logger.error(f"Error getting workspace for session '{session_id}': {e}")
-        raise HTTPException(status_code=500, detail="Failed to get session workspace")
+        raise HTTPException(status_code=500, detail="Failed to get session workspace") from e
