@@ -31,6 +31,7 @@ from app.domain.services.agents.error_pattern_analyzer import get_error_pattern_
 from app.domain.services.agents.prompt_adapter import PromptAdapter
 from app.domain.services.agents.reward_scoring import RewardScorer
 from app.domain.services.agents.task_state_manager import get_task_state_manager
+from app.domain.services.attention_injector import AttentionInjector
 from app.domain.services.prompts.execution import EXECUTION_SYSTEM_PROMPT, SUMMARIZE_PROMPT, build_execution_prompt
 from app.domain.services.prompts.system import SYSTEM_PROMPT
 from app.domain.services.tools.base import BaseTool
@@ -63,12 +64,18 @@ class ExecutionAgent(BaseAgent):
         critic_config: CriticConfig | None = None,
         memory_service: Optional["MemoryService"] = None,
         user_id: str | None = None,
+        attention_injector: AttentionInjector | None = None,
     ):
         super().__init__(
             agent_id=agent_id, agent_repository=agent_repository, llm=llm, json_parser=json_parser, tools=tools
         )
         # Initialize prompt adapter for dynamic context injection
         self._prompt_adapter = PromptAdapter()
+
+        # Attention injector for goal recitation (Manus AI pattern)
+        self._attention_injector = attention_injector or AttentionInjector()
+        self.current_goal: str | None = None
+        self.current_todo: list[str] = []
 
         # Initialize critic agent for output quality assurance
         self._critic = CriticAgent(
@@ -299,7 +306,9 @@ class ExecutionAgent(BaseAgent):
                 if event.status == ToolStatus.CALLED:
                     success = event.function_result.success if event.function_result else True
                     error = event.function_result.message if event.function_result and not success else None
-                    self._prompt_adapter.track_tool_use(event.function_name, success=success, error=error)
+                    # Guard against None function_name
+                    func_name = event.function_name or "unknown"
+                    self._prompt_adapter.track_tool_use(func_name, success=success, error=error)
 
                     # Track sources from tool events for report bibliography
                     self._track_sources_from_tool_event(event)
@@ -310,15 +319,15 @@ class ExecutionAgent(BaseAgent):
                     # Track in context manager (Phase 1)
                     if success and event.function_result:
                         # Track file operations
-                        if event.function_name in ["file_write", "file_create"]:
+                        if func_name in ["file_write", "file_create"]:
                             file_path = event.function_args.get("path", "")
                             if file_path:
                                 self._context_manager.track_file_operation(
                                     path=file_path,
                                     operation="created",
-                                    content_summary=f"Created via {event.function_name}",
+                                    content_summary=f"Created via {func_name}",
                                 )
-                        elif event.function_name == "file_read":
+                        elif func_name == "file_read":
                             file_path = event.function_args.get("path", "")
                             if file_path:
                                 self._context_manager.track_file_operation(
@@ -327,14 +336,15 @@ class ExecutionAgent(BaseAgent):
                                 )
 
                         # Track tool executions for non-file operations
-                        if not event.function_name.startswith("file_"):
+                        func_name = event.function_name or ""
+                        if not func_name.startswith("file_"):
                             result_summary = (
                                 str(event.function_result.message)[:200]
                                 if hasattr(event.function_result, "message")
                                 else "Success"
                             )
                             self._context_manager.track_tool_execution(
-                                tool_name=event.tool_name,
+                                tool_name=event.tool_name or "unknown",
                                 summary=result_summary,
                             )
 
@@ -345,13 +355,13 @@ class ExecutionAgent(BaseAgent):
                             else str(event.function_result)[:500]
                         )
                         self._context_manager.record_tool_insight(
-                            tool_name=event.function_name,
+                            tool_name=func_name or "unknown",
                             result=result_text,
                             success=success,
                             args=event.function_args,
                         )
 
-                if event.function_name == "message_ask_user":
+                if event.function_name and event.function_name == "message_ask_user":
                     if event.status == ToolStatus.CALLING:
                         yield MessageEvent(message=event.function_args.get("text", ""))
                     elif event.status == ToolStatus.CALLED:
@@ -423,9 +433,7 @@ class ExecutionAgent(BaseAgent):
             # CoVe runs BEFORE critic to catch hallucinations early
             cove_result = None
             if len(message_content) > 300 and self._user_request:
-                message_content, cove_result = await self._apply_cove_verification(
-                    message_content, self._user_request
-                )
+                message_content, cove_result = await self._apply_cove_verification(message_content, self._user_request)
                 if cove_result and cove_result.has_contradictions:
                     logger.info(
                         f"CoVe refined output: {cove_result.claims_contradicted} claims corrected, "
@@ -681,8 +689,7 @@ class ExecutionAgent(BaseAgent):
                     return result.verified_response, result
             else:
                 logger.info(
-                    f"CoVe: All {result.claims_verified} claims verified, "
-                    f"confidence: {result.confidence_score:.2f}"
+                    f"CoVe: All {result.claims_verified} claims verified, confidence: {result.confidence_score:.2f}"
                 )
 
             return content, result
@@ -716,23 +723,43 @@ class ExecutionAgent(BaseAgent):
 
         # Research/factual task indicators
         research_indicators = [
-            "research", "analyze", "compare", "benchmark", "statistics",
-            "study", "report", "data", "metrics", "performance",
-            "evaluate", "assessment", "findings", "results",
+            "research",
+            "analyze",
+            "compare",
+            "benchmark",
+            "statistics",
+            "study",
+            "report",
+            "data",
+            "metrics",
+            "performance",
+            "evaluate",
+            "assessment",
+            "findings",
+            "results",
         ]
 
         # Comparative task indicators (high hallucination risk)
         comparison_indicators = [
-            "compare", "comparison", "versus", " vs ", " vs.", "difference",
-            "better than", "worse than", "ranking", "ranked", "top ",
+            "compare",
+            "comparison",
+            "versus",
+            " vs ",
+            " vs.",
+            "difference",
+            "better than",
+            "worse than",
+            "ranking",
+            "ranked",
+            "top ",
         ]
 
         # Metric/number patterns in content
         import re
+
         has_percentages = bool(re.search(r"\d+(\.\d+)?%", content))
         has_benchmarks = any(
-            bench in content_lower
-            for bench in ["mmlu", "humaneval", "gsm8k", "hellaswag", "arc", "winogrande"]
+            bench in content_lower for bench in ["mmlu", "humaneval", "gsm8k", "hellaswag", "arc", "winogrande"]
         )
         has_dates = bool(re.search(r"\b20\d{2}\b", content))
 
@@ -810,6 +837,25 @@ class ExecutionAgent(BaseAgent):
         self._view_operation_count = 0
         self._multimodal_findings = []
         logger.debug("Cleared execution context")
+
+    # Attention Injection (Manus AI Pattern)
+    def _apply_attention(self, messages: list[dict]) -> list[dict]:
+        """Apply attention injection to messages.
+
+        Implements Manus AI's attention manipulation pattern to
+        prevent goal drift in long conversations.
+
+        Args:
+            messages: The current message history.
+
+        Returns:
+            Messages with attention context injected.
+        """
+        return self._attention_injector.inject(
+            messages,
+            goal=self.current_goal,
+            todo=self.current_todo,
+        )
 
     # Multimodal Information Persistence (P5.2 - Manus Pattern)
     def _track_multimodal_findings(self, event: ToolEvent) -> None:
