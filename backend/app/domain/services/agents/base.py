@@ -19,6 +19,7 @@ from app.domain.models.event import (
 )
 from app.domain.models.message import Message
 from app.domain.models.search import SearchResultItem
+from app.domain.models.state_manifest import StateEntry, StateManifest
 from app.domain.models.tool_result import ToolResult
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.services.agents.error_handler import ErrorHandler, ErrorType, TokenLimitExceededError
@@ -88,6 +89,7 @@ class BaseAgent:
         llm: LLM,
         json_parser: JsonParser,
         tools: list[BaseTool] | None = None,
+        state_manifest: StateManifest | None = None,
     ):
         if tools is None:
             tools = []
@@ -117,6 +119,9 @@ class BaseAgent:
 
         # Context manager for Manus-style attention manipulation (optional)
         self.context_manager: SandboxContextManager | None = None
+
+        # State manifest for blackboard architecture (optional)
+        self.state_manifest: StateManifest | None = state_manifest
 
     def get_available_tools(self) -> list[dict[str, Any]] | None:
         """Get all available tools list"""
@@ -196,6 +201,78 @@ class BaseAgent:
         if self.context_manager:
             return await self.context_manager.get_attention_context()
         return ""
+
+    async def post_state(
+        self,
+        key: str,
+        value: Any,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Post state to the shared blackboard.
+
+        Implements the blackboard architecture pattern where agents post findings
+        to a shared state manifest for other agents to discover and build upon.
+
+        Args:
+            key: Unique identifier for this piece of state (e.g., "research_findings")
+            value: The state value to post (any JSON-serializable type)
+            metadata: Optional metadata about the entry (e.g., confidence, model used)
+
+        Raises:
+            ValueError: If no state manifest is configured
+        """
+        if self.state_manifest is None:
+            raise ValueError("No state manifest configured for this agent")
+
+        entry = StateEntry(
+            key=key,
+            value=value,
+            posted_by=self._agent_id,
+            metadata=metadata or {},
+        )
+        self.state_manifest.post(entry)
+        logger.debug(
+            f"Agent {self._agent_id} posted state",
+            extra={"key": key, "value_type": type(value).__name__},
+        )
+
+    async def read_state(self, key: str) -> Any | None:
+        """Read state from the shared blackboard.
+
+        Enables discovery of findings posted by other agents without
+        direct communication between agents.
+
+        Args:
+            key: The key to look up
+
+        Returns:
+            The value of the most recent entry for this key, or None if not found
+            or no state manifest is configured.
+        """
+        if self.state_manifest is None:
+            return None
+
+        entry = self.state_manifest.get(key)
+        if entry is None:
+            return None
+        return entry.value
+
+    def _get_blackboard_context(self, max_entries: int = 10) -> str:
+        """Get blackboard state for LLM context injection.
+
+        Formats recent blackboard entries as a string suitable for including
+        in an LLM prompt to provide context about shared state from other agents.
+
+        Args:
+            max_entries: Maximum number of entries to include (default: 10)
+
+        Returns:
+            Formatted string representation of recent blackboard state,
+            or empty string if no state manifest is configured.
+        """
+        if self.state_manifest is None:
+            return ""
+        return self.state_manifest.to_context_string(max_entries=max_entries)
 
     def _record_tool_usage(self, tool_name: str, success: bool, duration_ms: float) -> None:
         """Record tool usage for dynamic toolset prioritization.
