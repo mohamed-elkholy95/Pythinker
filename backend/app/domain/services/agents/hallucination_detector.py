@@ -325,7 +325,7 @@ class ToolHallucinationDetector:
         """
         self.hallucination_count = 0
 
-    def get_statistics(self) -> dict[str, any]:
+    def get_statistics(self) -> dict[str, Any]:
         """Get hallucination statistics.
 
         Returns:

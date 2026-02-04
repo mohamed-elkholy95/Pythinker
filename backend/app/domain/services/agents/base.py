@@ -112,17 +112,7 @@ class BaseAgent:
         self._hallucination_detector = ToolHallucinationDetector(tool_names)
 
         # Initialize tool schemas for parameter validation
-        schemas: dict[str, dict[str, Any]] = {}
-        for tool_def in available_tools:
-            func_def = tool_def.get("function", {})
-            tool_name = func_def.get("name", "")
-            params = func_def.get("parameters", {})
-            if tool_name and params:
-                schemas[tool_name] = {
-                    "required": params.get("required", []),
-                    "properties": params.get("properties", {}),
-                }
-        self._hallucination_detector.update_tool_schemas(schemas)
+        self._hallucination_detector.update_tool_schemas(self._extract_tool_schemas(available_tools))
 
         # Initialize security assessor for action risk evaluation
         self._security_assessor = SecurityAssessor(
@@ -143,6 +133,20 @@ class BaseAgent:
         for tool in self.tools:
             available_tools.extend(tool.get_tools())
         return available_tools
+
+    def _extract_tool_schemas(self, available_tools: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        """Extract parameter schemas from tool definitions for hallucination detection."""
+        schemas: dict[str, dict[str, Any]] = {}
+        for tool_def in available_tools:
+            func_def = tool_def.get("function", {})
+            tool_name = func_def.get("name", "")
+            params = func_def.get("parameters", {})
+            if tool_name and params:
+                schemas[tool_name] = {
+                    "required": params.get("required", []),
+                    "properties": params.get("properties", {}),
+                }
+        return schemas
 
     def get_filtered_tools(self, task_description: str, include_mcp: bool = True) -> list[dict[str, Any]]:
         """Get tools filtered by task context for reduced token usage.
@@ -186,6 +190,9 @@ class BaseAgent:
                 return tool
 
         # Tool not found - check if this is a hallucination
+        # NOTE: This early detection provides defense-in-depth. The primary validation
+        # happens in invoke_tool() via validate_tool_call(), but this catches issues
+        # earlier in the execution flow when tools are looked up by name.
         correction = self._hallucination_detector.detect(function_name)
         if correction:
             raise ValueError(correction)
@@ -206,17 +213,7 @@ class BaseAgent:
         self._hallucination_detector.update_available_tools(tool_names)
 
         # Update tool schemas for parameter validation
-        schemas: dict[str, dict[str, Any]] = {}
-        for tool_def in available_tools:
-            func_def = tool_def.get("function", {})
-            tool_name = func_def.get("name", "")
-            params = func_def.get("parameters", {})
-            if tool_name and params:
-                schemas[tool_name] = {
-                    "required": params.get("required", []),
-                    "properties": params.get("properties", {}),
-                }
-        self._hallucination_detector.update_tool_schemas(schemas)
+        self._hallucination_detector.update_tool_schemas(self._extract_tool_schemas(available_tools))
 
     async def _get_attention_context(self) -> str:
         """Get attention context for prompt injection.
