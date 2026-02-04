@@ -16,6 +16,7 @@ from .multi_task import (
     TaskResult,
     TaskStatus,
 )
+from .research_task import ResearchStatus, ResearchTask
 from .search import SearchResultItem as SearchResultItem
 from .search import SearchResults as SearchResults
 from .skill import Skill, SkillCategory, SkillSource, UserSkillConfig
@@ -32,6 +33,8 @@ __all__ = [
     "DeliverableType",
     "MultiTaskChallenge",
     "MultiTaskEvent",
+    "ResearchStatus",
+    "ResearchTask",
     "SearchResultItem",
     "SearchResults",
     "SessionMetrics",
