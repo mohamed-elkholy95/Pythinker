@@ -361,14 +361,20 @@ class TestUpdateRequirementProgress:
 
     def test_alignment_score_calculation(self):
         """Alignment score should be calculated correctly."""
+        # Use requirements that won't match semantically with "Test step" description
         progress = [
-            RequirementProgress(requirement="Req 1", is_addressed=True),
-            RequirementProgress(requirement="Req 2", is_addressed=True),
-            RequirementProgress(requirement="Req 3", is_addressed=False),
-            RequirementProgress(requirement="Req 4", is_addressed=False),
+            RequirementProgress(requirement="Database migration completed", is_addressed=True),
+            RequirementProgress(requirement="Authentication module finished", is_addressed=True),
+            RequirementProgress(requirement="Deploy application to production servers", is_addressed=False),
+            RequirementProgress(requirement="Security vulnerability audit passed", is_addressed=False),
         ]
         state = self._create_mock_state(
-            requirements=["Req 1", "Req 2", "Req 3", "Req 4"],
+            requirements=[
+                "Database migration completed",
+                "Authentication module finished",
+                "Deploy application to production servers",
+                "Security vulnerability audit passed",
+            ],
             current_progress=progress,
         )
 
