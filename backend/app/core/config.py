@@ -360,6 +360,9 @@ class Settings(BaseSettings):
     # Feature flag
     feature_enhanced_research: bool = False  # Enable enhanced research flow
 
+    # Language configuration
+    default_language: str = "English"  # Default language for agent responses
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

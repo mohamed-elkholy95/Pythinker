@@ -10,6 +10,7 @@ import re
 from collections.abc import AsyncGenerator
 from enum import Enum
 
+from app.core.config import get_settings
 from app.domain.external.llm import LLM
 from app.domain.external.search import SearchEngine
 from app.domain.models.event import (
@@ -179,11 +180,12 @@ class DiscussFlow(BaseFlow):
         self.status = DiscussStatus.RESPONDING
 
         try:
-            # Build the discuss prompt
+            # Build the discuss prompt with configured language
+            settings = get_settings()
             prompt = build_discuss_prompt(
                 message=message.message,
                 attachments="\n".join(message.attachments) if message.attachments else "",
-                language="English",  # TODO: Detect or configure language
+                language=settings.default_language,
             )
 
             # Execute through the agent
