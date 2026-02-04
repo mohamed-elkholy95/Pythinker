@@ -231,9 +231,7 @@ IMPORTANT: Return ONLY valid JSON, no additional text or explanation."""
                 score=parsed.get("score"),
             )
         except json.JSONDecodeError:
-            logger.warning(
-                "Failed to parse critic response as JSON, using fallback"
-            )
+            logger.warning("Failed to parse critic response as JSON, using fallback")
             return self._fallback_parse(content)
 
     def _strip_markdown_code_blocks(self, content: str) -> str:
