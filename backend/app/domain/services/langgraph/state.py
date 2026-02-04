@@ -12,6 +12,7 @@ from app.domain.models.event import BaseEvent
 from app.domain.models.message import Message
 from app.domain.models.plan import Plan, Step
 from app.domain.services.agents.execution import ExecutionAgent
+from app.domain.services.agents.intent_tracker import IntentTracker, UserIntent
 from app.domain.services.agents.planner import PlannerAgent
 from app.domain.services.agents.reflection import ReflectionAgent
 from app.domain.services.agents.stuck_detector import StuckAnalysis
@@ -104,6 +105,11 @@ class PlanActState(TypedDict, total=False):
     # Stuck pattern analysis (Enhanced with OpenHands patterns)
     stuck_analysis: StuckAnalysis | None
     recent_actions: list[dict] | None  # Tool action history for stuck analysis
+
+    # Phase 3: User Intent Tracking for Prompt Adherence
+    user_intent: UserIntent | None  # Extracted user intent from planning
+    intent_tracker: IntentTracker | None  # Intent tracker instance
+    human_input_reason: str | None  # Reason for requesting human input
 
     # Error handling
     error: str | None
@@ -202,6 +208,10 @@ def create_initial_state(
         last_had_error=False,
         # Plan validation state
         plan_validation_failed=False,
+        # User intent tracking
+        user_intent=None,
+        intent_tracker=None,
+        human_input_reason=None,
         # Error handling
         error=None,
         error_count=0,

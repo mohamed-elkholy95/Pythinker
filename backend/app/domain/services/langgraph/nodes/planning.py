@@ -5,13 +5,21 @@ Enhanced with:
 - Input guardrails for prompt injection/jailbreak detection
 - Intent extraction for user prompt adherence tracking
 - Parallel tool prefetching for reduced latency
+- Comprehension phase for long/complex messages
 """
 
 import asyncio
 import logging
 from typing import Any
 
-from app.domain.models.event import ErrorEvent, PlanEvent, PlanStatus, TitleEvent
+from app.domain.models.event import (
+    ComprehensionEvent,
+    ErrorEvent,
+    PlanEvent,
+    PlanStatus,
+    TaskRecreationEvent,
+    TitleEvent,
+)
 
 # P0 Priority: Input Guardrails
 from app.domain.services.agents.guardrails import InputRiskLevel, get_guardrails_manager
@@ -21,6 +29,9 @@ from app.domain.services.tools.dynamic_toolset import get_toolset_manager
 from app.domain.services.validation.plan_validator import PlanValidator
 
 logger = logging.getLogger(__name__)
+
+# Comprehension threshold - messages longer than this trigger comprehension phase
+COMPREHENSION_THRESHOLD_CHARS = 500
 
 
 async def _prefetch_tools_for_task(user_message_text: str, include_mcp: bool = True) -> list[dict[str, Any]] | None:
@@ -44,6 +55,81 @@ async def _prefetch_tools_for_task(user_message_text: str, include_mcp: bool = T
 
     except Exception as e:
         logger.warning(f"Tool prefetch failed (non-blocking): {e}")
+        return None
+
+
+async def _comprehend_long_message(
+    state: PlanActState,
+    message_text: str,
+    user_intent: Any,
+) -> dict[str, Any] | None:
+    """Comprehend a long/complex message before creating tasks.
+
+    This phase allows the agent to fully understand complex requirements
+    before breaking them down into tasks. Useful for:
+    - Long specification documents
+    - Multi-part requirements
+    - Complex feature requests
+
+    Args:
+        state: Current workflow state
+        message_text: The full user message
+        user_intent: Extracted user intent
+
+    Returns:
+        Comprehension result with summary and requirements, or None on error
+    """
+    planner = state.get("planner")
+    if not planner or not hasattr(planner, "llm"):
+        return None
+
+    try:
+        # Build comprehension prompt
+        comprehension_prompt = f"""Carefully read and understand the following request.
+Summarize what the user wants in 2-3 sentences, then list the key requirements.
+
+USER REQUEST:
+{message_text}
+
+Respond in this JSON format:
+{{
+    "summary": "Brief 2-3 sentence summary of what the user wants",
+    "requirements": ["requirement 1", "requirement 2", ...],
+    "complexity_score": 0.0 to 1.0 (how complex is this task),
+    "suggested_approach": "Brief description of how to approach this task"
+}}"""
+
+        # Use planner's LLM for comprehension
+        response = await planner.llm.ask(
+            [
+                {
+                    "role": "system",
+                    "content": "You are a task comprehension assistant. Read carefully and extract key requirements.",
+                },
+                {"role": "user", "content": comprehension_prompt},
+            ],
+            response_format={"type": "json_object"},
+        )
+
+        content = response.get("content", "{}")
+
+        # Parse response
+        import json
+
+        try:
+            result = json.loads(content)
+            logger.info(f"Comprehension complete: {len(result.get('requirements', []))} requirements extracted")
+            return result
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse comprehension response as JSON")
+            return {
+                "summary": content[:500],
+                "requirements": user_intent.explicit_requirements if user_intent else [],
+                "complexity_score": 0.7,
+            }
+
+    except Exception as e:
+        logger.warning(f"Comprehension phase failed: {e}")
         return None
 
 
@@ -115,22 +201,42 @@ async def planning_node(state: PlanActState) -> dict[str, Any]:
         f"requirements={len(user_intent.explicit_requirements)}"
     )
 
+    # Get event queue for real-time streaming (moved up for comprehension phase)
+    event_queue: asyncio.Queue | None = state.get("event_queue")
+    pending_events: list = []
+
+    # === Comprehension Phase for Long Messages ===
+    # If message is long/complex, trigger comprehension to understand fully before planning
+    comprehension_result = None
+    if task_state_manager and task_state_manager.should_trigger_comprehension(
+        message_text, threshold_chars=COMPREHENSION_THRESHOLD_CHARS
+    ):
+        logger.info(f"Triggering comprehension phase for long message ({len(message_text)} chars)")
+        comprehension_result = await _comprehend_long_message(state, message_text, user_intent)
+        if comprehension_result:
+            # Emit comprehension event
+            comprehension_event = ComprehensionEvent(
+                original_length=len(message_text),
+                summary=comprehension_result.get("summary", ""),
+                key_requirements=comprehension_result.get("requirements", []),
+                complexity_score=comprehension_result.get("complexity_score"),
+            )
+            if event_queue:
+                await event_queue.put(comprehension_event)
+            else:
+                pending_events.append(comprehension_event)
+
     # Check if this is a replan due to verification feedback
     replan_context = None
     if state.get("verification_feedback") and state.get("verification_verdict") == "revise":
         replan_context = state.get("verification_feedback")
         logger.info("Replanning with verification feedback")
 
-    # Get event queue for real-time streaming
-    event_queue: asyncio.Queue | None = state.get("event_queue")
-
     # Start tool prefetch in background (runs parallel to planning)
     # This reduces latency by preparing tools while the plan is being created
-    message_text = user_message.message if hasattr(user_message, "message") else str(user_message)
     prefetch_task = asyncio.create_task(_prefetch_tools_for_task(message_text, include_mcp=True))
 
     # Collect events from the planner
-    pending_events = []
     plan = None
     plan_created = False
 
@@ -144,10 +250,30 @@ async def planning_node(state: PlanActState) -> dict[str, Any]:
 
             # Initialize task state for recitation
             if task_state_manager:
-                task_state_manager.initialize_from_plan(
-                    objective=user_message.message,
-                    steps=[{"id": s.id, "description": s.description} for s in plan.steps],
-                )
+                # Use comprehension-based recreation if we did comprehension phase
+                if comprehension_result:
+                    task_state_manager.recreate_from_comprehension(
+                        original_objective=user_message.message,
+                        comprehension_summary=comprehension_result.get("summary", ""),
+                        new_steps=[{"id": s.id, "description": s.description} for s in plan.steps],
+                        preserve_findings=False,  # Fresh start for new task
+                    )
+                    # Emit task recreation event
+                    recreation_event = TaskRecreationEvent(
+                        reason="Tasks created after comprehending long message",
+                        previous_step_count=0,
+                        new_step_count=len(plan.steps),
+                        preserved_findings=0,
+                    )
+                    if event_queue:
+                        await event_queue.put(recreation_event)
+                    else:
+                        pending_events.append(recreation_event)
+                else:
+                    task_state_manager.initialize_from_plan(
+                        objective=user_message.message,
+                        steps=[{"id": s.id, "description": s.description} for s in plan.steps],
+                    )
 
             # Emit title event
             title_event = TitleEvent(title=plan.title)
@@ -222,4 +348,7 @@ async def planning_node(state: PlanActState) -> dict[str, Any]:
         "iteration_count": state.get("iteration_count", 0) + 1,
         # Include prefetched tools for execution node
         "prefetched_tools": prefetched_tools,
+        # Phase 3: User intent tracking for constraint enforcement
+        "user_intent": user_intent,
+        "intent_tracker": intent_tracker,
     }
