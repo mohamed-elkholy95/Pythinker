@@ -1045,9 +1045,22 @@ const handleAttachmentFileClick = (file: FileInfo) => {
 }
 
 // Handle report rate
-const handleReportRate = (rating: number) => {
-  console.log('Report rated:', rating);
-  // TODO: Send rating to backend
+const handleReportRate = async (rating: number) => {
+  if (!currentReport.value) return;
+
+  try {
+    await fetch('/api/v1/ratings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id: sessionId.value,
+        report_id: currentReport.value.id,
+        rating,
+      }),
+    });
+  } catch (error) {
+    console.error('Failed to submit rating:', error);
+  }
 }
 
 // Handle report download
