@@ -19,7 +19,15 @@ from .multi_task import (
 from .research_task import ResearchStatus, ResearchTask
 from .search import SearchResultItem as SearchResultItem
 from .search import SearchResults as SearchResults
-from .skill import Skill, SkillCategory, SkillSource, UserSkillConfig
+from .skill import (
+    ResourceType,
+    Skill,
+    SkillCategory,
+    SkillMetadata,
+    SkillResource,
+    SkillSource,
+    UserSkillConfig,
+)
 from .skill_package import SkillPackage, SkillPackageFile, SkillPackageMetadata
 from .usage import SessionMetrics
 
@@ -35,16 +43,19 @@ __all__ = [
     "MultiTaskEvent",
     "ResearchStatus",
     "ResearchTask",
+    "ResourceType",
     "SearchResultItem",
     "SearchResults",
     "SessionMetrics",
     "Skill",
     "SkillCategory",
     "SkillDeliveryEvent",
+    "SkillMetadata",
     "SkillPackage",
     "SkillPackageFile",
     "SkillPackageFileData",
     "SkillPackageMetadata",
+    "SkillResource",
     "SkillSource",
     "TaskDefinition",
     "TaskResult",
