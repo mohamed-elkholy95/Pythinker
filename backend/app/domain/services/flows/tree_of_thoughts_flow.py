@@ -21,6 +21,7 @@ from app.domain.external.browser import Browser
 from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
+from app.domain.external.tracing import get_tracer
 from app.domain.models.event import (
     BaseEvent,
     DoneEvent,
@@ -51,7 +52,6 @@ from app.domain.services.tools.message import MessageTool
 from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.shell import ShellTool
 from app.domain.utils.json_parser import JsonParser
-from app.infrastructure.observability import get_tracer
 
 logger = logging.getLogger(__name__)
 
