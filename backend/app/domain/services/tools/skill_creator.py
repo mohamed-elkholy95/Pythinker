@@ -245,30 +245,18 @@ class SkillCreatorTool(BaseTool):
                 skill_id=skill_id,
             )
 
-            # Save package to database for later retrieval
-            from app.core.config import get_settings as get_app_settings
-            from app.infrastructure.storage.mongodb import get_mongodb
+            # Save package to database for later retrieval using domain repository
+            from app.domain.repositories.skill_repository import get_skill_repository
 
-            app_settings = get_app_settings()
-            mongodb = get_mongodb()
-            db = mongodb.client[app_settings.mongodb_database]
-            packages_collection = db.get_collection("skill_packages")
-
-            package_doc = {
-                "id": package.id,
-                "name": package.name,
-                "description": package.description,
-                "version": package.version,
-                "icon": package.icon,
-                "category": package.category,
-                "author": self._user_id,
-                "file_tree": package.file_tree,
-                "files": [{"path": f.path, "content": f.content, "size": f.size} for f in package.files],
-                "skill_id": skill_id,
-                "created_at": datetime.now(UTC),
-            }
-            await packages_collection.insert_one(package_doc)
-            logger.info(f"Saved skill package {package.id} to database")
+            skill_repo = get_skill_repository()
+            if skill_repo:
+                try:
+                    await skill_repo.save_package(package, skill_id, self._user_id or "unknown")
+                    logger.info(f"Saved skill package {package.id} to database")
+                except Exception as e:
+                    logger.warning(f"Failed to save skill package to repository: {e}")
+            else:
+                logger.warning("Skill repository not configured, package not persisted")
 
             # Emit skill delivery event if callback provided
             if self._emit_event:

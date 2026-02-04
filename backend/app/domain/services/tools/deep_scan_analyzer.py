@@ -221,15 +221,14 @@ class DeepScanAnalyzerTool(BaseTool):
             if vulnerabilities:
                 message_parts.append("### Vulnerabilities\n")
                 for v in vulnerabilities:
-                    message_parts.append(f"**[{v.severity.upper()}] {v.type}** (line {v.line_number})")
+                    message_parts.append(f"**[{v.severity.value.upper()}] {v.type.value}** (line {v.line_number})")
                     message_parts.append(f"  {v.description}")
                     message_parts.append(
                         f"  Code: `{v.code_snippet[:100]}...`"
                         if len(v.code_snippet) > 100
                         else f"  Code: `{v.code_snippet}`"
                     )
-                    if v.recommendation:
-                        message_parts.append(f"  Recommendation: {v.recommendation}")
+                    message_parts.append(f"  Recommendation: {v.recommendation}")
                     if v.cwe_id:
                         message_parts.append(f"  CWE: {v.cwe_id}")
                     message_parts.append("")

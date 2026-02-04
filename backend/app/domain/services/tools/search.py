@@ -314,6 +314,8 @@ class SearchTool(BaseTool):
         This navigates the browser to a search engine and extracts results,
         making the search visible to users in the sandbox viewer.
 
+        Uses SearXNG if configured, otherwise falls back to DuckDuckGo (more reliable than Google).
+
         Args:
             query: Search query
             date_range: Optional time range filter
@@ -328,19 +330,38 @@ class SearchTool(BaseTool):
             )
 
         try:
-            # Build search URL with optional date filter
-            search_url = f"https://www.google.com/search?q={quote(query)}"
-            if date_range:
-                # Google date range parameters
-                date_params = {
-                    "past_hour": "qdr:h",
-                    "past_day": "qdr:d",
-                    "past_week": "qdr:w",
-                    "past_month": "qdr:m",
-                    "past_year": "qdr:y",
-                }
-                if date_range in date_params:
-                    search_url += f"&tbs={date_params[date_range]}"
+            settings = get_settings()
+
+            # Use SearXNG if configured (Docker internal URL), otherwise use DuckDuckGo
+            # Google blocks automated access, so we avoid it
+            if settings.searxng_url:
+                # SearXNG search URL
+                search_url = f"{settings.searxng_url}/search?q={quote(query)}&format=html"
+                if date_range and date_range != "all":
+                    # SearXNG time range
+                    time_map = {
+                        "past_day": "day",
+                        "past_week": "week",
+                        "past_month": "month",
+                        "past_year": "year",
+                    }
+                    if date_range in time_map:
+                        search_url += f"&time_range={time_map[date_range]}"
+                logger.info(f"Browser search via SearXNG: {query}")
+            else:
+                # Fall back to DuckDuckGo (doesn't block automation as aggressively)
+                search_url = f"https://duckduckgo.com/?q={quote(query)}"
+                if date_range and date_range != "all":
+                    # DuckDuckGo time range
+                    time_map = {
+                        "past_day": "d",
+                        "past_week": "w",
+                        "past_month": "m",
+                        "past_year": "y",
+                    }
+                    if date_range in time_map:
+                        search_url += f"&df={time_map[date_range]}"
+                logger.info(f"Browser search via DuckDuckGo: {query}")
 
             logger.info(f"Browser search (visible in sandbox): {query}")
 
@@ -626,72 +647,65 @@ class SearchTool(BaseTool):
         return result
 
     @tool(
-        name="web_search",
-        description="""Search the web using keywords (visible in browser/VNC).
-
-RENAMED FROM info_search_web for clarity.
-
-USE WHEN:
-- You need to FIND URLs/pages about a topic
-- You don't know the specific URL to visit
-- You need multiple sources on a topic
-
-AFTER SEARCHING:
-- Use search(url) tool to visit the returned URLs
-- Don't trust search snippets - always visit pages to verify
-
-VISIBLE IN VNC - user can watch the search happen in browser.
-
-RECENCY BEST PRACTICES:
-- For products/reviews/prices: Use date_range="past_month" or "past_year"
-- Add current year (2026) to queries for time-sensitive topics
-- For technology/software: Always filter to recent results
-- For evergreen topics (history, concepts): "all" is acceptable
-
-EXAMPLE:
-web_search(query="OpenRouter pricing 2026", date_range="past_month")
-→ Returns list of URLs about OpenRouter pricing
-→ Then use: search(url="https://openrouter.ai/pricing") to fetch content""",
+        name="info_search_web",
+        description="Search web pages using search engine. Use for obtaining latest information or finding references.",
         parameters={
             "query": {
                 "type": "string",
-                "description": "Search query in Google search style, using 3-5 keywords. Include current year for time-sensitive topics.",
+                "description": "Search query in Google search style, using 3-5 keywords.",
             },
             "date_range": {
                 "type": "string",
                 "enum": ["all", "past_hour", "past_day", "past_week", "past_month", "past_year"],
-                "description": "Time range filter. RECOMMENDED: Use 'past_month' or 'past_year' for products, reviews, prices, or any time-sensitive information.",
+                "description": "(Optional) Time range filter for search results.",
             },
         },
         required=["query"],
     )
-    async def web_search(self, query: str, date_range: str | None = None) -> ToolResult:
-        """Search the web using keywords (visible in browser/VNC).
+    async def info_search_web(self, query: str, date_range: str | None = None) -> ToolResult:
+        """Search webpages using search engine.
 
-        Renamed from info_search_web for clarity.
+        Tries browser-based search first (visible in VNC), falls back to API search.
 
         Args:
             query: Search query, Google search style, using 3-5 keywords
             date_range: (Optional) Time range filter for search results
 
         Returns:
-            Search results with URLs to visit
+            Search results
         """
-        # Always use browser-based search (visible in VNC)
-        if not self._browser:
-            return ToolResult(
-                success=False,
-                message="Browser required for web search. Ensure sandbox is running.",
-            )
+        logger.info(f"Info search web: {query}")
 
-        logger.info(f"Web search (visible in VNC): {query}")
-        return await self._search_via_browser(query, date_range)
+        # Try browser-based search first (visible in VNC) if browser is available
+        if self._browser:
+            result = await self._search_via_browser(query, date_range)
+            # Check if browser search succeeded AND has actual content
+            if result.success and result.message:
+                # Extract content after the header metadata
+                content_parts = result.message.split("\n\n", 1)
+                actual_content = content_parts[1] if len(content_parts) > 1 else ""
+                if actual_content.strip():
+                    return result
+                # Browser search returned empty content, fall back to API
+                logger.warning("Browser search returned empty content, falling back to API")
+            else:
+                # Browser search failed, fall back to API
+                logger.warning(f"Browser search failed, falling back to API: {result.message}")
+
+        # Fall back to API-based search directly (bypass browser search check)
+        logger.info(f"Using API search for: {query}")
+        result = await self.search_engine.search(query, date_range)
+        result = self._add_verification_guidance(result, query)
+        if result.success and result.message:
+            result.message = f"[INFO SEARCH]\n{result.message}"
+        elif result.success:
+            result.message = "[INFO SEARCH]"
+        return result
 
     # Legacy alias for backward compatibility
-    async def info_search_web(self, query: str, date_range: str | None = None) -> ToolResult:
-        """Legacy alias for web_search. Use web_search instead."""
-        logger.warning("info_search_web is deprecated. Use web_search instead.")
-        return await self.web_search(query, date_range)
+    async def web_search(self, query: str, date_range: str | None = None) -> ToolResult:
+        """Legacy alias for info_search_web. Use info_search_web instead."""
+        return await self.info_search_web(query, date_range)
 
     @tool(
         name="wide_research",

@@ -242,12 +242,12 @@ class FileTool(BaseTool):
             if not stat_result.success:
                 return ToolResult(
                     success=False,
-                    result=f"File not found or inaccessible: {file}",
+                    message=f"File not found or inaccessible: {file}",
                 )
         except Exception as e:
             return ToolResult(
                 success=False,
-                result=f"Error accessing file: {e!s}",
+                message=f"Error accessing file: {e!s}",
             )
 
         # Detect content type
@@ -295,7 +295,7 @@ class FileTool(BaseTool):
             if not read_result.success:
                 return ToolResult(
                     success=False,
-                    result=f"Failed to read image: {read_result.result}",
+                    message=f"Failed to read image: {read_result.message}",
                 )
 
             # Encode as base64
@@ -320,14 +320,14 @@ class FileTool(BaseTool):
 
             return ToolResult(
                 success=True,
-                result=result_text,
+                message=result_text,
                 data=result_data,
             )
 
         except Exception as e:
             return ToolResult(
                 success=False,
-                result=f"Error viewing image: {e!s}",
+                message=f"Error viewing image: {e!s}",
             )
 
     async def _view_pdf(self, file: str, page_range: str | None, extract_text: bool, result_data: dict) -> ToolResult:
@@ -369,14 +369,14 @@ class FileTool(BaseTool):
 
             return ToolResult(
                 success=True,
-                result=result_text,
+                message=result_text,
                 data=result_data,
             )
 
         except Exception as e:
             return ToolResult(
                 success=False,
-                result=f"Error viewing PDF: {e!s}",
+                message=f"Error viewing PDF: {e!s}",
             )
 
     async def _view_data_file(self, file: str, analyze_charts: bool, result_data: dict) -> ToolResult:
@@ -387,10 +387,10 @@ class FileTool(BaseTool):
             if not read_result.success:
                 return ToolResult(
                     success=False,
-                    result=f"Failed to read data file: {read_result.result}",
+                    message=f"Failed to read data file: {read_result.message}",
                 )
 
-            content = read_result.result
+            content = read_result.data if read_result.data else ""
             result_data["content_preview"] = content[:5000] if len(content) > 5000 else content
 
             extension = result_data["extension"]
@@ -432,14 +432,14 @@ class FileTool(BaseTool):
 
             return ToolResult(
                 success=True,
-                result=result_text,
+                message=result_text,
                 data=result_data,
             )
 
         except Exception as e:
             return ToolResult(
                 success=False,
-                result=f"Error viewing data file: {e!s}",
+                message=f"Error viewing data file: {e!s}",
             )
 
     async def _view_document(self, file: str, extract_text: bool, result_data: dict) -> ToolResult:
@@ -453,14 +453,14 @@ class FileTool(BaseTool):
 
             return ToolResult(
                 success=True,
-                result=result_text,
+                message=result_text,
                 data=result_data,
             )
 
         except Exception as e:
             return ToolResult(
                 success=False,
-                result=f"Error viewing document: {e!s}",
+                message=f"Error viewing document: {e!s}",
             )
 
     async def _view_text_file(self, file: str, result_data: dict) -> ToolResult:
@@ -470,10 +470,10 @@ class FileTool(BaseTool):
             if not read_result.success:
                 return ToolResult(
                     success=False,
-                    result=f"Failed to read file: {read_result.result}",
+                    message=f"Failed to read file: {read_result.message}",
                 )
 
-            content = read_result.result
+            content = read_result.data if read_result.data else ""
             result_data["content_preview"] = content[:5000]
             result_data["line_count"] = content.count("\n") + 1
 
@@ -485,14 +485,14 @@ class FileTool(BaseTool):
 
             return ToolResult(
                 success=True,
-                result=result_text,
+                message=result_text,
                 data=result_data,
             )
 
         except Exception as e:
             return ToolResult(
                 success=False,
-                result=f"Error viewing text file: {e!s}",
+                message=f"Error viewing text file: {e!s}",
             )
 
     def _parse_page_range(self, page_range: str) -> list[int]:
