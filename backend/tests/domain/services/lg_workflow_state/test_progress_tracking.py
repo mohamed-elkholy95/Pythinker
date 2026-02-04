@@ -8,9 +8,7 @@ These tests verify that the progress tracking system properly:
 4. Uses semantic matching to detect addressed requirements
 """
 
-import asyncio
-from dataclasses import replace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -314,7 +312,7 @@ class TestUpdateRequirementProgress:
         state = self._create_mock_state()
         state["user_intent"] = None
 
-        progress, score = _update_requirement_progress(state)
+        progress, _ = _update_requirement_progress(state)
         assert progress == []
 
     def test_no_current_step_returns_existing(self):
@@ -322,7 +320,7 @@ class TestUpdateRequirementProgress:
         state = self._create_mock_state(requirements=["Test"])
         state["current_step"] = None
 
-        progress, score = _update_requirement_progress(state)
+        progress, _ = _update_requirement_progress(state)
         assert len(progress) == 1
 
     def test_requirement_addressed_by_semantic_match(self):
@@ -333,7 +331,7 @@ class TestUpdateRequirementProgress:
             tool_output="File login.html created successfully",
         )
 
-        progress, score = _update_requirement_progress(state)
+        progress, _ = _update_requirement_progress(state)
 
         # Should have matched based on semantic similarity
         assert len(progress) == 1
@@ -355,7 +353,7 @@ class TestUpdateRequirementProgress:
             current_progress=addressed_progress,
         )
 
-        progress, score = _update_requirement_progress(state)
+        progress, _ = _update_requirement_progress(state)
 
         assert len(progress) == 1
         assert progress[0].is_addressed is True
