@@ -31,6 +31,7 @@ from typing import Any
 
 from app.core.config import get_feature_flags
 from app.domain.external.llm import LLM
+from app.domain.external.observability import MetricsPort, get_null_metrics
 from app.domain.models.agent_response import (
     DependencyIssue,
     PrerequisiteCheck,
@@ -53,7 +54,20 @@ from app.domain.services.prompts.verifier import (
 from app.domain.services.tools.base import BaseTool
 from app.domain.services.validation.plan_validator import PlanValidator
 from app.domain.utils.json_parser import JsonParser
-from app.infrastructure.observability.prometheus_metrics import record_plan_verification
+
+# Module-level metrics instance (can be overridden for testing)
+_metrics: MetricsPort = get_null_metrics()
+
+
+def set_metrics(metrics: MetricsPort) -> None:
+    """Set the metrics instance for this module."""
+    global _metrics
+    _metrics = metrics
+
+
+def _record_plan_verification(status: str) -> None:
+    """Record plan verification metric."""
+    _metrics.record_plan_verification(status)
 
 logger = logging.getLogger(__name__)
 
@@ -288,7 +302,7 @@ class VerifierAgent:
 
         # Map tool types to actual tool name patterns
         type_to_tool_patterns = {
-            "search": ["search", "web_search", "tavily"],
+            "search": ["search", "info_search_web", "web_search", "tavily"],
             "browser": ["browser", "navigate", "playwright"],
             "shell": ["shell", "execute", "run_command"],
             "file": ["file", "read_file", "write_file"],
@@ -332,7 +346,7 @@ class VerifierAgent:
         skip_decision = self._analyze_skip_decision(plan)
         if skip_decision.should_skip:
             logger.info(f"Verification skipped for plan: {plan.title} ({skip_decision.reason})")
-            record_plan_verification("skip")
+            _record_plan_verification("skip")
 
             # Use adjusted confidence based on any warnings
             confidence = skip_decision.adjusted_confidence
@@ -358,7 +372,7 @@ class VerifierAgent:
                 if flags.get("shadow_mode", True):
                     logger.warning(f"Plan pre-validation errors (shadow): {summary}")
                 else:
-                    record_plan_verification("revise")
+                    _record_plan_verification("revise")
                     yield VerificationEvent(
                         status=VerificationStatus.REVISION_NEEDED,
                         verdict="revise",
@@ -383,7 +397,7 @@ class VerifierAgent:
 
             # Emit appropriate event based on verdict
             if result.verdict == VerificationVerdict.PASS:
-                record_plan_verification("pass")
+                _record_plan_verification("pass")
                 yield VerificationEvent(
                     status=VerificationStatus.PASSED,
                     verdict="pass",
@@ -391,7 +405,7 @@ class VerifierAgent:
                     summary=result.summary,
                 )
             elif result.verdict == VerificationVerdict.REVISE:
-                record_plan_verification("revise")
+                _record_plan_verification("revise")
                 yield VerificationEvent(
                     status=VerificationStatus.REVISION_NEEDED,
                     verdict="revise",
@@ -400,7 +414,7 @@ class VerifierAgent:
                     revision_feedback=result.revision_feedback,
                 )
             else:  # FAIL
-                record_plan_verification("fail")
+                _record_plan_verification("fail")
                 yield VerificationEvent(
                     status=VerificationStatus.FAILED,
                     verdict="fail",
@@ -410,7 +424,7 @@ class VerifierAgent:
 
         except Exception as e:
             logger.error(f"Verification failed with error: {e}")
-            record_plan_verification("error")
+            _record_plan_verification("error")
             # Fail-open: proceed with execution on verification error
             yield VerificationEvent(
                 status=VerificationStatus.PASSED,

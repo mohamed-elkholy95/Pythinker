@@ -17,9 +17,23 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, TypeVar
 
-from app.infrastructure.observability.prometheus_metrics import record_error
+from app.domain.external.observability import MetricsPort, get_null_metrics
 
 logger = logging.getLogger(__name__)
+
+# Module-level metrics instance (can be overridden for testing)
+_metrics: MetricsPort = get_null_metrics()
+
+
+def set_metrics(metrics: MetricsPort) -> None:
+    """Set the metrics instance for this module."""
+    global _metrics
+    _metrics = metrics
+
+
+def _record_error(error_type: str, source: str) -> None:
+    """Record error metric."""
+    _metrics.record_error(error_type, source)
 
 T = TypeVar("T")
 
@@ -278,8 +292,8 @@ class ErrorHandler:
         """Record error in history for analysis and Prometheus metrics"""
         self._error_history.append(error_context)
 
-        # Record to Prometheus metrics for monitoring
-        record_error(error_context.error_type.value, "agent_error_handler")
+        # Record to metrics for monitoring
+        _record_error(error_context.error_type.value, "agent_error_handler")
 
         # Keep history bounded
         if len(self._error_history) > self._max_history:

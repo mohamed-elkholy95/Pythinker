@@ -22,10 +22,8 @@ from app.core.alert_manager import get_alert_manager
 from app.core.config import get_feature_flags, get_settings
 from app.domain.external.browser import Browser
 from app.domain.external.llm import LLM
-from app.domain.external.observability import MetricsPort, get_null_metrics
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
-from app.domain.external.tracing import get_tracer
 from app.domain.models.event import (
     BaseEvent,
     DoneEvent,
@@ -66,21 +64,8 @@ from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.shell import ShellTool
 from app.domain.services.validation.plan_validator import PlanValidator
 from app.domain.utils.json_parser import JsonParser
-
-# Module-level metrics instance (can be overridden for testing)
-_metrics: MetricsPort = get_null_metrics()
-
-
-def set_metrics(metrics: MetricsPort) -> None:
-    """Set the metrics instance for this module."""
-    global _metrics
-    _metrics = metrics
-
-
-def _record_failure_prediction(prediction: str, confidence: float) -> None:
-    """Record failure prediction metric."""
-    _metrics.record_failure_prediction(prediction, confidence)
-
+from app.infrastructure.observability import get_tracer
+from app.infrastructure.observability.prometheus_metrics import record_failure_prediction
 
 logger = logging.getLogger(__name__)
 
@@ -322,7 +307,7 @@ def create_plan_act_graph() -> WorkflowGraph:
                     stuck_analysis=None,
                     token_usage_pct=token_usage_pct,
                 )
-                _record_failure_prediction(
+                record_failure_prediction(
                     "predicted" if prediction.will_fail else "clear",
                     prediction.probability,
                 )

@@ -31,13 +31,19 @@ def _import_metrics() -> None:
     global _metrics_imported, _update_llm_concurrent_requests, _update_llm_queue_waiting
     if not _metrics_imported:
         try:
-            from app.infrastructure.observability.prometheus_metrics import (
-                update_llm_concurrent_requests,
-                update_llm_queue_waiting,
-            )
+            from app.domain.external.observability import get_null_metrics
 
-            _update_llm_concurrent_requests = update_llm_concurrent_requests
-            _update_llm_queue_waiting = update_llm_queue_waiting
+            # Get the metrics instance and create wrapper functions
+            _metrics_instance = get_null_metrics()
+
+            def _wrapper_concurrent(active: int) -> None:
+                _metrics_instance.update_llm_concurrent_requests(active)
+
+            def _wrapper_queue(waiting: int) -> None:
+                _metrics_instance.update_llm_queue_waiting(waiting)
+
+            _update_llm_concurrent_requests = _wrapper_concurrent
+            _update_llm_queue_waiting = _wrapper_queue
         except ImportError:
             pass
         _metrics_imported = True

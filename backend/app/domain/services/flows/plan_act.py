@@ -14,7 +14,6 @@ from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
 from app.domain.models.event import (
     BaseEvent,
-    ComprehensionEvent,
     DoneEvent,
     ErrorEvent,
     MessageEvent,
@@ -23,7 +22,6 @@ from app.domain.models.event import (
     ReportEvent,
     StepEvent,
     StepStatus,
-    TaskRecreationEvent,
     TitleEvent,
     ToolEvent,
     ToolStatus,
@@ -65,11 +63,6 @@ from typing import TYPE_CHECKING
 
 from app.core.alert_manager import get_alert_manager
 from app.core.config import get_feature_flags, get_settings
-from app.domain.external.observability import MetricsPort, get_null_metrics
-from app.domain.external.tracing import SpanKind, get_tracer
-
-# Import complexity assessor for dynamic iteration limits (Phase 3)
-from app.domain.services.agents.complexity_assessor import ComplexityAssessor
 from app.domain.services.agents.compliance_gates import ComplianceReport, get_compliance_gates
 from app.domain.services.agents.error_handler import ErrorContext, ErrorHandler
 
@@ -110,25 +103,16 @@ from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.skill_creator import get_skill_creator_tools
 from app.domain.services.tools.skill_invoke import create_skill_invoke_tool
 from app.domain.services.validation.plan_validator import PlanValidator
+from app.infrastructure.observability import SpanKind, get_tracer
+from app.infrastructure.observability.prometheus_metrics import record_failure_prediction
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
 
+# Import complexity assessor for dynamic iteration limits (Phase 3)
+from app.domain.services.agents.complexity_assessor import ComplexityAssessor
+
 logger = logging.getLogger(__name__)
-
-# Module-level metrics instance (can be overridden for testing)
-_metrics: MetricsPort = get_null_metrics()
-
-
-def set_metrics(metrics: MetricsPort) -> None:
-    """Set the metrics instance for this module."""
-    global _metrics
-    _metrics = metrics
-
-
-def _record_failure_prediction(prediction: str, confidence: float) -> None:
-    """Record failure prediction metric."""
-    _metrics.record_failure_prediction(prediction, confidence)
 
 
 class PlanActFlow(BaseFlow):
@@ -383,13 +367,24 @@ class PlanActFlow(BaseFlow):
             return False
 
         try:
-            # Check if browser instance is healthy using the domain Browser protocol
-            if self._browser and hasattr(self._browser, "is_connected"):
-                is_healthy = self._browser.is_connected()
-                logger.debug(f"Browser is_connected: {is_healthy}")
-                return is_healthy
+            # Quick browser health check via sandbox
+            from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
 
-            # Fallback: check if browser object is healthy via legacy method
+            sandbox = await DockerSandbox.get(session.sandbox_id)
+            if not sandbox:
+                logger.debug(f"Sandbox {session.sandbox_id} not found")
+                return False
+
+            # Check browser health (should be instant if pre-warmed)
+            if hasattr(sandbox, "browser_health_check"):
+                is_healthy = await asyncio.wait_for(sandbox.browser_health_check(), timeout=2.0)
+                if is_healthy:
+                    logger.debug("Browser health check passed")
+                    return True
+                logger.debug("Browser health check failed")
+                return False
+
+            # Fallback: check if browser object is healthy
             if self._browser and hasattr(self._browser, "is_healthy"):
                 is_healthy = self._browser.is_healthy()
                 logger.debug(f"Browser is_healthy: {is_healthy}")
@@ -1015,73 +1010,6 @@ class PlanActFlow(BaseFlow):
 
         return queries[:5]  # Limit to 5 queries
 
-    async def _comprehend_long_message(self, message_text: str) -> dict[str, Any] | None:
-        """Comprehend a long/complex message before creating tasks.
-
-        This phase allows the agent to fully understand complex requirements
-        before breaking them down into tasks.
-
-        Args:
-            message_text: The full user message
-
-        Returns:
-            Comprehension result with summary and requirements, or None on error
-        """
-        if not self.planner or not hasattr(self.planner, "llm"):
-            return None
-
-        try:
-            import json
-
-            # Build comprehension prompt
-            comprehension_prompt = f"""Carefully read and understand the following request.
-Summarize what the user wants in 2-3 sentences, then list the key requirements.
-
-USER REQUEST:
-{message_text}
-
-Respond in this JSON format:
-{{
-    "summary": "Brief 2-3 sentence summary of what the user wants",
-    "requirements": ["requirement 1", "requirement 2", ...],
-    "complexity_score": 0.0 to 1.0 (how complex is this task),
-    "suggested_approach": "Brief description of how to approach this task"
-}}"""
-
-            # Use planner's LLM for comprehension
-            response = await self.planner.llm.ask(
-                [
-                    {
-                        "role": "system",
-                        "content": "You are a task comprehension assistant. Read carefully and extract key requirements.",
-                    },
-                    {"role": "user", "content": comprehension_prompt},
-                ],
-                response_format={"type": "json_object"},
-            )
-
-            content = response.get("content", "{}")
-
-            # Parse response
-            try:
-                result = json.loads(content)
-                logger.info(
-                    f"Agent {self._agent_id} comprehension complete: "
-                    f"{len(result.get('requirements', []))} requirements extracted"
-                )
-                return result
-            except json.JSONDecodeError:
-                logger.warning(f"Agent {self._agent_id} failed to parse comprehension response")
-                return {
-                    "summary": content[:500],
-                    "requirements": [],
-                    "complexity_score": 0.7,
-                }
-
-        except Exception as e:
-            logger.warning(f"Agent {self._agent_id} comprehension phase failed: {e}")
-            return None
-
     def _validate_plan_before_execution(self) -> bool:
         """Validate plan before execution; returns True if safe to proceed."""
         if not self.plan:
@@ -1418,33 +1346,46 @@ Respond in this JSON format:
             },
         )
 
-        # Capture transition with observability span using domain tracer
-        tracer = get_tracer()
+        # Capture transition with observability span
+        from app.infrastructure.observability.spans import SpanKind, SpanStatus
+
+        trace_ctx = getattr(self, "_trace_context", None)
+
         span_name = f"workflow:{new_status.value}"
 
-        with tracer.start_span(span_name, kind=SpanKind.INTERNAL) as span:
-            span.set_attribute("workflow.from_state", old_status.value)
-            span.set_attribute("workflow.to_state", new_status.value)
-            span.set_attribute("workflow.session_id", self._session_id)
-            span.set_attribute("workflow.agent_id", self._agent_id)
+        if trace_ctx:
+            with trace_ctx.span(span_name, SpanKind.PLAN_CREATE) as span:
+                span.set_attribute("workflow.from_state", old_status.value)
+                span.set_attribute("workflow.to_state", new_status.value)
+                span.set_attribute("workflow.session_id", self._session_id)
+                span.set_attribute("workflow.agent_id", self._agent_id)
 
+                try:
+                    yield
+                except Exception as e:
+                    self._previous_status = old_status
+                    self._error_context = self._error_handler.classify_error(e)
+                    self._transition_to(AgentStatus.ERROR, force=True, reason="state context error")
+
+                    span.set_status(SpanStatus.ERROR, str(e))
+                    logger.error(
+                        f"Agent {self._agent_id} error in state {new_status}",
+                        extra={
+                            "session_id": self._session_id,
+                            "from_state": old_status.value,
+                            "to_state": new_status.value,
+                            "error": str(e),
+                        },
+                    )
+                    raise
+        else:
             try:
                 yield
             except Exception as e:
                 self._previous_status = old_status
                 self._error_context = self._error_handler.classify_error(e)
                 self._transition_to(AgentStatus.ERROR, force=True, reason="state context error")
-
-                span.set_status("error", str(e))
-                logger.error(
-                    f"Agent {self._agent_id} error in state {new_status}",
-                    extra={
-                        "session_id": self._session_id,
-                        "from_state": old_status.value,
-                        "to_state": new_status.value,
-                        "error": str(e),
-                    },
-                )
+                logger.error(f"Agent {self._agent_id} error in state {new_status}: {e}")
                 raise
 
     async def handle_error_state(self) -> bool:
@@ -1707,23 +1648,6 @@ Respond in this JSON format:
                     )
                     self._transition_to(AgentStatus.PLANNING)
                 elif self.status == AgentStatus.PLANNING:
-                    # === Comprehension Phase for Long Messages ===
-                    # Check if this is a long/complex message that needs comprehension first
-                    comprehension_result = None
-                    if self._task_state_manager.should_trigger_comprehension(message.message, threshold_chars=500):
-                        logger.info(
-                            f"Agent {self._agent_id} triggering comprehension for long message "
-                            f"({len(message.message)} chars)"
-                        )
-                        comprehension_result = await self._comprehend_long_message(message.message)
-                        if comprehension_result:
-                            yield ComprehensionEvent(
-                                original_length=len(message.message),
-                                summary=comprehension_result.get("summary", ""),
-                                key_requirements=comprehension_result.get("requirements", []),
-                                complexity_score=comprehension_result.get("complexity_score"),
-                            )
-
                     # Create plan with tracing
                     logger.info(f"Agent {self._agent_id} started creating plan")
                     with trace_ctx.span("planning", SpanKind.PLAN_CREATE) as plan_span:
@@ -1743,27 +1667,10 @@ Respond in this JSON format:
                                 )
 
                                 # Initialize task state for recitation
-                                # Use comprehension-based recreation if we did comprehension phase
-                                if comprehension_result:
-                                    self._task_state_manager.recreate_from_comprehension(
-                                        original_objective=message.message,
-                                        comprehension_summary=comprehension_result.get("summary", ""),
-                                        new_steps=[
-                                            {"id": s.id, "description": s.description} for s in event.plan.steps
-                                        ],
-                                        preserve_findings=False,
-                                    )
-                                    yield TaskRecreationEvent(
-                                        reason="Tasks created after comprehending long message",
-                                        previous_step_count=0,
-                                        new_step_count=len(event.plan.steps),
-                                        preserved_findings=0,
-                                    )
-                                else:
-                                    self._task_state_manager.initialize_from_plan(
-                                        objective=message.message,
-                                        steps=[{"id": s.id, "description": s.description} for s in event.plan.steps],
-                                    )
+                                self._task_state_manager.initialize_from_plan(
+                                    objective=message.message,
+                                    steps=[{"id": s.id, "description": s.description} for s in event.plan.steps],
+                                )
 
                                 yield TitleEvent(title=event.plan.title)
                                 # Skip plan.message - execute silently without explaining
@@ -1960,7 +1867,7 @@ Respond in this JSON format:
                                 stuck_analysis=None,
                                 token_usage_pct=token_usage_pct,
                             )
-                            _record_failure_prediction(
+                            record_failure_prediction(
                                 "predicted" if prediction.will_fail else "clear",
                                 prediction.probability,
                             )

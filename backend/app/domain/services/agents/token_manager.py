@@ -834,13 +834,11 @@ class TokenManager:
         """
         status = self.get_context_pressure(messages)
 
-        # Record metric
-        from app.infrastructure.observability.prometheus_metrics import (
-            update_token_budget,
-        )
+        # Record metric via domain port
+        from app.domain.external.observability import get_null_metrics
 
-        update_token_budget(
-            session_id=self._session_id or "unknown",
+        metrics = get_null_metrics()  # Can be replaced with injected instance
+        metrics.update_token_budget(
             used=status.current_tokens,
             remaining=status.available_tokens,
         )
