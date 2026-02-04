@@ -15,7 +15,7 @@ import re
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from app.domain.models.event import ErrorEvent, ToolEvent, WaitEvent
 from app.domain.models.plan import ExecutionStatus
@@ -33,6 +33,8 @@ logger = logging.getLogger(__name__)
 # Constraint Violation Detection (Phase 3: User Prompt Following Enhancement)
 # ============================================================================
 
+ConstraintSeverity = Literal["low", "medium", "high"]
+
 
 @dataclass
 class ConstraintViolation:
@@ -48,7 +50,7 @@ class ConstraintViolation:
     is_violated: bool
     constraint: str
     reason: str | None = None
-    severity: str = "low"  # "low", "medium", "high"
+    severity: ConstraintSeverity = "low"
 
 
 # Keywords that indicate high-severity constraint violations
@@ -152,15 +154,18 @@ def _extract_constraint_keywords(constraint: str) -> set[str]:
 def _check_keyword_overlap(keywords: set[str], text: str) -> tuple[bool, list[str]]:
     """Check if any constraint keywords appear in the text.
 
+    Uses word boundary matching to avoid false positives (e.g., "api" should
+    not match "capitalize").
+
     Returns:
         Tuple of (has_overlap, list of matching keywords)
     """
     text_lower = text.lower()
-    matches = [kw for kw in keywords if kw in text_lower]
+    matches = [kw for kw in keywords if re.search(rf"\b{re.escape(kw)}\b", text_lower)]
     return bool(matches), matches
 
 
-def _determine_severity(constraint: str, matched_keywords: list[str]) -> str:
+def _determine_severity(constraint: str, matched_keywords: list[str]) -> ConstraintSeverity:
     """Determine violation severity based on constraint content and matches."""
     all_relevant = set(matched_keywords) | _extract_constraint_keywords(constraint)
 
