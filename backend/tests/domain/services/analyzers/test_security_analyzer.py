@@ -1,8 +1,6 @@
 """Tests for security analyzer scanning logic."""
 
-import pytest
-
-from app.domain.services.analyzers.security_analyzer import SecurityAnalyzer, Vulnerability
+from app.domain.services.analyzers.security_analyzer import SecurityAnalyzer
 
 
 class TestSecurityAnalyzerScan:
