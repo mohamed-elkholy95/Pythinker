@@ -11,6 +11,7 @@ from app.core.config import get_feature_flags
 from app.domain.models.event import BaseEvent
 from app.domain.models.message import Message
 from app.domain.models.plan import Plan, Step
+from app.domain.models.tool_result import ToolResult
 from app.domain.services.agents.execution import ExecutionAgent
 from app.domain.services.agents.intent_tracker import IntentTracker, UserIntent
 from app.domain.services.agents.planner import PlannerAgent
@@ -29,6 +30,19 @@ def merge_events(a: list[BaseEvent], b: list[BaseEvent] | None) -> list[BaseEven
 
 def merge_tools(a: list[str], b: list[str] | None) -> list[str]:
     """Reducer function to track tool usage."""
+    if b is None:
+        return a
+    return a + b
+
+
+def merge_tool_results(
+    a: list[ToolResult[Any] | dict[str, Any]], b: list[ToolResult[Any] | dict[str, Any]] | None
+) -> list[ToolResult[Any] | dict[str, Any]]:
+    """Reducer function to accumulate tool results across execution nodes.
+
+    Tool results are collected for chain-of-verification (CoVe) to validate
+    claims in the final summary against actual tool outputs.
+    """
     if b is None:
         return a
     return a + b
@@ -126,6 +140,10 @@ class PlanActState(TypedDict, total=False):
     # Tool tracking for memory compaction
     recent_tools: Annotated[list[str], merge_tools]
 
+    # Tool results for chain-of-verification (CoVe)
+    # Accumulated from execution nodes for claim verification in summarize node
+    tool_results: Annotated[list[ToolResult[Any] | dict[str, Any]], merge_tool_results]
+
     # Injected agents (not serialized in checkpoints)
     planner: PlannerAgent | None
     executor: ExecutionAgent | None
@@ -222,6 +240,8 @@ def create_initial_state(
         pending_events=[],
         # Tool tracking
         recent_tools=[],
+        # Tool results for CoVe
+        tool_results=[],
         # Injected agents
         planner=planner,
         executor=executor,
