@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Optional
 
 from app.core.config import get_feature_flags
 from app.domain.external.llm import LLM
+from app.domain.external.observability import MetricsPort, get_null_metrics
 from app.domain.models.agent_response import SummarizeResponse
 from app.domain.models.event import (
     BaseEvent,
@@ -37,7 +38,15 @@ from app.domain.services.prompts.system import SYSTEM_PROMPT
 from app.domain.services.tools.base import BaseTool
 from app.domain.services.tools.tool_tracing import get_tool_tracer
 from app.domain.utils.json_parser import JsonParser
-from app.infrastructure.observability.prometheus_metrics import record_reward_hacking_signal
+
+# Module-level metrics instance (can be overridden for testing)
+_metrics: MetricsPort = get_null_metrics()
+
+
+def set_metrics(metrics: MetricsPort) -> None:
+    """Set the metrics instance for this module."""
+    global _metrics
+    _metrics = metrics
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
@@ -460,7 +469,7 @@ class ExecutionAgent(BaseAgent):
                     )
                     if score.signals:
                         for signal in score.signals:
-                            record_reward_hacking_signal(signal.signal_type, signal.severity)
+                            _metrics.record_reward_hacking_signal(signal.signal_type, signal.severity)
                         logger.warning(
                             "Reward hacking signals detected (log-only)",
                             extra={
@@ -678,7 +687,7 @@ class ExecutionAgent(BaseAgent):
                     tags=["hallucination", "cove", "verification"],
                 )
                 return result.verified_response, result
-            elif result.claims_uncertain > 0:
+            if result.claims_uncertain > 0:
                 logger.info(
                     f"CoVe: {result.claims_verified} verified, "
                     f"{result.claims_uncertain} uncertain, "

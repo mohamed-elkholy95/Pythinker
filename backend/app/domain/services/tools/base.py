@@ -14,6 +14,19 @@ from app.domain.services.tools.cache_layer import (
     get_cache_stats,
 )
 
+
+@dataclass
+class ToolSchema:
+    """Schema definition for a tool function.
+
+    Used to define tool parameters and metadata for LLM tool calling.
+    """
+
+    name: str
+    description: str
+    parameters: dict[str, Any] = field(default_factory=dict)
+    required: list[str] = field(default_factory=list)
+
 logger = logging.getLogger(__name__)
 
 
@@ -215,6 +228,167 @@ def _truncate_output(content: str, max_length: int, preserve_end: bool = True) -
     return f"{truncated}\n\n... [{truncated_chars:,} characters truncated]"
 
 
+# ===== Validation Utilities =====
+
+
+class ToolValidationError(Exception):
+    """Exception raised when tool input validation fails."""
+
+    pass
+
+
+def validate_url(url: str) -> str:
+    """Validate URL has valid scheme.
+
+    Args:
+        url: URL to validate
+
+    Returns:
+        The validated URL
+
+    Raises:
+        ToolValidationError: If URL is invalid
+    """
+    if not url:
+        raise ToolValidationError("URL cannot be empty")
+    if not url.startswith(("http://", "https://")):
+        raise ToolValidationError(f"Invalid URL scheme: {url}")
+    return url
+
+
+def validate_path_in_sandbox(path: str, sandbox_base: str = "/workspace") -> str:
+    """Validate path is within sandbox directory.
+
+    Prevents path traversal attacks by ensuring the resolved path
+    stays within the allowed base directory.
+
+    Args:
+        path: Path to validate
+        sandbox_base: Allowed base directory
+
+    Returns:
+        The validated path
+
+    Raises:
+        ToolValidationError: If path traversal detected
+    """
+    import os
+
+    if not path:
+        raise ToolValidationError("Path cannot be empty")
+
+    # Normalize and resolve the path
+    normalized = os.path.normpath(path)
+
+    # Check for path traversal attempts
+    if ".." in normalized.split(os.sep):
+        raise ToolValidationError(f"Path traversal detected: {path}")
+
+    # Ensure it's within sandbox (if absolute path)
+    if os.path.isabs(normalized) and not normalized.startswith(sandbox_base):
+        raise ToolValidationError(f"Path outside sandbox: {path}")
+
+    return normalized
+
+
+def validate_required_params(params: dict[str, Any], required: list[str]) -> None:
+    """Validate all required parameters are present.
+
+    Args:
+        params: Dictionary of parameters
+        required: List of required parameter names
+
+    Raises:
+        ToolValidationError: If required parameter is missing
+    """
+    missing = [p for p in required if p not in params or params[p] is None]
+    if missing:
+        raise ToolValidationError(f"Missing required parameters: {', '.join(missing)}")
+
+
+# ===== Error Handling =====
+
+
+def handle_tool_errors(func: Callable) -> Callable:
+    """Decorator for standardized tool error handling.
+
+    Catches exceptions and returns appropriate ToolResult.
+
+    Usage:
+        @handle_tool_errors
+        async def my_tool_function(self, param: str) -> ToolResult:
+            # Your code here
+            pass
+    """
+    import functools
+
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs) -> ToolResult:
+        try:
+            return await func(*args, **kwargs)
+        except ToolValidationError as e:
+            logger.warning(f"Validation error in {func.__name__}: {e}")
+            return ToolResult.error(message=str(e))
+        except Exception as e:
+            logger.exception(f"Unexpected error in {func.__name__}")
+            return ToolResult.error(message=f"Tool error: {type(e).__name__}: {e}")
+
+    return wrapper
+
+
+# ===== Logging Utilities =====
+
+
+def log_tool_start(tool_name: str, function_name: str, params: dict[str, Any] | None = None) -> float:
+    """Log tool execution start and return start time.
+
+    Args:
+        tool_name: Name of the tool
+        function_name: Name of the function being called
+        params: Optional parameters (will be truncated for logging)
+
+    Returns:
+        Start time for duration calculation
+    """
+    from app.domain.utils.text import TextTruncator
+
+    start_time = time.time()
+    if params:
+        safe_params = TextTruncator.truncate_for_logging(params, max_value_length=50)
+        logger.info(f"[{tool_name}] {function_name} started", extra={"params": safe_params})
+    else:
+        logger.info(f"[{tool_name}] {function_name} started")
+    return start_time
+
+
+def log_tool_end(
+    tool_name: str,
+    function_name: str,
+    start_time: float,
+    success: bool,
+    message: str | None = None,
+) -> None:
+    """Log tool execution end.
+
+    Args:
+        tool_name: Name of the tool
+        function_name: Name of the function
+        start_time: Start time from log_tool_start
+        success: Whether execution succeeded
+        message: Optional result message
+    """
+    duration_ms = (time.time() - start_time) * 1000
+    log_method = logger.info if success else logger.warning
+    log_method(
+        f"[{tool_name}] {function_name} completed",
+        extra={
+            "success": success,
+            "duration_ms": round(duration_ms, 2),
+            "message": message[:100] if message else None,
+        },
+    )
+
+
 def tool(name: str, description: str, parameters: dict[str, dict[str, Any]], required: list[str]) -> Callable:
     """Tool registration decorator
 
@@ -406,7 +580,7 @@ class BaseTool:
         """Lazy-load the result cache."""
         if self._result_cache is None and self.enable_caching:
             try:
-                from app.infrastructure.external.cache import get_cache
+                from app.domain.external.cache import get_cache
 
                 self._result_cache = get_cache()
             except Exception as e:

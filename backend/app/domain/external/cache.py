@@ -82,3 +82,76 @@ class Cache(Protocol):
             int: Number of keys deleted
         """
         ...
+
+
+# ===== Null Implementation =====
+
+
+class NullCache:
+    """Null implementation of Cache that does nothing.
+
+    Use this when cache is not configured or in tests.
+    """
+
+    async def set(self, key: str, value: Any, ttl: int | None = None) -> bool:
+        return False
+
+    async def get(self, key: str) -> Any | None:
+        return None
+
+    async def delete(self, key: str) -> bool:
+        return False
+
+    async def exists(self, key: str) -> bool:
+        return False
+
+    async def get_ttl(self, key: str) -> int | None:
+        return None
+
+    async def keys(self, pattern: str) -> list[str]:
+        return []
+
+    async def clear_pattern(self, pattern: str) -> int:
+        return 0
+
+
+# ===== Module-level Cache Singleton =====
+
+_cache: Cache | None = None
+_null_cache: NullCache | None = None
+
+
+def get_null_cache() -> NullCache:
+    """Get singleton null cache instance."""
+    global _null_cache
+    if _null_cache is None:
+        _null_cache = NullCache()
+    return _null_cache
+
+
+def set_cache(cache: Cache) -> None:
+    """Set the global cache instance.
+
+    This should be called during application startup to inject the
+    infrastructure cache implementation.
+
+    Args:
+        cache: Cache implementation to use globally
+    """
+    global _cache
+    _cache = cache
+
+
+def get_cache() -> Cache:
+    """Get the global cache instance.
+
+    Returns the configured cache or a null cache if none is configured.
+    Domain services should use this function to access caching.
+
+    Returns:
+        Cache implementation
+    """
+    global _cache
+    if _cache is None:
+        return get_null_cache()
+    return _cache
