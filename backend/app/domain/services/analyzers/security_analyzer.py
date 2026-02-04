@@ -20,6 +20,8 @@ class Vulnerability:
     file_path: str
     line_number: int
     code_snippet: str = ""
+    recommendation: str = ""
+    cwe_id: str | None = None
     # Keep 'type' as alias for backwards compatibility
     type: str = field(default="", repr=False)
 
@@ -38,6 +40,8 @@ class Vulnerability:
             "file_path": self.file_path,
             "line_number": self.line_number,
             "code_snippet": self.code_snippet,
+            "recommendation": self.recommendation,
+            "cwe_id": self.cwe_id,
         }
 
 
@@ -50,6 +54,8 @@ class SecurityPattern:
     severity: str
     pattern: re.Pattern[str]
     description: str
+    recommendation: str = ""
+    cwe_id: str | None = None
     # Optional: patterns that indicate safe usage (to exclude false positives)
     safe_patterns: list[re.Pattern[str]] = field(default_factory=list)
 
@@ -66,6 +72,8 @@ PYTHON_PATTERNS: list[SecurityPattern] = [
             re.IGNORECASE,
         ),
         description="Potential SQL injection via f-string formatting in execute()",
+        recommendation="Use parameterized queries with placeholders (?, %s) instead of string formatting",
+        cwe_id="CWE-89",
     ),
     SecurityPattern(
         name="sql_injection_fstring_query",
@@ -76,6 +84,8 @@ PYTHON_PATTERNS: list[SecurityPattern] = [
             re.IGNORECASE,
         ),
         description="Potential SQL injection via f-string with SQL keywords",
+        recommendation="Use parameterized queries with placeholders (?, %s) instead of string formatting",
+        cwe_id="CWE-89",
     ),
     SecurityPattern(
         name="sql_injection_percent_execute",
@@ -86,6 +96,8 @@ PYTHON_PATTERNS: list[SecurityPattern] = [
             re.IGNORECASE,
         ),
         description="Potential SQL injection via % string formatting in execute()",
+        recommendation="Use parameterized queries with placeholders (?, %s) instead of % formatting",
+        cwe_id="CWE-89",
     ),
     SecurityPattern(
         name="sql_injection_percent_query",
@@ -96,6 +108,8 @@ PYTHON_PATTERNS: list[SecurityPattern] = [
             re.IGNORECASE,
         ),
         description="Potential SQL injection via % string formatting with SQL keywords",
+        recommendation="Use parameterized queries with placeholders (?, %s) instead of % formatting",
+        cwe_id="CWE-89",
     ),
     SecurityPattern(
         name="sql_injection_format",
@@ -106,6 +120,8 @@ PYTHON_PATTERNS: list[SecurityPattern] = [
             re.IGNORECASE,
         ),
         description="Potential SQL injection via .format() in execute()",
+        recommendation="Use parameterized queries with placeholders (?, %s) instead of .format()",
+        cwe_id="CWE-89",
     ),
     SecurityPattern(
         name="sql_injection_concat",
@@ -117,6 +133,8 @@ PYTHON_PATTERNS: list[SecurityPattern] = [
             re.IGNORECASE,
         ),
         description="Potential SQL injection via string concatenation in execute()",
+        recommendation="Use parameterized queries with placeholders (?, %s) instead of string concatenation",
+        cwe_id="CWE-89",
     ),
     # Command Injection patterns
     SecurityPattern(
@@ -128,6 +146,8 @@ PYTHON_PATTERNS: list[SecurityPattern] = [
             re.IGNORECASE,
         ),
         description="Potential command injection via os.system() with f-string",
+        recommendation="Use subprocess.run() with a list of arguments and shell=False",
+        cwe_id="CWE-78",
     ),
     SecurityPattern(
         name="command_injection_os_popen",
@@ -138,6 +158,8 @@ PYTHON_PATTERNS: list[SecurityPattern] = [
             re.IGNORECASE,
         ),
         description="Potential command injection via os.popen() with f-string",
+        recommendation="Use subprocess.run() with a list of arguments and shell=False",
+        cwe_id="CWE-78",
     ),
     SecurityPattern(
         name="command_injection_subprocess_shell",
@@ -149,6 +171,8 @@ PYTHON_PATTERNS: list[SecurityPattern] = [
             re.IGNORECASE,
         ),
         description="Potential command injection via subprocess with shell=True",
+        recommendation="Pass command as a list of arguments and set shell=False",
+        cwe_id="CWE-78",
     ),
     SecurityPattern(
         name="command_injection_eval",
@@ -158,6 +182,8 @@ PYTHON_PATTERNS: list[SecurityPattern] = [
             r'\beval\s*\(\s*(?:f["\']|[^"\'\)]+\+)',
         ),
         description="Potential code injection via eval() with dynamic input",
+        recommendation="Avoid eval() with user input; use ast.literal_eval() for safe parsing",
+        cwe_id="CWE-94",
     ),
     SecurityPattern(
         name="command_injection_exec",
@@ -167,6 +193,8 @@ PYTHON_PATTERNS: list[SecurityPattern] = [
             r'\bexec\s*\(\s*(?:f["\']|[^"\'\)]+\+)',
         ),
         description="Potential code injection via exec() with dynamic input",
+        recommendation="Avoid exec() with user input; refactor to use safer alternatives",
+        cwe_id="CWE-94",
     ),
     # Hardcoded Secrets patterns
     SecurityPattern(
@@ -178,6 +206,8 @@ PYTHON_PATTERNS: list[SecurityPattern] = [
             re.IGNORECASE,
         ),
         description="Potential hardcoded API key",
+        recommendation="Store API keys in environment variables or a secrets manager",
+        cwe_id="CWE-798",
         safe_patterns=[
             re.compile(r"os\.(?:environ|getenv)", re.IGNORECASE),
             re.compile(r'\.get\s*\(["\']', re.IGNORECASE),
@@ -192,6 +222,8 @@ PYTHON_PATTERNS: list[SecurityPattern] = [
             re.IGNORECASE,
         ),
         description="Potential hardcoded password",
+        recommendation="Store passwords in environment variables or a secrets manager",
+        cwe_id="CWE-798",
         safe_patterns=[
             re.compile(r"os\.(?:environ|getenv)", re.IGNORECASE),
             re.compile(r'\.get\s*\(["\']', re.IGNORECASE),
@@ -207,6 +239,8 @@ PYTHON_PATTERNS: list[SecurityPattern] = [
             re.IGNORECASE,
         ),
         description="Potential hardcoded secret key or token",
+        recommendation="Store secret keys and tokens in environment variables or a secrets manager",
+        cwe_id="CWE-798",
         safe_patterns=[
             re.compile(r"os\.(?:environ|getenv)", re.IGNORECASE),
             re.compile(r'\.get\s*\(["\']', re.IGNORECASE),
@@ -222,6 +256,8 @@ PYTHON_PATTERNS: list[SecurityPattern] = [
             re.IGNORECASE,
         ),
         description="Potential hardcoded AWS credential",
+        recommendation="Use AWS IAM roles, environment variables, or AWS Secrets Manager",
+        cwe_id="CWE-798",
         safe_patterns=[
             re.compile(r"os\.(?:environ|getenv)", re.IGNORECASE),
             re.compile(r'\.get\s*\(["\']', re.IGNORECASE),
@@ -236,6 +272,8 @@ PYTHON_PATTERNS: list[SecurityPattern] = [
             re.IGNORECASE,
         ),
         description="Potential hardcoded private key",
+        recommendation="Store private keys in secure files with restricted permissions or use a secrets manager",
+        cwe_id="CWE-798",
         safe_patterns=[
             re.compile(r"os\.(?:environ|getenv)", re.IGNORECASE),
             re.compile(r'\.get\s*\(["\']', re.IGNORECASE),
@@ -306,6 +344,8 @@ class SecurityAnalyzer:
                             file_path=file_path,
                             line_number=line_num,
                             code_snippet=line.strip(),
+                            recommendation=pattern.recommendation,
+                            cwe_id=pattern.cwe_id,
                         )
                         vulnerabilities.append(vuln)
                         logger.debug(f"Found {pattern.vulnerability_type} at {file_path}:{line_num}")
@@ -349,4 +389,10 @@ class SecurityAnalyzer:
             "high_count": high,
             "medium_count": medium,
             "low_count": low,
+            "by_severity": {
+                "critical": critical,
+                "high": high,
+                "medium": medium,
+                "low": low,
+            },
         }
