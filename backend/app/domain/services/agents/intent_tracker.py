@@ -150,6 +150,9 @@ class IntentTracker:
         self._addressed_requirements: set[str] = set()
         self._work_history: list[dict[str, Any]] = []
 
+        # Use lightweight sentence embeddings for semantic matching
+        self._embedding_cache: dict[str, list[float]] = {}
+
         # Compile patterns
         self._intent_re = {
             k: [re.compile(p, re.IGNORECASE) for p in patterns] for k, patterns in self.INTENT_PATTERNS.items()
@@ -396,8 +399,8 @@ class IntentTracker:
             if req.lower() in self._addressed_requirements:
                 addressed.append(req)
             else:
-                # Check if current work mentions this requirement
-                if self._text_similarity(req, current_work) > 0.3:
+                # Check if current work addresses this requirement using semantic matching
+                if self.check_requirement_addressed(req, current_work, threshold=0.3):
                     addressed.append(req)
                     self._addressed_requirements.add(req.lower())
                 else:
@@ -478,7 +481,8 @@ class IntentTracker:
                 )
 
         # Check for topic drift (current work not related to goal)
-        goal_similarity = self._text_similarity(intent.primary_goal, current_work)
+        # Use semantic similarity for better matching
+        goal_similarity = self._compute_semantic_similarity(intent.primary_goal, current_work)
         if goal_similarity < 0.15:
             alerts.append(
                 DriftAlert(
@@ -493,7 +497,7 @@ class IntentTracker:
         return alerts
 
     def _text_similarity(self, text1: str, text2: str) -> float:
-        """Calculate simple text similarity."""
+        """Calculate simple text similarity using Jaccard word overlap."""
         if not text1 or not text2:
             return 0.0
 
@@ -513,6 +517,93 @@ class IntentTracker:
         union = len(words1 | words2)
 
         return intersection / union if union > 0 else 0.0
+
+    def _compute_semantic_similarity(
+        self,
+        text1: str,
+        text2: str,
+    ) -> float:
+        """Compute semantic similarity using embeddings.
+
+        Uses trigram embeddings for lightweight semantic comparison.
+        Falls back to Jaccard if embeddings unavailable.
+
+        Args:
+            text1: First text to compare
+            text2: Second text to compare
+
+        Returns:
+            Similarity score between 0.0 and 1.0
+        """
+        try:
+            emb1 = self._get_or_compute_embedding(text1)
+            emb2 = self._get_or_compute_embedding(text2)
+
+            if not emb1 or not emb2:
+                return self._text_similarity(text1, text2)
+
+            # Cosine similarity
+            dot = sum(a * b for a, b in zip(emb1, emb2, strict=True))
+            norm1 = sum(a * a for a in emb1) ** 0.5
+            norm2 = sum(b * b for b in emb2) ** 0.5
+
+            if norm1 == 0 or norm2 == 0:
+                return 0.0
+
+            return dot / (norm1 * norm2)
+
+        except Exception:
+            # Fallback to Jaccard
+            return self._text_similarity(text1, text2)
+
+    def _get_or_compute_embedding(self, text: str) -> list[float]:
+        """Get cached embedding or compute new one.
+
+        Args:
+            text: Text to embed
+
+        Returns:
+            Embedding vector (list of floats)
+        """
+        # Truncate for cache key to handle long texts
+        cache_key = text[:200]
+
+        if cache_key not in self._embedding_cache:
+            from app.domain.services.agents.stuck_detector import compute_trigram_embedding
+
+            self._embedding_cache[cache_key] = compute_trigram_embedding(text)
+
+            # Limit cache size to prevent memory bloat
+            if len(self._embedding_cache) > 500:
+                # Remove oldest entries (first 100)
+                keys_to_remove = list(self._embedding_cache.keys())[:100]
+                for key in keys_to_remove:
+                    del self._embedding_cache[key]
+
+        return self._embedding_cache[cache_key]
+
+    def check_requirement_addressed(
+        self,
+        requirement: str,
+        work_done: str,
+        threshold: float = 0.7,
+    ) -> bool:
+        """Check if a requirement is addressed using semantic matching.
+
+        This method uses semantic similarity (trigram embeddings) to determine
+        if the work done addresses the given requirement. This is more robust
+        than simple word overlap as it captures semantic relationships.
+
+        Args:
+            requirement: The requirement to check
+            work_done: Description of work done
+            threshold: Minimum similarity score to consider addressed (0.0-1.0)
+
+        Returns:
+            True if the requirement appears to be addressed
+        """
+        similarity = self._compute_semantic_similarity(requirement, work_done)
+        return similarity >= threshold
 
     def _generate_guidance(
         self,
@@ -556,6 +647,7 @@ class IntentTracker:
         self._current_intent = None
         self._addressed_requirements.clear()
         self._work_history.clear()
+        self._embedding_cache.clear()
 
 
 # Singleton instance
