@@ -29,6 +29,7 @@ from .skill import (
     UserSkillConfig,
 )
 from .skill_package import SkillPackage, SkillPackageFile, SkillPackageMetadata
+from .state_manifest import StateEntry, StateManifest
 from .supervisor import SubTask, SubTaskStatus, Supervisor, SupervisorDomain
 from .usage import SessionMetrics
 
@@ -58,6 +59,8 @@ __all__ = [
     "SkillPackageMetadata",
     "SkillResource",
     "SkillSource",
+    "StateEntry",
+    "StateManifest",
     "SubTask",
     "SubTaskStatus",
     "Supervisor",
