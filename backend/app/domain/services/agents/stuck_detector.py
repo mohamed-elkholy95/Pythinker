@@ -25,6 +25,55 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def compute_trigram_embedding(text: str, embedding_dim: int = 128) -> list[float]:
+    """Compute a trigram-based embedding for text.
+
+    Uses character trigram frequencies as a lightweight embedding approach.
+    This avoids API calls while still capturing semantic similarity.
+
+    Args:
+        text: Text to embed
+        embedding_dim: Dimension of the output embedding vector
+
+    Returns:
+        Normalized embedding vector of the specified dimension
+    """
+    if not text:
+        return []
+
+    text_lower = text.lower()
+    text_len = len(text_lower)
+
+    # Early exit for very short text
+    if text_len < 3:
+        return []
+
+    # Count trigrams
+    trigrams: dict[str, int] = {}
+    for i in range(text_len - 2):
+        trigram = text_lower[i : i + 3]
+        trigrams[trigram] = trigrams.get(trigram, 0) + 1
+
+    # Create fixed-size embedding from trigram frequencies
+    embedding = [0.0] * embedding_dim
+
+    total = sum(trigrams.values())
+    if total > 0:
+        inv_total = 1.0 / total  # Compute inverse once
+        for trigram, count in trigrams.items():
+            # Hash trigram to embedding dimension
+            idx = hash(trigram) % embedding_dim
+            embedding[idx] += count * inv_total
+
+    # Normalize
+    norm_sq = sum(x * x for x in embedding)
+    if norm_sq > 0:
+        inv_norm = 1.0 / math.sqrt(norm_sq)
+        embedding = [x * inv_norm for x in embedding]
+
+    return embedding
+
+
 class LRUCache:
     """Simple LRU cache using OrderedDict for O(1) operations."""
 
@@ -392,7 +441,7 @@ class StuckDetector:
         Performance optimizations:
         - LRU cache with proper eviction (no full clear)
         - Pre-computed hash for cache key
-        - Optimized trigram computation
+        - Reuses compute_trigram_embedding function
         """
         if not text:
             return []
@@ -403,37 +452,10 @@ class StuckDetector:
         if cached is not None:
             return cached
 
-        # Simple character trigram frequency embedding
-        text_lower = text.lower()
-        text_len = len(text_lower)
-
-        # Early exit for very short text
-        if text_len < 3:
+        # Use the standalone trigram embedding function
+        embedding = compute_trigram_embedding(text)
+        if not embedding:
             return []
-
-        # Optimized trigram counting with dict.get default
-        trigrams: dict[str, int] = {}
-        for i in range(text_len - 2):
-            trigram = text_lower[i : i + 3]
-            trigrams[trigram] = trigrams.get(trigram, 0) + 1
-
-        # Create fixed-size embedding from trigram frequencies
-        embedding_dim = 128
-        embedding = [0.0] * embedding_dim
-
-        total = sum(trigrams.values())
-        if total > 0:
-            inv_total = 1.0 / total  # Compute inverse once
-            for trigram, count in trigrams.items():
-                # Hash trigram to embedding dimension
-                idx = hash(trigram) % embedding_dim
-                embedding[idx] += count * inv_total
-
-        # Normalize
-        norm_sq = sum(x * x for x in embedding)
-        if norm_sq > 0:
-            inv_norm = 1.0 / math.sqrt(norm_sq)
-            embedding = [x * inv_norm for x in embedding]
 
         # Cache result with LRU eviction
         self._embedding_cache.put(cache_key, embedding)
