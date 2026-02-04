@@ -1,9 +1,9 @@
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Discriminator, Field
 
 from app.domain.models.file import FileInfo
 from app.domain.models.plan import Plan, Step
@@ -70,6 +70,7 @@ class PlanEvent(BaseEvent):
 class BrowserToolContent(BaseModel):
     """Browser tool content"""
 
+    screenshot: str | None = None  # Base64 encoded screenshot
     content: str | None = None  # Page content (text or HTML)
 
 
@@ -104,6 +105,138 @@ class BrowserAgentToolContent(BaseModel):
     steps_taken: int = 0
 
 
+class GitToolContent(BaseModel):
+    """Git tool content for git operations"""
+
+    operation: str  # clone, status, diff, log, branches
+    output: str | None = None
+    repo_path: str | None = None
+    branch: str | None = None
+    commits: list[dict[str, Any]] | None = None
+    diff_content: str | None = None
+
+
+class CodeExecutorToolContent(BaseModel):
+    """Code executor tool content"""
+
+    language: str  # python, javascript, bash, sql
+    code: str | None = None
+    output: str | None = None
+    error: str | None = None
+    exit_code: int | None = None
+    execution_time_ms: int | None = None
+    artifacts: list[dict[str, Any]] | None = None
+
+
+class PlaywrightToolContent(BaseModel):
+    """Playwright browser automation content"""
+
+    browser_type: str | None = None  # chromium, firefox, webkit
+    url: str | None = None
+    screenshot: str | None = None  # Base64 encoded
+    content: str | None = None
+
+
+class TestRunnerToolContent(BaseModel):
+    """Test runner tool content"""
+
+    framework: str | None = None  # pytest, jest, etc.
+    total_tests: int = 0
+    passed: int = 0
+    failed: int = 0
+    skipped: int = 0
+    output: str | None = None
+    duration_ms: int | None = None
+
+
+class SkillToolContent(BaseModel):
+    """Skill tool content for skill operations"""
+
+    skill_id: str | None = None
+    skill_name: str | None = None
+    operation: str  # invoke, create, list
+    result: Any | None = None
+    status: str | None = None
+
+
+class ExportToolContent(BaseModel):
+    """Export tool content"""
+
+    format: str | None = None  # pdf, csv, json, etc.
+    filename: str | None = None
+    size_bytes: int | None = None
+    path: str | None = None
+
+
+class SlidesToToolContent(BaseModel):
+    """Slides tool content"""
+
+    title: str | None = None
+    slide_count: int = 0
+    format: str | None = None  # pptx, pdf, html
+    path: str | None = None
+
+
+class WorkspaceToolContent(BaseModel):
+    """Workspace tool content"""
+
+    action: str  # create, organize, list
+    workspace_type: str | None = None
+    files_count: int = 0
+    structure: dict[str, Any] | None = None
+
+
+class ScheduleToolContent(BaseModel):
+    """Schedule tool content"""
+
+    action: str  # create, list, cancel
+    schedule_id: str | None = None
+    schedule_time: str | None = None
+    status: str | None = None
+
+
+class DeepScanToolContent(BaseModel):
+    """Deep scan analyzer tool content"""
+
+    scan_type: str | None = None
+    findings_count: int = 0
+    summary: str | None = None
+    details: list[dict[str, Any]] | None = None
+
+
+class AgentModeToolContent(BaseModel):
+    """Agent mode tool content"""
+
+    mode: str  # discuss, agent, etc.
+    previous_mode: str | None = None
+    reason: str | None = None
+
+
+class CodeDevToolContent(BaseModel):
+    """Code dev tool content"""
+
+    operation: str  # analyze, refactor, etc.
+    file_path: str | None = None
+    result: str | None = None
+    suggestions: list[str] | None = None
+
+
+class PlanToolContent(BaseModel):
+    """Plan tool content"""
+
+    operation: str  # create, update, get
+    plan_id: str | None = None
+    steps_count: int = 0
+
+
+class RepoMapToolContent(BaseModel):
+    """Repo map tool content"""
+
+    repo_path: str | None = None
+    files_count: int = 0
+    structure: dict[str, Any] | None = None
+
+
 ToolContent = (
     BrowserToolContent
     | SearchToolContent
@@ -111,6 +244,20 @@ ToolContent = (
     | FileToolContent
     | McpToolContent
     | BrowserAgentToolContent
+    | GitToolContent
+    | CodeExecutorToolContent
+    | PlaywrightToolContent
+    | TestRunnerToolContent
+    | SkillToolContent
+    | ExportToolContent
+    | SlidesToToolContent
+    | WorkspaceToolContent
+    | ScheduleToolContent
+    | DeepScanToolContent
+    | AgentModeToolContent
+    | CodeDevToolContent
+    | PlanToolContent
+    | RepoMapToolContent
 )
 
 
@@ -291,6 +438,34 @@ class ProgressEvent(BaseEvent):
     message: str  # User-friendly status message
     estimated_steps: int | None = None  # Estimated number of steps (if known)
     progress_percent: int | None = None  # 0-100 progress indicator
+
+
+class ComprehensionEvent(BaseEvent):
+    """Event emitted when agent comprehends a long/complex message.
+
+    Used to show the user that the agent has understood their requirements
+    before creating tasks.
+    """
+
+    type: Literal["comprehension"] = "comprehension"
+    original_length: int  # Length of original message
+    summary: str  # Agent's summarized understanding
+    key_requirements: list[str] | None = None  # Extracted key requirements
+    complexity_score: float | None = None  # 0-1 complexity assessment
+
+
+class TaskRecreationEvent(BaseEvent):
+    """Event emitted when tasks are recreated based on new understanding.
+
+    Allows the agent to reset and recreate tasks after comprehending
+    a long message or receiving clarifying information.
+    """
+
+    type: Literal["task_recreation"] = "task_recreation"
+    reason: str  # Why tasks were recreated
+    previous_step_count: int  # Number of steps before recreation
+    new_step_count: int  # Number of steps after recreation
+    preserved_findings: int  # Number of findings preserved from previous work
 
 
 class ReportEvent(BaseEvent):
@@ -546,34 +721,42 @@ class ConfidenceEvent(BaseEvent):
     risk_factors: list[str] = Field(default_factory=list)
 
 
-AgentEvent = (
-    ErrorEvent
-    | PlanEvent
-    | ToolEvent
-    | StepEvent
-    | MessageEvent
-    | DoneEvent
-    | TitleEvent
-    | WaitEvent
-    | KnowledgeEvent
-    | DatasourceEvent
-    | IdleEvent
-    | MCPHealthEvent
-    | ModeChangeEvent
-    | SuggestionEvent
-    | ReportEvent
-    | SkillDeliveryEvent
-    | SkillActivationEvent
-    | StreamEvent
-    | VerificationEvent
-    | ReflectionEvent
-    | PathEvent
-    | MultiTaskEvent
-    | WorkspaceEvent
-    | BudgetEvent
-    | ProgressEvent
-    | DeepResearchEvent
-    | WideResearchEvent
-    | ThoughtEvent
-    | ConfidenceEvent
-)
+# Discriminated union on 'type' field for efficient Pydantic v2 validation
+# Using Union[] syntax required for Annotated discriminator pattern
+AgentEvent = Annotated[
+    Union[  # noqa: UP007
+        ErrorEvent,
+        PlanEvent,
+        ToolEvent,
+        ToolProgressEvent,
+        StepEvent,
+        MessageEvent,
+        DoneEvent,
+        TitleEvent,
+        WaitEvent,
+        KnowledgeEvent,
+        DatasourceEvent,
+        IdleEvent,
+        MCPHealthEvent,
+        ModeChangeEvent,
+        SuggestionEvent,
+        ReportEvent,
+        SkillDeliveryEvent,
+        SkillActivationEvent,
+        StreamEvent,
+        VerificationEvent,
+        ReflectionEvent,
+        PathEvent,
+        MultiTaskEvent,
+        WorkspaceEvent,
+        BudgetEvent,
+        ProgressEvent,
+        ComprehensionEvent,
+        TaskRecreationEvent,
+        DeepResearchEvent,
+        WideResearchEvent,
+        ThoughtEvent,
+        ConfidenceEvent,
+    ],
+    Discriminator("type"),
+]
