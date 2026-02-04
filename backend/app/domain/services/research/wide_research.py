@@ -1,10 +1,25 @@
 """Wide research orchestrator for parallel multi-agent research."""
 
 import asyncio
+import logging
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Protocol
 
 from app.domain.models.research_task import ResearchStatus, ResearchTask
+
+logger = logging.getLogger(__name__)
+
+
+class SearchToolProtocol(Protocol):
+    """Protocol for search tool interface."""
+
+    async def execute(self, query: str) -> dict[str, Any]: ...
+
+
+class LLMProtocol(Protocol):
+    """Protocol for LLM interface."""
+
+    async def complete(self, prompt: str) -> str: ...
 
 
 class WideResearchOrchestrator:
@@ -18,11 +33,14 @@ class WideResearchOrchestrator:
     - Synthesizes results into unified output
     """
 
+    MAX_RESULTS_PER_QUERY = 5
+    MAX_SOURCES_IN_SYNTHESIS = 3
+
     def __init__(
         self,
         session_id: str,
-        search_tool: Any,
-        llm: Any,
+        search_tool: SearchToolProtocol,
+        llm: LLMProtocol | None,
         max_concurrency: int = 10,
         on_progress: Callable[[ResearchTask], None] | None = None,
     ):
@@ -84,6 +102,12 @@ class WideResearchOrchestrator:
             The task with updated status and results
         """
         async with self._semaphore:
+            logger.debug(
+                "Starting research task %d/%d: %s",
+                task.index + 1,
+                task.total,
+                task.query,
+            )
             task.start()
             if self.on_progress:
                 self.on_progress(task)
@@ -96,7 +120,7 @@ class WideResearchOrchestrator:
                 sources = []
                 content_parts = []
                 if isinstance(search_result, dict) and "results" in search_result:
-                    for r in search_result["results"][:5]:
+                    for r in search_result["results"][: self.MAX_RESULTS_PER_QUERY]:
                         if "url" in r:
                             sources.append(r["url"])
                         if "content" in r:
@@ -107,8 +131,20 @@ class WideResearchOrchestrator:
                 # Build result from content parts
                 result = "\n\n".join(content_parts) if content_parts else "No results found"
                 task.complete(result, sources)
+                logger.debug(
+                    "Completed research task %d/%d with %d sources",
+                    task.index + 1,
+                    task.total,
+                    len(sources),
+                )
 
             except Exception as e:
+                logger.warning(
+                    "Research task %d/%d failed: %s",
+                    task.index + 1,
+                    task.total,
+                    str(e),
+                )
                 task.fail(str(e))
 
             if self.on_progress:
@@ -169,11 +205,12 @@ class WideResearchOrchestrator:
             return "No research results to synthesize."
 
         # Build synthesis input
+        logger.debug("Synthesizing %d completed research tasks", len(completed))
         findings = []
         for task in completed:
             finding = f"### {task.query}\n{task.result}"
             if task.sources:
-                finding += f"\n\nSources: {', '.join(task.sources[:3])}"
+                finding += f"\n\nSources: {', '.join(task.sources[: self.MAX_SOURCES_IN_SYNTHESIS])}"
             findings.append(finding)
 
         synthesis_input = "\n\n---\n\n".join(findings)
