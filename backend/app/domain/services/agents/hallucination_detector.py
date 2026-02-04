@@ -294,6 +294,17 @@ class ToolHallucinationDetector:
                 suggestions=["Check parameter types against schema"],
             )
 
+        # Check semantic validity of parameters
+        for param_name, param_value in parameters.items():
+            semantic_result = self.validate_parameter_semantics(
+                function_name=tool_name,
+                param_name=param_name,
+                param_value=param_value,
+                context=context,
+            )
+            if not semantic_result.is_valid:
+                return semantic_result
+
         return ToolValidationResult(is_valid=True)
 
     def _get_json_type(self, value: Any) -> str:
