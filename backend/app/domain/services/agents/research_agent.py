@@ -57,7 +57,6 @@ class ResearchSubAgent:
         session_id: The session identifier for this research
         llm: Language model for synthesis
         tools: Dictionary of available tools (search, etc.)
-        max_iterations: Maximum iterations for research loop
     """
 
     SYSTEM_PROMPT = """You are a research assistant. Your task is to:
@@ -76,7 +75,6 @@ Focus on accuracy and relevance. Do not speculate."""
         session_id: str,
         llm: LLMProtocol,
         tools: dict[str, SearchToolProtocol],
-        max_iterations: int = 3,
     ):
         """
         Initialize the research sub-agent.
@@ -85,12 +83,10 @@ Focus on accuracy and relevance. Do not speculate."""
             session_id: The session identifier for this research
             llm: Language model for synthesis (must implement LLMProtocol)
             tools: Dictionary of available tools (key: tool name, value: tool instance)
-            max_iterations: Maximum iterations for research loop (default: 3)
         """
         self.session_id = session_id
         self.llm = llm
         self.tools = tools
-        self.max_iterations = max_iterations
 
     async def research(self, task: ResearchTask) -> str:
         """
