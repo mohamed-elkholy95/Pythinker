@@ -1,3 +1,4 @@
+from .context_memory import ContextMemory, ContextType
 from .event import (
     AgentEvent,
     BaseEvent,
@@ -25,6 +26,8 @@ __all__ = [
     "AgentEvent",
     "BaseEvent",
     "BudgetEvent",
+    "ContextMemory",
+    "ContextType",
     "Deliverable",
     "DeliverableType",
     "MultiTaskChallenge",
