@@ -16,13 +16,10 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field
-
-if TYPE_CHECKING:
-    pass
 
 
 class ResourceType(str, Enum):
