@@ -946,6 +946,10 @@ class AgentTaskRunner(TaskRunner):
                     deep_research=event.deep_research or False,
                 )
 
+                # Set current task for attention manipulation (Manus pattern)
+                if message:
+                    await self._set_current_task(message)
+
                 async for event in self._run_flow(message_obj, task):
                     # Check if task is paused (for user takeover)
                     while task.paused:
