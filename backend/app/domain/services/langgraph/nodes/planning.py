@@ -12,6 +12,7 @@ import asyncio
 import logging
 from typing import Any
 
+from app.core.config import get_feature_flags
 from app.domain.models.event import (
     ComprehensionEvent,
     ErrorEvent,
@@ -358,7 +359,7 @@ async def planning_node(state: PlanActState) -> dict[str, Any]:
     max_verification_loops = state.get("max_verification_loops", 2)
 
     if plan:
-        flags = state.get("feature_flags", {})
+        flags = get_feature_flags()
         if flags.get("plan_validation_v2"):
             tool_names = [
                 t.get("function", {}).get("name", "") for t in (planner.get_available_tools() if planner else []) or []

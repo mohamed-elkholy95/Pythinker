@@ -8,7 +8,6 @@ import asyncio
 from dataclasses import dataclass
 from typing import Annotated, Any, TypedDict
 
-from app.core.config import get_feature_flags
 from app.domain.models.event import BaseEvent
 from app.domain.models.message import Message
 from app.domain.models.plan import Plan, Step
@@ -195,9 +194,6 @@ class PlanActState(TypedDict, total=False):
     # Real-time event streaming queue (not serialized in checkpoints)
     event_queue: asyncio.Queue | None
 
-    # Feature flags (for rollout control)
-    feature_flags: dict[str, bool]
-
     # Phase 2: Browser Node Integration
     # Browser task for autonomous browser agent node
     browser_task: str | None
@@ -294,8 +290,6 @@ def create_initial_state(
         all_steps_done=False,
         # Real-time event streaming
         event_queue=event_queue,
-        # Feature flags
-        feature_flags=get_feature_flags(),
         # Phase 2: Browser node fields
         browser_task=None,
         cdp_url=None,

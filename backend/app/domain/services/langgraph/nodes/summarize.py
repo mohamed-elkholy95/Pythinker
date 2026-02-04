@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Any, ClassVar
 
+from app.core.config import get_feature_flags
 from app.domain.models.event import DoneEvent, MessageEvent, PlanEvent, PlanStatus
 from app.domain.models.plan import ExecutionStatus
 from app.domain.models.source_attribution import SourceAttribution
@@ -416,7 +417,7 @@ async def _run_cove_verification(
         Tuple of (possibly refined content, CoVe result or None)
     """
     # Check feature flag
-    feature_flags = state.get("feature_flags", {})
+    feature_flags = get_feature_flags()
     if not feature_flags.get("cove_verification", True):
         logger.debug("CoVe verification disabled by feature flag")
         return content, None
@@ -704,7 +705,7 @@ async def summarize_node(state: PlanActState) -> dict[str, Any]:
 
     # Phase 4: Run Chain-of-Verification on summary content
     cove_result = None
-    feature_flags = state.get("feature_flags", {})
+    feature_flags = get_feature_flags()
 
     if summary_content and feature_flags.get("cove_verification", True):
         try:
@@ -833,7 +834,7 @@ async def summarize_node(state: PlanActState) -> dict[str, Any]:
         pending_events.append(done_event)
 
     # Optional context optimization after summary (Phase 3)
-    feature_flags = state.get("feature_flags", {})
+    feature_flags = get_feature_flags()
     if feature_flags.get("context_optimization") and executor:
         try:
             memory_manager = get_memory_manager()

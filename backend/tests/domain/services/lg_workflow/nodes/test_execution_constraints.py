@@ -295,7 +295,6 @@ class TestExecutionNodeConstraints:
             "user_id": None,
             "session_id": "test-session",
             "event_queue": None,
-            "feature_flags": {},
         }
 
     @pytest.mark.asyncio
