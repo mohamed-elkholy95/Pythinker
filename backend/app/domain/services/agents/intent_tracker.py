@@ -50,7 +50,8 @@ class UserIntent:
     primary_goal: str
     explicit_requirements: list[str]
     implicit_requirements: list[str]
-    constraints: list[str]  # Things user said NOT to do
+    constraints: list[str]  # Explicit constraints user specified (DO NOT, don't, avoid, never)
+    implicit_constraints: list[str]  # Inferred constraints from context
     preferences: dict[str, str]  # Format, style, etc.
     original_prompt: str
     extracted_at: datetime = field(default_factory=datetime.now)
@@ -128,13 +129,12 @@ class IntentTracker:
     }
 
     # Constraint patterns (things NOT to do)
+    # Enhanced patterns that capture the constraint content more accurately
     CONSTRAINT_PATTERNS: ClassVar[list[str]] = [
-        r"don'?t\s+(\w+\s+){1,5}",
-        r"do\s+not\s+(\w+\s+){1,5}",
-        r"avoid\s+(\w+\s+){1,5}",
-        r"without\s+(\w+\s+){1,5}",
-        r"no\s+(\w+)",
-        r"never\s+(\w+\s+){1,5}",
+        r"(?:do\s+not|don't|dont)\s+(.+?)(?:\.|$)",
+        r"(?:never|avoid|skip)\s+(.+?)(?:\.|$)",
+        r"(?:without|no)\s+(\w+(?:\s+\w+)?)",
+        r"(?:except|excluding)\s+(.+?)(?:\.|$)",
     ]
 
     # Preference patterns
@@ -173,6 +173,7 @@ class IntentTracker:
                 explicit_requirements=[],
                 implicit_requirements=[],
                 constraints=[],
+                implicit_constraints=[],
                 preferences={},
                 original_prompt="",
             )
@@ -192,6 +193,9 @@ class IntentTracker:
         # Extract constraints (what NOT to do)
         constraints = self._extract_constraints(user_prompt)
 
+        # Infer implicit constraints from task context
+        implicit_constraints = self._infer_implicit_constraints(user_prompt)
+
         # Extract preferences
         preferences = self._extract_preferences(user_prompt)
 
@@ -201,6 +205,7 @@ class IntentTracker:
             explicit_requirements=explicit_reqs,
             implicit_requirements=implicit_reqs,
             constraints=constraints,
+            implicit_constraints=implicit_constraints,
             preferences=preferences,
             original_prompt=user_prompt,
         )
@@ -286,6 +291,40 @@ class IntentTracker:
             constraints.extend([m.strip() for m in matches if m.strip()])
 
         return constraints
+
+    def _infer_implicit_constraints(self, message: str) -> list[str]:
+        """Infer constraints that are implicit in the task.
+
+        Analyzes the message context to determine constraints the user
+        likely expects even if not explicitly stated.
+
+        Args:
+            message: The user's original message
+
+        Returns:
+            List of inferred constraint strings
+        """
+        implicit = []
+
+        # If user asks for "simple" solution, don't over-engineer
+        if re.search(r"\b(simple|basic|minimal|quick)\b", message, re.IGNORECASE):
+            implicit.append("Keep solution simple, don't over-engineer")
+
+        # If user specifies a language/framework, don't switch
+        lang_match = re.search(
+            r"\b(in\s+)?(python|javascript|typescript|rust|go|java)\b",
+            message,
+            re.IGNORECASE,
+        )
+        if lang_match:
+            lang = lang_match.group(2)
+            implicit.append(f"Use {lang}, don't switch to another language")
+
+        # If user mentions "existing" code, don't create new files unnecessarily
+        if re.search(r"\b(existing|current|this)\s+(code|file|project)\b", message, re.IGNORECASE):
+            implicit.append("Modify existing code, don't create new files unnecessarily")
+
+        return implicit
 
     def _extract_preferences(self, text: str) -> dict[str, str]:
         """Extract user preferences (format, style, etc.)."""
