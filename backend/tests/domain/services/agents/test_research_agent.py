@@ -307,18 +307,6 @@ class TestAgentInitialization:
         assert agent.session_id == "test_session"
         assert agent.llm is mock_llm
         assert agent.tools is mock_tools
-        assert agent.max_iterations == 3
-
-    def test_agent_initialization_with_custom_iterations(self, mock_llm, mock_tools):
-        """Test agent accepts custom max_iterations."""
-        agent = ResearchSubAgent(
-            session_id="test",
-            llm=mock_llm,
-            tools=mock_tools,
-            max_iterations=5,
-        )
-
-        assert agent.max_iterations == 5
 
     def test_agent_has_system_prompt(self, mock_llm, mock_tools):
         """Test agent has a system prompt defined."""

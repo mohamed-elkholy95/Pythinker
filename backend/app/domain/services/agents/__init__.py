@@ -52,6 +52,9 @@ from .requirement_extractor import (
     RequirementSet,
     extract_requirements,
 )
+
+# Task 2.3: Research Sub-Agent for wide research pattern
+from .research_agent import LLMProtocol, ResearchSubAgent, SearchToolProtocol
 from .smart_router import (
     RouteDecision,
     RoutingResult,
@@ -92,6 +95,8 @@ __all__ = [
     # P0: Intent Tracking
     "IntentTracker",
     "IntentTrackingResult",
+    # Task 2.3: Research Sub-Agent
+    "LLMProtocol",
     # Quick Wins: Model Routing
     "ModelRouter",
     "ModelTier",
@@ -108,8 +113,12 @@ __all__ = [
     # Quick Wins: Requirement Extraction
     "RequirementExtractor",
     "RequirementSet",
+    # Task 2.3: Research Sub-Agent
+    "ResearchSubAgent",
     "RouteDecision",
     "RoutingResult",
+    # Task 2.3: Research Sub-Agent
+    "SearchToolProtocol",
     "SemanticResponseCache",
     # P1: Smart Routing (LLM Call Reduction)
     "SmartRouter",
