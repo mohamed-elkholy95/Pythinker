@@ -8,10 +8,11 @@ hallucinations (wrong types, missing required params, invalid values).
 """
 
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from difflib import SequenceMatcher
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,75 @@ class ToolHallucinationDetector:
             return ToolResult(success=False, error=correction)
     """
 
+    # High-risk parameter patterns for semantic validation
+    # Maps function_name -> param_name -> list of regex patterns
+    HIGH_RISK_PATTERNS: ClassVar[dict[str, dict[str, list[str]]]] = {
+        "file_write": {
+            "file": [
+                r"^/etc/",  # System config files
+                r"^/usr/",  # System binaries
+                r"^/bin/",  # System binaries
+                r"^/sbin/",  # System admin binaries
+                r"\.env$",  # Environment files
+                r"/\.ssh/",  # SSH config
+                r"/\.aws/",  # AWS credentials
+            ],
+            "path": [
+                r"^/etc/",
+                r"^/usr/",
+                r"^/bin/",
+                r"^/sbin/",
+                r"\.env$",
+                r"/\.ssh/",
+                r"/\.aws/",
+            ],
+        },
+        "shell_exec": {
+            "command": [
+                r"rm\s+-rf\s+/",  # Dangerous rm
+                r"rm\s+-rf\s+\*",  # Dangerous rm wildcard
+                r">\s*/dev/",  # Device writes
+                r"sudo\s+",  # Privilege escalation
+                r"chmod\s+777",  # Overly permissive
+                r"mkfs\.",  # Filesystem format
+                r"dd\s+if=.*of=/dev/",  # Direct disk write
+                r":;\s*\(\)\s*\{",  # Fork bomb pattern
+            ],
+        },
+        "browser_goto": {
+            "url": [
+                r"^file://",  # Local file access
+                r"localhost.*admin",  # Admin panels
+                r"127\.0\.0\.1.*admin",  # Admin panels
+                r"0\.0\.0\.0",  # Bind to all interfaces
+            ],
+        },
+        "execute_command": {
+            "command": [
+                r"rm\s+-rf\s+/",
+                r"rm\s+-rf\s+\*",
+                r">\s*/dev/",
+                r"sudo\s+",
+                r"chmod\s+777",
+                r"mkfs\.",
+                r"dd\s+if=.*of=/dev/",
+                r":;\s*\(\)\s*\{",
+            ],
+        },
+        "run_terminal_cmd": {
+            "command": [
+                r"rm\s+-rf\s+/",
+                r"rm\s+-rf\s+\*",
+                r">\s*/dev/",
+                r"sudo\s+",
+                r"chmod\s+777",
+                r"mkfs\.",
+                r"dd\s+if=.*of=/dev/",
+                r":;\s*\(\)\s*\{",
+            ],
+        },
+    }
+
     def __init__(
         self,
         available_tools: list[str],
@@ -101,6 +171,56 @@ class ToolHallucinationDetector:
                      Each schema should have 'required' (list) and 'properties' (dict) keys.
         """
         self._tool_schemas = schemas
+
+    def validate_parameter_semantics(
+        self,
+        function_name: str,
+        param_name: str,
+        param_value: Any,
+        context: str | None = None,
+    ) -> ToolValidationResult:
+        """Validate parameter values are semantically reasonable.
+
+        Detects parameters that are syntactically valid but semantically wrong
+        or potentially dangerous.
+
+        Examples of semantic issues:
+        - file_path="/etc/passwd" when task is about user files
+        - command="rm -rf /" which is dangerous in any context
+        - url="file://..." for external research
+
+        Args:
+            function_name: Tool function being called
+            param_name: Parameter being validated
+            param_value: Value to validate
+            context: Optional task context for relevance checking
+
+        Returns:
+            ToolValidationResult with is_valid and optional error details
+        """
+        # Get patterns for this function and parameter
+        function_patterns = self.HIGH_RISK_PATTERNS.get(function_name, {})
+        param_patterns = function_patterns.get(param_name, [])
+
+        # Check value against each pattern
+        value_str = str(param_value)
+        for pattern in param_patterns:
+            if re.search(pattern, value_str, re.IGNORECASE):
+                context_msg = f" (task context: {context})" if context else ""
+                return ToolValidationResult(
+                    is_valid=False,
+                    error_message=(
+                        f"Parameter '{param_name}' value may be dangerous or inappropriate: "
+                        f"'{param_value}' matches risk pattern '{pattern}'.{context_msg}"
+                    ),
+                    error_type="semantic_violation",
+                    suggestions=[
+                        f"Please confirm this action is intended for the current task{context_msg}",
+                        "Consider using a safer alternative or more specific path/command",
+                    ],
+                )
+
+        return ToolValidationResult(is_valid=True)
 
     def validate_tool_call(
         self,
