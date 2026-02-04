@@ -834,7 +834,7 @@ async def summarize_node(state: PlanActState) -> dict[str, Any]:
         pending_events.append(done_event)
 
     # Optional context optimization after summary (Phase 3)
-    feature_flags = get_feature_flags()
+    # Reuse feature_flags from line 708 (get_feature_flags uses @lru_cache)
     if feature_flags.get("context_optimization") and executor:
         try:
             memory_manager = get_memory_manager()

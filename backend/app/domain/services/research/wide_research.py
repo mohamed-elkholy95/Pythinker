@@ -3,9 +3,12 @@
 import asyncio
 import logging
 from collections.abc import Callable
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from app.domain.models.research_task import ResearchStatus, ResearchTask
+
+if TYPE_CHECKING:
+    from app.domain.services.agents.critic_agent import CriticAgent
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +46,7 @@ class WideResearchOrchestrator:
         llm: LLMProtocol | None,
         max_concurrency: int = 10,
         on_progress: Callable[[ResearchTask], None] | None = None,
+        critic: "CriticAgent | None" = None,
     ):
         """
         Initialize the wide research orchestrator.
@@ -53,12 +57,14 @@ class WideResearchOrchestrator:
             llm: Language model for synthesis
             max_concurrency: Maximum number of parallel tasks
             on_progress: Optional callback for progress updates
+            critic: Optional CriticAgent for quality review of synthesis
         """
         self.session_id = session_id
         self.search_tool = search_tool
         self.llm = llm
         self.max_concurrency = max_concurrency
         self.on_progress = on_progress
+        self.critic = critic
         self._semaphore = asyncio.Semaphore(max_concurrency)
 
     async def decompose(
@@ -221,3 +227,63 @@ class WideResearchOrchestrator:
             return await self.llm.complete(prompt)
 
         return synthesis_input
+
+    async def synthesize_with_review(
+        self,
+        tasks: list[ResearchTask],
+        synthesis_prompt: str | None = None,
+        max_revisions: int = 2,
+    ) -> str:
+        """
+        Synthesize results with critic review loop.
+
+        Implements self-correction pattern:
+        1. Synthesize initial result
+        2. Critic reviews
+        3. If not approved, revise and re-review (up to max_revisions)
+
+        Args:
+            tasks: List of completed research tasks
+            synthesis_prompt: Optional prompt for LLM synthesis
+            max_revisions: Maximum number of revision attempts
+
+        Returns:
+            Synthesized research report (possibly revised)
+        """
+        result = await self.synthesize(tasks, synthesis_prompt)
+
+        if not self.critic:
+            return result
+
+        for _ in range(max_revisions):
+            review = await self.critic.review(
+                output=result,
+                task=synthesis_prompt or "Synthesize research findings",
+                criteria=["accuracy", "completeness", "coherence"],
+            )
+
+            if review.approved:
+                return result
+
+            # Revise based on feedback
+            if self.llm and review.issues:
+                revision_prompt = f"""
+The following synthesis was reviewed and needs improvement.
+
+## Original Synthesis
+{result}
+
+## Issues Found
+{chr(10).join(f"- {issue}" for issue in review.issues)}
+
+## Suggestions
+{chr(10).join(f"- {s}" for s in review.suggestions)}
+
+Please provide an improved synthesis addressing these issues.
+"""
+                result = await self.llm.complete(revision_prompt)
+            else:
+                # No LLM available for revision, return current result
+                break
+
+        return result

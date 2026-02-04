@@ -4,7 +4,6 @@ import logging
 import socket
 import uuid
 from typing import BinaryIO
-from urllib.parse import urlparse
 
 import docker
 import httpx
@@ -45,31 +44,24 @@ class DockerSandbox(Sandbox):
         """Resolve hostname to IP address synchronously
 
         Args:
-            address: Hostname, IP address, or URL
+            address: Hostname or IP address
 
         Returns:
             IP address
         """
-        # Extract hostname from URL if needed (e.g., "http://sandbox:8080" -> "sandbox")
-        hostname = address
-        if "://" in address:
-            parsed = urlparse(address)
-            hostname = parsed.hostname or address
-            logger.debug(f"Extracted hostname '{hostname}' from URL '{address}'")
-
         try:
             # Check if already an IP address
-            socket.inet_pton(socket.AF_INET, hostname)
-            return hostname
+            socket.inet_pton(socket.AF_INET, address)
+            return address
         except OSError:
             pass
 
         try:
             # Resolve hostname to IP
-            return socket.gethostbyname(hostname)
+            return socket.gethostbyname(address)
         except Exception as e:
-            logger.warning(f"Failed to resolve {hostname}, using as-is: {e}")
-            return hostname
+            logger.warning(f"Failed to resolve {address}, using as-is: {e}")
+            return address
 
     @property
     def id(self) -> str:
@@ -584,14 +576,12 @@ class DockerSandbox(Sandbox):
         Returns:
             File content as binary stream
         """
-        async with self.client.stream("GET", f"{self.base_url}/api/v1/file/download", params={"path": path}) as response:
-            response.raise_for_status()
-            # For now, still buffer for compatibility with BinaryIO return type
-            # True async streaming would require API changes
-            content = b""
-            async for chunk in response.aiter_bytes():
-                content += chunk
-            return io.BytesIO(content)
+        response = await self.client.get(f"{self.base_url}/api/v1/file/download", params={"path": path})
+        response.raise_for_status()
+
+        # Return the response content as a BinaryIO stream
+        # TODO: change to real stream
+        return io.BytesIO(response.content)
 
     # Workspace management methods
     async def workspace_init(
@@ -796,11 +786,11 @@ class DockerSandbox(Sandbox):
 
     @staticmethod
     @alru_cache(maxsize=128, typed=True)
-    async def _resolve_hostname_to_ip(address: str) -> str:
+    async def _resolve_hostname_to_ip(hostname: str) -> str:
         """Resolve hostname to IP address
 
         Args:
-            address: Hostname, IP address, or URL to resolve
+            hostname: Hostname to resolve
 
         Returns:
             Resolved IP address, or None if resolution fails
@@ -810,13 +800,6 @@ class DockerSandbox(Sandbox):
             The cache helps reduce repeated DNS lookups for the same hostname.
         """
         try:
-            # Extract hostname from URL if needed (e.g., "http://sandbox:8080" -> "sandbox")
-            hostname = address
-            if "://" in address:
-                parsed = urlparse(address)
-                hostname = parsed.hostname or address
-                logger.debug(f"Extracted hostname '{hostname}' from URL '{address}'")
-
             # First check if hostname is already in IP address format
             try:
                 socket.inet_pton(socket.AF_INET, hostname)
@@ -826,10 +809,8 @@ class DockerSandbox(Sandbox):
                 # Not a valid IP address format, proceed with DNS resolution
                 pass
 
-            # Use socket.getaddrinfo for DNS resolution (run in thread to avoid blocking)
-            addr_info = await asyncio.to_thread(
-                socket.getaddrinfo, hostname, None, socket.AF_INET
-            )
+            # Use socket.getaddrinfo for DNS resolution
+            addr_info = socket.getaddrinfo(hostname, None, family=socket.AF_INET)
             # Return the first IPv4 address found
             if addr_info and len(addr_info) > 0:
                 return addr_info[0][4][

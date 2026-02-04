@@ -24,16 +24,18 @@ from app.domain.models.event import (
     MessageEvent,
     PlanningPhase,
     ProgressEvent,
+    SearchToolContent,
     StreamEvent,
     ToolEvent,
     ToolStatus,
 )
 from app.domain.models.message import Message
+from app.domain.models.search import SearchResultItem
 
 if TYPE_CHECKING:
+    from app.domain.external.browser import Browser
     from app.domain.external.llm import LLM
     from app.domain.external.search import SearchEngine
-    from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +200,7 @@ class FastPathRouter:
 
     def __init__(
         self,
-        browser: "PlaywrightBrowser | None" = None,
+        browser: "Browser | None" = None,
         llm: "LLM | None" = None,
         search_engine: "SearchEngine | None" = None,
     ):
@@ -212,6 +214,27 @@ class FastPathRouter:
         self._browser = browser
         self._llm = llm
         self._search_engine = search_engine
+
+    def _get_browser_search_url(self, query: str) -> str:
+        """Get a browser-friendly search URL for the given query.
+
+        Uses SearXNG if configured (Docker internal), otherwise DuckDuckGo.
+        Avoids Google which blocks automated browser access.
+
+        Args:
+            query: Search query
+
+        Returns:
+            Search URL for browser navigation
+        """
+        settings = get_settings()
+
+        # Use SearXNG if configured (typically http://searxng:8080 in Docker)
+        if settings.searxng_url:
+            return f"{settings.searxng_url}/search?q={quote(query)}"
+
+        # Fall back to DuckDuckGo (doesn't block automation as aggressively as Google)
+        return f"https://duckduckgo.com/?q={quote(query)}"
 
     def classify(self, message: str) -> tuple[QueryIntent, dict[str, Any]]:
         """Classify query intent and extract relevant parameters.
@@ -311,8 +334,8 @@ class FastPathRouter:
                 logger.info(f"Resolved '{target}' via partial match to: {url}")
                 return url
 
-        # Fall back to Google search for the target
-        search_url = f"https://www.google.com/search?q={quote(target)}"
+        # Fall back to search for the target (use SearXNG or DuckDuckGo, not Google)
+        search_url = self._get_browser_search_url(target)
         logger.info(f"Resolved '{target}' to search URL: {search_url}")
         return search_url
 
@@ -473,24 +496,8 @@ class FastPathRouter:
 
         try:
             settings = get_settings()
-            # Use browser for search when search_prefer_browser is enabled (visible to user in sandbox)
-            if settings.search_prefer_browser and self._browser:
-                logger.info(f"Using browser search (visible in sandbox) for: {query}")
-                # Emit ToolEvent CALLED to close the calling state before browser search
-                yield ToolEvent(
-                    status=ToolStatus.CALLED,
-                    tool_call_id=tool_call_id,
-                    tool_name="search",
-                    function_name="info_search_web",
-                    function_args={"query": query},
-                    function_result={"success": True, "message": "Using browser search for visibility"},
-                )
-                # Use browser-based search so user can see activity in sandbox
-                search_url = f"https://www.google.com/search?q={quote(query)}"
-                async for event in self.execute_fast_browse(search_url):
-                    yield event
-                return
-
+            # Prefer API search (faster, more reliable) over browser search
+            # Browser content extraction has reliability issues
             if self._search_engine:
                 # Use search engine API directly (faster but invisible)
                 search_result = await self._search_engine.search(query)
@@ -503,14 +510,14 @@ class FastPathRouter:
 
                 if search_result.success and search_result.data and search_result.data.results:
                     # Normalize results to consistent format (limit to 5)
-                    results_list = []
+                    results_list: list[SearchResultItem] = []
                     for result in search_result.data.results[:5]:
                         results_list.append(
-                            {
-                                "title": result.title or "No title",
-                                "link": result.link or "",
-                                "snippet": result.snippet or "",
-                            }
+                            SearchResultItem(
+                                title=result.title or "No title",
+                                link=result.link or "",
+                                snippet=result.snippet or "",
+                            )
                         )
 
                     # Emit ToolEvent CALLED with structured results for frontend
@@ -520,17 +527,18 @@ class FastPathRouter:
                         tool_name="search",
                         function_name="info_search_web",
                         function_args={"query": query},
-                        function_result={"success": True, "results": results_list},
+                        function_result={"success": True, "results": [r.model_dump() for r in results_list]},
+                        tool_content=SearchToolContent(results=results_list),
                     )
 
                     # Also emit a MessageEvent for chat history display
                     response_parts = [f"**Search results for:** {query}\n"]
                     for i, result in enumerate(results_list, 1):
-                        response_parts.append(f"\n{i}. **{result['title']}**")
-                        if result["link"]:
-                            response_parts.append(f"   {result['link']}")
-                        if result["snippet"]:
-                            response_parts.append(f"   {result['snippet'][:200]}...")
+                        response_parts.append(f"\n{i}. **{result.title}**")
+                        if result.link:
+                            response_parts.append(f"   {result.link}")
+                        if result.snippet:
+                            response_parts.append(f"   {result.snippet[:200]}...")
 
                     yield MessageEvent(message="\n".join(response_parts))
                 else:
@@ -556,7 +564,7 @@ class FastPathRouter:
                     function_result={"success": False, "error": "Falling back to browser search"},
                 )
                 # Fall back to browser-based search
-                search_url = f"https://www.google.com/search?q={quote(query)}"
+                search_url = self._get_browser_search_url(query)
                 async for event in self.execute_fast_browse(search_url):
                     yield event
                 return
@@ -758,7 +766,7 @@ def should_use_fast_path(message: str) -> bool:
 
 
 def get_fast_path_router(
-    browser: "PlaywrightBrowser | None" = None,
+    browser: "Browser | None" = None,
     llm: "LLM | None" = None,
     search_engine: "SearchEngine | None" = None,
 ) -> FastPathRouter:

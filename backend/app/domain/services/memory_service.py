@@ -7,7 +7,6 @@ Provides high-level operations for:
 - Memory consolidation and cleanup
 """
 
-import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
@@ -31,28 +30,15 @@ from app.domain.models.long_term_memory import (
     MemoryUpdate,
 )
 from app.domain.repositories.memory_repository import MemoryRepository
-
-# Lazy import to avoid circular dependencies
-_qdrant_repo = None
+from app.domain.repositories.vector_memory_repository import get_vector_memory_repository
 
 if TYPE_CHECKING:
     from app.domain.models.memory import Memory
 
 
-def _get_qdrant_repo():
-    """Get QdrantMemoryRepository lazily."""
-    global _qdrant_repo
-    if _qdrant_repo is None:
-        try:
-            from app.infrastructure.repositories.qdrant_memory_repository import (
-                QdrantMemoryRepository,
-            )
-
-            _qdrant_repo = QdrantMemoryRepository()
-        except Exception as e:
-            logger.warning(f"Failed to initialize Qdrant repository: {e}")
-            _qdrant_repo = False  # Mark as unavailable
-    return _qdrant_repo if _qdrant_repo else None
+def _get_vector_repo():
+    """Get VectorMemoryRepository via domain singleton."""
+    return get_vector_memory_repository()
 
 
 logger = logging.getLogger(__name__)
@@ -190,7 +176,7 @@ class MemoryService:
         use_parallel = settings.feature_parallel_memory
 
         if use_parallel and embedding:
-            # Use parallel writes to MongoDB and Qdrant
+            # Use parallel writes to MongoDB and vector store
             created_memory = await self._store_memory_parallel(
                 memory=memory,
                 embedding=embedding,
@@ -202,12 +188,12 @@ class MemoryService:
             # Sequential writes (original behavior)
             created_memory = await self._repository.create(memory)
 
-            # Sync to Qdrant if embedding exists
+            # Sync to vector store if embedding exists
             if embedding:
-                qdrant_repo = _get_qdrant_repo()
-                if qdrant_repo:
+                vector_repo = _get_vector_repo()
+                if vector_repo:
                     try:
-                        await qdrant_repo.upsert_memory(
+                        await vector_repo.upsert_memory(
                             memory_id=created_memory.id,
                             user_id=created_memory.user_id,
                             embedding=embedding,
@@ -216,7 +202,7 @@ class MemoryService:
                             tags=tags,
                         )
                     except Exception as e:
-                        logger.warning(f"Failed to sync memory to Qdrant: {e}")
+                        logger.warning(f"Failed to sync memory to vector store: {e}")
 
         return created_memory
 
@@ -228,7 +214,7 @@ class MemoryService:
         importance: MemoryImportance,
         tags: list[str] | None,
     ) -> MemoryEntry:
-        """Store memory in parallel to MongoDB and Qdrant.
+        """Store memory in parallel to MongoDB and vector store.
 
         Phase 5 Enhancement: Uses TaskGroup for parallel writes to reduce
         total write latency.
@@ -250,9 +236,9 @@ class MemoryService:
         async def mongo_write() -> MemoryEntry:
             return await self._repository.create(memory)
 
-        # Create Qdrant write task (needs memory ID from MongoDB first for consistency)
+        # Create vector store write task (needs memory ID from MongoDB first for consistency)
         # For true parallelism, we generate a temp ID and update after
-        qdrant_repo = _get_qdrant_repo()
+        vector_repo = _get_vector_repo()
         mongo_result: MemoryEntry | None = None
         qdrant_error: Exception | None = None
 
@@ -260,10 +246,10 @@ class MemoryService:
             # First write to MongoDB to get the ID
             mongo_result = await self._repository.create(memory)
 
-            # Then write to Qdrant in parallel with any subsequent operations
-            if qdrant_repo:
+            # Then write to vector store in parallel with any subsequent operations
+            if vector_repo:
                 async def qdrant_write():
-                    await qdrant_repo.upsert_memory(
+                    await vector_repo.upsert_memory(
                         memory_id=mongo_result.id,
                         user_id=mongo_result.user_id,
                         embedding=embedding,
@@ -276,15 +262,15 @@ class MemoryService:
                     await qdrant_write()
                 except Exception as e:
                     qdrant_error = e
-                    logger.warning(f"Qdrant write failed in parallel: {e}")
+                    logger.warning(f"vector store write failed in parallel: {e}")
 
         except Exception as e:
             logger.error(f"MongoDB write failed: {e}")
             raise
 
         if qdrant_error:
-            # Log but don't fail - Qdrant is for search optimization
-            logger.warning(f"Memory created in MongoDB but Qdrant sync failed: {qdrant_error}")
+            # Log but don't fail - vector store is for search optimization
+            logger.warning(f"Memory created in MongoDB but vector store sync failed: {qdrant_error}")
 
         return mongo_result
 
@@ -402,8 +388,8 @@ class MemoryService:
     ) -> list[MemorySearchResult]:
         """Retrieve memories relevant to a context.
 
-        Uses Qdrant for fast vector search when available, with MongoDB fallback.
-        This is a hybrid approach: Qdrant handles vector similarity, MongoDB stores
+        Uses vector store for fast vector search when available, with MongoDB fallback.
+        This is a hybrid approach: vector store handles vector similarity, MongoDB stores
         full documents.
 
         Args:
@@ -416,15 +402,15 @@ class MemoryService:
         Returns:
             List of relevant memories with scores
         """
-        # Try Qdrant-based semantic search first
-        qdrant_repo = _get_qdrant_repo()
+        # Try vector store-based semantic search first
+        vector_repo = _get_vector_repo()
 
-        if self._llm and qdrant_repo:
+        if self._llm and vector_repo:
             try:
                 embedding = await self._generate_embedding(context)
 
-                # Use Qdrant for fast vector search (replaces 500-candidate MongoDB search)
-                qdrant_results = await qdrant_repo.search_similar(
+                # Use vector store for fast vector search (replaces 500-candidate MongoDB search)
+                vector_results = await vector_repo.search_similar(
                     user_id=user_id,
                     query_vector=embedding,
                     limit=limit,
@@ -432,9 +418,9 @@ class MemoryService:
                     memory_types=memory_types,
                 )
 
-                if qdrant_results:
+                if vector_results:
                     # Fetch full documents from MongoDB
-                    memory_ids = [r.memory_id for r in qdrant_results]
+                    memory_ids = [r.memory_id for r in vector_results]
                     memories = await self._repository.get_by_ids(memory_ids)
 
                     # Build lookup for fast matching
@@ -442,12 +428,12 @@ class MemoryService:
 
                     # Combine scores with full documents
                     results = []
-                    for qdrant_result in qdrant_results:
-                        memory = memory_lookup.get(qdrant_result.memory_id)
+                    for vector_result in vector_results:
+                        memory = memory_lookup.get(vector_result.memory_id)
                         if memory:
                             results.append(
                                 MemorySearchResult(
-                                    memory=memory, relevance_score=qdrant_result.relevance_score, match_type="semantic"
+                                    memory=memory, relevance_score=vector_result.relevance_score, match_type="semantic"
                                 )
                             )
                             # Record access
@@ -457,7 +443,7 @@ class MemoryService:
                         return results
 
             except Exception as e:
-                logger.warning(f"Qdrant search failed, falling back to MongoDB: {e}")
+                logger.warning(f"vector store search failed, falling back to MongoDB: {e}")
 
         # Fallback to MongoDB vector search (limited to 500 candidates)
         if self._llm:
@@ -766,7 +752,7 @@ class MemoryService:
         return await self._repository.get_stats(user_id)
 
     async def delete_memory(self, memory_id: str) -> bool:
-        """Delete a memory from both MongoDB and Qdrant.
+        """Delete a memory from both MongoDB and vector store.
 
         Args:
             memory_id: ID of memory to delete
@@ -774,19 +760,19 @@ class MemoryService:
         Returns:
             True if deleted successfully
         """
-        # Delete from Qdrant first
-        qdrant_repo = _get_qdrant_repo()
-        if qdrant_repo:
+        # Delete from vector store first
+        vector_repo = _get_vector_repo()
+        if vector_repo:
             try:
-                await qdrant_repo.delete_memory(memory_id)
+                await vector_repo.delete_memory(memory_id)
             except Exception as e:
-                logger.warning(f"Failed to delete memory from Qdrant: {e}")
+                logger.warning(f"Failed to delete memory from vector store: {e}")
 
         # Delete from MongoDB
         return await self._repository.delete(memory_id)
 
     async def delete_user_memories(self, user_id: str) -> int:
-        """Delete all memories for a user from both MongoDB and Qdrant.
+        """Delete all memories for a user from both MongoDB and vector store.
 
         Args:
             user_id: User whose memories to delete
@@ -794,13 +780,13 @@ class MemoryService:
         Returns:
             Number of memories deleted from MongoDB
         """
-        # Delete from Qdrant first
-        qdrant_repo = _get_qdrant_repo()
-        if qdrant_repo:
+        # Delete from vector store first
+        vector_repo = _get_vector_repo()
+        if vector_repo:
             try:
-                await qdrant_repo.delete_user_memories(user_id)
+                await vector_repo.delete_user_memories(user_id)
             except Exception as e:
-                logger.warning(f"Failed to delete user memories from Qdrant: {e}")
+                logger.warning(f"Failed to delete user memories from vector store: {e}")
 
         # Delete from MongoDB
         return await self._repository.delete_by_user(user_id)
@@ -922,7 +908,7 @@ class MemoryService:
                 logger.warning(f"Embedding API failed: {e}, using fallback")
 
         # Fallback: Simple hash-based embedding
-        # Note: Uses 1536 dimensions to match Qdrant collection config
+        # Note: Uses 1536 dimensions to match vector store collection config
         return self._compute_simple_embedding(text, dim=1536)
 
     def _compute_simple_embedding(self, text: str, dim: int = 256) -> list[float]:

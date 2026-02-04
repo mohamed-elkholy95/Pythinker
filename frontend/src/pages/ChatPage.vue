@@ -253,7 +253,6 @@ import { useI18n } from 'vue-i18n';
 import ChatBox from '../components/ChatBox.vue';
 import ChatMessage from '../components/ChatMessage.vue';
 import * as agentApi from '../api/agent';
-import { apiClient } from '../api/client';
 import { Message, MessageContent, ToolContent, StepContent, AttachmentsContent, ReportContent } from '../types/message';
 import {
   StepEventData,
@@ -293,7 +292,6 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
 import WaitingForReply from '@/components/WaitingForReply.vue';
 import { useSessionStatus } from '@/composables/useSessionStatus';
-import { useDeepResearch } from '@/composables/useDeepResearch';
 
 const router = useRouter()
 const { t } = useI18n()
@@ -302,7 +300,6 @@ const { showSessionFileList } = useSessionFileList()
 const { hideFilePanel } = useFilePanel()
 const { isReportModalOpen, currentReport, openReport, closeReport } = useReport()
 const { emitStatusChange } = useSessionStatus()
-const { toggleAutoRun: toggleDeepResearchAutoRun } = useDeepResearch()
 
 // Create initial state factory
 const createInitialState = () => ({
@@ -1011,7 +1008,8 @@ const handleDeepResearchSkip = async (_researchId: string, queryId?: string) => 
 
 // Handle toggle auto-run preference
 const handleToggleAutoRun = () => {
-  toggleDeepResearchAutoRun();
+  // TODO: Implement settings persistence
+  console.log('Toggle auto-run preference');
 };
 
 // Handle suggestion selection (user clicks a suggestion)
@@ -1046,20 +1044,9 @@ const handleAttachmentFileClick = (file: FileInfo) => {
 }
 
 // Handle report rate
-const handleReportRate = async (rating: number) => {
-  if (!currentReport.value) return;
-
-  try {
-    await apiClient.post('/ratings', {
-      session_id: sessionId.value,
-      report_id: currentReport.value.id,
-      rating,
-    });
-    showSuccessToast(t('Thanks for your feedback!'));
-  } catch (error) {
-    console.error('Failed to submit rating:', error);
-    showErrorToast(t('Failed to submit rating'));
-  }
+const handleReportRate = (rating: number) => {
+  console.log('Report rated:', rating);
+  // TODO: Send rating to backend
 }
 
 // Handle report download

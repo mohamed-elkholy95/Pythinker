@@ -318,6 +318,23 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Failed to seed skills (non-critical): {e}")
 
+        # Cleanup stale running sessions from previous crashes/restarts
+        try:
+            from app.application.services.maintenance_service import MaintenanceService
+
+            db = get_mongodb().client[settings.mongodb_database]
+            maintenance_service = MaintenanceService(db)
+            cleanup_result = await maintenance_service.cleanup_stale_running_sessions(
+                stale_threshold_minutes=5,  # Sessions running > 5 min during startup are stale
+                dry_run=False,
+            )
+            if cleanup_result["sessions_cleaned"] > 0:
+                logger.info(
+                    f"Cleaned up {cleanup_result['sessions_cleaned']} stale sessions from previous run"
+                )
+        except Exception as e:
+            logger.warning(f"Stale session cleanup failed (non-critical): {e}")
+
         # Initialize Redis
         await get_redis().initialize()
         _health_state["redis"] = True

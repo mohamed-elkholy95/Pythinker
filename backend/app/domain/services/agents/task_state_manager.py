@@ -380,6 +380,100 @@ class TaskStateManager:
         self._recent_actions = []
         logger.debug("TaskStateManager reset")
 
+    def recreate_from_comprehension(
+        self,
+        original_objective: str,
+        comprehension_summary: str,
+        new_steps: list[dict[str, Any]],
+        preserve_findings: bool = True,
+    ) -> TaskState:
+        """
+        Recreate task state after comprehending a long/complex message.
+
+        This allows the agent to first understand a complex request fully,
+        then recreate the task list with better-structured steps based on
+        that understanding.
+
+        Args:
+            original_objective: The user's original message/request
+            comprehension_summary: Agent's summarized understanding of the request
+            new_steps: New list of steps based on comprehension
+            preserve_findings: Whether to keep existing key findings
+
+        Returns:
+            New TaskState with recreated steps
+        """
+        old_findings = []
+        if preserve_findings and self._state:
+            old_findings = self._state.key_findings.copy()
+
+        # Create fresh state with comprehension context
+        self._state = TaskState(
+            objective=f"{original_objective}\n\n[Understood as: {comprehension_summary}]"
+            if comprehension_summary
+            else original_objective
+        )
+
+        # Add the new steps
+        for step in new_steps:
+            self._state.add_step(
+                description=step.get("description", ""),
+                status="pending",
+                step_id=str(step.get("id", "")),
+            )
+
+        # Preserve findings from previous work
+        for finding in old_findings:
+            self._state.add_finding(finding)
+
+        # Reset progress metrics
+        self._progress_metrics = ProgressMetrics(
+            steps_completed=0,
+            steps_remaining=len(new_steps),
+            total_steps=len(new_steps),
+            started_at=datetime.now(),
+        )
+
+        # Clear recent actions (fresh start)
+        self._recent_actions = []
+
+        logger.info(
+            f"TaskStateManager recreated with {len(new_steps)} steps after comprehension"
+        )
+        return self._state
+
+    def should_trigger_comprehension(self, message: str, threshold_chars: int = 500) -> bool:
+        """
+        Check if a message is long/complex enough to warrant a comprehension phase.
+
+        Args:
+            message: The user's input message
+            threshold_chars: Character threshold for triggering comprehension
+
+        Returns:
+            True if comprehension phase should be triggered
+        """
+        if len(message) < threshold_chars:
+            return False
+
+        # Additional complexity indicators
+        import re
+
+        # Count structured elements that indicate complex requirements
+        numbered_items = len(re.findall(r"(?:^|\n)\s*\d+[\.\)]\s", message))
+        bullet_items = len(re.findall(r"(?:^|\n)\s*[-*]\s", message))
+        sections = len(re.findall(r"(?:^|\n)\s*#+\s", message))  # Markdown headers
+
+        # Many structured items suggest complex requirements
+        if numbered_items >= 5 or bullet_items >= 5 or sections >= 3:
+            return True
+
+        # Long unstructured text also warrants comprehension
+        if len(message) > threshold_chars * 2:
+            return True
+
+        return len(message) >= threshold_chars
+
     # =========================================================================
     # Progress Metrics for Reflection (Phase 2)
     # =========================================================================

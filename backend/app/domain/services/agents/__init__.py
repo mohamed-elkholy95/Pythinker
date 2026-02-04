@@ -58,6 +58,9 @@ from .requirement_extractor import (
 
 # Task 2.3: Research Sub-Agent for wide research pattern
 from .research_agent import LLMProtocol, ResearchSubAgent, SearchToolProtocol
+
+# Task 9.1: Security Critic for code execution safety
+from .security_critic import RiskLevel, SecurityCritic, SecurityResult
 from .smart_router import (
     RouteDecision,
     RoutingResult,
@@ -110,9 +113,12 @@ __all__ = [
     "RequirementExtractor",
     "RequirementSet",
     "ResearchSubAgent",
+    "RiskLevel",
     "RouteDecision",
     "RoutingResult",
     "SearchToolProtocol",
+    "SecurityCritic",
+    "SecurityResult",
     "SemanticResponseCache",
     "SmartRouter",
     "StuckDetector",

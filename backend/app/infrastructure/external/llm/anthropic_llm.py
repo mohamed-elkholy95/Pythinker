@@ -363,6 +363,10 @@ class AnthropicLLM(LLM):
                         params["tool_choice"] = {"type": "none"}
                     # "auto" is the default
 
+                # Explicitly disable extended thinking to avoid reasoning_content errors
+                # When thinking is enabled, all assistant messages must include thinking blocks
+                params["thinking"] = {"type": "disabled"}
+
                 response = await self.client.messages.create(**params)
 
                 # Track usage if context is set
@@ -483,6 +487,9 @@ class AnthropicLLM(LLM):
 
         if tools:
             params["tools"] = self._convert_openai_tools_to_anthropic(tools)
+
+        # Explicitly disable extended thinking for streaming
+        params["thinking"] = {"type": "disabled"}
 
         completion_parts: list[str] = []
 

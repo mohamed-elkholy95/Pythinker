@@ -407,9 +407,7 @@ const handleEvent = (event: AgentSSEEvent) => {
   } else if (event.event === 'done') {
     //isLoading.value = false;
   } else if (event.event === 'wait') {
-    // Wait event indicates agent is paused awaiting user input
-    // The UI already shows appropriate waiting states
-    console.debug('Agent waiting for user input');
+    // TODO: handle wait event
   } else if (event.event === 'error') {
     handleErrorEvent(event.data as ErrorEventData);
   } else if (event.event === 'title') {

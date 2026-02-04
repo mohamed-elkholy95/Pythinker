@@ -3,23 +3,21 @@
   <p v-if="isInlineMessageTool && tool.args?.text" class="text-[var(--text-secondary)] text-[14px] overflow-hidden text-ellipsis whitespace-pre-line">
     {{ tool.args.text }}
   </p>
-  <!-- Standard tool display (rendered as interactive chip) -->
+  <!-- Standard tool display (rendered as interactive chip - Manus-style) -->
   <div v-else-if="toolInfo" class="flex items-center group gap-2">
     <div class="flex-1 min-w-0">
       <div @click="handleClick"
-        class="rounded-[20px] items-center gap-[6px] px-[10px] py-[4px] inline-flex max-w-full clickable hover:bg-[var(--fill-tsp-gray-dark)] dark:hover:bg-white/[0.02]"
+        class="rounded-[20px] items-center gap-[8px] px-[12px] py-[6px] inline-flex max-w-full clickable hover:bg-[var(--fill-tsp-gray-dark)] dark:hover:bg-white/[0.04]"
         :class="props.isActive && tool.status === 'calling' ? 'tool-shimmer' : 'bg-[var(--fill-tsp-gray-main)]'">
-        <div class="w-[16px] h-[16px] inline-flex items-center justify-center text-[var(--text-secondary)]">
-          <component :is="toolInfo.icon" :size="16" />
+        <!-- Circle icon container -->
+        <div class="w-[20px] h-[20px] rounded-full bg-[var(--fill-tsp-gray-dark)] dark:bg-white/[0.08] inline-flex items-center justify-center flex-shrink-0">
+          <component :is="toolInfo.icon" :size="12" class="text-[var(--text-secondary)]" />
         </div>
-        <div class="flex-1 h-full min-w-0 flex">
-          <div
-            class="inline-flex items-center h-full text-[13px] text-[var(--text-secondary)] max-w-[100%]">
-            <div class="max-w-[100%] text-ellipsis overflow-hidden whitespace-nowrap"
-              :title="`${toolInfo.function} ${toolInfo.functionArg}`">
-              <span class="font-medium">{{ toolInfo.function }}</span>
-              <span v-if="toolInfo.functionArg" class="ml-1 font-mono text-[var(--text-tertiary)]">{{ toolInfo.functionArg }}</span>
-            </div>
+        <!-- Human-readable description -->
+        <div class="flex-1 h-full min-w-0">
+          <div class="text-[13px] text-[var(--text-primary)] max-w-[100%] text-ellipsis overflow-hidden whitespace-nowrap"
+            :title="toolInfo.description">
+            {{ toolInfo.description }}
           </div>
         </div>
       </div>

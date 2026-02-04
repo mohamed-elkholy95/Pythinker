@@ -359,7 +359,7 @@ class AgentBenchmarks:
         start = time.perf_counter()
 
         try:
-            from app.infrastructure.external.cache import get_cache
+            from app.domain.external.cache import get_cache
 
             cache = get_cache()
 

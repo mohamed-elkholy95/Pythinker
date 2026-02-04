@@ -25,8 +25,8 @@ from app.domain.services.agents.memory.semantic_compressor import SemanticCompre
 from app.domain.services.agents.memory.temporal_compressor import TemporalCompressor
 
 if TYPE_CHECKING:
+    from app.domain.external.file import FileStorage
     from app.domain.external.llm import LLM
-    from app.infrastructure.storage.file_storage import FileStorage
 
 logger = logging.getLogger(__name__)
 

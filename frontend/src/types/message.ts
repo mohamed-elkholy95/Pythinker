@@ -49,6 +49,10 @@ export interface ToolContent extends BaseContent {
   args: any;
   content?: any;
   status: "calling" | "called";
+  // Display metadata (Manus-style human-readable descriptions)
+  display_command?: string;      // Full human-readable description: "Search for OpenRouter free tier LLM models"
+  command_category?: string;     // Category: "search", "browse", "file", "shell", etc.
+  command_summary?: string;      // Short summary for badges
   // Action/observation metadata
   action_type?: string;
   observation_type?: string;

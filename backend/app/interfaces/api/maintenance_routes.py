@@ -36,6 +36,17 @@ class CleanupResponse(BaseModel):
     timestamp: str
 
 
+class StaleSessionCleanupResponse(BaseModel):
+    """Response schema for stale session cleanup operations"""
+
+    dry_run: bool
+    stale_threshold_minutes: int
+    sessions_cleaned: int
+    sessions_marked_failed: list
+    errors: list
+    timestamp: str
+
+
 class SessionHealthResponse(BaseModel):
     """Response schema for session health check"""
 
@@ -118,6 +129,62 @@ async def preview_attachment_cleanup(session_id: str | None = Query(None, descri
         service = MaintenanceService(db)
         result = await service.cleanup_invalid_attachments(session_id=session_id, dry_run=True)
         return CleanupResponse(**result)
+    except Exception as e:
+        logger.exception(f"Preview operation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/cleanup/stale-sessions", response_model=StaleSessionCleanupResponse)
+async def cleanup_stale_running_sessions(
+    stale_threshold_minutes: int = Query(30, description="Sessions running longer than this are considered stale"),
+    dry_run: bool = Query(True, description="If true, only reports what would be cleaned"),
+):
+    """
+    Clean up sessions stuck in "running" or "initializing" status.
+
+    Sessions can become stuck if the backend crashes or restarts during processing.
+    This marks them as failed so users can start new sessions.
+
+    **Important:** Set `dry_run=false` to actually perform the cleanup.
+    Default is dry_run=true for safety.
+
+    Args:
+        stale_threshold_minutes: Sessions running longer than this are considered stale (default: 30).
+        dry_run: If true (default), only reports what would be cleaned without making changes.
+
+    Returns:
+        Statistics about the cleanup operation including affected sessions.
+    """
+    try:
+        settings = get_settings()
+        db = get_mongodb().client[settings.mongodb_database]
+        service = MaintenanceService(db)
+        result = await service.cleanup_stale_running_sessions(
+            stale_threshold_minutes=stale_threshold_minutes,
+            dry_run=dry_run,
+        )
+        return StaleSessionCleanupResponse(**result)
+    except Exception as e:
+        logger.exception(f"Stale session cleanup failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/cleanup/stale-sessions/preview", response_model=StaleSessionCleanupResponse)
+async def preview_stale_session_cleanup(
+    stale_threshold_minutes: int = Query(30, description="Sessions running longer than this are considered stale"),
+):
+    """
+    Preview stale sessions that would be cleaned without making changes.
+    """
+    try:
+        settings = get_settings()
+        db = get_mongodb().client[settings.mongodb_database]
+        service = MaintenanceService(db)
+        result = await service.cleanup_stale_running_sessions(
+            stale_threshold_minutes=stale_threshold_minutes,
+            dry_run=True,
+        )
+        return StaleSessionCleanupResponse(**result)
     except Exception as e:
         logger.exception(f"Preview operation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e)) from e

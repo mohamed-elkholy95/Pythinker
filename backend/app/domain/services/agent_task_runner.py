@@ -143,7 +143,7 @@ class AgentTaskRunner(TaskRunner):
         self._file_before_cache: dict[str, str] = {}
         self._pending_tool_calls: dict[str, dict] = {}
 
-        # Tool event handler for metadata enrichment
+        # Tool event handler for action/observation metadata enrichment
         self._tool_event_handler = ToolEventHandler()
 
         # Initialize flows based on mode
@@ -677,14 +677,19 @@ class AgentTaskRunner(TaskRunner):
         except Exception as e:
             logger.debug(f"Failed to record tool usage for Agent {self._agent_id}: {e}")
 
-    async def _handle_tool_event(self, event: ToolEvent):
-        """Generate tool content and enrich event with metadata."""
+    async def _handle_tool_event(self, event: ToolEvent) -> None:
+        """Enrich tool event with metadata and generate tool content.
+
+        Uses ToolEventHandler for action/observation metadata enrichment,
+        then handles async tool-specific content generation.
+        """
         try:
-            # Enrich event with action metadata (action_type, command, cwd, file_path)
+            # Enrich action metadata using ToolEventHandler (action_type, command, cwd, file_path)
             self._tool_event_handler.enrich_action_metadata(event)
 
             if event.status == ToolStatus.CALLED and event.tool_name != "message":
                 await self._record_tool_call_usage()
+
             # Handle CALLING status for streaming preview (file_write shows content being generated)
             if event.status == ToolStatus.CALLING:
                 # Track tool start time for duration measurement
@@ -707,7 +712,7 @@ class AgentTaskRunner(TaskRunner):
                         "awaiting_confirmation",
                     )
 
-                # Cache original file content for diff generation
+                # Cache original file content for diff generation (use handler's helper)
                 if self._tool_event_handler.needs_file_cache(event):
                     file_path = event.function_args.get("file")
                     if file_path:
@@ -720,7 +725,7 @@ class AgentTaskRunner(TaskRunner):
                         except Exception:
                             self._file_before_cache[event.tool_call_id] = ""
 
-                # Show preview content for streaming UI
+                # Show the content being written for streaming preview
                 if self._tool_event_handler.needs_preview_content(event):
                     content = event.function_args.get("content", "")
                     if content:
@@ -732,10 +737,9 @@ class AgentTaskRunner(TaskRunner):
                 if start_time is not None:
                     event.duration_ms = int((time.perf_counter() - start_time) * 1000)
 
-                # Enrich event with observation metadata (observation_type)
+                # Enrich observation metadata using ToolEventHandler
                 self._tool_event_handler.enrich_observation_metadata(event)
 
-                # Generate tool-specific content
                 if event.tool_name == "browser":
                     # Extract page content from function result if available
                     page_content = None
@@ -764,6 +768,7 @@ class AgentTaskRunner(TaskRunner):
                             page_content = str(data) if data else ""
                     event.tool_content = BrowserToolContent(content=page_content)
                 elif event.tool_name == "shell":
+                    # observation_type set by ToolEventHandler
                     if event.function_result and hasattr(event.function_result, "data"):
                         data = event.function_result.data or {}
                         if isinstance(data, dict):
@@ -775,6 +780,7 @@ class AgentTaskRunner(TaskRunner):
                     else:
                         event.tool_content = ShellToolContent(console="(No Console)")
                 elif event.tool_name == "file":
+                    # observation_type set by ToolEventHandler
                     if "file" in event.function_args:
                         file_path = event.function_args["file"]
                         # Read file and sync to storage concurrently
@@ -838,6 +844,7 @@ class AgentTaskRunner(TaskRunner):
                     # message tool events don't need tool_content
                     logger.debug("Processing message tool event")
                 elif event.tool_name == "code_executor":
+                    # observation_type set by ToolEventHandler
                     # Code execution output shown in terminal-like view
                     if event.function_result and hasattr(event.function_result, "data"):
                         data = event.function_result.data
