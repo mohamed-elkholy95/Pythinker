@@ -292,6 +292,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
 import WaitingForReply from '@/components/WaitingForReply.vue';
 import { useSessionStatus } from '@/composables/useSessionStatus';
+import { useDeepResearch } from '@/composables/useDeepResearch';
 
 const router = useRouter()
 const { t } = useI18n()
@@ -300,6 +301,7 @@ const { showSessionFileList } = useSessionFileList()
 const { hideFilePanel } = useFilePanel()
 const { isReportModalOpen, currentReport, openReport, closeReport } = useReport()
 const { emitStatusChange } = useSessionStatus()
+const { toggleAutoRun: toggleDeepResearchAutoRun } = useDeepResearch()
 
 // Create initial state factory
 const createInitialState = () => ({
@@ -1008,8 +1010,7 @@ const handleDeepResearchSkip = async (_researchId: string, queryId?: string) => 
 
 // Handle toggle auto-run preference
 const handleToggleAutoRun = () => {
-  // TODO: Implement settings persistence
-  console.log('Toggle auto-run preference');
+  toggleDeepResearchAutoRun();
 };
 
 // Handle suggestion selection (user clicks a suggestion)
