@@ -9,6 +9,8 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from typing import Any
 
+from app.domain.repositories.analytics_repository import get_analytics_repository
+
 logger = logging.getLogger(__name__)
 
 
@@ -25,15 +27,16 @@ class PatternDetector:
             List of failure patterns with frequency and examples
         """
         from app.domain.services.analyzers.root_cause_analyzer import get_root_cause_analyzer
-        from app.infrastructure.models.documents import SessionDocument
+
+        analytics_repo = get_analytics_repository()
+        if not analytics_repo:
+            logger.warning("Analytics repository not configured")
+            return []
 
         cutoff_date = datetime.now() - timedelta(days=days)
 
         # Get failed sessions
-        failed_sessions = await SessionDocument.find(
-            SessionDocument.status == "error",
-            SessionDocument.updated_at >= cutoff_date,
-        ).to_list()
+        failed_sessions = await analytics_repo.get_failed_sessions(cutoff_date, limit=100)
 
         if not failed_sessions:
             return []
@@ -44,7 +47,7 @@ class PatternDetector:
         cause_counts: Counter = Counter()
         cause_examples: defaultdict = defaultdict(list)
 
-        for session in failed_sessions[:100]:  # Limit to 100 most recent
+        for session in failed_sessions:
             try:
                 root_cause = await analyzer.analyze_failed_session(session.session_id)
                 cause_counts[root_cause.cause_type] += 1
@@ -80,14 +83,14 @@ class PatternDetector:
         Returns:
             List of tool correlation patterns
         """
-        from app.infrastructure.models.documents import ToolExecutionDocument
+        analytics_repo = get_analytics_repository()
+        if not analytics_repo:
+            logger.warning("Analytics repository not configured")
+            return []
 
         # Get recent failed tool executions
         cutoff_date = datetime.now() - timedelta(days=7)
-        failed_executions = await ToolExecutionDocument.find(
-            ToolExecutionDocument.success == False,  # noqa: E712
-            ToolExecutionDocument.started_at >= cutoff_date,
-        ).to_list()
+        failed_executions = await analytics_repo.get_failed_tool_executions(cutoff_date, limit=500)
 
         if not failed_executions:
             return []
@@ -127,15 +130,19 @@ class PatternDetector:
         Returns:
             Mode selection accuracy metrics
         """
-        from app.infrastructure.models.documents import AgentDecisionDocument
+        analytics_repo = get_analytics_repository()
+        if not analytics_repo:
+            logger.warning("Analytics repository not configured")
+            return {
+                "total_decisions": 0,
+                "accuracy": 0.0,
+                "errors": 0,
+            }
 
         cutoff_date = datetime.now() - timedelta(days=7)
 
         # Get mode selection decisions
-        mode_decisions = await AgentDecisionDocument.find(
-            AgentDecisionDocument.decision_type == "mode_selection",
-            AgentDecisionDocument.timestamp >= cutoff_date,
-        ).to_list()
+        mode_decisions = await analytics_repo.get_mode_selection_decisions(cutoff_date, limit=500)
 
         if not mode_decisions:
             return {
@@ -177,12 +184,15 @@ class PatternDetector:
         Returns:
             Performance trend metrics
         """
-        from app.infrastructure.models.documents import SessionDocument, ToolExecutionDocument
+        analytics_repo = get_analytics_repository()
+        if not analytics_repo:
+            logger.warning("Analytics repository not configured")
+            return {}
 
         cutoff_date = datetime.now() - timedelta(days=days)
 
         # Get sessions
-        sessions = await SessionDocument.find(SessionDocument.updated_at >= cutoff_date).to_list()
+        sessions = await analytics_repo.get_sessions_since(cutoff_date, limit=500)
 
         if not sessions:
             return {}
@@ -193,12 +203,11 @@ class PatternDetector:
         success_rate = (total_sessions - failed_sessions) / total_sessions if total_sessions > 0 else 0
 
         # Get tool executions
-        tool_executions = await ToolExecutionDocument.find(ToolExecutionDocument.started_at >= cutoff_date).to_list()
+        tool_executions = await analytics_repo.get_tool_executions_since(cutoff_date, limit=1000)
 
         if tool_executions:
-            avg_duration = sum(t.duration_ms for t in tool_executions if t.duration_ms) / len(
-                [t for t in tool_executions if t.duration_ms]
-            )
+            durations = [t.duration_ms for t in tool_executions if t.duration_ms]
+            avg_duration = sum(durations) / len(durations) if durations else 0
 
             tool_success_rate = sum(1 for t in tool_executions if t.success) / len(tool_executions)
         else:

@@ -99,6 +99,8 @@ export function useTimeline(
   })
 
   const progress = computed(() => {
+    // In live mode, always show progress at 100% (end of timeline)
+    if (mode.value === 'live') return 100
     if (duration.value === 0) return 0
     return (currentTime.value / duration.value) * 100
   })

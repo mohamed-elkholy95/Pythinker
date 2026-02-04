@@ -10,6 +10,13 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel
 
+from app.domain.repositories.analytics_repository import (
+    AgentDecisionAnalytics,
+    ToolExecutionAnalytics,
+    WorkflowStateAnalytics,
+    get_analytics_repository,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,30 +56,23 @@ class RootCauseAnalyzer:
         Returns:
             RootCause with analysis results
         """
-        from app.infrastructure.models.documents import (
-            AgentDecisionDocument,
-            ToolExecutionDocument,
-            WorkflowStateDocument,
-        )
+        analytics_repo = get_analytics_repository()
+        if not analytics_repo:
+            logger.warning("Analytics repository not configured")
+            return RootCause(
+                cause_type="unknown",
+                description="Analytics repository not available",
+                confidence=0.0,
+                contributing_factors=[],
+                recommended_fix="Configure analytics repository",
+                session_id=session_id,
+                analyzed_at=datetime.now(),
+            )
 
         # Gather all relevant data
-        decisions = (
-            await AgentDecisionDocument.find(AgentDecisionDocument.session_id == session_id)
-            .sort("+timestamp")
-            .to_list()
-        )
-
-        tool_executions = (
-            await ToolExecutionDocument.find(ToolExecutionDocument.session_id == session_id)
-            .sort("+started_at")
-            .to_list()
-        )
-
-        workflow_states = (
-            await WorkflowStateDocument.find(WorkflowStateDocument.session_id == session_id)
-            .sort("+timestamp")
-            .to_list()
-        )
+        decisions = await analytics_repo.get_agent_decisions_for_session(session_id)
+        tool_executions = await analytics_repo.get_tool_executions_for_session(session_id)
+        workflow_states = await analytics_repo.get_workflow_states_for_session(session_id)
 
         # Check for patterns
         patterns = {
@@ -107,11 +107,11 @@ class RootCauseAnalyzer:
             analyzed_at=datetime.now(),
         )
 
-    def _check_tool_failure_cascade(self, tool_executions: list[Any]) -> float:
+    def _check_tool_failure_cascade(self, tool_executions: list[ToolExecutionAnalytics]) -> float:
         """Check for cascading tool failures.
 
         Args:
-            tool_executions: List of tool execution documents
+            tool_executions: List of tool execution analytics
 
         Returns:
             Confidence score (0.0-1.0)
@@ -134,11 +134,11 @@ class RootCauseAnalyzer:
 
         return min(failure_rate * 0.5 + cascade_score * 0.5, 1.0)
 
-    def _check_stuck_loop(self, workflow_states: list[Any]) -> float:
+    def _check_stuck_loop(self, workflow_states: list[WorkflowStateAnalytics]) -> float:
         """Check for stuck verification loops.
 
         Args:
-            workflow_states: List of workflow state documents
+            workflow_states: List of workflow state analytics
 
         Returns:
             Confidence score (0.0-1.0)
@@ -160,11 +160,11 @@ class RootCauseAnalyzer:
 
         return 0.0
 
-    def _check_resource_exhaustion(self, tool_executions: list[Any]) -> float:
+    def _check_resource_exhaustion(self, tool_executions: list[ToolExecutionAnalytics]) -> float:
         """Check for resource exhaustion.
 
         Args:
-            tool_executions: List of tool execution documents
+            tool_executions: List of tool execution analytics
 
         Returns:
             Confidence score (0.0-1.0)
@@ -172,7 +172,9 @@ class RootCauseAnalyzer:
         if not tool_executions:
             return 0.0
 
-        high_cpu_count = sum(1 for t in tool_executions if t.container_cpu_percent and t.container_cpu_percent > 90)
+        high_cpu_count = sum(
+            1 for t in tool_executions if t.container_cpu_percent and t.container_cpu_percent > 90
+        )
 
         high_memory_count = sum(
             1
@@ -185,11 +187,11 @@ class RootCauseAnalyzer:
 
         return 0.0
 
-    def _check_wrong_mode(self, decisions: list[Any]) -> float:
+    def _check_wrong_mode(self, decisions: list[AgentDecisionAnalytics]) -> float:
         """Check for wrong mode selection.
 
         Args:
-            decisions: List of decision documents
+            decisions: List of decision analytics
 
         Returns:
             Confidence score (0.0-1.0)
@@ -209,11 +211,11 @@ class RootCauseAnalyzer:
 
         return 0.0
 
-    def _check_token_budget(self, workflow_states: list[Any]) -> float:
+    def _check_token_budget(self, workflow_states: list[WorkflowStateAnalytics]) -> float:
         """Check for token budget issues.
 
         Args:
-            workflow_states: List of workflow state documents
+            workflow_states: List of workflow state analytics
 
         Returns:
             Confidence score (0.0-1.0)
@@ -231,9 +233,9 @@ class RootCauseAnalyzer:
     def _generate_description(
         self,
         cause_type: str,
-        tool_executions: list[Any],
-        workflow_states: list[Any],
-        decisions: list[Any],
+        tool_executions: list[ToolExecutionAnalytics],
+        workflow_states: list[WorkflowStateAnalytics],
+        decisions: list[AgentDecisionAnalytics],
     ) -> str:
         """Generate human-readable description of root cause.
 
@@ -246,12 +248,17 @@ class RootCauseAnalyzer:
         Returns:
             Description string
         """
+        failure_count = len([t for t in tool_executions if not t.success])
+        total_executions = len(tool_executions)
+        max_loops = max((s.verification_loops for s in workflow_states), default=0)
+        critical_count = sum(1 for s in workflow_states if s.context_pressure == "critical")
+
         descriptions = {
-            "tool_failure_cascade": f"Multiple consecutive tool failures detected ({len([t for t in tool_executions if not t.success])} failures out of {len(tool_executions)} executions)",
-            "stuck_verification_loop": f"Agent stuck in verification loop (max {max((s.verification_loops for s in workflow_states), default=0)} loops)",
+            "tool_failure_cascade": f"Multiple consecutive tool failures detected ({failure_count} failures out of {total_executions} executions)",
+            "stuck_verification_loop": f"Agent stuck in verification loop (max {max_loops} loops)",
             "resource_exhaustion": "Container resource limits exceeded during execution",
             "wrong_mode_selection": "Task routed to incorrect agent mode",
-            "token_budget_exceeded": f"Context token limit critically exceeded ({sum(1 for s in workflow_states if s.context_pressure == 'critical')} critical events)",
+            "token_budget_exceeded": f"Context token limit critically exceeded ({critical_count} critical events)",
         }
 
         return descriptions.get(

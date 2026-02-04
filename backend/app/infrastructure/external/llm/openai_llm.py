@@ -27,7 +27,22 @@ logger = logging.getLogger(__name__)
 class OpenAILLM(LLM):
     def __init__(self):
         settings = get_settings()
-        self.client = AsyncOpenAI(api_key=settings.api_key, base_url=settings.api_base)
+
+        # Detect if using Kimi Code API and add required headers
+        default_headers = None
+        if settings.api_base and "kimi.com" in settings.api_base:
+            # Kimi Code API requires User-Agent from recognized coding agents
+            default_headers = {
+                "User-Agent": "claude-code/1.0",
+                "X-Client-Name": "claude-code",
+            }
+            logger.info("Detected Kimi Code API, adding required headers")
+
+        self.client = AsyncOpenAI(
+            api_key=settings.api_key,
+            base_url=settings.api_base,
+            default_headers=default_headers,
+        )
 
         self._model_name = settings.model_name
         self._temperature = settings.temperature

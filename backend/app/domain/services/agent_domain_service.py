@@ -14,7 +14,7 @@ from app.domain.external.search import SearchEngine
 from app.domain.external.task import Task
 from app.domain.models.event import AgentEvent, BaseEvent, DoneEvent, ErrorEvent, MessageEvent, WaitEvent
 from app.domain.models.file import FileInfo
-from app.domain.models.session import Session, SessionStatus
+from app.domain.models.session import AgentMode, Session, SessionStatus
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.mcp_repository import MCPRepository
 from app.domain.repositories.session_repository import SessionRepository
@@ -275,6 +275,85 @@ class AgentDomainService:
             logger.warning(f"Failed to apply skill triggers: {e}")
             # Return original skills on error
             return user_skills or [], []
+
+    async def _classify_intent_with_context(
+        self,
+        message: str,
+        session: Session,
+        attachments: list[dict] | None = None,
+        skills: list[str] | None = None,
+    ) -> AgentMode | None:
+        """Classify intent with context and return recommended mode if different from current.
+
+        Uses the IntentClassifier's context-aware classification to consider:
+        - Attachments (images force AGENT mode, documents force AGENT mode)
+        - URLs in the message
+        - Available skills
+        - Conversation context (follow-up detection)
+
+        Args:
+            message: User message to classify
+            session: Current session for mode and context
+            attachments: Optional attachments from the message
+            skills: Optional skills to consider
+
+        Returns:
+            AgentMode if mode should change, None if current mode is appropriate
+        """
+        try:
+            from app.domain.services.agents.intent_classifier import (
+                ClassificationContext,
+                get_intent_classifier,
+            )
+
+            classifier = get_intent_classifier()
+
+            # Build classification context from message and session
+            context = ClassificationContext(
+                attachments=[
+                    {
+                        "mime_type": att.get("content_type", ""),
+                        "filename": att.get("filename", ""),
+                        "type": att.get("type", ""),
+                    }
+                    for att in (attachments or [])
+                ],
+                available_skills=skills or [],
+                conversation_length=len(session.events) if session.events else 0,
+                is_follow_up=bool(session.events),
+                urls=classifier.extract_urls(message),
+                mcp_tools=[],  # MCP tools could be added here if needed
+            )
+
+            # Classify with context
+            result = classifier.classify_with_context(message, context)
+
+            logger.debug(
+                "Context-aware intent classification",
+                extra={
+                    "message_preview": message[:50],
+                    "current_mode": session.mode.value,
+                    "recommended_mode": result.mode.value,
+                    "intent": result.intent,
+                    "confidence": result.confidence,
+                    "reasons": result.reasons,
+                    "context_signals": result.context_signals,
+                },
+            )
+
+            # Return recommended mode if different from current and confidence is high
+            if result.mode != session.mode and result.confidence >= 0.75:
+                logger.info(
+                    f"Intent classification suggests mode change: {session.mode.value} -> {result.mode.value} "
+                    f"(intent={result.intent}, confidence={result.confidence:.2f})"
+                )
+                return result.mode
+
+            return None
+
+        except Exception as e:
+            logger.warning(f"Context-aware intent classification failed: {e}")
+            return None
 
     async def _resolve_user_attachments(self, attachments: list[dict] | None, user_id: str) -> list[FileInfo] | None:
         """Resolve attachment metadata so UI can display accurate info (size/type)."""
@@ -540,6 +619,24 @@ IMPORTANT: The browser state may have changed. Before continuing:
                         )
                         return
                 else:
+                    # Context-aware intent classification to determine if mode should change
+                    # This considers attachments, URLs, skills, and conversation context
+                    recommended_mode = await self._classify_intent_with_context(
+                        message=message,
+                        session=session,
+                        attachments=attachments,
+                        skills=skills,
+                    )
+
+                    # Update session mode if classification recommends a change
+                    if recommended_mode is not None and recommended_mode != session.mode:
+                        logger.info(
+                            f"Session {session_id} mode changed by intent classification: "
+                            f"{session.mode.value} -> {recommended_mode.value}"
+                        )
+                        session.mode = recommended_mode
+                        await self._session_repository.update_mode(session_id, recommended_mode)
+
                     # Use session-level lock to prevent concurrent task creation
                     # This prevents race conditions when fast prompts arrive before
                     # the first task is fully initialized

@@ -12,6 +12,15 @@
         class="relative flex items-center rounded-[12px] overflow-hidden bg-[var(--bolt-elements-bg-depth-2)] p-3 ltr:rounded-br-none rtl:rounded-bl-none border border-[var(--bolt-elements-borderColor)]"
         v-html="renderMarkdown(messageContent.content)">
       </div>
+      <!-- Copy button - appears on hover in bottom right corner -->
+      <button
+        @click="handleCopyUserMessage"
+        class="absolute bottom-2 right-2 p-1.5 rounded-md bg-[var(--background-white-main)] border border-[var(--border-main)] shadow-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-[var(--fill-tsp-gray-main)]"
+        :title="copied ? 'Copied!' : 'Copy message'"
+      >
+        <Check v-if="copied" :size="14" class="text-green-500" />
+        <Copy v-else :size="14" class="text-[var(--icon-secondary)]" />
+      </button>
     </div>
   </div>
   <div v-else-if="message.type === 'assistant'" class="flex flex-col gap-2 w-full group mt-3">
@@ -116,11 +125,12 @@ import { Message, MessageContent, AttachmentsContent, ReportContent, DeepResearc
 import ToolUse from './ToolUse.vue';
 import { marked, Renderer } from 'marked';
 import DOMPurify from 'dompurify';
-import { CheckIcon } from 'lucide-vue-next';
+import { CheckIcon, Copy, Check } from 'lucide-vue-next';
 import { computed, ref, watch } from 'vue';
 import { ToolContent, StepContent } from '../types/message';
 import { useRelativeTime } from '../composables/useTime';
 import { Bot } from 'lucide-vue-next';
+import { useClipboard } from '@vueuse/core';
 import AttachmentsMessage from './AttachmentsMessage.vue';
 import { ReportCard, AttachmentsInlineGrid, TaskCompletedFooter } from './report';
 import type { ReportData } from './report';
@@ -210,6 +220,17 @@ const isExpanded = ref(true);
 const userToggled = ref(false);
 
 const { relativeTime } = useRelativeTime();
+
+// Clipboard for copy functionality
+const { copy, copied } = useClipboard();
+
+// Copy user message to clipboard
+const handleCopyUserMessage = () => {
+  const content = messageContent.value?.content;
+  if (content) {
+    copy(content);
+  }
+};
 
 // Shiki syntax highlighting
 const { highlightDualTheme, normalizeLanguage } = useShiki();

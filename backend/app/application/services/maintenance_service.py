@@ -7,10 +7,12 @@ errors when fetching session data.
 """
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from beanie import PydanticObjectId
+
+from app.domain.models.session import SessionStatus
 
 logger = logging.getLogger(__name__)
 
@@ -274,6 +276,100 @@ class MaintenanceService:
         except Exception as e:
             logger.exception(f"Failed to check session health for {session_id}: {e}")
             return {"session_id": session_id, "found": False, "error": str(e)}
+
+    async def cleanup_stale_running_sessions(
+        self,
+        stale_threshold_minutes: int = 30,
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        """
+        Clean up sessions stuck in "running" or "initializing" status.
+
+        Sessions can get stuck in running state if the backend crashes or restarts
+        while processing. This method marks them as failed so users can retry.
+
+        Args:
+            stale_threshold_minutes: Consider sessions stale if running for longer than this.
+            dry_run: If True, only reports what would be cleaned without making changes.
+
+        Returns:
+            Dict with cleanup statistics and details
+        """
+        sessions_collection = self._db.sessions
+
+        stats = {
+            "dry_run": dry_run,
+            "stale_threshold_minutes": stale_threshold_minutes,
+            "sessions_cleaned": 0,
+            "sessions_marked_failed": [],
+            "errors": [],
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+
+        try:
+            # Calculate stale cutoff time
+            cutoff_time = datetime.now(UTC) - timedelta(minutes=stale_threshold_minutes)
+
+            # Find sessions in running or initializing state that are older than cutoff
+            stale_statuses = [SessionStatus.RUNNING.value, SessionStatus.INITIALIZING.value]
+            query = {
+                "status": {"$in": stale_statuses},
+                "updated_at": {"$lt": cutoff_time},
+            }
+
+            cursor = sessions_collection.find(
+                query,
+                {"_id": 1, "status": 1, "updated_at": 1, "title": 1},
+            )
+
+            async for session in cursor:
+                session_id_str = str(session["_id"])
+                old_status = session.get("status")
+                updated_at = session.get("updated_at")
+
+                session_info = {
+                    "session_id": session_id_str,
+                    "old_status": old_status,
+                    "title": session.get("title"),
+                    "last_updated": updated_at.isoformat() if updated_at else None,
+                }
+                stats["sessions_marked_failed"].append(session_info)
+                stats["sessions_cleaned"] += 1
+
+                if not dry_run:
+                    try:
+                        await sessions_collection.update_one(
+                            {"_id": session["_id"]},
+                            {
+                                "$set": {
+                                    "status": SessionStatus.FAILED.value,
+                                    "updated_at": datetime.now(UTC),
+                                }
+                            },
+                        )
+                        logger.info(
+                            f"Marked stale session {session_id_str} as failed "
+                            f"(was {old_status}, last updated: {updated_at})"
+                        )
+                    except Exception as e:
+                        error_msg = f"Failed to update session {session_id_str}: {e}"
+                        logger.error(error_msg)
+                        stats["errors"].append(error_msg)
+
+            # Summary logging
+            if dry_run:
+                logger.info(
+                    f"[DRY RUN] Would mark {stats['sessions_cleaned']} stale sessions as failed"
+                )
+            else:
+                logger.info(f"Marked {stats['sessions_cleaned']} stale sessions as failed")
+
+        except Exception as e:
+            error_msg = f"Stale session cleanup failed: {e}"
+            logger.exception(error_msg)
+            stats["errors"].append(error_msg)
+
+        return stats
 
 
 # Factory function for dependency injection
