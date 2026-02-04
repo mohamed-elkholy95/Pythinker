@@ -6,7 +6,8 @@ This model enables the "Wide Research" pattern where:
 - The 100th item gets the same quality attention as the 1st
 """
 
-from datetime import datetime
+import uuid
+from datetime import UTC, datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -43,7 +44,7 @@ class ResearchTask(BaseModel):
         completed_at: Timestamp when task completed
     """
 
-    id: str = Field(default_factory=lambda: f"research_{datetime.utcnow().timestamp()}")
+    id: str = Field(default_factory=lambda: f"research_{uuid.uuid4().hex[:12]}")
     query: str = Field(..., description="The specific research query")
     parent_task_id: str = Field(..., description="ID of the parent research request")
     index: int = Field(..., ge=0, description="Position in the research batch")
@@ -58,7 +59,7 @@ class ResearchTask(BaseModel):
     def start(self) -> None:
         """Mark task as started."""
         self.status = ResearchStatus.IN_PROGRESS
-        self.started_at = datetime.utcnow()
+        self.started_at = datetime.now(UTC)
 
     def complete(self, result: str, sources: list[str] | None = None) -> None:
         """Mark task as completed with result.
@@ -70,7 +71,7 @@ class ResearchTask(BaseModel):
         self.status = ResearchStatus.COMPLETED
         self.result = result
         self.sources = sources or []
-        self.completed_at = datetime.utcnow()
+        self.completed_at = datetime.now(UTC)
 
     def fail(self, error: str) -> None:
         """Mark task as failed.
@@ -80,7 +81,7 @@ class ResearchTask(BaseModel):
         """
         self.status = ResearchStatus.FAILED
         self.error = error
-        self.completed_at = datetime.utcnow()
+        self.completed_at = datetime.now(UTC)
 
     def skip(self, reason: str = "Skipped by user") -> None:
         """Mark task as skipped.
@@ -90,4 +91,4 @@ class ResearchTask(BaseModel):
         """
         self.status = ResearchStatus.SKIPPED
         self.error = reason
-        self.completed_at = datetime.utcnow()
+        self.completed_at = datetime.now(UTC)
