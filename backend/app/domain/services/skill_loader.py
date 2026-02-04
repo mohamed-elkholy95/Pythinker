@@ -14,11 +14,11 @@ Progressive Disclosure Levels:
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Protocol
 
 import aiofiles
-import aiofiles.os
 
 from app.domain.models.skill import (
     ResourceType,
@@ -184,8 +184,6 @@ class SkillLoader:
                 return None
 
             # Extract body (everything after frontmatter)
-            import re
-
             match = re.match(r"^---\n.*?\n---\n*", content, re.DOTALL)
             body = content[match.end() :].strip() if match else ""
 
