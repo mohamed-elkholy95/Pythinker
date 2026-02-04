@@ -9,12 +9,26 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from app.domain.external.observability import MetricsPort, get_null_metrics
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.result_analyzer import ResultAnalyzer
 from app.domain.services.tools.schemas import get_schema_for_tool
-from app.infrastructure.observability.prometheus_metrics import record_tool_trace_anomaly
 
 logger = logging.getLogger(__name__)
+
+# Module-level metrics instance (can be overridden for testing)
+_metrics: MetricsPort = get_null_metrics()
+
+
+def set_metrics(metrics: MetricsPort) -> None:
+    """Set the metrics instance for this module."""
+    global _metrics
+    _metrics = metrics
+
+
+def _record_tool_trace_anomaly(tool: str, anomaly_type: str) -> None:
+    """Record tool trace anomaly metric."""
+    _metrics.record_tool_trace_anomaly(tool, anomaly_type)
 
 
 @dataclass
@@ -89,7 +103,7 @@ class ToolTracer:
             self._history = self._history[-self._history_limit :]
 
         for anomaly in trace.anomalies:
-            record_tool_trace_anomaly(tool=tool_name, anomaly_type=anomaly)
+            _record_tool_trace_anomaly(tool=tool_name, anomaly_type=anomaly)
 
         if trace.anomalies:
             logger.debug(

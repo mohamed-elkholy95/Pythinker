@@ -83,12 +83,12 @@ class TraceContext:
         self._current_span = self.root_span
 
     @contextmanager
-    def span(self, name: str, kind: SpanKind = SpanKind.INTERNAL, attributes: dict[str, Any] | None = None):
+    def span(self, name: str, kind: SpanKind | str = SpanKind.INTERNAL, attributes: dict[str, Any] | None = None):
         """Create a child span within this trace context.
 
         Args:
             name: Human-readable name for the span
-            kind: Type of span
+            kind: Type of span (SpanKind enum or string value)
             attributes: Initial attributes to set
 
         Yields:
@@ -96,7 +96,24 @@ class TraceContext:
         """
         parent_span_id = self._current_span.span_id if self._current_span else None
 
-        span = Span(trace_id=self.trace_id, parent_span_id=parent_span_id, name=name, kind=kind)
+        # Convert domain SpanKind enum to infrastructure SpanKind
+        # This allows domain code to use domain.external.tracing.SpanKind
+        if hasattr(kind, "value"):
+            # It's an enum (either domain or infrastructure), use its string value
+            kind_str = kind.value
+            try:
+                infra_kind = SpanKind(kind_str)
+            except ValueError:
+                infra_kind = SpanKind.INTERNAL
+        elif isinstance(kind, str):
+            try:
+                infra_kind = SpanKind(kind)
+            except ValueError:
+                infra_kind = SpanKind.INTERNAL
+        else:
+            infra_kind = SpanKind.INTERNAL
+
+        span = Span(trace_id=self.trace_id, parent_span_id=parent_span_id, name=name, kind=infra_kind)
 
         if attributes:
             span.set_attributes(attributes)

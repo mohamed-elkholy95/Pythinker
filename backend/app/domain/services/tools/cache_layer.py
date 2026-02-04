@@ -403,7 +403,7 @@ def cacheable_tool(ttl: int | None = None, use_l1: bool = True):
 
             # L2 LOOKUP (Redis)
             try:
-                from app.infrastructure.external.cache import get_cache
+                from app.domain.external.cache import get_cache
 
                 cache = get_cache()
 
@@ -481,7 +481,7 @@ async def clear_tool_cache(tool_name: str | None = None, clear_l1: bool = True) 
 
     # Clear L2 (Redis)
     try:
-        from app.infrastructure.external.cache import get_cache
+        from app.domain.external.cache import get_cache
 
         cache = get_cache()
 
@@ -506,7 +506,7 @@ async def get_cached_keys(tool_name: str | None = None) -> list[str]:
         List of cache keys
     """
     try:
-        from app.infrastructure.external.cache import get_cache
+        from app.domain.external.cache import get_cache
 
         cache = get_cache()
 
@@ -570,7 +570,7 @@ async def warmup_common_tools() -> dict[str, bool]:
         async def check_l2_connection():
             """Verify L2 (Redis) connection is available."""
             try:
-                from app.infrastructure.external.cache import get_cache
+                from app.domain.external.cache import get_cache
 
                 cache = get_cache()
                 await cache.set("_warmup_test", {"status": "ready"}, ttl=60)
