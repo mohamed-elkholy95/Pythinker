@@ -11,12 +11,14 @@ from app.domain.models.event import (
     BaseEvent,
     ErrorEvent,
     MessageEvent,
+    SearchToolContent,
     StreamEvent,
     ToolEvent,
     ToolStatus,
     WaitEvent,
 )
 from app.domain.models.message import Message
+from app.domain.models.search import SearchResultItem
 from app.domain.models.tool_result import ToolResult
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.services.agents.error_handler import ErrorHandler, ErrorType, TokenLimitExceededError
@@ -24,6 +26,7 @@ from app.domain.services.agents.hallucination_detector import ToolHallucinationD
 from app.domain.services.agents.security_assessor import ActionSecurityRisk, SecurityAssessor
 from app.domain.services.agents.stuck_detector import StuckDetector
 from app.domain.services.agents.token_manager import TokenManager
+from app.domain.services.context_manager import SandboxContextManager
 from app.domain.services.tools.base import BaseTool
 from app.domain.services.tools.command_formatter import CommandFormatter
 from app.domain.services.tools.dynamic_toolset import get_toolset_manager
@@ -112,6 +115,9 @@ class BaseAgent:
             allow_destructive_operations=False,
         )
 
+        # Context manager for Manus-style attention manipulation (optional)
+        self.context_manager: SandboxContextManager | None = None
+
     def get_available_tools(self) -> list[dict[str, Any]] | None:
         """Get all available tools list"""
         available_tools = []
@@ -175,6 +181,22 @@ class BaseAgent:
         tool_names = [t.get("function", {}).get("name", "") for t in self.get_available_tools() or []]
         self._hallucination_detector.update_available_tools(tool_names)
 
+    async def _get_attention_context(self) -> str:
+        """Get attention context for prompt injection.
+
+        Implements Manus-style attention manipulation to prevent
+        goal drift in long conversations. The context manager
+        provides goal/todo context that should be periodically
+        recited to keep the agent focused.
+
+        Returns:
+            Formatted context string with goal, todos, and state,
+            or empty string if no context manager is configured.
+        """
+        if self.context_manager:
+            return await self.context_manager.get_attention_context()
+        return ""
+
     def _record_tool_usage(self, tool_name: str, success: bool, duration_ms: float) -> None:
         """Record tool usage for dynamic toolset prioritization.
 
@@ -224,6 +246,31 @@ class BaseAgent:
             command_category = "other"
             command_summary = function_name
 
+        # Populate tool_content for search tools (Manus-style search results display)
+        tool_content = kwargs.pop("tool_content", None)
+        if tool_content is None and status == ToolStatus.CALLED and function_name == "info_search_web":
+            function_result = kwargs.get("function_result")
+            # Extract search results from ToolResult.data if valid result with data
+            if (
+                function_result
+                and hasattr(function_result, "success")
+                and function_result.success
+                and hasattr(function_result, "data")
+                and function_result.data
+            ):
+                data = function_result.data
+                # Handle SearchResults object
+                if hasattr(data, "results") and data.results:
+                    results_list = [
+                        SearchResultItem(
+                            title=r.title or "No title",
+                            link=r.link or "",
+                            snippet=r.snippet or "",
+                        )
+                        for r in data.results[:5]
+                    ]
+                    tool_content = SearchToolContent(results=results_list)
+
         return ToolEvent(
             tool_call_id=tool_call_id,
             tool_name=tool_name,
@@ -233,6 +280,7 @@ class BaseAgent:
             display_command=display_command,
             command_category=command_category,
             command_summary=command_summary,
+            tool_content=tool_content,
             **kwargs,
         )
 
