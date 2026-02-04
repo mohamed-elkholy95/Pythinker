@@ -14,13 +14,12 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from app.core.config import get_settings
-from app.domain.models.event import StreamEvent, ToolEvent
+from app.core.config import get_feature_flags, get_settings
 from app.domain.external.browser import Browser
 from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
-from app.domain.models.event import BaseEvent
+from app.domain.models.event import BaseEvent, StreamEvent, ToolEvent
 from app.domain.models.message import Message
 from app.domain.models.reflection import ReflectionConfig
 from app.domain.models.session import SessionStatus
@@ -255,9 +254,11 @@ class LangGraphPlanActFlow(BaseFlow):
         )
 
         # Config for the graph run
+        # Feature flags are passed via config for runtime override capability
         config = {
             "configurable": {
                 "thread_id": self._session_id,
+                "feature_flags": get_feature_flags(),
             }
         }
 
@@ -283,16 +284,12 @@ class LangGraphPlanActFlow(BaseFlow):
                                 chunk_data = event.get("data", {})
                                 chunk = chunk_data.get("chunk")
                                 if chunk and hasattr(chunk, "content") and chunk.content:
-                                    await event_queue.put(
-                                        StreamEvent(content=chunk.content, is_final=False)
-                                    )
+                                    await event_queue.put(StreamEvent(content=chunk.content, is_final=False))
 
                             # Handle tool start events
                             elif event_type == "on_tool_start":
                                 tool_name = event.get("name", "unknown")
-                                await event_queue.put(
-                                    ToolEvent(name=tool_name, status="started")
-                                )
+                                await event_queue.put(ToolEvent(name=tool_name, status="started"))
 
                             # Handle tool end events
                             elif event_type == "on_tool_end":
@@ -366,6 +363,7 @@ class LangGraphPlanActFlow(BaseFlow):
         config = {
             "configurable": {
                 "thread_id": self._session_id,
+                "feature_flags": get_feature_flags(),
             }
         }
 

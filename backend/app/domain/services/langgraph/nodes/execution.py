@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from app.core.config import get_feature_flags
 from app.domain.models.event import ErrorEvent, ToolEvent, WaitEvent
 from app.domain.models.plan import ExecutionStatus
 from app.domain.services.agents.grounding_validator import GroundingValidator
@@ -672,7 +673,7 @@ async def execution_node(state: PlanActState) -> dict[str, Any]:
             stuck_analysis = executor._stuck_detector.get_analysis()
 
         # Optional context optimization (Phase 3)
-        feature_flags = state.get("feature_flags", {})
+        feature_flags = get_feature_flags()
         if feature_flags.get("context_optimization") and executor:
             try:
                 memory_manager = get_memory_manager()
