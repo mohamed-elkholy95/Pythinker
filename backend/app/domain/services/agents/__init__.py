@@ -1,4 +1,7 @@
 from ...models.agent import Agent
+
+# Task 7.1: Critic Agent for quality gate pattern
+from .critic_agent import CriticAgent, CriticResult
 from .error_handler import ErrorContext, ErrorHandler, ErrorType, TokenLimitExceededError
 
 # P0 Priority: Hallucination Prevention & Prompt Adherence
@@ -80,53 +83,42 @@ __all__ = [
     "CompressionLevel",
     "CompressionResult",
     "ContextType",
+    "CriticAgent",
+    "CriticResult",
     "DecompositionResult",
     "ErrorContext",
     "ErrorHandler",
     "ErrorType",
     "GroundingLevel",
     "GroundingResult",
-    # P0: Grounding Validation
     "GroundingValidator",
-    # P0: Input/Output Guardrails
     "GuardrailsManager",
     "InputAnalysisResult",
     "InputGuardrails",
-    # P0: Intent Tracking
     "IntentTracker",
     "IntentTrackingResult",
-    # Task 2.3: Research Sub-Agent
     "LLMProtocol",
-    # Quick Wins: Model Routing
     "ModelRouter",
     "ModelTier",
     "OutputAnalysisResult",
     "OutputGuardrails",
-    # Quick Wins: Parallel Execution
     "ParallelToolExecutor",
     "PromptAdapter",
-    # Quick Wins: Semantic Caching
     "PromptCacheManager",
-    # P1: Prompt Compression
     "PromptCompressor",
     "Requirement",
-    # Quick Wins: Requirement Extraction
     "RequirementExtractor",
     "RequirementSet",
-    # Task 2.3: Research Sub-Agent
     "ResearchSubAgent",
     "RouteDecision",
     "RoutingResult",
-    # Task 2.3: Research Sub-Agent
     "SearchToolProtocol",
     "SemanticResponseCache",
-    # P1: Smart Routing (LLM Call Reduction)
     "SmartRouter",
     "StuckDetector",
     "Subtask",
     "SubtaskType",
     "TaskComplexity",
-    # P1: Task Decomposition
     "TaskDecomposer",
     "TokenLimitExceededError",
     "TokenManager",
