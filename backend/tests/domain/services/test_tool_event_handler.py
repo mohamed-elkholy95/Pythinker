@@ -1,7 +1,5 @@
 """Tests for tool event handler."""
 
-import pytest
-
 from app.domain.models.event import ToolEvent, ToolStatus
 from app.domain.services.tool_event_handler import ToolEventHandler
 

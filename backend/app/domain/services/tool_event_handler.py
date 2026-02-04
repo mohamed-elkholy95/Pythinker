@@ -4,6 +4,8 @@ This module extracts tool-specific metadata from ToolEvent instances,
 following the Strategy pattern for clean separation of concerns.
 """
 
+from collections.abc import Callable
+
 from app.domain.models.event import ToolEvent
 
 
@@ -66,7 +68,9 @@ class ToolEventHandler:
         """
         return event.tool_name == "file" and event.function_name == "file_write"
 
-    def _get_action_handler(self, tool_name: str):
+    def _get_action_handler(
+        self, tool_name: str
+    ) -> Callable[[ToolEvent], None] | None:
         """Get the action metadata handler for a tool.
 
         Args:
@@ -86,7 +90,9 @@ class ToolEventHandler:
         }
         return handlers.get(tool_name)
 
-    def _get_observation_handler(self, tool_name: str):
+    def _get_observation_handler(
+        self, tool_name: str
+    ) -> Callable[[ToolEvent], None] | None:
         """Get the observation metadata handler for a tool.
 
         Args:
