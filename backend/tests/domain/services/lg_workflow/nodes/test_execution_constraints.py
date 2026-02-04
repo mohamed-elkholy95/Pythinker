@@ -1,4 +1,4 @@
-# backend/tests/domain/services/langgraph/nodes/test_execution_constraints.py
+# backend/tests/domain/services/lg_workflow/nodes/test_execution_constraints.py
 """Tests for constraint violation detection in execution node.
 
 These tests verify that the execution node properly:
