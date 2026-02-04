@@ -1422,7 +1422,7 @@ Respond in this JSON format:
         tracer = get_tracer()
         span_name = f"workflow:{new_status.value}"
 
-        with tracer.start_span(span_name, kind="internal") as span:
+        with tracer.start_span(span_name, kind=SpanKind.INTERNAL) as span:
             span.set_attribute("workflow.from_state", old_status.value)
             span.set_attribute("workflow.to_state", new_status.value)
             span.set_attribute("workflow.session_id", self._session_id)
