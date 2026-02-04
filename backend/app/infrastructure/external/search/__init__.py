@@ -16,9 +16,19 @@ import logging
 from functools import lru_cache
 
 from app.domain.external.search import SearchEngine
+from app.infrastructure.external.search.base import SearchEngineBase, SearchEngineType
 from app.infrastructure.external.search.factory import (
     SearchProviderRegistry,
     get_search_engine_from_factory,
+)
+from app.infrastructure.external.search.utils import (
+    clean_redirect_url,
+    extract_domain,
+    extract_text_from_tag,
+    find_snippet_from_patterns,
+    normalize_url,
+    parse_result_count,
+    sanitize_query,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,6 +48,15 @@ def get_search_engine() -> SearchEngine | None:
 
 
 __all__ = [
+    "SearchEngineBase",
+    "SearchEngineType",
     "SearchProviderRegistry",
+    "clean_redirect_url",
+    "extract_domain",
+    "extract_text_from_tag",
+    "find_snippet_from_patterns",
     "get_search_engine",
+    "normalize_url",
+    "parse_result_count",
+    "sanitize_query",
 ]

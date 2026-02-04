@@ -4,20 +4,17 @@ Brave Search API implementation with privacy-focused search results.
 Requires a Brave Search API key from https://brave.com/search/api/
 """
 
-import logging
+from typing import Any
 
 import httpx
 
-from app.domain.external.search import SearchEngine
-from app.domain.models.search import SearchResultItem, SearchResults
-from app.domain.models.tool_result import ToolResult
+from app.domain.models.search import SearchResultItem
+from app.infrastructure.external.search.base import SearchEngineBase, SearchEngineType
 from app.infrastructure.external.search.factory import SearchProviderRegistry
-
-logger = logging.getLogger(__name__)
 
 
 @SearchProviderRegistry.register("brave")
-class BraveSearchEngine(SearchEngine):
+class BraveSearchEngine(SearchEngineBase):
     """Brave Search API implementation.
 
     Uses Brave's official Search API which provides:
@@ -26,125 +23,67 @@ class BraveSearchEngine(SearchEngine):
     - Independent search index
     """
 
-    def __init__(self, api_key: str):
+    provider_name = "Brave"
+    engine_type = SearchEngineType.API
+
+    def __init__(self, api_key: str, timeout: float | None = None):
         """Initialize Brave search engine.
 
         Args:
             api_key: Brave Search API key
+            timeout: Optional custom timeout
         """
+        super().__init__(timeout=timeout)
         self.api_key = api_key
         self.base_url = "https://api.search.brave.com/res/v1/web/search"
-        self.headers = {
+
+    def _get_headers(self) -> dict[str, str]:
+        """Get Brave API headers with authentication."""
+        return {
             "Accept": "application/json",
             "Accept-Encoding": "gzip",
-            "X-Subscription-Token": api_key,
+            "X-Subscription-Token": self.api_key,
         }
 
-    async def search(self, query: str, date_range: str | None = None) -> ToolResult[SearchResults]:
-        """Search web pages using Brave Search API.
+    def _get_date_range_mapping(self) -> dict[str, str]:
+        """Brave API freshness parameter mapping."""
+        return {
+            "past_hour": "ph",
+            "past_day": "pd",
+            "past_week": "pw",
+            "past_month": "pm",
+            "past_year": "py",
+        }
 
-        Args:
-            query: Search query, using 3-5 keywords
-            date_range: (Optional) Time range filter for search results
-
-        Returns:
-            Search results
-        """
-        params = {
+    def _build_request_params(self, query: str, date_range: str | None) -> dict[str, Any]:
+        """Build Brave API request parameters."""
+        params: dict[str, Any] = {
             "q": query,
-            "count": 20,  # Number of results
-            "text_decorations": False,  # No HTML formatting
+            "count": 20,
+            "text_decorations": False,
             "search_lang": "en",
         }
 
-        # Add freshness filter for date range
-        if date_range and date_range != "all":
-            # Brave API uses 'freshness' parameter
-            date_mapping = {
-                "past_hour": "ph",  # Past hour
-                "past_day": "pd",  # Past day (24 hours)
-                "past_week": "pw",  # Past week
-                "past_month": "pm",  # Past month
-                "past_year": "py",  # Past year
-            }
-            if date_range in date_mapping:
-                params["freshness"] = date_mapping[date_range]
+        if mapped := self._map_date_range(date_range):
+            params["freshness"] = mapped
 
-        try:
-            async with httpx.AsyncClient(headers=self.headers, timeout=30.0) as client:
-                response = await client.get(self.base_url, params=params)
-                response.raise_for_status()
+        return params
 
-                data = response.json()
+    async def _execute_request(self, client: httpx.AsyncClient, params: dict[str, Any]) -> httpx.Response:
+        """Execute GET request to Brave API."""
+        return await client.get(self.base_url, params=params)
 
-                # Extract search results
-                search_results = []
-                web_results = data.get("web", {}).get("results", [])
+    def _parse_response(self, response: httpx.Response) -> tuple[list[SearchResultItem], int]:
+        """Parse Brave API JSON response."""
+        data = response.json()
+        web_data = data.get("web", {})
+        web_results = web_data.get("results", [])
 
-                for item in web_results:
-                    try:
-                        title = item.get("title", "")
-                        link = item.get("url", "")
-                        snippet = item.get("description", "")
+        results = [
+            result
+            for item in web_results
+            if (result := self._parse_json_result_item(item, link_keys=("url",), snippet_keys=("description",)))
+        ]
 
-                        if title and link:
-                            search_results.append(SearchResultItem(title=title, link=link, snippet=snippet))
-                    except Exception as e:
-                        logger.warning(f"Failed to parse Brave result: {e}")
-                        continue
-
-                # Get total results count if available
-                total_results = data.get("web", {}).get("total_count", len(search_results))
-
-                results = SearchResults(
-                    query=query, date_range=date_range, total_results=total_results, results=search_results
-                )
-
-                return ToolResult(success=True, data=results)
-
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 401:
-                logger.error("Brave Search API authentication failed: invalid API key")
-                message = "Brave Search authentication failed: invalid API key"
-            elif e.response.status_code == 429:
-                logger.error("Brave Search API rate limit exceeded")
-                message = "Brave Search rate limit exceeded"
-            else:
-                logger.error(f"Brave Search HTTP error: {e}")
-                message = f"Brave Search HTTP error: {e.response.status_code}"
-
-            error_results = SearchResults(query=query, date_range=date_range, total_results=0, results=[])
-            return ToolResult(success=False, message=message, data=error_results)
-
-        except Exception as e:
-            logger.error(f"Brave Search failed: {e}")
-            error_results = SearchResults(query=query, date_range=date_range, total_results=0, results=[])
-
-            return ToolResult(success=False, message=f"Brave Search failed: {e}", data=error_results)
-
-
-# Simple test
-if __name__ == "__main__":
-    import asyncio
-    import os
-
-    async def test():
-        api_key = os.environ.get("BRAVE_SEARCH_API_KEY")
-        if not api_key:
-            print("Set BRAVE_SEARCH_API_KEY environment variable to test")
-            return
-
-        search_engine = BraveSearchEngine(api_key=api_key)
-        result = await search_engine.search("Python programming")
-
-        if result.success:
-            print(f"Search successful! Found {len(result.data.results)} results")
-            for i, item in enumerate(result.data.results[:3]):
-                print(f"{i + 1}. {item.title}")
-                print(f"   {item.link}")
-                print(f"   {item.snippet}")
-                print()
-        else:
-            print(f"Search failed: {result.message}")
-
-    asyncio.run(test())
+        total_results = web_data.get("total_count", len(results))
+        return results, total_results

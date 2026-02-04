@@ -4,20 +4,17 @@ Tavily AI-powered Search API implementation.
 Requires a Tavily API key from https://tavily.com/
 """
 
-import logging
+from typing import Any
 
 import httpx
 
-from app.domain.external.search import SearchEngine
-from app.domain.models.search import SearchResultItem, SearchResults
-from app.domain.models.tool_result import ToolResult
+from app.domain.models.search import SearchResultItem
+from app.infrastructure.external.search.base import SearchEngineBase, SearchEngineType
 from app.infrastructure.external.search.factory import SearchProviderRegistry
-
-logger = logging.getLogger(__name__)
 
 
 @SearchProviderRegistry.register("tavily")
-class TavilySearchEngine(SearchEngine):
+class TavilySearchEngine(SearchEngineBase):
     """Tavily AI-powered Search API implementation.
 
     Uses Tavily's Search API which provides:
@@ -27,133 +24,70 @@ class TavilySearchEngine(SearchEngine):
     - Clean, structured results
     """
 
-    def __init__(self, api_key: str):
+    provider_name = "Tavily"
+    engine_type = SearchEngineType.API
+
+    def __init__(self, api_key: str, timeout: float | None = None):
         """Initialize Tavily search engine.
 
         Args:
             api_key: Tavily API key
+            timeout: Optional custom timeout
         """
+        super().__init__(timeout=timeout)
         self.api_key = api_key
         self.base_url = "https://api.tavily.com/search"
 
-    async def search(self, query: str, date_range: str | None = None) -> ToolResult[SearchResults]:
-        """Search web pages using Tavily Search API.
+    def _get_headers(self) -> dict[str, str]:
+        """Get Tavily API headers."""
+        return {"Content-Type": "application/json"}
 
-        Args:
-            query: Search query, using 3-5 keywords
-            date_range: (Optional) Time range filter for search results
+    def _get_date_range_mapping(self) -> dict[str, str]:
+        """Tavily date hints (appended to query since API lacks direct filtering)."""
+        return {
+            "past_hour": "recent",
+            "past_day": "today",
+            "past_week": "this week",
+            "past_month": "this month",
+            "past_year": "this year",
+        }
 
-        Returns:
-            Search results
-        """
-        # Tavily API uses POST requests with JSON body
-        payload = {
+    def _build_request_params(self, query: str, date_range: str | None) -> dict[str, Any]:
+        """Build Tavily API request payload."""
+        # Append date hint to query if specified
+        actual_query = query
+        if date_hint := self._map_date_range(date_range):
+            actual_query = f"{query} {date_hint}"
+
+        return {
             "api_key": self.api_key,
-            "query": query,
-            "search_depth": "advanced",  # Use advanced for better results
+            "query": actual_query,
+            "search_depth": "advanced",
             "include_answer": False,
             "include_images": False,
             "include_raw_content": False,
             "max_results": 20,
         }
 
-        # Add topic filter for date range (Tavily uses different approach)
-        # Tavily doesn't have direct date filtering, but we can hint with the query
-        if date_range and date_range != "all":
-            date_hints = {
-                "past_hour": "recent",
-                "past_day": "today",
-                "past_week": "this week",
-                "past_month": "this month",
-                "past_year": "this year",
-            }
-            if date_range in date_hints:
-                # Append time hint to query
-                payload["query"] = f"{query} {date_hints[date_range]}"
+    async def _execute_request(self, client: httpx.AsyncClient, params: dict[str, Any]) -> httpx.Response:
+        """Execute POST request to Tavily API."""
+        return await client.post(self.base_url, json=params)
 
-        headers = {
-            "Content-Type": "application/json",
-        }
+    def _parse_response(self, response: httpx.Response) -> tuple[list[SearchResultItem], int]:
+        """Parse Tavily API JSON response."""
+        data = response.json()
 
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(self.base_url, json=payload, headers=headers)
-                response.raise_for_status()
+        results: list[SearchResultItem] = []
+        for item in data.get("results", []):
+            title = item.get("title", "")
+            link = item.get("url", "")
+            snippet = item.get("content", "")
 
-                data = response.json()
+            # Truncate long snippets
+            if len(snippet) > 500:
+                snippet = snippet[:497] + "..."
 
-                # Extract search results
-                search_results = []
-                results_list = data.get("results", [])
+            if title and link:
+                results.append(SearchResultItem(title=title, link=link, snippet=snippet))
 
-                for item in results_list:
-                    try:
-                        title = item.get("title", "")
-                        link = item.get("url", "")
-                        snippet = item.get("content", "")
-
-                        # Truncate snippet if too long
-                        if len(snippet) > 500:
-                            snippet = snippet[:497] + "..."
-
-                        if title and link:
-                            search_results.append(SearchResultItem(title=title, link=link, snippet=snippet))
-                    except Exception as e:
-                        logger.warning(f"Failed to parse Tavily result: {e}")
-                        continue
-
-                results = SearchResults(
-                    query=query, date_range=date_range, total_results=len(search_results), results=search_results
-                )
-
-                return ToolResult(success=True, data=results)
-
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 401:
-                logger.error("Tavily Search API authentication failed: invalid API key")
-                message = "Tavily Search authentication failed: invalid API key"
-            elif e.response.status_code == 429:
-                logger.error("Tavily Search API rate limit exceeded")
-                message = "Tavily Search rate limit exceeded"
-            elif e.response.status_code == 400:
-                logger.error("Tavily Search API bad request")
-                message = "Tavily Search bad request: check query format"
-            else:
-                logger.error(f"Tavily Search HTTP error: {e}")
-                message = f"Tavily Search HTTP error: {e.response.status_code}"
-
-            error_results = SearchResults(query=query, date_range=date_range, total_results=0, results=[])
-            return ToolResult(success=False, message=message, data=error_results)
-
-        except Exception as e:
-            logger.error(f"Tavily Search failed: {e}")
-            error_results = SearchResults(query=query, date_range=date_range, total_results=0, results=[])
-
-            return ToolResult(success=False, message=f"Tavily Search failed: {e}", data=error_results)
-
-
-# Simple test
-if __name__ == "__main__":
-    import asyncio
-    import os
-
-    async def test():
-        api_key = os.environ.get("TAVILY_API_KEY")
-        if not api_key:
-            print("Set TAVILY_API_KEY environment variable to test")
-            return
-
-        search_engine = TavilySearchEngine(api_key=api_key)
-        result = await search_engine.search("Python programming best practices")
-
-        if result.success:
-            print(f"Search successful! Found {len(result.data.results)} results")
-            for i, item in enumerate(result.data.results[:3]):
-                print(f"{i + 1}. {item.title}")
-                print(f"   {item.link}")
-                print(f"   {item.snippet[:100]}...")
-                print()
-        else:
-            print(f"Search failed: {result.message}")
-
-    asyncio.run(test())
+        return results, len(results)
