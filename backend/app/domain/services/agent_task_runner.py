@@ -50,6 +50,7 @@ from app.domain.services.orchestration.coordinator_flow import (
     CoordinatorMode,
     create_coordinator_flow,
 )
+from app.domain.services.tool_event_handler import ToolEventHandler
 from app.domain.services.tools.mcp import MCPTool
 from app.domain.utils.diff import build_unified_diff
 from app.domain.utils.json_parser import JsonParser
@@ -141,6 +142,9 @@ class AgentTaskRunner(TaskRunner):
         self._tool_start_times: dict[str, float] = {}
         self._file_before_cache: dict[str, str] = {}
         self._pending_tool_calls: dict[str, dict] = {}
+
+        # Tool event handler for metadata enrichment
+        self._tool_event_handler = ToolEventHandler()
 
         # Initialize flows based on mode
         self._plan_act_flow: PlanActFlow | None = None
@@ -673,35 +677,11 @@ class AgentTaskRunner(TaskRunner):
         except Exception as e:
             logger.debug(f"Failed to record tool usage for Agent {self._agent_id}: {e}")
 
-    # TODO: refactor this function
     async def _handle_tool_event(self, event: ToolEvent):
-        """Generate tool content"""
+        """Generate tool content and enrich event with metadata."""
         try:
-            # Common action metadata
-            if event.tool_name == "shell":
-                event.action_type = "run"
-                event.command = event.function_args.get("command")
-                event.cwd = event.function_args.get("exec_dir")
-            elif event.tool_name == "code_executor":
-                event.action_type = "run"
-                event.command = event.function_args.get("code") or event.function_args.get("command")
-            elif event.tool_name == "file":
-                event.file_path = event.function_args.get("file")
-                if event.function_name == "file_read":
-                    event.action_type = "read"
-                elif event.function_name == "file_write":
-                    event.action_type = "write"
-                elif event.function_name == "file_str_replace":
-                    event.action_type = "edit"
-                else:
-                    event.action_type = "edit"
-            elif event.tool_name == "browser" or event.tool_name == "browser_agent":
-                event.action_type = "browse"
-            elif event.tool_name == "search":
-                # Search now uses browser - action type is browse
-                event.action_type = "browse"
-            elif event.tool_name == "mcp":
-                event.action_type = "call_tool"
+            # Enrich event with action metadata (action_type, command, cwd, file_path)
+            self._tool_event_handler.enrich_action_metadata(event)
 
             if event.status == ToolStatus.CALLED and event.tool_name != "message":
                 await self._record_tool_call_usage()
@@ -728,10 +708,7 @@ class AgentTaskRunner(TaskRunner):
                     )
 
                 # Cache original file content for diff generation
-                if event.tool_name == "file" and event.function_name in (
-                    "file_write",
-                    "file_str_replace",
-                ):
+                if self._tool_event_handler.needs_file_cache(event):
                     file_path = event.function_args.get("file")
                     if file_path:
                         try:
@@ -743,8 +720,8 @@ class AgentTaskRunner(TaskRunner):
                         except Exception:
                             self._file_before_cache[event.tool_call_id] = ""
 
-                if event.tool_name == "file" and event.function_name == "file_write":
-                    # Show the content being written for streaming preview
+                # Show preview content for streaming UI
+                if self._tool_event_handler.needs_preview_content(event):
                     content = event.function_args.get("content", "")
                     if content:
                         event.tool_content = FileToolContent(content=content)
@@ -755,6 +732,10 @@ class AgentTaskRunner(TaskRunner):
                 if start_time is not None:
                     event.duration_ms = int((time.perf_counter() - start_time) * 1000)
 
+                # Enrich event with observation metadata (observation_type)
+                self._tool_event_handler.enrich_observation_metadata(event)
+
+                # Generate tool-specific content
                 if event.tool_name == "browser":
                     # Extract page content from function result if available
                     page_content = None
@@ -783,7 +764,6 @@ class AgentTaskRunner(TaskRunner):
                             page_content = str(data) if data else ""
                     event.tool_content = BrowserToolContent(content=page_content)
                 elif event.tool_name == "shell":
-                    event.observation_type = "run"
                     if event.function_result and hasattr(event.function_result, "data"):
                         data = event.function_result.data or {}
                         if isinstance(data, dict):
@@ -795,7 +775,6 @@ class AgentTaskRunner(TaskRunner):
                     else:
                         event.tool_content = ShellToolContent(console="(No Console)")
                 elif event.tool_name == "file":
-                    event.observation_type = "edit"
                     if "file" in event.function_args:
                         file_path = event.function_args["file"]
                         # Read file and sync to storage concurrently
@@ -859,7 +838,6 @@ class AgentTaskRunner(TaskRunner):
                     # message tool events don't need tool_content
                     logger.debug("Processing message tool event")
                 elif event.tool_name == "code_executor":
-                    event.observation_type = "run"
                     # Code execution output shown in terminal-like view
                     if event.function_result and hasattr(event.function_result, "data"):
                         data = event.function_result.data
