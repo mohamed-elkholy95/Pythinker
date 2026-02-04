@@ -23,8 +23,8 @@ from app.domain.models.event import (
 
 # P0 Priority: Input Guardrails
 from app.domain.services.agents.guardrails import InputRiskLevel, get_guardrails_manager
-from app.domain.services.agents.intent_tracker import get_intent_tracker
-from app.domain.services.langgraph.state import PlanActState
+from app.domain.services.agents.intent_tracker import UserIntent, get_intent_tracker
+from app.domain.services.langgraph.state import PlanActState, RequirementProgress
 from app.domain.services.tools.dynamic_toolset import get_toolset_manager
 from app.domain.services.validation.plan_validator import PlanValidator
 
@@ -32,6 +32,53 @@ logger = logging.getLogger(__name__)
 
 # Comprehension threshold - messages longer than this trigger comprehension phase
 COMPREHENSION_THRESHOLD_CHARS = 500
+
+
+def _initialize_requirement_progress(user_intent: UserIntent) -> list[RequirementProgress]:
+    """Initialize requirement progress tracking from user intent.
+
+    Creates a RequirementProgress entry for each explicit and implicit
+    requirement extracted from the user's message.
+
+    Args:
+        user_intent: Extracted user intent with requirements
+
+    Returns:
+        List of RequirementProgress entries, all initially unaddressed
+    """
+    progress: list[RequirementProgress] = []
+
+    # Add explicit requirements
+    for req in user_intent.explicit_requirements:
+        progress.append(
+            RequirementProgress(
+                requirement=req,
+                is_addressed=False,
+                confidence=0.0,
+                addressed_by_step=None,
+                evidence=None,
+            )
+        )
+
+    # Add implicit requirements
+    for req in user_intent.implicit_requirements:
+        progress.append(
+            RequirementProgress(
+                requirement=req,
+                is_addressed=False,
+                confidence=0.0,
+                addressed_by_step=None,
+                evidence=None,
+            )
+        )
+
+    logger.debug(
+        f"Initialized requirement progress: {len(progress)} requirements "
+        f"({len(user_intent.explicit_requirements)} explicit, "
+        f"{len(user_intent.implicit_requirements)} implicit)"
+    )
+
+    return progress
 
 
 async def _prefetch_tools_for_task(user_message_text: str, include_mcp: bool = True) -> list[dict[str, Any]] | None:
@@ -335,6 +382,9 @@ async def planning_node(state: PlanActState) -> dict[str, Any]:
                 if verification_loops < max_verification_loops:
                     verification_loops += 1
 
+    # Phase 3: Initialize requirement progress tracking
+    requirement_progress = _initialize_requirement_progress(user_intent)
+
     return {
         "plan": plan,
         "plan_created": plan_created,
@@ -351,4 +401,7 @@ async def planning_node(state: PlanActState) -> dict[str, Any]:
         # Phase 3: User intent tracking for constraint enforcement
         "user_intent": user_intent,
         "intent_tracker": intent_tracker,
+        # Phase 3: Requirement progress tracking
+        "requirement_progress": requirement_progress,
+        "intent_alignment_score": 0.0,  # Will be updated as steps complete
     }

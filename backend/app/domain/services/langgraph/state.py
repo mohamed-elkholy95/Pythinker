@@ -5,6 +5,7 @@ preserving compatibility with existing agent implementations.
 """
 
 import asyncio
+from dataclasses import dataclass
 from typing import Annotated, Any, TypedDict
 
 from app.core.config import get_feature_flags
@@ -19,6 +20,36 @@ from app.domain.services.agents.reflection import ReflectionAgent
 from app.domain.services.agents.stuck_detector import StuckAnalysis
 from app.domain.services.agents.task_state_manager import TaskStateManager
 from app.domain.services.agents.verifier import VerifierAgent
+
+
+@dataclass
+class RequirementProgress:
+    """Track progress on a single requirement.
+
+    Used for monitoring which user requirements have been addressed
+    during execution and by which step.
+    """
+
+    requirement: str
+    is_addressed: bool = False
+    confidence: float = 0.0
+    addressed_by_step: str | None = None
+    evidence: str | None = None
+
+
+def merge_requirement_progress(
+    a: list[RequirementProgress],
+    b: list[RequirementProgress] | None,
+) -> list[RequirementProgress]:
+    """Reducer function to update requirement progress.
+
+    When new progress is provided, it replaces the old list entirely
+    since updates are computed as a complete replacement.
+    """
+    if b is None:
+        return a
+    # New progress replaces old progress entirely
+    return b
 
 
 def merge_events(a: list[BaseEvent], b: list[BaseEvent] | None) -> list[BaseEvent]:
@@ -125,6 +156,12 @@ class PlanActState(TypedDict, total=False):
     intent_tracker: IntentTracker | None  # Intent tracker instance
     human_input_reason: str | None  # Reason for requesting human input
 
+    # Phase 3: Requirement Progress Tracking
+    # Track which requirements have been addressed and by which step
+    requirement_progress: Annotated[list[RequirementProgress], merge_requirement_progress]
+    constraint_violations: list[str]  # Accumulated constraint violations during execution
+    intent_alignment_score: float  # 0.0 to 1.0 - overall alignment with user intent
+
     # Error handling
     error: str | None
     error_count: int
@@ -230,6 +267,10 @@ def create_initial_state(
         user_intent=None,
         intent_tracker=None,
         human_input_reason=None,
+        # Requirement progress tracking
+        requirement_progress=[],
+        constraint_violations=[],
+        intent_alignment_score=0.0,
         # Error handling
         error=None,
         error_count=0,
