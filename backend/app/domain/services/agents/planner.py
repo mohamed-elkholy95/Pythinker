@@ -16,8 +16,11 @@ from app.domain.external.llm import LLM
 from app.domain.models.long_term_memory import MemoryType
 from app.domain.models.message import Message
 from app.domain.models.plan import ExecutionStatus, Plan, Step
+from app.domain.models.skill import Skill
 from app.domain.models.structured_outputs import (
     PlanOutput as StructuredPlanOutput,
+)
+from app.domain.models.structured_outputs import (
     build_validation_feedback,
     validate_llm_output,
 )
@@ -33,12 +36,14 @@ from app.domain.services.prompts.planner import (
     build_create_plan_prompt,
 )
 from app.domain.services.prompts.system import SYSTEM_PROMPT
+from app.domain.services.skill_loader import SkillLoader
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
 from app.domain.models.agent_response import PlanResponse, PlanUpdateResponse
 from app.domain.models.event import (
     BaseEvent,
+    ErrorEvent,
     MessageEvent,
     PlanEvent,
     PlanStatus,
@@ -163,6 +168,7 @@ class PlannerAgent(BaseAgent):
         json_parser: JsonParser,
         memory_service: Optional["MemoryService"] = None,
         user_id: str | None = None,
+        skill_loader: SkillLoader | None = None,
     ):
         super().__init__(
             agent_id=agent_id,
@@ -177,6 +183,9 @@ class PlannerAgent(BaseAgent):
 
         # Requirement tracking for user prompt adherence
         self._current_requirements: RequirementSet | None = None
+
+        # Skill loader for discovering relevant skills (Phase 3: Skills Integration)
+        self._skill_loader = skill_loader
 
     async def _stream_thinking(self, message: str) -> AsyncGenerator[BaseEvent, None]:
         """Stream thinking process before creating a plan.
@@ -614,6 +623,58 @@ class PlannerAgent(BaseAgent):
                     req.mark_addressed(step_id)
                     logger.debug(f"Requirement {req.id} addressed by step {step_id} (score: {score:.2f})")
 
+    async def _discover_relevant_skills(self, task: str) -> list[Skill]:
+        """Discover skills relevant to the current task.
+
+        Uses skill metadata (level 1 disclosure) to identify
+        which skills might help with the task.
+
+        Args:
+            task: The task description to match against skill metadata.
+
+        Returns:
+            List of Skill objects that are relevant to the task.
+        """
+        if not self._skill_loader:
+            return []
+
+        all_skills = await self._skill_loader.discover_skills()
+
+        # Simple keyword matching for relevance
+        task_lower = task.lower()
+        relevant: list[Skill] = []
+
+        for skill in all_skills:
+            # Check if skill name or description matches task keywords
+            skill_text = f"{skill.name} {skill.description}".lower()
+            if any(word in skill_text for word in task_lower.split() if len(word) > 3):
+                relevant.append(skill)
+
+        logger.debug(f"Discovered {len(relevant)} relevant skills for task: {task[:50]}...")
+        return relevant
+
+    async def _build_planning_context(self, task: str) -> str:
+        """Build context including relevant skills.
+
+        Constructs additional planning context by discovering skills
+        that may be useful for the given task.
+
+        Args:
+            task: The task description to build context for.
+
+        Returns:
+            Formatted context string with available skills, or empty string if none.
+        """
+        context_parts: list[str] = []
+
+        # Add relevant skills
+        relevant_skills = await self._discover_relevant_skills(task)
+        if relevant_skills:
+            skill_info = "\n".join([f"- **{s.name}**: {s.description}" for s in relevant_skills])
+            context_parts.append(f"## Available Skills\n{skill_info}")
+
+        return "\n\n".join(context_parts)
+
     def _format_task_memory(self, memories) -> str:
         """Format task memories for planning context.
 
@@ -639,6 +700,115 @@ class PlannerAgent(BaseAgent):
                 lines.append(f"- [{mem_type}] {mem.content[:150]}...")
 
         return "\n".join(lines)
+
+    async def recreate_tasks_from_understanding(
+        self,
+        original_message: str,
+        new_understanding: str,
+        completed_steps: list[dict] | None = None,
+    ) -> AsyncGenerator[BaseEvent, None]:
+        """Recreate tasks based on improved understanding of requirements.
+
+        This is called when the agent, during execution, realizes it needs
+        to restructure the tasks based on better understanding of the user's
+        requirements (e.g., after reading a long document or specification).
+
+        Args:
+            original_message: The user's original request
+            new_understanding: The agent's new understanding of what's needed
+            completed_steps: Optional list of already completed steps to preserve
+
+        Yields:
+            PlanEvent with the recreated plan
+        """
+        from app.domain.models.event import PlanningPhase, ProgressEvent
+
+        yield ProgressEvent(
+            phase=PlanningPhase.PLANNING,
+            message="Recreating tasks based on new understanding...",
+            progress_percent=30,
+        )
+
+        # Build recreation prompt
+        completed_context = ""
+        if completed_steps:
+            completed_list = "\n".join(
+                f"- {step.get('description', 'Unknown step')}: {step.get('result', 'Done')}" for step in completed_steps
+            )
+            completed_context = f"\n\n## Already Completed:\n{completed_list}"
+
+        recreation_prompt = f"""Based on a deeper understanding of the user's requirements, recreate the task plan.
+
+## Original Request:
+{original_message}
+
+## New Understanding:
+{new_understanding}
+{completed_context}
+
+Create a revised plan with clear, actionable steps that address the user's actual needs.
+Focus on what still needs to be done, considering any completed work.
+
+Respond with a JSON plan containing:
+- goal: The refined goal based on new understanding
+- title: A descriptive title
+- steps: Array of step objects with description
+- message: Brief explanation of the revised approach
+"""
+
+        try:
+            await self._add_to_memory([{"role": "user", "content": recreation_prompt}])
+            await self._ensure_within_token_limit()
+
+            if hasattr(self.llm, "ask_structured"):
+                try:
+                    plan_response = await self.llm.ask_structured(
+                        self.memory.get_messages(),
+                        response_model=PlanResponse,
+                        tools=None,
+                        tool_choice=None,
+                    )
+
+                    yield ProgressEvent(
+                        phase=PlanningPhase.FINALIZING,
+                        message="Finalizing recreated plan...",
+                        estimated_steps=len(plan_response.steps),
+                        progress_percent=80,
+                    )
+
+                    # Convert to Plan model
+                    plan = Plan(
+                        goal=plan_response.goal,
+                        title=plan_response.title,
+                        language=plan_response.language,
+                        message=plan_response.message,
+                        steps=self._normalize_plan_steps(
+                            [Step(id=str(i + 1), description=s.description) for i, s in enumerate(plan_response.steps)],
+                            task_message=original_message,
+                        ),
+                    )
+
+                    logger.info(f"Recreated plan with {len(plan.steps)} steps: {plan.title}")
+                    await self._add_to_memory([{"role": "assistant", "content": plan.model_dump_json()}])
+                    yield PlanEvent(status=PlanStatus.UPDATED, plan=plan)
+                    return
+
+                except Exception as e:
+                    logger.warning(f"Structured output failed for recreation: {e}")
+
+            # Fallback to JSON parser
+            async for event in self.execute(recreation_prompt):
+                if isinstance(event, MessageEvent):
+                    parsed_response = await self.json_parser.parse(event.message)
+                    plan = Plan.model_validate(parsed_response)
+                    plan.steps = self._normalize_plan_steps(plan.steps, task_message=original_message)
+                    yield PlanEvent(status=PlanStatus.UPDATED, plan=plan)
+                else:
+                    yield event
+
+        except Exception as e:
+            logger.error(f"Task recreation failed: {e}")
+            yield ErrorEvent(error=f"Failed to recreate tasks: {e}")
 
     async def _create_validated_plan(
         self,
