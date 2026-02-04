@@ -96,6 +96,12 @@ class TestNullSpan:
         span.record_exception(ValueError("test error"))
         span.record_exception(RuntimeError("another error"))
 
+    def test_set_status_is_no_op(self) -> None:
+        """set_status should not raise."""
+        span = NullSpan()
+        span.set_status("ok")
+        span.set_status("error", "Something went wrong")
+
 
 class TestTracerSingleton:
     """Test tracer singleton management."""

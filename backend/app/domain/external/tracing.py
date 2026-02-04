@@ -79,6 +79,15 @@ class SpanProtocol(Protocol):
         """
         ...
 
+    def set_status(self, status: str, message: str | None = None) -> None:
+        """Set the status of the span.
+
+        Args:
+            status: Status code (e.g., "ok", "error")
+            message: Optional status message describing the status
+        """
+        ...
+
 
 class TraceContextProtocol(Protocol):
     """Protocol for trace context operations.
@@ -171,6 +180,10 @@ class NullSpan:
 
     def record_exception(self, exception: BaseException) -> None:
         """No-op: accepts exception without recording it."""
+        pass
+
+    def set_status(self, status: str, message: str | None = None) -> None:
+        """No-op: accepts status without storing it."""
         pass
 
 
