@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import get_feature_flags
 from app.domain.external.llm import LLM
+from app.domain.external.observability import MetricsPort, get_null_metrics
 from app.domain.models.claim_provenance import ProvenanceStore
 from app.domain.models.event import BaseEvent, MessageEvent
 from app.domain.models.source_attribution import AttributionSummary, SourceAttribution
@@ -54,7 +55,15 @@ from app.domain.services.prompts.critic import (
 )
 from app.domain.services.tools.tool_tracing import get_tool_tracer
 from app.domain.utils.json_parser import JsonParser
-from app.infrastructure.observability.prometheus_metrics import record_reward_hacking_signal
+
+# Module-level metrics instance (can be overridden for testing)
+_metrics: MetricsPort = get_null_metrics()
+
+
+def set_metrics(metrics: MetricsPort) -> None:
+    """Set the metrics instance for this module."""
+    global _metrics
+    _metrics = metrics
 
 logger = logging.getLogger(__name__)
 
@@ -466,7 +475,7 @@ class CriticAgent:
                 )
                 if score.signals:
                     for signal in score.signals:
-                        record_reward_hacking_signal(signal.signal_type, signal.severity)
+                        _metrics.record_reward_hacking_signal(signal.signal_type, signal.severity)
                     logger.warning(
                         "Reward hacking signals detected during critic review (log-only)",
                         extra={

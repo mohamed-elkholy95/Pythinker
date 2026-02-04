@@ -15,12 +15,12 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 from app.core.config import get_settings
+from app.domain.models.event import StreamEvent, ToolEvent
 from app.domain.external.browser import Browser
 from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
-from app.domain.external.tracing import get_tracer
-from app.domain.models.event import BaseEvent, StreamEvent, ToolEvent
+from app.domain.models.event import BaseEvent
 from app.domain.models.message import Message
 from app.domain.models.reflection import ReflectionConfig
 from app.domain.models.session import SessionStatus
@@ -35,26 +35,17 @@ from app.domain.services.flows.base import BaseFlow
 from app.domain.services.langgraph.checkpointer import MongoDBCheckpointer
 from app.domain.services.langgraph.graph import create_plan_act_graph
 from app.domain.services.langgraph.state import create_initial_state
-from app.domain.services.tools.agent_mode import AgentModeTool
 from app.domain.services.tools.base import BaseTool
 from app.domain.services.tools.browser import BrowserTool
-from app.domain.services.tools.code_dev import CodeDevTool
 from app.domain.services.tools.code_executor import CodeExecutorTool
-from app.domain.services.tools.deep_scan_analyzer import DeepScanAnalyzerTool
-from app.domain.services.tools.export import ExportTool
 from app.domain.services.tools.file import FileTool
-
-# Additional tools for full coverage
-from app.domain.services.tools.git import GitTool
 from app.domain.services.tools.idle import IdleTool
 from app.domain.services.tools.mcp import MCPTool
 from app.domain.services.tools.message import MessageTool
 from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.shell import ShellTool
-from app.domain.services.tools.slides import SlidesTool
-from app.domain.services.tools.test_runner import TestRunnerTool
-from app.domain.services.tools.workspace import WorkspaceTool
 from app.domain.utils.json_parser import JsonParser
+from app.infrastructure.observability import get_tracer
 
 # BrowserAgentTool is optional (requires browser_use package)
 try:
@@ -62,15 +53,6 @@ try:
 except ImportError:
     BrowserAgentTool = None
     BROWSER_USE_AVAILABLE = False
-
-# PlaywrightTool is optional (requires playwright package)
-try:
-    from app.domain.services.tools.playwright_tool import PlaywrightTool
-
-    PLAYWRIGHT_AVAILABLE = True
-except ImportError:
-    PlaywrightTool = None
-    PLAYWRIGHT_AVAILABLE = False
 
 # P1.2: Maximum size for the event queue to prevent unbounded memory growth
 MAX_EVENT_QUEUE_SIZE = 1000
@@ -136,29 +118,15 @@ class LangGraphPlanActFlow(BaseFlow):
         self._user_id = user_id
         self._memory_service = memory_service
 
-        # Build tools list - Core tools (always available)
+        # Build tools list
         tools: list[BaseTool] = [
-            # Execution tools
             ShellTool(sandbox),
             BrowserTool(browser),
             FileTool(sandbox),
             CodeExecutorTool(sandbox=sandbox, session_id=session_id),
-            # Communication tools
             MessageTool(),
             IdleTool(),
-            # Integration tools
             mcp_tool,
-            # Development tools
-            GitTool(sandbox),
-            TestRunnerTool(sandbox),
-            CodeDevTool(sandbox),
-            # Organization tools
-            WorkspaceTool(sandbox),
-            ExportTool(sandbox),
-            # Utility tools
-            AgentModeTool(),
-            DeepScanAnalyzerTool(),
-            SlidesTool(),
         ]
 
         # Pass browser to SearchTool for visual search when search_prefer_browser is enabled
@@ -166,22 +134,12 @@ class LangGraphPlanActFlow(BaseFlow):
             tools.append(SearchTool(search_engine, browser=browser))
 
         settings = get_settings()
-
-        # Add BrowserAgentTool if available
         if cdp_url and settings.browser_agent_enabled and BROWSER_USE_AVAILABLE and BrowserAgentTool:
             try:
                 tools.append(BrowserAgentTool(cdp_url))
                 logger.info(f"Browser agent tool enabled for Agent {agent_id}")
             except ImportError as e:
                 logger.warning(f"Browser agent tool not available: {e}")
-
-        # Add PlaywrightTool if available
-        if PLAYWRIGHT_AVAILABLE and PlaywrightTool:
-            try:
-                tools.append(PlaywrightTool(sandbox))
-                logger.info(f"Playwright tool enabled for Agent {agent_id}")
-            except Exception as e:
-                logger.warning(f"Playwright tool not available: {e}")
 
         # Create planner agent
         self.planner = PlannerAgent(
@@ -325,12 +283,16 @@ class LangGraphPlanActFlow(BaseFlow):
                                 chunk_data = event.get("data", {})
                                 chunk = chunk_data.get("chunk")
                                 if chunk and hasattr(chunk, "content") and chunk.content:
-                                    await event_queue.put(StreamEvent(content=chunk.content, is_final=False))
+                                    await event_queue.put(
+                                        StreamEvent(content=chunk.content, is_final=False)
+                                    )
 
                             # Handle tool start events
                             elif event_type == "on_tool_start":
                                 tool_name = event.get("name", "unknown")
-                                await event_queue.put(ToolEvent(name=tool_name, status="started"))
+                                await event_queue.put(
+                                    ToolEvent(name=tool_name, status="started")
+                                )
 
                             # Handle tool end events
                             elif event_type == "on_tool_end":

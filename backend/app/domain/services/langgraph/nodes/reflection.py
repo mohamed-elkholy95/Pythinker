@@ -14,6 +14,7 @@ from typing import Any
 
 from app.core.alert_manager import get_alert_manager
 from app.core.config import get_feature_flags
+from app.domain.external.observability import MetricsPort, get_null_metrics
 from app.domain.models.event import ReflectionEvent, ReflectionStatus
 from app.domain.models.reflection import ReflectionTriggerType
 
@@ -27,7 +28,20 @@ from app.domain.services.agents.memory_manager import get_memory_manager
 from app.domain.services.agents.stuck_detector import LoopType, StuckAnalysis
 from app.domain.services.langgraph.state import PlanActState
 from app.domain.services.prediction.failure_predictor import FailurePredictor
-from app.infrastructure.observability.prometheus_metrics import record_failure_prediction
+
+# Module-level metrics instance (can be overridden for testing)
+_metrics: MetricsPort = get_null_metrics()
+
+
+def set_metrics(metrics: MetricsPort) -> None:
+    """Set the metrics instance for this module."""
+    global _metrics
+    _metrics = metrics
+
+
+def _record_failure_prediction(prediction: str, confidence: float) -> None:
+    """Record failure prediction metric."""
+    _metrics.record_failure_prediction(prediction, confidence)
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +117,7 @@ async def reflection_node(state: PlanActState) -> dict[str, Any]:
                 stuck_analysis=state.get("stuck_analysis"),
                 token_usage_pct=token_usage_pct,
             )
-            record_failure_prediction(
+            _record_failure_prediction(
                 "predicted" if prediction.will_fail else "clear",
                 prediction.probability,
             )

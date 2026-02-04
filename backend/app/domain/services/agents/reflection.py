@@ -34,6 +34,7 @@ from typing import Any
 
 from app.core.config import get_feature_flags
 from app.domain.external.llm import LLM
+from app.domain.external.observability import MetricsPort, get_null_metrics
 from app.domain.models.event import (
     BaseEvent,
     ReflectionEvent,
@@ -57,11 +58,30 @@ from app.domain.services.prompts.reflection import (
     REFLECTION_SYSTEM_PROMPT,
 )
 from app.domain.utils.json_parser import JsonParser
-from app.infrastructure.observability.prometheus_metrics import (
-    record_reflection_check,
-    record_reflection_decision,
-    record_reflection_trigger,
-)
+
+# Module-level metrics instance (can be overridden for testing)
+_metrics: MetricsPort = get_null_metrics()
+
+
+def set_metrics(metrics: MetricsPort) -> None:
+    """Set the metrics instance for this module."""
+    global _metrics
+    _metrics = metrics
+
+
+def _record_reflection_check(status: str) -> None:
+    """Record reflection check metric."""
+    _metrics.record_reflection_check(status)
+
+
+def _record_reflection_decision(decision: str) -> None:
+    """Record reflection decision metric."""
+    _metrics.record_reflection_decision(decision)
+
+
+def _record_reflection_trigger(trigger_type: str) -> None:
+    """Record reflection trigger metric."""
+    _metrics.record_reflection_trigger(trigger_type)
 
 logger = logging.getLogger(__name__)
 
@@ -148,10 +168,10 @@ class ReflectionAgent:
                         trigger = ReflectionTriggerType.PROGRESS_STALL
 
         if trigger:
-            record_reflection_check("triggered")
-            record_reflection_trigger(trigger.value)
+            _record_reflection_check("triggered")
+            _record_reflection_trigger(trigger.value)
         else:
-            record_reflection_check("skipped")
+            _record_reflection_check("skipped")
 
         return trigger
 
@@ -200,7 +220,7 @@ class ReflectionAgent:
             self._last_reflection_step = progress.steps_completed
 
             # Emit completed event
-            record_reflection_decision(result.decision.value)
+            _record_reflection_decision(result.decision.value)
             yield ReflectionEvent(
                 status=ReflectionStatus.COMPLETED,
                 decision=result.decision.value,
@@ -212,7 +232,7 @@ class ReflectionAgent:
         except Exception as e:
             logger.error(f"Reflection failed: {e}")
             # Fail-open: emit CONTINUE recommendation
-            record_reflection_decision("continue")
+            _record_reflection_decision("continue")
             yield ReflectionEvent(
                 status=ReflectionStatus.COMPLETED,
                 decision="continue",

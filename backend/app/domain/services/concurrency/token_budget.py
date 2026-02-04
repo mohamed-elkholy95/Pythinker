@@ -32,9 +32,15 @@ def _import_metrics() -> None:
     global _metrics_imported, _update_token_budget
     if not _metrics_imported:
         try:
-            from app.infrastructure.observability.prometheus_metrics import update_token_budget
+            from app.domain.external.observability import get_null_metrics
 
-            _update_token_budget = update_token_budget
+            # Get the metrics instance and create a wrapper function
+            _metrics_instance = get_null_metrics()
+
+            def _wrapper(session_id: str, used: int, remaining: int) -> None:
+                _metrics_instance.update_token_budget(used, remaining)
+
+            _update_token_budget = _wrapper
         except ImportError:
             pass
         _metrics_imported = True
