@@ -16,6 +16,7 @@ from typing import Any
 
 from app.domain.external.sandbox import Sandbox
 from app.domain.models.tool_result import ToolResult
+from app.domain.services.agents.security_critic import SecurityCritic
 from app.domain.services.tools.base import BaseTool, tool
 
 logger = logging.getLogger(__name__)
@@ -138,6 +139,7 @@ class CodeExecutorTool(BaseTool):
         sandbox: Sandbox,
         session_id: str | None = None,
         max_observe: int | None = None,
+        security_critic: SecurityCritic | None = None,
     ):
         """
         Initialize Code Executor tool.
@@ -146,6 +148,7 @@ class CodeExecutorTool(BaseTool):
             sandbox: Sandbox service for code execution
             session_id: Session identifier for workspace isolation
             max_observe: Optional custom observation limit
+            security_critic: Optional security critic for code review before execution
         """
         super().__init__(max_observe=max_observe)
         self.sandbox = sandbox
@@ -153,6 +156,7 @@ class CodeExecutorTool(BaseTool):
         self._workspace_base = "/workspace"
         self._workspace_path = f"{self._workspace_base}/{self.session_id}"
         self._initialized = False
+        self.security_critic = security_critic
 
     async def _ensure_workspace(self) -> None:
         """Ensure workspace directory exists."""
@@ -334,6 +338,16 @@ class CodeExecutorTool(BaseTool):
             return ToolResult(
                 success=False, message=f"Unsupported language: {language}. Supported: python, javascript, bash, sql"
             )
+
+        # Security review before execution
+        if self.security_critic:
+            review = await self.security_critic.review_code(code, language)
+            if not review.safe:
+                issues_str = ", ".join(review.issues) if review.issues else "Security review failed"
+                return ToolResult(
+                    success=False,
+                    message=f"Code execution blocked by security review: {issues_str}",
+                )
 
         # Get language config
         config = LANGUAGE_CONFIG[lang]
