@@ -1,90 +1,84 @@
-import logging
+"""Google Search Engine
+
+Google Custom Search API implementation.
+Requires a Google API key and Custom Search Engine ID.
+"""
+
+from typing import Any
 
 import httpx
 
-from app.domain.external.search import SearchEngine
-from app.domain.models.search import SearchResultItem, SearchResults
-from app.domain.models.tool_result import ToolResult
+from app.domain.models.search import SearchResultItem
+from app.infrastructure.external.search.base import SearchEngineBase, SearchEngineType
 from app.infrastructure.external.search.factory import SearchProviderRegistry
-
-logger = logging.getLogger(__name__)
 
 
 @SearchProviderRegistry.register("google")
-class GoogleSearchEngine(SearchEngine):
-    """Google API based search engine implementation"""
+class GoogleSearchEngine(SearchEngineBase):
+    """Google Custom Search API implementation."""
 
-    def __init__(self, api_key: str, cx: str):
-        """Initialize Google search engine
+    provider_name = "Google"
+    engine_type = SearchEngineType.API
+
+    def __init__(self, api_key: str, cx: str, timeout: float | None = None):
+        """Initialize Google search engine.
 
         Args:
             api_key: Google Custom Search API key
             cx: Google Search Engine ID
+            timeout: Optional custom timeout
         """
+        super().__init__(timeout=timeout)
         self.api_key = api_key
         self.cx = cx
         self.base_url = "https://www.googleapis.com/customsearch/v1"
 
-    async def search(self, query: str, date_range: str | None = None) -> ToolResult[SearchResults]:
-        """Search web pages using Google API
+    def _get_date_range_mapping(self) -> dict[str, str]:
+        """Google dateRestrict parameter mapping."""
+        return {
+            "past_hour": "d1",
+            "past_day": "d1",
+            "past_week": "w1",
+            "past_month": "m1",
+            "past_year": "y1",
+        }
 
-        Args:
-            query: Search query, Google search style, use 3-5 keywords
-            date_range: (Optional) Time range filter for search results
+    def _build_request_params(self, query: str, date_range: str | None) -> dict[str, Any]:
+        """Build Google API request parameters."""
+        params: dict[str, Any] = {
+            "key": self.api_key,
+            "cx": self.cx,
+            "q": query,
+        }
 
-        Returns:
-            Search results
-        """
-        params = {"key": self.api_key, "cx": self.cx, "q": query}
+        if mapped := self._map_date_range(date_range):
+            params["dateRestrict"] = mapped
 
-        # Add time range filter
-        if date_range and date_range != "all":
-            # Convert date_range to time range parameters supported by Google API
-            # For example: via dateRestrict parameter (d[number]: day, w[number]: week, m[number]: month, y[number]: year)
-            date_mapping = {
-                "past_hour": "d1",
-                "past_day": "d1",
-                "past_week": "w1",
-                "past_month": "m1",
-                "past_year": "y1",
-            }
-            if date_range in date_mapping:
-                params["dateRestrict"] = date_mapping[date_range]
+        return params
 
+    async def _execute_request(self, client: httpx.AsyncClient, params: dict[str, Any]) -> httpx.Response:
+        """Execute GET request to Google API."""
+        return await client.get(self.base_url, params=params)
+
+    def _parse_response(self, response: httpx.Response) -> tuple[list[SearchResultItem], int]:
+        """Parse Google API JSON response."""
+        data = response.json()
+
+        results = [
+            SearchResultItem(
+                title=item.get("title", ""),
+                link=item.get("link", ""),
+                snippet=item.get("snippet", ""),
+            )
+            for item in data.get("items", [])
+            if item.get("title") and item.get("link")
+        ]
+
+        # Get total results
+        search_info = data.get("searchInformation", {})
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(self.base_url, params=params)
-                response.raise_for_status()
-                data = response.json()
+            total_results = int(search_info.get("totalResults", "0"))
+        except (ValueError, TypeError):
+            total_results = len(results)
 
-                # Process search results
-                search_results = []
-                if "items" in data:
-                    for item in data["items"]:
-                        search_results.append(
-                            SearchResultItem(
-                                title=item.get("title", ""), link=item.get("link", ""), snippet=item.get("snippet", "")
-                            )
-                        )
-
-                # Build return result
-                search_info_data = data.get("searchInformation", {})
-
-                # Convert total_results to int
-                total_results_str = search_info_data.get("totalResults", "0")
-                try:
-                    total_results = int(total_results_str)
-                except (ValueError, TypeError):
-                    total_results = 0
-
-                results = SearchResults(
-                    query=query, date_range=date_range, total_results=total_results, results=search_results
-                )
-
-                return ToolResult(success=True, data=results)
-
-        except Exception as e:
-            logger.error(f"Google Search API call failed: {e}")
-            error_results = SearchResults(query=query, date_range=date_range, total_results=0, results=[])
-
-            return ToolResult(success=False, message=f"Google Search API call failed: {e}", data=error_results)
+        return results, total_results

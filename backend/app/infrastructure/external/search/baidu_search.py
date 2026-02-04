@@ -1,195 +1,157 @@
-import logging
+"""Baidu Search Engine
+
+Baidu web search engine implementation using web scraping.
+No API key required.
+"""
+
 import re
+from typing import Any
 
 import httpx
 from bs4 import BeautifulSoup
 
-from app.domain.external.search import SearchEngine
-from app.domain.models.search import SearchResultItem, SearchResults
-from app.domain.models.tool_result import ToolResult
+from app.domain.models.search import SearchResultItem
+from app.infrastructure.external.search.base import SearchEngineBase, SearchEngineType
 from app.infrastructure.external.search.factory import SearchProviderRegistry
-
-logger = logging.getLogger(__name__)
+from app.infrastructure.external.search.utils import clean_redirect_url, extract_text_from_tag
 
 
 @SearchProviderRegistry.register("baidu")
-class BaiduSearchEngine(SearchEngine):
-    """Baidu web search engine implementation using web scraping"""
+class BaiduSearchEngine(SearchEngineBase):
+    """Baidu web search engine implementation using web scraping."""
 
-    def __init__(self):
-        """Initialize Baidu search engine"""
+    provider_name = "Baidu"
+    engine_type = SearchEngineType.SCRAPER
+
+    def __init__(self, timeout: float | None = None):
+        """Initialize Baidu search engine."""
+        super().__init__(timeout=timeout)
         self.base_url = "https://www.baidu.com/s"
-        self.headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-        }
-        # Initialize cookies with the provided cookie string
         self.cookies = httpx.Cookies()
 
-    async def search(self, query: str, date_range: str | None = None) -> ToolResult[SearchResults]:
-        """Search web pages using Baidu web search
-
-        Args:
-            query: Search query, using 3-5 keywords
-            date_range: (Optional) Time range filter for search results
-
-        Returns:
-            Search results
-        """
-        params = {
-            "wd": query,
-            # "pn": "0",  # Page number (0 for first page)
-            # "rn": "10",  # Number of results per page
+    def _get_date_range_mapping(self) -> dict[str, str]:
+        """Baidu gpc parameter mapping."""
+        return {
+            "past_day": "1",
+            "past_week": "2",
+            "past_month": "3",
+            "past_year": "4",
         }
 
-        # Add time range filter
-        if date_range and date_range != "all":
-            # Convert date_range to time range parameters supported by Baidu
-            date_mapping = {"past_day": "1", "past_week": "2", "past_month": "3", "past_year": "4"}
-            if date_range in date_mapping:
-                params["gpc"] = f"stf={date_mapping[date_range]}"
+    def _build_request_params(self, query: str, date_range: str | None) -> dict[str, Any]:
+        """Build Baidu search parameters."""
+        params: dict[str, Any] = {"wd": query}
 
-        try:
-            async with httpx.AsyncClient(headers=self.headers, cookies=self.cookies, timeout=30.0) as client:
-                response = await client.get(self.base_url, params=params)
-                response.raise_for_status()
+        if mapped := self._map_date_range(date_range):
+            params["gpc"] = f"stf={mapped}"
 
-                # Update cookies with response cookies in memory
-                self.cookies.update(response.cookies)
+        return params
 
-                # Parse HTML content
-                soup = BeautifulSoup(response.text, "html.parser")
+    async def _execute_request(self, client: httpx.AsyncClient, params: dict[str, Any]) -> httpx.Response:
+        """Execute GET request to Baidu with cookie handling."""
+        response = await client.get(self.base_url, params=params, cookies=self.cookies)
+        self.cookies.update(response.cookies)
+        return response
 
-                # Extract search results
-                search_results = []
+    def _parse_response(self, response: httpx.Response) -> tuple[list[SearchResultItem], int]:
+        """Parse Baidu HTML response."""
+        soup = BeautifulSoup(response.text, "html.parser")
+        results: list[SearchResultItem] = []
 
-                # Try different selectors for Baidu search results
-                result_divs = (
-                    soup.find_all("div", class_="result")
-                    or soup.find_all("div", class_="result-op")
-                    or soup.find_all("div", class_="c-container")
-                    or soup.find_all("div", attrs={"mu": True})
-                    or soup.find_all("div", attrs={"data-log": True})
-                )
+        # Try different selectors for Baidu search results
+        result_divs = (
+            soup.find_all("div", class_="result")
+            or soup.find_all("div", class_="result-op")
+            or soup.find_all("div", class_="c-container")
+            or soup.find_all("div", attrs={"mu": True})
+            or soup.find_all("div", attrs={"data-log": True})
+        )
 
-                for div in result_divs:
-                    try:
-                        # Extract title - try multiple approaches
-                        title = ""
-                        link = ""
+        for div in result_divs:
+            result = self._parse_result_item(div)
+            if result:
+                results.append(result)
 
-                        # Method 1: Standard h3 > a structure
-                        title_tag = div.find("h3")
-                        if title_tag:
-                            title_a = title_tag.find("a")
-                            if title_a:
-                                title = title_a.get_text(strip=True)
-                                link = title_a.get("href", "")
+        # Extract total results count
+        total_results = self._extract_result_count(soup)
 
-                        # Method 2: Try direct a tag with title-like classes
-                        if not title:
-                            title_links = div.find_all("a", class_=re.compile(r"title|link"))
-                            for a in title_links:
-                                if a.get_text(strip=True):
-                                    title = a.get_text(strip=True)
-                                    link = a.get("href", "")
-                                    break
+        return results, total_results
 
-                        # Method 3: Try any a tag with substantial text
-                        if not title:
-                            all_links = div.find_all("a")
-                            for a in all_links:
-                                text = a.get_text(strip=True)
-                                if len(text) > 10 and not text.startswith("http"):
-                                    title = text
-                                    link = a.get("href", "")
-                                    break
+    def _parse_result_item(self, item: BeautifulSoup) -> SearchResultItem | None:
+        """Parse a single Baidu result item."""
+        title = ""
+        link = ""
 
-                        if not title:
-                            continue
+        # Method 1: Standard h3 > a structure
+        title_tag = item.find("h3")
+        if title_tag:
+            title_a = title_tag.find("a")
+            if title_a:
+                title = extract_text_from_tag(title_a)
+                link = title_a.get("href", "")
 
-                        # Extract snippet - try multiple approaches
-                        snippet = ""
+        # Method 2: Try a tag with title-like classes
+        if not title:
+            for a_tag in item.find_all("a", class_=re.compile(r"title|link")):
+                text = extract_text_from_tag(a_tag)
+                if text:
+                    title = text
+                    link = a_tag.get("href", "")
+                    break
 
-                        # Method 1: Look for abstract/content classes
-                        snippet_divs = div.find_all(["div", "span"], class_=re.compile(r"abstract|content|desc"))
-                        if snippet_divs:
-                            snippet = snippet_divs[0].get_text(strip=True)
+        # Method 3: Try any a tag with substantial text
+        if not title:
+            for a_tag in item.find_all("a"):
+                text = extract_text_from_tag(a_tag)
+                if len(text) > 10 and not text.startswith("http"):
+                    title = text
+                    link = a_tag.get("href", "")
+                    break
 
-                        # Method 2: Look for common text containers
-                        if not snippet:
-                            text_containers = div.find_all(
-                                ["div", "span", "p"], class_=re.compile(r"c-span|c-abstract")
-                            )
-                            for container in text_containers:
-                                text = container.get_text(strip=True)
-                                if len(text) > 20:
-                                    snippet = text
-                                    break
+        if not title:
+            return None
 
-                        # Method 3: Get any substantial text from the div
-                        if not snippet:
-                            all_text = div.get_text(strip=True)
-                            # Extract first sentence-like text
-                            sentences = re.split(r"[\u3002\uFF01\uFF1F\n]", all_text)
-                            for sentence in sentences:
-                                if len(sentence.strip()) > 20:
-                                    snippet = sentence.strip()
-                                    break
+        # Extract snippet
+        snippet = self._extract_snippet(item)
 
-                        # Clean up the link if it's a Baidu redirect
-                        if link.startswith("/link?url="):
-                            url_match = re.search(r"url=([^&]+)", link)
-                            if url_match:
-                                link = url_match.group(1)
-                        elif link.startswith("/"):
-                            link = "https://www.baidu.com" + link
+        # Clean up link
+        link = clean_redirect_url(link, "https://www.baidu.com")
 
-                        if title and link:
-                            search_results.append(SearchResultItem(title=title, link=link, snippet=snippet))
-                    except Exception as e:
-                        logger.warning(f"Failed to parse search result: {e}")
-                        continue
+        if title and link:
+            return SearchResultItem(title=title, link=link, snippet=snippet)
+        return None
 
-                # Extract total results count
-                total_results = 0
-                results_nums = soup.find_all(string=re.compile(r"百度为您找到相关结果约"))
-                if results_nums:
-                    match = re.search(r"约([\d,]+)个结果", results_nums[0])
-                    if match:
-                        try:
-                            total_results = int(match.group(1).replace(",", ""))
-                        except ValueError:
-                            total_results = 0
+    def _extract_snippet(self, item: BeautifulSoup) -> str:
+        """Extract snippet from Baidu result item."""
+        # Method 1: Look for abstract/content classes
+        snippet_divs = item.find_all(["div", "span"], class_=re.compile(r"abstract|content|desc"))
+        if snippet_divs:
+            return extract_text_from_tag(snippet_divs[0])
 
-                # Build return result
-                results = SearchResults(
-                    query=query, date_range=date_range, total_results=total_results, results=search_results
-                )
+        # Method 2: Look for common text containers
+        for container in item.find_all(["div", "span", "p"], class_=re.compile(r"c-span|c-abstract")):
+            text = extract_text_from_tag(container)
+            if len(text) > 20:
+                return text
 
-                return ToolResult(success=True, data=results)
+        # Method 3: Get any substantial text
+        all_text = item.get_text(strip=True)
+        # Split by Chinese sentence terminators
+        sentences = re.split(r"[\u3002\uFF01\uFF1F\n]", all_text)
+        for sentence in sentences:
+            if len(sentence.strip()) > 20:
+                return sentence.strip()
 
-        except Exception as e:
-            logger.error(f"Baidu Search failed: {e}")
-            error_results = SearchResults(query=query, date_range=date_range, total_results=0, results=[])
+        return ""
 
-            return ToolResult(success=False, message=f"Baidu Search failed: {e}", data=error_results)
-
-
-# Simple test
-if __name__ == "__main__":
-    import asyncio
-
-    async def test():
-        search_engine = BaiduSearchEngine()
-        result = await search_engine.search("Python 编程")
-
-        if result.success:
-            print(f"Search successful! Found {len(result.data.results)} results")
-            for i, item in enumerate(result.data.results[:3]):
-                print(f"{i + 1}. {item.title}")
-                print(f"   {item.link}")
-                print()
-        else:
-            print(f"Search failed: {result.message}")
-
-    asyncio.run(test())
+    def _extract_result_count(self, soup: BeautifulSoup) -> int:
+        """Extract total result count from page."""
+        results_nums = soup.find_all(string=re.compile(r"百度为您找到相关结果约"))
+        if results_nums:
+            match = re.search(r"约([\d,]+)个结果", results_nums[0])
+            if match:
+                try:
+                    return int(match.group(1).replace(",", ""))
+                except ValueError:
+                    pass
+        return 0

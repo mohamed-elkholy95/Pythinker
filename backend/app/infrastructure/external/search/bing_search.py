@@ -1,210 +1,151 @@
-import logging
+"""Bing Search Engine
+
+Bing web search engine implementation using web scraping.
+No API key required.
+"""
+
 import re
+from typing import Any
 
 import httpx
 from bs4 import BeautifulSoup
 
-from app.domain.external.search import SearchEngine
-from app.domain.models.search import SearchResultItem, SearchResults
-from app.domain.models.tool_result import ToolResult
+from app.domain.models.search import SearchResultItem
+from app.infrastructure.external.search.base import SearchEngineBase, SearchEngineType
 from app.infrastructure.external.search.factory import SearchProviderRegistry
-
-logger = logging.getLogger(__name__)
+from app.infrastructure.external.search.utils import extract_text_from_tag, parse_result_count
 
 
 @SearchProviderRegistry.register("bing")
-class BingSearchEngine(SearchEngine):
-    """Bing web search engine implementation using web scraping"""
+class BingSearchEngine(SearchEngineBase):
+    """Bing web search engine implementation using web scraping."""
 
-    def __init__(self):
-        """Initialize Bing search engine"""
+    provider_name = "Bing"
+    engine_type = SearchEngineType.SCRAPER
+
+    def __init__(self, timeout: float | None = None):
+        """Initialize Bing search engine."""
+        super().__init__(timeout=timeout)
         self.base_url = "https://www.bing.com/search"
-        self.headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.5",
-            "Accept-Encoding": "gzip, deflate",
-            "Connection": "keep-alive",
-            "Upgrade-Insecure-Requests": "1",
-        }
-        # Initialize cookies to maintain session state
         self.cookies = httpx.Cookies()
 
-    async def search(self, query: str, date_range: str | None = None) -> ToolResult[SearchResults]:
-        """Search web pages using Bing web search
+    def _get_headers(self) -> dict[str, str]:
+        """Get Bing-specific browser headers."""
+        headers = self.BROWSER_HEADERS.copy()
+        headers["Upgrade-Insecure-Requests"] = "1"
+        return headers
 
-        Args:
-            query: Search query, using 3-5 keywords
-            date_range: (Optional) Time range filter for search results
-
-        Returns:
-            Search results
-        """
-        params = {
-            "q": query,
-            "count": "20",  # Number of results per page
-            "first": "1",  # Starting position (1-based)
+    def _get_date_range_mapping(self) -> dict[str, str]:
+        """Bing filter parameter mapping."""
+        return {
+            "past_hour": "interval%3d%22Hour%22",
+            "past_day": "interval%3d%22Day%22",
+            "past_week": "interval%3d%22Week%22",
+            "past_month": "interval%3d%22Month%22",
+            "past_year": "interval%3d%22Year%22",
         }
 
-        # Add time range filter
-        if date_range and date_range != "all":
-            # Convert date_range to time range parameters supported by Bing
-            date_mapping = {
-                "past_hour": "interval%3d%22Hour%22",
-                "past_day": "interval%3d%22Day%22",
-                "past_week": "interval%3d%22Week%22",
-                "past_month": "interval%3d%22Month%22",
-                "past_year": "interval%3d%22Year%22",
-            }
-            if date_range in date_mapping:
-                params["filters"] = date_mapping[date_range]
+    def _build_request_params(self, query: str, date_range: str | None) -> dict[str, Any]:
+        """Build Bing search parameters."""
+        params: dict[str, Any] = {
+            "q": query,
+            "count": "20",
+            "first": "1",
+        }
 
-        try:
-            async with httpx.AsyncClient(
-                headers=self.headers, cookies=self.cookies, timeout=30.0, follow_redirects=True
-            ) as client:
-                response = await client.get(self.base_url, params=params)
-                response.raise_for_status()
+        if mapped := self._map_date_range(date_range):
+            params["filters"] = mapped
 
-                # Update cookies with response cookies in memory
-                self.cookies.update(response.cookies)
+        return params
 
-                # Parse HTML content
-                soup = BeautifulSoup(response.text, "html.parser")
+    async def _execute_request(self, client: httpx.AsyncClient, params: dict[str, Any]) -> httpx.Response:
+        """Execute GET request to Bing with cookie handling."""
+        response = await client.get(self.base_url, params=params, cookies=self.cookies)
+        self.cookies.update(response.cookies)
+        return response
 
-                # Extract search results
-                search_results = []
+    def _parse_response(self, response: httpx.Response) -> tuple[list[SearchResultItem], int]:
+        """Parse Bing HTML response."""
+        soup = BeautifulSoup(response.text, "html.parser")
+        results: list[SearchResultItem] = []
 
-                # Bing search results are in li elements with class 'b_algo'
-                result_items = soup.find_all("li", class_="b_algo")
+        # Bing search results are in li elements with class 'b_algo'
+        for item in soup.find_all("li", class_="b_algo"):
+            result = self._parse_result_item(item)
+            if result:
+                results.append(result)
 
-                for item in result_items:
-                    try:
-                        # Extract title and link
-                        title = ""
-                        link = ""
+        # Extract total results count
+        total_results = self._extract_result_count(soup)
 
-                        # Title is usually in h2 > a
-                        title_tag = item.find("h2")
-                        if title_tag:
-                            title_a = title_tag.find("a")
-                            if title_a:
-                                title = title_a.get_text(strip=True)
-                                link = title_a.get("href", "")
+        return results, total_results
 
-                        # If not found, try other structures
-                        if not title:
-                            title_links = item.find_all("a")
-                            for a in title_links:
-                                text = a.get_text(strip=True)
-                                if len(text) > 10 and not text.startswith("http"):
-                                    title = text
-                                    link = a.get("href", "")
-                                    break
+    def _parse_result_item(self, item: BeautifulSoup) -> SearchResultItem | None:
+        """Parse a single Bing result item."""
+        title = ""
+        link = ""
 
-                        if not title:
-                            continue
+        # Title is usually in h2 > a
+        title_tag = item.find("h2")
+        if title_tag:
+            title_a = title_tag.find("a")
+            if title_a:
+                title = extract_text_from_tag(title_a)
+                link = title_a.get("href", "")
 
-                        # Extract snippet
-                        snippet = ""
+        # Fallback: try other link structures
+        if not title:
+            for a_tag in item.find_all("a"):
+                text = extract_text_from_tag(a_tag)
+                if len(text) > 10 and not text.startswith("http"):
+                    title = text
+                    link = a_tag.get("href", "")
+                    break
 
-                        # Look for description in p tag with class 'b_lineclamp*' or 'b_descript'
-                        snippet_tags = item.find_all(
-                            ["p", "div"], class_=re.compile(r"b_lineclamp|b_descript|b_caption")
-                        )
-                        if snippet_tags:
-                            snippet = snippet_tags[0].get_text(strip=True)
+        if not title:
+            return None
 
-                        # If not found, look for any p tag with substantial text
-                        if not snippet:
-                            all_p_tags = item.find_all("p")
-                            for p in all_p_tags:
-                                text = p.get_text(strip=True)
-                                if len(text) > 20:
-                                    snippet = text
-                                    break
+        # Extract snippet
+        snippet = self._extract_snippet(item)
 
-                        # If still not found, get any substantial text from the item
-                        if not snippet:
-                            all_text = item.get_text(strip=True)
-                            # Extract first sentence-like text that's not the title
-                            sentences = re.split(r"[.!?\n]", all_text)
-                            for sentence in sentences:
-                                clean_sentence = sentence.strip()
-                                if len(clean_sentence) > 20 and clean_sentence != title:
-                                    snippet = clean_sentence
-                                    break
+        # Clean up relative links
+        if link and not link.startswith("http"):
+            if link.startswith("//"):
+                link = "https:" + link
+            elif link.startswith("/"):
+                link = "https://www.bing.com" + link
 
-                        # Clean up link if needed
-                        if link and not link.startswith("http"):
-                            if link.startswith("//"):
-                                link = "https:" + link
-                            elif link.startswith("/"):
-                                link = "https://www.bing.com" + link
+        if title and link:
+            return SearchResultItem(title=title, link=link, snippet=snippet)
+        return None
 
-                        if title and link:
-                            search_results.append(SearchResultItem(title=title, link=link, snippet=snippet))
-                    except Exception as e:
-                        logger.warning(f"Failed to parse Bing search result: {e}")
-                        continue
+    def _extract_snippet(self, item: BeautifulSoup) -> str:
+        """Extract snippet from Bing result item."""
+        # Look for description in known classes
+        snippet_tags = item.find_all(["p", "div"], class_=re.compile(r"b_lineclamp|b_descript|b_caption"))
+        if snippet_tags:
+            return extract_text_from_tag(snippet_tags[0])
 
-                # Extract total results count
-                total_results = 0
-                # Bing shows result count in various places, try to find it
-                result_stats = soup.find_all(string=re.compile(r"\d+[,\d]*\s*results?"))
-                if result_stats:
-                    for stat in result_stats:
-                        match = re.search(r"([\d,]+)\s*results?", stat)
-                        if match:
-                            try:
-                                total_results = int(match.group(1).replace(",", ""))
-                                break
-                            except ValueError:
-                                continue
+        # Fallback: any p tag with substantial text
+        for p_tag in item.find_all("p"):
+            text = extract_text_from_tag(p_tag)
+            if len(text) > 20:
+                return text
 
-                # Also try looking in the search results count area
-                if total_results == 0:
-                    count_elements = soup.find_all(["span", "div"], class_=re.compile(r"sb_count|b_focusTextMedium"))
-                    for elem in count_elements:
-                        text = elem.get_text()
-                        match = re.search(r"([\d,]+)\s*results?", text)
-                        if match:
-                            try:
-                                total_results = int(match.group(1).replace(",", ""))
-                                break
-                            except ValueError:
-                                continue
+        return ""
 
-                # Build return result
-                results = SearchResults(
-                    query=query, date_range=date_range, total_results=total_results, results=search_results
-                )
+    def _extract_result_count(self, soup: BeautifulSoup) -> int:
+        """Extract total result count from page."""
+        # Try text containing result count
+        for stat in soup.find_all(string=re.compile(r"\d+[,\d]*\s*results?")):
+            count = parse_result_count(stat)
+            if count:
+                return count
 
-                return ToolResult(success=True, data=results)
+        # Try specific count elements
+        for elem in soup.find_all(["span", "div"], class_=re.compile(r"sb_count|b_focusTextMedium")):
+            count = parse_result_count(elem.get_text())
+            if count:
+                return count
 
-        except Exception as e:
-            logger.error(f"Bing Search failed: {e}")
-            error_results = SearchResults(query=query, date_range=date_range, total_results=0, results=[])
-
-            return ToolResult(success=False, message=f"Bing Search failed: {e}", data=error_results)
-
-
-# Simple test
-if __name__ == "__main__":
-    import asyncio
-
-    async def test():
-        search_engine = BingSearchEngine()
-        result = await search_engine.search("Python programming")
-
-        if result.success:
-            print(f"Search successful! Found {len(result.data.results)} results")
-            for i, item in enumerate(result.data.results[:3]):
-                print(f"{i + 1}. {item.title}")
-                print(f"   {item.link}")
-                print(f"   {item.snippet}")
-                print()
-        else:
-            print(f"Search failed: {result.message}")
-
-    asyncio.run(test())
+        return 0

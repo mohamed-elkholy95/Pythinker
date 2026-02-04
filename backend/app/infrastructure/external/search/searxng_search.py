@@ -334,15 +334,13 @@ class SearXNGSearchEngine(SearchEngine):
             if last_error:
                 error_message += f": {type(last_error).__name__}"
             logger.error(f"{error_message} for query: {query[:50]}")
-            return ToolResult(
-                success=False,
+            return ToolResult.error(
                 message=error_message,
                 data=SearchResults(query=query, date_range=date_range, total_results=0, results=[]),
             )
         except Exception as e:
             logger.error(f"Unexpected search error: {type(e).__name__}: {e}")
-            return ToolResult(
-                success=False,
+            return ToolResult.error(
                 message=f"Search error: {type(e).__name__}",
                 data=SearchResults(query=query, date_range=date_range, total_results=0, results=[]),
             )
@@ -426,7 +424,7 @@ class SearXNGSearchEngine(SearchEngine):
             else:
                 logger.warning(f"Search returned no results: '{query[:50]}'")
 
-            return ToolResult(success=True, data=results)
+            return ToolResult.ok(data=results)
 
         return await _do_search()
 
