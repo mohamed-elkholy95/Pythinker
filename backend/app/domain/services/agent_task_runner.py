@@ -55,6 +55,10 @@ from app.domain.utils.diff import build_unified_diff
 from app.domain.utils.json_parser import JsonParser
 
 if TYPE_CHECKING:
+    from app.domain.models.state_manifest import StateManifest
+    from app.domain.services.agent_factory import ManusAgentFactory
+    from app.domain.services.attention_injector import AttentionInjector
+    from app.domain.services.context_manager import SandboxContextManager
     from app.domain.services.memory_service import MemoryService
 
 logger = logging.getLogger(__name__)
@@ -93,6 +97,7 @@ class AgentTaskRunner(TaskRunner):
         memory_service: Optional["MemoryService"] = None,
         use_langgraph_flow: bool = False,
         mongodb_db: Any | None = None,  # MongoDB database for LangGraph checkpointing
+        agent_factory: Optional["ManusAgentFactory"] = None,
     ):
         self._session_id = session_id
         self._agent_id = agent_id
@@ -121,6 +126,16 @@ class AgentTaskRunner(TaskRunner):
 
         # MongoDB database for LangGraph checkpointing
         self._mongodb_db = mongodb_db
+
+        # Manus-style agent factory and components
+        self._agent_factory: ManusAgentFactory | None = agent_factory
+        self._manifest: StateManifest | None = None
+        self._context_manager: SandboxContextManager | None = None
+        self._attention_injector: AttentionInjector | None = None
+        self._initialized: bool = False
+
+        # Current task description for attention manipulation
+        self.current_task: str | None = None
 
         # Tool metadata caches for enhanced UI
         self._tool_start_times: dict[str, float] = {}
@@ -236,6 +251,46 @@ class AgentTaskRunner(TaskRunner):
                 self._search_engine,
             )
             logger.debug(f"Initialized DiscussFlow for agent {self._agent_id}")
+
+    async def initialize(self) -> None:
+        """Initialize Manus-style components from the agent factory.
+
+        This method should be called before running tasks to set up
+        the state manifest, context manager, and attention injector
+        for Manus-style context management.
+
+        If no agent_factory was provided, this method is a no-op.
+        The method is idempotent - calling it multiple times has no effect.
+        """
+        if self._initialized:
+            return
+
+        if self._agent_factory is None:
+            logger.debug(f"Agent {self._agent_id}: No agent factory provided, skipping Manus initialization")
+            return
+
+        components = self._agent_factory.get_session_components(self._session_id)
+        self._manifest = components.get("manifest")
+        self._context_manager = components.get("context_manager")
+        self._attention_injector = components.get("attention_injector")
+        self._initialized = True
+
+        logger.info(f"Agent {self._agent_id}: Initialized Manus components for session {self._session_id}")
+
+    async def _set_current_task(self, task_description: str) -> None:
+        """Set the current task description for attention manipulation.
+
+        This stores the task locally and, if a context manager is available,
+        sets the goal in the context manager for attention manipulation.
+
+        Args:
+            task_description: The task description to set.
+        """
+        self.current_task = task_description
+
+        if self._context_manager is not None:
+            await self._context_manager.set_goal(task_description)
+            logger.debug(f"Agent {self._agent_id}: Set goal in context manager: {task_description[:50]}...")
 
     async def _switch_to_agent_mode(self, task_description: str) -> None:
         """Switch from Discuss mode to Agent mode"""
@@ -859,7 +914,7 @@ class AgentTaskRunner(TaskRunner):
     async def run(self, task: Task) -> None:
         """Process agent's message queue and run the agent's flow"""
         try:
-            logger.info(f"Agent {self._agent_id} message processing task started")
+            logger.info(f"Agent {self._agent_id} message processing task started (task_id={task.id})")
 
             # Initialize sandbox and MCP tool concurrently
             async def init_mcp():
@@ -911,7 +966,10 @@ class AgentTaskRunner(TaskRunner):
                     if not await task.input_stream.is_empty():
                         break
 
+            # Send DoneEvent when task completes normally
+            await self._put_and_add_event(task, DoneEvent())
             await self._session_repository.update_status(self._session_id, SessionStatus.COMPLETED)
+            logger.info(f"Agent {self._agent_id} task completed successfully")
         except asyncio.CancelledError:
             logger.info(f"Agent {self._agent_id} task cancelled")
             await self._put_and_add_event(task, DoneEvent())
@@ -1000,6 +1058,11 @@ class AgentTaskRunner(TaskRunner):
     async def destroy(self) -> None:
         """Destroy the task and release resources"""
         logger.info("Starting to destroy agent task")
+
+        # Cleanup Manus agent factory session if available
+        if self._agent_factory:
+            logger.debug(f"Cleaning up Agent {self._agent_id}'s Manus factory session")
+            self._agent_factory.cleanup_session(self._session_id)
 
         # Shutdown coordinator flow if used
         if self._coordinator_flow:
