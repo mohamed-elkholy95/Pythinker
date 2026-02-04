@@ -488,6 +488,7 @@ async def execution_node(state: PlanActState) -> dict[str, Any]:
         # Execute the step with per-step tool call tracking
         recent_tools = []
         recent_actions = []  # For stuck pattern analysis
+        tool_results: list[Any] = []  # For chain-of-verification (CoVe)
         needs_human_input = False
         last_had_error = False
         step_tool_calls = 0
@@ -520,6 +521,10 @@ async def execution_node(state: PlanActState) -> dict[str, Any]:
                                 else None,
                             }
                             recent_actions.append(action_record)
+
+                            # Collect tool results for chain-of-verification (CoVe)
+                            # These are used by summarize_node to verify claims against sources
+                            tool_results.append(event.function_result)
 
                             # P0.3: Inline grounding validation for informational tools
                             # This catches poorly grounded tool results before they're used
@@ -700,4 +705,5 @@ async def execution_node(state: PlanActState) -> dict[str, Any]:
             "recent_tools": recent_tools,
             "recent_actions": recent_actions,  # For stuck pattern reflection
             "stuck_analysis": stuck_analysis,  # For enhanced reflection
+            "tool_results": tool_results,  # For chain-of-verification (CoVe)
         }
