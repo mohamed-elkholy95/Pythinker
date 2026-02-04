@@ -253,6 +253,7 @@ import { useI18n } from 'vue-i18n';
 import ChatBox from '../components/ChatBox.vue';
 import ChatMessage from '../components/ChatMessage.vue';
 import * as agentApi from '../api/agent';
+import { apiClient } from '../api/client';
 import { Message, MessageContent, ToolContent, StepContent, AttachmentsContent, ReportContent } from '../types/message';
 import {
   StepEventData,
@@ -1049,17 +1050,15 @@ const handleReportRate = async (rating: number) => {
   if (!currentReport.value) return;
 
   try {
-    await fetch('/api/v1/ratings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        session_id: sessionId.value,
-        report_id: currentReport.value.id,
-        rating,
-      }),
+    await apiClient.post('/ratings', {
+      session_id: sessionId.value,
+      report_id: currentReport.value.id,
+      rating,
     });
+    showSuccessToast(t('Thanks for your feedback!'));
   } catch (error) {
     console.error('Failed to submit rating:', error);
+    showErrorToast(t('Failed to submit rating'));
   }
 }
 
