@@ -106,9 +106,23 @@ class BaseAgent:
         self._token_manager = TokenManager(model_name=getattr(llm, "model_name", "gpt-4"))
         self._error_handler = ErrorHandler()
 
-        # Initialize hallucination detector with available tool names
-        tool_names = [t.get("function", {}).get("name", "") for t in self.get_available_tools() or []]
+        # Initialize hallucination detector with available tool names and schemas
+        available_tools = self.get_available_tools() or []
+        tool_names = [t.get("function", {}).get("name", "") for t in available_tools]
         self._hallucination_detector = ToolHallucinationDetector(tool_names)
+
+        # Initialize tool schemas for parameter validation
+        schemas: dict[str, dict[str, Any]] = {}
+        for tool_def in available_tools:
+            func_def = tool_def.get("function", {})
+            tool_name = func_def.get("name", "")
+            params = func_def.get("parameters", {})
+            if tool_name and params:
+                schemas[tool_name] = {
+                    "required": params.get("required", []),
+                    "properties": params.get("properties", {}),
+                }
+        self._hallucination_detector.update_tool_schemas(schemas)
 
         # Initialize security assessor for action risk evaluation
         self._security_assessor = SecurityAssessor(
@@ -181,10 +195,28 @@ class BaseAgent:
     def refresh_hallucination_detector(self) -> None:
         """Refresh the hallucination detector with current available tools.
 
-        Call this after dynamically loading MCP tools.
+        Call this after dynamically loading MCP tools. Updates both the
+        list of available tool names and their parameter schemas for
+        comprehensive validation.
         """
-        tool_names = [t.get("function", {}).get("name", "") for t in self.get_available_tools() or []]
+        available_tools = self.get_available_tools() or []
+
+        # Update available tool names
+        tool_names = [t.get("function", {}).get("name", "") for t in available_tools]
         self._hallucination_detector.update_available_tools(tool_names)
+
+        # Update tool schemas for parameter validation
+        schemas: dict[str, dict[str, Any]] = {}
+        for tool_def in available_tools:
+            func_def = tool_def.get("function", {})
+            tool_name = func_def.get("name", "")
+            params = func_def.get("parameters", {})
+            if tool_name and params:
+                schemas[tool_name] = {
+                    "required": params.get("required", []),
+                    "properties": params.get("properties", {}),
+                }
+        self._hallucination_detector.update_tool_schemas(schemas)
 
     async def _get_attention_context(self) -> str:
         """Get attention context for prompt injection.
@@ -371,6 +403,7 @@ class BaseAgent:
         """Invoke specified tool, with retry mechanism and exponential backoff.
 
         Integrates with:
+        - ToolHallucinationDetector for pre-execution validation
         - ToolExecutionProfiler for timing and reliability tracking
         - SecurityAssessor for risk evaluation
         - StuckDetector for action pattern detection
@@ -396,6 +429,30 @@ class BaseAgent:
                 "agent_id": getattr(self, "_agent_id", None),
             },
         )
+
+        # Pre-execution hallucination check (validates tool name and parameters)
+        validation_result = self._hallucination_detector.validate_tool_call(
+            tool_name=function_name,
+            parameters=arguments,
+        )
+
+        if not validation_result.is_valid:
+            logger.warning(
+                f"Tool hallucination detected: {validation_result.error_message}",
+                extra={
+                    "function_name": function_name,
+                    "error_type": validation_result.error_type,
+                    "suggestions": validation_result.suggestions,
+                    "session_id": getattr(self, "_session_id", None),
+                    "agent_id": getattr(self, "_agent_id", None),
+                },
+            )
+            # Build correction message with suggestions if available
+            correction_message = validation_result.error_message or "Tool validation failed"
+            if validation_result.suggestions:
+                correction_message += f" Suggestions: {', '.join(validation_result.suggestions)}"
+
+            return ToolResult(success=False, message=correction_message)
 
         # Security assessment before execution (skip for user-confirmed actions)
         if not skip_security:
@@ -1104,7 +1161,7 @@ class BaseAgent:
             "stuck_detector": self._stuck_detector.get_stats(),
             "security": self._security_assessor.get_risk_summary(),
             "hallucination_detector": {
-                "available_tools": len(self._hallucination_detector._available_tools),
+                "available_tools": len(self._hallucination_detector.available_tools),
             },
         }
 
