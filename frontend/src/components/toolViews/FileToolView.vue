@@ -154,8 +154,6 @@ const displayContent = computed(() => {
 
 // Load file content
 const loadFileContent = async () => {
-  console.log("loadFileContent", props.live, filePath.value, props.toolContent.content);
-
   // During file_write (status: calling), show the content being written (streaming preview)
   if (isWriting.value) {
     // Priority: tool_content.content (from backend) > args.content (fallback)

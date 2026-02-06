@@ -29,7 +29,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { computed, toRef } from "vue";
 import { ToolContent } from "../types/message";
 import { useToolInfo } from "../composables/useTool";
 import { useRelativeTime } from "../composables/useTime";
@@ -56,7 +56,7 @@ const emit = defineEmits<{
 }>();
 
 const { relativeTime } = useRelativeTime();
-const { toolInfo } = useToolInfo(ref(props.tool));
+const { toolInfo } = useToolInfo(toRef(() => props.tool));
 
 /** Check if this tool should be rendered as an inline message */
 const isInlineMessageTool = computed(() => {

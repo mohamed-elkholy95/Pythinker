@@ -77,7 +77,7 @@
         </div>
 
         <!-- Content Area: Dynamic content rendering -->
-        <div class="flex-1 min-h-0 w-full overflow-hidden relative">
+        <div class="flex-1 min-h-0 min-w-0 w-full overflow-hidden relative">
           <!-- VNC View (via backend proxy - works from browser) -->
           <div
             v-if="currentViewType === 'vnc'"
@@ -356,7 +356,7 @@ const toolSubtitle = computed(() => {
   }
 
   // === SHELL OPERATIONS ===
-  if (toolName.value === 'shell' || toolName.value === 'code_executor') {
+  if (toolName.value === 'shell' || toolName.value === 'code_executor' || toolName.value === 'code_execute') {
     const cmd = args.command || props.toolContent?.command;
     if (cmd) {
       return `Running ${truncate(cmd, 40)}`;
@@ -428,6 +428,12 @@ const contentHeaderLabel = computed(() => {
   const func = props.toolContent?.function;
   if (func === 'shell_exec' || func === 'shell_execute' || toolName.value === 'shell') {
     return 'Terminal';
+  }
+
+  // For code execution tools, show "Code Runner"
+  if (toolName.value === 'code_executor' || toolName.value === 'code_execute' ||
+      func === 'code_execute' || func === 'code_execute_python' || func === 'code_execute_javascript') {
+    return 'Code Runner';
   }
 
   // If there's a specific resource (file/url), show that
@@ -538,7 +544,7 @@ const refreshTimer = ref<number | null>(null);
 
 const terminalContentType = computed<'shell' | 'file' | 'browser' | 'code' | 'generic'>(() => {
   if (toolName.value === 'shell') return 'shell';
-  if (toolName.value === 'code_executor') return 'code';
+  if (toolName.value === 'code_executor' || toolName.value === 'code_execute') return 'code';
   if (toolName.value === 'file') return 'file';
   if (toolName.value === 'browser' || toolName.value === 'browser_agent') return 'browser';
   return 'generic';
@@ -546,7 +552,7 @@ const terminalContentType = computed<'shell' | 'file' | 'browser' | 'code' | 'ge
 
 const terminalContent = computed(() => {
   // Shell/Code executor output
-  if (toolName.value === 'shell' || toolName.value === 'code_executor') {
+  if (toolName.value === 'shell' || toolName.value === 'code_executor' || toolName.value === 'code_execute') {
     if (shellOutput.value) return shellOutput.value;
 
     // Get command from multiple sources - prefer args.command for shell tools
@@ -670,7 +676,7 @@ const startAutoRefresh = () => {
   if (refreshTimer.value) {
     clearInterval(refreshTimer.value);
   }
-  if (props.live && (toolName.value === 'shell' || toolName.value === 'code_executor')) {
+  if (props.live && (toolName.value === 'shell' || toolName.value === 'code_executor' || toolName.value === 'code_execute')) {
     refreshTimer.value = setInterval(loadShellContent, 5000);
   }
 };
@@ -684,7 +690,7 @@ const stopAutoRefresh = () => {
 
 // Watch for tool changes
 watch(() => props.toolContent, () => {
-  if (toolName.value === 'shell' || toolName.value === 'code_executor') {
+  if (toolName.value === 'shell' || toolName.value === 'code_executor' || toolName.value === 'code_execute') {
     loadShellContent();
   }
 });
@@ -703,7 +709,7 @@ watch(() => props.live, (live) => {
 });
 
 onMounted(() => {
-  if (toolName.value === 'shell' || toolName.value === 'code_executor') {
+  if (toolName.value === 'shell' || toolName.value === 'code_executor' || toolName.value === 'code_execute') {
     loadShellContent();
   }
   startAutoRefresh();

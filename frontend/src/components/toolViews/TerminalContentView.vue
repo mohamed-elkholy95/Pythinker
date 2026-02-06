@@ -164,7 +164,7 @@ const writeContent = async (nextContent: string) => {
   }
 };
 
-onMounted(() => {
+onMounted(async () => {
   if (!terminalRef.value) return;
 
   // Check initial dark mode
@@ -185,18 +185,52 @@ onMounted(() => {
     cursorStyle: 'block',
     theme: isDarkMode.value ? darkTheme : lightTheme,
     scrollOnUserInput: true,
+    cols: 80, // Set a reasonable default column count
+    rows: 24,
   });
   terminal.value.loadAddon(fitAddon.value);
   terminal.value.open(terminalRef.value);
-  fitAddon.value.fit();
-  writeContent(props.content || '');
 
-  resizeObserver = new ResizeObserver(() => {
+  // Delay initial fit to ensure container has proper dimensions
+  // Use multiple RAF cycles to ensure layout is complete
+  await nextTick();
+  requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      if (fitAddon.value) {
-        fitAddon.value.fit();
+      if (fitAddon.value && terminalRef.value) {
+        const width = terminalRef.value.offsetWidth;
+        // Only fit if container has reasonable width (> 200px to avoid narrow columns)
+        if (width > 200) {
+          try {
+            fitAddon.value.fit();
+          } catch (e) {
+            console.debug('Initial fit failed:', e);
+          }
+        }
       }
     });
+  });
+
+  writeContent(props.content || '');
+
+  // Debounce resize to avoid rapid refitting
+  let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
+  resizeObserver = new ResizeObserver((entries) => {
+    const entry = entries[0];
+    if (entry && entry.contentRect.width > 200) {
+      // Debounce to avoid too frequent refits
+      if (resizeTimeout) clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        requestAnimationFrame(() => {
+          if (fitAddon.value && terminal.value) {
+            try {
+              fitAddon.value.fit();
+            } catch (e) {
+              console.debug('Resize fit failed:', e);
+            }
+          }
+        });
+      }, 100);
+    }
   });
   resizeObserver.observe(terminalRef.value);
 
@@ -256,12 +290,15 @@ watch(
   position: relative;
   flex: 1;
   min-height: 0;
+  min-width: 0;
+  width: 100%;
 }
 
 .terminal-body {
   display: flex;
   width: 100%;
   height: 100%;
+  min-width: 200px; /* Prevent xterm from calculating 0-width columns */
   overflow: hidden;
 }
 
@@ -285,7 +322,18 @@ watch(
 .terminal-surface {
   width: 100%;
   height: 100%;
-  padding: 12px 16px;
+  padding: 8px 12px;
+  box-sizing: border-box;
+}
+
+/* Ensure xterm fills the surface properly */
+.terminal-surface :deep(.xterm) {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.terminal-surface :deep(.xterm-screen) {
+  width: 100% !important;
 }
 
 

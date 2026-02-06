@@ -206,14 +206,14 @@ DECISION GUIDE - Choose the right approach:
    Example: "Find the price of iPhone 16 on Apple's website"
    → ONE call to "browsing" tool - user can watch the process
 
-2️⃣ FAST TEXT FETCH (browser_get_content) - USE ONLY FOR:
+2️⃣ FAST TEXT FETCH (search) - USE ONLY FOR:
    - Complex multi-source research requiring 5+ pages quickly
    - Bulk extraction from many URLs (e.g., comparing specs from 10 product pages)
    - API documentation or technical references where speed matters
    - When explicitly asked to work faster without VNC visibility
 
    Example: Deep research comparing 8 different products from official pages
-   → browser_get_content for bulk extraction, then synthesize results
+   → search for bulk extraction, then synthesize results
 
 3️⃣ MANUAL BROWSER TOOLS - USE SPARINGLY FOR:
    - Precise single-step interactions after autonomous browsing
@@ -442,7 +442,7 @@ EFFICIENCY_RULES = """
 <efficiency>
 Optimize for user experience and reliability:
 - Default to autonomous browsing for web tasks (visible in VNC)
-- Use browser_get_content only for bulk extraction (5+ pages)
+- Use search only for bulk extraction (5+ pages)
 - Combine multiple operations when possible
 - Batch file operations instead of individual calls
 - Avoid unnecessary tool calls - plan before acting

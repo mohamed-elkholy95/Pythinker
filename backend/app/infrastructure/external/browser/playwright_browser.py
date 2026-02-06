@@ -12,7 +12,7 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from app.core.config import get_settings
 from app.domain.models.tool_result import ToolResult
-from app.infrastructure.external.llm.openai_llm import OpenAILLM
+from app.infrastructure.external.llm import get_llm
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
@@ -233,7 +233,7 @@ class PlaywrightBrowser:
         self.context: BrowserContext | None = None
         self.page: Page | None = None
         self.playwright = None
-        self.llm = OpenAILLM()
+        self.llm = get_llm()
         self.settings = get_settings()
         self.cdp_url = cdp_url
         self.block_resources = block_resources

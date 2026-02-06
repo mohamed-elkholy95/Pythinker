@@ -7,6 +7,7 @@ from . import (
     maintenance_routes,
     metrics_routes,
     monitoring_routes,
+    rating_routes,
     session_routes,
     settings_routes,
     skills_routes,
@@ -30,6 +31,7 @@ def create_api_router() -> APIRouter:
     api_router.include_router(skills_routes.router)
     api_router.include_router(usage_routes.router)
     api_router.include_router(monitoring_routes.router)
+    api_router.include_router(rating_routes.router)
     api_router.include_router(workspace_routes.router)
 
     return api_router

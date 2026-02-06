@@ -15,6 +15,10 @@ import json
 import site
 import sys
 import tempfile
+
+# Increase recursion limit for test collection with many test files
+# The default 1000 can be exceeded during deep import chains when running full suite
+sys.setrecursionlimit(10000)
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch

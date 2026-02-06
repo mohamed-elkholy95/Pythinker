@@ -11,12 +11,14 @@ Note: These endpoints should be protected in production environments.
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from app.application.services.maintenance_service import MaintenanceService
 from app.core.config import get_settings
+from app.domain.models.user import User
 from app.infrastructure.storage.mongodb import get_mongodb
+from app.interfaces.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +66,10 @@ class SessionHealthResponse(BaseModel):
 
 
 @router.get("/health/session/{session_id}", response_model=SessionHealthResponse)
-async def get_session_health(session_id: str):
+async def get_session_health(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+):
     """
     Check the data health of a specific session.
 
@@ -88,6 +93,7 @@ async def get_session_health(session_id: str):
 async def cleanup_invalid_attachments(
     session_id: str | None = Query(None, description="Specific session to clean up"),
     dry_run: bool = Query(True, description="If true, only reports what would be cleaned"),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Clean up events with invalid attachments (null file_id or filename).
@@ -117,7 +123,10 @@ async def cleanup_invalid_attachments(
 
 
 @router.get("/cleanup/attachments/preview", response_model=CleanupResponse)
-async def preview_attachment_cleanup(session_id: str | None = Query(None, description="Specific session to check")):
+async def preview_attachment_cleanup(
+    session_id: str | None = Query(None, description="Specific session to check"),
+    current_user: User = Depends(get_current_user),
+):
     """
     Preview what would be cleaned without making any changes.
 
@@ -138,6 +147,7 @@ async def preview_attachment_cleanup(session_id: str | None = Query(None, descri
 async def cleanup_stale_running_sessions(
     stale_threshold_minutes: int = Query(30, description="Sessions running longer than this are considered stale"),
     dry_run: bool = Query(True, description="If true, only reports what would be cleaned"),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Clean up sessions stuck in "running" or "initializing" status.
@@ -172,6 +182,7 @@ async def cleanup_stale_running_sessions(
 @router.get("/cleanup/stale-sessions/preview", response_model=StaleSessionCleanupResponse)
 async def preview_stale_session_cleanup(
     stale_threshold_minutes: int = Query(30, description="Sessions running longer than this are considered stale"),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Preview stale sessions that would be cleaned without making changes.

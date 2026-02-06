@@ -1,25 +1,25 @@
 <template>
   <SimpleBar ref="simpleBarRef" @scroll="handleScroll">
-    <div ref="chatContainerRef" class="relative flex flex-col h-full flex-1 min-w-0 px-5">
+    <div ref="chatContainerRef" class="relative flex flex-col h-full flex-1 min-w-0 px-5 bg-[var(--background-gray-main)]">
       <div ref="observerRef"
-        class="chat-header sm:min-w-[390px] flex flex-row items-center justify-between py-3 gap-2 sticky top-0 z-10 flex-shrink-0">
-        <div class="flex items-center flex-1">
-          <div class="relative flex items-center">
-            <div @click="toggleLeftPanel" v-if="!isLeftPanelShow"
-              class="flex h-8 w-8 items-center justify-center cursor-pointer rounded-lg hover:bg-[var(--fill-tsp-gray-main)] transition-colors">
-              <PanelLeft class="size-5 text-[var(--icon-secondary)]" />
-            </div>
+        class="chat-header flex flex-row items-center py-3 sticky top-0 z-10 flex-shrink-0">
+        <!-- Left side - panel toggle -->
+        <div class="flex items-center justify-start" style="width: calc((100% - min(768px, 100%)) / 2);">
+          <div @click="toggleLeftPanel" v-if="!isLeftPanelShow"
+            class="flex h-8 w-8 items-center justify-center cursor-pointer rounded-lg hover:bg-[var(--fill-tsp-gray-main)] transition-colors">
+            <PanelLeft class="size-5 text-[var(--icon-secondary)]" />
           </div>
         </div>
-        <div class="max-w-full sm:max-w-[768px] sm:min-w-[390px] flex w-full flex-col overflow-hidden">
-          <div
-            class="text-[var(--text-primary)] text-base font-medium w-full flex flex-row items-center justify-between flex-1 min-w-0 gap-3">
-            <div class="flex flex-row items-center gap-2 flex-1 min-w-0">
-              <span class="whitespace-nowrap text-ellipsis overflow-hidden leading-relaxed">
-                {{ title }}
-              </span>
-            </div>
-            <div class="flex items-center gap-1 flex-shrink-0">
+        <!-- Center content - matches chat content width -->
+        <div class="max-w-full sm:max-w-[768px] sm:min-w-[390px] w-full flex items-center justify-between gap-3">
+          <!-- Left: Title -->
+          <div class="flex items-center gap-2 flex-1 min-w-0">
+            <span class="text-[var(--text-primary)] text-base font-medium whitespace-nowrap text-ellipsis overflow-hidden leading-relaxed">
+              {{ title }}
+            </span>
+          </div>
+          <!-- Right: Buttons -->
+          <div class="flex items-center gap-1 flex-shrink-0">
               <span class="relative flex-shrink-0" aria-expanded="false" aria-haspopup="dialog">
                 <Popover>
                   <PopoverTrigger>
@@ -93,9 +93,9 @@
                 class="h-8 w-8 flex items-center justify-center hover:bg-[var(--fill-tsp-gray-main)] rounded-lg cursor-pointer transition-colors">
                 <FileSearch class="text-[var(--icon-secondary)]" :size="18" />
               </button>
-            </div>
           </div>
         </div>
+        <!-- Right side - spacer -->
         <div class="flex-1"></div>
       </div>
       <div class="mx-auto w-full max-w-full sm:max-w-[768px] sm:min-w-[390px] flex flex-col flex-1 min-h-[calc(100vh-60px)]">
@@ -172,15 +172,28 @@
           <!-- Planning Progress Indicator - shows instant feedback before plan is ready -->
           <div
             v-if="!isToolPanelOpen && planningProgress && (!plan || plan.steps.length === 0)"
-            class="planning-progress-indicator mb-2 bg-white dark:bg-[#2a2a2a] rounded-lg border border-gray-200 dark:border-[#3a3a3a] px-4 py-2.5 flex items-center gap-3 shadow-sm"
+            class="planning-progress-indicator mb-2 bg-white dark:bg-[#2a2a2a] rounded-lg border border-gray-200 dark:border-[#3a3a3a] px-4 py-2.5 shadow-sm"
           >
-            <div class="flex-shrink-0">
-              <ThinkingIndicator :showText="false" />
+            <!-- Progress bar track -->
+            <div class="h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden mb-2">
+              <div
+                class="h-full bg-blue-500 dark:bg-blue-400 transition-all duration-300 ease-out rounded-full"
+                :style="{ width: (planningProgress.percent || 10) + '%' }"
+              ></div>
             </div>
-            <div class="flex-1 min-w-0">
-              <span class="planning-text-shimmer text-[15px] font-medium">
-                {{ currentPlanningMessage }}
-              </span>
+            <!-- Content row -->
+            <div class="flex items-center gap-3">
+              <div class="flex-shrink-0">
+                <ThinkingIndicator :showText="false" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <span class="planning-text-shimmer text-[15px] font-medium">
+                  {{ currentPlanningMessage }}
+                </span>
+              </div>
+              <div class="flex-shrink-0 text-xs text-gray-500 dark:text-gray-400 font-medium">
+                {{ planningProgress.percent || 10 }}%
+              </div>
             </div>
           </div>
 
@@ -1498,26 +1511,11 @@ const handleCopyLink = async () => {
 <style scoped>
 /* ===== CHAT HEADER ===== */
 .chat-header {
-  background: var(--background-white-main);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-.chat-header::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    var(--border-main) 10%,
-    var(--border-main) 90%,
-    transparent 100%
-  );
-  opacity: 0.6;
+  background-color: var(--background-gray-main) !important;
+  margin-left: -1.25rem;
+  margin-right: -1.25rem;
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
 }
 
 /* 120-degree diagonal shimmer text effect */

@@ -369,6 +369,10 @@ class AgentService:
     async def clear_unread_message_count(self, session_id: str, user_id: str) -> None:
         """Clear the unread message count for a session, ensuring it belongs to the user"""
         logger.info(f"Clearing unread message count for session {session_id} for user {user_id}")
+        session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
+        if not session:
+            logger.error(f"Session {session_id} not found for user {user_id}")
+            raise RuntimeError("Session not found")
         await self._session_repository.update_unread_message_count(session_id, 0)
         logger.info(f"Unread message count cleared for session {session_id}")
 

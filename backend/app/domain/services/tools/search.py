@@ -331,14 +331,29 @@ class SearchTool(BaseTool):
 
         try:
             settings = get_settings()
+            search_url: str | None = None
+            use_searxng = bool(settings.searxng_url)
 
-            # Use SearXNG if configured (Docker internal URL), otherwise use DuckDuckGo
-            # Google blocks automated access, so we avoid it
-            if settings.searxng_url:
-                # SearXNG search URL
-                search_url = f"{settings.searxng_url}/search?q={quote(query)}&format=html"
+            # Build DuckDuckGo URL (used as primary or fallback)
+            def build_ddg_url() -> str:
+                ddg_url = f"https://duckduckgo.com/?q={quote(query)}"
                 if date_range and date_range != "all":
-                    # SearXNG time range
+                    time_map = {
+                        "past_day": "d",
+                        "past_week": "w",
+                        "past_month": "m",
+                        "past_year": "y",
+                    }
+                    if date_range in time_map:
+                        ddg_url += f"&df={time_map[date_range]}"
+                return ddg_url
+
+            # Try SearXNG first if configured (Docker internal URL)
+            # Note: Don't use format=html param - it can cause ERR_ABORTED in Chrome
+            # HTML is the default format anyway
+            if use_searxng:
+                search_url = f"{settings.searxng_url}/search?q={quote(query)}"
+                if date_range and date_range != "all":
                     time_map = {
                         "past_day": "day",
                         "past_week": "week",
@@ -349,24 +364,20 @@ class SearchTool(BaseTool):
                         search_url += f"&time_range={time_map[date_range]}"
                 logger.info(f"Browser search via SearXNG: {query}")
             else:
-                # Fall back to DuckDuckGo (doesn't block automation as aggressively)
-                search_url = f"https://duckduckgo.com/?q={quote(query)}"
-                if date_range and date_range != "all":
-                    # DuckDuckGo time range
-                    time_map = {
-                        "past_day": "d",
-                        "past_week": "w",
-                        "past_month": "m",
-                        "past_year": "y",
-                    }
-                    if date_range in time_map:
-                        search_url += f"&df={time_map[date_range]}"
+                search_url = build_ddg_url()
                 logger.info(f"Browser search via DuckDuckGo: {query}")
 
             logger.info(f"Browser search (visible in sandbox): {query}")
 
             # Navigate to search page
             nav_result = await self._browser.navigate(search_url)
+
+            # If SearXNG navigation failed, try DuckDuckGo as fallback
+            if not nav_result.success and use_searxng:
+                logger.warning(f"SearXNG navigation failed: {nav_result.message}, trying DuckDuckGo fallback")
+                search_url = build_ddg_url()
+                nav_result = await self._browser.navigate(search_url)
+
             if not nav_result.success:
                 logger.error(f"Browser navigation failed: {nav_result.message}")
                 return ToolResult(

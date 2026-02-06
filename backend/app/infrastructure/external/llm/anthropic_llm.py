@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.domain.external.llm import LLM
+from app.domain.services.agents.error_handler import TokenLimitExceededError
 from app.domain.services.agents.token_manager import TokenManager
 from app.domain.services.agents.usage_context import get_usage_context
 from app.infrastructure.external.llm.factory import LLMProviderRegistry
@@ -30,12 +31,6 @@ try:
 except ImportError:
     ANTHROPIC_AVAILABLE = False
     logger.warning("anthropic package not installed. Run: pip install anthropic")
-
-
-class TokenLimitExceededError(Exception):
-    """Raised when the token limit is exceeded."""
-
-    pass
 
 
 @LLMProviderRegistry.register("anthropic")

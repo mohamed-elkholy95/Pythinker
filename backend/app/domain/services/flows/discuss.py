@@ -36,6 +36,7 @@ from app.domain.services.tools.agent_mode import AgentModeTool
 from app.domain.services.tools.base import BaseTool
 from app.domain.services.tools.search import SearchTool
 from app.domain.utils.json_parser import JsonParser
+from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -180,10 +181,11 @@ class DiscussFlow(BaseFlow):
 
         try:
             # Build the discuss prompt
+            settings = get_settings()
             prompt = build_discuss_prompt(
                 message=message.message,
                 attachments="\n".join(message.attachments) if message.attachments else "",
-                language="English",  # TODO: Detect or configure language
+                language=settings.default_language,
             )
 
             # Execute through the agent

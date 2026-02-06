@@ -259,10 +259,10 @@ const handleSubmit = async () => {
       email: formData.value.email,
       password: formData.value.password
     })
-    
+
     // Registration success message
-    showSuccessToast(t('Registration successful! Welcome to Manus'))
-    
+    showSuccessToast(t('Registration successful! Welcome to Pythinker'))
+
     // Emit success event
     emits('success')
   } catch (error: any) {

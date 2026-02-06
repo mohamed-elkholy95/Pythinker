@@ -14,6 +14,7 @@ from app.application.services.token_service import TokenService
 from app.core.config import get_settings
 from app.core.deep_research_manager import get_deep_research_manager
 from app.domain.external.sandbox import Sandbox
+from app.domain.models.event import PlanningPhase, ProgressEvent
 from app.domain.models.file import FileInfo
 from app.domain.models.user import User
 from app.interfaces.dependencies import (
@@ -249,6 +250,20 @@ async def chat(
 
     async def event_generator() -> AsyncGenerator[ServerSentEvent, None]:
         try:
+            # INSTANT FEEDBACK: Emit ProgressEvent immediately (<100ms)
+            # This gives users visual feedback before any processing begins
+            instant_ack = ProgressEvent(
+                phase=PlanningPhase.RECEIVED,
+                message="Got it! Working on your request...",
+                progress_percent=5,
+            )
+            sse_event = await EventMapper.event_to_sse_event(instant_ack)
+            if sse_event:
+                yield ServerSentEvent(
+                    event=sse_event.event,
+                    data=sse_event.data.model_dump_json() if sse_event.data else None,
+                )
+
             async for event in agent_service.chat(
                 session_id=session_id,
                 user_id=current_user.id,
@@ -576,9 +591,6 @@ async def get_vnc_screenshot(
                     "Cache-Control": "no-cache, no-store, must-revalidate",
                     "Pragma": "no-cache",
                     "Expires": "0",
-                    "Access-Control-Allow-Origin": "*",
-                    "Access-Control-Allow-Methods": "GET, OPTIONS",
-                    "Access-Control-Allow-Headers": "*",
                     "X-Screenshot-Timestamp": str(timestamp),
                     "X-Screenshot-Size": str(content_size),
                 },

@@ -112,9 +112,3 @@ def get_llm_from_factory() -> LLM | None:
 
     logger.info(f"Initializing LLM: {provider}")
     return LLMProviderRegistry.get(provider, **kwargs)
-
-
-# Backwards-compatible function
-def get_llm() -> LLM | None:
-    """Get LLM instance (backwards compatible alias)."""
-    return get_llm_from_factory()
