@@ -60,7 +60,7 @@ If request involves system diagnostics, benchmarks, or capability testing:
   - Run at least 3-4 different search queries
 
 - Step 2: "Browse top results, extract model specs, token limits, benchmarks, and pricing information"
-  - Uses: browser_navigate to visit URLs, browser_get_content to extract text
+  - Uses: browser_navigate to visit URLs, search to extract text
   - Goal: Visit 5-8 actual URLs including:
     * Official product pages
     * Benchmark leaderboard sites (e.g., Berkeley Function Calling, LMSYS, HuggingFace)
@@ -86,7 +86,7 @@ If request involves system diagnostics, benchmarks, or capability testing:
 - Search snippets are outdated and incomplete
 - You MUST browse actual pages to get current information
 - Reports based only on search snippets will have incorrect dates and facts
-- The browser_navigate and browser_get_content tools are REQUIRED for research
+- The browser_navigate and search tools are REQUIRED for research
 
 **CRITICAL - BENCHMARK RESEARCH:**
 - If task involves performance comparison, MUST search for benchmark leaderboards
@@ -96,7 +96,7 @@ If request involves system diagnostics, benchmarks, or capability testing:
 
 ### Simple Queries (single search, one website)
 - ONE browsing step: search AND browse to extract content
-- Use browser_get_content for quick page reads
+- Use search tool for quick page reads
 
 ### Skill Creation Tasks (/skill-creator, "create a skill", "build a skill")
 When the task involves creating a custom skill:

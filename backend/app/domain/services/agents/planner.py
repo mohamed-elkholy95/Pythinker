@@ -343,12 +343,20 @@ class PlannerAgent(BaseAgent):
                     # Progress: Finalizing plan
                     yield ProgressEvent(
                         phase=PlanningPhase.FINALIZING,
-                        message="Finalizing plan...",
+                        message="Validating plan structure...",
                         estimated_steps=len(plan.steps),
                         progress_percent=80,
                     )
                     logger.info(f"Created plan using validated structured output: {plan.title}")
                     await self._add_to_memory([{"role": "assistant", "content": plan.model_dump_json()}])
+
+                    # Final progress before yielding plan
+                    yield ProgressEvent(
+                        phase=PlanningPhase.FINALIZING,
+                        message=f"Ready to execute {len(plan.steps)} steps!",
+                        estimated_steps=len(plan.steps),
+                        progress_percent=95,
+                    )
                     yield PlanEvent(status=PlanStatus.CREATED, plan=plan)
                     return
 
@@ -380,6 +388,12 @@ class PlannerAgent(BaseAgent):
                     )
                     logger.info(f"Created plan using structured output: {plan.title}")
                     await self._add_to_memory([{"role": "assistant", "content": plan.model_dump_json()}])
+                    yield ProgressEvent(
+                        phase=PlanningPhase.FINALIZING,
+                        message=f"Ready to execute {len(plan.steps)} steps!",
+                        estimated_steps=len(plan.steps),
+                        progress_percent=95,
+                    )
                     yield PlanEvent(status=PlanStatus.CREATED, plan=plan)
                     return
                 except Exception as e:
@@ -394,6 +408,12 @@ class PlannerAgent(BaseAgent):
                 parsed_response = await self.json_parser.parse(event.message)
                 plan = Plan.model_validate(parsed_response)
                 plan.steps = self._normalize_plan_steps(plan.steps, task_message=message.message)
+                yield ProgressEvent(
+                    phase=PlanningPhase.FINALIZING,
+                    message=f"Ready to execute {len(plan.steps)} steps!",
+                    estimated_steps=len(plan.steps),
+                    progress_percent=95,
+                )
                 yield PlanEvent(status=PlanStatus.CREATED, plan=plan)
             else:
                 yield event

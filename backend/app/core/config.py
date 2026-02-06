@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     environment: str = "development"  # "development", "staging", "production"
     debug: bool = False
 
+    # Language configuration
+    default_language: str = "English"  # Default language for agent responses
+
     # LLM Provider selection
     llm_provider: str = "openai"  # "openai", "ollama"
 
@@ -482,7 +485,7 @@ class Settings(BaseSettings):
 
         # API key validation
         if self.llm_provider in ["openai", "anthropic"] and not self.api_key:
-            if self.llm_provider == "anthropic" and not self.anthropic_api_key:
+            if self.llm_provider == "anthropic" and not self.api_key:
                 errors.append(f"API key is required for {self.llm_provider} provider")
             elif self.llm_provider == "openai":
                 errors.append("API_KEY is required for OpenAI provider")

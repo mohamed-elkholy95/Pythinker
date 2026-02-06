@@ -46,7 +46,7 @@ SAFE_PARALLEL_TOOLS = {
     "file_search",
     "file_list_directory",
     # Browser read operations
-    "browser_get_content",  # Fast text-only fetch
+    "search",  # Fast text-only fetch (renamed from browser_get_content)
     "browser_view",
     # Code executor read-only operations
     "code_list_artifacts",
@@ -629,10 +629,9 @@ class BaseAgent:
             # Browser read operations
             "browser_view",
             "browser_screenshot",
-            "browser_get_content",
+            "search",
             # Search
             "info_search",
-            "search",
             # Code read operations
             "code_list",
             "code_read",

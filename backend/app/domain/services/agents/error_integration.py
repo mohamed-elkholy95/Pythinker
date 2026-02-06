@@ -187,7 +187,7 @@ class ErrorIntegrationBridge:
             try:
                 if self._error_handler:
                     recent_errors = self._error_handler.get_recent_errors(limit=20)
-                    patterns = self._pattern_analyzer.analyze_patterns(recent_errors)
+                    patterns = self._pattern_analyzer.analyze_patterns()
                     health.patterns_detected = (
                         [
                             {"type": p.pattern_type, "confidence": p.confidence, "suggestion": p.suggestion}

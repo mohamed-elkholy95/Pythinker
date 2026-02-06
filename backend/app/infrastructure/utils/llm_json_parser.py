@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any
 
 from app.domain.utils.json_parser import JsonParser
-from app.infrastructure.external.llm.openai_llm import OpenAILLM
+from app.infrastructure.external.llm import get_llm
 from app.infrastructure.observability.prometheus_metrics import record_error
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,10 @@ class LLMJsonParser(JsonParser):
     """
 
     def __init__(self):
-        self.llm = OpenAILLM()
+        llm = get_llm()
+        if llm is None:
+            raise RuntimeError("Failed to initialize LLM from factory. Check LLM_PROVIDER configuration.")
+        self.llm = llm
         self.strategies = [
             self._try_direct_parse,
             self._try_channel_markers_parse,

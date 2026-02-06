@@ -94,7 +94,7 @@ class TokenService:
             return None
 
     async def verify_token_async(self, token: str) -> dict[str, Any] | None:
-        """Verify JWT token with blacklist check (async version)"""
+        """Verify JWT token with blacklist and user revocation check (async version)"""
         # First do basic JWT verification
         payload = self.verify_token(token)
         if not payload:
@@ -103,6 +103,13 @@ class TokenService:
         # Check if token is blacklisted
         if self.settings.jwt_token_blacklist_enabled and await self._is_token_blacklisted(token):
             logger.warning("Token is blacklisted")
+            return None
+
+        # Check if all user tokens were revoked (logout-all-devices)
+        user_id = payload.get("sub")
+        issued_at = payload.get("iat")
+        if user_id and issued_at and await self.is_user_token_revoked(str(user_id), issued_at):
+            logger.warning(f"Token revoked for user: {user_id}")
             return None
 
         return payload

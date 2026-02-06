@@ -476,6 +476,45 @@ const currentToolIcon = computed(() => {
 const contentPreview = computed(() => {
   if (!props.toolContent) return ''
 
+  const toolName = props.toolContent?.name || ''
+  const toolFunc = props.toolContent?.function || ''
+  const isShellOrCode = toolName.includes('shell') || toolName.includes('code') ||
+                        toolFunc.includes('shell') || toolFunc.includes('code')
+
+  // Shell/Code output - check multiple sources
+  if (isShellOrCode) {
+    // Get command
+    const command = props.toolContent.args?.command || props.toolContent.command || ''
+
+    // Check for stdout/stderr output first
+    const stdout = props.toolContent.stdout || props.toolContent.content?.stdout || ''
+    const stderr = props.toolContent.stderr || props.toolContent.content?.stderr || ''
+
+    // Check for console output (array format)
+    const consoleOutput = props.toolContent.content?.console
+    if (consoleOutput && Array.isArray(consoleOutput)) {
+      return consoleOutput.map((e: any) => {
+        const ps1 = e.ps1 ? `${e.ps1} ` : '$ '
+        return `${ps1}${e.command || ''}\n${e.output || ''}`
+      }).join('\n').slice(0, 500)
+    }
+
+    // Build output from available sources
+    let output = ''
+    if (command) output += `$ ${command}\n`
+    if (stdout) output += stdout
+    if (stderr) output += `\n[stderr]\n${stderr}`
+
+    if (output.trim()) {
+      return output.slice(0, 500)
+    }
+
+    // Show command during execution
+    if (command) {
+      return `$ ${command}`
+    }
+  }
+
   // File content
   if (props.toolContent.args?.content) {
     return String(props.toolContent.args.content).slice(0, 500)
@@ -484,24 +523,14 @@ const contentPreview = computed(() => {
     return String(props.toolContent.content.content).slice(0, 500)
   }
 
-  // Shell output (completed command)
+  // Generic stdout output
   if (props.toolContent.stdout) {
     return String(props.toolContent.stdout).slice(0, 500)
   }
   if (props.toolContent.content?.console) {
     const console = props.toolContent.content.console
-    if (Array.isArray(console)) {
-      return console.map((e: any) => `${e.command || ''}\n${e.output || ''}`).join('\n').slice(0, 500)
-    }
-    return String(console).slice(0, 500)
-  }
-
-  // Shell command being executed (show command during execution)
-  const toolName = props.toolContent?.name || ''
-  if (toolName.includes('shell') || toolName.includes('code')) {
-    const command = props.toolContent.args?.command || props.toolContent.command
-    if (command) {
-      return `$ ${command}`
+    if (typeof console === 'string') {
+      return String(console).slice(0, 500)
     }
   }
 

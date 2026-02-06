@@ -21,7 +21,6 @@ from app.infrastructure.external.file.gridfsfile import get_file_storage
 
 # Import all required dependencies for agent service
 from app.infrastructure.external.llm import get_llm
-from app.infrastructure.external.llm.openai_llm import OpenAILLM
 from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
 from app.infrastructure.external.search import get_search_engine
 from app.infrastructure.external.task.redis_task import RedisStreamTask
@@ -46,17 +45,12 @@ def _get_llm_instance():
     Uses the LLM provider factory to dynamically select the appropriate
     LLM implementation based on LLM_PROVIDER configuration.
 
-    Falls back to OpenAILLM if factory fails.
+    Raises RuntimeError if factory fails to ensure proper configuration.
     """
-    try:
-        llm = get_llm()
-        if llm is not None:
-            return llm
-    except Exception as e:
-        logger.warning(f"LLM factory failed, falling back to OpenAILLM: {e}")
-
-    # Fallback to direct OpenAILLM instantiation
-    return OpenAILLM()
+    llm = get_llm()
+    if llm is None:
+        raise RuntimeError("Failed to initialize LLM from factory. Check LLM_PROVIDER configuration.")
+    return llm
 
 
 @lru_cache

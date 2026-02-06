@@ -78,7 +78,7 @@ async def get_user_settings(current_user: User = Depends(get_current_user)) -> A
     """Get current user's settings"""
     app_settings = get_app_settings()
     mongodb = get_mongodb()
-    db = mongodb.client[app_settings.mongodb_db_name]
+    db = mongodb.client[app_settings.mongodb_database]
 
     # Try to get user settings from database
     settings_collection = db.get_collection("user_settings")
@@ -111,7 +111,7 @@ async def update_user_settings(
     """Update current user's settings"""
     app_settings = get_app_settings()
     mongodb = get_mongodb()
-    db = mongodb.client[app_settings.mongodb_db_name]
+    db = mongodb.client[app_settings.mongodb_database]
     settings_collection = db.get_collection("user_settings")
 
     # Get existing settings or defaults

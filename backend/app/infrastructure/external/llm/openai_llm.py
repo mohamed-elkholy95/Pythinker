@@ -53,10 +53,16 @@ class OpenAILLM(LLM):
         # Detect if using local MLX server (doesn't support native tool calling)
         self._is_mlx_mode = self._detect_mlx_mode()
 
+        # Detect if using Kimi Code API or similar with extended thinking enabled
+        self._is_thinking_api = self._detect_thinking_api()
+
         # Initialize prompt cache manager for KV-cache optimization
         self._cache_manager = get_prompt_cache_manager(self._model_name)
 
-        logger.info(f"Initialized OpenAI LLM with model: {self._model_name}, MLX mode: {self._is_mlx_mode}")
+        logger.info(
+            f"Initialized OpenAI LLM with model: {self._model_name}, "
+            f"MLX mode: {self._is_mlx_mode}, thinking API: {self._is_thinking_api}"
+        )
 
     def _detect_stream_usage_support(self) -> bool:
         """Detect whether streaming usage metadata is supported by the API base."""
@@ -74,6 +80,28 @@ class OpenAILLM(LLM):
             if any(indicator in self._api_base.lower() for indicator in local_indicators):
                 return True
         return False
+
+    def _detect_thinking_api(self) -> bool:
+        """Detect if using an API with extended thinking that requires reasoning_content handling.
+
+        APIs like Kimi Code API enable extended thinking by default for Claude models.
+        When replaying messages, reasoning_content must be preserved or stripped.
+        """
+        if not self._api_base:
+            return False
+
+        base = self._api_base.lower()
+
+        # Kimi Code API has extended thinking enabled for Claude models
+        if "kimi.com" in base or "kimi.ai" in base:
+            return True
+
+        # Check for Claude models that might have thinking enabled
+        # Claude models through third-party APIs may have thinking enabled
+        # Be conservative and enable thinking handling for all Claude models
+        # through non-Anthropic endpoints
+        model_lower = self._model_name.lower()
+        return "claude" in model_lower and "anthropic.com" not in base
 
     async def _record_usage(self, response: Any) -> None:
         """Record usage from OpenAI response if usage context is set.
@@ -366,6 +394,43 @@ To extract data from a webpage:
     def max_tokens(self) -> int:
         return self._max_tokens
 
+    def _strip_reasoning_content(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Strip reasoning_content from assistant messages to avoid thinking API errors.
+
+        When APIs like Kimi have extended thinking enabled, they expect reasoning_content
+        in all assistant messages with tool_calls. Since we don't preserve reasoning_content
+        in our message history, we need to strip any existing reasoning_content fields
+        to avoid validation errors.
+
+        This is necessary because:
+        1. The API returns messages with reasoning_content when thinking is enabled
+        2. We store messages without reasoning_content (it's internal to the model)
+        3. When replaying, the API sees messages that should have thinking but don't
+        4. This causes: "thinking is enabled but reasoning_content is missing"
+        """
+        if not self._is_thinking_api:
+            return messages
+
+        cleaned = []
+        for msg in messages:
+            msg_copy = dict(msg)
+
+            # Remove reasoning_content if present (we don't preserve it)
+            msg_copy.pop("reasoning_content", None)
+
+            # For assistant messages with tool_calls, ensure content is present
+            # Some APIs expect content to be present even if empty
+            if (
+                msg_copy.get("role") == "assistant"
+                and msg_copy.get("tool_calls")
+                and msg_copy.get("content") is None
+            ):
+                msg_copy["content"] = ""
+
+            cleaned.append(msg_copy)
+
+        return cleaned
+
     def _validate_and_fix_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         Validate message sequence and fix tool_call/tool_response ordering issues.
@@ -375,6 +440,9 @@ To extract data from a webpage:
         """
         if not messages:
             return messages
+
+        # First, strip reasoning_content for thinking APIs
+        messages = self._strip_reasoning_content(messages)
 
         fixed_messages = []
         pending_tool_ids = set()
@@ -490,6 +558,11 @@ To extract data from a webpage:
                     # Older models use max_tokens and support temperature
                     params["max_tokens"] = self._max_tokens
                     params["temperature"] = self._temperature
+
+                # For thinking APIs (Kimi, etc.), explicitly disable extended thinking
+                # to avoid reasoning_content errors when replaying messages
+                if self._is_thinking_api:
+                    params["extra_body"] = {"thinking": {"type": "disabled"}}
 
                 if tools:
                     # OpenAI API mode with native tool support
@@ -637,6 +710,10 @@ To extract data from a webpage:
                     params["max_tokens"] = self._max_tokens
                     params["temperature"] = self._temperature
 
+                # For thinking APIs (Kimi, etc.), explicitly disable extended thinking
+                if self._is_thinking_api:
+                    params["extra_body"] = {"thinking": {"type": "disabled"}}
+
                 if supports_strict_schema:
                     # Use native structured output with strict schema
                     params["response_format"] = {
@@ -767,10 +844,10 @@ To extract data from a webpage:
 
         # DeepInfra has limited json_object support
         # NVIDIA models on DeepInfra don't support it
-        if "deepinfra" in base:
-            if "nvidia" in self._model_name.lower() or "nemotron" in self._model_name.lower():
-                logger.debug(f"DeepInfra NVIDIA model {self._model_name} doesn't support json_object format")
-                return False
+        model_lower = self._model_name.lower()
+        if "deepinfra" in base and ("nvidia" in model_lower or "nemotron" in model_lower):
+            logger.debug(f"DeepInfra NVIDIA model {self._model_name} doesn't support json_object format")
+            return False
 
         # Many OpenRouter providers don't support json_object
         if "openrouter" in base:
@@ -834,6 +911,10 @@ To extract data from a webpage:
         else:
             params["max_tokens"] = self._max_tokens
             params["temperature"] = self._temperature
+
+        # For thinking APIs (Kimi, etc.), explicitly disable extended thinking
+        if self._is_thinking_api:
+            params["extra_body"] = {"thinking": {"type": "disabled"}}
 
         if tools:
             params["tools"] = tools

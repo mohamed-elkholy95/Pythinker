@@ -9,7 +9,7 @@ The PathExplorer manages the lifecycle of multiple solution paths:
 
 import asyncio
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Generator
 from typing import TYPE_CHECKING, Any
 
 from app.domain.models.event import BaseEvent, PathEvent
@@ -55,15 +55,17 @@ class PathExplorer:
         self._token_budget_used: int = 0
         self._active_path: PathState | None = None
 
-    def create_paths(self, strategies: list[dict[str, Any]], base_message: Message) -> list[PathState]:
+    def create_paths(
+        self, strategies: list[dict[str, Any]], base_message: Message
+    ) -> Generator[PathEvent, None, None]:
         """Create exploration paths from strategy suggestions.
 
         Args:
             strategies: List of strategy descriptions
             base_message: Original user message
 
-        Returns:
-            List of created PathState objects
+        Yields:
+            PathEvent for each created path
         """
         paths = []
 
@@ -78,7 +80,6 @@ class PathExplorer:
 
         self._paths = paths
         logger.info(f"Created {len(paths)} exploration paths")
-        return paths
 
     async def explore_path(
         self, path: PathState, message: Message, scorer: "PathScorer"

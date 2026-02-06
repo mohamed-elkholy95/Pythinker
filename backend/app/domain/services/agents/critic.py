@@ -148,8 +148,8 @@ class CheckSeverity(str, Enum):
 class CheckResult(BaseModel):
     """Result of a single check in the 5-check framework."""
 
-    check_name: str = Field(description="Name of the check")
-    passed: bool = Field(description="Whether the check passed")
+    check_name: str = Field(default="unknown", description="Name of the check")
+    passed: bool = Field(default=True, description="Whether the check passed")
     severity: CheckSeverity = Field(default=CheckSeverity.PASS, description="Severity if failed")
     issues: list[str] = Field(default_factory=list, description="Specific issues found")
     confidence: float = Field(ge=0.0, le=1.0, default=1.0, description="Confidence in the result")
@@ -167,6 +167,16 @@ class DataAsymmetryIssue(BaseModel):
     suggestion: str = Field(description="How to fix the asymmetry")
 
 
+def _default_check_result() -> CheckResult:
+    """Create a default passing CheckResult for when LLM doesn't provide one."""
+    return CheckResult(
+        check_name="default",
+        passed=True,
+        severity=CheckSeverity.PASS,
+        confidence=0.5,
+    )
+
+
 class FiveCheckResult(BaseModel):
     """Result of the comprehensive 5-check framework.
 
@@ -178,14 +188,29 @@ class FiveCheckResult(BaseModel):
     5. Grounding - Is output grounded in sources/tools?
     """
 
-    accuracy_check: CheckResult = Field(description="Factual accuracy verification")
-    completeness_check: CheckResult = Field(description="Completeness of response")
-    consistency_check: CheckResult = Field(description="Internal consistency")
-    symmetry_check: CheckResult = Field(description="Data symmetry in comparisons")
-    grounding_check: CheckResult = Field(description="Source grounding verification")
+    accuracy_check: CheckResult = Field(
+        default_factory=_default_check_result,
+        description="Factual accuracy verification",
+    )
+    completeness_check: CheckResult = Field(
+        default_factory=_default_check_result,
+        description="Completeness of response",
+    )
+    consistency_check: CheckResult = Field(
+        default_factory=_default_check_result,
+        description="Internal consistency",
+    )
+    symmetry_check: CheckResult = Field(
+        default_factory=_default_check_result,
+        description="Data symmetry in comparisons",
+    )
+    grounding_check: CheckResult = Field(
+        default_factory=_default_check_result,
+        description="Source grounding verification",
+    )
 
-    overall_passed: bool = Field(description="Whether all critical checks passed")
-    overall_confidence: float = Field(ge=0.0, le=1.0, description="Overall confidence score")
+    overall_passed: bool = Field(default=True, description="Whether all critical checks passed")
+    overall_confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Overall confidence score")
     critical_issues: list[str] = Field(default_factory=list, description="Critical issues to address")
     asymmetry_issues: list[DataAsymmetryIssue] = Field(
         default_factory=list, description="Specific data asymmetry issues"

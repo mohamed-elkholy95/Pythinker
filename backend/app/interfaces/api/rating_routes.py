@@ -7,8 +7,11 @@ In the future, this could persist to a database for analytics.
 
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+
+from app.domain.models.user import User
+from app.interfaces.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +35,15 @@ class RatingResponse(BaseModel):
 
 
 @router.post("", response_model=RatingResponse, status_code=201)
-async def submit_rating(request: RatingRequest) -> RatingResponse:
+async def submit_rating(
+    request: RatingRequest, current_user: User = Depends(get_current_user)
+) -> RatingResponse:
     """Submit a rating for a report.
 
     Args:
         request: The rating request containing session_id, report_id,
                  rating (1-5), and optional feedback.
+        current_user: The authenticated user submitting the rating.
 
     Returns:
         RatingResponse indicating the rating was accepted.

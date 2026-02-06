@@ -18,7 +18,9 @@ from app.domain.models.event import (
     ErrorEvent,
     MessageEvent,
     PlanEvent,
+    PlanningPhase,
     PlanStatus,
+    ProgressEvent,
     ReportEvent,
     StepEvent,
     StepStatus,
@@ -1441,63 +1443,83 @@ class PlanActFlow(BaseFlow):
         # Phase 3.5: Initialize skill_invoke tool with available skills (lazy load)
         await self._init_skill_invoke_tool()
 
+        # === INSTANT ACKNOWLEDGMENT: Emit before any processing ===
+        # This gives users immediate feedback that their message was received
+        if session.status not in (SessionStatus.WAITING, SessionStatus.RUNNING):
+            # Emit text acknowledgment
+            acknowledgment = self._generate_acknowledgment(message.message)
+            yield MessageEvent(message=acknowledgment)
+            logger.info(f"Emitted acknowledgment for session {self._session_id}")
+
+            # Emit analyzing progress event
+            yield ProgressEvent(
+                phase=PlanningPhase.ANALYZING,
+                message="Analyzing your request...",
+                progress_percent=15,
+            )
+
         # === FAST PATH: Check if this is a simple query that can skip planning ===
         # For PENDING or COMPLETED sessions (not INITIALIZING where browser may not be ready)
         # COMPLETED sessions can still receive new messages and should use fast path for greetings/simple queries
         logger.info(f"Fast path check: session.status={session.status}, message={message.message[:50]}")
         if session.status in (SessionStatus.PENDING, SessionStatus.COMPLETED):
-            fast_path_router = FastPathRouter(
-                browser=self._browser,
-                llm=self._llm,
-                search_engine=self._search_engine,
-            )
-            intent, params = fast_path_router.classify(message.message)
-            logger.info(f"Fast path classification: intent={intent.value}, params={params}")
+            try:
+                fast_path_router = FastPathRouter(
+                    browser=self._browser,
+                    llm=self._llm,
+                    search_engine=self._search_engine,
+                )
+                intent, params = fast_path_router.classify(message.message)
+                logger.info(f"Fast path classification: intent={intent.value}, params={params}")
 
-            # Determine if fast path can be used based on intent
-            use_fast_path = False
-            skip_reason = ""
+                # Determine if fast path can be used based on intent
+                use_fast_path = False
+                skip_reason = ""
 
-            if intent == QueryIntent.GREETING:
-                # Greetings don't need browser or tools - always use fast path
-                use_fast_path = True
-            elif intent == QueryIntent.KNOWLEDGE:
-                # Knowledge queries don't need browser - always safe
-                use_fast_path = True
-            elif intent in (QueryIntent.DIRECT_BROWSE, QueryIntent.WEB_SEARCH):
-                # Browser queries need verified browser readiness (Phase 2)
-                browser_ready = await self._verify_browser_ready(session)
-                if browser_ready:
-                    use_fast_path = True
-                else:
-                    skip_reason = "browser not ready"
-            else:
-                skip_reason = "TASK intent requires full workflow"
-
-            if use_fast_path:
-                logger.info(f"Fast path activated for {intent.value} query: {message.message[:50]}...")
-
-                # Update session status
-                await self._session_repository.update_status(self._session_id, SessionStatus.RUNNING)
-
-                # Execute fast path and yield all events
-                async for event in fast_path_router.execute(intent, params, message):
-                    yield event
-
-                # For GREETING, keep session PENDING (waiting for actual task)
-                # For other fast paths (BROWSE, SEARCH, KNOWLEDGE), mark as COMPLETED
                 if intent == QueryIntent.GREETING:
-                    await self._session_repository.update_status(self._session_id, SessionStatus.PENDING)
-                    logger.info(f"Greeting fast path completed, session {self._session_id} waiting for task")
+                    # Greetings don't need browser or tools - always use fast path
+                    use_fast_path = True
+                elif intent == QueryIntent.KNOWLEDGE:
+                    # Knowledge queries don't need browser - always safe
+                    use_fast_path = True
+                elif intent in (QueryIntent.DIRECT_BROWSE, QueryIntent.WEB_SEARCH):
+                    # Browser queries need verified browser readiness (Phase 2)
+                    browser_ready = await self._verify_browser_ready(session)
+                    if browser_ready:
+                        use_fast_path = True
+                    else:
+                        skip_reason = "browser not ready"
                 else:
-                    await self._session_repository.update_status(self._session_id, SessionStatus.COMPLETED)
-                    logger.info(f"Fast path completed for session {self._session_id}")
+                    skip_reason = "TASK intent requires full workflow"
 
-                return  # Exit early - don't proceed with full workflow
-            elif intent in (QueryIntent.DIRECT_BROWSE, QueryIntent.WEB_SEARCH):
-                logger.info(f"Fast path skipped for {intent.value} - {skip_reason}, using normal workflow")
-            else:
-                logger.debug("Query classified as TASK, proceeding with full workflow")
+                if use_fast_path:
+                    logger.info(f"Fast path activated for {intent.value} query: {message.message[:50]}...")
+
+                    # Update session status
+                    await self._session_repository.update_status(self._session_id, SessionStatus.RUNNING)
+
+                    # Execute fast path and yield all events
+                    async for event in fast_path_router.execute(intent, params, message):
+                        yield event
+
+                    # For GREETING, keep session PENDING (waiting for actual task)
+                    # For other fast paths (BROWSE, SEARCH, KNOWLEDGE), mark as COMPLETED
+                    if intent == QueryIntent.GREETING:
+                        await self._session_repository.update_status(self._session_id, SessionStatus.PENDING)
+                        logger.info(f"Greeting fast path completed, session {self._session_id} waiting for task")
+                    else:
+                        await self._session_repository.update_status(self._session_id, SessionStatus.COMPLETED)
+                        logger.info(f"Fast path completed for session {self._session_id}")
+
+                    return  # Exit early - don't proceed with full workflow
+                elif intent in (QueryIntent.DIRECT_BROWSE, QueryIntent.WEB_SEARCH):
+                    logger.info(f"Fast path skipped for {intent.value} - {skip_reason}, using normal workflow")
+                else:
+                    logger.debug("Query classified as TASK, proceeding with full workflow")
+            except Exception as e:
+                logger.exception(f"Fast path analysis failed: {e}")
+                yield ErrorEvent(error=f"Failed to analyze request: {str(e)[:200]}")
+                # Continue with normal workflow instead of failing completely
         elif session.status == SessionStatus.INITIALIZING:
             logger.debug("Session still INITIALIZING, skipping fast path check")
 
@@ -1595,11 +1617,7 @@ class PlanActFlow(BaseFlow):
 
         logger.info(f"Agent {self._agent_id} started processing message: {message.message[:50]}...")
 
-        # Emit acknowledgment before planning (not for resumed/waiting sessions)
-        if session.status != SessionStatus.WAITING:
-            acknowledgment = self._generate_acknowledgment(message.message)
-            yield MessageEvent(message=acknowledgment)
-            logger.info(f"Emitted acknowledgment for session {self._session_id}")
+        # NOTE: Acknowledgment moved earlier (before fast path) for instant feedback
 
         # Emit a skill loading tool event for /skill-creator commands
         skill_command = self._extract_skill_creator_command(message.message)

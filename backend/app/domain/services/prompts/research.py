@@ -125,7 +125,7 @@ THEN: Execute the research following this MANDATORY workflow:
 | Tool | Use For | VNC |
 |------|---------|-----|
 | `info_search_web` | Search queries | Yes |
-| `browser_get_content` | Fast HTTP fetch for known URLs | No |
+| `search` | Fast HTTP fetch for known URLs | No |
 | `browser_navigate` | Navigate to URL (with optional intent/focus) | Yes |
 | `browsing` | Complex multi-step browser tasks | Yes |
 
@@ -140,7 +140,7 @@ THEN: Execute the research following this MANDATORY workflow:
   * Review/analysis search: "[topic] analysis review [year]"
 
 ## Step 2: FETCH/BROWSE PAGES (CRITICAL - DO NOT SKIP)
-- Use `browser_get_content` for fast content extraction (bulk URLs)
+- Use `search` for fast content extraction (bulk URLs)
 - Use `browser_navigate` to visit and interact with pages
 - Extract content directly from the pages
 - Do NOT rely on search snippets - they are outdated/incomplete

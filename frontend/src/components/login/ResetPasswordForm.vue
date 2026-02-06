@@ -152,12 +152,10 @@ const handleSendCode = async () => {
   try {
     // Call the API to send verification code
     await sendVerificationCode({ email: formData.value.email })
-    
+
     // Switch to verification step
     currentStep.value = 'verification'
     showSuccessToast(t('Verification code sent to your email'))
-    
-    console.log('Verification code sent to:', formData.value.email)
   } catch (error: any) {
     console.error('Send verification code failed:', error)
     showErrorToast(t('Failed to send verification code. Please try again.'))

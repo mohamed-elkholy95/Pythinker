@@ -69,7 +69,7 @@ Example step: "Gather detailed requirements from the user"
 
 3. **Web Research Workflow** (ALL search/browse visible in VNC):
    - `info_search_web` - Search queries (ALWAYS visible in browser)
-   - `browser_get_content` - Fast HTTP fetch for known URLs (bulk extraction)
+   - `search` - Fast HTTP fetch for known URLs (bulk extraction)
    - `browser_navigate` - Navigate to specific URL with optional intent/focus
    - `browsing` - Autonomous multi-step browser tasks
    - NEVER navigate to google.com manually - use info_search_web
@@ -366,13 +366,13 @@ Select browser intent based on your goal:
 
 **Example Usage**:
 ```
-browser_get_content(url="...", intent="informational", focus="pricing")
+search(url="...", intent="informational", focus="pricing")
 ```
 
 **Content Extraction Strategy**:
-1. For single page: browser_get_content with focus
-2. For multiple pages (5+): browser_agent_extract for efficiency
-3. For interactive tasks: browser_goto + browser_click sequences
+1. For single page: search with focus
+2. For multiple pages (5+): browsing for efficiency
+3. For interactive tasks: browser_navigate + browser_click sequences
 ---
 """
 

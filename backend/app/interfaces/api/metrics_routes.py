@@ -11,8 +11,9 @@ Endpoints:
 import time
 from typing import Any
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Depends, Response
 
+from app.domain.models.user import User
 from app.domain.services.agents.metrics import get_metrics_collector
 from app.domain.services.tools.cache_layer import get_cache_stats, get_combined_cache_stats
 from app.domain.services.tools.dynamic_toolset import get_toolset_manager
@@ -24,12 +25,15 @@ from app.infrastructure.observability.prometheus_metrics import (
     format_prometheus,
 )
 from app.infrastructure.observability.tracer import get_tracer
+from app.interfaces.dependencies import get_current_user, get_optional_current_user
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 
 
 @router.get("", response_class=Response)
-async def get_prometheus_metrics():
+async def get_prometheus_metrics(
+    current_user: User | None = Depends(get_optional_current_user),
+):
     """Get metrics in Prometheus text exposition format.
 
     This endpoint is designed to be scraped by Prometheus.
@@ -48,7 +52,9 @@ async def get_prometheus_metrics():
 
 
 @router.get("/json")
-async def get_json_metrics() -> dict[str, Any]:
+async def get_json_metrics(
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
     """Get metrics in JSON format.
 
     Returns all metrics in a structured JSON format for
@@ -83,7 +89,9 @@ async def get_json_metrics() -> dict[str, Any]:
 
 
 @router.get("/health")
-async def health_check() -> dict[str, Any]:
+async def health_check(
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
     """Health check endpoint for monitoring systems.
 
     Returns basic health information and uptime status.
@@ -96,7 +104,9 @@ async def health_check() -> dict[str, Any]:
 
 
 @router.get("/tracer")
-async def get_tracer_metrics() -> dict[str, Any]:
+async def get_tracer_metrics(
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
     """Get detailed tracer metrics.
 
     Returns metrics from the internal tracer including
@@ -110,7 +120,9 @@ async def get_tracer_metrics() -> dict[str, Any]:
 
 
 @router.get("/cache")
-async def get_cache_metrics() -> dict[str, Any]:
+async def get_cache_metrics(
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
     """Get tool cache statistics.
 
     Returns cache hit/miss rates and other caching metrics.
@@ -121,7 +133,9 @@ async def get_cache_metrics() -> dict[str, Any]:
 
 
 @router.get("/agent")
-async def get_agent_optimization_metrics() -> dict[str, Any]:
+async def get_agent_optimization_metrics(
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
     """Get agent optimization metrics.
 
     Returns comprehensive metrics for all agent optimizations:
@@ -137,7 +151,9 @@ async def get_agent_optimization_metrics() -> dict[str, Any]:
 
 
 @router.get("/agent/prometheus")
-async def get_agent_prometheus_metrics():
+async def get_agent_prometheus_metrics(
+    current_user: User = Depends(get_current_user),
+):
     """Get agent metrics in Prometheus format.
 
     Designed for Prometheus scraping of agent-specific metrics.
@@ -152,7 +168,10 @@ async def get_agent_prometheus_metrics():
 
 
 @router.get("/agent/timeseries")
-async def get_agent_timeseries(minutes: int = 60) -> dict[str, Any]:
+async def get_agent_timeseries(
+    minutes: int = 60,
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
     """Get time-series metrics for the last N minutes.
 
     Args:
@@ -167,7 +186,9 @@ async def get_agent_timeseries(minutes: int = 60) -> dict[str, Any]:
 
 
 @router.get("/agent/cache")
-async def get_agent_cache_details() -> dict[str, Any]:
+async def get_agent_cache_details(
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
     """Get detailed cache metrics including L1 and L2.
 
     Returns multi-tier cache performance data.
@@ -189,7 +210,9 @@ async def get_agent_cache_details() -> dict[str, Any]:
 
 
 @router.get("/agent/toolset")
-async def get_toolset_metrics() -> dict[str, Any]:
+async def get_toolset_metrics(
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
     """Get dynamic toolset filtering metrics.
 
     Returns statistics about tool filtering effectiveness.
@@ -205,7 +228,9 @@ async def get_toolset_metrics() -> dict[str, Any]:
 
 
 @router.post("/agent/reset")
-async def reset_agent_metrics() -> dict[str, Any]:
+async def reset_agent_metrics(
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
     """Reset all agent optimization metrics.
 
     Returns confirmation of reset.
@@ -217,7 +242,9 @@ async def reset_agent_metrics() -> dict[str, Any]:
 
 
 @router.get("/tokens/summary")
-async def get_token_usage_summary() -> dict[str, Any]:
+async def get_token_usage_summary(
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
     """Get token usage summary across all LLM calls.
 
     Returns aggregated token counts, costs, and latency by model.
@@ -248,7 +275,11 @@ async def get_token_usage_summary() -> dict[str, Any]:
 
 
 @router.get("/tokens/timeline")
-async def get_token_timeline(minutes: int = 60, model: str | None = None) -> dict[str, Any]:
+async def get_token_timeline(
+    minutes: int = 60,
+    model: str | None = None,
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
     """Get time-series token usage data.
 
     Args:
@@ -320,7 +351,9 @@ async def get_token_timeline(minutes: int = 60, model: str | None = None) -> dic
 
 
 @router.get("/costs")
-async def get_cost_tracking() -> dict[str, Any]:
+async def get_cost_tracking(
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
     """Get cost tracking data for LLM usage.
 
     Returns cost breakdown by model, session, and time period.
@@ -374,7 +407,9 @@ async def _update_dynamic_metrics() -> None:
 
 
 @router.get("/stream")
-async def stream_metrics():
+async def stream_metrics(
+    current_user: User = Depends(get_current_user),
+):
     """Stream real-time metrics via SSE (Phase 6).
 
     Returns:
@@ -408,7 +443,9 @@ async def stream_metrics():
 
 
 @router.get("/dashboard")
-async def get_dashboard_summary():
+async def get_dashboard_summary(
+    current_user: User = Depends(get_current_user),
+):
     """Get comprehensive dashboard metrics (Phase 6).
 
     Returns:
@@ -426,7 +463,9 @@ async def get_dashboard_summary():
 
 
 @router.get("/workflow-efficiency")
-async def get_workflow_efficiency():
+async def get_workflow_efficiency(
+    current_user: User = Depends(get_current_user),
+):
     """Get workflow efficiency metrics (Phase 6).
 
     Returns:
@@ -444,7 +483,9 @@ async def get_workflow_efficiency():
 
 
 @router.get("/tool-performance")
-async def get_tool_performance():
+async def get_tool_performance(
+    current_user: User = Depends(get_current_user),
+):
     """Get tool performance breakdown (Phase 6).
 
     Returns:

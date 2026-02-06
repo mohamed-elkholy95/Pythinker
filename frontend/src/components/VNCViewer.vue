@@ -44,25 +44,20 @@ async function loadRFB(): Promise<any> {
   try {
     const module = await import('@novnc/novnc/lib/rfb');
     RFBClass = module.default || module.RFB || module;
-    console.log('[VNC] RFB loaded from npm');
     return RFBClass;
-  } catch (e) {
-    console.warn('[VNC] npm import failed, trying CDN:', e);
+  } catch {
     const module = await import(/* @vite-ignore */ 'https://cdn.jsdelivr.net/gh/novnc/noVNC@v1.5.0/core/rfb.js');
     RFBClass = module.default || module.RFB || module;
-    console.log('[VNC] RFB loaded from CDN');
     return RFBClass;
   }
 }
 
 async function initVNCConnection() {
   if (isConnecting) {
-    console.log('[VNC] Already connecting, skipping');
     return;
   }
 
   if (!vncContainer.value || !props.enabled || !props.sessionId) {
-    console.log('[VNC] Cannot connect - missing requirements');
     return;
   }
 
@@ -78,25 +73,19 @@ async function initVNCConnection() {
   try {
     // Phase 4: Try to use pre-cached URL first for faster connection
     let wsUrl = getPreconnectedVNCUrl(props.sessionId);
-    if (wsUrl) {
-      console.log('[VNC] Using pre-cached URL');
-    } else {
+    if (!wsUrl) {
       wsUrl = await getVNCUrl(props.sessionId);
       // Cache for future use
       cacheVNCUrl(props.sessionId, wsUrl);
     }
 
     if (thisConnectionId !== connectionId) {
-      console.log('[VNC] Connection attempt superseded');
       return;
     }
-
-    console.log('[VNC] Connecting to:', wsUrl);
 
     const RFB = await loadRFB();
 
     if (thisConnectionId !== connectionId || !vncContainer.value) {
-      console.log('[VNC] Connection attempt no longer valid');
       return;
     }
 
@@ -123,7 +112,6 @@ async function initVNCConnection() {
     rfb.compressionLevel = 2;
 
     rfb.addEventListener('connect', () => {
-      console.log('[VNC] Connected');
       isLoading.value = false;
       isConnecting = false;
       statusText.value = 'Connected';
@@ -131,7 +119,6 @@ async function initVNCConnection() {
     });
 
     rfb.addEventListener('disconnect', (e: any) => {
-      console.log('[VNC] Disconnected', e?.detail);
       isLoading.value = false;
       isConnecting = false;
       statusText.value = e?.detail?.clean ? 'Disconnected' : 'Connection lost';
@@ -140,7 +127,6 @@ async function initVNCConnection() {
     });
 
     rfb.addEventListener('credentialsrequired', () => {
-      console.log('[VNC] Credentials required');
       statusText.value = 'Password required';
       emit('credentialsRequired');
     });

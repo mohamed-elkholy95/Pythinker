@@ -896,7 +896,7 @@ class TokenManager:
         )
 
         # Use existing trim_messages method
-        compacted = self.trim_messages(messages, target_fraction=0.7)
+        compacted, _ = self.trim_messages(messages)
 
         logger.info(
             "Context compaction completed",

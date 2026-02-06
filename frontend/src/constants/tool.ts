@@ -356,6 +356,7 @@ export const TOOL_NAME_MAP: {[key: string]: string} = {
 
   // === CODE TOOLS ===
   "code_executor": "Code Runner",
+  "code_execute": "Code Runner",  // Alias
   "code_dev": "Code Editor",
 
   // === TESTING ===
@@ -428,6 +429,7 @@ export const TOOL_ICON_MAP: {[key: string]: any} = {
 
   // === CODE TOOLS ===
   "code_executor": PythonIcon,
+  "code_execute": PythonIcon,  // Alias
   "code_dev": FileCode,
 
   // === TESTING ===
@@ -522,6 +524,14 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
 
   // === CODE ===
   code_executor: {
+    primaryView: 'terminal',
+    secondaryView: 'vnc',
+    tabLabels: [],
+    defaultView: 'primary',
+    showTabs: false
+  },
+  // Alias for code_executor (backend sends this name)
+  code_execute: {
     primaryView: 'terminal',
     secondaryView: 'vnc',
     tabLabels: [],

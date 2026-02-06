@@ -1,6 +1,6 @@
 # Sandbox Environment Context
 
-**Generated:** 2026-02-04T05:29:23.169754
+**Generated:** 2026-02-04T22:46:39.457781
 **Version:** 1.0.0
 **Checksum:** f3fd970b8c44df88
 
@@ -181,7 +181,7 @@ Key variables available:
 
 ## Resource Limits
 
-- **Disk Space:** 25G available (68% used)
+- **Disk Space:** 19G available (75% used)
 - **Shared Memory:** 2gb
 
 ---

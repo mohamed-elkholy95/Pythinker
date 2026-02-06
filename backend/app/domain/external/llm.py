@@ -15,6 +15,7 @@ class LLM(Protocol):
         tools: list[dict[str, Any]] | None = None,
         response_format: dict[str, Any] | None = None,
         tool_choice: str | None = None,
+        enable_caching: bool = True,
     ) -> dict[str, Any]:
         """Send chat request to AI service
 
@@ -23,6 +24,7 @@ class LLM(Protocol):
             tools: Optional list of tools for function calling
             response_format: Optional response format configuration
             tool_choice: Optional tool choice configuration
+            enable_caching: Whether to use prompt caching
         Returns:
             Response message from AI service
         """

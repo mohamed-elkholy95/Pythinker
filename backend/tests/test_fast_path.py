@@ -123,7 +123,8 @@ class TestURLResolution:
     def test_unknown_target_search_fallback(self):
         """Test that unknown targets fall back to search."""
         result = self.router.resolve_target_to_url("some random thing")
-        assert "google.com/search" in result
+        # Accept either Google or SearXNG search URLs depending on configuration
+        assert "/search" in result, "Should fall back to search URL"
         assert "some%20random%20thing" in result or "some+random+thing" in result
 
 
