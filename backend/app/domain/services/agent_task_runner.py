@@ -892,6 +892,9 @@ class AgentTaskRunner(TaskRunner):
                             event.tool_content = ShellToolContent(console=str(data) if data else "(No output)")
                     else:
                         event.tool_content = ShellToolContent(console="(No output)")
+                elif event.tool_name == "wide_research":
+                    # wide_research results are handled via WideResearchEvent and ReportEvent
+                    logger.debug("Processing wide_research tool event")
                 elif event.tool_name == "export":
                     # Sync exported files (archives, reports) to session files
                     if event.function_result and hasattr(event.function_result, "data"):
