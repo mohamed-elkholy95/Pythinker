@@ -99,7 +99,6 @@ bun run test:run     # Single test run
 | MongoDB | 27017 |
 | Redis | 6379 |
 | Qdrant | 6333/6334 |
-| SearXNG | 8888 |
 
 ---
 

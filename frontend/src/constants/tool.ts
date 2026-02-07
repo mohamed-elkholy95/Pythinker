@@ -25,7 +25,7 @@ export const TOOL_FUNCTION_MAP: {[key: string]: string} = {
   "file_view": "Viewing",
 
   // === BROWSER ===
-  "browser_get_content": "Searching",  // Fetching URL content
+  "search": "Searching",             // BrowserTool: fast text-only content fetch
   "browser_view": "Viewing",
   "browser_navigate": "Browsing",
   "browser_restart": "Restarting",
@@ -36,10 +36,6 @@ export const TOOL_FUNCTION_MAP: {[key: string]: string} = {
   "browser_select_option": "Selecting",
   "browser_scroll_up": "Scrolling",
   "browser_scroll_down": "Scrolling",
-  "browser_scroll": "Scrolling",
-  "browser_wait": "Waiting",
-  "browser_back": "Navigating",
-  "browser_forward": "Navigating",
   "browser_console_exec": "Executing",
   "browser_console_view": "Viewing",
 
@@ -64,21 +60,30 @@ export const TOOL_FUNCTION_MAP: {[key: string]: string} = {
   "select_dropdown_option": "Selecting",
 
   // === PLAYWRIGHT ===
+  "playwright_launch": "Launching",
   "playwright_navigate": "Browsing",
   "playwright_click": "Clicking",
   "playwright_fill": "Typing",
-  "playwright_select": "Selecting",
+  "playwright_type": "Typing",
+  "playwright_select_option": "Selecting",
   "playwright_screenshot": "Capturing",
   "playwright_pdf": "Exporting",
   "playwright_get_content": "Reading",
-  "playwright_wait_for": "Waiting",
+  "playwright_wait_for_selector": "Waiting",
   "playwright_get_cookies": "Reading",
   "playwright_set_cookies": "Setting",
+  "playwright_evaluate": "Executing",
+  "playwright_stealth_navigate": "Browsing",
+  "playwright_detect_protection": "Detecting",
+  "playwright_intercept_requests": "Intercepting",
+  "playwright_solve_recaptcha": "Solving",
+  "playwright_cloudflare_bypass": "Bypassing",
+  "playwright_fill_2fa_code": "Authenticating",
+  "playwright_login_with_2fa": "Authenticating",
 
   // === SEARCH (unified) ===
-  "search": "Searching",
-  "web_search": "Searching",
   "info_search_web": "Searching",
+  "web_search": "Searching",
   "wide_research": "Searching",
 
   // === GIT ===
@@ -92,77 +97,80 @@ export const TOOL_FUNCTION_MAP: {[key: string]: string} = {
   "code_execute": "Executing",
   "code_execute_python": "Running",
   "code_execute_javascript": "Running",
-  "code_run_file": "Running",
-  "code_install_packages": "Installing",
   "code_list_artifacts": "Listing",
   "code_read_artifact": "Reading",
+  "code_cleanup_workspace": "Cleaning",
+  "code_save_artifact": "Saving",
+
+  // === CODE DEV ===
+  "code_format": "Formatting",
+  "code_lint": "Linting",
+  "code_analyze": "Analyzing",
+  "code_search": "Searching",
 
   // === TEST RUNNER ===
   "test_run": "Testing",
-  "test_run_file": "Testing",
-  "test_run_suite": "Testing",
+  "test_list": "Listing",
+  "test_coverage": "Analyzing",
 
   // === MCP ===
   "mcp_call_tool": "Calling",
   "mcp_list_resources": "Listing",
   "mcp_read_resource": "Reading",
   "mcp_server_status": "Checking",
+  "mcp_tool_schemas": "Listing",
+  "mcp_resources": "Listing",
+  "mcp_health_check": "Checking",
 
   // === COMMUNICATION ===
   "message_notify_user": "Notifying",
   "message_ask_user": "Asking",
 
   // === IDLE ===
-  "idle_standby": "Waiting",
   "idle": "Waiting",
 
-  // === AGENT/SKILL ===
+  // === AGENT MODE ===
   "agent_start_task": "Starting",
+
+  // === SKILL ===
   "skill_invoke": "Loading",
   "skill_create": "Creating",
+  "skill_list_user": "Listing",
   "skill_list": "Listing",
+  "skill_delete": "Deleting",
 
   // === EXPORT ===
-  "export_pdf": "Exporting",
-  "export_csv": "Exporting",
-  "export_json": "Exporting",
-  "export": "Exporting",
+  "export_organize": "Organizing",
+  "export_archive": "Archiving",
+  "export_report": "Exporting",
+  "export_list": "Listing",
 
   // === SLIDES ===
   "slides_create": "Creating",
-  "slides_add_slide": "Adding",
+  "slides_add_chart": "Adding",
   "slides_export": "Exporting",
 
   // === WORKSPACE ===
-  "workspace_create": "Creating",
-  "workspace_organize": "Organizing",
-  "workspace_list": "Listing",
+  "workspace_init": "Creating",
+  "workspace_info": "Checking",
+  "workspace_tree": "Viewing",
+  "workspace_clean": "Cleaning",
+  "workspace_exists": "Checking",
 
   // === SCHEDULE ===
-  "schedule_create": "Scheduling",
-  "schedule_list": "Listing",
-  "schedule_cancel": "Canceling",
+  "agent_schedule_task": "Scheduling",
+  "agent_cancel_scheduled_task": "Canceling",
+  "agent_list_scheduled_tasks": "Listing",
 
   // === DEEP SCAN ===
-  "deep_scan": "Analyzing",
-  "deep_scan_analyze": "Analyzing",
-
-  // === AGENT MODE ===
-  "agent_mode_switch": "Switching",
-  "mode_switch": "Switching",
-
-  // === CODE DEV ===
-  "code_dev_analyze": "Analyzing",
-  "code_dev_refactor": "Refactoring",
-
-  // === PLAN ===
-  "plan_create": "Planning",
-  "plan_update": "Updating",
-  "plan_get": "Reading",
+  "deep_scan_code": "Analyzing",
+  "deep_scan_security": "Scanning",
+  "deep_scan_quality": "Analyzing",
+  "deep_scan_dependencies": "Analyzing",
+  "deep_scan_project": "Scanning",
 
   // === REPO MAP ===
   "repo_map": "Mapping",
-  "repo_map_generate": "Mapping"
 };
 
 /**
@@ -186,35 +194,38 @@ export const TOOL_FUNCTION_ARG_MAP: {[key: string]: string} = {
 
   // Browser
   "search": "url",
-  "browser_get_content": "url",
   "browser_view": "page",
   "browser_navigate": "url",
   "browser_restart": "url",
-  "browser_click": "element",
+  "browser_click": "index",
   "browser_input": "text",
-  "browser_move_mouse": "position",
+  "browser_move_mouse": "coordinate_x",
   "browser_press_key": "key",
   "browser_select_option": "option",
   "browser_scroll_up": "page",
   "browser_scroll_down": "page",
-  "browser_scroll": "direction",
-  "browser_wait": "selector",
-  "browser_back": "page",
-  "browser_forward": "page",
-  "browser_console_exec": "code",
+  "browser_console_exec": "javascript",
   "browser_console_view": "console",
 
   // Playwright
+  "playwright_launch": "browser_type",
   "playwright_navigate": "url",
   "playwright_click": "selector",
-  "playwright_fill": "text",
-  "playwright_select": "value",
-  "playwright_screenshot": "filename",
-  "playwright_pdf": "filename",
+  "playwright_fill": "value",
+  "playwright_type": "text",
+  "playwright_select_option": "value",
+  "playwright_screenshot": "path",
+  "playwright_pdf": "path",
   "playwright_get_content": "selector",
-  "playwright_wait_for": "selector",
-  "playwright_get_cookies": "cookies",
+  "playwright_wait_for_selector": "selector",
+  "playwright_get_cookies": "url",
   "playwright_set_cookies": "cookies",
+  "playwright_evaluate": "expression",
+  "playwright_stealth_navigate": "url",
+  "playwright_detect_protection": "url",
+  "playwright_intercept_requests": "url_patterns",
+  "playwright_cloudflare_bypass": "url",
+  "playwright_login_with_2fa": "url",
 
   // Browser Agent
   "browser_agent_run": "task",
@@ -241,86 +252,88 @@ export const TOOL_FUNCTION_ARG_MAP: {[key: string]: string} = {
 
   // Git
   "git_clone": "url",
-  "git_status": "repo_path",
-  "git_diff": "repo_path",
-  "git_log": "repo_path",
-  "git_branches": "repo_path",
+  "git_status": "path",
+  "git_diff": "path",
+  "git_log": "path",
+  "git_branches": "path",
 
   // Code Executor
   "code_execute": "code",
   "code_execute_python": "code",
   "code_execute_javascript": "code",
-  "code_run_file": "file_path",
-  "code_install_packages": "packages",
-  "code_list_artifacts": "artifacts",
-  "code_read_artifact": "artifact_id",
+  "code_list_artifacts": "working_dir",
+  "code_read_artifact": "path",
+  "code_cleanup_workspace": "working_dir",
+  "code_save_artifact": "path",
+
+  // Code Dev
+  "code_format": "file",
+  "code_lint": "file",
+  "code_analyze": "file",
+  "code_search": "query",
 
   // Test Runner
-  "test_run": "test_path",
-  "test_run_file": "file_path",
-  "test_run_suite": "suite_name",
+  "test_run": "path",
+  "test_list": "path",
+  "test_coverage": "path",
 
   // MCP
   "mcp_call_tool": "tool_name",
   "mcp_list_resources": "server_name",
-  "mcp_read_resource": "resource_uri",
+  "mcp_read_resource": "uri",
   "mcp_server_status": "server_name",
+  "mcp_tool_schemas": "server_name",
+  "mcp_resources": "server_name",
+  "mcp_health_check": "server_name",
 
   // Message
-  "message_notify_user": "message",
-  "message_ask_user": "question",
+  "message_notify_user": "text",
+  "message_ask_user": "text",
 
   // Idle
-  "idle_standby": "reason",
   "idle": "reason",
 
-  // Skills
-  "agent_start_task": "task",
+  // Agent Mode
+  "agent_start_task": "task_description",
+
+  // Skill
   "skill_invoke": "skill_name",
-  "skill_create": "name",
+  "skill_create": "id",
+  "skill_list_user": "category",
   "skill_list": "category",
+  "skill_delete": "skill_id",
 
   // Export
-  "export_pdf": "filename",
-  "export_csv": "filename",
-  "export_json": "filename",
-  "export": "format",
+  "export_organize": "source_dir",
+  "export_archive": "source_dir",
+  "export_report": "source_dir",
+  "export_list": "source_dir",
 
   // Slides
   "slides_create": "title",
-  "slides_add_slide": "content",
-  "slides_export": "filename",
+  "slides_add_chart": "chart_type",
+  "slides_export": "format",
 
   // Workspace
-  "workspace_create": "name",
-  "workspace_organize": "type",
-  "workspace_list": "filter",
+  "workspace_init": "name",
+  "workspace_info": "path",
+  "workspace_tree": "path",
+  "workspace_clean": "path",
+  "workspace_exists": "path",
 
   // Schedule
-  "schedule_create": "time",
-  "schedule_list": "filter",
-  "schedule_cancel": "schedule_id",
+  "agent_schedule_task": "task_description",
+  "agent_cancel_scheduled_task": "task_id",
 
   // Deep Scan
-  "deep_scan": "target",
-  "deep_scan_analyze": "target",
-
-  // Agent Mode
-  "agent_mode_switch": "mode",
-  "mode_switch": "mode",
-
-  // Code Dev
-  "code_dev_analyze": "file_path",
-  "code_dev_refactor": "file_path",
-
-  // Plan
-  "plan_create": "goal",
-  "plan_update": "plan_id",
-  "plan_get": "plan_id",
+  "deep_scan_code": "path",
+  "deep_scan_security": "path",
+  "deep_scan_quality": "path",
+  "deep_scan_dependencies": "path",
+  "deep_scan_project": "path",
 
   // Repo Map
-  "repo_map": "repo_path",
-  "repo_map_generate": "repo_path"
+  "repo_map": "path",
 };
 
 /**
@@ -396,8 +409,7 @@ import ShellIcon from '../components/icons/ShellIcon.vue';
 import GlobeIcon from '../components/icons/GlobeIcon.vue';
 import IdleIcon from '../components/icons/IdleIcon.vue';
 import AgentModeIcon from '../components/icons/AgentModeIcon.vue';
-import PythonIcon from '../components/icons/PythonIcon.vue';
-import { GitBranch, Play, Download, Presentation, FolderTree, Calendar, Scan, Wand2, FileCode, Map, Wrench, MessageCircle, TestTube } from 'lucide-vue-next';
+import { GitBranch, Play, Download, Presentation, FolderTree, Calendar, Scan, Wand2, FileCode, Map, Wrench, MessageCircle, TestTube, Terminal } from 'lucide-vue-next';
 
 /**
  * Tool icon mapping - Consistent visual identity for each tool
@@ -428,8 +440,8 @@ export const TOOL_ICON_MAP: {[key: string]: any} = {
   "git": GitBranch,
 
   // === CODE TOOLS ===
-  "code_executor": PythonIcon,
-  "code_execute": PythonIcon,  // Alias
+  "code_executor": Terminal,
+  "code_execute": Terminal,  // Alias
   "code_dev": FileCode,
 
   // === TESTING ===
@@ -743,9 +755,7 @@ export const FUNCTION_VIEW_OVERRIDES: Record<string, ViewMode> = {
  * (operations that don't require visual output - HTTP-based, not browser UI)
  */
 export const TEXT_ONLY_FUNCTIONS = new Set([
-  'search',  // Fetches HTML via HTTP, no browser UI needed
-  'browser_get_content',  // Legacy support
-  'wide_research'  // Wide research uses HTTP-based parallel search (API-based)
-  // Note: web_search CAN use browser when search_prefer_browser is enabled (visible in VNC)
-  // Note: browser_agent_extract DOES use browser visually for extraction
+  'search',               // Search results displayed via SearchContentView
+  'browser_get_content',  // Legacy support - fetches HTML via HTTP, no browser UI needed
+  'wide_research',        // Research results displayed via SearchContentView
 ]);

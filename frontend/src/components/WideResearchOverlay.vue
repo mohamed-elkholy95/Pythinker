@@ -319,7 +319,7 @@ function getParticleStyle(index: number) {
 
   /* Typography */
   --font-display: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
-  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body: var(--font-sans);
 }
 
 /* ===== Base Overlay ===== */

@@ -31,7 +31,6 @@ class MemoryConfig:
                 "file_read",
                 "file_list",
                 "browser_get_content",
-                "info_search_web",
             ]
 
 

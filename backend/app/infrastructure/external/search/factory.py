@@ -1,7 +1,7 @@
 """Search Provider Factory
 
 Registry pattern for dynamically selecting search providers based on configuration.
-Supports: bing, google, baidu, searxng, whoogle, duckduckgo, brave, tavily
+Supports: bing, google, baidu, whoogle, duckduckgo, brave, tavily
 """
 
 import importlib
@@ -102,11 +102,6 @@ def get_search_engine_from_factory() -> SearchEngine | None:
         logger.debug("Tavily search provider not available")
 
     try:
-        importlib.import_module("app.infrastructure.external.search.searxng_search")
-    except ImportError:
-        logger.debug("SearXNG search provider not available")
-
-    try:
         importlib.import_module("app.infrastructure.external.search.whoogle_search")
     except ImportError:
         logger.debug("Whoogle search provider not available")
@@ -143,8 +138,6 @@ def get_search_engine_from_factory() -> SearchEngine | None:
         kwargs["api_key"] = settings.google_search_api_key
         kwargs["cx"] = settings.google_search_engine_id
 
-    elif provider == "searxng":
-        kwargs["base_url"] = settings.searxng_url
     elif provider == "whoogle":
         kwargs["base_url"] = settings.whoogle_url
 

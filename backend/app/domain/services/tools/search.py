@@ -311,10 +311,8 @@ class SearchTool(BaseTool):
     async def _search_via_browser(self, query: str, date_range: str | None = None) -> ToolResult:
         """Perform search using browser navigation (visible in VNC/sandbox viewer).
 
-        This navigates the browser to a search engine and extracts results,
+        This navigates the browser to DuckDuckGo and extracts results,
         making the search visible to users in the sandbox viewer.
-
-        Uses SearXNG if configured, otherwise falls back to DuckDuckGo (more reliable than Google).
 
         Args:
             query: Search query
@@ -330,53 +328,22 @@ class SearchTool(BaseTool):
             )
 
         try:
-            settings = get_settings()
-            search_url: str | None = None
-            use_searxng = bool(settings.searxng_url)
+            # Build DuckDuckGo URL
+            search_url = f"https://duckduckgo.com/?q={quote(query)}"
+            if date_range and date_range != "all":
+                time_map = {
+                    "past_day": "d",
+                    "past_week": "w",
+                    "past_month": "m",
+                    "past_year": "y",
+                }
+                if date_range in time_map:
+                    search_url += f"&df={time_map[date_range]}"
 
-            # Build DuckDuckGo URL (used as primary or fallback)
-            def build_ddg_url() -> str:
-                ddg_url = f"https://duckduckgo.com/?q={quote(query)}"
-                if date_range and date_range != "all":
-                    time_map = {
-                        "past_day": "d",
-                        "past_week": "w",
-                        "past_month": "m",
-                        "past_year": "y",
-                    }
-                    if date_range in time_map:
-                        ddg_url += f"&df={time_map[date_range]}"
-                return ddg_url
-
-            # Try SearXNG first if configured (Docker internal URL)
-            # Note: Don't use format=html param - it can cause ERR_ABORTED in Chrome
-            # HTML is the default format anyway
-            if use_searxng:
-                search_url = f"{settings.searxng_url}/search?q={quote(query)}"
-                if date_range and date_range != "all":
-                    time_map = {
-                        "past_day": "day",
-                        "past_week": "week",
-                        "past_month": "month",
-                        "past_year": "year",
-                    }
-                    if date_range in time_map:
-                        search_url += f"&time_range={time_map[date_range]}"
-                logger.info(f"Browser search via SearXNG: {query}")
-            else:
-                search_url = build_ddg_url()
-                logger.info(f"Browser search via DuckDuckGo: {query}")
-
-            logger.info(f"Browser search (visible in sandbox): {query}")
+            logger.info(f"Browser search via DuckDuckGo (visible in sandbox): {query}")
 
             # Navigate to search page
             nav_result = await self._browser.navigate(search_url)
-
-            # If SearXNG navigation failed, try DuckDuckGo as fallback
-            if not nav_result.success and use_searxng:
-                logger.warning(f"SearXNG navigation failed: {nav_result.message}, trying DuckDuckGo fallback")
-                search_url = build_ddg_url()
-                nav_result = await self._browser.navigate(search_url)
 
             if not nav_result.success:
                 logger.error(f"Browser navigation failed: {nav_result.message}")
@@ -696,6 +663,13 @@ class SearchTool(BaseTool):
                 content_parts = result.message.split("\n\n", 1)
                 actual_content = content_parts[1] if len(content_parts) > 1 else ""
                 if actual_content.strip():
+                    # Also fetch structured API results for SearchContentView display
+                    try:
+                        api_result = await self.search_engine.search(query, date_range)
+                        if api_result.success and api_result.data:
+                            result.data = api_result.data
+                    except Exception:
+                        pass  # Structured results are non-critical
                     return result
                 # Browser search returned empty content, fall back to API
                 logger.warning("Browser search returned empty content, falling back to API")
@@ -720,30 +694,22 @@ class SearchTool(BaseTool):
 
     @tool(
         name="wide_research",
-        description="""Execute comprehensive parallel research across multiple source types.
+        description="""Execute deep, comprehensive research with parallel searches across multiple queries and source types.
 
-INSPIRED BY MANUS AI'S "MAP" CAPABILITY:
-Divides research into homogeneous subtasks executed concurrently,
-then aggregates and synthesizes results.
+USE THIS instead of info_search_web when:
+- You need thorough, in-depth research (not just a quick lookup)
+- The topic requires searching from multiple angles
+- You want to compare information across sources
+- You need to validate claims with multiple sources
 
-WHEN TO USE:
-- Researching a topic from multiple angles
-- Comparing information across different source types (web, news, academic)
-- Validating claims with multiple sources
-- Generating comprehensive research reports
-
-FEATURES:
-- Parallel search across multiple search types
-- Query expansion for comprehensive coverage
-- Result deduplication and relevance scoring
-- Automatic synthesis with source citations
+This searches MORE queries, uses query expansion, and runs searches in PARALLEL
+for comprehensive coverage. Takes longer but produces much better results.
 
 EXAMPLE:
 wide_research(
-    topic="AI agents comparison 2024",
-    queries=["best AI agents", "AI agent comparison", "autonomous AI tools"],
-    search_types=["info", "news", "academic"],
-    aggregation="synthesize"
+    topic="best practices for Python async programming",
+    queries=["python async best practices", "asyncio patterns", "python concurrent programming"],
+    date_range="past_year"
 )""",
         parameters={
             "topic": {"type": "string", "description": "Research topic or main question"},
@@ -756,11 +722,6 @@ wide_research(
                 "type": "array",
                 "items": {"type": "string", "enum": ["info", "news", "academic", "api", "data", "tool"]},
                 "description": "Types of sources to search. Default: ['info']",
-            },
-            "aggregation": {
-                "type": "string",
-                "enum": ["merge", "synthesize", "compare", "validate"],
-                "description": "How to aggregate results: merge (combine), synthesize (summarize), compare (side-by-side), validate (cross-check)",
             },
             "date_range": {
                 "type": "string",
@@ -775,23 +736,24 @@ wide_research(
         topic: str,
         queries: list[str],
         search_types: list[str] | None = None,
-        aggregation: str = "synthesize",
         date_range: str | None = None,
     ) -> ToolResult:
-        """Execute comprehensive parallel research.
+        """Execute comprehensive parallel research — deep search with more queries and sources.
 
-        Inspired by Manus AI's "Map" capability for parallel research.
+        Uses the same search mechanism as info_search_web but runs multiple queries
+        in parallel with query expansion for thorough coverage.
 
         Args:
             topic: Research topic or main question
-            queries: List of search queries
+            queries: List of search queries (2-5)
             search_types: Types of sources to search
-            aggregation: Aggregation strategy
             date_range: Time range filter
 
         Returns:
-            Comprehensive research results with synthesis
+            Comprehensive research results with SearchResults data for display
         """
+        from app.domain.models.search import SearchResultItem, SearchResults
+
         # Parse search types
         if search_types is None:
             search_types = ["info"]
@@ -806,11 +768,10 @@ wide_research(
         if not stypes:
             stypes = [SearchType.INFO]
 
-        # Generate all query-type combinations
+        # Generate all query-type combinations with expansion
         all_queries = []
         for query in queries:
             for stype in stypes:
-                # Use query expansion for each
                 variants = QueryExpander.expand(query, stype, max_variants=2)
                 for variant in variants:
                     all_queries.append((variant, stype))
@@ -818,26 +779,18 @@ wide_research(
         logger.info(f"Wide research on '{topic}': {len(all_queries)} total queries across {len(stypes)} search types")
 
         # Execute all searches in parallel
-        all_sources: list[dict] = []
+        all_items: list[SearchResultItem] = []
         seen_urls: set[str] = set()
         errors: list[str] = []
 
         async def search_one(query_str: str, stype: SearchType) -> None:
             try:
                 result = await self._execute_typed_search(query_str, date_range, stype)
-                if result.success and result.data:
+                if result.success and result.data and hasattr(result.data, "results"):
                     for item in result.data.results:
                         if item.link not in seen_urls:
                             seen_urls.add(item.link)
-                            all_sources.append(
-                                {
-                                    "title": item.title,
-                                    "url": item.link,
-                                    "snippet": item.snippet,
-                                    "query": query_str,
-                                    "search_type": stype.value,
-                                }
-                            )
+                            all_items.append(item)
             except Exception as e:
                 errors.append(f"{query_str}: {e}")
 
@@ -848,111 +801,53 @@ wide_research(
             async with semaphore:
                 await search_one(query_str, stype)
 
-        await asyncio.gather(*[search_with_limit(q, st) for q, st in all_queries])
+        await asyncio.gather(
+            *[search_with_limit(q, st) for q, st in all_queries],
+            return_exceptions=True,
+        )
 
-        # Aggregate results based on strategy
-        aggregated = self._aggregate_wide_research(topic, all_sources, stypes, aggregation)
+        # Build SearchResults (same format as info_search_web) for SearchContentView display
+        search_data = SearchResults(
+            query=topic,
+            date_range=date_range,
+            total_results=len(all_items),
+            results=all_items[:20],  # Top 20 results
+        )
 
-        # Build citations
-        citations = [{"index": str(i), "title": s["title"], "url": s["url"]} for i, s in enumerate(all_sources[:30], 1)]
+        # Return failure if no results found
+        if not all_items:
+            error_detail = f" Errors: {', '.join(errors[:3])}" if errors else ""
+            return ToolResult(
+                success=False,
+                message=(
+                    f"[WIDE RESEARCH] No results found for '{topic}' "
+                    f"after {len(all_queries)} queries across {len(stypes)} search types.{error_detail}"
+                ),
+                data=search_data,
+            )
 
         message = (
             f"[WIDE RESEARCH] Completed research on '{topic}'\n"
-            f"Found {len(all_sources)} unique sources from {len(all_queries)} queries."
+            f"Found {len(all_items)} unique results from {len(all_queries)} queries "
+            f"across {len(stypes)} search types.\n\n"
         )
+
+        # Add result summaries to message for the LLM context
+        for i, item in enumerate(all_items[:15], 1):
+            message += f"{i}. [{item.title}]({item.link})\n   {item.snippet[:200]}\n\n"
 
         if errors:
             message += f"\n{len(errors)} queries had errors."
 
+        if self._is_research_query(topic):
+            message += (
+                "\n\nVERIFICATION REQUIRED: These are search snippets only. "
+                "Visit official pages to verify before making claims."
+            )
+
         return ToolResult(
             success=True,
             message=message,
-            data={
-                "topic": topic,
-                "total_sources": len(all_sources),
-                "total_queries": len(all_queries),
-                "search_types": [st.value for st in stypes],
-                "aggregation": aggregation,
-                "content": aggregated,
-                "citations": citations,
-                "sources": all_sources[:20],  # Limit for context
-            },
+            data=search_data,
         )
 
-    def _aggregate_wide_research(
-        self, topic: str, all_sources: list[dict], stypes: list[SearchType], aggregation: str
-    ) -> str:
-        """Aggregate wide research results based on strategy.
-
-        Args:
-            topic: Research topic
-            all_sources: All collected sources
-            stypes: Search types used
-            aggregation: Aggregation strategy
-
-        Returns:
-            Aggregated content string
-        """
-        if aggregation == "merge":
-            content_lines = [f"# Research: {topic}\n"]
-            content_lines.append(f"Found {len(all_sources)} unique sources.\n\n")
-            for i, src in enumerate(all_sources[:20], 1):
-                content_lines.append(f"{i}. [{src['title']}]({src['url']})")
-                content_lines.append(f"   {src['snippet'][:200]}...\n")
-            return "\n".join(content_lines)
-
-        if aggregation == "compare":
-            by_type: dict[str, list[dict]] = {}
-            for src in all_sources:
-                st = src["search_type"]
-                if st not in by_type:
-                    by_type[st] = []
-                by_type[st].append(src)
-
-            content_lines = [f"# Research Comparison: {topic}\n"]
-            for stype_key, sources in by_type.items():
-                content_lines.append(f"\n## {stype_key.upper()} Sources ({len(sources)})\n")
-                for src in sources[:5]:
-                    content_lines.append(f"- [{src['title']}]({src['url']})")
-            return "\n".join(content_lines)
-
-        if aggregation == "validate":
-            content_lines = [f"# Cross-Validation: {topic}\n"]
-            content_lines.append(f"Analyzed {len(all_sources)} sources for fact verification.\n")
-
-            word_count: dict[str, int] = {}
-            for src in all_sources:
-                words = set(src["snippet"].lower().split())
-                for word in words:
-                    if len(word) > 6:
-                        word_count[word] = word_count.get(word, 0) + 1
-
-            common_terms = sorted([(w, c) for w, c in word_count.items() if c >= 3], key=lambda x: x[1], reverse=True)[
-                :10
-            ]
-
-            content_lines.append("\n## Common Themes\n")
-            for term, count in common_terms:
-                content_lines.append(f"- '{term}' mentioned in {count} sources")
-
-            content_lines.append("\n## Top Sources\n")
-            for src in all_sources[:10]:
-                content_lines.append(f"- [{src['title']}]({src['url']})")
-            return "\n".join(content_lines)
-
-        # synthesize (default)
-        content_lines = [f"# Research Synthesis: {topic}\n"]
-        content_lines.append(f"Synthesized from {len(all_sources)} sources across {len(stypes)} search types.\n")
-
-        content_lines.append("\n## Key Findings\n")
-        for i, src in enumerate(all_sources[:10], 1):
-            content_lines.append(f"### {i}. {src['title']}")
-            content_lines.append(f"Source: [{src['search_type']}]({src['url']})")
-            first_sentence = src["snippet"].split(".")[0] + "."
-            content_lines.append(f"> {first_sentence}\n")
-
-        content_lines.append("\n## Sources\n")
-        for i, src in enumerate(all_sources[:15], 1):
-            content_lines.append(f"{i}. [{src['title']}]({src['url']})")
-
-        return "\n".join(content_lines)

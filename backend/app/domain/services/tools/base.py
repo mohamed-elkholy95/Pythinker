@@ -384,7 +384,7 @@ def log_tool_end(
         extra={
             "success": success,
             "duration_ms": round(duration_ms, 2),
-            "message": message[:100] if message else None,
+            "result_message": message[:100] if message else None,
         },
     )
 

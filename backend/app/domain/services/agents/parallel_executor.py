@@ -73,13 +73,11 @@ class ParallelToolExecutor:
         "file_read",
         "file_list",
         "file_exists",
-        "info_search_web",
-        "browser_get_content",
         # Shell commands that don't modify state
         "shell_exec",  # Context-dependent, but usually safe
     }
 
-    # Tools that should never run in parallel
+    # Tools that should never run in parallel (use shared browser or modify state)
     SEQUENTIAL_ONLY_TOOLS: ClassVar[set[str]] = {
         "file_write",
         "file_delete",
@@ -87,6 +85,8 @@ class ParallelToolExecutor:
         "browser_navigate",
         "browser_click",
         "browser_type",
+        "browser_get_content",
+        "info_search_web",
     }
 
     def __init__(

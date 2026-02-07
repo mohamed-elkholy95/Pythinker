@@ -26,6 +26,7 @@ from app.domain.models.event import (
     MessageEvent,
     ModeChangeEvent,
     ReportEvent,
+    SearchToolContent,
     ShellToolContent,
     TitleEvent,
     ToolEvent,
@@ -754,19 +755,29 @@ class AgentTaskRunner(TaskRunner):
                             page_content = result_data
                     event.tool_content = BrowserToolContent(content=page_content)
                 elif event.tool_name == "search":
-                    # Search now uses browser - show as BrowserToolContent for VNC visibility
+                    # Normalize search results for SearchContentView
                     search_results: ToolResult[SearchResults] = event.function_result
                     logger.debug(f"Search tool results: {search_results}")
-                    page_content = ""
-                    if hasattr(search_results, "message") and search_results.message:
-                        page_content = search_results.message
-                    elif hasattr(search_results, "data"):
+
+                    normalized_results: list[Any] = []
+                    if hasattr(search_results, "data") and search_results.data:
                         data = search_results.data
-                        if isinstance(data, dict):
-                            page_content = data.get("content", str(data))
-                        else:
-                            page_content = str(data) if data else ""
-                    event.tool_content = BrowserToolContent(content=page_content)
+                        if isinstance(data, SearchResults):
+                            normalized_results = data.results
+                        elif isinstance(data, dict):
+                            if isinstance(data.get("results"), list):
+                                normalized_results = data["results"]
+                            elif isinstance(data.get("data"), dict) and isinstance(
+                                data["data"].get("results"), list
+                            ):
+                                normalized_results = data["data"]["results"]
+
+                    logger.info(
+                        "Search tool results count=%s tool_call_id=%s",
+                        len(normalized_results),
+                        event.tool_call_id,
+                    )
+                    event.tool_content = SearchToolContent(results=normalized_results)
                 elif event.tool_name == "shell":
                     # observation_type set by ToolEventHandler
                     if event.function_result and hasattr(event.function_result, "data"):
@@ -1058,13 +1069,23 @@ class AgentTaskRunner(TaskRunner):
             logger.debug(f"Shutting down Agent {self._agent_id}'s coordinator flow")
             await self._coordinator_flow.shutdown()
 
-        # Destroy sandbox environment
+        # Destroy sandbox environment with timeout to avoid hanging on container cleanup
         if self._sandbox:
             logger.debug(f"Destroying Agent {self._agent_id}'s sandbox environment")
-            await self._sandbox.destroy()
+            try:
+                await asyncio.wait_for(self._sandbox.destroy(), timeout=15.0)
+            except TimeoutError:
+                logger.warning(f"Sandbox destroy timed out for Agent {self._agent_id}")
+            except Exception as e:
+                logger.warning(f"Sandbox destroy failed for Agent {self._agent_id}: {e}")
 
         if self._mcp_tool:
             logger.debug(f"Destroying Agent {self._agent_id}'s MCP tool")
-            await self._mcp_tool.cleanup()
+            try:
+                await asyncio.wait_for(self._mcp_tool.cleanup(), timeout=10.0)
+            except TimeoutError:
+                logger.warning(f"MCP tool cleanup timed out for Agent {self._agent_id}")
+            except Exception as e:
+                logger.warning(f"MCP tool cleanup failed for Agent {self._agent_id}: {e}")
 
         logger.debug(f"Agent {self._agent_id} has been fully closed and resources cleared")

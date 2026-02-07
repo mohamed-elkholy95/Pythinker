@@ -1040,8 +1040,8 @@ ENHANCED_EXECUTION_PROMPT = """
 Current task: {step}
 
 Guidelines:
-- For research/comprehensive tasks: First send a brief acknowledgment (1-2 sentences) of what you will research, then execute
-  Example: "I will conduct comprehensive research on [topic] to provide you with a detailed report."
+- For research/comprehensive tasks: First send a brief acknowledgment (1-2 sentences) referencing the User Message below (preserve ALL specifics — model names, version numbers, entities). Then execute.
+  Example: "I'll research a comprehensive comparison between GLM 4.7 and Sonnet 4.5, covering benchmarks, pricing, and capabilities."
 - For simple tasks: Execute immediately without preamble
 - Match user's language in all output
 - Deliver concrete results, not instructions or plans

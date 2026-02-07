@@ -3,13 +3,13 @@
 Provides search engine implementations and factory for dynamic provider selection.
 
 Supported providers:
-- bing: Bing web search (default, no API key required)
+- duckduckgo: DuckDuckGo search (default, privacy-focused, no API key required)
+- bing: Bing web search (no API key required)
 - google: Google Custom Search API (requires API key)
 - baidu: Baidu web search
-- searxng: SearXNG metasearch engine
 - whoogle: Whoogle Google proxy
-- duckduckgo: DuckDuckGo search (privacy-focused)
 - brave: Brave Search API (requires API key)
+- tavily: Tavily AI Search API (requires API key)
 """
 
 import logging

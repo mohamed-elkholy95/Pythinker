@@ -3,15 +3,15 @@
     <LoadingState
       v-if="isLoading"
       :label="t('Tool is executing...')"
-      :detail="functionName || ''"
+      :detail="toolDisplayLabel"
       animation="spinner"
     />
 
     <div v-else class="generic-body">
       <!-- Tool name and function -->
-      <div v-if="functionName" class="tool-section">
+      <div v-if="toolDisplayLabel" class="tool-section">
         <div class="tool-title">
-          {{ t('Tool') }}: {{ functionName }}
+          {{ t('Tool') }}: {{ toolDisplayLabel }}
         </div>
 
         <!-- Arguments -->
@@ -51,8 +51,10 @@ import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
 import LoadingDots from '@/components/toolViews/shared/LoadingDots.vue';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
 import { useShiki } from '@/composables/useShiki';
+import { getToolDisplay } from '@/utils/toolDisplay';
 
 const props = defineProps<{
+  toolName?: string;
   functionName?: string;
   args?: Record<string, any>;
   result?: any;
@@ -129,10 +131,21 @@ watch(
   { immediate: true }
 );
 
+const toolDisplay = computed(() => getToolDisplay({
+  name: props.toolName,
+  function: props.functionName,
+  args: props.args
+}));
+
+const toolDisplayLabel = computed(() => {
+  if (!props.functionName && !props.toolName) return '';
+  return `${toolDisplay.value.displayName} · ${toolDisplay.value.actionLabel}`;
+});
+
 const hasResult = computed(() => props.result !== undefined && props.result !== null);
 const hasContent = computed(() => props.content !== undefined && props.content !== null);
-const isLoading = computed(() => !!props.isExecuting && !props.functionName && !hasContent.value && !hasResult.value);
-const showEmpty = computed(() => !isLoading.value && !props.functionName && !hasContent.value && !hasResult.value);
+const isLoading = computed(() => !!props.isExecuting && !toolDisplayLabel.value && !hasContent.value && !hasResult.value);
+const showEmpty = computed(() => !isLoading.value && !toolDisplayLabel.value && !hasContent.value && !hasResult.value);
 const statusMessage = computed(() =>
   props.isExecuting ? t('Tool is executing...') : t('Waiting for result...')
 );

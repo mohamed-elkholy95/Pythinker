@@ -9,12 +9,16 @@ from app.domain.models.event import (
     DeepResearchEvent,
     MessageEvent,
     PlanEvent,
+    ProgressEvent,
     ReportEvent,
+    SkillActivationEvent,
     SkillDeliveryEvent,
     StepEvent,
+    ThoughtEvent,
     ToolContent,
     ToolEvent,
     ToolStatus,
+    WideResearchEvent,
 )
 from app.domain.models.plan import ExecutionStatus
 from app.interfaces.schemas.file import FileInfoResponse
@@ -383,6 +387,126 @@ class SkillDeliverySSEEvent(BaseSSEEvent):
         )
 
 
+class ProgressEventData(BaseEventData):
+    """Planning progress event data"""
+
+    phase: str  # PlanningPhase value
+    message: str
+    estimated_steps: int | None = None
+    progress_percent: int | None = None
+
+
+class ProgressSSEEvent(BaseSSEEvent):
+    event: Literal["progress"] = "progress"
+    data: ProgressEventData
+
+    @classmethod
+    def from_event(cls, event: ProgressEvent) -> Self:
+        return cls(
+            data=ProgressEventData(
+                **BaseEventData.base_event_data(event),
+                phase=event.phase.value,
+                message=event.message,
+                estimated_steps=event.estimated_steps,
+                progress_percent=event.progress_percent,
+            )
+        )
+
+
+class WideResearchEventData(BaseEventData):
+    """Wide research progress event data"""
+
+    research_id: str
+    topic: str
+    status: str  # WideResearchStatus value
+    total_queries: int
+    completed_queries: int = 0
+    sources_found: int = 0
+    search_types: list[str] = []
+    current_query: str | None = None
+    errors: list[str] = []
+
+
+class WideResearchSSEEvent(BaseSSEEvent):
+    event: Literal["wide_research"] = "wide_research"
+    data: WideResearchEventData
+
+    @classmethod
+    def from_event(cls, event: WideResearchEvent) -> Self:
+        return cls(
+            data=WideResearchEventData(
+                **BaseEventData.base_event_data(event),
+                research_id=event.research_id,
+                topic=event.topic,
+                status=event.status.value,
+                total_queries=event.total_queries,
+                completed_queries=event.completed_queries,
+                sources_found=event.sources_found,
+                search_types=event.search_types,
+                current_query=event.current_query,
+                errors=event.errors,
+            )
+        )
+
+
+class SkillActivationEventData(BaseEventData):
+    """Skill activation event data"""
+
+    skill_ids: list[str] = []
+    skill_names: list[str] = []
+    tool_restrictions: list[str] | None = None
+    prompt_chars: int = 0
+
+
+class SkillActivationSSEEvent(BaseSSEEvent):
+    event: Literal["skill_activation"] = "skill_activation"
+    data: SkillActivationEventData
+
+    @classmethod
+    def from_event(cls, event: SkillActivationEvent) -> Self:
+        return cls(
+            data=SkillActivationEventData(
+                **BaseEventData.base_event_data(event),
+                skill_ids=event.skill_ids,
+                skill_names=event.skill_names,
+                tool_restrictions=event.tool_restrictions,
+                prompt_chars=event.prompt_chars,
+            )
+        )
+
+
+class ThoughtEventData(BaseEventData):
+    """Thought/chain-of-thought event data"""
+
+    status: str  # ThoughtStatus value
+    thought_type: str | None = None
+    content: str | None = None
+    confidence: float | None = None
+    step_name: str | None = None
+    chain_id: str | None = None
+    is_final: bool = False
+
+
+class ThoughtSSEEvent(BaseSSEEvent):
+    event: Literal["thought"] = "thought"
+    data: ThoughtEventData
+
+    @classmethod
+    def from_event(cls, event: ThoughtEvent) -> Self:
+        return cls(
+            data=ThoughtEventData(
+                **BaseEventData.base_event_data(event),
+                status=event.status.value,
+                thought_type=event.thought_type,
+                content=event.content,
+                confidence=event.confidence,
+                step_name=event.step_name,
+                chain_id=event.chain_id,
+                is_final=event.is_final,
+            )
+        )
+
+
 AgentSSEEvent = (
     CommonSSEEvent
     | PlanSSEEvent
@@ -399,6 +523,10 @@ AgentSSEEvent = (
     | ModeChangeSSEEvent
     | StreamSSEEvent
     | DeepResearchSSEEvent
+    | ProgressSSEEvent
+    | WideResearchSSEEvent
+    | SkillActivationSSEEvent
+    | ThoughtSSEEvent
 )
 
 

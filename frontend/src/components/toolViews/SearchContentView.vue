@@ -6,7 +6,7 @@
     class="search-view"
   >
     <LoadingState
-      v-if="isSearching"
+      v-if="isSearching && (!results || results.length === 0) && !explicitResults"
       :label="t('Searching')"
       :detail="searchDetail"
       animation="search"
@@ -14,43 +14,55 @@
 
     <!-- Search Results - EU Policy Portal Style -->
     <div v-else class="search-results">
-      <div
-        v-for="(result, index) in results"
-        :key="result.link || index"
-        class="search-result-item"
-        @click="handleResultClick(result)"
-      >
-        <!-- Icon + Title Row -->
-        <div class="result-header">
-          <div class="result-icon-wrapper">
-            <img
-              v-if="!faviconErrors[result.link]"
-              :src="getFavicon(result.link)"
-              alt=""
-              class="result-favicon"
-              @error="handleFaviconError($event, result.link)"
-            />
-            <span v-else class="result-icon-fallback">
-              {{ getIconLetter(result) }}
-            </span>
+      <div class="search-bar">
+        <Search class="search-bar-icon" />
+        <input
+          class="search-bar-input"
+          :value="query || ''"
+          placeholder="Search"
+          readonly
+        />
+        <span v-if="isSearching" class="searching-pill">{{ t('Searching') }}</span>
+      </div>
+      <div class="search-results-list">
+        <div
+          v-for="(result, index) in results"
+          :key="result.link || index"
+          class="search-result-item"
+          @click="handleResultClick(result)"
+        >
+          <!-- Icon + Title Row -->
+          <div class="result-header">
+            <div class="result-icon-wrapper">
+              <img
+                v-if="!faviconErrors[result.link]"
+                :src="getFavicon(result.link)"
+                alt=""
+                class="result-favicon"
+                @error="handleFaviconError($event, result.link)"
+              />
+              <span v-else class="result-icon-fallback">
+                {{ getIconLetter(result) }}
+              </span>
+            </div>
+            <h3 class="result-title">{{ result.title }}</h3>
           </div>
-          <h3 class="result-title">{{ result.title }}</h3>
+
+          <!-- Snippet/Description -->
+          <p class="result-snippet">
+            {{ formatSnippet(result.snippet) }}<a
+              class="read-more-link"
+              @click.stop="handleResultClick(result)"
+            >Read more</a>
+          </p>
         </div>
 
-        <!-- Snippet/Description -->
-        <p class="result-snippet">
-          {{ formatSnippet(result.snippet) }}<a
-            class="read-more-link"
-            @click.stop="handleResultClick(result)"
-          >Read more</a>
-        </p>
+        <EmptyState
+          v-if="showEmptyState"
+          message="No results from provider"
+          icon="search"
+        />
       </div>
-
-      <EmptyState
-        v-if="!results || results.length === 0"
-        message="No results found"
-        icon="search"
-      />
     </div>
   </ContentContainer>
 </template>
@@ -58,6 +70,7 @@
 <script setup lang="ts">
 import { computed, reactive } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { Search } from 'lucide-vue-next';
 import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
 import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
@@ -72,6 +85,7 @@ const props = defineProps<{
   results?: SearchResult[];
   isSearching?: boolean;
   query?: string;
+  explicitResults?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -80,6 +94,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const searchDetail = computed(() => (props.query ? `"${props.query}"` : ''));
+const showEmptyState = computed(() => !!props.explicitResults && (!props.results || props.results.length === 0));
 
 // Track favicon load errors
 const faviconErrors = reactive<Record<string, boolean>>({});
@@ -157,8 +172,8 @@ function handleResultClick(result: SearchResult) {
 <style scoped>
 .search-view {
   height: 100%;
-  background: #fafafa;
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background: var(--background-white-main);
+  font-family: var(--font-sans);
 }
 
 :global(.dark) .search-view {
@@ -171,16 +186,67 @@ function handleResultClick(result: SearchResult) {
   flex-direction: column;
 }
 
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  margin: 12px 12px 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-light);
+  background: var(--background-white-main);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+}
+
+.search-bar-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--icon-secondary);
+}
+
+.search-bar-input {
+  border: none;
+  outline: none;
+  background: transparent;
+  width: 100%;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.search-bar-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.searching-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  background: var(--fill-tsp-gray-main);
+  border: 1px solid var(--border-light);
+  white-space: nowrap;
+}
+
+.search-results-list {
+  display: flex;
+  flex-direction: column;
+}
+
 /* Individual Result Item */
 .search-result-item {
   padding: 12px 20px;
-  border-bottom: 1px solid #e5e5e5;
+  border-bottom: 1px solid var(--border-light);
   cursor: pointer;
   transition: background-color 0.15s ease;
 }
 
 .search-result-item:hover {
-  background-color: #f0f0f0;
+  background-color: var(--fill-tsp-gray-main);
 }
 
 .search-result-item:last-child {
@@ -209,7 +275,7 @@ function handleResultClick(result: SearchResult) {
   height: 22px;
   min-width: 22px;
   border-radius: 50%;
-  background: #ebebeb;
+  background: var(--fill-tsp-gray-main);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -232,7 +298,7 @@ function handleResultClick(result: SearchResult) {
 .result-icon-fallback {
   font-size: 10px;
   font-weight: 500;
-  color: #666666;
+  color: var(--text-tertiary);
   letter-spacing: -0.02em;
   line-height: 1;
 }
@@ -243,7 +309,7 @@ function handleResultClick(result: SearchResult) {
 
 /* Result Title */
 .result-title {
-  color: #1a1a1a;
+  color: var(--text-primary);
   font-size: 14.5px;
   font-weight: 600;
   line-height: 1.35;
@@ -258,7 +324,7 @@ function handleResultClick(result: SearchResult) {
 
 /* Result Snippet/Description */
 .result-snippet {
-  color: #6b6b6b;
+  color: var(--text-secondary);
   font-size: 13.5px;
   font-weight: 400;
   line-height: 1.45;
@@ -273,7 +339,7 @@ function handleResultClick(result: SearchResult) {
 
 /* Read More Link */
 .read-more-link {
-  color: #9a9a9a;
+  color: var(--text-tertiary);
   text-decoration: none;
   font-size: 13.5px;
   font-weight: 400;
@@ -281,7 +347,7 @@ function handleResultClick(result: SearchResult) {
 }
 
 .read-more-link:hover {
-  color: #666666;
+  color: var(--text-secondary);
 }
 
 :global(.dark) .read-more-link {

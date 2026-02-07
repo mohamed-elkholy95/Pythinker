@@ -14,8 +14,11 @@
         <div class="max-w-full sm:max-w-[768px] sm:min-w-[390px] w-full flex items-center justify-between gap-3">
           <!-- Left: Title -->
           <div class="flex items-center gap-2 flex-1 min-w-0">
-            <span class="text-[var(--text-primary)] text-base font-medium whitespace-nowrap text-ellipsis overflow-hidden leading-relaxed">
+            <span class="chat-title-text">
               {{ title }}
+            </span>
+            <span class="chat-mode-pill">
+              {{ agentModeLabel }}
             </span>
           </div>
           <!-- Right: Buttons -->
@@ -174,24 +177,18 @@
             v-if="!isToolPanelOpen && planningProgress && (!plan || plan.steps.length === 0)"
             class="planning-progress-indicator mb-2 bg-white dark:bg-[#2a2a2a] rounded-lg border border-gray-200 dark:border-[#3a3a3a] px-4 py-2.5 shadow-sm"
           >
-            <!-- Progress bar track -->
-            <div class="h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden mb-2">
-              <div
-                class="h-full bg-blue-500 dark:bg-blue-400 transition-all duration-300 ease-out rounded-full"
-                :style="{ width: (planningProgress.percent || 10) + '%' }"
-              ></div>
-            </div>
             <!-- Content row -->
             <div class="flex items-center gap-3">
-              <div class="flex-shrink-0">
-                <ThinkingIndicator :showText="false" />
+              <div class="planning-orbit flex-shrink-0">
+                <div class="orbit-core"></div>
+                <div class="orbit-dot"></div>
               </div>
               <div class="flex-1 min-w-0">
                 <span class="planning-text-shimmer text-[15px] font-medium">
                   {{ currentPlanningMessage }}
                 </span>
               </div>
-              <div class="flex-shrink-0 text-xs text-gray-500 dark:text-gray-400 font-medium">
+              <div class="planning-percent flex-shrink-0">
                 {{ planningProgress.percent || 10 }}%
               </div>
             </div>
@@ -305,6 +302,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
 import WaitingForReply from '@/components/WaitingForReply.vue';
 import { useSessionStatus } from '@/composables/useSessionStatus';
+import { getToolDisplay } from '@/utils/toolDisplay';
 
 const router = useRouter()
 const { t } = useI18n()
@@ -389,6 +387,8 @@ const {
   planningProgress,
   isWaitingForReply,
 } = toRefs(state);
+
+const agentModeLabel = computed(() => (agentMode.value === 'agent' ? t('Agent') : t('Discuss')));
 
 // Message ID counter for generating unique keys (avoids crypto overhead)
 let messageIdCounter = 0;
@@ -592,42 +592,19 @@ const isPlanCompleted = computed(() => {
 const currentToolInfo = computed(() => {
   const tool = lastNoMessageTool.value;
   if (!tool) return null;
-
-  // Import the mapping from tool constants
-  const TOOL_FUNCTION_MAP: Record<string, string> = {
-    'browser_get_content': 'Browser',
-    'browser_view': 'Browser',
-    'browser_navigate': 'Browser',
-    'browser_click': 'Browser',
-    'browser_input': 'Browser',
-    'shell_exec': 'Terminal',
-    'file_read': 'File Reader',
-    'file_write': 'File Editor',
-    'info_search_web': 'Search Engine',
-  };
-
-  const TOOL_FUNCTION_ARG_MAP: Record<string, string> = {
-    'browser_get_content': 'url',
-    'browser_navigate': 'url',
-    'shell_exec': 'command',
-    'file_read': 'file',
-    'file_write': 'file',
-    'info_search_web': 'query',
-  };
-
-  const argKey = TOOL_FUNCTION_ARG_MAP[tool.function] || '';
-  let functionArg = argKey && tool.args ? tool.args[argKey] : '';
-
-  // Truncate long arguments
-  if (functionArg && functionArg.length > 50) {
-    functionArg = functionArg.substring(0, 47) + '...';
-  }
+  const display = getToolDisplay({
+    name: tool.name,
+    function: tool.function,
+    args: tool.args,
+    display_command: tool.display_command
+  });
 
   return {
-    name: tool.name,
-    function: TOOL_FUNCTION_MAP[tool.function] || tool.function,
-    functionArg,
-    status: tool.status
+    name: display.displayName,
+    function: display.actionLabel,
+    functionArg: display.resourceLabel,
+    status: tool.status,
+    icon: display.icon
   };
 });
 
@@ -781,13 +758,14 @@ const handleToolEvent = (toolData: ToolEventData) => {
     upsertToolTimeline(toolContent);
     if (realTime.value) {
       panelToolId.value = toolContent.tool_call_id;
-      // Auto-switch panel content when panel is open and new tool starts
-      // This ensures browser/VNC view switches immediately when browser tools are used
       if (isToolPanelOpen.value) {
+        // Auto-switch panel content when panel is open and new tool starts
+        toolPanel.value?.showToolPanel(toolContent, isLiveTool(toolContent));
+      } else if (!userClosedPanel.value) {
+        // Auto-open panel for tool execution (unless user explicitly closed it)
         toolPanel.value?.showToolPanel(toolContent, isLiveTool(toolContent));
       }
     }
-    // Panel no longer auto-opens - user must click thumbnail or button to open
   }
 }
 
@@ -1210,6 +1188,8 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
   // (when there are no messages or only 1 message which is the user's first message)
   if (message && (messages.value.length === 0 || (messages.value.length === 1 && messages.value[0].type === 'user'))) {
     isInitializing.value = true;
+    // Reset panel close preference for new conversations
+    userClosedPanel.value = false;
   }
 
   try {
@@ -1511,11 +1491,39 @@ const handleCopyLink = async () => {
 <style scoped>
 /* ===== CHAT HEADER ===== */
 .chat-header {
-  background-color: var(--background-gray-main) !important;
+  background-color: var(--background-white-main) !important;
+  border-bottom: 1px solid var(--border-light);
+  backdrop-filter: blur(8px);
   margin-left: -1.25rem;
   margin-right: -1.25rem;
   padding-left: 1.25rem;
   padding-right: 1.25rem;
+}
+
+.chat-title-text {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.01em;
+}
+
+.chat-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-light);
+  background: var(--background-tsp-menu-white);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
 }
 
 /* 120-degree diagonal shimmer text effect */
@@ -1564,6 +1572,55 @@ const handleCopyLink = async () => {
 /* ===== PLANNING PROGRESS SHIMMER ===== */
 .planning-progress-indicator {
   transition: all 0.3s ease;
+  background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.planning-orbit {
+  position: relative;
+  width: 28px;
+  height: 28px;
+}
+
+.orbit-core {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--text-brand);
+  box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.12);
+  animation: orbit-pulse 1.6s ease-in-out infinite;
+}
+
+.orbit-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #111827;
+  transform: translate(-50%, -50%) rotate(0deg) translateX(12px);
+  animation: orbit-spin 1.6s linear infinite;
+}
+
+.planning-percent {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  background: var(--fill-tsp-gray-main);
+  border: 1px solid var(--border-light);
 }
 
 .planning-text-shimmer {
@@ -1599,6 +1656,18 @@ const handleCopyLink = async () => {
   -webkit-text-fill-color: transparent;
 }
 
+:deep(.dark) .planning-progress-indicator,
+.dark .planning-progress-indicator {
+  background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+}
+
+:deep(.dark) .orbit-dot,
+.dark .orbit-dot {
+  background: #f8fafc;
+}
+
 @keyframes planning-shimmer {
   0% {
     background-position: 100% 50%;
@@ -1608,6 +1677,30 @@ const handleCopyLink = async () => {
   }
   100% {
     background-position: 100% 50%;
+  }
+}
+
+@keyframes orbit-spin {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg) translateX(12px);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(360deg) translateX(12px);
+  }
+}
+
+@keyframes orbit-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+  }
+  50% {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 8px rgba(59, 130, 246, 0.18);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
   }
 }
 </style>

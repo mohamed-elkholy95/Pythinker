@@ -373,6 +373,8 @@ class AnthropicLLM(LLM):
                 logger.warning(f"Anthropic rate limit on attempt {attempt + 1}: {e}")
                 if attempt == max_retries:
                     raise
+                # Extra delay for rate limits on top of standard backoff at loop top
+                await asyncio.sleep(base_delay * (2 ** attempt))
 
             except anthropic.BadRequestError as e:
                 error_msg = str(e).lower()

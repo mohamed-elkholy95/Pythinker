@@ -12,11 +12,11 @@
     </span>
 
     <!-- Separator -->
-    <span class="text-[var(--text-tertiary)]">|</span>
+    <span v-if="displayResource" class="text-[var(--text-tertiary)]">|</span>
 
     <!-- Resource Name -->
-    <span class="text-sm text-[var(--text-primary)] truncate max-w-[300px]" :title="resourceName">
-      {{ resourceName }}
+    <span v-if="displayResource" class="text-sm text-[var(--text-primary)] truncate max-w-[300px]" :title="displayResource">
+      {{ displayResource }}
     </span>
 
     <!-- Spacer -->
@@ -48,20 +48,8 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import {
-  Edit3,
-  FileText,
-  Globe,
-  Terminal,
-  Search,
-  Code,
-  Settings,
-  Zap,
-  Eye,
-  Minus,
-  Square,
-  X,
-} from 'lucide-vue-next'
+import { Minus, Square, X, Settings } from 'lucide-vue-next'
+import { getToolDisplay } from '@/utils/toolDisplay'
 
 interface Props {
   toolName?: string
@@ -83,55 +71,20 @@ defineEmits<{
   close: []
 }>()
 
-// Map tool names to icons
-const toolIcon = computed(() => {
-  const name = props.toolName?.toLowerCase() || ''
-  const funcName = props.functionName?.toLowerCase() || ''
+const toolDisplay = computed(() => getToolDisplay({
+  name: props.toolName,
+  function: props.functionName
+}))
 
-  if (name.includes('browser') || name.includes('playwright')) {
-    return Globe
-  }
-  if (name.includes('file') || funcName.includes('write') || funcName.includes('read')) {
-    return FileText
-  }
-  if (name.includes('shell') || name.includes('terminal') || funcName.includes('execute')) {
-    return Terminal
-  }
-  if (name.includes('search')) {
-    return Search
-  }
-  if (name.includes('code') || funcName.includes('code')) {
-    return Code
-  }
-  if (funcName.includes('edit')) {
-    return Edit3
-  }
-  if (name.includes('mcp')) {
-    return Zap
-  }
-  if (name.includes('vision') || funcName.includes('screenshot')) {
-    return Eye
-  }
+const toolIcon = computed(() => toolDisplay.value.icon || Settings)
 
-  return Settings
+const displayResource = computed(() => {
+  return props.resourceName || toolDisplay.value.description
 })
 
 // Generate status text
 const statusText = computed(() => {
-  const tool = props.toolName || 'Agent'
-  const func = props.functionName
-
-  if (func) {
-    // Convert function names to readable format
-    const readable = func
-      .replace(/_/g, ' ')
-      .replace(/([A-Z])/g, ' $1')
-      .trim()
-
-    return `${tool} is using ${readable}...`
-  }
-
-  return `${tool} is working...`
+  return toolDisplay.value.displayName || 'Tool'
 })
 </script>
 

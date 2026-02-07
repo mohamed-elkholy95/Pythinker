@@ -107,13 +107,12 @@ class Settings(BaseSettings):
     mcp_lazy_init: bool = True  # Defer MCP initialization until first use
 
     # Search engine configuration
-    search_provider: str | None = "bing"  #  "google", "bing", "searxng", "whoogle", "duckduckgo", "brave", "tavily"
+    search_provider: str | None = "duckduckgo"  #  "google", "bing", "whoogle", "duckduckgo", "brave", "tavily"
     search_prefer_browser: bool = (
         True  # Use browser for search (visible in sandbox) instead of API (faster but invisible)
     )
     google_search_api_key: str | None = None
     google_search_engine_id: str | None = None
-    searxng_url: str | None = "http://searxng:8080"  # SearXNG instance URL
     whoogle_url: str | None = "http://whoogle:5000"  # Whoogle instance URL
     brave_search_api_key: str | None = None  # Brave Search API key
     tavily_api_key: str | None = None  # Tavily AI Search API key

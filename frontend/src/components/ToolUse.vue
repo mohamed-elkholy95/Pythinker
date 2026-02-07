@@ -7,10 +7,10 @@
   <div v-else-if="toolInfo" class="flex items-center group gap-2">
     <div class="flex-1 min-w-0">
       <div @click="handleClick"
-        class="rounded-[20px] items-center gap-[8px] px-[12px] py-[6px] inline-flex max-w-full clickable hover:bg-[var(--fill-tsp-gray-dark)] dark:hover:bg-white/[0.04]"
-        :class="props.isActive && tool.status === 'calling' ? 'tool-shimmer' : 'bg-[var(--fill-tsp-gray-main)]'">
+        class="tool-chip rounded-[20px] items-center gap-[8px] px-[12px] py-[6px] inline-flex max-w-full clickable"
+        :class="props.isActive && tool.status === 'calling' ? 'tool-shimmer' : 'tool-idle'">
         <!-- Circle icon container -->
-        <div class="w-[20px] h-[20px] rounded-full bg-[var(--fill-tsp-gray-dark)] dark:bg-white/[0.08] inline-flex items-center justify-center flex-shrink-0">
+        <div class="w-[20px] h-[20px] rounded-full bg-[var(--fill-tsp-gray-main)] inline-flex items-center justify-center flex-shrink-0 border border-[var(--border-light)]">
           <component :is="toolInfo.icon" :size="12" class="text-[var(--text-secondary)]" />
         </div>
         <!-- Human-readable description -->
@@ -72,8 +72,8 @@ const handleClick = () => {
 .tool-shimmer {
   position: relative;
   overflow: hidden;
-  background: rgba(156, 125, 255, 0.12);
-  border: 1px solid rgba(156, 125, 255, 0.35);
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
 .tool-shimmer::before {
@@ -105,8 +105,8 @@ const handleClick = () => {
 <style>
 /* Dark mode support - needs to be unscoped to work with :root selector */
 :root.dark .tool-shimmer {
-  background: rgba(156, 125, 255, 0.18);
-  border: 1px solid rgba(156, 125, 255, 0.45);
+  background: rgba(59, 130, 246, 0.18);
+  border: 1px solid rgba(59, 130, 246, 0.45);
 }
 
 :root.dark .tool-shimmer::before {
@@ -116,5 +116,20 @@ const handleClick = () => {
     rgba(255, 255, 255, 0.2) 50%,
     transparent 100%
   );
+}
+
+.tool-chip {
+  border: 1px solid var(--border-light);
+  background: var(--background-white-main);
+  transition: all 0.15s ease;
+}
+
+.tool-chip:hover {
+  border-color: var(--border-main);
+  background: var(--fill-tsp-gray-main);
+}
+
+.tool-idle {
+  background: var(--background-white-main);
 }
 </style>

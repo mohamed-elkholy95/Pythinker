@@ -16,7 +16,6 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
-from app.core.config import get_settings
 from app.domain.models.event import (
     BaseEvent,
     DoneEvent,
@@ -218,8 +217,7 @@ class FastPathRouter:
     def _get_browser_search_url(self, query: str) -> str:
         """Get a browser-friendly search URL for the given query.
 
-        Uses SearXNG if configured (Docker internal), otherwise DuckDuckGo.
-        Avoids Google which blocks automated browser access.
+        Uses DuckDuckGo which doesn't block automated browser access.
 
         Args:
             query: Search query
@@ -227,13 +225,6 @@ class FastPathRouter:
         Returns:
             Search URL for browser navigation
         """
-        settings = get_settings()
-
-        # Use SearXNG if configured (typically http://searxng:8080 in Docker)
-        if settings.searxng_url:
-            return f"{settings.searxng_url}/search?q={quote(query)}"
-
-        # Fall back to DuckDuckGo (doesn't block automation as aggressively as Google)
         return f"https://duckduckgo.com/?q={quote(query)}"
 
     def classify(self, message: str) -> tuple[QueryIntent, dict[str, Any]]:
@@ -334,7 +325,7 @@ class FastPathRouter:
                 logger.info(f"Resolved '{target}' via partial match to: {url}")
                 return url
 
-        # Fall back to search for the target (use SearXNG or DuckDuckGo, not Google)
+        # Fall back to search for the target (use DuckDuckGo, not Google)
         search_url = self._get_browser_search_url(target)
         logger.info(f"Resolved '{target}' to search URL: {search_url}")
         return search_url
@@ -495,7 +486,6 @@ class FastPathRouter:
         )
 
         try:
-            settings = get_settings()
             # Prefer API search (faster, more reliable) over browser search
             # Browser content extraction has reliability issues
             if self._search_engine:

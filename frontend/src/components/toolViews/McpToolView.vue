@@ -3,7 +3,7 @@
     class="h-[36px] flex items-center px-3 w-full bg-[var(--background-gray-main)] border-b border-[var(--border-main)] rounded-t-[12px] shadow-[inset_0px_1px_0px_0px_#FFFFFF] dark:shadow-[inset_0px_1px_0px_0px_#FFFFFF30]">
     <div class="flex-1 flex items-center justify-center">
       <div class="max-w-[250px] truncate text-[var(--text-tertiary)] text-sm font-medium text-center">
-        MCP Tool
+        {{ toolDisplay.displayName }}
       </div>
     </div>
   </div>
@@ -12,7 +12,7 @@
       <div class="flex flex-col overflow-auto h-full px-4 py-3">
         <div class="py-3 pt-0">
           <div class="text-[var(--text-primary)] text-sm font-medium mb-2">
-            {{ t('Tool') }}: {{ toolContent.function }}
+            {{ t('Tool') }}: {{ toolDisplay.displayName }} · {{ toolDisplay.actionLabel }}
           </div>
           
           <div v-if="toolContent.args && Object.keys(toolContent.args).length > 0" class="mb-4">
@@ -39,12 +39,21 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { ToolContent } from '@/types/message';
+import { computed } from 'vue';
+import { getToolDisplay } from '@/utils/toolDisplay';
 
 const { t } = useI18n()
 
-defineProps<{
+const props = defineProps<{
   sessionId: string;
   toolContent: ToolContent;
   live: boolean;
 }>();
+
+const toolDisplay = computed(() => getToolDisplay({
+  name: props.toolContent?.name,
+  function: props.toolContent?.function,
+  args: props.toolContent?.args,
+  display_command: props.toolContent?.display_command
+}));
 </script> 

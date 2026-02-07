@@ -73,7 +73,6 @@ import {
   Globe,
   Shield,
   Zap,
-  Database,
   Cloud
 } from 'lucide-vue-next'
 import {
@@ -111,7 +110,6 @@ const providerDescriptions: Record<string, string> = {
   google: 'Google Custom Search for precise and relevant results',
   duckduckgo: 'Privacy-focused search that doesn\'t track you',
   brave: 'Independent search with privacy-preserving features',
-  searxng: 'Self-hosted metasearch aggregating multiple engines',
   whoogle: 'Google results without tracking or ads',
   baidu: 'Chinese-language search optimized for local content',
   tavily: 'AI-powered search designed for LLM applications',
@@ -124,7 +122,6 @@ const getProviderIcon = (providerId: string) => {
     google: Search,
     duckduckgo: Shield,
     brave: Shield,
-    searxng: Database,
     whoogle: Search,
     baidu: Globe,
     tavily: Zap,
@@ -139,7 +136,6 @@ const getProviderClass = (providerId: string) => {
     google: 'provider-google',
     duckduckgo: 'provider-duckduckgo',
     brave: 'provider-brave',
-    searxng: 'provider-searxng',
     whoogle: 'provider-whoogle',
     baidu: 'provider-baidu',
     tavily: 'provider-tavily',
@@ -334,7 +330,6 @@ const saveSettings = async (value: string) => {
 .provider-google { background: linear-gradient(135deg, #4285f4 0%, #3367d6 100%); }
 .provider-duckduckgo { background: linear-gradient(135deg, #de5833 0%, #c74a29 100%); }
 .provider-brave { background: linear-gradient(135deg, #fb542b 0%, #e04422 100%); }
-.provider-searxng { background: linear-gradient(135deg, #3050ff 0%, #2040dd 100%); }
 .provider-whoogle { background: linear-gradient(135deg, #1a73e8 0%, #1557b0 100%); }
 .provider-baidu { background: linear-gradient(135deg, #2932e1 0%, #1f26b8 100%); }
 .provider-tavily { background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%); }

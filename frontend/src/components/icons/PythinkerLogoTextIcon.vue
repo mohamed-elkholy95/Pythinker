@@ -6,7 +6,7 @@
             dominant-baseline="middle"
             text-anchor="middle"
             fill="var(--logo-color)"
-            font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+            font-family="var(--font-sans)"
             font-weight="600"
             :font-size="fontSize"
             letter-spacing="-0.02em"

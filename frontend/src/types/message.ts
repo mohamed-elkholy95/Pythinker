@@ -1,4 +1,6 @@
 import type { FileInfo } from '../api/file';
+import type { SearchResultItem } from './search';
+import type { ToolContentPayload } from './toolContent';
 
 export type MessageType = "user" | "assistant" | "tool" | "step" | "attachments" | "report" | "deep_research" | "skill_delivery" | "thought";
 
@@ -18,6 +20,7 @@ export interface ThoughtContent {
   confidence?: number;
   timestamp?: number;
 }
+
 
 // Source citation for report bibliography
 export interface SourceCitation {
@@ -47,7 +50,7 @@ export interface ToolContent extends BaseContent {
   name: string;
   function: string;
   args: any;
-  content?: any;
+  content?: ToolContentPayload;
   status: "calling" | "called";
   // Display metadata (Manus-style human-readable descriptions)
   display_command?: string;      // Full human-readable description: "Search for OpenRouter free tier LLM models"
@@ -104,12 +107,6 @@ export interface ReportContent extends BaseContent {
 // Deep Research types
 export type DeepResearchStatus = 'pending' | 'awaiting_approval' | 'started' | 'completed' | 'cancelled';
 export type DeepResearchQueryStatus = 'pending' | 'searching' | 'completed' | 'skipped' | 'failed';
-
-export interface SearchResultItem {
-  title: string;
-  link: string;
-  snippet: string;
-}
 
 export interface DeepResearchQuery {
   id: string;

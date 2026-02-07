@@ -119,6 +119,7 @@ import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
 import VNCViewer from '@/components/VNCViewer.vue';
 import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';
+import { getToolDisplay } from '@/utils/toolDisplay';
 
 const props = defineProps<{
   sessionId: string;
@@ -139,6 +140,13 @@ const imageUrl = ref('');
 const toolName = computed(() => props.toolContent?.name || '');
 const toolFunction = computed(() => props.toolContent?.function || '');
 const toolStatus = computed(() => props.toolContent?.status || '');
+
+const toolDisplay = computed(() => getToolDisplay({
+  name: props.toolContent?.name,
+  function: props.toolContent?.function,
+  args: props.toolContent?.args,
+  display_command: props.toolContent?.display_command
+}));
 
 // Activity detection
 const isActiveOperation = computed(() => {
@@ -162,47 +170,13 @@ const showTextPlaceholder = computed(() => isTextOnlyOperation.value);
 const showLiveVnc = computed(() => props.live && !isTextOnlyOperation.value);
 
 // Header text
-const headerText = computed(() => {
-  const url = props.toolContent?.args?.url;
-  if (url) return url;
-
-  const nameMap: Record<string, string> = {
-    'shell': 'Terminal',
-    'file': 'File System',
-    'code_executor': 'Code Execution',
-    'browser': 'Browser',
-    'browser_agent': 'Browser Agent',
-  };
-  return nameMap[toolName.value] || 'Sandbox';
-});
+const headerText = computed(() => toolDisplay.value.displayName);
 
 // Action label for placeholder
-const actionLabel = computed(() => {
-  const funcMap: Record<string, string> = {
-    'browser_get_content': 'Fetching page content',
-    'browser_agent_extract': 'Extracting data',
-    'shell_execute': 'Executing command',
-    'file_write': 'Writing file',
-    'file_read': 'Reading file',
-    'code_execute': 'Running code',
-  };
-  return funcMap[toolFunction.value] || 'Processing';
-});
+const actionLabel = computed(() => toolDisplay.value.actionLabel || 'Processing');
 
 // Operation detail
-const currentOperationDetail = computed(() => {
-  const args = props.toolContent?.args || {};
-  if (args.url) {
-    try {
-      const u = new URL(args.url);
-      return u.hostname + u.pathname.slice(0, 30);
-    } catch { return args.url.slice(0, 50); }
-  }
-  if (args.file) return args.file.replace(/^\/home\/ubuntu\//, '');
-  if (args.command) return args.command.slice(0, 50);
-  if (args.code) return `${args.code.slice(0, 30)}...`;
-  return '';
-});
+const currentOperationDetail = computed(() => toolDisplay.value.resourceLabel || '');
 
 // Output icon
 const outputIcon = computed(() => {
