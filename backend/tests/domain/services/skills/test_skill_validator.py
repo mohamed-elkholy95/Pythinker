@@ -66,7 +66,7 @@ class TestSkillValidatorClassAttributes:
     def test_allowed_properties(self) -> None:
         """Test that allowed properties are defined correctly."""
         expected = {"name", "description", "license", "allowed-tools", "metadata"}
-        assert SkillValidator.ALLOWED_PROPERTIES == expected
+        assert expected == SkillValidator.ALLOWED_PROPERTIES
 
     def test_max_name_length(self) -> None:
         """Test that max name length is defined."""

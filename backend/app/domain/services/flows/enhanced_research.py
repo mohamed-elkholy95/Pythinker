@@ -1,8 +1,9 @@
 """Enhanced research flow integrating all four improvements."""
 
 import logging
+from collections.abc import AsyncGenerator
 from datetime import datetime
-from typing import Any, AsyncGenerator
+from typing import Any
 
 from app.domain.external.llm import LLM
 from app.domain.external.search import SearchEngine

@@ -10,6 +10,7 @@ import re
 from collections.abc import AsyncGenerator
 from enum import Enum
 
+from app.core.config import get_settings
 from app.domain.external.llm import LLM
 from app.domain.external.search import SearchEngine
 from app.domain.models.event import (
@@ -36,7 +37,6 @@ from app.domain.services.tools.agent_mode import AgentModeTool
 from app.domain.services.tools.base import BaseTool
 from app.domain.services.tools.search import SearchTool
 from app.domain.utils.json_parser import JsonParser
-from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 

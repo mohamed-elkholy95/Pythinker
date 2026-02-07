@@ -1279,8 +1279,8 @@ class PlanActFlow(BaseFlow):
                 and self._cached_complexity < 0.4  # Simple task threshold
             ):
                 return True, f"simple task (complexity={self._cached_complexity:.2f})"
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Complexity check failed, continuing with verification: {e}")
 
         # Skip for read-only steps (they don't change execution context)
         if self._is_read_only_step(step):
@@ -1662,7 +1662,12 @@ class PlanActFlow(BaseFlow):
                     else:
                         # Cannot recover, yield error and exit
                         error_msg = self._error_context.message if self._error_context else "Unknown error"
-                        yield ErrorEvent(error=f"Agent failed after recovery attempts: {error_msg}")
+                        error_type = self._error_context.error_type.value if self._error_context else "unknown"
+                        yield ErrorEvent(
+                            error=f"Agent failed after recovery attempts: {error_msg}",
+                            error_type=error_type,
+                            recoverable=False,
+                        )
                         break
 
                 if self.status == AgentStatus.IDLE:

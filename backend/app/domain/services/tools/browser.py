@@ -83,6 +83,14 @@ async def get_http_session() -> aiohttp.ClientSession:
     return _http_session
 
 
+async def close_http_session() -> None:
+    """Close the shared HTTP session on shutdown to prevent resource leaks."""
+    global _http_session
+    if _http_session is not None and not _http_session.closed:
+        await _http_session.close()
+        _http_session = None
+
+
 def html_to_text(html: str, max_length: int = 50000) -> str:
     """Convert HTML to clean text, stripping tags and extracting content.
 

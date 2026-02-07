@@ -103,17 +103,14 @@ def get_llm_from_factory() -> LLM | None:
         logger.debug("Ollama LLM provider not available")
 
     settings = get_settings()
-    provider = getattr(settings, "llm_provider", "openai")
-
-    if not provider:
-        provider = "openai"  # Default to OpenAI-compatible
+    provider = settings.llm_provider or "openai"
 
     # Build provider-specific kwargs
     kwargs = {}
 
     if provider == "ollama":
-        kwargs["base_url"] = getattr(settings, "ollama_base_url", "http://localhost:11434")
-        kwargs["model_name"] = getattr(settings, "ollama_model", "llama3.2")
+        kwargs["base_url"] = settings.ollama_base_url
+        kwargs["model_name"] = settings.ollama_model
 
     logger.info(f"Initializing LLM: {provider}")
     return LLMProviderRegistry.get(provider, **kwargs)

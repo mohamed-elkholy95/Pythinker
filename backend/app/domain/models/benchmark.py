@@ -130,7 +130,7 @@ class BenchmarkExtractionResult(BaseModel):
     def get_summary(self) -> str:
         """Get a human-readable summary of extraction results."""
         lines = [
-            f"Benchmark Extraction Results:",
+            "Benchmark Extraction Results:",
             f"  Sources Analyzed: {self.sources_analyzed}",
             f"  Benchmarks Found: {self.benchmarks_found}",
             f"  Comparisons Built: {len(self.comparisons)}",

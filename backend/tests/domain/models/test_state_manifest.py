@@ -5,10 +5,9 @@ Tests the Blackboard Architecture pattern for inter-agent communication,
 where agents post results to a shared state manifest.
 """
 
-import pytest
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
-from app.domain.models.state_manifest import StateManifest, StateEntry
+from app.domain.models.state_manifest import StateEntry, StateManifest
 
 
 class TestStateEntryCreation:

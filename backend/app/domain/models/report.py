@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -110,7 +110,7 @@ class AnalysisReport(BaseModel):
 
 
 # Union type with discriminator
-Report = Annotated[Union[ResearchReport, ComparisonReport, AnalysisReport], Field(discriminator="report_type")]
+Report = Annotated[ResearchReport | ComparisonReport | AnalysisReport, Field(discriminator="report_type")]
 
 
 class ReportMetadata(BaseModel):

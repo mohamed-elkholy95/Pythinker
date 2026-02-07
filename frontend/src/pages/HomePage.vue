@@ -2,14 +2,11 @@
   <SimpleBar>
     <div
       class="flex flex-col h-full flex-1 min-w-0 mx-auto w-full sm:min-w-[390px] px-5 justify-center items-start gap-2 relative max-w-full sm:max-w-full">
-      <!-- Minimal header - logo and user avatar -->
-      <div class="w-full pt-4 pb-4 px-5 bg-[var(--background-white-main)] border-b border-[var(--border-light)] sticky top-0 z-10">
+      <!-- Minimal header - logo and user avatar, blended into background -->
+      <div class="w-full pt-4 pb-4 px-5 sticky top-0 z-10">
         <div class="flex justify-between items-center w-full">
           <div class="h-8 relative z-20 overflow-hidden flex gap-2 items-center flex-shrink-0">
-            <div class="flex">
-              <Bot :size="30" />
-              <PythinkerLogoTextIcon />
-            </div>
+            <PythinkerLogoTextIcon />
           </div>
           <div class="flex items-center gap-2">
             <div class="relative flex items-center" aria-expanded="false" aria-haspopup="dialog"
@@ -42,7 +39,7 @@
 
         <!-- Chat Input -->
         <div class="chat-input-wrapper">
-          <ChatBox :rows="2" v-model="message" @submit="handleSubmit" :isRunning="false" :attachments="attachments" />
+          <ChatBox :rows="1" v-model="message" @submit="handleSubmit" :isRunning="false" :attachments="attachments" />
         </div>
 
         <!-- Feature Buttons -->
@@ -104,7 +101,7 @@ import ChatBox from '../components/ChatBox.vue';
 import { createSession, type AgentMode } from '../api/agent';
 import { showErrorToast } from '../utils/toast';
 import {
-  Bot, Search, Palette,
+  Search, Palette,
   Calendar, Table2, BarChart3, Video, AudioLines, MessageSquare, BookOpen
 } from 'lucide-vue-next';
 import PythinkerLogoTextIcon from '../components/icons/PythinkerLogoTextIcon.vue';
@@ -388,17 +385,17 @@ const handleSubmit = async (skillIds: string[] = []) => {
 }
 
 .greeting-primary {
-  font-size: 22px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 500;
   line-height: 1.3;
-  color: var(--text-primary);
-  margin-bottom: 6px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
 }
 
 .greeting-secondary {
-  font-size: 42px;
-  font-weight: 500;
-  line-height: 1.15;
+  font-size: 32px;
+  font-weight: 400;
+  line-height: 1.2;
   color: var(--text-primary);
   letter-spacing: -0.02em;
 }
@@ -410,12 +407,12 @@ const handleSubmit = async (skillIds: string[] = []) => {
   padding: 0 8px;
 }
 
-/* Home page chatbox styling - Manus-like large input */
+/* Home page chatbox styling - compact Manus-like input */
 :deep(.chat-input-wrapper .chatbox-container) {
   background: var(--background-surface);
-  border-radius: 24px;
+  border-radius: 18px;
   border: 1px solid var(--border-main);
-  padding: 20px 0;
+  padding: 10px 0;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
 }
 
@@ -429,15 +426,15 @@ const handleSubmit = async (skillIds: string[] = []) => {
 }
 
 :deep(.chat-input-wrapper .chatbox-input-area) {
-  padding-left: 24px;
-  padding-right: 24px;
+  padding-left: 20px;
+  padding-right: 20px;
 }
 
 :deep(.chat-input-wrapper .chatbox-textarea) {
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 400;
-  line-height: 1.6;
-  min-height: 72px;
+  line-height: 1.5;
+  min-height: 28px;
   color: var(--text-primary);
 }
 
@@ -446,8 +443,8 @@ const handleSubmit = async (skillIds: string[] = []) => {
 }
 
 :deep(.chat-input-wrapper .chatbox-footer) {
-  padding: 0 18px;
-  margin-top: 8px;
+  padding: 0 14px;
+  margin-top: 4px;
 }
 
 /* ===== FEATURE BUTTONS ===== */

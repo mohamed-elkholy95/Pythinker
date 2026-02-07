@@ -312,13 +312,35 @@ class AgentService:
         return await self._session_repository.find_by_user_id(user_id)
 
     async def delete_session(self, session_id: str, user_id: str) -> None:
-        """Delete a session, ensuring it belongs to the user"""
+        """Delete a session, ensuring it belongs to the user.
+
+        Destroys the associated sandbox container before deleting the session
+        record to prevent orphaned Docker containers.
+        """
         logger.info(f"Deleting session {session_id} for user {user_id}")
         # First verify the session belongs to the user
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
             raise RuntimeError("Session not found")
+
+        # Stop any running task first
+        try:
+            await self._agent_domain_service.stop_session(session_id)
+        except Exception as e:
+            logger.warning(f"Failed to stop session {session_id} before deletion: {e}")
+
+        # Destroy associated sandbox to prevent orphaned containers
+        if session.sandbox_id:
+            try:
+                sandbox = await self._agent_domain_service._sandbox_cls.get(session.sandbox_id)
+                if sandbox:
+                    await asyncio.wait_for(sandbox.destroy(), timeout=15.0)
+                    logger.info(f"Destroyed sandbox {session.sandbox_id} for session {session_id}")
+            except TimeoutError:
+                logger.warning(f"Sandbox {session.sandbox_id} destroy timed out during session deletion")
+            except Exception as e:
+                logger.warning(f"Failed to destroy sandbox {session.sandbox_id}: {e}")
 
         await self._session_repository.delete(session_id)
         logger.info(f"Session {session_id} deleted successfully")

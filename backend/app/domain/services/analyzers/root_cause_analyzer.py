@@ -6,7 +6,7 @@ the root cause of failures.
 
 import logging
 from datetime import datetime
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from pydantic import BaseModel
 

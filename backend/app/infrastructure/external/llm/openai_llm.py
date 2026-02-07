@@ -448,7 +448,7 @@ To extract data from a webpage:
         6. Empty messages are dropped to prevent "content cannot be empty" errors
         """
         # Standard fields per role (OpenAI Chat Completions API spec)
-        STANDARD_FIELDS = {
+        _standard_fields = {
             "system": {"role", "content", "name"},
             "user": {"role", "content", "name"},
             "assistant": {"role", "content", "tool_calls", "name", "refusal"},
@@ -478,7 +478,7 @@ To extract data from a webpage:
                 del msg_copy["function_name"]
 
             # 4. Remove non-standard fields that strict APIs reject
-            allowed = STANDARD_FIELDS.get(role, {"role", "content"})
+            allowed = _standard_fields.get(role, {"role", "content"})
             # Keep internal fields prefixed with '_' (like _finish_reason) — stripped by SDK
             extra_keys = {k for k in msg_copy if k not in allowed and not k.startswith("_")}
             for key in extra_keys:
@@ -926,7 +926,11 @@ To extract data from a webpage:
                 # Message validation errors won't fix on retry
                 if any(
                     term in error_msg
-                    for term in ["参数非法", "messages参数", "invalid messages", "message format", "invalid_request_error"]
+                    for term in [
+                        "'1214'", "invalid messages", "message format",
+                        "invalid_request_error", "incorrect role",
+                        "cannot be empty", "parameter is illegal",
+                    ]
                 ):
                     raise
                 if attempt == max_retries:

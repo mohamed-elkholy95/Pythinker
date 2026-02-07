@@ -1491,9 +1491,7 @@ const handleCopyLink = async () => {
 <style scoped>
 /* ===== CHAT HEADER ===== */
 .chat-header {
-  background-color: var(--background-white-main) !important;
-  border-bottom: 1px solid var(--border-light);
-  backdrop-filter: blur(8px);
+  background-color: transparent;
   margin-left: -1.25rem;
   margin-right: -1.25rem;
   padding-left: 1.25rem;

@@ -422,7 +422,11 @@ class AgentDomainService:
         return self._task_cls.get(task_id)
 
     async def stop_session(self, session_id: str) -> None:
-        """Stop a session"""
+        """Stop a session and destroy its sandbox.
+
+        Cancels any running task and destroys the associated sandbox container
+        to prevent orphaned Docker containers.
+        """
         session = await self._session_repository.find_by_id(session_id)
         if not session:
             logger.error(f"Attempted to stop non-existent Session {session_id}")
@@ -430,6 +434,19 @@ class AgentDomainService:
         task = await self._get_task(session)
         if task:
             task.cancel()
+
+        # Destroy sandbox to prevent orphaned containers
+        if session.sandbox_id:
+            try:
+                sandbox = await self._sandbox_cls.get(session.sandbox_id)
+                if sandbox:
+                    await asyncio.wait_for(sandbox.destroy(), timeout=15.0)
+                    logger.info(f"Destroyed sandbox {session.sandbox_id} for session {session_id}")
+            except TimeoutError:
+                logger.warning(f"Sandbox {session.sandbox_id} destroy timed out during session stop")
+            except Exception as e:
+                logger.warning(f"Failed to destroy sandbox {session.sandbox_id} during stop: {e}")
+
         await self._session_repository.update_status(session_id, SessionStatus.COMPLETED)
 
     async def pause_session(self, session_id: str) -> bool:

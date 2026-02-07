@@ -399,7 +399,7 @@ class TestStreamingPerformance:
                 try:
                     await asyncio.wait_for(queue.get(), timeout=0.1)
                     consumed += 1
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     break
 
         await asyncio.gather(fast_producer(), slow_consumer())

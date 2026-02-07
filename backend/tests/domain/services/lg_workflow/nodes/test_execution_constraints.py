@@ -9,11 +9,10 @@ These tests verify that the execution node properly:
 """
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
-from app.domain.models.event import ErrorEvent
 from app.domain.models.plan import ExecutionStatus, Plan, Step
 from app.domain.services.agents.intent_tracker import IntentType, UserIntent
 from app.domain.services.langgraph.nodes.execution import (
@@ -25,7 +24,6 @@ from app.domain.services.langgraph.nodes.execution import (
     _normalize_text,
     execution_node,
 )
-
 
 # ============================================================================
 # Unit Tests for Helper Functions

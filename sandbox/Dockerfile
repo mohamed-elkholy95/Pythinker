@@ -123,6 +123,7 @@ RUN apt-get update && apt-get install -y \
     x11-apps \
     xdotool \
     openbox \
+    x11-xserver-utils \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -176,6 +177,10 @@ RUN python3 -m venv /opt/base-python-venv && \
 
 # Copy remaining project files
 COPY . .
+
+# Ensure sandbox context output files are writable by ubuntu user
+RUN touch /app/sandbox_context.json /app/sandbox_context.md && \
+    chown ubuntu:ubuntu /app/sandbox_context.json /app/sandbox_context.md
 
 # Configure supervisor
 COPY supervisord.conf /etc/supervisor/conf.d/app.conf

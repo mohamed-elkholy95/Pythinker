@@ -708,8 +708,8 @@ class SearchTool(BaseTool):
                         api_result = await self.search_engine.search(query, date_range)
                         if api_result.success and api_result.data:
                             result.data = api_result.data
-                    except Exception:
-                        pass  # Structured results are non-critical
+                    except Exception as e:
+                        logger.debug(f"Structured search results fetch failed (non-critical): {e}")
                     return result
                 # Browser search returned empty content, fall back to API
                 logger.warning("Browser search returned empty content, falling back to API")

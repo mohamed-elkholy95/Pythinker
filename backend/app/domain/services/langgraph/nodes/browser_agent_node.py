@@ -258,7 +258,7 @@ async def _execute_browser_agent(
                 if hasattr(session, "current_url"):
                     final_url = session.current_url
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             errors.append(f"Browser agent timed out after {config.timeout_seconds}s")
             await emit_event(
                 BrowserStepEvent(
@@ -292,7 +292,7 @@ async def _execute_browser_agent(
         )
 
     except Exception as e:
-        error_msg = f"Browser agent execution failed: {str(e)}"
+        error_msg = f"Browser agent execution failed: {e!s}"
         logger.error(error_msg, exc_info=True)
         errors.append(error_msg)
 
@@ -412,14 +412,13 @@ def _get_browser_llm_config(settings: Any) -> Any:
                 api_key=settings.anthropic_api_key,
                 temperature=settings.temperature,
             )
-        else:
-            # Default to OpenAI-compatible
-            return ChatOpenAI(
-                model=settings.model_name,
-                api_key=settings.api_key,
-                base_url=settings.api_base,
-                temperature=settings.temperature,
-            )
+        # Default to OpenAI-compatible
+        return ChatOpenAI(
+            model=settings.model_name,
+            api_key=settings.api_key,
+            base_url=settings.api_base,
+            temperature=settings.temperature,
+        )
     except ImportError:
         logger.warning("LangChain not available, browser agent may fail")
         return None
@@ -484,11 +483,11 @@ def should_use_browser_node(state: "PlanActState") -> bool:
 
 
 __all__ = [
-    "browser_agent_node",
-    "should_use_browser_node",
-    "BrowserNodeResult",
+    "BROWSER_USE_AVAILABLE",
     "BrowserNodeConfig",
+    "BrowserNodeResult",
     "BrowserStepEvent",
     "BrowserStepStatus",
-    "BROWSER_USE_AVAILABLE",
+    "browser_agent_node",
+    "should_use_browser_node",
 ]

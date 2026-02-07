@@ -13,6 +13,6 @@ from app.domain.services.langgraph.subgraphs.browser_workflow import (
 )
 
 __all__ = [
-    "create_browser_workflow",
     "BrowserWorkflowState",
+    "create_browser_workflow",
 ]
