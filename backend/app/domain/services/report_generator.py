@@ -205,12 +205,12 @@ Requirements:
                 content = source.get("content", "")[:500]
                 parts.append(f"\n{i}. {title}\n   URL: {url}\n   Content: {content}...")
 
-        if "benchmarks" in data and data["benchmarks"]:
+        if data.get("benchmarks"):
             parts.append("\nExtracted Benchmarks:")
             for b in data["benchmarks"][:10]:
                 parts.append(f"- {b.name}: {b.value} (Source: {b.source_url})")
 
-        if "comparisons" in data and data["comparisons"]:
+        if data.get("comparisons"):
             parts.append("\nComparisons:")
             for c in data["comparisons"][:5]:
                 parts.append(f"- {c.benchmark_name}: {len(c.entries)} entries compared")

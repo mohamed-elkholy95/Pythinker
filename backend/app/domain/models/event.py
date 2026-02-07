@@ -53,10 +53,19 @@ class BaseEvent(BaseModel):
 
 
 class ErrorEvent(BaseEvent):
-    """Error event"""
+    """Error event with structured error information.
+
+    Provides enough context for the frontend to:
+    - Display appropriate error messages to the user
+    - Determine if the error is recoverable (show retry button)
+    - Show specific guidance via retry_hint
+    """
 
     type: Literal["error"] = "error"
     error: str
+    error_type: str | None = None  # e.g. "token_limit", "timeout", "tool_execution", "llm_api"
+    recoverable: bool = True  # Whether the user can retry/continue
+    retry_hint: str | None = None  # User-facing guidance, e.g. "Try a simpler request"
 
 
 class PlanEvent(BaseEvent):

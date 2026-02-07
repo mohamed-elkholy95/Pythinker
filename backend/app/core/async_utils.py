@@ -228,10 +228,10 @@ async def gather_with_timeout(
     try:
         async with asyncio.timeout(timeout):
             return await gather_with_taskgroup(*coros, return_exceptions=return_exceptions)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         if return_exceptions:
             # Return timeout errors for all coroutines
-            return [asyncio.TimeoutError(f"Global timeout of {timeout}s exceeded")] * len(coros)
+            return [TimeoutError(f"Global timeout of {timeout}s exceeded")] * len(coros)
         raise
 
 
@@ -413,17 +413,16 @@ async def gather_compat(
     """
     if use_taskgroup:
         return await gather_with_taskgroup(*coros, return_exceptions=return_exceptions)
-    else:
-        # Use traditional asyncio.gather
-        return await asyncio.gather(*coros, return_exceptions=return_exceptions)
+    # Use traditional asyncio.gather
+    return await asyncio.gather(*coros, return_exceptions=return_exceptions)
 
 
 __all__ = [
+    "TaskGroupExecutor",
+    "TaskGroupResult",
+    "gather_compat",
     "gather_with_taskgroup",
     "gather_with_taskgroup_detailed",
     "gather_with_timeout",
     "map_with_taskgroup",
-    "TaskGroupExecutor",
-    "TaskGroupResult",
-    "gather_compat",
 ]

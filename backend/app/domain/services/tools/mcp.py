@@ -1083,8 +1083,8 @@ class MCPHealthMonitor:
                 await self._check_task
             except asyncio.CancelledError:
                 pass
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"MCP health check task cleanup error: {e}")
 
         if self._recovery_task:
             self._recovery_task.cancel()
@@ -1092,8 +1092,8 @@ class MCPHealthMonitor:
                 await self._recovery_task
             except asyncio.CancelledError:
                 pass
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"MCP recovery task cleanup error: {e}")
 
         logger.info("MCP health monitor stopped")
 

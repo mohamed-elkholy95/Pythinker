@@ -26,6 +26,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import pytest_asyncio
 
+
 # Fix langgraph import shadowing issue BEFORE any app imports
 # The local app/domain/services/langgraph module shadows the installed langgraph package
 def _preload_langgraph():

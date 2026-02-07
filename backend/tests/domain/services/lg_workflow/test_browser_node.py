@@ -3,13 +3,11 @@
 Phase 2 Enhancement: Tests for browser-use as first-class LangGraph node.
 """
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from app.domain.services.langgraph.nodes.browser_agent_node import (
-    BROWSER_USE_AVAILABLE,
     BrowserNodeConfig,
     BrowserNodeResult,
     BrowserStepEvent,
@@ -144,13 +142,12 @@ class TestShouldUseBrowserNode:
         with patch(
             "app.domain.services.langgraph.nodes.browser_agent_node.get_settings",
             return_value=mock_settings,
+        ), patch(
+            "app.domain.services.langgraph.nodes.browser_agent_node.BROWSER_USE_AVAILABLE",
+            False,
         ):
-            with patch(
-                "app.domain.services.langgraph.nodes.browser_agent_node.BROWSER_USE_AVAILABLE",
-                False,
-            ):
-                state = {"current_step": MagicMock(description="Navigate to website")}
-                assert should_use_browser_node(state) is False
+            state = {"current_step": MagicMock(description="Navigate to website")}
+            assert should_use_browser_node(state) is False
 
     def test_no_current_step(self, mock_settings):
         """Test routing when no current step."""
@@ -166,68 +163,63 @@ class TestShouldUseBrowserNode:
         with patch(
             "app.domain.services.langgraph.nodes.browser_agent_node.get_settings",
             return_value=mock_settings,
+        ), patch(
+            "app.domain.services.langgraph.nodes.browser_agent_node.BROWSER_USE_AVAILABLE",
+            True,
         ):
-            with patch(
-                "app.domain.services.langgraph.nodes.browser_agent_node.BROWSER_USE_AVAILABLE",
-                True,
-            ):
-                state = {"current_step": MagicMock(description="Browse to google.com")}
-                assert should_use_browser_node(state) is True
+            state = {"current_step": MagicMock(description="Browse to google.com")}
+            assert should_use_browser_node(state) is True
 
     def test_browser_keyword_navigate(self, mock_settings):
         """Test routing for 'navigate' keyword."""
         with patch(
             "app.domain.services.langgraph.nodes.browser_agent_node.get_settings",
             return_value=mock_settings,
+        ), patch(
+            "app.domain.services.langgraph.nodes.browser_agent_node.BROWSER_USE_AVAILABLE",
+            True,
         ):
-            with patch(
-                "app.domain.services.langgraph.nodes.browser_agent_node.BROWSER_USE_AVAILABLE",
-                True,
-            ):
-                state = {"current_step": MagicMock(description="Navigate to login page")}
-                assert should_use_browser_node(state) is True
+            state = {"current_step": MagicMock(description="Navigate to login page")}
+            assert should_use_browser_node(state) is True
 
     def test_browser_keyword_fill_form(self, mock_settings):
         """Test routing for 'fill form' keyword."""
         with patch(
             "app.domain.services.langgraph.nodes.browser_agent_node.get_settings",
             return_value=mock_settings,
+        ), patch(
+            "app.domain.services.langgraph.nodes.browser_agent_node.BROWSER_USE_AVAILABLE",
+            True,
         ):
-            with patch(
-                "app.domain.services.langgraph.nodes.browser_agent_node.BROWSER_USE_AVAILABLE",
-                True,
-            ):
-                state = {"current_step": MagicMock(description="Fill form with user data")}
-                assert should_use_browser_node(state) is True
+            state = {"current_step": MagicMock(description="Fill form with user data")}
+            assert should_use_browser_node(state) is True
 
     def test_non_browser_task(self, mock_settings):
         """Test routing for non-browser task."""
         with patch(
             "app.domain.services.langgraph.nodes.browser_agent_node.get_settings",
             return_value=mock_settings,
+        ), patch(
+            "app.domain.services.langgraph.nodes.browser_agent_node.BROWSER_USE_AVAILABLE",
+            True,
         ):
-            with patch(
-                "app.domain.services.langgraph.nodes.browser_agent_node.BROWSER_USE_AVAILABLE",
-                True,
-            ):
-                state = {"current_step": MagicMock(description="Calculate the sum of numbers")}
-                assert should_use_browser_node(state) is False
+            state = {"current_step": MagicMock(description="Calculate the sum of numbers")}
+            assert should_use_browser_node(state) is False
 
     def test_explicit_browser_task_set(self, mock_settings):
         """Test routing when browser_task is explicitly set."""
         with patch(
             "app.domain.services.langgraph.nodes.browser_agent_node.get_settings",
             return_value=mock_settings,
+        ), patch(
+            "app.domain.services.langgraph.nodes.browser_agent_node.BROWSER_USE_AVAILABLE",
+            True,
         ):
-            with patch(
-                "app.domain.services.langgraph.nodes.browser_agent_node.BROWSER_USE_AVAILABLE",
-                True,
-            ):
-                state = {
-                    "current_step": MagicMock(description="Do something"),
-                    "browser_task": "Navigate to example.com",
-                }
-                assert should_use_browser_node(state) is True
+            state = {
+                "current_step": MagicMock(description="Do something"),
+                "browser_task": "Navigate to example.com",
+            }
+            assert should_use_browser_node(state) is True
 
 
 class TestBrowserAgentNode:
@@ -273,15 +265,14 @@ class TestBrowserAgentNode:
         with patch(
             "app.domain.services.langgraph.nodes.browser_agent_node.get_settings",
             return_value=mock_settings,
+        ), patch(
+            "app.domain.services.langgraph.nodes.browser_agent_node.BROWSER_USE_AVAILABLE",
+            True,
         ):
-            with patch(
-                "app.domain.services.langgraph.nodes.browser_agent_node.BROWSER_USE_AVAILABLE",
-                True,
-            ):
-                state = {"browser_task": "Navigate to google.com"}
-                result = await browser_agent_node(state)
-                assert result["browser_result"].success is False
-                assert "No CDP URL" in result["browser_result"].errors[0]
+            state = {"browser_task": "Navigate to google.com"}
+            result = await browser_agent_node(state)
+            assert result["browser_result"].success is False
+            assert "No CDP URL" in result["browser_result"].errors[0]
 
     @pytest.mark.asyncio
     async def test_browser_use_not_available(self, mock_settings):
@@ -289,18 +280,17 @@ class TestBrowserAgentNode:
         with patch(
             "app.domain.services.langgraph.nodes.browser_agent_node.get_settings",
             return_value=mock_settings,
+        ), patch(
+            "app.domain.services.langgraph.nodes.browser_agent_node.BROWSER_USE_AVAILABLE",
+            False,
         ):
-            with patch(
-                "app.domain.services.langgraph.nodes.browser_agent_node.BROWSER_USE_AVAILABLE",
-                False,
-            ):
-                state = {
-                    "browser_task": "Navigate to google.com",
-                    "cdp_url": "ws://localhost:9222",
-                }
-                result = await browser_agent_node(state)
-                assert result["browser_result"].success is False
-                assert "not installed" in result["browser_result"].errors[0]
+            state = {
+                "browser_task": "Navigate to google.com",
+                "cdp_url": "ws://localhost:9222",
+            }
+            result = await browser_agent_node(state)
+            assert result["browser_result"].success is False
+            assert "not installed" in result["browser_result"].errors[0]
 
 
 class TestBrowserStepStatus:

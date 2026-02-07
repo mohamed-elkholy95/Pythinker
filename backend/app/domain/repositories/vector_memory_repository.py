@@ -62,8 +62,8 @@ class VectorMemoryRepository(ABC):
         query_vector: list[float],
         limit: int = 10,
         min_score: float = 0.3,
-        memory_types: list["MemoryType"] | None = None,
-        min_importance: "MemoryImportance" | None = None,
+        memory_types: list[MemoryType] | None = None,
+        min_importance: MemoryImportance | None = None,
         tags: list[str] | None = None,
     ) -> list[VectorSearchResult]:
         """Search for similar memories using vector similarity.

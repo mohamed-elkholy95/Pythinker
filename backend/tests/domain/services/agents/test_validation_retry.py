@@ -3,8 +3,7 @@
 Phase 4 Enhancement: Tests for Tenacity retry with validation feedback.
 """
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pydantic import ValidationError
@@ -153,7 +152,7 @@ class TestRetryWithValidation:
             "PlanOutput",
             [{"type": "missing", "loc": ("title",), "msg": "Field required"}],
         )
-        error_feedback = f"FIX THIS ERROR:\n{str(first_error)}"
+        error_feedback = f"FIX THIS ERROR:\n{first_error!s}"
 
         messages = [
             {"role": "system", "content": "You are a planner."},
@@ -259,7 +258,6 @@ class TestRetryLogging:
     @pytest.mark.asyncio
     async def test_final_error_logged(self):
         """Test that final error is logged after retries exhausted."""
-        import logging
 
         log_messages = []
 

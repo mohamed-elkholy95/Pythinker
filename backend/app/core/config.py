@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"
 
+    # Anthropic configuration (when LLM_PROVIDER=anthropic)
+    anthropic_api_key: str | None = None
+    anthropic_model_name: str = "claude-sonnet-4-20250514"
+
     # Embedding configuration (separate from chat model)
     embedding_api_key: str | None = None  # Defaults to api_key if not set
     embedding_api_base: str = "https://api.openai.com/v1"  # OpenAI for embeddings

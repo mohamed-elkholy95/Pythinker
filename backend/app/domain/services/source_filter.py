@@ -138,12 +138,11 @@ class SourceFilterService:
 
         if age < timedelta(days=180):
             return ContentFreshness.CURRENT, 1.0
-        elif age < timedelta(days=540):
+        if age < timedelta(days=540):
             return ContentFreshness.RECENT, 0.75
-        elif age < timedelta(days=1080):
+        if age < timedelta(days=1080):
             return ContentFreshness.DATED, 0.5
-        else:
-            return ContentFreshness.STALE, 0.25
+        return ContentFreshness.STALE, 0.25
 
     def _assess_relevance(self, source: dict, query: str) -> float:
         """Assess relevance of source to query using keyword matching."""
@@ -240,7 +239,7 @@ class SourceFilterService:
         date_fields = ["published_date", "date", "publish_date", "created_at", "pubDate", "datePublished"]
 
         for field in date_fields:
-            if field in source and source[field]:
+            if source.get(field):
                 try:
                     if isinstance(source[field], datetime):
                         return source[field]

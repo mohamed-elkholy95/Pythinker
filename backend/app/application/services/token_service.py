@@ -143,8 +143,8 @@ class TokenService:
             if exp:
                 remaining = exp - int(datetime.now(UTC).timestamp())
                 return max(remaining, 0)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Token TTL calculation failed: {e}")
         return 0
 
     def get_user_from_token(self, token: str) -> dict[str, Any] | None:

@@ -26,7 +26,6 @@ from app.domain.services.langgraph.state import (
     merge_requirement_progress,
 )
 
-
 # ============================================================================
 # Unit Tests for RequirementProgress
 # ============================================================================

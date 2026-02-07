@@ -30,7 +30,7 @@ Usage:
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
@@ -399,9 +399,7 @@ class ChainOfVerification:
                 question.status = VerificationStatus.UNCERTAIN
             elif "incorrect" in explanation or "false" in explanation or "no" in explanation[:10]:
                 question.status = VerificationStatus.CONTRADICTED
-            elif "correct" in explanation or "true" in explanation or "yes" in explanation[:10]:
-                question.status = VerificationStatus.VERIFIED
-            elif question.confidence >= 0.7:
+            elif "correct" in explanation or "true" in explanation or "yes" in explanation[:10] or question.confidence >= 0.7:
                 question.status = VerificationStatus.VERIFIED
             elif question.confidence <= 0.3:
                 question.status = VerificationStatus.CONTRADICTED

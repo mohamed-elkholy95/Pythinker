@@ -70,8 +70,8 @@ def is_video_url(url: str) -> bool:
         # Check patterns
         if "/watch?v=" in url or "/video/" in url or "/embed/" in url:
             return True
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"URL video check failed for {url}: {e}")
     return False
 
 

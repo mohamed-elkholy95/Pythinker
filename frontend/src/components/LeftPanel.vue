@@ -12,6 +12,12 @@
         <button @click="toggleLeftPanel" class="collapsed-icon-btn" aria-label="Expand sidebar">
           <PanelLeft class="h-5 w-5" />
         </button>
+        <button @click="handleNewTaskClick" class="collapsed-icon-btn" aria-label="New task">
+          <SquarePen class="h-5 w-5" />
+        </button>
+        <button @click="handleLibraryClick" class="collapsed-icon-btn" aria-label="Library">
+          <Library class="h-5 w-5" />
+        </button>
       </div>
       <div class="collapsed-sidebar-bottom">
         <button @click="openSettingsDialog('settings')" class="collapsed-icon-btn" aria-label="Settings">
@@ -27,10 +33,6 @@
       }"
     >
       <div class="left-panel-header px-4 py-3 h-[56px]">
-        <div class="left-panel-brand">
-          <Bot class="h-5 w-5 text-[var(--text-primary)]" />
-          <span class="brand-name">Pythinker</span>
-        </div>
         <button
           class="collapse-btn"
           @click="toggleLeftPanel"
@@ -125,7 +127,7 @@
 </template>
 
 <script setup lang="ts">
-import { PanelLeft, Plus, Command, MessageSquareDashed, Settings2, Bot, Search, Library, FolderPlus } from 'lucide-vue-next';
+import { PanelLeft, Plus, Command, MessageSquareDashed, Settings2, Search, Library, FolderPlus, SquarePen } from 'lucide-vue-next';
 import SessionItem from './SessionItem.vue';
 import { useLeftPanel } from '../composables/useLeftPanel';
 import { ref, onMounted, watch, onUnmounted, computed } from 'vue';
@@ -294,19 +296,6 @@ watch(() => route.path, async (newPath, oldPath) => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-}
-
-.left-panel-brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
-}
-
-.brand-name {
-  font-size: 15px;
 }
 
 .collapse-btn {

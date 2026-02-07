@@ -420,8 +420,8 @@ async def lifespan(app: FastAPI):
                 _health_state["qdrant"] = False
             except TimeoutError:
                 logger.warning("Qdrant shutdown timed out")
-            except Exception:
-                pass  # Already logged or never initialized
+            except Exception as e:
+                logger.debug(f"Qdrant shutdown error (may not have been initialized): {e}")
 
             logger.info("Cleaning up AgentService instance")
             try:
@@ -431,6 +431,41 @@ async def lifespan(app: FastAPI):
                 logger.warning("AgentService shutdown timed out after 30 seconds")
             except Exception as e:
                 logger.error(f"Error during AgentService cleanup: {e!s}")
+
+            # Destroy orphaned sandbox containers from active sessions
+            # (catches sandboxes missed by task registry cleanup)
+            try:
+                from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
+
+                db = get_mongodb().client[settings.mongodb_database]
+                active_sessions = db.sessions.find(
+                    {"sandbox_id": {"$ne": None}, "status": {"$in": ["running", "initializing"]}},
+                    {"_id": 1, "sandbox_id": 1},
+                )
+                destroyed = 0
+                async for session in active_sessions:
+                    sandbox_id = session.get("sandbox_id")
+                    if sandbox_id:
+                        try:
+                            sandbox = await DockerSandbox.get(sandbox_id)
+                            if sandbox:
+                                await asyncio.wait_for(sandbox.destroy(), timeout=10.0)
+                                destroyed += 1
+                        except TimeoutError:
+                            logger.warning(f"Orphaned sandbox {sandbox_id} destroy timed out")
+                        except Exception as e:
+                            logger.debug(f"Orphaned sandbox {sandbox_id} cleanup failed: {e}")
+                if destroyed > 0:
+                    logger.info(f"Destroyed {destroyed} orphaned sandbox containers on shutdown")
+            except Exception as e:
+                logger.warning(f"Orphaned sandbox cleanup failed (non-critical): {e}")
+
+            # Close shared HTTP session (browser tool connection pool)
+            try:
+                from app.domain.services.tools.browser import close_http_session
+                await close_http_session()
+            except Exception as e:
+                logger.debug(f"HTTP session cleanup error: {e}")
 
             logger.info("Application shutdown complete")
 

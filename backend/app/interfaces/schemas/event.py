@@ -151,6 +151,9 @@ class WaitSSEEvent(BaseSSEEvent):
 
 class ErrorEventData(BaseEventData):
     error: str
+    error_type: str | None = None
+    recoverable: bool = True
+    retry_hint: str | None = None
 
 
 class ErrorSSEEvent(BaseSSEEvent):

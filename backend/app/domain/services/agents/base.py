@@ -319,8 +319,8 @@ class BaseAgent:
         try:
             manager = get_toolset_manager()
             manager.record_tool_usage(tool_name, success, duration_ms)
-        except Exception:
-            pass  # Non-critical, don't fail on recording errors
+        except Exception as e:
+            logger.debug(f"Failed to record tool usage for {tool_name}: {e}")
 
     def _create_tool_event(
         self,
@@ -557,8 +557,8 @@ class BaseAgent:
                         else None,
                         error=result.message if result and not result.success else None,
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Task state recording failed for {function_name}: {e}")
 
                 envelope.mark_completed(
                     success=result.success if result else False,
@@ -606,8 +606,8 @@ class BaseAgent:
                 result=None,
                 error=last_error[:200],
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Task state recording failed for {function_name} error path: {e}")
 
         return ToolResult(success=False, message=last_error)
 
@@ -947,7 +947,10 @@ class BaseAgent:
                     f"Task execution limit reached ({int(iteration_spent)} iterations). "
                     "The task was too complex to complete in a single run. "
                     "Consider breaking it into smaller sub-tasks or increasing the iteration limit."
-                )
+                ),
+                error_type="iteration_limit",
+                recoverable=True,
+                retry_hint="Try breaking your request into smaller, focused tasks.",
             )
 
         final_content = message.get("content")

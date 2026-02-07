@@ -24,8 +24,7 @@ Usage:
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from typing import Annotated, Any, Literal, TypedDict
 
 from langgraph.graph import END, StateGraph
@@ -33,7 +32,6 @@ from langgraph.graph import END, StateGraph
 from app.core.config import get_settings
 from app.domain.models.event import BaseEvent
 from app.domain.services.langgraph.nodes.browser_agent_node import (
-    BROWSER_USE_AVAILABLE,
     BrowserNodeConfig,
     BrowserNodeResult,
     BrowserStepEvent,
@@ -249,7 +247,7 @@ async def execute_subtask_node(state: BrowserWorkflowState) -> dict[str, Any]:
         }
 
     except Exception as e:
-        error_msg = f"Subtask execution failed: {str(e)}"
+        error_msg = f"Subtask execution failed: {e!s}"
         logger.error(error_msg, exc_info=True)
 
         events.append(
@@ -578,8 +576,8 @@ def create_browser_workflow(config: BrowserWorkflowConfig | None = None) -> Stat
 
 
 __all__ = [
-    "create_browser_workflow",
-    "BrowserWorkflowState",
     "BrowserWorkflowConfig",
+    "BrowserWorkflowState",
+    "create_browser_workflow",
     "create_initial_browser_state",
 ]

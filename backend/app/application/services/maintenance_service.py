@@ -6,6 +6,7 @@ particularly for cleaning up events with invalid attachments that could cause
 errors when fetching session data.
 """
 
+import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -301,6 +302,7 @@ class MaintenanceService:
             "dry_run": dry_run,
             "stale_threshold_minutes": stale_threshold_minutes,
             "sessions_cleaned": 0,
+            "sandboxes_destroyed": 0,
             "sessions_marked_failed": [],
             "errors": [],
             "timestamp": datetime.now(UTC).isoformat(),
@@ -319,24 +321,40 @@ class MaintenanceService:
 
             cursor = sessions_collection.find(
                 query,
-                {"_id": 1, "status": 1, "updated_at": 1, "title": 1},
+                {"_id": 1, "status": 1, "updated_at": 1, "title": 1, "sandbox_id": 1},
             )
 
             async for session in cursor:
                 session_id_str = str(session["_id"])
                 old_status = session.get("status")
                 updated_at = session.get("updated_at")
+                sandbox_id = session.get("sandbox_id")
 
                 session_info = {
                     "session_id": session_id_str,
                     "old_status": old_status,
                     "title": session.get("title"),
+                    "sandbox_id": sandbox_id,
                     "last_updated": updated_at.isoformat() if updated_at else None,
                 }
                 stats["sessions_marked_failed"].append(session_info)
                 stats["sessions_cleaned"] += 1
 
                 if not dry_run:
+                    # Destroy orphaned sandbox container
+                    if sandbox_id:
+                        try:
+                            from app.infrastructure.external.sandbox import SandboxClient
+                            sandbox = await SandboxClient.get(sandbox_id)
+                            if sandbox:
+                                await asyncio.wait_for(sandbox.destroy(), timeout=15.0)
+                                stats["sandboxes_destroyed"] += 1
+                                logger.info(f"Destroyed orphaned sandbox {sandbox_id} for stale session {session_id_str}")
+                        except TimeoutError:
+                            logger.warning(f"Sandbox {sandbox_id} destroy timed out during stale cleanup")
+                        except Exception as e:
+                            logger.warning(f"Failed to destroy sandbox {sandbox_id}: {e}")
+
                     try:
                         await sessions_collection.update_one(
                             {"_id": session["_id"]},
@@ -362,7 +380,10 @@ class MaintenanceService:
                     f"[DRY RUN] Would mark {stats['sessions_cleaned']} stale sessions as failed"
                 )
             else:
-                logger.info(f"Marked {stats['sessions_cleaned']} stale sessions as failed")
+                logger.info(
+                    f"Marked {stats['sessions_cleaned']} stale sessions as failed, "
+                    f"destroyed {stats['sandboxes_destroyed']} orphaned sandboxes"
+                )
 
         except Exception as e:
             error_msg = f"Stale session cleanup failed: {e}"

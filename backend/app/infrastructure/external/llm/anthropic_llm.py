@@ -65,7 +65,7 @@ class AnthropicLLM(LLM):
         if not self._api_key:
             raise ValueError("Anthropic API key is required")
 
-        self._model_name = model_name or getattr(settings, "anthropic_model_name", "claude-sonnet-4-20250514")
+        self._model_name = model_name or settings.anthropic_model_name
         self._temperature = temperature if temperature is not None else settings.temperature
         self._max_tokens = max_tokens if max_tokens is not None else settings.max_tokens
 
