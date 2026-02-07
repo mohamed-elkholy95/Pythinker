@@ -377,6 +377,11 @@ class TestUpdateRequirementProgress:
             current_progress=progress,
         )
 
+        # Mock semantic matching to return False so unaddressed items stay unaddressed.
+        # This test verifies score calculation, not semantic matching (which uses
+        # hash()-based trigram embeddings that are non-deterministic across sessions).
+        state["intent_tracker"].check_requirement_addressed = lambda **kwargs: False
+
         _, score = _update_requirement_progress(state)
 
         # 2 out of 4 addressed = 0.5
