@@ -950,7 +950,14 @@ class BaseAgent:
                 )
             )
 
-        yield MessageEvent(message=message["content"])
+        final_content = message.get("content")
+        if not final_content:
+            logger.warning("Agent produced empty final message — yielding fallback")
+            final_content = (
+                "I was unable to produce a complete response. "
+                "Please try again or rephrase your request."
+            )
+        yield MessageEvent(message=final_content)
 
     async def _execute_parallel_tool(
         self,
@@ -1031,6 +1038,37 @@ class BaseAgent:
                     await self._handle_token_limit_exceeded()
                     continue
                 raise
+
+            # Detect truncated responses via _finish_reason from LLM adapters
+            is_truncated = message.get("_finish_reason") == "length"
+
+            if is_truncated and message.get("tool_calls"):
+                # Truncated tool calls likely have malformed JSON — drop and retry
+                logger.error(
+                    "LLM response truncated with partial tool_calls — dropping and requesting continuation"
+                )
+                await self._add_to_memory(
+                    [
+                        {"role": "assistant", "content": message.get("content") or ""},
+                        {
+                            "role": "user",
+                            "content": (
+                                "Your previous response was cut off due to length limits. "
+                                "Please continue from where you stopped. Do not use tools — "
+                                "provide your answer as text."
+                            ),
+                        },
+                    ]
+                )
+                continue
+
+            if is_truncated and message.get("content"):
+                # Text-only truncation: return partial answer with note
+                logger.warning("Final answer may be truncated (finish_reason=length)")
+                message["content"] = (
+                    message["content"]
+                    + "\n\n[Note: Response may be incomplete due to length limits]"
+                )
 
             filtered_message = {}
             if message.get("role") == "assistant":

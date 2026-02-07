@@ -278,6 +278,15 @@ class AnthropicLLM(LLM):
         if tool_calls:
             result["tool_calls"] = tool_calls
 
+        # Check stop_reason for truncation detection
+        stop_reason = getattr(response, "stop_reason", None)
+        if stop_reason == "max_tokens":
+            logger.warning("Anthropic response truncated (stop_reason=max_tokens)")
+            result["_finish_reason"] = "length"
+        elif stop_reason:
+            # Normalize: "end_turn" → "stop", "tool_use" → "tool_calls"
+            result["_finish_reason"] = stop_reason
+
         return result
 
     def _prepare_system_with_caching(self, system_prompt: str, enable_caching: bool) -> Any:
