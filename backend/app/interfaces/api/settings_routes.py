@@ -54,6 +54,7 @@ SEARCH_PROVIDERS = [
     {"id": "whoogle", "name": "Whoogle", "requires_api_key": False},
     {"id": "baidu", "name": "Baidu Search", "requires_api_key": False},
     {"id": "tavily", "name": "Tavily", "requires_api_key": True},
+    {"id": "serper", "name": "Serper (Google)", "requires_api_key": True},
 ]
 
 

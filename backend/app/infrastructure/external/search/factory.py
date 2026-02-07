@@ -1,7 +1,7 @@
 """Search Provider Factory
 
 Registry pattern for dynamically selecting search providers based on configuration.
-Supports: bing, google, baidu, whoogle, duckduckgo, brave, tavily
+Supports: bing, google, baidu, whoogle, duckduckgo, brave, tavily, serper
 """
 
 import importlib
@@ -102,6 +102,11 @@ def get_search_engine_from_factory() -> SearchEngine | None:
         logger.debug("Tavily search provider not available")
 
     try:
+        importlib.import_module("app.infrastructure.external.search.serper_search")
+    except ImportError:
+        logger.debug("Serper search provider not available")
+
+    try:
         importlib.import_module("app.infrastructure.external.search.whoogle_search")
     except ImportError:
         logger.debug("Whoogle search provider not available")
@@ -152,6 +157,16 @@ def get_search_engine_from_factory() -> SearchEngine | None:
             logger.warning("Tavily Search not configured: missing API key")
             return None
         kwargs["api_key"] = settings.tavily_api_key
+
+    elif provider == "serper":
+        if not settings.serper_api_key:
+            logger.warning("Serper Search not configured: missing API key")
+            return None
+        kwargs["api_key"] = settings.serper_api_key
+        # Collect fallback keys for auto-rotation on quota/billing errors
+        fallback_keys = [k for k in [settings.serper_api_key_2, settings.serper_api_key_3] if k]
+        if fallback_keys:
+            kwargs["fallback_api_keys"] = fallback_keys
 
     logger.info(f"Initializing search engine: {provider}")
     return SearchProviderRegistry.get(provider, **kwargs)

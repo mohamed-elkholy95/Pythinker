@@ -10,6 +10,7 @@ Supported providers:
 - whoogle: Whoogle Google proxy
 - brave: Brave Search API (requires API key)
 - tavily: Tavily AI Search API (requires API key)
+- serper: Serper.dev Google Search API (requires API key)
 """
 
 import logging

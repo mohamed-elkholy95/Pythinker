@@ -113,6 +113,7 @@ const providerDescriptions: Record<string, string> = {
   whoogle: 'Google results without tracking or ads',
   baidu: 'Chinese-language search optimized for local content',
   tavily: 'AI-powered search designed for LLM applications',
+  serper: 'Google Search results via Serper.dev API (2500 free/mo)',
 }
 
 // Provider icons mapping
@@ -125,6 +126,7 @@ const getProviderIcon = (providerId: string) => {
     whoogle: Search,
     baidu: Globe,
     tavily: Zap,
+    serper: Search,
   }
   return icons[providerId] || Cloud
 }
@@ -139,6 +141,7 @@ const getProviderClass = (providerId: string) => {
     whoogle: 'provider-whoogle',
     baidu: 'provider-baidu',
     tavily: 'provider-tavily',
+    serper: 'provider-serper',
   }
   return classes[providerId] || 'provider-default'
 }
@@ -333,6 +336,7 @@ const saveSettings = async (value: string) => {
 .provider-whoogle { background: linear-gradient(135deg, #1a73e8 0%, #1557b0 100%); }
 .provider-baidu { background: linear-gradient(135deg, #2932e1 0%, #1f26b8 100%); }
 .provider-tavily { background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%); }
+.provider-serper { background: linear-gradient(135deg, #4285f4 0%, #2b6cb0 100%); }
 .provider-default { background: var(--fill-tsp-gray-dark); }
 
 /* Provider Info Card */
