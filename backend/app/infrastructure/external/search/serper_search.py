@@ -5,8 +5,10 @@ from Google's index. Requires an API key from https://serper.dev/
 Free tier: 2,500 queries/month.
 
 Supports multiple API keys with automatic fallback: if the active key
-hits quota/billing limits (HTTP 429 or 402), the engine rotates to
-the next configured key transparently.
+hits quota/billing limits (HTTP 401, 402, 403, 429), the engine rotates
+to the next configured key instantly. Exhausted keys are remembered for
+the lifetime of the process so subsequent searches skip them without
+making a network round-trip.
 """
 
 import logging
@@ -21,8 +23,8 @@ from app.infrastructure.external.search.factory import SearchProviderRegistry
 
 logger = logging.getLogger(__name__)
 
-# HTTP status codes that indicate quota/billing exhaustion
-_QUOTA_STATUS_CODES = {402, 429}
+# HTTP status codes that indicate the API key should be rotated
+_ROTATE_STATUS_CODES = {401, 402, 403, 429}
 
 
 @SearchProviderRegistry.register("serper")
@@ -36,7 +38,8 @@ class SerperSearchEngine(SearchEngineBase):
     - People also ask
 
     When multiple API keys are configured, automatically rotates to the
-    next key on 429 (rate limit) or 402 (payment required) errors.
+    next key on 401/402/403/429 errors. Exhausted keys are tracked and
+    skipped on future requests.
     """
 
     provider_name = "Serper"
@@ -56,30 +59,47 @@ class SerperSearchEngine(SearchEngineBase):
             timeout: Optional custom timeout
         """
         super().__init__(timeout=timeout)
-        self._api_keys = [api_key]
+        all_keys = [api_key]
         if fallback_api_keys:
-            self._api_keys.extend(fallback_api_keys)
+            all_keys.extend(fallback_api_keys)
+        self._api_keys = [k for k in all_keys if k and k.strip()]
+        if not self._api_keys:
+            self._api_keys = [api_key]
         self._active_key_index = 0
+        self._exhausted_keys: set[int] = set()  # Indices of keys that hit billing limits
         self.base_url = "https://google.serper.dev/search"
+        logger.info(f"Serper search initialized with {len(self._api_keys)} API key(s)")
 
     @property
     def api_key(self) -> str:
         """Get the currently active API key."""
         return self._api_keys[self._active_key_index]
 
-    def _rotate_key(self) -> bool:
-        """Rotate to the next available API key.
+    def _rotate_key(self, reason: str = "") -> bool:
+        """Rotate to the next available non-exhausted API key.
+
+        Marks the current key as exhausted and finds the next usable key.
+
+        Args:
+            reason: Human-readable reason for rotation (for logging)
 
         Returns:
             True if rotated successfully, False if all keys exhausted.
         """
-        next_index = self._active_key_index + 1
-        if next_index < len(self._api_keys):
-            self._active_key_index = next_index
-            logger.warning(f"Serper API key rotated to key #{next_index + 1} of {len(self._api_keys)}")
-            # Reset the HTTP client so new headers take effect
-            self._client = None
-            return True
+        self._exhausted_keys.add(self._active_key_index)
+        # Find next non-exhausted key
+        for i in range(len(self._api_keys)):
+            if i not in self._exhausted_keys:
+                self._active_key_index = i
+                # Reset the HTTP client so new headers take effect
+                self._client = None
+                detail = f" ({reason})" if reason else ""
+                logger.warning(
+                    f"Serper API key rotated to key #{i + 1} of {len(self._api_keys)}{detail} "
+                    f"— {len(self._exhausted_keys)}/{len(self._api_keys)} keys exhausted"
+                )
+                return True
+        logger.error(f"All {len(self._api_keys)} Serper API keys exhausted")
         return False
 
     def _get_headers(self) -> dict[str, str]:
@@ -139,11 +159,15 @@ class SerperSearchEngine(SearchEngineBase):
         return results, total_results
 
     async def search(self, query: str, date_range: str | None = None) -> ToolResult[SearchResults]:
-        """Execute search with automatic API key rotation on quota errors.
+        """Execute search with automatic API key rotation on billing/quota errors.
 
-        Overrides the base search() to add multi-key fallback logic.
-        On 429/402 responses, rotates to the next configured API key
-        and retries the request transparently.
+        Rotation triggers:
+        - HTTP 401 (unauthorized / invalid key)
+        - HTTP 402 (payment required)
+        - HTTP 403 (forbidden / suspended)
+        - HTTP 429 (rate limit)
+
+        Exhausted keys are tracked and skipped on subsequent calls.
 
         Args:
             query: Search query string
@@ -152,24 +176,29 @@ class SerperSearchEngine(SearchEngineBase):
         Returns:
             ToolResult containing SearchResults
         """
+        # Fast path: if current key is already exhausted, rotate before even trying
+        if self._active_key_index in self._exhausted_keys and not self._rotate_key("current key already exhausted"):
+            return self._create_error_result(
+                query, date_range,
+                f"All {len(self._api_keys)} Serper API keys exhausted (quota/billing limit)",
+            )
+
         while True:
             try:
                 client = await self._get_client()
                 params = self._build_request_params(query, date_range)
                 response = await self._execute_request(client, params)
 
-                # Check for quota/billing errors — rotate key and retry
-                if response.status_code in _QUOTA_STATUS_CODES:
+                # Check HTTP status for quota/billing/auth errors
+                if response.status_code in _ROTATE_STATUS_CODES:
                     key_num = self._active_key_index + 1
                     logger.warning(
-                        f"Serper key #{key_num} quota exceeded (HTTP {response.status_code})"
+                        f"Serper key #{key_num} failed (HTTP {response.status_code})"
                     )
-                    if self._rotate_key():
+                    if self._rotate_key(f"HTTP {response.status_code}"):
                         continue
-                    # All keys exhausted
                     return self._create_error_result(
-                        query,
-                        date_range,
+                        query, date_range,
                         f"All {len(self._api_keys)} Serper API keys exhausted (quota/billing limit)",
                     )
 
@@ -178,11 +207,16 @@ class SerperSearchEngine(SearchEngineBase):
                 return self._create_success_result(query, date_range, results, total_results)
 
             except httpx.HTTPStatusError as e:
-                # Catch quota errors raised by raise_for_status (shouldn't happen
-                # since we check above, but be defensive)
-                if e.response.status_code in _QUOTA_STATUS_CODES and self._rotate_key():
+                if e.response.status_code in _ROTATE_STATUS_CODES and self._rotate_key(f"HTTP {e.response.status_code}"):
                     continue
                 return self._create_error_result(query, date_range, self._handle_http_error(e))
+
+            except httpx.TimeoutException:
+                # Timeout is not a billing error — don't rotate, just fail
+                return self._create_error_result(
+                    query, date_range,
+                    f"Serper search timed out after {self.timeout}s",
+                )
 
             except Exception as e:
                 return self._create_error_result(query, date_range, e)
