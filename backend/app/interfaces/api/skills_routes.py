@@ -562,14 +562,14 @@ def _validate_custom_skill_tools(required_tools: list[str], optional_tools: list
     Returns list of validation errors.
     """
     # Import here to avoid circular imports
-    from app.domain.services.skill_validator import SkillValidator
+    from app.domain.services.skill_validator import CustomSkillValidator
 
     all_tools = set(required_tools + optional_tools)
-    invalid = all_tools - SkillValidator.ALLOWED_TOOLS
+    invalid = all_tools - CustomSkillValidator.ALLOWED_TOOLS
     if invalid:
         return [f"Invalid tools: {', '.join(sorted(invalid))}"]
-    if len(all_tools) > SkillValidator.MAX_TOOLS:
-        return [f"Too many tools: {len(all_tools)} > {SkillValidator.MAX_TOOLS}"]
+    if len(all_tools) > CustomSkillValidator.MAX_TOOLS:
+        return [f"Too many tools: {len(all_tools)} > {CustomSkillValidator.MAX_TOOLS}"]
     return []
 
 
@@ -580,7 +580,7 @@ async def create_custom_skill(
 ) -> APIResponse[SkillResponse]:
     """Create a new custom skill for the current user."""
     # Import validator
-    from app.domain.services.skill_validator import SkillValidator
+    from app.domain.services.skill_validator import CustomSkillValidator
 
     skill_service = get_skill_service()
 
@@ -623,7 +623,7 @@ async def create_custom_skill(
     )
 
     # Validate the skill
-    errors = SkillValidator.validate(skill)
+    errors = CustomSkillValidator.validate(skill)
     if errors:
         raise HTTPException(status_code=400, detail="; ".join(errors))
 
@@ -683,7 +683,7 @@ async def update_custom_skill(
     current_user: User = Depends(get_current_user),
 ) -> APIResponse[SkillResponse]:
     """Update a custom skill owned by the current user."""
-    from app.domain.services.skill_validator import SkillValidator
+    from app.domain.services.skill_validator import CustomSkillValidator
 
     skill_service = get_skill_service()
     skill = await skill_service.get_skill_by_id(skill_id)
@@ -734,7 +734,7 @@ async def update_custom_skill(
     skill.updated_at = datetime.now(UTC)
 
     # Re-validate after updates
-    errors = SkillValidator.validate(skill)
+    errors = CustomSkillValidator.validate(skill)
     if errors:
         raise HTTPException(status_code=400, detail="; ".join(errors))
 
@@ -1006,7 +1006,7 @@ async def install_skill_from_package(
     before installation.
     """
     from app.domain.models.skill import SkillInvocationType
-    from app.domain.services.skill_validator import SkillValidator
+    from app.domain.services.skill_validator import CustomSkillValidator
 
     skill_service = get_skill_service()
     app_settings = get_app_settings()
@@ -1110,7 +1110,7 @@ async def install_skill_from_package(
     )
 
     # Validate the skill before creation
-    errors = SkillValidator.validate(skill)
+    errors = CustomSkillValidator.validate(skill)
     if errors:
         raise HTTPException(status_code=400, detail=f"Invalid skill package: {'; '.join(errors)}")
 

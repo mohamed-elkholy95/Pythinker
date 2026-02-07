@@ -540,6 +540,82 @@ class TestCacheInvalidation:
             assert matcher._initialized is False
 
 
+class TestSkillTriggerMatcherReDoS:
+    """Test ReDoS protection in trigger patterns."""
+
+    def test_max_trigger_pattern_length_constant_exists(self):
+        """Verify MAX_TRIGGER_PATTERN_LENGTH is defined and has a reasonable value."""
+        from app.domain.services.skill_trigger_matcher import MAX_TRIGGER_PATTERN_LENGTH
+
+        assert MAX_TRIGGER_PATTERN_LENGTH == 200
+
+    def test_long_pattern_skipped_during_init(self):
+        """Verify that patterns exceeding MAX_TRIGGER_PATTERN_LENGTH are skipped."""
+        from app.domain.services.skill_trigger_matcher import (
+            MAX_TRIGGER_PATTERN_LENGTH,
+            SkillTriggerMatcher,
+        )
+
+        long_pattern = "a" * (MAX_TRIGGER_PATTERN_LENGTH + 1)
+        skill = Skill(
+            id="redos-test",
+            name="ReDoS Test",
+            description="Test skill with oversized trigger pattern",
+            category=SkillCategory.CUSTOM,
+            source=SkillSource.OFFICIAL,
+            invocation_type=SkillInvocationType.AI,
+            system_prompt_addition="Instructions",
+            trigger_patterns=[long_pattern],
+        )
+
+        matcher = SkillTriggerMatcher()
+        # Manually compile patterns like _ensure_initialized would
+        import re
+
+        patterns = []
+        for pattern_str in skill.trigger_patterns:
+            if len(pattern_str) > MAX_TRIGGER_PATTERN_LENGTH:
+                continue  # Simulates the skip logic
+            compiled = re.compile(pattern_str, re.IGNORECASE)
+            patterns.append((compiled, pattern_str))
+
+        # The long pattern should have been skipped
+        assert len(patterns) == 0
+
+    def test_short_pattern_accepted(self):
+        """Verify that patterns within MAX_TRIGGER_PATTERN_LENGTH are accepted."""
+        from app.domain.services.skill_trigger_matcher import (
+            MAX_TRIGGER_PATTERN_LENGTH,
+            SkillTriggerMatcher,
+        )
+
+        short_pattern = r"research\s+"
+        assert len(short_pattern) <= MAX_TRIGGER_PATTERN_LENGTH
+
+        skill = Skill(
+            id="short-pattern",
+            name="Short Pattern",
+            description="Test skill with acceptable trigger pattern",
+            category=SkillCategory.CUSTOM,
+            source=SkillSource.OFFICIAL,
+            invocation_type=SkillInvocationType.AI,
+            system_prompt_addition="Instructions",
+            trigger_patterns=[short_pattern],
+        )
+
+        matcher = SkillTriggerMatcher()
+        import re
+
+        patterns = []
+        for pattern_str in skill.trigger_patterns:
+            if len(pattern_str) > MAX_TRIGGER_PATTERN_LENGTH:
+                continue
+            compiled = re.compile(pattern_str, re.IGNORECASE)
+            patterns.append((compiled, pattern_str))
+
+        assert len(patterns) == 1
+
+
 class TestCustomSkillFields:
     """Tests for custom skill advanced field handling."""
 

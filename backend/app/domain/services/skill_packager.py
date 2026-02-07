@@ -822,10 +822,10 @@ class SkillPackager:
         # Validate metadata if present
         if package.metadata:
             # Check required tools reference valid tools
-            from app.domain.services.skill_validator import SkillValidator
+            from app.domain.services.skill_validator import CustomSkillValidator
 
             all_tools = set(package.metadata.required_tools + package.metadata.optional_tools)
-            invalid_tools = all_tools - SkillValidator.ALLOWED_TOOLS
+            invalid_tools = all_tools - CustomSkillValidator.ALLOWED_TOOLS
             if invalid_tools:
                 errors.append(f"Invalid tools: {', '.join(sorted(invalid_tools))}")
 

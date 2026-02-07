@@ -15,7 +15,7 @@ from app.domain.models.event import SkillDeliveryEvent, SkillPackageFileData
 from app.domain.models.skill import Skill, SkillCategory, SkillSource
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.skill_packager import get_skill_packager
-from app.domain.services.skill_validator import SkillValidator
+from app.domain.services.skill_validator import CustomSkillValidator
 from app.domain.services.tools.base import BaseTool, tool
 
 logger = logging.getLogger(__name__)
@@ -173,7 +173,7 @@ class SkillCreatorTool(BaseTool):
             )
 
             # Validate the skill
-            errors = SkillValidator.validate(skill)
+            errors = CustomSkillValidator.validate(skill)
             if errors:
                 return ToolResult(
                     success=False,

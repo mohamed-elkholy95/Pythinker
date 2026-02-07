@@ -324,6 +324,16 @@ class SkillLoader:
         skill_path = self.skills_dir / skill_name
         full_path = skill_path / resource_path
 
+        # Security: prevent path traversal
+        try:
+            resolved = full_path.resolve()
+            skill_resolved = skill_path.resolve()
+            if not str(resolved).startswith(str(skill_resolved) + "/") and resolved != skill_resolved:
+                logger.warning(f"Path traversal attempt blocked: {resource_path}")
+                return None
+        except (OSError, ValueError):
+            return None
+
         if not full_path.exists():
             logger.debug(f"Resource not found: {skill_name}/{resource_path}")
             return None

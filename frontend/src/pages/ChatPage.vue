@@ -303,6 +303,7 @@ import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
 import WaitingForReply from '@/components/WaitingForReply.vue';
 import { useSessionStatus } from '@/composables/useSessionStatus';
 import { getToolDisplay } from '@/utils/toolDisplay';
+import { useSkills } from '@/composables/useSkills';
 
 const router = useRouter()
 const { t } = useI18n()
@@ -311,6 +312,7 @@ const { showSessionFileList } = useSessionFileList()
 const { hideFilePanel } = useFilePanel()
 const { isReportModalOpen, currentReport, openReport, closeReport } = useReport()
 const { emitStatusChange } = useSessionStatus()
+const { getSelectedSkillIds } = useSkills()
 
 // Create initial state factory
 const createInitialState = () => ({
@@ -1139,6 +1141,12 @@ const processEvent = (event: AgentSSEEvent) => {
     handleProgressEvent(event.data as ProgressEventData);
   } else if (event.event === 'deep_research') {
     handleDeepResearchEvent(event.data as DeepResearchEventData);
+  } else if (event.event === 'skill_delivery') {
+    // Skill package created - log for now (viewer components exist but need integration)
+    console.log('[ChatPage] Skill delivery event:', event.data);
+  } else if (event.event === 'skill_activation') {
+    // Skills auto-activated for this message
+    console.log('[ChatPage] Skill activation event:', event.data);
   }
   lastEventId.value = event.data.event_id;
 }
@@ -1205,7 +1213,7 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
         size: file.size,
         upload_date: file.upload_date
       })),
-      undefined, // skills
+      getSelectedSkillIds(), // skills
       undefined, // options
       {
         onOpen: () => {

@@ -222,3 +222,26 @@ class TestSkillInitializerClassAttributes:
         """Test that EXAMPLE_REFERENCE class attribute is defined."""
         assert hasattr(SkillInitializer, "EXAMPLE_REFERENCE")
         assert "{skill_title}" in SkillInitializer.EXAMPLE_REFERENCE
+
+
+class TestSkillInitializerPathTraversal:
+    """Test that path traversal in skill names is blocked."""
+
+    @pytest.fixture
+    def temp_skills_dir(self, tmp_path: Path) -> Path:
+        return tmp_path
+
+    def test_dotdot_blocked(self, temp_skills_dir: Path) -> None:
+        initializer = SkillInitializer(temp_skills_dir)
+        result = initializer.init_skill("../../etc")
+        assert result is None
+
+    def test_slash_blocked(self, temp_skills_dir: Path) -> None:
+        initializer = SkillInitializer(temp_skills_dir)
+        result = initializer.init_skill("foo/bar")
+        assert result is None
+
+    def test_backslash_blocked(self, temp_skills_dir: Path) -> None:
+        initializer = SkillInitializer(temp_skills_dir)
+        result = initializer.init_skill("foo\\bar")
+        assert result is None

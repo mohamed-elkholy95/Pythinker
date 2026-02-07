@@ -104,6 +104,10 @@ if __name__ == "__main__":
         if not skill_name:
             return None
 
+        # Security: prevent path traversal
+        if ".." in skill_name or "/" in skill_name or "\\" in skill_name:
+            return None
+
         skill_path = self.skills_base_path / skill_name
 
         # Check if skill already exists

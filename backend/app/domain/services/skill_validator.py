@@ -10,7 +10,7 @@ from typing import ClassVar
 from app.domain.models.skill import Skill
 
 
-class SkillValidator:
+class CustomSkillValidator:
     """Validates and sanitizes custom skill content.
 
     Performs security checks to prevent prompt injection attacks
@@ -134,6 +134,12 @@ class SkillValidator:
         all_tools_list = skill.required_tools + skill.optional_tools
         if len(all_tools_list) != len(set(all_tools_list)):
             errors.append("Duplicate tools found in required and optional lists")
+
+        # Also validate allowed_tools if set
+        if skill.allowed_tools:
+            invalid_allowed = set(skill.allowed_tools) - cls.ALLOWED_TOOLS
+            if invalid_allowed:
+                errors.append(f"Invalid allowed_tools: {', '.join(sorted(invalid_allowed))}")
 
         return errors
 

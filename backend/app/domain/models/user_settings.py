@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -28,7 +29,7 @@ class UserSettings(BaseModel):
         default_factory=list,
         description="List of enabled skill IDs",
     )
-    skill_configs: dict[str, dict] = Field(
+    skill_configs: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
         description="Per-skill configurations keyed by skill ID",
     )

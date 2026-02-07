@@ -75,7 +75,7 @@
             <ShieldCheck class="w-5 h-5" />
             <div class="item-text">
               <span class="item-title">Add from official</span>
-              <span class="item-desc">Pre-built skills maintained by Manus</span>
+              <span class="item-desc">Pre-built skills maintained by Pythinker</span>
             </div>
           </button>
           <button class="add-dropdown-item" @click="showCreatorDialog = true; showAddDropdown = false">
@@ -158,7 +158,7 @@
       <div v-if="customSkills.length === 0" class="empty-state">
         <Wand2 class="w-8 h-8 text-[var(--text-quaternary)]" />
         <p>You haven't created any custom skills yet.</p>
-        <p class="empty-hint">Use "Build with Manus" for AI-assisted skill creation!</p>
+        <p class="empty-hint">Use "Build with Pythinker" for AI-assisted skill creation!</p>
       </div>
 
       <!-- Custom Skills Grid -->
@@ -217,7 +217,7 @@
         <p>
           Skills can also be selected per-message in the chat input.
           Enabled skills here set the default tools available to the agent.
-          Use "Build with Manus" for AI-assisted skill creation!
+          Use "Build with Pythinker" for AI-assisted skill creation!
         </p>
       </div>
     </div>
@@ -852,7 +852,7 @@ function onSkillUpdated(skill: Skill) {
   gap: 12px;
 }
 
-/* Add Custom Skills Banner (Manus-style) */
+/* Add Custom Skills Banner */
 .add-custom-banner {
   display: flex;
   align-items: center;

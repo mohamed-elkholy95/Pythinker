@@ -51,8 +51,6 @@ ALLOWED_COMMANDS: frozenset[str] = frozenset(
         "pip3",
         # System info
         "which",
-        "env",
-        "printenv",
     }
 )
 
@@ -74,6 +72,8 @@ BLOCKED_SUBCOMMANDS: frozenset[str] = frozenset(
         "exec",
         "run",
         "eval",
+        # Arbitrary code execution flag
+        "-c",
     }
 )
 
@@ -196,7 +196,7 @@ async def expand_dynamic_context(content: str, skill_source: "SkillSource | None
                             text=True,
                             timeout=30,
                             # Prevent environment variable injection
-                            env=None,
+                            env={},
                         ),
                     ),
                     timeout=35,
