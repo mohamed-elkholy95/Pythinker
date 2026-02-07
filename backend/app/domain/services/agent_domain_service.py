@@ -153,8 +153,12 @@ class AgentDomainService:
         parallel_tasks.append(init_framework())
         parallel_tasks.append(verify_browser())
 
-        # Run all initialization tasks in parallel
-        await asyncio.gather(*parallel_tasks, return_exceptions=True)
+        # Run all initialization tasks in parallel — log failures for diagnostics
+        init_results = await asyncio.gather(*parallel_tasks, return_exceptions=True)
+        init_names = ["workspace", "framework", "browser"]
+        for name, result in zip(init_names, init_results, strict=True):
+            if isinstance(result, Exception):
+                logger.error(f"Session {session.id} {name} init failed: {result}")
 
         # BROWSER SESSION PROTOCOL: Only clear browser for brand new sandboxes
         # Previously, this also triggered when session.task_id was None, but that caused
@@ -778,7 +782,12 @@ IMPORTANT: The browser state may have changed. Before continuing:
             logger.exception(f"Error in Session {session_id}")
             event = ErrorEvent(error=str(e))
             await self._session_repository.add_event(session_id, event)
-            yield event  # TODO: raise api exception
+            # Mark session as failed so it doesn't stay stuck in RUNNING
+            try:
+                await self._session_repository.update_status(session_id, SessionStatus.FAILED)
+            except Exception:
+                logger.warning(f"Failed to update session {session_id} status to FAILED")
+            yield event
         finally:
             await self._session_repository.update_unread_message_count(session_id, 0)
 

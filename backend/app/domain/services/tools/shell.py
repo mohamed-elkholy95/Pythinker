@@ -2,6 +2,9 @@ from app.domain.external.sandbox import Sandbox
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.base import BaseTool, tool
 
+# Maximum shell output size in characters to prevent context window exhaustion
+MAX_SHELL_OUTPUT_CHARS = 50_000
+
 
 class ShellTool(BaseTool):
     """Shell tool class, providing Shell interaction related functions"""
@@ -17,6 +20,14 @@ class ShellTool(BaseTool):
         """
         super().__init__(max_observe=max_observe)
         self.sandbox = sandbox
+
+    @staticmethod
+    def _truncate_output(result: ToolResult) -> ToolResult:
+        """Truncate large shell output to prevent context window exhaustion."""
+        if result.message and len(result.message) > MAX_SHELL_OUTPUT_CHARS:
+            truncated = result.message[:MAX_SHELL_OUTPUT_CHARS]
+            result.message = f"{truncated}\n\n[OUTPUT TRUNCATED — {len(result.message)} chars total, showing first {MAX_SHELL_OUTPUT_CHARS}]"
+        return result
 
     @tool(
         name="shell_exec",
@@ -42,7 +53,8 @@ class ShellTool(BaseTool):
         Returns:
             Command execution result
         """
-        return await self.sandbox.exec_command(id, exec_dir, command)
+        result = await self.sandbox.exec_command(id, exec_dir, command)
+        return self._truncate_output(result)
 
     @tool(
         name="shell_view",
@@ -59,7 +71,8 @@ class ShellTool(BaseTool):
         Returns:
             Shell session content
         """
-        return await self.sandbox.view_shell(id)
+        result = await self.sandbox.view_shell(id)
+        return self._truncate_output(result)
 
     @tool(
         name="shell_wait",

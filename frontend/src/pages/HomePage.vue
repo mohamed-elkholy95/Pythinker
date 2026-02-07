@@ -6,6 +6,7 @@
       <div class="w-full pt-4 pb-4 px-5 sticky top-0 z-10">
         <div class="flex justify-between items-center w-full">
           <div class="h-8 relative z-20 overflow-hidden flex gap-2 items-center flex-shrink-0">
+            <Bot :size="20" class="logo-robot" :stroke-width="2.2" />
             <PythinkerLogoTextIcon />
           </div>
           <div class="flex items-center gap-2">
@@ -101,7 +102,7 @@ import ChatBox from '../components/ChatBox.vue';
 import { createSession, type AgentMode } from '../api/agent';
 import { showErrorToast } from '../utils/toast';
 import {
-  Search, Palette,
+  Search, Palette, Bot,
   Calendar, Table2, BarChart3, Video, AudioLines, MessageSquare, BookOpen
 } from 'lucide-vue-next';
 import PythinkerLogoTextIcon from '../components/icons/PythinkerLogoTextIcon.vue';
@@ -506,22 +507,35 @@ const handleSubmit = async (skillIds: string[] = []) => {
 
 /* Dark mode keeps existing blue-accent hover */
 :global([data-theme="dark"]) .feature-btn {
-  background: var(--background-white-main);
+  background: var(--background-gray-main);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
 }
 
 :global([data-theme="dark"]) .feature-btn:hover {
-  background: var(--bolt-elements-item-backgroundActive);
-  border-color: var(--bolt-elements-borderColorActive);
-  color: var(--bolt-elements-textPrimary);
+  background: var(--background-gray-main);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
 }
 
 :global([data-theme="dark"]) .feature-btn:hover .feature-icon {
-  color: var(--bolt-elements-item-contentAccent);
+  color: #ffffff;
+}
+
+:global([data-theme="dark"]) .feature-icon {
+  color: #ffffff;
 }
 
 :global([data-theme="dark"]) .feature-btn-more.active {
-  background: var(--bolt-elements-item-backgroundActive);
-  border-color: var(--bolt-elements-borderColorActive);
+  background: #1c1f24;
+  border-color: rgba(96, 165, 250, 0.7);
+}
+
+.feature-btn:focus-visible {
+  outline: 2px solid var(--border-btn-primary);
+  outline-offset: 2px;
 }
 
 /* ===== MORE DROPDOWN ===== */

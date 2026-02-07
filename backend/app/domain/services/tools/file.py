@@ -60,8 +60,14 @@ class FileTool(BaseTool):
         Returns:
             File content
         """
-        # Directly call sandbox's file_read method
-        return await self.sandbox.file_read(file=file, start_line=start_line, end_line=end_line, sudo=sudo)
+        result = await self.sandbox.file_read(file=file, start_line=start_line, end_line=end_line, sudo=sudo)
+        # Handle encoding errors in result message (sandbox may return raw bytes)
+        if result.message and not result.success:
+            error_lower = result.message.lower()
+            if "decode" in error_lower or "codec" in error_lower or "encoding" in error_lower:
+                # Retry hint for binary/non-UTF-8 files
+                result.message += " (Hint: This may be a binary file or use non-UTF-8 encoding.)"
+        return result
 
     @tool(
         name="file_write",

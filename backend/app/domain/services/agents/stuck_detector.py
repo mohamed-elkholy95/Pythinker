@@ -447,7 +447,7 @@ class StuckDetector:
             return []
 
         # Check LRU cache first
-        cache_key = hashlib.md5(text.encode(), usedforsecurity=False).hexdigest()[:16]
+        cache_key = hashlib.md5(text.encode(), usedforsecurity=False).hexdigest()
         cached = self._embedding_cache.get(cache_key)
         if cached is not None:
             return cached

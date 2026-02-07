@@ -171,12 +171,18 @@ class PlanActFlow(BaseFlow):
         self._error_handler = ErrorHandler()
         self._max_error_recovery_attempts = 3
         self._error_recovery_attempts = 0
+        self._total_error_count = 0  # Track total errors across all recovery cycles
+        self._max_total_errors = 10  # Absolute limit on errors per run
 
         # Verification state (Phase 1: Plan-Verify-Execute)
         self._verification_verdict: str | None = None
         self._verification_feedback: str | None = None
         self._verification_loops = 0
         self._max_verification_loops = 1  # Reduced from 2 to 1 for faster response
+
+        # Plan validation failure tracking
+        self._plan_validation_failures = 0
+        self._max_plan_validation_failures = 3
 
         tools = [
             ShellTool(sandbox),
@@ -296,6 +302,9 @@ class PlanActFlow(BaseFlow):
 
         if enable_multi_agent:
             self._init_multi_agent_dispatch()
+
+        # Workflow loop safety limits
+        self._max_workflow_transitions = 100
 
         # Phase 3: Proactive memory compaction tracking
         self._memory_manager = get_memory_manager()
@@ -849,7 +858,6 @@ class PlanActFlow(BaseFlow):
             "topic": topic,
             "queries": queries,
             "search_types": search_types,
-            "aggregation": "synthesize",
         }
 
         # Emit calling event
@@ -1423,6 +1431,12 @@ class PlanActFlow(BaseFlow):
             logger.error("No error context available for recovery")
             return False
 
+        # Track total errors across all recovery cycles (prevents slow infinite loops)
+        self._total_error_count += 1
+        if self._total_error_count >= self._max_total_errors:
+            logger.error(f"Max total errors ({self._max_total_errors}) reached across all recovery cycles")
+            return False
+
         if self._error_recovery_attempts >= self._max_error_recovery_attempts:
             logger.error(f"Max recovery attempts ({self._max_error_recovery_attempts}) reached")
             return False
@@ -1449,8 +1463,18 @@ class PlanActFlow(BaseFlow):
             session_id=self._session_id,
             attributes={"message.preview": message.message[:100]},
         ) as trace_ctx:
-            async for event in self._run_with_trace(message, trace_ctx):
-                yield event
+            try:
+                async with asyncio.timeout(900):  # 15-minute workflow timeout
+                    async for event in self._run_with_trace(message, trace_ctx):
+                        yield event
+            except TimeoutError:
+                logger.error(f"Agent {self._agent_id} workflow timed out after 900 seconds")
+                yield ErrorEvent(
+                    error="Workflow timed out after 15 minutes. The task may be too complex or the agent got stuck.",
+                    error_type="timeout",
+                    recoverable=False,
+                )
+                yield DoneEvent()
 
     async def _run_with_trace(self, message: Message, trace_ctx) -> AsyncGenerator[BaseEvent, None]:
         """Internal run method with tracing."""
@@ -1667,6 +1691,14 @@ class PlanActFlow(BaseFlow):
             # Phase 3: Track iteration count for proactive compaction
             self._iteration_count += 1
 
+            # Workflow loop safety: prevent infinite state transitions
+            if self._iteration_count > self._max_workflow_transitions:
+                logger.error(
+                    f"Agent {self._agent_id} exceeded max workflow transitions "
+                    f"({self._max_workflow_transitions}), forcing summarization"
+                )
+                self._transition_to(AgentStatus.SUMMARIZING, force=True, reason="max transitions exceeded")
+
             try:
                 # Handle error state with recovery
                 if self.status == AgentStatus.ERROR:
@@ -1720,7 +1752,16 @@ class PlanActFlow(BaseFlow):
 
                     # Validate plan before proceeding
                     if not self._validate_plan_before_execution():
-                        logger.info(f"Agent {self._agent_id} replanning due to validation errors")
+                        self._plan_validation_failures += 1
+                        if self._plan_validation_failures >= self._max_plan_validation_failures:
+                            logger.error(
+                                f"Agent {self._agent_id} plan validation failed {self._plan_validation_failures} times, "
+                                "forcing summarization"
+                            )
+                            self._transition_to(AgentStatus.SUMMARIZING, force=True, reason="repeated plan validation failures")
+                            continue
+                        logger.info(f"Agent {self._agent_id} replanning due to validation errors "
+                                    f"({self._plan_validation_failures}/{self._max_plan_validation_failures})")
                         continue
 
                     # Reset verification feedback after replanning
@@ -1769,8 +1810,13 @@ class PlanActFlow(BaseFlow):
                     if self._verification_verdict == "pass":
                         logger.info(f"Agent {self._agent_id} plan verified, proceeding to execution")
                         if not self._validate_plan_before_execution():
-                            logger.info(f"Agent {self._agent_id} plan failed validation after verification")
-                            self._transition_to(AgentStatus.PLANNING)
+                            self._plan_validation_failures += 1
+                            if self._plan_validation_failures >= self._max_plan_validation_failures:
+                                logger.error(f"Agent {self._agent_id} repeated validation failures, summarizing")
+                                self._transition_to(AgentStatus.SUMMARIZING, force=True, reason="repeated validation failures")
+                            else:
+                                logger.info(f"Agent {self._agent_id} plan failed validation after verification")
+                                self._transition_to(AgentStatus.PLANNING)
                         else:
                             self._transition_to(AgentStatus.EXECUTING)
                     elif self._verification_verdict == "revise":
@@ -1779,8 +1825,9 @@ class PlanActFlow(BaseFlow):
                                 f"Agent {self._agent_id} max verification loops reached, proceeding with execution"
                             )
                             if not self._validate_plan_before_execution():
-                                logger.info(f"Agent {self._agent_id} plan failed validation after verification")
-                                self._transition_to(AgentStatus.PLANNING)
+                                # After max verification loops, don't loop back to PLANNING — summarize
+                                logger.warning(f"Agent {self._agent_id} plan invalid after max verifications, summarizing")
+                                self._transition_to(AgentStatus.SUMMARIZING, force=True, reason="plan invalid after max verifications")
                             else:
                                 self._transition_to(AgentStatus.EXECUTING)
                         else:
@@ -1792,15 +1839,26 @@ class PlanActFlow(BaseFlow):
                     else:
                         # Default: proceed with execution
                         if not self._validate_plan_before_execution():
-                            logger.info(f"Agent {self._agent_id} plan failed validation after verification")
-                            self._transition_to(AgentStatus.PLANNING)
+                            self._plan_validation_failures += 1
+                            if self._plan_validation_failures >= self._max_plan_validation_failures:
+                                logger.error(f"Agent {self._agent_id} repeated validation failures, summarizing")
+                                self._transition_to(AgentStatus.SUMMARIZING, force=True, reason="repeated validation failures")
+                            else:
+                                logger.info(f"Agent {self._agent_id} plan failed validation after verification")
+                                self._transition_to(AgentStatus.PLANNING)
                         else:
                             self._transition_to(AgentStatus.EXECUTING)
 
                 elif self.status == AgentStatus.EXECUTING:
                     # Execute plan
                     if not self._validate_plan_before_execution():
-                        logger.info(f"Agent {self._agent_id} plan failed validation before execution")
+                        self._plan_validation_failures += 1
+                        if self._plan_validation_failures >= self._max_plan_validation_failures:
+                            logger.error(f"Agent {self._agent_id} repeated validation failures, summarizing")
+                            self._transition_to(AgentStatus.SUMMARIZING, force=True, reason="repeated validation failures")
+                            continue
+                        logger.info(f"Agent {self._agent_id} plan failed validation before execution "
+                                    f"({self._plan_validation_failures}/{self._max_plan_validation_failures})")
                         self._transition_to(AgentStatus.PLANNING, force=True, reason="plan validation failed")
                         continue
                     self.plan.status = ExecutionStatus.RUNNING
@@ -1959,7 +2017,13 @@ class PlanActFlow(BaseFlow):
                         f"Agent {self._agent_id} plan update completed, state changed from {AgentStatus.UPDATING} to {AgentStatus.EXECUTING}"
                     )
                     if not self._validate_plan_before_execution():
-                        logger.info(f"Agent {self._agent_id} plan update failed validation, replanning")
+                        self._plan_validation_failures += 1
+                        if self._plan_validation_failures >= self._max_plan_validation_failures:
+                            logger.error(f"Agent {self._agent_id} repeated validation failures after update, summarizing")
+                            self._transition_to(AgentStatus.SUMMARIZING, force=True, reason="repeated validation failures")
+                            continue
+                        logger.info(f"Agent {self._agent_id} plan update failed validation, replanning "
+                                    f"({self._plan_validation_failures}/{self._max_plan_validation_failures})")
                         self._transition_to(AgentStatus.PLANNING, force=True, reason="plan update validation failed")
                         continue
                     self._transition_to(AgentStatus.EXECUTING)

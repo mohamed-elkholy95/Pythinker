@@ -125,9 +125,10 @@ Focus on accuracy and relevance. Do not speculate."""
                         content_parts.append(r["snippet"])
 
             context = "\n\n".join(content_parts)
+            result_count = len(search_result.get("results", [])) if isinstance(search_result, dict) else 0
             logger.debug(
                 "Search returned %d results, extracted %d content parts",
-                len(search_result.get("results", [])),
+                result_count,
                 len(content_parts),
             )
         else:

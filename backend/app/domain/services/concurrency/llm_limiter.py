@@ -165,6 +165,7 @@ class LLMConcurrencyLimiter:
         """
         effective_timeout = timeout if timeout is not None else self._queue_timeout
         start_time = time.monotonic()
+        acquired = False  # Track semaphore acquisition state
 
         async with self._lock:
             self._stats.total_requests += 1
@@ -178,6 +179,7 @@ class LLMConcurrencyLimiter:
                     self._semaphore.acquire(),
                     timeout=effective_timeout if effective_timeout > 0 else None,
                 )
+                acquired = True
             except TimeoutError:
                 async with self._lock:
                     self._queued -= 1
@@ -206,6 +208,7 @@ class LLMConcurrencyLimiter:
             try:
                 yield
             finally:
+                acquired = False  # Will be released in this block
                 async with self._lock:
                     self._stats.active_requests -= 1
                     self._stats.completed_requests += 1
@@ -214,8 +217,14 @@ class LLMConcurrencyLimiter:
 
         except asyncio.CancelledError:
             async with self._lock:
-                if self._queued > 0:
-                    self._queued -= 1
+                if acquired:
+                    # Semaphore was acquired but not released — release it
+                    self._stats.active_requests = max(0, self._stats.active_requests - 1)
+                    self._semaphore.release()
+                else:
+                    # Still queued, not yet acquired
+                    if self._queued > 0:
+                        self._queued -= 1
                 self._update_metrics()
             raise
 

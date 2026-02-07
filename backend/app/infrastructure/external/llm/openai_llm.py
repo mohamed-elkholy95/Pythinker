@@ -351,36 +351,76 @@ To extract data from a webpage:
             return None
 
         # Try to find JSON tool_call in the response
+        # Pattern 1 & 2: Code blocks (reliable delimiters)
         patterns = [
             r'```json\s*(\{.*?"tool_call".*?\})\s*```',  # Markdown code block
             r'```\s*(\{.*?"tool_call".*?\})\s*```',  # Generic code block
-            r'(\{[^{}]*"tool_call"[^{}]*\{[^{}]*\}[^{}]*\})',  # Inline JSON
         ]
 
         for pattern in patterns:
             matches = re.findall(pattern, content, re.DOTALL | re.IGNORECASE)
             for match in matches:
-                try:
-                    data = json.loads(match)
-                    if "tool_call" in data:
-                        tc = data["tool_call"]
-                        return {
-                            "role": "assistant",
-                            "content": "",
-                            "tool_calls": [
-                                {
-                                    "id": f"call_{uuid.uuid4().hex[:8]}",
-                                    "type": "function",
-                                    "function": {
-                                        "name": tc.get("name"),
-                                        "arguments": json.dumps(tc.get("arguments", {})),
-                                    },
-                                }
-                            ],
-                        }
-                except json.JSONDecodeError:
-                    continue
+                result = self._try_parse_tool_call_json(match)
+                if result:
+                    return result
 
+        # Pattern 3: Balanced brace extraction for inline JSON (handles nested braces)
+        result = self._extract_balanced_json_tool_call(content)
+        if result:
+            return result
+
+        return None
+
+    def _try_parse_tool_call_json(self, text: str) -> dict[str, Any] | None:
+        """Try to parse a tool_call JSON string into a tool call dict."""
+        try:
+            data = json.loads(text)
+            if "tool_call" in data:
+                tc = data["tool_call"]
+                return {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": f"call_{uuid.uuid4().hex[:8]}",
+                            "type": "function",
+                            "function": {
+                                "name": tc.get("name"),
+                                "arguments": json.dumps(tc.get("arguments", {})),
+                            },
+                        }
+                    ],
+                }
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            pass
+        return None
+
+    def _extract_balanced_json_tool_call(self, content: str) -> dict[str, Any] | None:
+        """Extract tool_call JSON using balanced brace matching (handles nested objects)."""
+        search_start = 0
+        while True:
+            idx = content.find('"tool_call"', search_start)
+            if idx == -1:
+                break
+            # Walk backwards to find opening brace
+            brace_start = content.rfind("{", 0, idx)
+            if brace_start == -1:
+                search_start = idx + 1
+                continue
+            # Walk forward with brace counting
+            depth = 0
+            for i in range(brace_start, len(content)):
+                if content[i] == "{":
+                    depth += 1
+                elif content[i] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        candidate = content[brace_start : i + 1]
+                        result = self._try_parse_tool_call_json(candidate)
+                        if result:
+                            return result
+                        break
+            search_start = idx + 1
         return None
 
     @property
@@ -875,12 +915,24 @@ To extract data from a webpage:
 
                 response = await self.client.chat.completions.create(**params)
 
+                # Record usage for structured requests
+                await self._record_usage(response)
+
                 if not response or not response.choices:
                     if attempt == max_retries:
                         raise ValueError("API returned invalid response")
                     continue
 
                 content = response.choices[0].message.content
+
+                # Check for truncation before parsing
+                finish_reason = response.choices[0].finish_reason
+                if finish_reason == "length":
+                    logger.warning("Structured output truncated (finish_reason=length), retrying")
+                    if attempt == max_retries:
+                        raise ValueError("Structured output truncated after all retries")
+                    continue
+
                 if not content:
                     if attempt == max_retries:
                         raise ValueError("Empty response content")
