@@ -9,6 +9,7 @@ from app.domain.models.file import FileInfo
 from app.domain.models.plan import Plan, Step
 from app.domain.models.search import SearchResultItem
 from app.domain.models.source_citation import SourceCitation
+from app.domain.models.tool_call import ToolCallStatus
 
 
 class ThoughtStatus(str, Enum):
@@ -290,6 +291,9 @@ class ToolEvent(BaseEvent):
     security_reason: str | None = None
     security_suggestions: list[str] | None = None
     confirmation_state: str | None = None
+
+    # Standardized envelope status (more granular than ToolStatus)
+    call_status: ToolCallStatus | None = None
 
     # Timeline tracking fields
     sequence_number: int | None = None  # Position in session timeline

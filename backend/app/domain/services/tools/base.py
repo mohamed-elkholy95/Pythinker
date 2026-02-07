@@ -605,6 +605,9 @@ class BaseTool:
                 # Filter parameters to match method signature
                 filtered_kwargs = self._filter_parameters(method, kwargs)
 
+                # Structured logging for tool execution
+                start_time = log_tool_start(self.name, function_name, filtered_kwargs)
+
                 # Check cache if enabled
                 result = None
                 cache_key = None
@@ -662,6 +665,7 @@ class BaseTool:
                             f"to {len(result.message):,} chars (limit: {self.max_observe:,})"
                         )
 
+                log_tool_end(self.name, function_name, start_time, result.success, result.message)
                 return result
 
         raise ValueError(f"Tool '{function_name}' not found")

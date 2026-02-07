@@ -8,19 +8,11 @@ for proactive context management.
 
 import logging
 from dataclasses import dataclass
-from enum import Enum
 from typing import Any, ClassVar
 
+from app.domain.models.pressure import PressureLevel
+
 logger = logging.getLogger(__name__)
-
-
-class PressureLevel(str, Enum):
-    """Context pressure levels for proactive management"""
-
-    NORMAL = "normal"  # < 75% - operating normally
-    WARNING = "warning"  # 75-85% - consider summarizing
-    CRITICAL = "critical"  # 85-95% - begin proactive trimming
-    OVERFLOW = "overflow"  # > 95% - force immediate action
 
 
 @dataclass

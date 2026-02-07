@@ -1,13 +1,12 @@
 import asyncio
 import logging
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable, Coroutine
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, Optional
 
 from pydantic import TypeAdapter
 
-from app.application.services.usage_service import get_usage_service
 from app.core.config import get_settings
 from app.domain.external.browser import Browser
 from app.domain.external.file import FileStorage
@@ -99,10 +98,12 @@ class AgentTaskRunner(TaskRunner):
         use_langgraph_flow: bool = False,
         mongodb_db: Any | None = None,  # MongoDB database for LangGraph checkpointing
         agent_factory: Optional["ManusAgentFactory"] = None,
+        usage_recorder: Callable[..., Coroutine[Any, Any, None]] | None = None,
     ):
         self._session_id = session_id
         self._agent_id = agent_id
         self._user_id = user_id
+        self._usage_recorder = usage_recorder
         self._llm = llm
         self._sandbox = sandbox
         self._browser = browser
@@ -666,11 +667,10 @@ class AgentTaskRunner(TaskRunner):
 
     async def _record_tool_call_usage(self) -> None:
         """Record tool call usage for usage dashboard metrics."""
-        if not self._user_id:
+        if not self._user_id or not self._usage_recorder:
             return
         try:
-            usage_service = get_usage_service()
-            await usage_service.record_tool_call(
+            await self._usage_recorder(
                 user_id=self._user_id,
                 session_id=self._session_id,
             )

@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable, Coroutine
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -47,6 +47,7 @@ class AgentDomainService:
         search_engine: SearchEngine | None = None,
         memory_service: Optional["MemoryService"] = None,
         mongodb_db: Any | None = None,  # MongoDB database for LangGraph checkpointing
+        usage_recorder: Callable[..., Coroutine[Any, Any, None]] | None = None,
     ):
         self._repository = agent_repository
         self._session_repository = session_repository
@@ -58,6 +59,7 @@ class AgentDomainService:
         self._file_storage = file_storage
         self._mcp_repository = mcp_repository
         self._memory_service = memory_service
+        self._usage_recorder = usage_recorder
         self._mongodb_db = mongodb_db  # For LangGraph checkpointing
         # Session-level locks to prevent concurrent task creation for the same session
         # This prevents race conditions when fast prompts arrive in quick succession
@@ -198,6 +200,7 @@ class AgentDomainService:
             memory_service=self._memory_service,
             # MongoDB database for LangGraph checkpointing
             mongodb_db=self._mongodb_db,
+            usage_recorder=self._usage_recorder,
         )
 
         task = self._task_cls.create(task_runner)

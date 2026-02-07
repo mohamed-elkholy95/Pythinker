@@ -393,6 +393,39 @@ def get_null_tracer() -> NullTracer:
     return _null_tracer
 
 
+# ===== Module-level Metrics Singleton =====
+
+_metrics: MetricsPort | None = None
+
+
+def set_metrics(metrics: MetricsPort) -> None:
+    """Set the global metrics instance.
+
+    This should be called during application startup to inject the
+    infrastructure metrics implementation.
+
+    Args:
+        metrics: MetricsPort implementation to use globally
+    """
+    global _metrics
+    _metrics = metrics
+
+
+def get_metrics() -> MetricsPort:
+    """Get the global metrics instance.
+
+    Returns the configured metrics or a null metrics if none is configured.
+    Domain services should use this function to access metrics.
+
+    Returns:
+        MetricsPort implementation
+    """
+    global _metrics
+    if _metrics is None:
+        return get_null_metrics()
+    return _metrics
+
+
 # ===== Module-level Tracer Singleton =====
 
 _tracer: TracerPort | None = None

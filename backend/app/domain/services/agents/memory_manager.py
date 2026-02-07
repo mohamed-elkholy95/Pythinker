@@ -17,9 +17,9 @@ import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar, Optional
 
+from app.domain.models.pressure import PressureLevel
 from app.domain.services.agents.memory.importance_analyzer import ImportanceAnalyzer
 from app.domain.services.agents.memory.semantic_compressor import SemanticCompressor
 from app.domain.services.agents.memory.temporal_compressor import TemporalCompressor
@@ -29,15 +29,6 @@ if TYPE_CHECKING:
     from app.domain.external.llm import LLM
 
 logger = logging.getLogger(__name__)
-
-
-class PressureLevel(Enum):
-    """Token pressure levels for memory management."""
-
-    NORMAL = "normal"
-    WARNING = "warning"
-    CRITICAL = "critical"
-    OVERFLOW = "overflow"
 
 
 @dataclass
