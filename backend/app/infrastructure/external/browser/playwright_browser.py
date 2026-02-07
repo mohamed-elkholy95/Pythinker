@@ -241,7 +241,9 @@ class PlaywrightBrowser:
         self._interactive_elements_cache: list[dict] = []
         self._connection_healthy = False
         self._randomize_fingerprint = randomize_fingerprint
-        # Serialize navigation to prevent concurrent page.goto() race conditions
+        # Serialize navigation to prevent concurrent page.goto() race conditions.
+        # Note: only protects navigate(); other page methods (click, type) rely on
+        # SEQUENTIAL_ONLY_TOOLS enforcement in parallel_executor.py as primary safeguard.
         self._navigation_lock = asyncio.Lock()
 
         # Extraction cache for performance (prevents duplicate extractions)

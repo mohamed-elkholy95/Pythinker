@@ -493,12 +493,10 @@ class TokenManager:
                 if len(kept_calls) < len(original_calls):
                     orphan_count += len(original_calls) - len(kept_calls)
                     if kept_calls:
-                        msg = dict(msg)
-                        msg["tool_calls"] = kept_calls
+                        msg = {**msg, "tool_calls": [dict(tc) for tc in kept_calls]}
                     else:
                         # All tool_calls lost their responses — strip tool_calls
-                        msg = dict(msg)
-                        msg.pop("tool_calls", None)
+                        msg = {k: v for k, v in msg.items() if k != "tool_calls"}
                         # If the message has no content either, skip it entirely
                         if not msg.get("content"):
                             orphan_count += 1

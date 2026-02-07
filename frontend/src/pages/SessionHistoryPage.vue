@@ -179,7 +179,7 @@ async function loadSessions(): Promise<void> {
   try {
     const response = await getSessions()
      
-    sessions.value = response.sessions as any[]
+    sessions.value = response.sessions as SessionItem[]
   } catch {
     // Session history load failed
   } finally {

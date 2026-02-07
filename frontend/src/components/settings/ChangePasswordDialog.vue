@@ -124,6 +124,7 @@ import {
 } from '@/components/ui/dialog'
 import { changePassword } from '@/api/auth'
 import { showSuccessToast, showErrorToast } from '@/utils/toast'
+import { AxiosError } from 'axios'
 
 // Use i18n for translations
 const { t } = useI18n()
@@ -195,12 +196,12 @@ const handleSubmit = async () => {
     showSuccessToast(t('Password change successful'))
     resetForm()
     open.value = false
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Extract error message from response
     let errorMessage = t('Password change failed')
-    if (error?.response?.data?.message) {
+    if (error instanceof AxiosError && error.response?.data?.message) {
       errorMessage = error.response.data.message
-    } else if (error?.message) {
+    } else if (error instanceof Error) {
       errorMessage = error.message
     }
 
