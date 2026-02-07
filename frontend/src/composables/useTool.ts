@@ -1,10 +1,11 @@
+import type { Component } from 'vue';
 import { computed, Ref } from 'vue';
 import type { ToolContent } from '../types/message';
 import { useI18n } from 'vue-i18n';
 import { getToolDisplay, extractToolUrl, getFaviconUrl } from '@/utils/toolDisplay';
 
 export interface ToolInfo {
-  icon: any;
+  icon: Component | null;
   name: string;
   /** Full human-readable description (Manus-style) */
   description: string;

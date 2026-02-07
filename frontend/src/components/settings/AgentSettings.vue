@@ -139,6 +139,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { showErrorToast } from '@/utils/toast'
 import {
   Bot,
   Footprints,
@@ -202,7 +203,7 @@ const saveSettings = async () => {
       browser_agent_use_vision: localSettings.value.browser_agent_use_vision,
     })
   } catch {
-    // Settings save failed silently
+    showErrorToast(t('Failed to save settings'))
   }
 }
 </script>

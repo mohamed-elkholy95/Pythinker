@@ -1,12 +1,15 @@
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import { getSettings, updateSettings } from '@/api/settings'
+
+// Global state — shared across all components that call useDeepResearch()
+const autoRun = ref(false)
+const loading = ref(false)
+let _settingsLoaded = false
 
 /**
  * Composable for managing deep research settings
  */
 export function useDeepResearch() {
-  const autoRun = ref(false)
-  const loading = ref(false)
 
   /**
    * Load the auto-run setting from user settings
@@ -56,10 +59,11 @@ export function useDeepResearch() {
     }
   }
 
-  // Load settings on mount
-  onMounted(() => {
+  // Load settings once on first use
+  if (!_settingsLoaded && !loading.value) {
+    _settingsLoaded = true
     loadSettings()
-  })
+  }
 
   return {
     autoRun,
