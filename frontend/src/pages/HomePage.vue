@@ -110,12 +110,13 @@ import type { FileInfo } from '../api/file';
 import { useFilePanel } from '../composables/useFilePanel';
 import { useAuth } from '../composables/useAuth';
 import UserMenu from '../components/UserMenu.vue';
+import type { Component } from 'vue';
 
 // Feature type definition
 interface Feature {
   id: string;
   label: string;
-  icon: any;
+  icon: Component;
   mode: AgentMode;
   prompt?: string;
 }

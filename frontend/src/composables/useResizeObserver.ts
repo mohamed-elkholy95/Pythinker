@@ -1,8 +1,9 @@
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import type { Ref } from 'vue'
 import { getParentElement } from '../utils/dom'
 
 export function useResizeObserver(
-  targetRef: any,
+  targetRef: Ref<HTMLElement | null | undefined>,
   options: {
     target?: 'self' | 'parent'
     callback?: (size: number) => void

@@ -250,11 +250,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, type Component } from 'vue'
 import { ChevronUp, ChevronDown, Check, MonitorPlay, Terminal, Globe, FolderOpen } from 'lucide-vue-next'
 import VncMiniPreview from './VncMiniPreview.vue'
 import type { PlanEventData } from '@/types/event'
 import type { ToolContent } from '@/types/message'
+import type { ConsoleRecord } from '@/types/response'
 
 interface Props {
   plan?: PlanEventData
@@ -266,7 +267,7 @@ interface Props {
   compact?: boolean
   /** Session ID for live VNC mini preview */
   sessionId?: string
-  currentTool?: { name: string; function: string; functionArg?: string; status?: string; icon?: any } | null
+  currentTool?: { name: string; function: string; functionArg?: string; status?: string; icon?: Component | null } | null
   toolContent?: ToolContent | null
   /** Hide the expanded header (when panel is already showing above) */
   hideExpandedHeader?: boolean
@@ -481,7 +482,7 @@ const contentPreview = computed(() => {
     // Check for console output (array format)
     const consoleOutput = props.toolContent.content?.console
     if (consoleOutput && Array.isArray(consoleOutput)) {
-      return consoleOutput.map((e: any) => {
+      return consoleOutput.map((e: ConsoleRecord) => {
         const ps1 = e.ps1 ? `${e.ps1} ` : '$ '
         return `${ps1}${e.command || ''}\n${e.output || ''}`
       }).join('\n').slice(0, 500)

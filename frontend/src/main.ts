@@ -89,7 +89,7 @@ export const router = createRouter({
 
 // Global route guard
 router.beforeEach(async (to, _, next) => {
-  const requiresAuth = to.matched.some((record: any) => record.meta?.requiresAuth)
+  const requiresAuth = to.matched.some((record) => record.meta?.requiresAuth)
   const hasToken = !!getStoredToken()
   
   if (requiresAuth) {

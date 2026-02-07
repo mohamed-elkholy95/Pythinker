@@ -92,6 +92,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import type { Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Bot, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import PythinkerLogoTextIcon from '@/components/icons/PythinkerLogoTextIcon.vue'
@@ -99,7 +100,7 @@ import PythinkerLogoTextIcon from '@/components/icons/PythinkerLogoTextIcon.vue'
 export interface TabItem {
   id: string
   label: string
-  icon: any
+  icon: Component
 }
 
 export interface SubPageConfig {

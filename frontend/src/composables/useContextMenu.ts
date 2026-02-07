@@ -1,9 +1,9 @@
-import { ref, markRaw } from 'vue'
+import { ref, markRaw, type Component } from 'vue'
 
 export interface MenuItem {
     key: string;
     label: string;
-    icon?: any; // Vue component or SVG
+    icon?: Component;
     variant?: 'default' | 'danger';
     checked?: boolean;
     disabled?: boolean;

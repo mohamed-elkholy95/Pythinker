@@ -76,7 +76,7 @@ const languageOptions: LanguageOption[] = [
   { value: 'zh', label: t('Simplified Chinese'), flag: '🇨🇳' },
 ]
 
-const onLanguageChange = (value: any) => {
+const onLanguageChange = (value: string) => {
   if (value && typeof value === 'string') {
     const locale = value as Locale
     setLocale(locale)

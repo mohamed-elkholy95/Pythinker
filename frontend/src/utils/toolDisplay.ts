@@ -4,6 +4,7 @@ import {
   TOOL_ICON_MAP,
   TOOL_NAME_MAP
 } from '@/constants/tool';
+import type { Component } from 'vue';
 
 export interface ToolDisplayInput {
   name?: string;
@@ -18,7 +19,7 @@ export interface ToolDisplayInfo {
   actionLabel: string;
   resourceLabel: string;
   description: string;
-  icon: any;
+  icon: Component | null;
 }
 
 const TOOL_NAME_ALIASES: Record<string, string> = {
