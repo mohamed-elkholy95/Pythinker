@@ -1,4 +1,5 @@
 import { onMounted, onUnmounted, ref } from 'vue'
+import type { Ref } from 'vue'
 import type { TimelineState } from './useTimeline'
 
 export interface TimelineKeyboardOptions {
@@ -88,7 +89,8 @@ export function useTimelineKeyboard(
         event.preventDefault()
         if (shiftKey) {
           // Shift + Right: Jump forward
-          const maxIndex = Math.max(0, (timeline as any).events?.value?.length - 1 || 0)
+          const events = (timeline as TimelineState & { events?: Ref<unknown[]> }).events
+          const maxIndex = Math.max(0, (events?.value?.length ?? 1) - 1)
           const newIndex = Math.min(maxIndex, timeline.currentIndex.value + jumpStep)
           timeline.seek(newIndex)
         } else {

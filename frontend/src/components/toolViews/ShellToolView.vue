@@ -20,6 +20,7 @@
 import { onMounted, ref, computed, watch, onUnmounted } from 'vue';
 import { viewShellSession } from '@/api/agent';
 import { ToolContent } from '@/types/message';
+import type { ConsoleRecord } from '@/types/response';
 import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
 import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
@@ -56,7 +57,7 @@ const hasShellOutput = computed(() => shell.value.trim().length > 0);
 const isLoading = computed(() => props.live && !hasShellOutput.value);
 const emptyMessage = computed(() => (props.live ? 'Waiting for output...' : 'No output yet...'));
 
-const updateShellContent = async (console: any) => {
+const updateShellContent = async (console: ConsoleRecord[] | undefined) => {
   if (!console) return;
   let newShell = '';
   for (const e of console) {

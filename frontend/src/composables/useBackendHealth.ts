@@ -54,9 +54,9 @@ export function useBackendHealth() {
       status.value.lastCheck = new Date();
 
       return isHealthy;
-    } catch (error: any) {
+    } catch (error: unknown) {
       status.value.isHealthy = false;
-      status.value.error = error.message || 'Backend is unreachable';
+      status.value.error = error instanceof Error ? error.message : 'Backend is unreachable';
       status.value.lastCheck = new Date();
 
       console.warn('Backend health check failed:', error);

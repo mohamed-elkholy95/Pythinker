@@ -114,6 +114,7 @@ import { ref, watch, computed, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Terminal, FileText, Globe, Code } from 'lucide-vue-next';
 import { ToolContent } from '@/types/message';
+import type { ConsoleRecord } from '@/types/response';
 import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
 import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
@@ -229,7 +230,7 @@ const shellOutput = computed(() => {
 
   // Shell console output (array format)
   if (content.console && Array.isArray(content.console)) {
-    return content.console.map((entry: any) => {
+    return content.console.map((entry: ConsoleRecord) => {
       let line = '';
       if (entry.ps1) line += entry.ps1 + ' ';
       if (entry.command) line += entry.command + '\n';

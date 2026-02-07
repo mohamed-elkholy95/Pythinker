@@ -46,9 +46,9 @@ export function useWorkspace(): UseWorkspaceReturn {
     try {
       const response = await getWorkspaceTemplates();
       templates.value = response.templates;
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load templates:', err);
-      error.value = err.message || 'Failed to load workspace templates';
+      error.value = err instanceof Error ? err.message : 'Failed to load workspace templates';
       throw err;
     } finally {
       loading.value = false;
@@ -65,9 +65,9 @@ export function useWorkspace(): UseWorkspaceReturn {
     try {
       const template = await getWorkspaceTemplate(name);
       return template;
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(`Failed to load template '${name}':`, err);
-      error.value = err.message || `Failed to load template '${name}'`;
+      error.value = err instanceof Error ? err.message : `Failed to load template '${name}'`;
       return null;
     } finally {
       loading.value = false;
@@ -89,9 +89,9 @@ export function useWorkspace(): UseWorkspaceReturn {
     try {
       const workspace = await getSessionWorkspace(sessionId);
       currentWorkspace.value = workspace;
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load session workspace:', err);
-      error.value = err.message || 'Failed to load session workspace';
+      error.value = err instanceof Error ? err.message : 'Failed to load session workspace';
       currentWorkspace.value = null;
       throw err;
     } finally {

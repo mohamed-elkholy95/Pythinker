@@ -167,6 +167,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { Component } from 'vue'
 import { Search, Globe, BookOpen, Newspaper, Database, Wrench } from 'lucide-vue-next'
 import type { WideResearchState } from '@/types/message'
 
@@ -279,7 +280,7 @@ function getStreamStatus(_type: string): 'pending' | 'searching' | 'completed' {
 }
 
 function getStreamIcon(type: string) {
-  const icons: Record<string, any> = {
+  const icons: Record<string, Component> = {
     info: Globe,
     news: Newspaper,
     academic: BookOpen,
