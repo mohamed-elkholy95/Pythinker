@@ -21,7 +21,11 @@ import {
 const availableSkills = ref<Skill[]>([]);
 const userSkillsData = ref<UserSkillsResponse | null>(null);
 const customSkills = ref<Skill[]>([]);
-const loading = ref(false);
+const loadingAvailable = ref(false);
+const loadingCustom = ref(false);
+const loadingUser = ref(false);
+const loadingMutation = ref(false);
+const loading = computed(() => loadingAvailable.value || loadingCustom.value || loadingUser.value || loadingMutation.value);
 const error = ref<string | null>(null);
 
 // Per-message selected skills (reset after sending)
@@ -57,14 +61,14 @@ export function useSkills() {
    */
   async function loadAvailableSkills(category?: string): Promise<void> {
     try {
-      loading.value = true;
+      loadingAvailable.value = true;
       error.value = null;
       availableSkills.value = await getAvailableSkills(category);
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to load skills';
       console.error('Failed to load available skills:', err);
     } finally {
-      loading.value = false;
+      loadingAvailable.value = false;
     }
   }
 
@@ -73,14 +77,14 @@ export function useSkills() {
    */
   async function loadUserSkills(): Promise<void> {
     try {
-      loading.value = true;
+      loadingUser.value = true;
       error.value = null;
       userSkillsData.value = await getUserSkills();
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to load user skills';
       console.error('Failed to load user skills:', err);
     } finally {
-      loading.value = false;
+      loadingUser.value = false;
     }
   }
 
@@ -107,7 +111,7 @@ export function useSkills() {
     }
 
     try {
-      loading.value = true;
+      loadingMutation.value = true;
       error.value = null;
       await updateUserSkill(skillId, { enabled: newEnabled });
       await loadUserSkills(); // Refresh state
@@ -117,7 +121,7 @@ export function useSkills() {
       console.error('Failed to toggle skill:', err);
       return false;
     } finally {
-      loading.value = false;
+      loadingMutation.value = false;
     }
   }
 
@@ -131,7 +135,7 @@ export function useSkills() {
     }
 
     try {
-      loading.value = true;
+      loadingMutation.value = true;
       error.value = null;
       userSkillsData.value = await enableSkills(skillIds);
       return true;
@@ -140,7 +144,7 @@ export function useSkills() {
       console.error('Failed to enable skills:', err);
       return false;
     } finally {
-      loading.value = false;
+      loadingMutation.value = false;
     }
   }
 
@@ -214,14 +218,14 @@ export function useSkills() {
    */
   async function loadCustomSkills(): Promise<void> {
     try {
-      loading.value = true;
+      loadingCustom.value = true;
       error.value = null;
       customSkills.value = await getMyCustomSkills();
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to load custom skills';
       console.error('Failed to load custom skills:', err);
     } finally {
-      loading.value = false;
+      loadingCustom.value = false;
     }
   }
 
@@ -230,7 +234,7 @@ export function useSkills() {
    */
   async function createSkill(data: CreateCustomSkillRequest): Promise<Skill | null> {
     try {
-      loading.value = true;
+      loadingMutation.value = true;
       error.value = null;
       const skill = await createCustomSkill(data);
       customSkills.value.unshift(skill); // Add to front of list
@@ -240,7 +244,7 @@ export function useSkills() {
       console.error('Failed to create skill:', err);
       return null;
     } finally {
-      loading.value = false;
+      loadingMutation.value = false;
     }
   }
 
@@ -249,7 +253,7 @@ export function useSkills() {
    */
   async function updateSkill(skillId: string, data: UpdateCustomSkillRequest): Promise<Skill | null> {
     try {
-      loading.value = true;
+      loadingMutation.value = true;
       error.value = null;
       const skill = await apiUpdateCustomSkill(skillId, data);
       // Update in local state
@@ -263,7 +267,7 @@ export function useSkills() {
       console.error('Failed to update skill:', err);
       return null;
     } finally {
-      loading.value = false;
+      loadingMutation.value = false;
     }
   }
 
@@ -272,7 +276,7 @@ export function useSkills() {
    */
   async function deleteSkill(skillId: string): Promise<boolean> {
     try {
-      loading.value = true;
+      loadingMutation.value = true;
       error.value = null;
       await apiDeleteCustomSkill(skillId);
       customSkills.value = customSkills.value.filter((s) => s.id !== skillId);
@@ -282,7 +286,7 @@ export function useSkills() {
       console.error('Failed to delete skill:', err);
       return false;
     } finally {
-      loading.value = false;
+      loadingMutation.value = false;
     }
   }
 
@@ -291,7 +295,7 @@ export function useSkills() {
    */
   async function publishSkill(skillId: string): Promise<Skill | null> {
     try {
-      loading.value = true;
+      loadingMutation.value = true;
       error.value = null;
       const skill = await apiPublishCustomSkill(skillId);
       // Update in local state
@@ -305,7 +309,7 @@ export function useSkills() {
       console.error('Failed to publish skill:', err);
       return null;
     } finally {
-      loading.value = false;
+      loadingMutation.value = false;
     }
   }
 
@@ -318,7 +322,7 @@ export function useSkills() {
     enabledCount,
     maxSkills,
     canEnableMore,
-    loading: readonly(loading),
+    loading,
     error: readonly(error),
 
     // Custom skills state

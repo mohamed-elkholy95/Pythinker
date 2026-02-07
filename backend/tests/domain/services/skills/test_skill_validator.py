@@ -1,4 +1,4 @@
-"""Tests for SkillValidator.
+"""Tests for SkillFileValidator.
 
 Tests the skill validation functionality that validates SKILL.md files
 with YAML frontmatter according to the skill specification:
@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from app.domain.services.skills.skill_validator import SkillValidator, ValidationResult
+from app.domain.services.skills.skill_validator import SkillFileValidator, ValidationResult
 
 
 @pytest.fixture
@@ -60,43 +60,43 @@ class TestValidationResult:
         assert result.warnings == ["Consider adding license"]
 
 
-class TestSkillValidatorClassAttributes:
-    """Tests for SkillValidator class attributes."""
+class TestSkillFileValidatorClassAttributes:
+    """Tests for SkillFileValidator class attributes."""
 
     def test_allowed_properties(self) -> None:
         """Test that allowed properties are defined correctly."""
         expected = {"name", "description", "license", "allowed-tools", "metadata"}
-        assert expected == SkillValidator.ALLOWED_PROPERTIES
+        assert expected == SkillFileValidator.ALLOWED_PROPERTIES
 
     def test_max_name_length(self) -> None:
         """Test that max name length is defined."""
-        assert SkillValidator.MAX_NAME_LENGTH == 64
+        assert SkillFileValidator.MAX_NAME_LENGTH == 64
 
     def test_max_description_length(self) -> None:
         """Test that max description length is defined."""
-        assert SkillValidator.MAX_DESCRIPTION_LENGTH == 1024
+        assert SkillFileValidator.MAX_DESCRIPTION_LENGTH == 1024
 
 
-class TestSkillValidatorValidSkill:
+class TestSkillFileValidatorValidSkill:
     """Tests for validating valid skills."""
 
     def test_validate_valid_skill(self, temp_skill_dir: Path) -> None:
         """Test validating a valid skill returns success."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         result = validator.validate(temp_skill_dir)
         assert result.valid is True
         assert result.error is None
 
     def test_validate_valid_skill_with_string_path(self, temp_skill_dir: Path) -> None:
         """Test validating a skill with string path works."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         result = validator.validate(str(temp_skill_dir))
         assert result.valid is True
         assert result.error is None
 
     def test_validate_skill_with_all_optional_fields(self) -> None:
         """Test validating a skill with all allowed optional fields."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             (skill_dir / "SKILL.md").write_text("""---
@@ -120,24 +120,24 @@ Full content here.
         assert result.error is None
 
 
-class TestSkillValidatorMissingFiles:
+class TestSkillFileValidatorMissingFiles:
     """Tests for missing files validation."""
 
     def test_validate_missing_skill_md(self) -> None:
         """Test that missing SKILL.md returns error."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             result = validator.validate(Path(temp_dir))
         assert result.valid is False
         assert "SKILL.md not found" in result.error
 
 
-class TestSkillValidatorFrontmatter:
+class TestSkillFileValidatorFrontmatter:
     """Tests for frontmatter validation."""
 
     def test_validate_missing_frontmatter(self) -> None:
         """Test that missing frontmatter returns error."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             (skill_dir / "SKILL.md").write_text("# No frontmatter\n\nJust content.")
@@ -147,7 +147,7 @@ class TestSkillValidatorFrontmatter:
 
     def test_validate_empty_frontmatter(self) -> None:
         """Test that empty frontmatter returns error."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             (skill_dir / "SKILL.md").write_text("""---
@@ -162,7 +162,7 @@ class TestSkillValidatorFrontmatter:
 
     def test_validate_invalid_yaml_frontmatter(self) -> None:
         """Test that invalid YAML in frontmatter returns error."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             (skill_dir / "SKILL.md").write_text("""---
@@ -179,7 +179,7 @@ Content
 
     def test_validate_frontmatter_not_dict(self) -> None:
         """Test that non-dict frontmatter returns error."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             (skill_dir / "SKILL.md").write_text("""---
@@ -194,12 +194,12 @@ Content
         assert result.error is not None
 
 
-class TestSkillValidatorNameValidation:
+class TestSkillFileValidatorNameValidation:
     """Tests for skill name validation."""
 
     def test_validate_invalid_name_format(self) -> None:
         """Test that non-hyphen-case name returns error."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             (skill_dir / "SKILL.md").write_text("""---
@@ -215,7 +215,7 @@ Content
 
     def test_validate_name_with_uppercase(self) -> None:
         """Test that uppercase letters in name return error."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             (skill_dir / "SKILL.md").write_text("""---
@@ -231,7 +231,7 @@ Content
 
     def test_validate_name_starts_with_hyphen(self) -> None:
         """Test that name starting with hyphen returns error."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             (skill_dir / "SKILL.md").write_text("""---
@@ -247,7 +247,7 @@ Content
 
     def test_validate_name_ends_with_hyphen(self) -> None:
         """Test that name ending with hyphen returns error."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             (skill_dir / "SKILL.md").write_text("""---
@@ -263,7 +263,7 @@ Content
 
     def test_validate_name_with_consecutive_hyphens(self) -> None:
         """Test that consecutive hyphens in name return error."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             (skill_dir / "SKILL.md").write_text("""---
@@ -279,7 +279,7 @@ Content
 
     def test_validate_name_too_long(self) -> None:
         """Test that name exceeding max length returns error."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             long_name = "a" * 65  # MAX_NAME_LENGTH is 64
@@ -296,7 +296,7 @@ Content
 
     def test_validate_missing_name(self) -> None:
         """Test that missing name returns error."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             (skill_dir / "SKILL.md").write_text("""---
@@ -311,7 +311,7 @@ Content
 
     def test_validate_name_with_numbers(self) -> None:
         """Test that name with numbers is valid."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             (skill_dir / "SKILL.md").write_text("""---
@@ -325,12 +325,12 @@ Content
         assert result.valid is True
 
 
-class TestSkillValidatorDescriptionValidation:
+class TestSkillFileValidatorDescriptionValidation:
     """Tests for skill description validation."""
 
     def test_validate_missing_description(self) -> None:
         """Test that missing description returns error."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             (skill_dir / "SKILL.md").write_text("""---
@@ -345,7 +345,7 @@ Content
 
     def test_validate_description_too_long(self) -> None:
         """Test that description exceeding max length returns error."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             long_desc = "a" * 1025  # MAX_DESCRIPTION_LENGTH is 1024
@@ -362,7 +362,7 @@ Content
 
     def test_validate_description_with_angle_brackets(self) -> None:
         """Test that description with angle brackets returns error."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             (skill_dir / "SKILL.md").write_text("""---
@@ -378,7 +378,7 @@ Content
 
     def test_validate_description_with_greater_than(self) -> None:
         """Test that description with > returns error."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             (skill_dir / "SKILL.md").write_text("""---
@@ -394,7 +394,7 @@ Content
 
     def test_validate_description_not_string(self) -> None:
         """Test that non-string description returns error."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             (skill_dir / "SKILL.md").write_text("""---
@@ -411,12 +411,12 @@ Content
         assert result.error is not None
 
 
-class TestSkillValidatorUnexpectedKeys:
+class TestSkillFileValidatorUnexpectedKeys:
     """Tests for unexpected keys validation."""
 
     def test_validate_unexpected_keys(self) -> None:
         """Test that unexpected keys return error."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             (skill_dir / "SKILL.md").write_text("""---
@@ -434,7 +434,7 @@ Content
 
     def test_validate_single_unexpected_key(self) -> None:
         """Test that a single unexpected key returns error."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             (skill_dir / "SKILL.md").write_text("""---
@@ -450,12 +450,12 @@ Content
         assert "version" in result.error
 
 
-class TestSkillValidatorEdgeCases:
+class TestSkillFileValidatorEdgeCases:
     """Tests for edge cases."""
 
     def test_validate_name_single_char(self) -> None:
         """Test that single character name is valid."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             (skill_dir / "SKILL.md").write_text("""---
@@ -470,7 +470,7 @@ Content
 
     def test_validate_name_max_length(self) -> None:
         """Test that name at max length is valid."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             max_name = "a" * 64  # Exactly MAX_NAME_LENGTH
@@ -486,7 +486,7 @@ Content
 
     def test_validate_description_max_length(self) -> None:
         """Test that description at max length is valid."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             max_desc = "a" * 1024  # Exactly MAX_DESCRIPTION_LENGTH
@@ -502,14 +502,14 @@ Content
 
     def test_validate_nonexistent_path(self) -> None:
         """Test that nonexistent path returns error."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         result = validator.validate(Path("/nonexistent/path/to/skill"))
         assert result.valid is False
         assert "SKILL.md not found" in result.error
 
     def test_validate_skill_md_is_directory(self) -> None:
         """Test that SKILL.md as directory returns appropriate error."""
-        validator = SkillValidator()
+        validator = SkillFileValidator()
         with tempfile.TemporaryDirectory() as temp_dir:
             skill_dir = Path(temp_dir)
             (skill_dir / "SKILL.md").mkdir()  # Create as directory, not file

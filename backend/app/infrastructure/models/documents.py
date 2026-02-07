@@ -315,8 +315,8 @@ class SkillDocument(BaseDocument[Skill], id_field="skill_id", domain_model_class
     # Metadata
     version: str = "1.0.0"
     author: str | None = None
-    created_at: datetime = datetime.now(UTC)
-    updated_at: datetime = datetime.now(UTC)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Premium/feature flags
     is_premium: bool = False

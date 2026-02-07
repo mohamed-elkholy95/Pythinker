@@ -60,7 +60,7 @@ class SkillRegistry:
 
     def __init__(self) -> None:
         self._skills: dict[str, CacheEntry] = {}
-        self._context_cache: dict[str, SkillContextResult] = {}
+        self._context_cache: dict[str, tuple[SkillContextResult, datetime]] = {}
         self._compiled_patterns: dict[str, list[re.Pattern]] = {}
         self._last_refresh: datetime | None = None
         self._ttl = timedelta(minutes=5)
@@ -110,7 +110,8 @@ class SkillRegistry:
 
         except Exception as e:
             logger.warning(f"Failed to load skills into registry: {e}")
-            self._initialized = True  # Mark as initialized even on failure
+            self._initialized = False  # Allow retry on next access
+            self._last_refresh = datetime.now(UTC)  # But don't retry immediately
 
     async def _ensure_fresh(self) -> None:
         """Ensure cache is not stale."""
@@ -205,8 +206,10 @@ class SkillRegistry:
         # Check context cache
         cache_key = f"{':'.join(sorted(skill_ids))}:{hash(arguments)}:{expand_dynamic}"
         if cache_key in self._context_cache:
-            # Simple TTL check - context cache is short-lived
-            return self._context_cache[cache_key]
+            cached_result, cached_time = self._context_cache[cache_key]
+            if datetime.now(UTC) - cached_time < self._context_ttl:
+                return cached_result
+            del self._context_cache[cache_key]
 
         # Get skills
         skills = await self.get_skills(skill_ids)
@@ -246,7 +249,7 @@ class SkillRegistry:
         )
 
         # Cache result
-        self._context_cache[cache_key] = result
+        self._context_cache[cache_key] = (result, datetime.now(UTC))
 
         return result
 

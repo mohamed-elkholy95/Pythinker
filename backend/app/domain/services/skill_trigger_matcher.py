@@ -14,6 +14,8 @@ from app.domain.models.skill import Skill
 
 logger = logging.getLogger(__name__)
 
+MAX_TRIGGER_PATTERN_LENGTH = 200
+
 
 @dataclass
 class SkillMatch:
@@ -63,6 +65,11 @@ class SkillTriggerMatcher:
                     patterns = []
                     for pattern_str in skill.trigger_patterns:
                         try:
+                            if len(pattern_str) > MAX_TRIGGER_PATTERN_LENGTH:
+                                logger.warning(
+                                    f"Trigger pattern too long ({len(pattern_str)} chars) for skill {skill.id}, skipping"
+                                )
+                                continue
                             compiled = re.compile(pattern_str, re.IGNORECASE)
                             patterns.append((compiled, pattern_str))
                         except re.error as e:
@@ -80,7 +87,7 @@ class SkillTriggerMatcher:
 
         except Exception as e:
             logger.warning(f"Failed to initialize SkillTriggerMatcher: {e}")
-            self._initialized = True  # Avoid repeated failures
+            self._initialized = False  # Allow retry on next access
 
     async def find_matching_skills(
         self,
@@ -166,7 +173,7 @@ class SkillTriggerMatcher:
         word_boundary_bonus = 0.0
         if match.start() == 0 or match.string[match.start() - 1].isspace():
             word_boundary_bonus += 0.1
-        if match.end() == message_len or match.string[match.end()].isspace():
+        if match.end() >= message_len or match.string[match.end()].isspace():
             word_boundary_bonus += 0.1
 
         # Weighted combination
@@ -250,6 +257,11 @@ class SkillTriggerMatcher:
                 patterns = []
                 for pattern_str in skill.trigger_patterns:
                     try:
+                        if len(pattern_str) > MAX_TRIGGER_PATTERN_LENGTH:
+                            logger.warning(
+                                f"Trigger pattern too long ({len(pattern_str)} chars) for skill {skill_id}, skipping"
+                            )
+                            continue
                         compiled = re.compile(pattern_str, re.IGNORECASE)
                         patterns.append((compiled, pattern_str))
                     except re.error as e:

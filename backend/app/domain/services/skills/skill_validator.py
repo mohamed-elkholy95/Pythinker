@@ -1,6 +1,6 @@
 """Skill Validator for validating SKILL.md files.
 
-This module provides the SkillValidator class that validates skill directories
+This module provides the SkillFileValidator class that validates skill directories
 by checking their SKILL.md files for proper YAML frontmatter and field validation.
 
 Validation rules:
@@ -38,7 +38,7 @@ class ValidationResult(BaseModel):
     warnings: list[str] = []
 
 
-class SkillValidator:
+class SkillFileValidator:
     """Validates skill directories and their SKILL.md files.
 
     Validates that SKILL.md files have proper YAML frontmatter

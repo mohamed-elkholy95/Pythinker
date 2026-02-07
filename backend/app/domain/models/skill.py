@@ -149,7 +149,7 @@ class Skill(BaseModel):
     )
 
     # Configuration schema
-    configurations: dict[str, dict] = Field(
+    configurations: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
         description="Skill-specific settings schema",
     )
@@ -334,5 +334,5 @@ class UserSkillConfig(BaseModel):
 
     skill_id: str
     enabled: bool = True
-    config: dict = Field(default_factory=dict)  # Skill-specific settings
+    config: dict[str, Any] = Field(default_factory=dict)  # Skill-specific settings
     order: int = 0  # Display/priority order

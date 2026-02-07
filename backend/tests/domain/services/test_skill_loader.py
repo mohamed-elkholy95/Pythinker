@@ -436,3 +436,35 @@ Has nested reference structure.
         resource_paths = {r.path for r in skill.resources}
         assert "references/main.md" in resource_paths
         assert "references/sub/detail.md" in resource_paths
+
+
+class TestSkillLoaderPathTraversal:
+    """Test that path traversal attacks are blocked."""
+
+    @pytest.fixture
+    def loader_with_skill(self, tmp_path: Path):
+        """Create a loader with a real skill directory."""
+        skill_dir = tmp_path / "my-skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: my-skill\ndescription: test\n---\nBody")
+        refs_dir = skill_dir / "references"
+        refs_dir.mkdir()
+        (refs_dir / "api.md").write_text("API docs")
+        # Create a file outside the skill directory
+        (tmp_path / "secret.txt").write_text("top secret")
+        return SkillLoader(tmp_path)
+
+    @pytest.mark.asyncio
+    async def test_path_traversal_blocked(self, loader_with_skill):
+        result = await loader_with_skill.load_resource("my-skill", "../../secret.txt")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_path_traversal_dotdot_blocked(self, loader_with_skill):
+        result = await loader_with_skill.load_resource("my-skill", "../secret.txt")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_valid_resource_still_works(self, loader_with_skill):
+        result = await loader_with_skill.load_resource("my-skill", "references/api.md")
+        assert result == "API docs"
