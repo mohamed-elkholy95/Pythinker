@@ -202,13 +202,14 @@ watch(() => props.modelValue, (value) => {
     display: flex;
     flex-direction: column;
     gap: 12px;
-    border-radius: 20px;
+    border-radius: 22px;
     transition: all 0.2s ease;
     position: relative;
     padding: 14px 0;
     max-height: 300px;
-    background: var(--fill-input-chat);
-    border: 1px solid var(--bolt-elements-borderColor);
+    background: var(--background-white-main);
+    border: 1px solid var(--border-main);
+    box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
 }
 
 .chatbox-container:focus-within {
@@ -279,15 +280,15 @@ watch(() => props.modelValue, (value) => {
     cursor: pointer;
     flex-shrink: 0;
     transition: all 0.15s ease;
-    background: var(--bolt-elements-bg-depth-4);
-    border: 1px solid var(--bolt-elements-borderColor);
-    color: var(--bolt-elements-textTertiary);
+    background: var(--background-white-main);
+    border: 1px solid var(--border-main);
+    color: var(--text-secondary);
 }
 
 .chatbox-attach-btn:hover {
-    background: var(--bolt-elements-item-backgroundActive);
-    border-color: var(--bolt-elements-borderColor);
-    color: var(--bolt-elements-textSecondary);
+    background: var(--fill-tsp-gray-main);
+    border-color: var(--border-dark);
+    color: var(--text-primary);
 }
 
 .chatbox-send-btn {
@@ -306,18 +307,18 @@ watch(() => props.modelValue, (value) => {
 .chatbox-send-btn.disabled {
     cursor: not-allowed;
     background: var(--bolt-elements-bg-depth-3);
-    color: var(--bolt-elements-textTertiary);
+    color: var(--text-tertiary);
 }
 
 .chatbox-send-btn.enabled {
     cursor: pointer;
     background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-    color: white;
-    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35);
+    color: var(--text-white);
+    box-shadow: 0 10px 20px rgba(59, 130, 246, 0.28);
 }
 
 .chatbox-send-btn.enabled:hover {
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.45);
+    box-shadow: 0 12px 24px rgba(59, 130, 246, 0.36);
     transform: scale(1.05);
 }
 
@@ -336,12 +337,12 @@ watch(() => props.modelValue, (value) => {
     cursor: pointer;
     transition: all 0.2s ease;
     background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-    color: white;
-    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35);
+    color: var(--text-white);
+    box-shadow: 0 10px 20px rgba(59, 130, 246, 0.28);
 }
 
 .chatbox-stop-btn:hover {
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.45);
+    box-shadow: 0 12px 24px rgba(59, 130, 246, 0.36);
 }
 
 .stop-icon {

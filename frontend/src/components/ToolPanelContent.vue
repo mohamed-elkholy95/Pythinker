@@ -1,26 +1,26 @@
 <template>
-  <div class="bg-[var(--background-gray-main)] sm:bg-[var(--background-menu-white)] sm:rounded-[22px] shadow-[0px_0px_8px_0px_rgba(0,0,0,0.02)] border border-black/8 dark:border-[var(--border-light)] flex h-full w-full">
+  <div class="bg-[var(--background-white-main)] sm:bg-[var(--background-white-main)] sm:rounded-[20px] shadow-[0px_10px_30px_rgba(15,23,42,0.08)] border border-[var(--border-light)] flex h-full w-full">
     <div class="flex-1 min-w-0 p-4 flex flex-col h-full">
       <!-- Frame Header: Pythinker's Computer + window controls -->
       <div class="flex items-center gap-2 w-full">
-        <div class="text-[var(--text-primary)] text-lg font-semibold flex-1">{{ $t("Pythinker's Computer") }}</div>
+        <div class="text-[var(--text-primary)] text-[15px] font-semibold flex-1">{{ $t("Pythinker's Computer") }}</div>
         <div class="flex items-center gap-1">
           <button
-            class="w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)]"
+            class="w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer border border-transparent hover:bg-[var(--fill-tsp-gray-main)] hover:border-[var(--border-light)]"
             @click="takeOver"
             aria-label="Open takeover"
           >
             <MonitorUp class="w-4 h-4 text-[var(--icon-tertiary)]" />
           </button>
           <button
-            class="w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)]"
+            class="w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer border border-transparent hover:bg-[var(--fill-tsp-gray-main)] hover:border-[var(--border-light)]"
             @click="hide"
             aria-label="Minimize"
           >
             <Minimize2 class="w-4 h-4 text-[var(--icon-tertiary)]" />
           </button>
           <button
-            class="w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)]"
+            class="w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer border border-transparent hover:bg-[var(--fill-tsp-gray-main)] hover:border-[var(--border-light)]"
             @click="hide"
             aria-label="Close"
           >
@@ -30,9 +30,9 @@
       </div>
 
       <!-- Activity Bar: Icon + "Pythinker is using X" | Action -->
-      <div v-if="toolInfo" class="flex items-center gap-2 mt-2 text-[13px] text-[var(--text-tertiary)] overflow-hidden">
-        <component :is="toolInfo.icon" :size="18" class="flex-shrink-0 text-[var(--icon-secondary)]" style="min-width: 18px; min-height: 18px;" />
-        <span class="flex-shrink-0 whitespace-nowrap">{{ $t('Pythinker is using') }} <span class="text-[var(--text-secondary)] font-medium">{{ toolInfo.name }}</span></span>
+      <div v-if="toolDisplay" class="flex items-center gap-2 mt-2 text-[13px] text-[var(--text-tertiary)] overflow-hidden">
+        <component :is="toolDisplay.icon" :size="18" class="flex-shrink-0 text-[var(--icon-secondary)]" style="min-width: 18px; min-height: 18px;" />
+        <span class="flex-shrink-0 whitespace-nowrap">{{ $t('Pythinker is using') }} <span class="text-[var(--text-secondary)] font-medium">{{ toolDisplay.displayName }}</span></span>
         <span v-if="toolSubtitle" class="text-[var(--text-quaternary)] flex-shrink-0">|</span>
         <span v-if="toolSubtitle" class="truncate min-w-0">{{ toolSubtitle }}</span>
       </div>
@@ -41,12 +41,12 @@
 
       <!-- Content Container with rounded frame -->
       <div
-        class="relative flex flex-col rounded-[12px] overflow-hidden bg-[var(--background-gray-main)] border border-[var(--border-dark)] dark:border-black/30 shadow-[0px_4px_32px_0px_rgba(0,0,0,0.04)] flex-1 min-h-0 mt-[16px]">
+        class="relative flex flex-col rounded-[14px] overflow-hidden bg-[var(--background-white-main)] border border-[var(--border-light)] shadow-[0px_6px_24px_rgba(15,23,42,0.06)] flex-1 min-h-0 mt-[16px]">
 
         <!-- Content Header: Centered operation label + View mode tabs -->
         <div
           v-if="contentConfig"
-          class="h-[36px] flex items-center justify-center px-3 w-full bg-[var(--background-gray-main)] border-b border-[var(--border-main)] rounded-t-[12px] shadow-[inset_0px_1px_0px_0px_#FFFFFF] dark:shadow-[inset_0px_1px_0px_0px_#FFFFFF30] relative">
+          class="h-[36px] flex items-center justify-center px-3 w-full bg-[var(--background-white-main)] border-b border-[var(--border-light)] rounded-t-[14px] shadow-[inset_0px_1px_0px_0px_#FFFFFF] dark:shadow-[inset_0px_1px_0px_0px_#FFFFFF30] relative">
 
           <!-- Left: Activity indicator (absolute positioned) -->
           <div v-if="isFileWriting" class="absolute left-3 flex items-center gap-2">
@@ -81,7 +81,7 @@
           <!-- VNC View (via backend proxy - works from browser) -->
           <div
             v-if="currentViewType === 'vnc'"
-            class="absolute inset-0 bg-[var(--background-gray-main)] overflow-hidden"
+            class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
             <!-- Placeholder for loading/text-only operations -->
             <LoadingState
@@ -147,12 +147,14 @@
             :results="searchResults"
             :is-searching="isSearching"
             :query="searchQuery"
+            :explicit-results="searchResultsExplicit"
             @browseUrl="handleBrowseUrl"
           />
 
           <!-- Generic/MCP View -->
           <GenericContentView
             v-else-if="currentViewType === 'generic'"
+            :tool-name="toolContent?.name"
             :function-name="toolContent?.function"
             :args="toolContent?.args"
             :result="toolContent?.content?.result"
@@ -167,10 +169,16 @@
             :always-show="true"
           />
 
-          <!-- Fallback -->
-          <div v-else class="w-full h-full flex items-center justify-center text-[var(--text-tertiary)]">
-            No content available
-          </div>
+          <!-- Fallback: render GenericContentView for unimplemented view types (git, test, skill, export, slides, workspace, schedule, scan) -->
+          <GenericContentView
+            v-else
+            :tool-name="toolContent?.name"
+            :function-name="toolContent?.function"
+            :args="toolContent?.args"
+            :result="toolContent?.content?.result"
+            :content="toolContent?.content"
+            :is-executing="isActiveOperation"
+          />
         </div>
 
         <!-- Timeline Controls -->
@@ -216,8 +224,8 @@ import { toRef, computed, watch, ref, onMounted, onUnmounted } from 'vue';
 import { Minimize2, MonitorUp, X } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
 import type { PlanEventData } from '@/types/event';
-import { useToolInfo } from '@/composables/useTool';
 import { useContentConfig } from '@/composables/useContentConfig';
+import { getToolDisplay } from '@/utils/toolDisplay';
 import { viewFile, viewShellSession, pauseSession, browseUrl } from '@/api/agent';
 import TimelineControls from '@/components/timeline/TimelineControls.vue';
 import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';
@@ -233,6 +241,8 @@ import SearchContentView from '@/components/toolViews/SearchContentView.vue';
 import GenericContentView from '@/components/toolViews/GenericContentView.vue';
 import WideResearchOverlay from '@/components/WideResearchOverlay.vue';
 import { useWideResearchGlobal } from '@/composables/useWideResearch';
+import { normalizeSearchResults } from '@/utils/searchResults';
+import type { SearchResultsEnvelope, SearchResultsPayload } from '@/types/search';
 
 const props = defineProps<{
   sessionId?: string;
@@ -253,16 +263,21 @@ const props = defineProps<{
 // Computed for TaskProgressBar current tool
 const currentToolForProgress = computed(() => {
   if (!props.toolContent) return null;
+  const display = getToolDisplay({
+    name: props.toolContent.name,
+    function: props.toolContent.function,
+    args: props.toolContent.args,
+    display_command: props.toolContent.display_command
+  });
   return {
-    name: props.toolContent.name || '',
-    function: props.toolContent.function || '',
-    functionArg: props.toolContent.args ? Object.values(props.toolContent.args)[0]?.toString() : undefined,
-    status: props.toolContent.status
+    name: display.displayName,
+    function: display.actionLabel,
+    functionArg: display.resourceLabel,
+    status: props.toolContent.status,
+    icon: display.icon
   };
 });
 
-// Get tool info (icon, name, etc.)
-const { toolInfo } = useToolInfo(toRef(props, 'toolContent'));
 
 // Wide research state
 const { overlayState: wideResearchState } = useWideResearchGlobal();
@@ -290,6 +305,16 @@ const toolName = computed(() => props.toolContent?.name || '');
 const toolFunction = computed(() => props.toolContent?.function || '');
 const toolStatus = computed(() => props.toolContent?.status || '');
 
+const toolDisplay = computed(() => {
+  if (!props.toolContent) return null;
+  return getToolDisplay({
+    name: props.toolContent.name,
+    function: props.toolContent.function,
+    args: props.toolContent.args,
+    display_command: props.toolContent.display_command
+  });
+});
+
 // Activity detection
 const isActiveOperation = computed(() => {
   return toolStatus.value === 'calling' || toolStatus.value === 'running';
@@ -302,177 +327,25 @@ const isFileWriting = computed(() => {
 
 const isSearching = computed(() => {
   // Unified search detection - all search operations under one status
-  const isSearchTool = toolName.value === 'search' || toolName.value === 'info' ||
-                       toolName.value === 'wide_research' || toolName.value === 'web_search' ||
-                       toolFunction.value === 'web_search' || toolFunction.value === 'wide_research';
+  const isSearchTool = toolDisplay.value?.toolKey === 'search' || toolDisplay.value?.toolKey === 'wide_research';
   return isSearchTool && toolStatus.value === 'calling';
 });
-
-/**
- * Format URL for display: "https://example.com/very/long/path" -> "example.com/very/lon..."
- * Manus-style URL formatting
- */
-const formatUrl = (url: string, maxLength = 50): string => {
-  try {
-    const u = new URL(url);
-    const display = u.hostname + u.pathname;
-    return display.length > maxLength ? display.slice(0, maxLength) + '...' : display;
-  } catch {
-    return url.length > maxLength ? url.slice(0, maxLength) + '...' : url;
-  }
-};
-
-/**
- * Format file path: "/home/ubuntu/workspace/file.txt" -> "workspace/file.txt"
- */
-const formatFilePath = (path: string): string => {
-  return String(path).replace(/^\/home\/ubuntu\//, '');
-};
-
-/**
- * Truncate string with ellipsis
- */
-const truncate = (str: string, max: number): string => {
-  const s = String(str);
-  return s.length > max ? s.slice(0, max) + '...' : s;
-};
 
 /**
  * Tool subtitle - Manus-style standardized format: "Verb Resource"
  * @see docs/guides/TOOL_STANDARDIZATION.md
  */
-const toolSubtitle = computed(() => {
-  const args = props.toolContent?.args || {};
+const toolSubtitle = computed(() => toolDisplay.value?.description || '');
 
-  // === FILE OPERATIONS ===
-  if (toolName.value === 'file') {
-    const pathValue = args.file || props.toolContent?.file_path || '';
-    if (pathValue) {
-      const verb = toolFunction.value === 'file_read' ? 'Reading' :
-                   toolFunction.value === 'file_write' ? 'Creating' :
-                   toolFunction.value === 'file_str_replace' ? 'Editing' : 'Reading';
-      return `${verb} ${formatFilePath(pathValue)}`;
-    }
-  }
-
-  // === SHELL OPERATIONS ===
-  if (toolName.value === 'shell' || toolName.value === 'code_executor' || toolName.value === 'code_execute') {
-    const cmd = args.command || props.toolContent?.command;
-    if (cmd) {
-      return `Running ${truncate(cmd, 40)}`;
-    }
-  }
-
-  // === BROWSER OPERATIONS ===
-  if (toolName.value === 'browser' || toolName.value === 'browser_agent' || toolName.value === 'browsing') {
-    if (args.url) {
-      return `Browsing ${formatUrl(args.url)}`;
-    }
-    if (args.task) {
-      return `Browsing ${truncate(args.task, 40)}`;
-    }
-  }
-
-  // === SEARCH OPERATIONS (unified) ===
-  // URL-based search (fetching content from URL)
-  if (args.url && (toolFunction.value === 'search' || toolFunction.value === 'browser_get_content')) {
-    return `Searching ${formatUrl(args.url)}`;
-  }
-  // Query-based search
-  if (args.query && (toolFunction.value === 'web_search' || toolFunction.value === 'info_search_web' ||
-                     toolName.value === 'search' || toolName.value === 'info')) {
-    return `Searching ${truncate(args.query, 50)}`;
-  }
-  // Wide research (topic-based)
-  if (args.topic && (toolFunction.value === 'wide_research' || toolName.value === 'wide_research')) {
-    return `Searching ${truncate(args.topic, 50)}`;
-  }
-
-  // === FALLBACK: Use toolInfo ===
-  if (toolInfo.value?.function && toolInfo.value?.functionArg) {
-    return `${toolInfo.value.function} ${toolInfo.value.functionArg}`;
-  }
-  if (toolInfo.value?.function) {
-    return toolInfo.value.function;
-  }
-  return '';
-});
-
-// Resource display for content header (only show specific resources, not generic tool names)
-const resourceDisplay = computed(() => {
-  const url = props.toolContent?.args?.url;
-  if (url) return url;
-
-  const file = props.toolContent?.args?.file || props.toolContent?.file_path;
-  if (file) return String(file).replace(/^\/home\/ubuntu\//, '');
-
-  // Return empty for generic tool names - they're already shown in activity bar
-  return '';
-});
-
-// Content header label - shows function name or specific resource (centered)
-const contentHeaderLabel = computed(() => {
-  // For all search-related tools, show unified "Search" header (like Manus)
-  if (toolName.value === 'search' || toolName.value === 'info' ||
-      toolName.value === 'wide_research' || toolName.value === 'web_search' ||
-      toolFunction.value === 'web_search' || toolFunction.value === 'wide_research') {
-    return 'Search';
-  }
-
-  // For browser tools, always show "Browser"
-  if (toolName.value === 'browser' || toolName.value === 'browser_agent' || toolName.value === 'browsing') {
-    return 'Browser';
-  }
-
-  // For shell/terminal tools, always show "Terminal"
-  const func = props.toolContent?.function;
-  if (func === 'shell_exec' || func === 'shell_execute' || toolName.value === 'shell') {
-    return 'Terminal';
-  }
-
-  // For code execution tools, show "Code Runner"
-  if (toolName.value === 'code_executor' || toolName.value === 'code_execute' ||
-      func === 'code_execute' || func === 'code_execute_python' || func === 'code_execute_javascript') {
-    return 'Code Runner';
-  }
-
-  // If there's a specific resource (file/url), show that
-  if (resourceDisplay.value) return resourceDisplay.value;
-
-  // Otherwise show the function name
-  if (func) return func;
-
-  // Fallback to tool name
-  return toolName.value || '';
-});
+// Content header label - consistent, user-friendly tool name
+const contentHeaderLabel = computed(() => toolDisplay.value?.displayName || '');
 
 // Placeholder label for text-only operations
-const placeholderLabel = computed(() => {
-  const funcMap: Record<string, string> = {
-    'browser_get_content': 'Fetching page content',
-    'browser_agent_extract': 'Extracting data',
-    'shell_exec': 'Executing command',
-    'shell_execute': 'Executing command',
-    'file_write': 'Writing file',
-    'file_read': 'Reading file',
-    'code_execute': 'Running code',
-  };
-  return funcMap[toolFunction.value] || 'Processing';
-});
+const placeholderLabel = computed(() => toolDisplay.value?.actionLabel || 'Processing');
 
 // Placeholder detail
 const placeholderDetail = computed(() => {
-  const args = props.toolContent?.args || {};
-  if (args.url) {
-    try {
-      const u = new URL(args.url);
-      return u.hostname + u.pathname.slice(0, 30);
-    } catch { return args.url.slice(0, 50); }
-  }
-  if (args.file) return args.file.replace(/^\/home\/ubuntu\//, '');
-  if (args.command) return args.command.slice(0, 50);
-  if (args.code) return `${args.code.slice(0, 30)}...`;
-  return '';
+  return toolDisplay.value?.resourceLabel || '';
 });
 
 
@@ -863,12 +736,27 @@ watch(() => props.toolContent?.args?.content, () => {
 // Confirmation state watcher removed
 
 // ============ Search Content ============
-const searchResults = computed(() => {
-  return props.toolContent?.content?.results || [];
+const searchResultsNormalized = computed(() => {
+  return normalizeSearchResults(
+    props.toolContent?.content as SearchResultsEnvelope | SearchResultsPayload | undefined
+  );
 });
 
+const searchResults = computed(() => searchResultsNormalized.value.results);
+
+const searchResultsExplicit = computed(() => searchResultsNormalized.value.explicit);
+
 const searchQuery = computed(() => {
-  return props.toolContent?.args?.query || '';
+  const args = props.toolContent?.args || {};
+  return (
+    args.query ||
+    args.topic ||
+    args.url ||
+    args.text ||
+    args.input ||
+    args.task ||
+    ''
+  );
 });
 
 // ============ Event Handlers ============

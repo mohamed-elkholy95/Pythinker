@@ -144,13 +144,13 @@ def get_model_pricing(model_name: str) -> ModelPricing:
     import logging
 
     logger = logging.getLogger(__name__)
-    logger.info(f"Looking up pricing for model: {model_name}")
+    logger.debug(f"Looking up pricing for model: {model_name}")
     # Normalize model name
     model_lower = model_name.lower().strip()
 
     # Exact match
     if model_lower in MODEL_PRICING:
-        logger.info(f"Found exact match for {model_lower}")
+        logger.debug(f"Found exact match for {model_lower}")
         return MODEL_PRICING[model_lower]
 
     # Try case-insensitive exact match
@@ -198,13 +198,13 @@ def get_model_pricing(model_name: str) -> ModelPricing:
 
     for pattern, base_model in patterns:
         if re.match(pattern, model_lower) and base_model in MODEL_PRICING:
-            logger.info(f"Found fuzzy match: {model_lower} -> {base_model}")
+            logger.debug(f"Found fuzzy match: {model_lower} -> {base_model}")
             return MODEL_PRICING[base_model]
 
     # Check if it looks like a local/ollama model (no known provider prefix)
     if not any(model_lower.startswith(p) for p in ["gpt-", "claude-", "o1", "gemini-", "deepseek-"]):
         # Assume local model = free
-        logger.info(f"Treating {model_lower} as local/free model")
+        logger.debug(f"Treating {model_lower} as local/free model")
         return ModelPricing(0.0, 0.0, None)
 
     logger.warning(f"No pricing found for {model_lower}, using DEFAULT_PRICING")

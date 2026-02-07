@@ -36,7 +36,7 @@
                   <component :is="currentToolIcon" class="w-3.5 h-3.5" />
                 </div>
                 <span class="text-[13px] text-gray-500 dark:text-[#909090]">
-                  Using <span class="text-gray-800 dark:text-[#d0d0d0] font-medium">{{ currentToolName }}</span>
+                  Using <span class="text-gray-800 dark:text-[#d0d0d0] font-medium">{{ currentToolDisplayName }}</span>
                 </span>
               </div>
             </div>
@@ -208,10 +208,10 @@
           </div>
           <div class="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-[#808080]">
             <span v-if="taskStartTime" class="font-mono tabular-nums">{{ formattedElapsedTime }}</span>
-            <span v-if="taskStartTime && (currentToolName || props.isThinking || props.isLoading)" class="text-gray-300 dark:text-[#404040]">·</span>
-            <span v-if="isToolRunning" class="truncate">{{ currentToolName.toLowerCase() }}</span>
+            <span v-if="taskStartTime && (currentToolDisplayName || props.isThinking || props.isLoading)" class="text-gray-300 dark:text-[#404040]">·</span>
+            <span v-if="isToolRunning" class="truncate">{{ currentToolActionLabel.toLowerCase() }}</span>
             <span v-else-if="props.isThinking" class="text-blue-500 dark:text-blue-400">Thinking</span>
-            <span v-else-if="props.currentTool && currentToolName && !isAllCompleted" class="truncate">{{ currentToolName.toLowerCase() }}</span>
+            <span v-else-if="props.currentTool && currentToolDisplayName && !isAllCompleted" class="truncate">{{ currentToolActionLabel.toLowerCase() }}</span>
             <span v-else-if="props.isLoading && !isAllCompleted">processing</span>
           </div>
         </div>
@@ -255,7 +255,6 @@ import { ChevronUp, ChevronDown, Check, MonitorPlay, Terminal, Globe, FolderOpen
 import VncMiniPreview from './VncMiniPreview.vue'
 import type { PlanEventData } from '@/types/event'
 import type { ToolContent } from '@/types/message'
-import { TOOL_FUNCTION_MAP, TOOL_NAME_MAP } from '@/constants/tool'
 
 interface Props {
   plan?: PlanEventData
@@ -267,7 +266,7 @@ interface Props {
   compact?: boolean
   /** Session ID for live VNC mini preview */
   sessionId?: string
-  currentTool?: { name: string; function: string; functionArg?: string; status?: string } | null
+  currentTool?: { name: string; function: string; functionArg?: string; status?: string; icon?: any } | null
   toolContent?: ToolContent | null
   /** Hide the expanded header (when panel is already showing above) */
   hideExpandedHeader?: boolean
@@ -441,34 +440,23 @@ const currentTaskDescription = computed(() => {
 })
 
 // Get current tool name for display (use friendly names from mapping)
-const currentToolName = computed(() => {
-  if (isAllCompleted.value) return 'Terminal' // Default back to terminal on complete
+const currentToolDisplayName = computed(() => {
+  if (props.currentTool?.name) return props.currentTool.name
+  if (isAllCompleted.value) return 'Terminal'
+  return 'Tool'
+})
 
-  const func = props.currentTool?.function
-  const toolName = props.currentTool?.name
-
-  // Try function mapping first (e.g., "info_search_web" -> "Searching")
-  if (func && TOOL_FUNCTION_MAP[func]) {
-    return TOOL_FUNCTION_MAP[func]
-  }
-
-  // Try tool name mapping (e.g., "info" -> "Information")
-  if (toolName && TOOL_NAME_MAP[toolName]) {
-    return TOOL_NAME_MAP[toolName]
-  }
-
-  // Fallback to raw function or tool name
-  if (func) return func
-  if (toolName) return toolName
-
-  return 'Terminal'
+const currentToolActionLabel = computed(() => {
+  if (props.currentTool?.function) return props.currentTool.function
+  return isToolRunning.value ? 'Working' : 'Idle'
 })
 
 // Get icon for current tool
 const currentToolIcon = computed(() => {
-  const toolName = props.currentTool?.name || ''
-  if (toolName.includes('browser') || toolName.includes('web')) return Globe
-  if (toolName.includes('file') || toolName.includes('folder')) return FolderOpen
+  if (props.currentTool?.icon) return props.currentTool.icon
+  const toolName = props.currentTool?.name?.toLowerCase() || ''
+  if (toolName.includes('browser') || toolName.includes('web') || toolName.includes('search')) return Globe
+  if (toolName.includes('file') || toolName.includes('editor')) return FolderOpen
   return Terminal
 })
 

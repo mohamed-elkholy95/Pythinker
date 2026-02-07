@@ -18,6 +18,11 @@ services:
       - NODE_ENV=development
       - VITE_API_URL=http://localhost:8000
       - BACKEND_URL=http://backend:8000
+      - VITE_USE_POLLING=true
+      - VITE_POLLING_INTERVAL=100
+      - VITE_HMR_HOST=localhost
+      - VITE_HMR_PORT=5174
+      - VITE_HMR_PROTOCOL=ws
       # OpenReplay configuration
       - VITE_OPENREPLAY_PROJECT_KEY=${OPENREPLAY_PROJECT_KEY:-pythinker-dev}
       - VITE_OPENREPLAY_INGEST_URL=${OPENREPLAY_INGEST_URL:-http://localhost:9001}
@@ -57,9 +62,6 @@ services:
       qdrant:
         condition: service_healthy
         required: true
-      searxng:
-        condition: service_started
-        required: false
       whoogle:
         condition: service_started
         required: false
@@ -176,24 +178,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-
-  searxng:
-    image: searxng/searxng:latest
-    volumes:
-      - ./searxng:/etc/searxng:rw
-    ports:
-      - "8888:8080"
-    environment:
-      - SEARXNG_BASE_URL=http://localhost:8888/
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - SETGID
-      - SETUID
-    restart: unless-stopped
-    networks:
-      - pythinker-network
 
   whoogle:
     image: benbusby/whoogle-search:latest

@@ -77,7 +77,7 @@ services:
       #- SANDBOX_NO_PROXY=
 
       # Search engine configuration
-      # Options: baidu, google, bing, searxng, whoogle
+      # Options: duckduckgo, bing, google, baidu, whoogle, brave, tavily
       - SEARCH_PROVIDER=bing
 
       # Google search configuration, only used when SEARCH_PROVIDER=google

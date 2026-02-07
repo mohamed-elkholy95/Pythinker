@@ -59,7 +59,7 @@ class LLMJsonParser(JsonParser):
             ValueError: If all parsing strategies fail and no default value provided
         """
 
-        logger.info(f"Parsing text: {text[:200]}...")
+        logger.debug(f"Parsing text: {text[:200]}...")
         if not text or not text.strip():
             if default_value is not None:
                 return default_value
@@ -73,7 +73,7 @@ class LLMJsonParser(JsonParser):
             try:
                 result = await strategy(cleaned_output)
                 if result is not None:
-                    logger.info(f"Successfully parsed using strategy: {strategy.__name__}")
+                    logger.debug(f"Successfully parsed using strategy: {strategy.__name__}")
                     return result
             except Exception as e:
                 logger.warning(f"Strategy {strategy.__name__} failed: {e!s}")

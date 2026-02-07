@@ -3,7 +3,7 @@
     <div
       class="flex flex-col h-full flex-1 min-w-0 mx-auto w-full sm:min-w-[390px] px-5 justify-center items-start gap-2 relative max-w-full sm:max-w-full">
       <!-- Minimal header - logo and user avatar -->
-      <div class="w-full pt-4 pb-4 px-5 bg-[var(--background-gray-main)] sticky top-0 z-10">
+      <div class="w-full pt-4 pb-4 px-5 bg-[var(--background-white-main)] border-b border-[var(--border-light)] sticky top-0 z-10">
         <div class="flex justify-between items-center w-full">
           <div class="h-8 relative z-20 overflow-hidden flex gap-2 items-center flex-shrink-0">
             <div class="flex">
@@ -412,19 +412,19 @@ const handleSubmit = async (skillIds: string[] = []) => {
 
 /* Home page chatbox styling - Manus-like large input */
 :deep(.chat-input-wrapper .chatbox-container) {
-  background: #ffffff;
+  background: var(--background-surface);
   border-radius: 24px;
   border: 1px solid var(--border-main);
   padding: 20px 0;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
 }
 
-:root[data-theme="dark"] :deep(.chat-input-wrapper .chatbox-container) {
-  background: var(--background-white-main);
+:global([data-theme='dark']) .chat-input-wrapper .chatbox-container {
+  background: var(--background-gray-main) !important;
 }
 
 :deep(.chat-input-wrapper .chatbox-container:focus-within) {
-  border-color: #d1d5db;
+  border-color: var(--bolt-elements-borderColorActive);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
 }
 
@@ -438,11 +438,11 @@ const handleSubmit = async (skillIds: string[] = []) => {
   font-weight: 400;
   line-height: 1.6;
   min-height: 72px;
-  color: #1a1a1a;
+  color: var(--text-primary);
 }
 
 :deep(.chat-input-wrapper .chatbox-textarea::placeholder) {
-  color: #9ca3af;
+  color: var(--text-disable);
 }
 
 :deep(.chat-input-wrapper .chatbox-footer) {
@@ -508,21 +508,21 @@ const handleSubmit = async (skillIds: string[] = []) => {
 }
 
 /* Dark mode keeps existing blue-accent hover */
-:root[data-theme="dark"] .feature-btn {
+:global([data-theme="dark"]) .feature-btn {
   background: var(--background-white-main);
 }
 
-:root[data-theme="dark"] .feature-btn:hover {
+:global([data-theme="dark"]) .feature-btn:hover {
   background: var(--bolt-elements-item-backgroundActive);
   border-color: var(--bolt-elements-borderColorActive);
   color: var(--bolt-elements-textPrimary);
 }
 
-:root[data-theme="dark"] .feature-btn:hover .feature-icon {
+:global([data-theme="dark"]) .feature-btn:hover .feature-icon {
   color: var(--bolt-elements-item-contentAccent);
 }
 
-:root[data-theme="dark"] .feature-btn-more.active {
+:global([data-theme="dark"]) .feature-btn-more.active {
   background: var(--bolt-elements-item-backgroundActive);
   border-color: var(--bolt-elements-borderColorActive);
 }

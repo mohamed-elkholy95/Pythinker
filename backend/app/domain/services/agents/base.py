@@ -359,7 +359,8 @@ class BaseAgent:
 
         # Populate tool_content for search tools (Manus-style search results display)
         tool_content = kwargs.pop("tool_content", None)
-        if tool_content is None and status == ToolStatus.CALLED and function_name == "info_search_web":
+        search_functions = {"info_search_web", "web_search", "wide_research", "search"}
+        if tool_content is None and status == ToolStatus.CALLED and function_name in search_functions:
             function_result = kwargs.get("function_result")
             # Extract search results from ToolResult.data if valid result with data
             if (
@@ -370,7 +371,9 @@ class BaseAgent:
                 and function_result.data
             ):
                 data = function_result.data
-                # Handle SearchResults object
+                results_list: list[SearchResultItem] = []
+
+                # Handle SearchResults object (API search path)
                 if hasattr(data, "results") and data.results:
                     results_list = [
                         SearchResultItem(
@@ -380,7 +383,20 @@ class BaseAgent:
                         )
                         for r in data.results[:5]
                     ]
+                # Handle wide_research dict with "sources" key
+                elif isinstance(data, dict) and data.get("sources"):
+                    results_list = [
+                        SearchResultItem(
+                            title=s.get("title", "No title"),
+                            link=s.get("url", s.get("link", "")),
+                            snippet=s.get("snippet", ""),
+                        )
+                        for s in data["sources"][:5]
+                    ]
+
+                if results_list:
                     tool_content = SearchToolContent(results=results_list)
+                    logger.info(f"SearchToolContent created with {len(results_list)} results for {function_name}")
 
         return ToolEvent(
             tool_call_id=tool_call_id,
@@ -474,9 +490,30 @@ class BaseAgent:
 
         while retries <= self.max_retries:
             try:
-                result = await tool.invoke_function(function_name, **arguments)
+                result = await asyncio.wait_for(
+                    tool.invoke_function(function_name, **arguments),
+                    timeout=120.0,
+                )
+            except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
+                raise
+            except TimeoutError:
+                last_error = "Tool execution timed out after 120s"
+                self._log.tool_failed(function_name, tool_call_id, last_error, log_start)
+                envelope.mark_failed(last_error)
+                break
+            except Exception as e:
+                last_error = str(e)
+                retries += 1
+                if retries <= self.max_retries:
+                    await asyncio.sleep(current_interval)
+                    current_interval *= self.retry_backoff
+                    continue
+                self._log.tool_failed(function_name, tool_call_id, last_error, log_start)
+                envelope.mark_failed(last_error)
+                break
 
-                # Record successful execution with profiler
+            # Post-execution tracking (non-critical — must not prevent result return)
+            try:
                 duration_ms = (time.perf_counter() - start_time) * 1000
                 profiler.record_execution(
                     tool_name=function_name,
@@ -493,12 +530,10 @@ class BaseAgent:
                         duration_ms=duration_ms,
                     )
 
-                # Record for dynamic toolset prioritization
                 self._record_tool_usage(
                     function_name, success=result.success if result else False, duration_ms=duration_ms
                 )
 
-                # Track tool action for stuck detection
                 result_preview = str(result.message)[:500] if result else ""
                 self._stuck_detector.track_tool_action(
                     tool_name=function_name,
@@ -508,7 +543,6 @@ class BaseAgent:
                     error=result.message if result and not result.success else None,
                 )
 
-                # Record action for reflection context (best-effort)
                 try:
                     from app.domain.services.agents.task_state_manager import get_task_state_manager
 
@@ -526,7 +560,6 @@ class BaseAgent:
                 except Exception:
                     pass
 
-                # Mark envelope completed and log
                 envelope.mark_completed(
                     success=result.success if result else False,
                     message=result.message if result else None,
@@ -536,20 +569,12 @@ class BaseAgent:
                     success=result.success if result else False,
                     message=result.message if result else None,
                 )
-
-                return result
             except Exception as e:
-                last_error = str(e)
-                retries += 1
-                if retries <= self.max_retries:
-                    await asyncio.sleep(current_interval)
-                    current_interval *= self.retry_backoff  # Exponential backoff
-                else:
-                    self._log.tool_failed(function_name, tool_call_id, last_error, log_start)
-                    envelope.mark_failed(last_error)
-                    break
+                logger.warning(f"Post-execution tracking failed for {function_name}: {e}")
 
-        # Record failed execution with profiler
+            return result
+
+        # Retry loop exhausted — record failure metrics
         duration_ms = (time.perf_counter() - start_time) * 1000
         profiler.record_execution(
             tool_name=function_name, duration_ms=duration_ms, success=False, error=last_error[:200]
@@ -564,7 +589,6 @@ class BaseAgent:
                 error=last_error[:200],
             )
 
-        # Track failed action for stuck detection
         self._stuck_detector.track_tool_action(
             tool_name=function_name,
             tool_args=arguments,

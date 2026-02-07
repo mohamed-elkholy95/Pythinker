@@ -143,7 +143,7 @@ Respond ONLY with valid JSON (no other text):
 
 ```json
 {
-  "goal": "Clear objective statement",
+  "goal": "The user's FULL original request — preserve every detail, entity, and name exactly as stated. Do NOT summarize or shorten.",
   "title": "Brief descriptive title (3-6 words)",
   "language": "en",
   "steps": [
@@ -153,7 +153,10 @@ Respond ONLY with valid JSON (no other text):
 }
 ```
 
-Remember: Your plan is a GPS route, not a travel diary. Concise, actionable, complete."""
+CRITICAL: The "goal" field MUST contain the user's complete request with ALL specifics preserved (model names, version numbers, quantities, etc). Never truncate or paraphrase it.
+The "title" field is the only short summary — keep it 3-6 words.
+
+Remember: Your plan is a GPS route, not a travel diary. Steps should be concise, actionable, complete."""
 
 # ============================================================================
 # CURRENT DATE SIGNAL
@@ -270,8 +273,9 @@ For simple web queries (single search, one website):
 
 Response format (JSON only, no other text):
 ```json
-{{"goal": "objective", "title": "brief title", "language": "en", "steps": [{{"id": "1", "description": "..."}}]}}
+{{"goal": "FULL user request — preserve every detail, entity name, and version number exactly as stated. NEVER summarize or shorten.", "title": "brief title (3-6 words)", "language": "en", "steps": [{{"id": "1", "description": "..."}}]}}
 ```
+CRITICAL: "goal" = user's COMPLETE original request verbatim. "title" = short 3-6 word summary.
 
 User message: {message}
 Attachments: {attachments}

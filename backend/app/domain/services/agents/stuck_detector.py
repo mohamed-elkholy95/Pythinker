@@ -311,7 +311,7 @@ class StuckDetector:
                 self._semantic_stuck_detected = False
 
         # Phase 4 P1: Log detection check
-        logger.info(
+        logger.debug(
             "Stuck detection check",
             extra={
                 "is_stuck": is_stuck,

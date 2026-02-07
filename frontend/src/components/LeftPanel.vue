@@ -26,12 +26,18 @@
         'hidden': !isLeftPanelShow
       }"
     >
-      <div class="flex items-center px-4 py-3 h-[56px]">
-        <div
-          class="flex h-8 w-8 items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)] rounded-lg transition-colors"
-          @click="toggleLeftPanel">
-          <PanelLeft class="h-5 w-5 text-[var(--icon-secondary)]" />
+      <div class="left-panel-header px-4 py-3 h-[56px]">
+        <div class="left-panel-brand">
+          <Bot class="h-5 w-5 text-[var(--text-primary)]" />
+          <span class="brand-name">Pythinker</span>
         </div>
+        <button
+          class="collapse-btn"
+          @click="toggleLeftPanel"
+          aria-label="Collapse sidebar"
+        >
+          <PanelLeft class="h-5 w-5 text-[var(--icon-secondary)]" />
+        </button>
       </div>
       <div class="px-3 mb-2 flex justify-center flex-shrink-0">
         <button @click="handleNewTaskClick" class="new-task-btn">
@@ -47,6 +53,26 @@
           </div>
         </button>
       </div>
+      <div class="px-3">
+        <div class="nav-section">
+          <button class="nav-item nav-item-disabled" type="button" aria-disabled="true" title="Coming soon">
+            <Search class="nav-icon" />
+            <span>{{ t('Search') }}</span>
+          </button>
+          <button class="nav-item" type="button" @click="handleLibraryClick">
+            <Library class="nav-icon" />
+            <span>{{ t('Library') }}</span>
+          </button>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">{{ t('Projects') }}</div>
+          <button class="nav-item nav-item-muted" type="button" aria-disabled="true" title="Coming soon">
+            <FolderPlus class="nav-icon" />
+            <span>{{ t('New project') }}</span>
+          </button>
+        </div>
+      </div>
+      <div class="left-panel-section-title">{{ t('All tasks') }}</div>
       <div class="flex flex-col flex-1 min-h-0">
         <div v-if="sessions.length > 0" class="flex flex-col flex-1 min-h-0 overflow-auto pt-1 pb-4 px-2 overflow-x-hidden minimal-scrollbar">
           <SessionItem v-for="session in sessions" :key="session.session_id" :session="session"
@@ -99,7 +125,7 @@
 </template>
 
 <script setup lang="ts">
-import { PanelLeft, Plus, Command, MessageSquareDashed, Settings2 } from 'lucide-vue-next';
+import { PanelLeft, Plus, Command, MessageSquareDashed, Settings2, Bot, Search, Library, FolderPlus } from 'lucide-vue-next';
 import SessionItem from './SessionItem.vue';
 import { useLeftPanel } from '../composables/useLeftPanel';
 import { ref, onMounted, watch, onUnmounted, computed } from 'vue';
@@ -175,6 +201,10 @@ const handleNewTaskClick = () => {
   router.push('/')
 }
 
+const handleLibraryClick = () => {
+  router.push('/chat/history')
+}
+
 const handleSessionDeleted = (sessionId: string) => {
   console.log('handleSessionDeleted', sessionId)
   sessions.value = sessions.value.filter(session => session.session_id !== sessionId);
@@ -241,7 +271,7 @@ watch(() => route.path, async (newPath, oldPath) => {
 <style scoped>
 /* ===== LEFT PANEL LAYOUT ===== */
 .left-panel-container {
-  --left-panel-width-expanded: 280px;
+  --left-panel-width-expanded: 264px;
   --left-panel-width-collapsed: 64px;
 }
 
@@ -257,6 +287,46 @@ watch(() => route.path, async (newPath, oldPath) => {
 
 .left-panel-content {
   transition: opacity 0.2s, transform 0.2s, width 0.2s;
+}
+
+.left-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.left-panel-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.brand-name {
+  font-size: 15px;
+}
+
+.collapse-btn {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  color: var(--icon-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.collapse-btn:hover {
+  background: var(--fill-tsp-gray-main);
+  border-color: var(--border-main);
+  color: var(--icon-primary);
 }
 
 .left-panel-expanded .left-panel-content {
@@ -307,6 +377,75 @@ watch(() => route.path, async (newPath, oldPath) => {
   color: var(--icon-primary);
 }
 
+/* ===== NAV SECTIONS ===== */
+.nav-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-light);
+  margin-bottom: 10px;
+}
+
+.nav-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  padding: 4px 6px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  transition: all 0.15s ease;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.nav-item:hover {
+  background: var(--fill-tsp-gray-main);
+  border-color: var(--border-light);
+}
+
+.nav-item-muted {
+  color: var(--text-secondary);
+}
+
+.nav-item-disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.nav-item-disabled:hover {
+  background: transparent;
+  border-color: transparent;
+}
+
+.nav-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--icon-secondary);
+}
+
+.left-panel-section-title {
+  padding: 6px 14px 2px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+}
+
 /* ===== NEW TASK BUTTON ===== */
 .new-task-btn {
   display: flex;
@@ -316,20 +455,20 @@ watch(() => route.path, async (newPath, oldPath) => {
   justify-content: center;
   gap: 8px;
   padding: 0 14px;
-  height: 40px;
+  height: 38px;
   border-radius: 12px;
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.05) 100%);
-  border: 1px solid rgba(59, 130, 246, 0.2);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(59, 130, 246, 0.04) 100%);
+  border: 1px solid rgba(59, 130, 246, 0.25);
   cursor: pointer;
   transition: all 0.2s ease;
-  color: var(--bolt-elements-button-primary-text);
-  font-weight: 500;
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
 .new-task-btn:hover {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.08) 100%);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.18) 0%, rgba(59, 130, 246, 0.08) 100%);
   border-color: rgba(59, 130, 246, 0.35);
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
+  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.18);
 }
 
 .new-task-btn:active {
