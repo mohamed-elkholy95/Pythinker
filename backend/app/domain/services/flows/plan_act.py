@@ -771,6 +771,13 @@ class PlanActFlow(BaseFlow):
                 topic = match.group(1).strip()
                 # Clean up the topic
                 topic = re.sub(r"\s+", " ", topic)  # Normalize whitespace
+                # Strip leading conjunctions from compound verbs (e.g. "research and compare X" → "X")
+                topic = re.sub(
+                    r"^(?:and|or)\s+(?:compare|analyze|evaluate|assess|examine|study|review|summarize|investigate)\s+",
+                    "",
+                    topic,
+                    flags=re.IGNORECASE,
+                )
                 # Remove trailing phrases like "and provide", "then create", etc.
                 topic = re.sub(
                     r"\s+(?:and\s+(?:provide|create|give|send)|then\s+\w+).*$", "", topic, flags=re.IGNORECASE
@@ -873,11 +880,16 @@ class PlanActFlow(BaseFlow):
                     topic=topic,
                     queries=queries,
                     search_types=search_types,
-                    aggregation="synthesize",
                 )
 
                 # Emit AGGREGATING WideResearchEvent
-                sources_found = result.data.get("total_sources", 0) if result and result.data else 0
+                # result.data is a SearchResults Pydantic model, not a dict
+                if result and result.data:
+                    sources_found = getattr(result.data, "total_results", 0)
+                    result_dict = result.data.model_dump() if hasattr(result.data, "model_dump") else {}
+                else:
+                    sources_found = 0
+                    result_dict = {}
                 yield WideResearchEvent(
                     research_id=research_id,
                     topic=topic,
@@ -894,13 +906,14 @@ class PlanActFlow(BaseFlow):
                     tool_name="wide_research",
                     function_name="wide_research",
                     function_args=function_args,
-                    function_result=result.data if result else {},
+                    function_result=result_dict,
                     status=ToolStatus.CALLED,
                 )
 
                 # Emit report event with synthesized content
                 if result and result.success and result.data:
-                    content = result.data.get("content", "")
+                    # result.message contains the formatted research summary
+                    content = result.message or ""
 
                     # Create a report from the research
                     report_id = str(uuid4())
@@ -982,6 +995,7 @@ class PlanActFlow(BaseFlow):
                 status=ToolStatus.CALLED,
             )
             yield ErrorEvent(error=f"Deep research failed: {e}")
+            yield DoneEvent()
 
     def _generate_research_queries(self, topic: str) -> list[str]:
         """Generate search queries from a research topic.
@@ -998,8 +1012,8 @@ class PlanActFlow(BaseFlow):
         # Add variations for broader coverage
         topic_lower = topic.lower()
 
-        # Add "best" query if not already present
-        if "best" not in topic_lower:
+        # Add "best" query if not already present and topic doesn't start with an article
+        if "best" not in topic_lower and not topic_lower.startswith(("the ", "a ", "an ")):
             queries.append(f"best {topic}")
 
         # Add "comparison" query if not already present
