@@ -600,18 +600,34 @@ class EnvironmentScanner:
         print("Environment scan complete!", file=sys.stderr)
         return self.context
 
+    def _resolve_writable_path(self, path: str) -> str:
+        """Return path if writable, otherwise fall back to ~/."""
+        try:
+            # Check if we can write to the target path
+            parent = os.path.dirname(path) or "."
+            if os.access(path, os.W_OK) or (not os.path.exists(path) and os.access(parent, os.W_OK)):
+                return path
+        except OSError:
+            pass
+        # Fall back to home directory
+        fallback = os.path.join(os.path.expanduser("~"), os.path.basename(path))
+        print(f"Warning: {path} not writable, falling back to {fallback}", file=sys.stderr)
+        return fallback
+
     def save_json(self) -> None:
         """Save context as JSON"""
-        with open(self.output_path, 'w') as f:
+        resolved = self._resolve_writable_path(self.output_path)
+        with open(resolved, 'w') as f:
             json.dump(self.context, f, indent=2)
-        print(f"Context saved to {self.output_path}", file=sys.stderr)
+        print(f"Context saved to {resolved}", file=sys.stderr)
 
     def save_markdown(self, md_path: str = "/app/sandbox_context.md") -> None:
         """Save context as Markdown for human readability"""
+        resolved = self._resolve_writable_path(md_path)
         md_content = self.generate_markdown()
-        with open(md_path, 'w') as f:
+        with open(resolved, 'w') as f:
             f.write(md_content)
-        print(f"Markdown context saved to {md_path}", file=sys.stderr)
+        print(f"Markdown context saved to {resolved}", file=sys.stderr)
 
     def generate_markdown(self) -> str:
         """Generate human-readable Markdown summary"""

@@ -43,10 +43,11 @@ class SandboxContextManager:
             if age < cls._cache_ttl:
                 return cls._cache
 
-        # Attempt to load context from file
+        # Attempt to load context from file (check multiple locations including fallback)
         context_paths = [
             "/app/sandbox_context.json",  # Default sandbox location
             os.environ.get("SANDBOX_CONTEXT_JSON", ""),  # Environment override
+            os.path.expanduser("~/sandbox_context.json"),  # Fallback when /app not writable
         ]
 
         for path in context_paths:
