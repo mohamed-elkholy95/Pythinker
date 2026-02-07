@@ -138,21 +138,21 @@ class UsageService:
             await doc.save()
 
     async def _update_daily_aggregate(self, record: UsageRecord) -> None:
-        """Update daily aggregate with new usage record."""
+        """Update daily aggregate with new usage record.
+
+        Uses atomic find_one_and_update with upsert to eliminate the race
+        condition where concurrent requests could create duplicate documents.
+        """
         today = date.today()
         usage_id = f"{record.user_id}_{today.isoformat()}"
-
-        doc = await DailyUsageDocument.find_one(
-            DailyUsageDocument.user_id == record.user_id,
-            DailyUsageDocument.date == today,
-        )
 
         # Sanitize model name for MongoDB key (/ and . are path separators)
         safe_model_key = _sanitize_model_key(record.model)
 
-        if doc:
-            # Update existing aggregate
-            update_ops = {
+        collection = DailyUsageDocument.get_motor_collection()
+        await collection.find_one_and_update(
+            {"user_id": record.user_id, "date": today.isoformat()},
+            {
                 "$inc": {
                     "total_prompt_tokens": record.prompt_tokens,
                     "total_completion_tokens": record.completion_tokens,
@@ -166,26 +166,15 @@ class UsageService:
                 },
                 "$addToSet": {"active_sessions": record.session_id},
                 "$set": {"updated_at": datetime.now(UTC)},
-            }
-            await doc.update(update_ops)
-        else:
-            # Create new daily aggregate
-            doc = DailyUsageDocument(
-                usage_id=usage_id,
-                user_id=record.user_id,
-                date=today,
-                total_prompt_tokens=record.prompt_tokens,
-                total_completion_tokens=record.completion_tokens,
-                total_cached_tokens=record.cached_tokens,
-                total_prompt_cost=record.prompt_cost,
-                total_completion_cost=record.completion_cost,
-                total_cost=record.total_cost,
-                llm_call_count=1 if record.usage_type == UsageType.LLM_CALL else 0,
-                tokens_by_model={safe_model_key: record.prompt_tokens + record.completion_tokens},
-                cost_by_model={safe_model_key: record.total_cost},
-                active_sessions=[record.session_id],
-            )
-            await doc.save()
+                "$setOnInsert": {
+                    "usage_id": usage_id,
+                    "created_at": datetime.now(UTC),
+                    "tool_call_count": 0,
+                    "session_count": 0,
+                },
+            },
+            upsert=True,
+        )
 
     async def get_session_usage(self, session_id: str) -> SessionUsage:
         """Get aggregated usage for a session.

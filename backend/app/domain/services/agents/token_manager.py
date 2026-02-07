@@ -871,7 +871,16 @@ class TokenManager:
         """
         # Check if compaction is safe
         if not self._compaction_allowed:
-            logger.debug("Compaction deferred - execution in progress", extra={"session_id": self._session_id})
+            # Check pressure level — OVERFLOW should be visible even when compaction is deferred
+            pressure = self.get_context_pressure(messages)
+            if pressure.level == PressureLevel.OVERFLOW:
+                logger.warning(
+                    "Context at OVERFLOW pressure but compaction deferred — "
+                    f"usage={pressure.usage_percent:.0%}, tokens={pressure.current_tokens}/{pressure.max_tokens}",
+                    extra={"session_id": self._session_id},
+                )
+            else:
+                logger.debug("Compaction deferred - execution in progress", extra={"session_id": self._session_id})
             return messages
 
         # Check if compaction is needed

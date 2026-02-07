@@ -830,30 +830,29 @@ class StuckDetector:
 
         Pattern: browser_navigate(url) → browser_navigate(same_url) → ...
 
-        Detection thresholds reduced for faster detection:
-        - Checks last 3 navigations (was 4)
-        - Triggers on 2 same-URL navigations (was 3)
+        Conservative thresholds to reduce false positives from legitimate retries:
+        - Minimum 3 navigations before checking
+        - Window of last 4 navigations
+        - Triggers on 3 same-URL navigations
         """
         browser_nav_tools = {"browser_navigate", "browsing"}
 
         recent = [r for r in self._tool_action_history if r.tool_name in browser_nav_tools]
 
-        # Reduced from 3 to 2 for faster detection
-        if len(recent) < 2:
+        if len(recent) < 3:
             return None
 
-        # Check last 3 browser navigations (reduced from 4)
-        recent = recent[-3:]
+        # Check last 4 browser navigations
+        recent = recent[-4:]
 
         # Check if most have the same args hash (same URL)
         first_hash = recent[0].args_hash
         same_url_count = sum(1 for r in recent if r.args_hash == first_hash)
 
-        # Reduced from 3 to 2 for faster detection
-        if same_url_count >= 2:
+        if same_url_count >= 3:
             return StuckAnalysis(
                 loop_type=LoopType.BROWSER_SAME_PAGE_LOOP,
-                confidence=0.85,  # Slightly lower confidence due to faster detection
+                confidence=0.90,
                 repeat_count=same_url_count,
                 recovery_strategy=RecoveryStrategy.TRY_ALTERNATIVE_APPROACH,
                 details="Navigating to the same URL repeatedly - page content won't change",

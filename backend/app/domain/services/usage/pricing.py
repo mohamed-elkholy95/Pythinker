@@ -3,8 +3,12 @@
 Pricing is per 1 million tokens (1M tokens).
 """
 
+import functools
+import logging
 import re
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -26,12 +30,6 @@ class ModelPricing:
         Returns:
             Tuple of (prompt_cost, completion_cost, total_cost)
         """
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.info(
-            f"Calculating cost: prompt_price={self.prompt_price}, completion_price={self.completion_price}, cached_price={self.cached_price}"
-        )
         prompt_cost = (prompt_tokens / 1_000_000) * self.prompt_price
         completion_cost = (completion_tokens / 1_000_000) * self.completion_price
 
@@ -130,10 +128,12 @@ MODEL_PRICING: dict[str, ModelPricing] = {
 DEFAULT_PRICING = ModelPricing(5.0, 15.0, None)
 
 
+@functools.lru_cache(maxsize=128)
 def get_model_pricing(model_name: str) -> ModelPricing:
     """Get pricing for a model by name.
 
     Attempts exact match first, then fuzzy matching for model variants.
+    Results are cached via LRU cache for O(1) repeated lookups.
 
     Args:
         model_name: The model name/ID
@@ -141,9 +141,6 @@ def get_model_pricing(model_name: str) -> ModelPricing:
     Returns:
         ModelPricing for the model, or DEFAULT_PRICING if not found
     """
-    import logging
-
-    logger = logging.getLogger(__name__)
     logger.debug(f"Looking up pricing for model: {model_name}")
     # Normalize model name
     model_lower = model_name.lower().strip()

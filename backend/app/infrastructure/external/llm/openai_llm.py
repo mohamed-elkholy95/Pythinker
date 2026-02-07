@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import logging
 import re
@@ -6,7 +7,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from typing import Any, TypeVar
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, RateLimitError
 from pydantic import BaseModel
 
 from app.core.config import get_settings
@@ -611,6 +612,24 @@ To extract data from a webpage:
 
                 return result
 
+            except RateLimitError as e:
+                retry_after = None
+                if hasattr(e, "response") and e.response is not None:
+                    retry_after_header = e.response.headers.get("Retry-After") or e.response.headers.get("retry-after")
+                    if retry_after_header:
+                        with contextlib.suppress(ValueError, TypeError):
+                            retry_after = float(retry_after_header)
+                if retry_after is None:
+                    retry_after = min(base_delay * (2 ** attempt), 60.0)
+                logger.warning(
+                    f"OpenAI rate limit hit on attempt {attempt + 1}/{max_retries + 1}, "
+                    f"retrying after {retry_after:.1f}s"
+                )
+                if attempt == max_retries:
+                    raise
+                await asyncio.sleep(retry_after)
+                continue
+
             except Exception as e:
                 error_msg = str(e).lower()
 
@@ -764,6 +783,22 @@ To extract data from a webpage:
                 logger.warning(f"JSON decode error on attempt {attempt + 1}: {e}")
                 if attempt == max_retries:
                     raise ValueError(f"Failed to parse JSON response: {e}") from e
+            except RateLimitError as e:
+                retry_after = None
+                if hasattr(e, "response") and e.response is not None:
+                    retry_after_header = e.response.headers.get("Retry-After") or e.response.headers.get("retry-after")
+                    if retry_after_header:
+                        with contextlib.suppress(ValueError, TypeError):
+                            retry_after = float(retry_after_header)
+                if retry_after is None:
+                    retry_after = min(base_delay * (2 ** attempt), 60.0)
+                logger.warning(
+                    f"OpenAI rate limit hit on structured request attempt {attempt + 1}/{max_retries + 1}, "
+                    f"retrying after {retry_after:.1f}s"
+                )
+                if attempt == max_retries:
+                    raise
+                await asyncio.sleep(retry_after)
             except Exception as e:
                 error_msg = str(e).lower()
                 if any(
@@ -960,6 +995,19 @@ To extract data from a webpage:
                     tools=tools,
                 )
 
+        except RateLimitError as e:
+            retry_after = None
+            if hasattr(e, "response") and e.response is not None:
+                retry_after_header = e.response.headers.get("Retry-After") or e.response.headers.get("retry-after")
+                if retry_after_header:
+                    with contextlib.suppress(ValueError, TypeError):
+                        retry_after = float(retry_after_header)
+            if retry_after is None:
+                retry_after = min(4.0, 60.0)  # Single retry for streaming
+            logger.warning(f"OpenAI rate limit hit during streaming, retrying after {retry_after:.1f}s")
+            await asyncio.sleep(retry_after)
+            # Re-raise to let caller retry the entire stream
+            raise
         except Exception as e:
             error_msg = str(e).lower()
             if any(
