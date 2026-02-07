@@ -7,7 +7,6 @@ Supported providers:
 - bing: Bing web search (no API key required)
 - google: Google Custom Search API (requires API key)
 - baidu: Baidu web search
-- whoogle: Whoogle Google proxy
 - brave: Brave Search API (requires API key)
 - tavily: Tavily AI Search API (requires API key)
 - serper: Serper.dev Google Search API (requires API key)

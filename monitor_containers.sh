@@ -18,7 +18,6 @@ OPTIONS:
   frontend          Monitor frontend only
   core              Monitor core services (sandbox + backend)
   infra             Monitor infrastructure (mongodb, redis, qdrant)
-  search            Monitor search services (whoogle, searxng)
   stats             Show container statistics
   logs <container>  Show logs for specific container
   tail <container>  Tail logs for specific container
@@ -114,15 +113,6 @@ monitor_infra() {
     docker-compose -f docker-compose-development.yml logs -f --tail=20 mongodb redis qdrant
 }
 
-monitor_search() {
-    echo "╔════════════════════════════════════════════════════════════════╗"
-    echo "║         MONITORING SEARCH SERVICES (Whoogle, SearXNG)          ║"
-    echo "╚════════════════════════════════════════════════════════════════╝"
-    echo ""
-
-    docker-compose -f docker-compose-development.yml logs -f --tail=20 whoogle searxng
-}
-
 show_stats() {
     echo "╔════════════════════════════════════════════════════════════════╗"
     echo "║              CONTAINER STATISTICS & STATUS                     ║"
@@ -190,9 +180,6 @@ case "${1:-all}" in
         ;;
     infra)
         monitor_infra
-        ;;
-    search)
-        monitor_search
         ;;
     stats)
         show_stats

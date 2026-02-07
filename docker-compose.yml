@@ -32,7 +32,6 @@ services:
       - mongodb
       - redis
       - qdrant
-      - whoogle
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -143,12 +142,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-
-  whoogle:
-    image: benbusby/whoogle-search:latest
-    restart: unless-stopped
-    networks:
-      - pythinker-network
 
 volumes:
   mongodb_data:

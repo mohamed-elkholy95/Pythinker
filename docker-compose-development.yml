@@ -62,9 +62,6 @@ services:
       qdrant:
         condition: service_healthy
         required: true
-      whoogle:
-        condition: service_started
-        required: false
     restart: unless-stopped
     networks:
       - pythinker-network
@@ -178,14 +175,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-
-  whoogle:
-    image: benbusby/whoogle-search:latest
-    ports:
-      - "5001:5000"  # Changed from 5000 to avoid macOS AirPlay conflict
-    restart: unless-stopped
-    networks:
-      - pythinker-network
 
 volumes:
   mongodb_data:

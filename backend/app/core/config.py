@@ -107,15 +107,22 @@ class Settings(BaseSettings):
     mcp_lazy_init: bool = True  # Defer MCP initialization until first use
 
     # Search engine configuration
-    search_provider: str | None = "duckduckgo"  #  "google", "bing", "whoogle", "duckduckgo", "brave", "tavily", "serper"
+    search_provider: str | None = "duckduckgo"  #  "google", "bing", "duckduckgo", "brave", "tavily", "serper"
     search_prefer_browser: bool = (
         True  # Use browser for search (visible in sandbox) instead of API (faster but invisible)
     )
     google_search_api_key: str | None = None
     google_search_engine_id: str | None = None
-    whoogle_url: str | None = "http://whoogle:5000"  # Whoogle instance URL
     brave_search_api_key: str | None = None  # Brave Search API key
-    tavily_api_key: str | None = None  # Tavily AI Search API key
+    tavily_api_key: str | None = None  # Tavily AI Search API key (https://tavily.com)
+    tavily_api_key_2: str | None = None  # Fallback Tavily key (auto-rotates on quota/billing errors)
+    tavily_api_key_3: str | None = None  # Third fallback Tavily key
+    tavily_api_key_4: str | None = None  # Fourth fallback Tavily key
+    tavily_api_key_5: str | None = None  # Fifth fallback Tavily key
+    tavily_api_key_6: str | None = None  # Sixth fallback Tavily key
+    tavily_api_key_7: str | None = None  # Seventh fallback Tavily key
+    tavily_api_key_8: str | None = None  # Eighth fallback Tavily key
+    tavily_api_key_9: str | None = None  # Ninth fallback Tavily key
     serper_api_key: str | None = None  # Serper.dev Google Search API key (free tier: 2500 queries/mo)
     serper_api_key_2: str | None = None  # Fallback Serper key (auto-rotates on quota/billing errors)
     serper_api_key_3: str | None = None  # Third fallback Serper key

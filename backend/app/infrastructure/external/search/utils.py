@@ -18,7 +18,6 @@ def clean_redirect_url(url: str, base_url: str = "") -> str:
     Handles:
     - DuckDuckGo /l/ redirects
     - Google /url?q= redirects
-    - Whoogle /url?q= redirects
     - Baidu /link?url= redirects
     - Relative URLs
 
@@ -39,7 +38,7 @@ def clean_redirect_url(url: str, base_url: str = "") -> str:
         if "uddg" in params:
             return unquote(params["uddg"][0])
 
-    # Google/Whoogle redirect
+    # Google redirect
     if "/url?" in url:
         parsed = urlparse(url)
         params = parse_qs(parsed.query)
