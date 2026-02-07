@@ -452,7 +452,11 @@ class TokenManager:
         return trimmed_messages, tokens_removed
 
     def _remove_orphaned_tool_responses(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Remove tool responses whose parent assistant tool_call is missing."""
+        """Remove tool responses whose parent assistant tool_call is missing.
+
+        Also removes assistant messages with tool_calls that have no
+        corresponding tool responses (reverse orphans that break strict APIs).
+        """
         # Collect all tool_call IDs from assistant messages
         valid_tool_call_ids: set[str] = set()
         for msg in messages:
@@ -461,6 +465,14 @@ class TokenManager:
                     tc_id = tc.get("id")
                     if tc_id:
                         valid_tool_call_ids.add(tc_id)
+
+        # Collect all tool_call_ids that have actual tool responses
+        responded_tool_call_ids: set[str] = set()
+        for msg in messages:
+            if msg.get("role") == "tool":
+                tcid = msg.get("tool_call_id")
+                if tcid:
+                    responded_tool_call_ids.add(tcid)
 
         # Filter out tool responses that reference missing tool_calls
         cleaned = []
@@ -471,10 +483,30 @@ class TokenManager:
                 if tool_call_id and tool_call_id not in valid_tool_call_ids:
                     orphan_count += 1
                     continue
+            elif msg.get("role") == "assistant" and msg.get("tool_calls"):
+                # Remove tool_call entries that have no matching response
+                original_calls = msg["tool_calls"]
+                kept_calls = [
+                    tc for tc in original_calls
+                    if tc.get("id") in responded_tool_call_ids
+                ]
+                if len(kept_calls) < len(original_calls):
+                    orphan_count += len(original_calls) - len(kept_calls)
+                    if kept_calls:
+                        msg = dict(msg)
+                        msg["tool_calls"] = kept_calls
+                    else:
+                        # All tool_calls lost their responses — strip tool_calls
+                        msg = dict(msg)
+                        msg.pop("tool_calls", None)
+                        # If the message has no content either, skip it entirely
+                        if not msg.get("content"):
+                            orphan_count += 1
+                            continue
             cleaned.append(msg)
 
         if orphan_count > 0:
-            logger.warning(f"Removed {orphan_count} orphaned tool responses during trimming")
+            logger.warning(f"Removed {orphan_count} orphaned tool messages during trimming")
 
         return cleaned
 

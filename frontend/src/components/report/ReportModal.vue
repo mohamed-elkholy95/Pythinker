@@ -318,8 +318,7 @@ const renderedContent = computed(() => {
 
     const html = marked.parse(content, { renderer });
     return DOMPurify.sanitize(html as string);
-  } catch (error) {
-    console.error('Failed to render markdown:', error);
+  } catch {
     return '<p class="text-red-500">Failed to render content</p>';
   }
 });
@@ -457,8 +456,8 @@ const handleShare = async () => {
     setTimeout(() => {
       isCopied.value = false;
     }, 2000);
-  } catch (error) {
-    console.error('Failed to share:', error);
+  } catch {
+    // Share failed silently
   }
 
   emit('share');
@@ -523,8 +522,8 @@ const handleDownloadPdf = async () => {
 
     await html2pdf().set(opt).from(element).save();
     emit('download');
-  } catch (error) {
-    console.error('Failed to generate PDF:', error);
+  } catch {
+    // PDF generation failed
   } finally {
     isDownloading.value = false;
   }
@@ -611,8 +610,8 @@ const handleDownloadDocx = async () => {
     const blob = await Packer.toBlob(doc);
     saveAs(blob, getSafeFilename(props.report.title) + '.docx');
     emit('download');
-  } catch (error) {
-    console.error('Failed to generate DOCX:', error);
+  } catch {
+    // DOCX generation failed
   } finally {
     isDownloading.value = false;
   }
@@ -630,8 +629,8 @@ const handleCopyContent = async () => {
     setTimeout(() => {
       isCopied.value = false;
     }, 2000);
-  } catch (error) {
-    console.error('Failed to copy content:', error);
+  } catch {
+    // Copy failed silently
   }
 };
 

@@ -156,8 +156,7 @@ const handleSendCode = async () => {
     // Switch to verification step
     currentStep.value = 'verification'
     showSuccessToast(t('Verification code sent to your email'))
-  } catch (error: any) {
-    console.error('Send verification code failed:', error)
+  } catch {
     showErrorToast(t('Failed to send verification code. Please try again.'))
   } finally {
     isLoading.value = false

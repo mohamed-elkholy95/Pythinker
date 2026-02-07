@@ -1,5 +1,6 @@
 import type { FileInfo } from '../api/file';
 import type { SourceCitation, DeepResearchQuery, DeepResearchStatus, SkillPackageFile, SkillPackageFileTree } from './message';
+import type { ToolContentPayload } from './toolContent';
 
 export type AgentSSEEvent = {
   event: 'tool' | 'step' | 'message' | 'error' | 'done' | 'title' | 'wait' | 'plan' | 'attachments' | 'mode_change' | 'suggestion' | 'report' | 'stream' | 'progress' | 'deep_research' | 'wide_research' | 'skill_delivery' | 'skill_activation' | 'thought';
@@ -16,8 +17,8 @@ export interface ToolEventData extends BaseEventData {
   name: string;
   status: "calling" | "called";
   function: string;
-  args: {[key: string]: any};
-  content?: any;
+  args: Record<string, unknown>;
+  content?: ToolContentPayload;
   // Action/observation metadata
   action_type?: string;
   observation_type?: string;

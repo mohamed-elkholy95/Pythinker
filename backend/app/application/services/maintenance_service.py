@@ -344,8 +344,8 @@ class MaintenanceService:
                     # Destroy orphaned sandbox container
                     if sandbox_id:
                         try:
-                            from app.infrastructure.external.sandbox import SandboxClient
-                            sandbox = await SandboxClient.get(sandbox_id)
+                            from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
+                            sandbox = await DockerSandbox.get(sandbox_id)
                             if sandbox:
                                 await asyncio.wait_for(sandbox.destroy(), timeout=15.0)
                                 stats["sandboxes_destroyed"] += 1

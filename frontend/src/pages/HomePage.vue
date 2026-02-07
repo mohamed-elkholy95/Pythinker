@@ -306,8 +306,7 @@ const createSessionWithMode = async (mode: AgentMode, initialMessage?: string) =
         }))
       } : undefined
     });
-  } catch (error) {
-    console.error('Failed to create session:', error);
+  } catch {
     showErrorToast(t('Failed to create session, please try again later'));
     isSubmitting.value = false;
   }
@@ -349,8 +348,7 @@ const handleSubmit = async (skillIds: string[] = []) => {
           }))
         }
       });
-    } catch (error) {
-      console.error('Failed to create session:', error);
+    } catch {
       showErrorToast(t('Failed to create session, please try again later'));
       isSubmitting.value = false;
     }
@@ -469,17 +467,16 @@ const handleSubmit = async (skillIds: string[] = []) => {
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
-  background: #ffffff;
+  background: var(--background-card);
   border: 1px solid var(--border-main);
-  color: var(--text-secondary);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px var(--shadow-XS);
 }
 
 .feature-btn:hover {
-  background: #f9fafb;
-  border-color: #d1d5db;
+  border-color: var(--border-dark);
   color: var(--text-primary);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 8px var(--shadow-S);
 }
 
 .feature-btn:active {
@@ -487,12 +484,13 @@ const handleSubmit = async (skillIds: string[] = []) => {
 }
 
 .feature-icon {
-  color: var(--icon-secondary);
+  color: var(--text-secondary);
+  flex-shrink: 0;
   transition: color 0.2s ease;
 }
 
 .feature-btn:hover .feature-icon {
-  color: var(--icon-primary);
+  color: var(--text-primary);
 }
 
 .feature-btn-more {
@@ -501,36 +499,7 @@ const handleSubmit = async (skillIds: string[] = []) => {
 }
 
 .feature-btn-more.active {
-  background: #f9fafb;
-  border-color: #d1d5db;
-}
-
-/* Dark mode keeps existing blue-accent hover */
-:global([data-theme="dark"]) .feature-btn {
-  background: var(--background-gray-main);
-  border-color: rgba(255, 255, 255, 0.14);
-  color: #ffffff;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
-}
-
-:global([data-theme="dark"]) .feature-btn:hover {
-  background: var(--background-gray-main);
-  border-color: rgba(255, 255, 255, 0.25);
-  color: #ffffff;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
-}
-
-:global([data-theme="dark"]) .feature-btn:hover .feature-icon {
-  color: #ffffff;
-}
-
-:global([data-theme="dark"]) .feature-icon {
-  color: #ffffff;
-}
-
-:global([data-theme="dark"]) .feature-btn-more.active {
-  background: #1c1f24;
-  border-color: rgba(96, 165, 250, 0.7);
+  border-color: var(--border-dark);
 }
 
 .feature-btn:focus-visible {

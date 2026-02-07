@@ -161,8 +161,7 @@ const processFileUpload = async (file: File) => {
                 file: null
             };
         }
-    } catch (error) {
-        console.error('Upload failed:', error);
+    } catch {
 
         // Update status to failed
         const index = files.value.findIndex(f => f.file_id === tempFileInfo.file_id);
@@ -202,8 +201,7 @@ const retryUpload = async (fileInfo: ExtendedFileInfo) => {
                 file: null
             };
         }
-    } catch (error) {
-        console.error('Retry upload failed:', error);
+    } catch {
         fileInfo.status = 'failed';
     }
 };

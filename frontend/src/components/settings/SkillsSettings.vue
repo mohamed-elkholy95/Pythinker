@@ -428,14 +428,12 @@ function closeCreatorDialog() {
   editingSkill.value = null;
 }
 
-function onSkillCreated(skill: Skill) {
+function onSkillCreated(_skill: Skill) {
   // Skill is already added to customSkills by the composable
-  console.log('Skill created:', skill.name);
 }
 
-function onSkillUpdated(skill: Skill) {
+function onSkillUpdated(_skill: Skill) {
   // Skill is already updated in customSkills by the composable
-  console.log('Skill updated:', skill.name);
 }
 </script>
 

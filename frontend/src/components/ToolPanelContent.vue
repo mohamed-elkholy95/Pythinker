@@ -109,6 +109,15 @@
               message="Pythinker's computer is inactive"
             />
 
+            <!-- VNC URL bar overlay - shows current URL during browser operations -->
+            <div v-if="showVncUrlBar" class="vnc-url-bar">
+              <div class="vnc-url-status">
+                <Loader2 v-if="isActiveOperation" :size="12" class="vnc-url-spinner" />
+                <Check v-else :size="12" />
+              </div>
+              <span class="vnc-url-text">{{ vncUrlBarText }}</span>
+            </div>
+
             <!-- Take over button -->
             <button
               v-if="!isShare && live && !showVncPlaceholder"
@@ -221,7 +230,7 @@
 
 <script setup lang="ts">
 import { toRef, computed, watch, ref, onMounted, onUnmounted } from 'vue';
-import { Minimize2, MonitorUp, X } from 'lucide-vue-next';
+import { Minimize2, MonitorUp, X, Loader2, Check } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
 import type { PlanEventData } from '@/types/event';
 import { useContentConfig } from '@/composables/useContentConfig';
@@ -366,7 +375,16 @@ const vncPlaceholderLabel = computed(() => {
     if (isActiveOperation.value) {
       return placeholderLabel.value;
     }
-    // Operation completed - show success state
+    // Completed: show domain-specific label
+    const url = props.toolContent?.args?.url;
+    if (url && typeof url === 'string') {
+      try {
+        const u = new URL(url);
+        return `Fetched from ${u.hostname}`;
+      } catch {
+        return 'Content fetched';
+      }
+    }
     return 'Content fetched';
   }
   if (!props.sessionId) return 'No live session';
@@ -409,6 +427,18 @@ const vncPlaceholderAnimation = computed<'globe' | 'check' | 'spinner'>(() => {
 
 const vncEnabled = computed(() => {
   return !!props.sessionId && !showVncPlaceholder.value;
+});
+
+// ============ VNC URL Bar Overlay ============
+const BROWSER_TOOL_NAMES = new Set(['browser', 'browser_agent', 'browsing', 'playwright']);
+
+const showVncUrlBar = computed(() => {
+  if (showVncPlaceholder.value) return false;
+  return BROWSER_TOOL_NAMES.has(toolName.value) && !!toolDisplay.value?.resourceLabel;
+});
+
+const vncUrlBarText = computed(() => {
+  return toolDisplay.value?.resourceLabel || '';
 });
 
 // ============ Terminal Content ============
@@ -539,8 +569,8 @@ const loadShellContent = async () => {
     if (response?.console) {
       shellOutput.value = formatShellOutput(response.console);
     }
-  } catch (error) {
-    console.error("Failed to load shell content:", error);
+  } catch {
+    // Shell content load failed - UI shows last known content
   }
 };
 
@@ -709,8 +739,8 @@ const loadFileContent = async () => {
       originalContent.value = fileContent.value;
     }
     fileContent.value = nextContent;
-  } catch (error) {
-    console.error("Failed to load file content:", error);
+  } catch {
+    // File content load failed - UI shows last known content
   }
 };
 
@@ -778,8 +808,7 @@ const takeOver = async () => {
   // Pause the agent before takeover
   try {
     await pauseSession(props.sessionId);
-  } catch (error) {
-    console.error('Failed to pause session:', error);
+  } catch {
     // Continue with takeover even if pause fails
   }
 
@@ -806,11 +835,9 @@ const handleSeekByProgress = (progress: number) => {
 
 const onVNCConnected = () => {
   vncDisconnected.value = false;
-  console.log('VNC connected');
 };
 const onVNCDisconnected = () => {
   vncDisconnected.value = true;
-  console.log('VNC disconnected');
 };
 
 const onNewTerminalContent = () => {
@@ -826,35 +853,73 @@ const handleBrowseUrl = async (url: string) => {
   if (!props.sessionId || !url) return;
 
   try {
-    console.log(`[ToolPanelContent] Browsing URL: ${url}`);
-
     // Immediately switch to browser view
     forceBrowserView.value = true;
 
     // Subscribe to SSE events from the browse endpoint
     await browseUrl(props.sessionId, url, {
-      onToolEvent: (event) => {
-        console.log('[ToolPanelContent] Tool event from browse:', event);
+      onToolEvent: () => {
         // The SandboxViewer will automatically show the browser content
         // as it's already connected via CDP screencast
       },
-      onMessage: (message) => {
-        console.log('[ToolPanelContent] Message from browse:', message);
+      onMessage: () => {
+        // Message received from browse - no action needed
       },
       onClose: () => {
         // Keep browser view active after navigation completes
-        console.log('[ToolPanelContent] Browse completed');
       },
-      onError: (error) => {
-        console.error('[ToolPanelContent] Browse SSE error:', error);
+      onError: () => {
         // On error, optionally revert to previous view
         // forceBrowserView.value = false;
       }
     });
-  } catch (error) {
-    console.error('[ToolPanelContent] Failed to browse URL:', error);
+  } catch {
     forceBrowserView.value = false;
   }
 };
 
 </script>
+
+<style scoped>
+.vnc-url-bar {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.vnc-url-status {
+  flex-shrink: 0;
+  color: white;
+  opacity: 0.7;
+  display: flex;
+  align-items: center;
+}
+
+.vnc-url-spinner {
+  animation: vnc-spin 1s linear infinite;
+}
+
+@keyframes vnc-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.vnc-url-text {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-sans);
+}
+</style>

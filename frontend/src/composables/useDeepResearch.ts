@@ -16,8 +16,7 @@ export function useDeepResearch() {
       loading.value = true
       const settings = await getSettings()
       autoRun.value = settings.deep_research_auto_run ?? false
-    } catch (error) {
-      console.error('Failed to load deep research settings:', error)
+    } catch {
       autoRun.value = false
     } finally {
       loading.value = false
@@ -33,8 +32,8 @@ export function useDeepResearch() {
       const newValue = !autoRun.value
       await updateSettings({ deep_research_auto_run: newValue })
       autoRun.value = newValue
-    } catch (error) {
-      console.error('Failed to update deep research settings:', error)
+    } catch {
+      // Settings update failed — keep current value
     } finally {
       loading.value = false
     }
@@ -50,8 +49,8 @@ export function useDeepResearch() {
       loading.value = true
       await updateSettings({ deep_research_auto_run: value })
       autoRun.value = value
-    } catch (error) {
-      console.error('Failed to update deep research settings:', error)
+    } catch {
+      // Settings update failed — keep current value
     } finally {
       loading.value = false
     }

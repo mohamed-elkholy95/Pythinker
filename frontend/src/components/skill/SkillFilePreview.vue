@@ -158,8 +158,8 @@ const copyYaml = async () => {
   if (match) {
     try {
       await navigator.clipboard.writeText(match[1])
-    } catch (err) {
-      console.error('Failed to copy:', err)
+    } catch {
+      // Copy to clipboard failed
     }
   }
 }

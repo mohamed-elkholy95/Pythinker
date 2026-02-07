@@ -131,8 +131,7 @@ async function initVNCConnection() {
       emit('credentialsRequired');
     });
 
-  } catch (error) {
-    console.error('[VNC] Connection error:', error);
+  } catch {
     isLoading.value = false;
     isConnecting = false;
     statusText.value = 'Connection failed';

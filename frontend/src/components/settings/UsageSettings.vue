@@ -283,8 +283,8 @@ async function fetchSummary() {
   try {
     loading.value = true
     summary.value = await getUsageSummary()
-  } catch (error) {
-    console.error('Failed to fetch usage summary:', error)
+  } catch {
+    // Usage summary fetch failed
   } finally {
     loading.value = false
   }
@@ -296,8 +296,7 @@ async function fetchDailyUsage() {
     loadingDaily.value = true
     const result = await getDailyUsage(selectedPeriod.value)
     dailyUsage.value = result.days.reverse() // Most recent last for chart
-  } catch (error) {
-    console.error('Failed to fetch daily usage:', error)
+  } catch {
     dailyUsage.value = []
   } finally {
     loadingDaily.value = false

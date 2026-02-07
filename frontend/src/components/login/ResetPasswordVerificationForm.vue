@@ -290,9 +290,7 @@ const handleResendCode = async () => {
     // Call the real API to send verification code
     sendVerificationCode({ email: props.email }).then(() => {
       showSuccessToast(t('Verification code sent again'))
-      console.log('Resend verification code to:', props.email)
     }).catch((error: any) => {
-      console.error('Resend verification code failed:', error)
       showErrorToast(t('Failed to resend verification code. Please try again.') + ': ' + error.response?.data?.message || error.message || 'Unknown error')
     })
     startResendCooldown()
@@ -318,8 +316,6 @@ const handleSubmit = async () => {
     isPasswordUpdated.value = true
     showSuccessToast(t('Password updated successfully'))
 
-    console.log('Password reset completed for:', props.email)
-
     // Auto redirect to login after 3 seconds
     setTimeout(() => {
       if (isPasswordUpdated.value) {
@@ -328,7 +324,6 @@ const handleSubmit = async () => {
     }, 500)
 
   } catch (error: any) {
-    console.error('Password reset verification failed:', error)
     const errorMessage = error.response?.data?.message || error.message || 'Unknown error'
     
     // Handle specific error cases

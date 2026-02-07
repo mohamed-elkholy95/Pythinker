@@ -137,11 +137,8 @@ const handleSubmit = async () => {
   try {
     // Simply emit success with email - the verification will be sent in the next component
     emits('success', formData.value.email.trim().toLowerCase())
-    
-    console.log('Email submitted for password reset:', formData.value.email)
 
-  } catch (error: any) {
-    console.error('Email submission failed:', error)
+  } catch {
     showErrorToast(t('An error occurred. Please try again.'))
   } finally {
     isLoading.value = false

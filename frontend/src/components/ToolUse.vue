@@ -9,9 +9,16 @@
       <div @click="handleClick"
         class="tool-chip rounded-[20px] items-center gap-[8px] px-[12px] py-[6px] inline-flex max-w-full clickable"
         :class="props.isActive && tool.status === 'calling' ? 'tool-shimmer' : 'tool-idle'">
-        <!-- Circle icon container -->
-        <div class="w-[20px] h-[20px] rounded-full bg-[var(--fill-tsp-gray-main)] inline-flex items-center justify-center flex-shrink-0 border border-[var(--border-light)]">
-          <component :is="toolInfo.icon" :size="12" class="text-[var(--text-secondary)]" />
+        <!-- Icon: favicon for URL-based tools, or tool icon -->
+        <div class="tool-icon-container">
+          <img
+            v-if="toolInfo.faviconUrl && !faviconError"
+            :src="toolInfo.faviconUrl"
+            alt=""
+            class="tool-favicon"
+            @error="faviconError = true"
+          />
+          <component v-else :is="toolInfo.icon" :size="13" class="text-[var(--text-secondary)]" />
         </div>
         <!-- Human-readable description -->
         <div class="flex-1 h-full min-w-0">
@@ -20,6 +27,9 @@
             {{ toolInfo.description }}
           </div>
         </div>
+        <!-- Status indicator: spinner when running, check when done -->
+        <Loader2 v-if="isRunning" :size="13" class="tool-spinner" />
+        <Check v-else :size="13" class="tool-check" />
       </div>
     </div>
     <div class="transition text-[12px] text-[var(--text-tertiary)] invisible group-hover:visible">
@@ -29,7 +39,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, toRef } from "vue";
+import { computed, toRef, ref, watch } from "vue";
+import { Loader2, Check } from "lucide-vue-next";
 import { ToolContent } from "../types/message";
 import { useToolInfo } from "../composables/useTool";
 import { useRelativeTime } from "../composables/useTime";
@@ -57,6 +68,15 @@ const emit = defineEmits<{
 
 const { relativeTime } = useRelativeTime();
 const { toolInfo } = useToolInfo(toRef(() => props.tool));
+
+const faviconError = ref(false);
+
+const isRunning = computed(() => props.tool.status === 'calling');
+
+// Reset favicon error when tool changes
+watch(() => props.tool.tool_call_id, () => {
+  faviconError.value = false;
+});
 
 /** Check if this tool should be rendered as an inline message */
 const isInlineMessageTool = computed(() => {
@@ -100,6 +120,23 @@ const handleClick = () => {
     left: 100%;
   }
 }
+
+.tool-spinner {
+  color: var(--text-brand);
+  flex-shrink: 0;
+  animation: spin 1s linear infinite;
+}
+
+.tool-check {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 </style>
 
 <style>
@@ -131,5 +168,24 @@ const handleClick = () => {
 
 .tool-idle {
   background: var(--background-white-main);
+}
+
+.tool-icon-container {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--fill-tsp-gray-main);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid var(--border-light);
+  overflow: hidden;
+}
+
+.tool-favicon {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
 }
 </style>

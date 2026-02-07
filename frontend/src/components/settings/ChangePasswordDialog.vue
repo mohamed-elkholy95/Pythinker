@@ -196,8 +196,6 @@ const handleSubmit = async () => {
     resetForm()
     open.value = false
   } catch (error: any) {
-    console.error('Change password error:', error)
-
     // Extract error message from response
     let errorMessage = t('Password change failed')
     if (error?.response?.data?.message) {

@@ -251,8 +251,8 @@ async function highlightCodeBlock(code: string, lang: string): Promise<void> {
   try {
     const highlighted = await highlightDualTheme(code, lang);
     highlightedCodeCache.value.set(key, highlighted);
-  } catch (error) {
-    console.error('Failed to highlight code block:', error);
+  } catch {
+    // Syntax highlighting failed - raw code will be shown
   }
 }
 

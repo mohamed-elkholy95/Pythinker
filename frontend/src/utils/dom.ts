@@ -52,18 +52,14 @@ export async function copyToClipboard(text: string): Promise<boolean> {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     try {
       await navigator.clipboard.writeText(text);
-      console.log('Text copied to clipboard using Clipboard API');
       return true;
-    } catch (error) {
-      console.error('Clipboard API failed:', error);
+    } catch {
       // Fall through to fallback method
     }
   }
   
   // Fallback method for older browsers or when clipboard API fails
   try {
-    console.log('Copying text to clipboard using fallback method');
-    
     // Store current active element to restore focus later
     const activeElement = document.activeElement as HTMLElement;
     
@@ -92,13 +88,11 @@ export async function copyToClipboard(text: string): Promise<boolean> {
     }
     
     if (successful) {
-      console.log('Text copied using fallback method');
       return true;
     }
-    
+
     return false;
-  } catch (error) {
-    console.error('All copy methods failed:', error);
+  } catch {
     return false;
   }
 }

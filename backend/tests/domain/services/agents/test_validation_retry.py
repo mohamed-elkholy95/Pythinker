@@ -173,36 +173,30 @@ class TestValidationRetryConfig:
 
     def test_retry_decorator_attributes(self):
         """Test that tenacity retry decorator has correct attributes."""
-        try:
-            from tenacity import retry, retry_if_exception_type, stop_after_attempt
+        from tenacity import retry, retry_if_exception_type, stop_after_attempt
 
-            # Verify we can create retry decorator with validation error
-            decorator = retry(
-                stop=stop_after_attempt(3),
-                retry=retry_if_exception_type(ValidationError),
-            )
-            assert callable(decorator)
-        except ImportError:
-            pytest.skip("Tenacity not installed")
+        # Verify we can create retry decorator with validation error
+        decorator = retry(
+            stop=stop_after_attempt(3),
+            retry=retry_if_exception_type(ValidationError),
+        )
+        assert callable(decorator)
 
     def test_exponential_backoff_config(self):
         """Test exponential backoff configuration."""
-        try:
-            from tenacity import wait_exponential
+        from tenacity import wait_exponential
 
-            wait = wait_exponential(multiplier=1, min=1, max=10)
+        wait = wait_exponential(multiplier=1, min=1, max=10)
 
-            # Create mock RetryState objects
-            class MockRetryState:
-                def __init__(self, attempt_number):
-                    self.attempt_number = attempt_number
+        # Create mock RetryState objects
+        class MockRetryState:
+            def __init__(self, attempt_number):
+                self.attempt_number = attempt_number
 
-            # Verify wait times with proper retry state objects
-            assert wait(MockRetryState(1)) >= 1  # First retry
-            assert wait(MockRetryState(2)) >= 2  # Second retry
-            assert wait(MockRetryState(5)) <= 10  # Capped at max
-        except ImportError:
-            pytest.skip("Tenacity not installed")
+        # Verify wait times with proper retry state objects
+        assert wait(MockRetryState(1)) >= 1  # First retry
+        assert wait(MockRetryState(2)) >= 2  # Second retry
+        assert wait(MockRetryState(5)) <= 10  # Capped at max
 
 
 class TestValidationErrorHandling:
@@ -275,46 +269,38 @@ class TestBackoffStrategy:
 
     def test_backoff_sequence(self):
         """Test backoff produces expected sequence."""
-        try:
-            from tenacity import wait_exponential
+        from tenacity import wait_exponential
 
-            wait = wait_exponential(multiplier=0.5, min=0.5, max=5)
+        wait = wait_exponential(multiplier=0.5, min=0.5, max=5)
 
-            # Retry state mock
-            class RetryState:
-                def __init__(self, attempt_number):
-                    self.attempt_number = attempt_number
+        # Retry state mock
+        class RetryState:
+            def __init__(self, attempt_number):
+                self.attempt_number = attempt_number
 
-            # Check backoff progression
-            wait1 = wait(RetryState(1))
-            wait2 = wait(RetryState(2))
-            wait3 = wait(RetryState(3))
+        # Check backoff progression
+        wait1 = wait(RetryState(1))
+        wait2 = wait(RetryState(2))
+        wait3 = wait(RetryState(3))
 
-            assert wait1 <= wait2 <= wait3
-            assert wait3 <= 5  # Max cap
-
-        except ImportError:
-            pytest.skip("Tenacity not installed")
+        assert wait1 <= wait2 <= wait3
+        assert wait3 <= 5  # Max cap
 
     def test_jitter_in_backoff(self):
         """Test that jitter can be applied to backoff."""
-        try:
-            from tenacity import wait_exponential_jitter
+        from tenacity import wait_exponential_jitter
 
-            wait = wait_exponential_jitter(initial=1, max=10, jitter=2)
+        wait = wait_exponential_jitter(initial=1, max=10, jitter=2)
 
-            class RetryState:
-                def __init__(self, attempt_number):
-                    self.attempt_number = attempt_number
+        class RetryState:
+            def __init__(self, attempt_number):
+                self.attempt_number = attempt_number
 
-            # With jitter, waits may vary
-            waits = [wait(RetryState(2)) for _ in range(5)]
-            # Should not all be exactly the same due to jitter
-            # (though this is probabilistic)
-            assert max(waits) > 0
-
-        except ImportError:
-            pytest.skip("Tenacity not installed")
+        # With jitter, waits may vary
+        waits = [wait(RetryState(2)) for _ in range(5)]
+        # Should not all be exactly the same due to jitter
+        # (though this is probabilistic)
+        assert max(waits) > 0
 
 
 class TestRecoveryFromValidationError:

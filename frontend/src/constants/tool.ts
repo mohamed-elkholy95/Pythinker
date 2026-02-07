@@ -402,6 +402,7 @@ export const TOOL_NAME_MAP: {[key: string]: string} = {
   "idle": "Standby"
 };
 
+import type { Component } from 'vue';
 import SearchIcon from '../components/icons/SearchIcon.vue';
 import EditIcon from '../components/icons/EditIcon.vue';
 import BrowserIcon from '../components/icons/BrowserIcon.vue';
@@ -420,7 +421,7 @@ import { GitBranch, Play, Download, Presentation, FolderTree, Calendar, Scan, Wa
  * - Icons should be immediately recognizable
  * - Maintain consistent 16-21px sizing
  */
-export const TOOL_ICON_MAP: {[key: string]: any} = {
+export const TOOL_ICON_MAP: Record<string, Component> = {
   // === CORE TOOLS ===
   "shell": ShellIcon,
   "file": EditIcon,

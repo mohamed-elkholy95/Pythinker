@@ -1,4 +1,4 @@
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed } from 'vue'
 import { 
   login as apiLogin, 
   register as apiRegister, 
@@ -25,6 +25,9 @@ const currentUser = ref<User | null>(null)
 const isAuthenticated = ref<boolean>(false)
 const isLoading = ref<boolean>(false)
 const authError = ref<string | null>(null)
+
+// Singleton listener for logout events from token refresh interceptor (registered once at module load)
+let _logoutListenerRegistered = false
 
 export function useAuth() {
   /**
@@ -67,11 +70,11 @@ export function useAuth() {
       const user = await getCurrentUser()
       currentUser.value = user
       isAuthenticated.value = true
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to load current user:', error)
       // If token is invalid, clear auth state
       clearAuth()
-      authError.value = error.message || 'Failed to load user information'
+      authError.value = error instanceof Error ? error.message : 'Failed to load user information'
     } finally {
       isLoading.value = false
     }
@@ -97,8 +100,8 @@ export function useAuth() {
       isAuthenticated.value = true
       
       return response
-    } catch (error: any) {
-      authError.value = error.message || 'Login failed'
+    } catch (error: unknown) {
+      authError.value = error instanceof Error ? error.message : 'Login failed'
       throw error
     } finally {
       isLoading.value = false
@@ -125,8 +128,8 @@ export function useAuth() {
       isAuthenticated.value = true
       
       return response
-    } catch (error: any) {
-      authError.value = error.message || 'Registration failed'
+    } catch (error: unknown) {
+      authError.value = error instanceof Error ? error.message : 'Registration failed'
       throw error
     } finally {
       isLoading.value = false
@@ -145,7 +148,7 @@ export function useAuth() {
         // Call logout API
         await apiLogout()
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Logout API failed:', error)
       // Continue with local logout even if API fails
     } finally {
@@ -184,7 +187,7 @@ export function useAuth() {
       setAuthToken(response.access_token)
       
       return true
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Token refresh failed:', error)
       clearAuth()
       return false
@@ -215,18 +218,13 @@ export function useAuth() {
     authError.value = null
   }
 
-  // Listen for logout events from token refresh interceptor
-  const handleAuthLogout = () => {
-    logout(true) // Silent logout
+  // Register global logout listener once (singleton — not per-component)
+  if (!_logoutListenerRegistered) {
+    window.addEventListener('auth:logout', () => {
+      logout(true)
+    })
+    _logoutListenerRegistered = true
   }
-
-  onMounted(() => {
-    window.addEventListener('auth:logout', handleAuthLogout)
-  })
-
-  onUnmounted(() => {
-    window.removeEventListener('auth:logout', handleAuthLogout)
-  })
 
   // Auto-initialize auth state when composable is first used
   if (!isAuthenticated.value && !isLoading.value) {

@@ -36,8 +36,7 @@ watch(() => props.file.file_id, async (fileId) => {
         const blob = await downloadFile(fileId);
         const text = await blob.text();
         content.value = text;
-    } catch (error) {
-        console.error('Failed to load file content:', error);
+    } catch {
         content.value = '(Failed to load file content)';
     }
 }, { immediate: true });

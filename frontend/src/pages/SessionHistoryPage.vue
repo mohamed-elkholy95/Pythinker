@@ -180,8 +180,8 @@ async function loadSessions(): Promise<void> {
     const response = await getSessions()
      
     sessions.value = response.sessions as any[]
-  } catch (error) {
-    console.error('Failed to load sessions:', error)
+  } catch {
+    // Session history load failed
   } finally {
     isLoading.value = false
   }

@@ -172,6 +172,28 @@ function resolveToolKey(input: ToolDisplayInput): string {
   return rawName || (input.function || '') || 'tool';
 }
 
+/**
+ * Extract a URL from tool args, if available.
+ */
+export function extractToolUrl(args?: Record<string, unknown>): string | null {
+  if (!args) return null;
+  const url = args.url || args.link || args.href;
+  if (typeof url === 'string' && url.startsWith('http')) return url;
+  return null;
+}
+
+/**
+ * Get favicon URL for a domain using Google's favicon service.
+ */
+export function getFaviconUrl(url: string): string | null {
+  try {
+    const u = new URL(url);
+    return `https://www.google.com/s2/favicons?domain=${u.hostname}&sz=32`;
+  } catch {
+    return null;
+  }
+}
+
 export function getToolDisplay(input: ToolDisplayInput): ToolDisplayInfo {
   const toolKey = resolveToolKey(input);
   const displayName = TOOL_NAME_MAP[toolKey] || humanize(toolKey);

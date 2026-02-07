@@ -160,8 +160,8 @@ onMounted(async () => {
     ])
     localSettings.value = { ...localSettings.value, ...settings }
     providers.value = providersInfo
-  } catch (error) {
-    console.error('Failed to load settings:', error)
+  } catch {
+    // Settings load failed - using defaults
   }
 })
 
@@ -172,8 +172,8 @@ const saveSettings = async (value: string) => {
     await updateSettings({
       search_provider: localSettings.value.search_provider,
     })
-  } catch (error) {
-    console.error('Failed to save settings:', error)
+  } catch {
+    // Settings save failed silently
   }
 }
 </script>

@@ -307,8 +307,8 @@ watch(
 );
 
 // VNC handlers
-const onVNCConnected = () => console.log('VNC connected');
-const onVNCDisconnected = () => console.log('VNC disconnected');
+const onVNCConnected = () => { /* VNC connected */ };
+const onVNCDisconnected = () => { /* VNC disconnected */ };
 
 // Screenshot handling
 watch(() => props.toolContent?.content?.screenshot, (screenshot) => {

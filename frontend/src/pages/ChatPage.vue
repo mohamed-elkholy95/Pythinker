@@ -299,6 +299,7 @@ import WaitingForReply from '@/components/WaitingForReply.vue';
 import { useSessionStatus } from '@/composables/useSessionStatus';
 import { getToolDisplay } from '@/utils/toolDisplay';
 import { useSkills } from '@/composables/useSkills';
+import { useDeepResearch } from '@/composables/useDeepResearch';
 
 const router = useRouter()
 const { t } = useI18n()
@@ -308,6 +309,7 @@ const { hideFilePanel } = useFilePanel()
 const { isReportModalOpen, currentReport, openReport, closeReport } = useReport()
 const { emitStatusChange } = useSessionStatus()
 const { getSelectedSkillIds } = useSkills()
+const { toggleAutoRun } = useDeepResearch()
 
 // Create initial state factory
 const createInitialState = () => ({
@@ -431,8 +433,8 @@ watch(sessionId, async (newSessionId) => {
     try {
       const session = await agentApi.getSession(newSessionId);
       sessionStatus.value = session.status as SessionStatus;
-    } catch (e) {
-      console.warn('Failed to get session status:', e);
+    } catch {
+      // Session status fetch failed - non-critical
     }
   } else {
     sessionStatus.value = undefined;
@@ -507,7 +509,6 @@ const checkStaleConnection = () => {
   const timeSinceLastEvent = Date.now() - lastEventTime.value;
   if (timeSinceLastEvent > STALE_TIMEOUT_MS && lastEventTime.value > 0) {
     isStale.value = true;
-    console.warn(`Agent connection appears stale. No events for ${Math.round(timeSinceLastEvent / 1000)}s`);
   }
 };
 
@@ -907,7 +908,6 @@ const handleProgressEvent = (progressData: ProgressEventData) => {
 // Handle mode change event
 const handleModeChangeEvent = (modeData: ModeChangeEventData) => {
   agentMode.value = modeData.mode;
-  console.log(`Agent mode changed to: ${modeData.mode}`, modeData.reason);
 }
 
 // Handle suggestion event
@@ -977,8 +977,7 @@ const handleDeepResearchRun = async (_researchId: string) => {
   if (!sessionId.value) return;
   try {
     await agentApi.approveDeepResearch(sessionId.value);
-  } catch (error) {
-    console.error('Error approving deep research:', error);
+  } catch {
     showErrorToast(t('Failed to start research'));
   }
 };
@@ -988,16 +987,14 @@ const handleDeepResearchSkip = async (_researchId: string, queryId?: string) => 
   if (!sessionId.value) return;
   try {
     await agentApi.skipDeepResearchQuery(sessionId.value, queryId);
-  } catch (error) {
-    console.error('Error skipping deep research query:', error);
+  } catch {
     showErrorToast(t('Failed to skip query'));
   }
 };
 
 // Handle toggle auto-run preference
 const handleToggleAutoRun = () => {
-  // TODO: Implement settings persistence
-  console.log('Toggle auto-run preference');
+  toggleAutoRun();
 };
 
 // Handle suggestion selection (user clicks a suggestion)
@@ -1032,9 +1029,14 @@ const handleAttachmentFileClick = (file: FileInfo) => {
 }
 
 // Handle report rate
-const handleReportRate = (rating: number) => {
-  console.log('Report rated:', rating);
-  // TODO: Send rating to backend
+const handleReportRate = async (rating: number) => {
+  if (!sessionId.value || !currentReport.value) return;
+  try {
+    await agentApi.submitRating(sessionId.value, currentReport.value.id, rating);
+    showSuccessToast(t('Rating submitted'));
+  } catch {
+    showErrorToast(t('Failed to submit rating'));
+  }
 }
 
 // Handle report download
@@ -1137,11 +1139,9 @@ const processEvent = (event: AgentSSEEvent) => {
   } else if (event.event === 'deep_research') {
     handleDeepResearchEvent(event.data as DeepResearchEventData);
   } else if (event.event === 'skill_delivery') {
-    // Skill package created - log for now (viewer components exist but need integration)
-    console.log('[ChatPage] Skill delivery event:', event.data);
+    // Skill package created (viewer components exist but need integration)
   } else if (event.event === 'skill_activation') {
     // Skills auto-activated for this message
-    console.log('[ChatPage] Skill activation event:', event.data);
   }
   lastEventId.value = event.data.event_id;
 }
@@ -1212,7 +1212,6 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
       undefined, // options
       {
         onOpen: () => {
-          console.log('Chat opened');
           isLoading.value = true;
         },
         onMessage: ({ event, data }) => {
@@ -1222,7 +1221,6 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
           });
         },
         onClose: () => {
-          console.log('Chat closed');
           isLoading.value = false;
           isThinking.value = false;
           thinkingText.value = '';
@@ -1239,8 +1237,7 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
             emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
           }
         },
-        onError: (error) => {
-          console.error('Chat error:', error);
+        onError: () => {
           isLoading.value = false;
           isThinking.value = false;
           thinkingText.value = '';
@@ -1259,8 +1256,7 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
         }
       }
     );
-  } catch (error) {
-    console.error('Chat error:', error);
+  } catch {
     isLoading.value = false;
     cancelCurrentChat.value = null;
   }
@@ -1443,8 +1439,7 @@ const handleShareModeChange = async (mode: 'private' | 'public') => {
     
     shareMode.value = mode;
     linkCopied.value = false;
-  } catch (error) {
-    console.error('Error changing share mode:', error);
+  } catch {
     showErrorToast(t('Failed to change sharing settings'));
   } finally {
     sharingLoading.value = false;
@@ -1459,8 +1454,7 @@ const handleInstantShare = async () => {
     await agentApi.shareSession(sessionId.value);
     shareMode.value = 'public';
     linkCopied.value = false;
-  } catch (error) {
-    console.error('Error sharing session:', error);
+  } catch {
     showErrorToast(t('Failed to share session'));
   } finally {
     sharingLoading.value = false;
@@ -1484,8 +1478,7 @@ const handleCopyLink = async () => {
     } else {
       showErrorToast(t('Failed to copy link'));
     }
-  } catch (error) {
-    console.error('Error copying share link:', error);
+  } catch {
     showErrorToast(t('Failed to copy link'));
   }
 }

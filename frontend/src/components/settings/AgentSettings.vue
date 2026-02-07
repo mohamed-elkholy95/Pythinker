@@ -176,8 +176,8 @@ onMounted(async () => {
   try {
     const settings = await getSettings()
     localSettings.value = { ...localSettings.value, ...settings }
-  } catch (error) {
-    console.error('Failed to load settings:', error)
+  } catch {
+    // Settings load failed - using defaults
   }
 })
 
@@ -201,8 +201,8 @@ const saveSettings = async () => {
       browser_agent_timeout: localSettings.value.browser_agent_timeout,
       browser_agent_use_vision: localSettings.value.browser_agent_use_vision,
     })
-  } catch (error) {
-    console.error('Failed to save settings:', error)
+  } catch {
+    // Settings save failed silently
   }
 }
 </script>

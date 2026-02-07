@@ -33,8 +33,7 @@ const renderedContent = computed(() => {
     try {
         const html = marked.parse(content.value);
         return DOMPurify.sanitize(html as string);
-    } catch (error) {
-        console.error('Failed to render markdown:', error);
+    } catch {
         return `<pre class="text-sm text-red-500">Failed to render markdown content</pre>`;
     }
 });
@@ -45,8 +44,7 @@ watch(() => props.file.file_id, async (fileId) => {
         const blob = await downloadFile(fileId);
         const text = await blob.text();
         content.value = text;
-    } catch (error) {
-        console.error('Failed to load file content:', error);
+    } catch {
         content.value = '(Failed to load file content)';
     }
 }, { immediate: true });
