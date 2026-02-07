@@ -1059,6 +1059,14 @@ class AgentTaskRunner(TaskRunner):
         """Destroy the task and release resources"""
         logger.info("Starting to destroy agent task")
 
+        # Cleanup background tasks on the execution agent (e.g. background memory saves)
+        agent = self._get_tool_execution_agent()
+        if agent and hasattr(agent, "cleanup_background_tasks"):
+            try:
+                await agent.cleanup_background_tasks(timeout=5.0)
+            except Exception as e:
+                logger.warning(f"Background task cleanup failed for Agent {self._agent_id}: {e}")
+
         # Cleanup Manus agent factory session if available
         if self._agent_factory:
             logger.debug(f"Cleaning up Agent {self._agent_id}'s Manus factory session")

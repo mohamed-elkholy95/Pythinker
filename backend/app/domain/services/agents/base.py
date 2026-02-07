@@ -725,6 +725,18 @@ class BaseAgent:
             tool_calls = message["tool_calls"]
             tool_responses = []
 
+            # Check for hallucination loop escalation
+            if self._hallucination_detector.should_inject_correction_prompt():
+                correction = self._hallucination_detector.get_correction_prompt()
+                logger.warning(
+                    f"Hallucination loop detected ({self._hallucination_detector.hallucination_count} consecutive), "
+                    f"injecting correction prompt"
+                )
+                correction_messages = [{"role": "user", "content": correction}]
+                message = await self.ask_with_messages(correction_messages)
+                self._hallucination_detector.reset()
+                continue
+
             # Calculate iteration cost for this cycle
             iteration_cost = self._calculate_iteration_cost(tool_calls)
             iteration_spent += iteration_cost
@@ -1133,6 +1145,22 @@ class BaseAgent:
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
         logger.info(f"Handled token limit by trimming {tokens_removed} tokens (save in background)")
+
+    async def cleanup_background_tasks(self, timeout: float = 5.0) -> None:
+        """Await pending background tasks with timeout, cancel remaining, and clear the set."""
+        if not self._background_tasks:
+            return
+
+        pending = list(self._background_tasks)
+        logger.debug(f"Cleaning up {len(pending)} background tasks")
+
+        _done, not_done = await asyncio.wait(pending, timeout=timeout)
+        for task in not_done:
+            task.cancel()
+        if not_done:
+            logger.warning(f"Cancelled {len(not_done)} background tasks that did not complete within {timeout}s")
+
+        self._background_tasks.clear()
 
     async def ask(self, request: str, format: str | None = None) -> dict[str, Any]:
         return await self.ask_with_messages([{"role": "user", "content": request}], format)
