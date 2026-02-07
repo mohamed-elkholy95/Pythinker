@@ -93,6 +93,11 @@ def get_llm_from_factory() -> LLM | None:
 
     # Try to import optional providers
     try:
+        importlib.import_module("app.infrastructure.external.llm.anthropic_llm")
+    except ImportError:
+        logger.debug("Anthropic LLM provider not available")
+
+    try:
         importlib.import_module("app.infrastructure.external.llm.ollama_llm")
     except ImportError:
         logger.debug("Ollama LLM provider not available")

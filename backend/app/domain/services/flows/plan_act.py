@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from app.domain.external.browser import Browser
 from app.domain.external.llm import LLM
+from app.domain.external.logging import get_agent_logger
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
 from app.domain.models.event import (
@@ -65,6 +66,7 @@ from typing import TYPE_CHECKING
 
 from app.core.alert_manager import get_alert_manager
 from app.core.config import get_feature_flags, get_settings
+from app.domain.external.observability import get_metrics, get_tracer
 from app.domain.services.agents.compliance_gates import ComplianceReport, get_compliance_gates
 from app.domain.services.agents.error_handler import ErrorContext, ErrorHandler
 
@@ -105,8 +107,6 @@ from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.skill_creator import get_skill_creator_tools
 from app.domain.services.tools.skill_invoke import create_skill_invoke_tool
 from app.domain.services.validation.plan_validator import PlanValidator
-from app.infrastructure.observability import SpanKind, get_tracer
-from app.infrastructure.observability.prometheus_metrics import record_failure_prediction
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
@@ -148,6 +148,7 @@ class PlanActFlow(BaseFlow):
         self._repository = agent_repository
         self._session_id = session_id
         self._session_repository = session_repository
+        self._log = get_agent_logger(agent_id, session_id)
         self.status = AgentStatus.IDLE
         self.plan = None
 
@@ -662,7 +663,13 @@ class PlanActFlow(BaseFlow):
                 f"Forcing transition from {self.status.value} to {new_status.value}"
                 f"{' (' + reason + ')' if reason else ''}"
             )
+        old_status = self.status
         self.status = new_status
+        self._log.workflow_transition(
+            from_state=old_status.value,
+            to_state=new_status.value,
+            reason=reason,
+        )
 
     def _generate_acknowledgment(self, user_message: str) -> str:
         """Generate an acknowledgment message before starting to plan.
@@ -1349,14 +1356,12 @@ class PlanActFlow(BaseFlow):
         )
 
         # Capture transition with observability span
-        from app.infrastructure.observability.spans import SpanKind, SpanStatus
-
         trace_ctx = getattr(self, "_trace_context", None)
 
         span_name = f"workflow:{new_status.value}"
 
         if trace_ctx:
-            with trace_ctx.span(span_name, SpanKind.PLAN_CREATE) as span:
+            with trace_ctx.span(span_name, "plan_create") as span:
                 span.set_attribute("workflow.from_state", old_status.value)
                 span.set_attribute("workflow.to_state", new_status.value)
                 span.set_attribute("workflow.session_id", self._session_id)
@@ -1369,7 +1374,7 @@ class PlanActFlow(BaseFlow):
                     self._error_context = self._error_handler.classify_error(e)
                     self._transition_to(AgentStatus.ERROR, force=True, reason="state context error")
 
-                    span.set_status(SpanStatus.ERROR, str(e))
+                    span.set_status("error", str(e))
                     logger.error(
                         f"Agent {self._agent_id} error in state {new_status}",
                         extra={
@@ -1668,7 +1673,7 @@ class PlanActFlow(BaseFlow):
                 elif self.status == AgentStatus.PLANNING:
                     # Create plan with tracing
                     logger.info(f"Agent {self._agent_id} started creating plan")
-                    with trace_ctx.span("planning", SpanKind.PLAN_CREATE) as plan_span:
+                    with trace_ctx.span("planning", "plan_create") as plan_span:
                         # Pass replan context if we're replanning after verification
                         replan_context = self._verification_feedback if self._verification_verdict == "revise" else None
                         async for event in self.planner.create_plan(message, replan_context=replan_context):
@@ -1721,7 +1726,7 @@ class PlanActFlow(BaseFlow):
                 elif self.status == AgentStatus.VERIFYING:
                     # Verify plan before execution (Phase 1: Plan-Verify-Execute)
                     logger.info(f"Agent {self._agent_id} started verifying plan")
-                    with trace_ctx.span("verifying", SpanKind.AGENT_STEP) as verify_span:
+                    with trace_ctx.span("verifying", "agent_step") as verify_span:
                         async for event in self.verifier.verify_plan(
                             plan=self.plan, user_request=message.message, task_context=""
                         ):
@@ -1806,7 +1811,7 @@ class PlanActFlow(BaseFlow):
 
                     with trace_ctx.span(
                         f"step:{step.id}",
-                        SpanKind.AGENT_STEP,
+                        "agent_step",
                         {"step.id": step.id, "step.description": step.description[:100]},
                     ) as step_span:
                         # Mark step as in progress BEFORE execution starts
@@ -1885,7 +1890,7 @@ class PlanActFlow(BaseFlow):
                                 stuck_analysis=None,
                                 token_usage_pct=token_usage_pct,
                             )
-                            record_failure_prediction(
+                            get_metrics().record_failure_prediction(
                                 "predicted" if prediction.will_fail else "clear",
                                 prediction.probability,
                             )
@@ -1925,7 +1930,7 @@ class PlanActFlow(BaseFlow):
                 elif self.status == AgentStatus.UPDATING:
                     # Update plan with tracing
                     logger.info(f"Agent {self._agent_id} started updating plan")
-                    with trace_ctx.span("plan-update", SpanKind.PLAN_UPDATE) as update_span:
+                    with trace_ctx.span("plan-update", "plan_update") as update_span:
                         async for event in self.planner.update_plan(self.plan, step):
                             yield event
                         update_span.set_attribute(
@@ -1953,7 +1958,7 @@ class PlanActFlow(BaseFlow):
                     except Exception as e:
                         logger.warning(f"Failed to fetch session files: {e}")
 
-                    with trace_ctx.span("summarizing", SpanKind.AGENT_STEP) as summary_span:
+                    with trace_ctx.span("summarizing", "agent_step") as summary_span:
                         async for event in self.executor.summarize():
                             if isinstance(event, (ReportEvent, MessageEvent)):
                                 content = event.content if isinstance(event, ReportEvent) else event.message
@@ -2022,7 +2027,7 @@ class PlanActFlow(BaseFlow):
                 logger.error(f"Agent {self._agent_id} encountered error: {e}")
 
                 # Add error span with health assessment
-                with trace_ctx.span("error", SpanKind.ERROR_RECOVERY) as error_span:
+                with trace_ctx.span("error", "error_recovery") as error_span:
                     error_span.set_attribute("error.type", str(self._error_context.error_type))
                     error_span.set_attribute("error.recoverable", self._error_context.recoverable)
                     error_span.set_attribute("error.message", str(e)[:200])

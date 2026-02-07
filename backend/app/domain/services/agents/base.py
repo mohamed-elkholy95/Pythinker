@@ -6,6 +6,7 @@ from typing import Any
 
 from app.core.config import get_feature_flags
 from app.domain.external.llm import LLM
+from app.domain.external.logging import get_agent_logger
 from app.domain.models.agent import Agent
 from app.domain.models.event import (
     BaseEvent,
@@ -20,6 +21,7 @@ from app.domain.models.event import (
 from app.domain.models.message import Message
 from app.domain.models.search import SearchResultItem
 from app.domain.models.state_manifest import StateEntry, StateManifest
+from app.domain.models.tool_call import ToolCallEnvelope
 from app.domain.models.tool_result import ToolResult
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.services.agents.error_handler import ErrorHandler, ErrorType, TokenLimitExceededError
@@ -100,6 +102,9 @@ class BaseAgent:
         self.tools = tools
         self.memory = None
         self._background_tasks: set[asyncio.Task] = set()
+
+        # Structured agent logger
+        self._log = get_agent_logger(agent_id)
 
         # Initialize reliability components
         self._stuck_detector = StuckDetector(window_size=5, threshold=3)
@@ -414,18 +419,17 @@ class BaseAgent:
             tool_tracer = get_tool_tracer()
         start_time = time.perf_counter()
 
-        # Log tool invocation with parameter preview
-        logger.info(
-            "Tool invocation started",
-            extra={
-                "function_name": function_name,
-                "tool_name": tool.name,
-                "argument_keys": list(arguments.keys()),
-                "argument_preview": self._truncate_args_for_logging(arguments, max_len=100),
-                "session_id": getattr(self, "_session_id", None),
-                "agent_id": getattr(self, "_agent_id", None),
-            },
+        # Create standardized envelope for this tool call
+        tool_call_id = str(uuid.uuid4())
+        envelope = ToolCallEnvelope(
+            tool_call_id=tool_call_id,
+            tool_name=tool.name,
+            function_name=function_name,
+            arguments=arguments,
         )
+
+        # Log tool invocation via structured logger
+        log_start = self._log.tool_started(function_name, tool_call_id, arguments)
 
         # Pre-execution hallucination check (validates tool name and parameters)
         validation_result = self._hallucination_detector.validate_tool_call(
@@ -455,16 +459,18 @@ class BaseAgent:
         if not skip_security:
             security_assessment = self._security_assessor.assess_action(function_name, arguments)
             if security_assessment.blocked:
-                logger.warning(f"Security blocked tool '{function_name}': {security_assessment.reason}")
+                self._log.security_event("blocked", function_name, security_assessment.reason)
+                envelope.mark_blocked(security_assessment.reason)
                 return ToolResult(success=False, message=f"Action blocked for security: {security_assessment.reason}")
 
             if security_assessment.risk_level == ActionSecurityRisk.HIGH:
-                logger.info(f"High-risk tool call: {function_name} - {security_assessment.reason}")
+                self._log.security_event("high_risk", function_name, security_assessment.reason)
 
         retries = 0
         current_interval = self.retry_interval
         last_error = ""
         result: ToolResult | None = None
+        envelope.mark_started()
 
         while retries <= self.max_retries:
             try:
@@ -520,6 +526,17 @@ class BaseAgent:
                 except Exception:
                     pass
 
+                # Mark envelope completed and log
+                envelope.mark_completed(
+                    success=result.success if result else False,
+                    message=result.message if result else None,
+                )
+                self._log.tool_completed(
+                    function_name, tool_call_id, log_start,
+                    success=result.success if result else False,
+                    message=result.message if result else None,
+                )
+
                 return result
             except Exception as e:
                 last_error = str(e)
@@ -528,7 +545,8 @@ class BaseAgent:
                     await asyncio.sleep(current_interval)
                     current_interval *= self.retry_backoff  # Exponential backoff
                 else:
-                    logger.exception(f"Tool execution failed, {function_name}, {arguments}")
+                    self._log.tool_failed(function_name, tool_call_id, last_error, log_start)
+                    envelope.mark_failed(last_error)
                     break
 
         # Record failed execution with profiler

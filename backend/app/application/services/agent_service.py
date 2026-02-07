@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Optional
 
+from app.application.services.usage_service import get_usage_service
 from app.core.config import get_settings
 from app.core.sandbox_pool import get_sandbox_pool
 from app.domain.external.file import FileStorage
@@ -71,11 +72,17 @@ class AgentService:
             search_engine,
             memory_service,
             mongodb_db,
+            usage_recorder=self._record_usage,
         )
         self._llm = llm
         self._search_engine = search_engine
         self._sandbox_cls = sandbox_cls
         self._background_tasks: set[asyncio.Task] = set()
+
+    async def _record_usage(self, user_id: str, session_id: str) -> None:
+        """Record tool call usage via the application usage service."""
+        usage_service = get_usage_service()
+        await usage_service.record_tool_call(user_id=user_id, session_id=session_id)
 
     async def create_session(
         self,
@@ -270,6 +277,16 @@ class AgentService:
         deep_research: bool | None = None,
     ) -> AsyncGenerator[AgentEvent, None]:
         logger.info(f"Starting chat with session {session_id}: {(message or '')[:50]}...")
+
+        # Set correlation IDs for structured logging throughout the call chain
+        try:
+            from app.infrastructure.structured_logging import set_session_id, set_user_id
+
+            set_session_id(session_id)
+            set_user_id(user_id)
+        except ImportError:
+            pass  # Structured logging not available
+
         # Directly use the domain service's chat method, which will check if the session exists
         async for event in self._agent_domain_service.chat(
             session_id, user_id, message, timestamp, event_id, attachments, skills, deep_research

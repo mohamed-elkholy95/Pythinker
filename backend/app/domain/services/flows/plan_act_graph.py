@@ -22,6 +22,7 @@ from app.core.alert_manager import get_alert_manager
 from app.core.config import get_feature_flags, get_settings
 from app.domain.external.browser import Browser
 from app.domain.external.llm import LLM
+from app.domain.external.observability import get_metrics, get_tracer
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
 from app.domain.models.event import (
@@ -64,8 +65,6 @@ from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.shell import ShellTool
 from app.domain.services.validation.plan_validator import PlanValidator
 from app.domain.utils.json_parser import JsonParser
-from app.infrastructure.observability import get_tracer
-from app.infrastructure.observability.prometheus_metrics import record_failure_prediction
 
 logger = logging.getLogger(__name__)
 
@@ -307,7 +306,7 @@ def create_plan_act_graph() -> WorkflowGraph:
                     stuck_analysis=None,
                     token_usage_pct=token_usage_pct,
                 )
-                record_failure_prediction(
+                get_metrics().record_failure_prediction(
                     "predicted" if prediction.will_fail else "clear",
                     prediction.probability,
                 )

@@ -22,6 +22,8 @@ user_id_var: ContextVar[str | None] = ContextVar("user_id", default=None)
 agent_id_var: ContextVar[str | None] = ContextVar("agent_id", default=None)
 
 REDACTED_VALUE = "***REDACTED***"
+# Recursion guard: prevents redact_event_dict -> get_settings -> validate -> logger.warning -> redact_event_dict
+_in_redact: ContextVar[bool] = ContextVar("_in_redact", default=False)
 _DEFAULT_REDACTION_KEYS = {
     "api_key",
     "apikey",
@@ -94,15 +96,22 @@ def redact_event_dict(logger: Any, method_name: str, event_dict: EventDict) -> E
     Returns:
         The event dictionary with sensitive values redacted
     """
-    settings = get_settings()
-    if not settings.log_redaction_enabled:
+    # Guard against recursion: get_settings().validate() may log warnings,
+    # which re-triggers this processor and causes infinite recursion.
+    if _in_redact.get(False):
         return event_dict
+    token = _in_redact.set(True)
     try:
+        settings = get_settings()
+        if not settings.log_redaction_enabled:
+            return event_dict
         redaction_keys = _parse_redaction_keys(settings.log_redaction_keys)
         return _redact_object(event_dict, redaction_keys, settings.log_redaction_max_depth)
     except Exception:
         # Fail-open: do not block logging
         return event_dict
+    finally:
+        _in_redact.reset(token)
 
 
 def set_request_id(request_id: str) -> None:

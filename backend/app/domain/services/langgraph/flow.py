@@ -17,6 +17,8 @@ from typing import Any
 from app.core.config import get_feature_flags, get_settings
 from app.domain.external.browser import Browser
 from app.domain.external.llm import LLM
+from app.domain.external.logging import get_agent_logger
+from app.domain.external.observability import get_tracer
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
 from app.domain.models.event import BaseEvent, StreamEvent, ToolEvent
@@ -44,7 +46,6 @@ from app.domain.services.tools.message import MessageTool
 from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.shell import ShellTool
 from app.domain.utils.json_parser import JsonParser
-from app.infrastructure.observability import get_tracer
 
 # BrowserAgentTool is optional (requires browser_use package)
 try:
@@ -114,6 +115,7 @@ class LangGraphPlanActFlow(BaseFlow):
         self._repository = agent_repository
         self._session_id = session_id
         self._session_repository = session_repository
+        self._log = get_agent_logger(agent_id, session_id)
         self._user_id = user_id
         self._memory_service = memory_service
 
@@ -209,7 +211,7 @@ class LangGraphPlanActFlow(BaseFlow):
         self._graph = create_plan_act_graph(checkpointer=checkpointer)
         self._checkpointer = checkpointer
 
-        logger.info(f"LangGraphPlanActFlow initialized for Agent {agent_id}")
+        self._log.info("LangGraphPlanActFlow initialized")
 
     async def run(self, message: Message) -> AsyncGenerator[BaseEvent, None]:
         """Execute the plan-act workflow.
@@ -323,7 +325,7 @@ class LangGraphPlanActFlow(BaseFlow):
                                 for event in pending_events:
                                     await event_queue.put(event)
             except Exception as e:
-                logger.error(f"Graph execution error: {e}")
+                self._log.error(f"Graph execution error: {e}")
             finally:
                 # Signal completion
                 await event_queue.put(None)
@@ -345,7 +347,7 @@ class LangGraphPlanActFlow(BaseFlow):
                 with contextlib.suppress(asyncio.CancelledError):
                     await graph_task
 
-        logger.info(f"LangGraphPlanActFlow completed for Agent {self._agent_id}")
+        self._log.workflow_transition(from_state="running", to_state="completed", reason="graph finished")
 
     async def resume(self, human_input: str) -> AsyncGenerator[BaseEvent, None]:
         """Resume workflow after human-in-the-loop interrupt.

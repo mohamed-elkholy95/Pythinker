@@ -855,6 +855,10 @@ def is_diagnostic_task(step_description: str) -> bool:
 def is_research_task(step_description: str) -> bool:
     """Determine if a task involves research or content extraction.
 
+    Uses the canonical RESEARCH_INDICATORS list from this module for
+    step-level research detection. For task-level detection, use
+    app.domain.services.prompts.research.is_research_task instead.
+
     Args:
         step_description: The step description to analyze
 
