@@ -26,7 +26,7 @@ class SearchEngineType(str, Enum):
 
     API = "api"  # JSON API-based (Google, Brave, Tavily)
     SCRAPER = "scraper"  # HTML scraping-based (Bing, Baidu, DuckDuckGo)
-    HYBRID = "hybrid"  # Both JSON and HTML (Whoogle)
+    HYBRID = "hybrid"  # Both JSON and HTML
 
 
 class SearchEngineBase(ABC, SearchEngine):

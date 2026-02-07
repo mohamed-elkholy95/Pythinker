@@ -16,7 +16,7 @@ class UserSettings(BaseModel):
     max_tokens: int = 8000
 
     # Search Provider settings
-    search_provider: str = "duckduckgo"  # "bing", "google", "duckduckgo", "brave", "whoogle", "baidu", "tavily", "serper"
+    search_provider: str = "duckduckgo"  # "bing", "google", "duckduckgo", "brave", "baidu", "tavily", "serper"
 
     # Browser Agent settings
     browser_agent_max_steps: int = 25

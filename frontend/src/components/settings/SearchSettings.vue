@@ -110,7 +110,6 @@ const providerDescriptions: Record<string, string> = {
   google: 'Google Custom Search for precise and relevant results',
   duckduckgo: 'Privacy-focused search that doesn\'t track you',
   brave: 'Independent search with privacy-preserving features',
-  whoogle: 'Google results without tracking or ads',
   baidu: 'Chinese-language search optimized for local content',
   tavily: 'AI-powered search designed for LLM applications',
   serper: 'Google Search results via Serper.dev API (2500 free/mo)',
@@ -123,7 +122,6 @@ const getProviderIcon = (providerId: string) => {
     google: Search,
     duckduckgo: Shield,
     brave: Shield,
-    whoogle: Search,
     baidu: Globe,
     tavily: Zap,
     serper: Search,
@@ -138,7 +136,6 @@ const getProviderClass = (providerId: string) => {
     google: 'provider-google',
     duckduckgo: 'provider-duckduckgo',
     brave: 'provider-brave',
-    whoogle: 'provider-whoogle',
     baidu: 'provider-baidu',
     tavily: 'provider-tavily',
     serper: 'provider-serper',
@@ -333,7 +330,6 @@ const saveSettings = async (value: string) => {
 .provider-google { background: linear-gradient(135deg, #4285f4 0%, #3367d6 100%); }
 .provider-duckduckgo { background: linear-gradient(135deg, #de5833 0%, #c74a29 100%); }
 .provider-brave { background: linear-gradient(135deg, #fb542b 0%, #e04422 100%); }
-.provider-whoogle { background: linear-gradient(135deg, #1a73e8 0%, #1557b0 100%); }
 .provider-baidu { background: linear-gradient(135deg, #2932e1 0%, #1f26b8 100%); }
 .provider-tavily { background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%); }
 .provider-serper { background: linear-gradient(135deg, #4285f4 0%, #2b6cb0 100%); }

@@ -1,7 +1,7 @@
 """Search Provider Factory
 
 Registry pattern for dynamically selecting search providers based on configuration.
-Supports: bing, google, baidu, whoogle, duckduckgo, brave, tavily, serper
+Supports: bing, google, baidu, duckduckgo, brave, tavily, serper
 """
 
 import importlib
@@ -107,11 +107,6 @@ def get_search_engine_from_factory() -> SearchEngine | None:
         logger.debug("Serper search provider not available")
 
     try:
-        importlib.import_module("app.infrastructure.external.search.whoogle_search")
-    except ImportError:
-        logger.debug("Whoogle search provider not available")
-
-    try:
         importlib.import_module("app.infrastructure.external.search.bing_search")
     except ImportError:
         logger.debug("Bing search provider not available")
@@ -143,9 +138,6 @@ def get_search_engine_from_factory() -> SearchEngine | None:
         kwargs["api_key"] = settings.google_search_api_key
         kwargs["cx"] = settings.google_search_engine_id
 
-    elif provider == "whoogle":
-        kwargs["base_url"] = settings.whoogle_url
-
     elif provider == "brave":
         if not settings.brave_search_api_key:
             logger.warning("Brave Search not configured: missing API key")
@@ -157,6 +149,23 @@ def get_search_engine_from_factory() -> SearchEngine | None:
             logger.warning("Tavily Search not configured: missing API key")
             return None
         kwargs["api_key"] = settings.tavily_api_key
+        # Collect fallback keys for auto-rotation on quota/billing errors
+        fallback_keys = [
+            k
+            for k in [
+                settings.tavily_api_key_2,
+                settings.tavily_api_key_3,
+                settings.tavily_api_key_4,
+                settings.tavily_api_key_5,
+                settings.tavily_api_key_6,
+                settings.tavily_api_key_7,
+                settings.tavily_api_key_8,
+                settings.tavily_api_key_9,
+            ]
+            if k
+        ]
+        if fallback_keys:
+            kwargs["fallback_api_keys"] = fallback_keys
 
     elif provider == "serper":
         if not settings.serper_api_key:
