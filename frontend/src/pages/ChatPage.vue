@@ -5,10 +5,6 @@
         class="chat-header flex flex-row items-center py-3 sticky top-0 z-10 flex-shrink-0">
         <!-- Left side - panel toggle -->
         <div class="flex items-center justify-start" style="width: calc((100% - min(768px, 100%)) / 2);">
-          <div @click="toggleLeftPanel" v-if="!isLeftPanelShow"
-            class="flex h-8 w-8 items-center justify-center cursor-pointer rounded-lg hover:bg-[var(--fill-tsp-gray-main)] transition-colors">
-            <PanelLeft class="size-5 text-[var(--icon-secondary)]" />
-          </div>
         </div>
         <!-- Center content - matches chat content width -->
         <div class="max-w-full sm:max-w-[768px] sm:min-w-[390px] w-full flex items-center justify-between gap-3">
@@ -179,9 +175,8 @@
           >
             <!-- Content row -->
             <div class="flex items-center gap-3">
-              <div class="planning-orbit flex-shrink-0">
-                <div class="orbit-core"></div>
-                <div class="orbit-dot"></div>
+              <div class="planning-thinking flex-shrink-0">
+                <ThinkingIndicator :showText="false" />
               </div>
               <div class="flex-1 min-w-0">
                 <span class="planning-text-shimmer text-[15px] font-medium">
@@ -282,7 +277,7 @@ import {
 import type { DeepResearchContent } from '../types/message';
 import Suggestions from '../components/Suggestions.vue';
 import ToolPanel from '../components/ToolPanel.vue'
-import { ArrowDown, FileSearch, PanelLeft, Lock, Globe, Link, Check } from 'lucide-vue-next';
+import { ArrowDown, FileSearch, Lock, Globe, Link, Check } from 'lucide-vue-next';
 import ShareIcon from '@/components/icons/ShareIcon.vue';
 import { showErrorToast, showSuccessToast } from '../utils/toast';
 import type { FileInfo } from '../api/file';
@@ -307,7 +302,7 @@ import { useSkills } from '@/composables/useSkills';
 
 const router = useRouter()
 const { t } = useI18n()
-const { toggleLeftPanel, isLeftPanelShow } = useLeftPanel()
+useLeftPanel()
 const { showSessionFileList } = useSessionFileList()
 const { hideFilePanel } = useFilePanel()
 const { isReportModalOpen, currentReport, openReport, closeReport } = useReport()
@@ -1583,34 +1578,9 @@ const handleCopyLink = async () => {
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
 }
 
-.planning-orbit {
-  position: relative;
-  width: 28px;
-  height: 28px;
-}
-
-.orbit-core {
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--text-brand);
-  box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.12);
-  animation: orbit-pulse 1.6s ease-in-out infinite;
-}
-
-.orbit-dot {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: #111827;
-  transform: translate(-50%, -50%) rotate(0deg) translateX(12px);
-  animation: orbit-spin 1.6s linear infinite;
+.planning-thinking :deep(.thinking-shape) {
+  width: 14px;
+  height: 14px;
 }
 
 .planning-percent {
@@ -1669,11 +1639,6 @@ const handleCopyLink = async () => {
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
 }
 
-:deep(.dark) .orbit-dot,
-.dark .orbit-dot {
-  background: #f8fafc;
-}
-
 @keyframes planning-shimmer {
   0% {
     background-position: 100% 50%;
@@ -1686,27 +1651,4 @@ const handleCopyLink = async () => {
   }
 }
 
-@keyframes orbit-spin {
-  0% {
-    transform: translate(-50%, -50%) rotate(0deg) translateX(12px);
-  }
-  100% {
-    transform: translate(-50%, -50%) rotate(360deg) translateX(12px);
-  }
-}
-
-@keyframes orbit-pulse {
-  0% {
-    transform: scale(1);
-    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
-  }
-  50% {
-    transform: scale(1.1);
-    box-shadow: 0 0 0 8px rgba(59, 130, 246, 0.18);
-  }
-  100% {
-    transform: scale(1);
-    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
-  }
-}
 </style>

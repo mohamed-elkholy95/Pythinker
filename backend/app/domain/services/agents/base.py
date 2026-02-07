@@ -822,9 +822,18 @@ class BaseAgent:
 
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
+                # Re-raise cancellation signals before processing results
+                for result in results:
+                    if isinstance(result, (asyncio.CancelledError, KeyboardInterrupt)):
+                        raise result
+
                 # Process results and emit CALLED events
+                if len(parsed_calls) != len(results):
+                    logger.error(
+                        f"Parallel execution result count mismatch: {len(parsed_calls)} calls vs {len(results)} results"
+                    )
                 for (tool_call, tool_call_id, function_args, tool, security_assessment), result in zip(
-                    parsed_calls, results, strict=False
+                    parsed_calls, results, strict=True
                 ):
                     function_name = tool_call["function"]["name"]
                     if isinstance(result, Exception):

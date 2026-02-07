@@ -488,8 +488,9 @@ class AnthropicLLM(LLM):
         if self._temperature is not None:
             params["temperature"] = min(1.0, max(0.0, self._temperature))
 
+        # Apply cache control to system prompt for token savings (same as ask())
         if system_prompt:
-            params["system"] = system_prompt
+            params["system"] = self._prepare_system_with_caching(system_prompt, enable_caching)
 
         if tools:
             params["tools"] = self._convert_openai_tools_to_anthropic(tools)

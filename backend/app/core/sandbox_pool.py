@@ -62,11 +62,12 @@ class SandboxPool:
         self._background_tasks: set[asyncio.Task] = set()
         self._started = False
         self._stopping = False
-        # Circuit breaker for sandbox creation failures
+        # Circuit breaker for sandbox creation failures (with exponential backoff)
         self._consecutive_failures = 0
         self._max_consecutive_failures = 5
         self._circuit_open = False
         self._circuit_reset_time: float = 0
+        self._circuit_open_count = 0  # How many times circuit has opened (for backoff)
 
     @property
     def size(self) -> int:
@@ -214,21 +215,24 @@ class SandboxPool:
             # Phase 1: Pre-warm browser context for instant use
             await self._prewarm_browser(sandbox)
 
-            # Success - reset failure counter
+            # Success - reset failure counters
             self._consecutive_failures = 0
+            self._circuit_open_count = 0
             return sandbox
 
         except Exception as e:
             logger.error(f"Failed to create/verify sandbox for pool: {e}")
             self._consecutive_failures += 1
 
-            # Open circuit breaker after too many failures
+            # Open circuit breaker after too many failures (exponential backoff)
             if self._consecutive_failures >= self._max_consecutive_failures:
                 self._circuit_open = True
-                self._circuit_reset_time = time.time() + 60  # Reset after 60 seconds
+                self._circuit_open_count += 1
+                backoff_seconds = min(60 * (2 ** (self._circuit_open_count - 1)), 300)  # 60s → 120s → 240s → 300s cap
+                self._circuit_reset_time = time.time() + backoff_seconds
                 logger.error(
-                    f"Circuit breaker opened after {self._consecutive_failures} consecutive failures. "
-                    "Will retry in 60 seconds."
+                    f"Circuit breaker opened after {self._consecutive_failures} consecutive failures "
+                    f"(open count: {self._circuit_open_count}). Will retry in {backoff_seconds} seconds."
                 )
 
             return None
@@ -272,19 +276,27 @@ class SandboxPool:
             # Non-fatal - browser will be initialized on first use
             logger.warning(f"Browser pre-warm failed (non-fatal) for sandbox {sandbox.id}: {e}")
         finally:
-            # Disconnect Playwright but DO NOT close the browser context
-            # The context needs to stay open for later use by the agent
+            # Close browser resources properly to prevent connection leaks
             if browser:
                 try:
-                    # Only disconnect, don't close context/pages
+                    if browser.context:
+                        await browser.context.close()
+                except Exception as ctx_err:
+                    logger.debug(f"Browser context close error (non-fatal): {ctx_err}")
+                try:
+                    if browser.browser:
+                        await browser.browser.close()
+                except Exception as br_err:
+                    logger.debug(f"Browser close error (non-fatal): {br_err}")
+                try:
                     if browser.playwright:
                         await browser.playwright.stop()
-                    browser.page = None
-                    browser.context = None
-                    browser.browser = None
-                    browser.playwright = None
-                except Exception as cleanup_error:
-                    logger.debug(f"Browser pre-warm disconnect error (non-fatal): {cleanup_error}")
+                except Exception as pw_err:
+                    logger.debug(f"Playwright stop error (non-fatal): {pw_err}")
+                browser.page = None
+                browser.context = None
+                browser.browser = None
+                browser.playwright = None
 
     async def _replenish_one(self) -> None:
         """Add one sandbox to pool if below minimum."""

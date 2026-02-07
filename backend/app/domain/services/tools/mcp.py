@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import logging
 import os
@@ -1281,6 +1282,7 @@ class MCPTool(BaseTool):
         self.manager: MCPClientManager | None = None
         self._config: MCPConfig | None = None
         self._lazy_init_pending = False  # Phase 5: Track if lazy init is pending
+        self._init_lock = asyncio.Lock()  # Prevent concurrent initialization races
 
     async def initialized(self, config: MCPConfig | None = None):
         """Ensure manager is initialized.
@@ -1295,15 +1297,19 @@ class MCPTool(BaseTool):
         if self._initialized:
             return
 
-        self._config = config
+        async with self._init_lock:
+            if self._initialized:
+                return
 
-        if settings.mcp_lazy_init:
-            # Phase 5: Defer initialization until first tool call
-            self._lazy_init_pending = True
-            logger.info("MCP lazy initialization enabled - deferring until first use")
-        else:
-            # Immediate initialization (original behavior)
-            await self._do_initialize()
+            self._config = config
+
+            if settings.mcp_lazy_init:
+                # Phase 5: Defer initialization until first tool call
+                self._lazy_init_pending = True
+                logger.info("MCP lazy initialization enabled - deferring until first use")
+            else:
+                # Immediate initialization (original behavior)
+                await self._do_initialize()
 
     async def _do_initialize(self):
         """Perform actual MCP initialization."""
@@ -1323,10 +1329,18 @@ class MCPTool(BaseTool):
         logger.info(f"MCP initialized with {len(self._tools)} tools")
 
     async def _ensure_initialized(self):
-        """Ensure MCP is initialized before use (for lazy init)."""
-        if self._lazy_init_pending and not self._initialized:
-            logger.info("MCP lazy initialization triggered by first use")
-            await self._do_initialize()
+        """Ensure MCP is initialized before use (for lazy init).
+
+        Uses a lock to prevent concurrent initialization races where
+        multiple callers see _initialized=False simultaneously.
+        """
+        if self._initialized:
+            return
+        async with self._init_lock:
+            # Double-check after acquiring lock
+            if self._lazy_init_pending and not self._initialized:
+                logger.info("MCP lazy initialization triggered by first use")
+                await self._do_initialize()
 
     def get_tools(self) -> list[dict[str, Any]]:
         """Get all tool definitions including resource management tools.

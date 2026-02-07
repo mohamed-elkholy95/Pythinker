@@ -561,19 +561,25 @@ class SearchTool(BaseTool):
         variants = QueryExpander.expand(query, search_type, max_variants)
         logger.info(f"Expanded query into {len(variants)} variants: {variants}")
 
-        # Execute all variants concurrently
-        results = await self.batch_search(variants, date_range, search_type)
-
-        # Aggregate results
+        # Execute variants concurrently with early deduplication
+        # Use a shared seen_urls set so later variants skip already-found URLs
         all_items = []
-        seen_urls = set()
+        seen_urls: set[str] = set()
+        semaphore = asyncio.Semaphore(3)
 
-        for result in results:
-            if result.success and result.data:
-                for item in result.data.results:
-                    if item.link not in seen_urls:
-                        seen_urls.add(item.link)
-                        all_items.append(item)
+        async def search_and_dedup(query: str) -> None:
+            async with semaphore:
+                result = await self._execute_typed_search(query, date_range, search_type)
+                if result.success and result.data:
+                    for item in result.data.results:
+                        if item.link not in seen_urls:
+                            seen_urls.add(item.link)
+                            all_items.append(item)
+
+        await asyncio.gather(
+            *[search_and_dedup(v) for v in variants],
+            return_exceptions=True,
+        )
 
         # Create aggregated result
         from app.domain.models.search import SearchResults
@@ -859,14 +865,26 @@ wide_research(
             results=all_items[:20],  # Top 20 results
         )
 
-        # Return failure if no results found
+        # Return failure if no results found — distinguish error types
         if not all_items:
-            error_detail = f" Errors: {', '.join(errors[:3])}" if errors else ""
+            if len(errors) == len(all_queries):
+                # All queries failed (API errors, network issues)
+                return ToolResult(
+                    success=False,
+                    message=(
+                        f"[WIDE RESEARCH] All {len(all_queries)} queries failed for '{topic}'. "
+                        f"Search API errors: {', '.join(errors[:3])}"
+                    ),
+                    data=search_data,
+                )
+            # Queries succeeded but returned no results
+            error_detail = f" ({len(errors)} query errors)" if errors else ""
             return ToolResult(
                 success=False,
                 message=(
                     f"[WIDE RESEARCH] No results found for '{topic}' "
-                    f"after {len(all_queries)} queries across {len(stypes)} search types.{error_detail}"
+                    f"after {len(all_queries)} queries across {len(stypes)} search types.{error_detail} "
+                    "Try broadening the search terms or using different keywords."
                 ),
                 data=search_data,
             )

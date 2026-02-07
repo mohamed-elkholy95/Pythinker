@@ -920,7 +920,14 @@ class AgentTaskRunner(TaskRunner):
                 config = await self._mcp_repository.get_mcp_config()
                 await self._mcp_tool.initialized(config)
 
-            await asyncio.gather(self._sandbox.ensure_sandbox(), init_mcp(), return_exceptions=True)
+            init_results = await asyncio.gather(
+                self._sandbox.ensure_sandbox(), init_mcp(), return_exceptions=True
+            )
+            # Log initialization failures but allow agent to continue (graceful degradation)
+            for i, result in enumerate(init_results):
+                if isinstance(result, Exception):
+                    component = "sandbox" if i == 0 else "MCP"
+                    logger.error(f"Agent {self._agent_id} {component} init failed: {result}")
             logger.debug(f"Agent {self._agent_id} concurrent initialization completed")
             while not await task.input_stream.is_empty():
                 event = await self._pop_event(task)

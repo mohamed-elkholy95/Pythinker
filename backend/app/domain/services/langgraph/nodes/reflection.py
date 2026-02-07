@@ -161,7 +161,7 @@ async def reflection_node(state: PlanActState) -> dict[str, Any]:
         if stuck_guidance:
             additional_guidance.append(stuck_guidance)
 
-        # Severe stuck patterns may require replanning
+        # Severe stuck patterns may require replanning or aborting
         severe_patterns = {
             LoopType.TOOL_FAILURE_CASCADE,
             LoopType.REPEATING_ACTION_ERROR,
@@ -169,8 +169,16 @@ async def reflection_node(state: PlanActState) -> dict[str, Any]:
         }
 
         if stuck_analysis.loop_type in severe_patterns and stuck_analysis.confidence > 0.8:
-            decision = "replan"
-            feedback = f"Stuck in {stuck_analysis.loop_type.value}: {stuck_analysis.details}"
+            # Very high confidence stuck with cascade = abort (summarize what we have)
+            if stuck_analysis.confidence > 0.95 and stuck_analysis.loop_type == LoopType.TOOL_FAILURE_CASCADE:
+                decision = "abort"
+                feedback = (
+                    f"Aborting: systemic failure in {stuck_analysis.loop_type.value} "
+                    f"(confidence: {stuck_analysis.confidence:.0%}). {stuck_analysis.details}"
+                )
+            else:
+                decision = "replan"
+                feedback = f"Stuck in {stuck_analysis.loop_type.value}: {stuck_analysis.details}"
 
     # === P0: Grounding Validation ===
     # Check if recent execution results are grounded in context

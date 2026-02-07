@@ -218,6 +218,8 @@ class TokenManager:
             cache_key = self._get_content_hash(text)
             if cache_key in self._token_cache:
                 self._cache_hits += 1
+                # Move to end for LRU ordering
+                self._token_cache[cache_key] = self._token_cache.pop(cache_key)
                 return self._token_cache[cache_key]
             self._cache_misses += 1
 
@@ -227,12 +229,10 @@ class TokenManager:
         # Store in cache
         if self._enable_cache:
             self._token_cache[cache_key] = count
-            # Evict oldest entries if cache is full
+            # Evict single oldest entry (LRU) when cache is full
             if len(self._token_cache) > self.TOKEN_CACHE_MAX_SIZE:
-                # Remove first 10% of entries (simple eviction)
-                keys_to_remove = list(self._token_cache.keys())[: self.TOKEN_CACHE_MAX_SIZE // 10]
-                for key in keys_to_remove:
-                    del self._token_cache[key]
+                oldest_key = next(iter(self._token_cache))
+                del self._token_cache[oldest_key]
 
         return count
 
@@ -438,6 +438,10 @@ class TokenManager:
         all_kept.sort(key=lambda x: x[0])  # Restore original order
 
         trimmed_messages = [msg for _, msg in all_kept]
+
+        # Validate: remove orphaned tool responses whose assistant tool_call was trimmed
+        trimmed_messages = self._remove_orphaned_tool_responses(trimmed_messages)
+
         tokens_removed = total_tokens - self.count_messages_tokens(trimmed_messages)
 
         logger.info(
@@ -446,6 +450,33 @@ class TokenManager:
         )
 
         return trimmed_messages, tokens_removed
+
+    def _remove_orphaned_tool_responses(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Remove tool responses whose parent assistant tool_call is missing."""
+        # Collect all tool_call IDs from assistant messages
+        valid_tool_call_ids: set[str] = set()
+        for msg in messages:
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                for tc in msg["tool_calls"]:
+                    tc_id = tc.get("id")
+                    if tc_id:
+                        valid_tool_call_ids.add(tc_id)
+
+        # Filter out tool responses that reference missing tool_calls
+        cleaned = []
+        orphan_count = 0
+        for msg in messages:
+            if msg.get("role") == "tool":
+                tool_call_id = msg.get("tool_call_id")
+                if tool_call_id and tool_call_id not in valid_tool_call_ids:
+                    orphan_count += 1
+                    continue
+            cleaned.append(msg)
+
+        if orphan_count > 0:
+            logger.warning(f"Removed {orphan_count} orphaned tool responses during trimming")
+
+        return cleaned
 
     def _group_tool_messages(self, messages: list[dict[str, Any]]) -> list[list[tuple[int, dict[str, Any]]]]:
         """

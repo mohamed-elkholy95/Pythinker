@@ -101,7 +101,7 @@ class PlanActState(TypedDict, total=False):
         verification_loops: Number of verification loop iterations
         max_verification_loops: Maximum verification attempts
 
-        reflection_decision: Decision from reflection ("continue", "adjust", "replan", "escalate")
+        reflection_decision: Decision from reflection ("continue", "adjust", "replan", "escalate", "abort")
         last_had_error: Whether the last step had an error
 
         error: Current error message if any
@@ -141,7 +141,7 @@ class PlanActState(TypedDict, total=False):
     max_verification_loops: int
 
     # Reflection state (Phase 2: Enhanced Self-Reflection)
-    reflection_decision: str | None  # "continue", "adjust", "replan", "escalate"
+    reflection_decision: str | None  # "continue", "adjust", "replan", "escalate", "abort"
     last_had_error: bool
     # Plan validation state (Phase 1: Pre-validation)
     plan_validation_failed: bool

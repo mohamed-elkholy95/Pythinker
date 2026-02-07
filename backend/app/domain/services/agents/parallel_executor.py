@@ -180,17 +180,24 @@ class ParallelToolExecutor:
         Returns:
             True if call depends on prior
         """
-        # File operations on same path
+        # File operations on same path (tools use "file" parameter, not "path")
         if "file_" in call.tool_name and "file_" in prior.tool_name:
-            call_path = call.arguments.get("path", "")
-            prior_path = prior.arguments.get("path", "")
+            call_path = call.arguments.get("file", "") or call.arguments.get("path", "")
+            prior_path = prior.arguments.get("file", "") or prior.arguments.get("path", "")
             if (
                 call_path
                 and prior_path
                 and call_path == prior_path
-                and call.tool_name in ("file_write", "file_append", "file_delete")
+                and call.tool_name in ("file_write", "file_append", "file_delete", "file_str_replace")
             ):
-                # Write after read/write is dependent
+                # Write/modify after any file op on same path is dependent
+                return True
+
+        # Shell operations: sequential by default (shared state: cwd, env vars)
+        if "shell_" in call.tool_name and "shell_" in prior.tool_name:
+            call_id = call.arguments.get("id", "")
+            prior_id = prior.arguments.get("id", "")
+            if call_id and prior_id and call_id == prior_id:
                 return True
 
         # Browser operations

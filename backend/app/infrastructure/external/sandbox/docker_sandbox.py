@@ -29,7 +29,7 @@ class DockerSandbox(Sandbox):
     def __init__(self, ip: str | None = None, container_name: str | None = None):
         """Initialize Docker sandbox and API interaction client"""
         settings = get_settings()
-        self.client = httpx.AsyncClient(timeout=600)
+        self._client: httpx.AsyncClient | None = httpx.AsyncClient(timeout=600)
         # Resolve hostname to IP if needed (Chrome CDP requires IP, not hostname)
         raw_address = ip or settings.sandbox_address or "localhost"
         self.ip = self._resolve_to_ip(raw_address)
@@ -38,6 +38,17 @@ class DockerSandbox(Sandbox):
         self._cdp_url = f"http://{self.ip}:9222"
         self._framework_url = f"http://{self.ip}:{settings.sandbox_framework_port}"
         self._container_name = container_name
+
+    @property
+    def client(self) -> httpx.AsyncClient:
+        """Auto-healing httpx client — recreates if closed or None."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=600)
+        return self._client
+
+    @client.setter
+    def client(self, value: httpx.AsyncClient | None) -> None:
+        self._client = value
 
     @staticmethod
     def _resolve_to_ip(address: str) -> str:
@@ -351,6 +362,13 @@ class DockerSandbox(Sandbox):
                 logger.info(f"Sandbox fully ready: {len(services)} services running, browser healthy")
                 return  # Success - all checks passed
 
+            except httpx.ConnectError:
+                # Connection refused — sandbox container is not reachable, reduce retries
+                if attempt >= 5:
+                    logger.error(f"Sandbox unreachable after {attempt + 1} attempts, giving up")
+                    return
+                logger.warning(f"Sandbox unreachable (attempt {attempt + 1}/{max_retries})")
+                await asyncio.sleep(retry_interval)
             except Exception as e:
                 logger.warning(f"Failed to check sandbox status (attempt {attempt + 1}/{max_retries}): {e!s}")
                 await asyncio.sleep(retry_interval)
@@ -360,7 +378,6 @@ class DockerSandbox(Sandbox):
             f"Sandbox failed to become ready after {max_retries} attempts ({max_retries * retry_interval} seconds)"
         )
         logger.error(error_message)
-        # Don't raise - let the caller handle degraded operation if needed
 
     async def ensure_framework(self, session_id: str) -> None:
         """Initialize sandbox framework state for the session."""
@@ -825,8 +842,16 @@ class DockerSandbox(Sandbox):
     async def destroy(self) -> bool:
         """Destroy Docker sandbox"""
         try:
-            if self.client:
-                await self.client.aclose()
+            # Invalidate LRU cache so future get() calls create a fresh instance
+            if hasattr(DockerSandbox.get, "cache_invalidate"):
+                if self._container_name:
+                    DockerSandbox.get.cache_invalidate(self._container_name)
+                else:
+                    DockerSandbox.get.cache_clear()
+
+            if self._client and not self._client.is_closed:
+                await self._client.aclose()
+            self._client = None
             if self._container_name:
                 docker_client = docker.from_env()
                 docker_client.containers.get(self._container_name).remove(force=True)
