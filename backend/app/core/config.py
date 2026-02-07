@@ -107,7 +107,7 @@ class Settings(BaseSettings):
     mcp_lazy_init: bool = True  # Defer MCP initialization until first use
 
     # Search engine configuration
-    search_provider: str | None = "duckduckgo"  #  "google", "bing", "whoogle", "duckduckgo", "brave", "tavily"
+    search_provider: str | None = "duckduckgo"  #  "google", "bing", "whoogle", "duckduckgo", "brave", "tavily", "serper"
     search_prefer_browser: bool = (
         True  # Use browser for search (visible in sandbox) instead of API (faster but invisible)
     )
@@ -116,6 +116,9 @@ class Settings(BaseSettings):
     whoogle_url: str | None = "http://whoogle:5000"  # Whoogle instance URL
     brave_search_api_key: str | None = None  # Brave Search API key
     tavily_api_key: str | None = None  # Tavily AI Search API key
+    serper_api_key: str | None = None  # Serper.dev Google Search API key (free tier: 2500 queries/mo)
+    serper_api_key_2: str | None = None  # Fallback Serper key (auto-rotates on quota/billing errors)
+    serper_api_key_3: str | None = None  # Third fallback Serper key
 
     # Browser Agent configuration
     browser_agent_enabled: bool = True
