@@ -253,6 +253,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import type { ReportData } from './types';
+import { showErrorToast } from '@/utils/toast';
 
 interface TocItem {
   id: string;
@@ -457,7 +458,7 @@ const handleShare = async () => {
       isCopied.value = false;
     }, 2000);
   } catch {
-    // Share failed silently
+    showErrorToast('Failed to copy link');
   }
 
   emit('share');
@@ -523,7 +524,7 @@ const handleDownloadPdf = async () => {
     await html2pdf().set(opt).from(element).save();
     emit('download');
   } catch {
-    // PDF generation failed
+    showErrorToast('Failed to generate PDF');
   } finally {
     isDownloading.value = false;
   }
@@ -611,7 +612,7 @@ const handleDownloadDocx = async () => {
     saveAs(blob, getSafeFilename(props.report.title) + '.docx');
     emit('download');
   } catch {
-    // DOCX generation failed
+    showErrorToast('Failed to generate DOCX');
   } finally {
     isDownloading.value = false;
   }

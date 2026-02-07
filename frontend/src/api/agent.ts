@@ -546,7 +546,7 @@ export async function submitRating(
   rating: number,
   feedback?: string
 ): Promise<void> {
-  await apiClient.post<ApiResponse<void>>('/ratings', {
+  await apiClient.post('/ratings', {
     session_id: sessionId,
     report_id: reportId,
     rating,

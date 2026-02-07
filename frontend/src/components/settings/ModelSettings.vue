@@ -140,6 +140,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { showErrorToast } from '@/utils/toast'
 import {
   Sparkles,
   Server,
@@ -229,7 +230,7 @@ const saveSettings = async () => {
       max_tokens: localSettings.value.max_tokens,
     })
   } catch {
-    // Settings save failed silently
+    showErrorToast(t('Failed to save settings'))
   }
 }
 </script>

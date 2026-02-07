@@ -66,6 +66,7 @@
 </template>
 
 <script setup lang="ts">
+import type { Component } from 'vue'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
@@ -83,6 +84,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { getSettings, updateSettings, getProviders, type UserSettings, type ProvidersInfo } from '@/api/settings'
+import { showErrorToast } from '@/utils/toast'
 
 const { t } = useI18n()
 
@@ -117,7 +119,7 @@ const providerDescriptions: Record<string, string> = {
 
 // Provider icons mapping
 const getProviderIcon = (providerId: string) => {
-  const icons: Record<string, any> = {
+  const icons: Record<string, Component> = {
     bing: Globe,
     google: Search,
     duckduckgo: Shield,
@@ -173,7 +175,7 @@ const saveSettings = async (value: string) => {
       search_provider: localSettings.value.search_provider,
     })
   } catch {
-    // Settings save failed silently
+    showErrorToast(t('Failed to save settings'))
   }
 }
 </script>
