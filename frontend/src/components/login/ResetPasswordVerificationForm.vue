@@ -143,6 +143,7 @@ import { LoaderCircle, Eye, EyeOff } from 'lucide-vue-next'
 import { validateUserInput } from '@/utils/auth'
 import { showErrorToast, showSuccessToast } from '@/utils/toast'
 import { sendVerificationCode, resetPassword } from '@/api/auth'
+import { AxiosError } from 'axios'
 
 const { t } = useI18n()
 
@@ -290,8 +291,8 @@ const handleResendCode = async () => {
     // Call the real API to send verification code
     sendVerificationCode({ email: props.email }).then(() => {
       showSuccessToast(t('Verification code sent again'))
-    }).catch((error: any) => {
-      showErrorToast(t('Failed to resend verification code. Please try again.') + ': ' + error.response?.data?.message || error.message || 'Unknown error')
+    }).catch(() => {
+      showErrorToast(t('Failed to resend verification code. Please try again.'))
     })
     startResendCooldown()
 }
@@ -323,18 +324,19 @@ const handleSubmit = async () => {
       }
     }, 500)
 
-  } catch (error: any) {
-    const errorMessage = error.response?.data?.message || error.message || 'Unknown error'
-    
+  } catch (error: unknown) {
+    const axiosErr = error instanceof AxiosError ? error : null
+
     // Handle specific error cases
-    if (error.response?.status === 401) {
+    if (axiosErr?.response?.status === 401) {
       showErrorToast(t('Invalid or expired verification code. Please try again.'))
-    } else if (error.response?.status === 404) {
+    } else if (axiosErr?.response?.status === 404) {
       showErrorToast(t('User not found. Please check your email address.'))
-    } else if (error.response?.status === 400) {
+    } else if (axiosErr?.response?.status === 400) {
       showErrorToast(t('Invalid request. Please check your input and try again.'))
     } else {
-      showErrorToast(t('Failed to update password. Please try again.') + ': ' + errorMessage)
+      const msg = axiosErr?.response?.data?.message ?? (error instanceof Error ? error.message : 'Unknown error')
+      showErrorToast(t('Failed to update password. Please try again.') + ': ' + msg)
     }
   } finally {
     isLoading.value = false

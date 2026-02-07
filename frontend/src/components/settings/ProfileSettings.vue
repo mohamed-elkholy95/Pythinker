@@ -92,6 +92,7 @@ import { X, Mail, Lock, KeyRound, Pencil, ShieldCheck } from 'lucide-vue-next'
 import { useAuth } from '../../composables/useAuth'
 import { changeFullname } from '../../api/auth'
 import { showSuccessToast, showErrorToast } from '../../utils/toast'
+import { AxiosError } from 'axios'
 import ChangePasswordDialog from './ChangePasswordDialog.vue'
 
 const { t } = useI18n()
@@ -122,12 +123,17 @@ const updateFullname = async (newFullname: string) => {
     // Refresh current user data to get updated info
     await loadCurrentUser()
     showSuccessToast(t('Full name updated successfully'))
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Reset local state to original value
     localFullname.value = currentUser.value?.fullname || ''
 
     // Show error message
-    const errorMessage = error?.response?.data?.message || error?.message || t('Failed to update full name')
+    let errorMessage = t('Failed to update full name')
+    if (error instanceof AxiosError && error.response?.data?.message) {
+      errorMessage = error.response.data.message
+    } else if (error instanceof Error) {
+      errorMessage = error.message
+    }
     showErrorToast(errorMessage)
   }
 }

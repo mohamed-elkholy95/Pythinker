@@ -226,7 +226,7 @@ async def stream_sessions(
                     for session in sessions
                 ]
                 data = ListSessionResponse(sessions=session_items).model_dump_json()
-                current_hash = hashlib.md5(data.encode()).hexdigest()
+                current_hash = hashlib.md5(data.encode(), usedforsecurity=False).hexdigest()
                 # Only send if data actually changed
                 if current_hash != last_hash:
                     yield ServerSentEvent(event="sessions", data=data)

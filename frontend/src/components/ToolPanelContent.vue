@@ -430,11 +430,13 @@ const vncEnabled = computed(() => {
 });
 
 // ============ VNC URL Bar Overlay ============
-const BROWSER_TOOL_NAMES = new Set(['browser', 'browser_agent', 'browsing', 'playwright']);
+const BROWSER_TOOL_PREFIXES = ['browser', 'playwright', 'browsing'];
+const isBrowserTool = (name: string) =>
+  BROWSER_TOOL_PREFIXES.some(prefix => name.startsWith(prefix));
 
 const showVncUrlBar = computed(() => {
   if (showVncPlaceholder.value) return false;
-  return BROWSER_TOOL_NAMES.has(toolName.value) && !!toolDisplay.value?.resourceLabel;
+  return isBrowserTool(toolName.value) && !!toolDisplay.value?.resourceLabel;
 });
 
 const vncUrlBarText = computed(() => {
