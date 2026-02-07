@@ -1,18 +1,80 @@
 <template>
   <ContentContainer
-    :centered="!!isSearching"
+    :centered="false"
     :constrained="false"
     padding="none"
     class="search-view"
   >
-    <LoadingState
-      v-if="isSearching && (!results || results.length === 0) && !explicitResults"
-      :label="t('Searching')"
-      :detail="searchDetail"
-      animation="search"
-    />
+    <!-- Active Search: Progressive results feed -->
+    <div v-if="isSearching" class="search-results">
+      <div class="search-bar">
+        <Search class="search-bar-icon" />
+        <input
+          class="search-bar-input"
+          :value="query || ''"
+          placeholder="Search"
+          readonly
+        />
+        <span class="searching-pill">
+          <Loader2 :size="11" class="searching-pill-spinner" />
+          {{ t('Searching') }}
+        </span>
+      </div>
 
-    <!-- Search Results - EU Policy Portal Style -->
+      <!-- Progressive results as they stream in -->
+      <div v-if="results && results.length > 0" class="search-results-list">
+        <TransitionGroup name="result-slide">
+          <div
+            v-for="(result, index) in results"
+            :key="result.link || index"
+            class="search-result-item"
+            @click="handleResultClick(result)"
+          >
+            <div class="result-header">
+              <div class="result-icon-wrapper">
+                <img
+                  v-if="!faviconErrors[result.link]"
+                  :src="getFavicon(result.link)"
+                  alt=""
+                  class="result-favicon"
+                  @error="handleFaviconError($event, result.link)"
+                />
+                <span v-else class="result-icon-fallback">{{ getIconLetter(result) }}</span>
+              </div>
+              <h3 class="result-title">{{ result.title }}</h3>
+              <Check :size="14" class="result-done-check" />
+            </div>
+            <p class="result-snippet">
+              {{ formatSnippet(result.snippet) }}<a
+                class="read-more-link"
+                @click.stop="handleResultClick(result)"
+              >Read more</a>
+            </p>
+          </div>
+        </TransitionGroup>
+      </div>
+
+      <!-- Skeleton loading when no results yet -->
+      <div v-else class="search-skeleton">
+        <div v-for="i in 4" :key="i" class="skeleton-item">
+          <div class="skeleton-icon"></div>
+          <div class="skeleton-lines">
+            <div class="skeleton-line skeleton-title"></div>
+            <div class="skeleton-line skeleton-snippet"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Activity bar at bottom -->
+      <div class="search-activity-bar">
+        <div class="activity-pulse"></div>
+        <span class="activity-text">
+          {{ results?.length || 0 }} {{ t('sources found') }}
+        </span>
+      </div>
+    </div>
+
+    <!-- Completed Search Results -->
     <div v-else class="search-results">
       <div class="search-bar">
         <Search class="search-bar-icon" />
@@ -22,7 +84,9 @@
           placeholder="Search"
           readonly
         />
-        <span v-if="isSearching" class="searching-pill">{{ t('Searching') }}</span>
+        <span v-if="results && results.length > 0" class="results-count-pill">
+          {{ results.length }} {{ t('results') }}
+        </span>
       </div>
       <div class="search-results-list">
         <div
@@ -70,10 +134,10 @@
 <script setup lang="ts">
 import { computed, reactive } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { Search } from 'lucide-vue-next';
+import { Search, Loader2, Check } from 'lucide-vue-next';
 import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
 import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
-import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
+import { getFaviconUrl } from '@/utils/toolDisplay';
 
 export interface SearchResult {
   title: string;
@@ -93,23 +157,16 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
-const searchDetail = computed(() => (props.query ? `"${props.query}"` : ''));
 const showEmptyState = computed(() => !!props.explicitResults && (!props.results || props.results.length === 0));
 
 // Track favicon load errors
 const faviconErrors = reactive<Record<string, boolean>>({});
 
 /**
- * Get favicon URL for a given link using Google's favicon service
+ * Get favicon URL for a given link, using shared utility
  */
 function getFavicon(link: string): string {
-  if (!link) return '';
-  try {
-    const url = new URL(link);
-    return `https://www.google.com/s2/favicons?domain=${url.hostname}&sz=32`;
-  } catch {
-    return '';
-  }
+  return getFaviconUrl(link) ?? '';
 }
 
 /**
@@ -176,14 +233,11 @@ function handleResultClick(result: SearchResult) {
   font-family: var(--font-sans);
 }
 
-:global(.dark) .search-view {
-  background: #1a1a1a;
-}
-
 /* Results Container */
 .search-results {
   display: flex;
   flex-direction: column;
+  height: 100%;
 }
 
 .search-bar {
@@ -195,7 +249,7 @@ function handleResultClick(result: SearchResult) {
   border-radius: 12px;
   border: 1px solid var(--border-light);
   background: var(--background-white-main);
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 6px 16px var(--shadow-XS);
 }
 
 .search-bar-icon {
@@ -220,13 +274,38 @@ function handleResultClick(result: SearchResult) {
 .searching-pill {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   height: 22px;
   padding: 0 8px;
   border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
-  color: var(--text-secondary);
+  color: var(--text-brand);
+  background: var(--fill-blue);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  white-space: nowrap;
+}
+
+.searching-pill-spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.results-count-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
   background: var(--fill-tsp-gray-main);
   border: 1px solid var(--border-light);
   white-space: nowrap;
@@ -235,6 +314,17 @@ function handleResultClick(result: SearchResult) {
 .search-results-list {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* Result slide-in transition */
+.result-slide-enter-active {
+  transition: all 0.3s ease-out;
+}
+.result-slide-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
 }
 
 /* Individual Result Item */
@@ -251,14 +341,6 @@ function handleResultClick(result: SearchResult) {
 
 .search-result-item:last-child {
   border-bottom: none;
-}
-
-:global(.dark) .search-result-item {
-  border-bottom-color: #2a2a2a;
-}
-
-:global(.dark) .search-result-item:hover {
-  background-color: #222222;
 }
 
 /* Header: Icon + Title */
@@ -283,10 +365,6 @@ function handleResultClick(result: SearchResult) {
   margin-top: 1px;
 }
 
-:global(.dark) .result-icon-wrapper {
-  background: #333333;
-}
-
 /* Favicon Image */
 .result-favicon {
   width: 12px;
@@ -303,10 +381,6 @@ function handleResultClick(result: SearchResult) {
   line-height: 1;
 }
 
-:global(.dark) .result-icon-fallback {
-  color: #999999;
-}
-
 /* Result Title */
 .result-title {
   color: var(--text-primary);
@@ -318,8 +392,13 @@ function handleResultClick(result: SearchResult) {
   flex: 1;
 }
 
-:global(.dark) .result-title {
-  color: #e5e5e5;
+/* Check mark on each discovered result during search */
+.result-done-check {
+  flex-shrink: 0;
+  color: var(--function-success);
+  opacity: 0.6;
+  margin-left: auto;
+  margin-top: 2px;
 }
 
 /* Result Snippet/Description */
@@ -331,10 +410,6 @@ function handleResultClick(result: SearchResult) {
   margin: 0;
   margin-left: 32px; /* 22px icon + 10px gap */
   letter-spacing: -0.005em;
-}
-
-:global(.dark) .result-snippet {
-  color: #8a8a8a;
 }
 
 /* Read More Link */
@@ -350,12 +425,78 @@ function handleResultClick(result: SearchResult) {
   color: var(--text-secondary);
 }
 
-:global(.dark) .read-more-link {
-  color: #777777;
+/* Skeleton loading placeholders */
+.search-skeleton {
+  padding: 8px 0;
+  flex: 1;
 }
 
-:global(.dark) .read-more-link:hover {
-  color: #aaaaaa;
+.skeleton-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 20px;
+}
+
+.skeleton-icon {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  border-radius: 50%;
+  background: var(--fill-tsp-gray-main);
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.skeleton-lines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skeleton-line {
+  height: 12px;
+  border-radius: 4px;
+  background: var(--fill-tsp-gray-main);
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.skeleton-title { width: 65%; }
+.skeleton-snippet { width: 90%; animation-delay: 0.15s; }
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+/* Activity bar at bottom during search */
+.search-activity-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-top: 1px solid var(--border-light);
+  background: var(--background-white-main);
+  flex-shrink: 0;
+}
+
+.activity-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-brand);
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.4; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+
+.activity-text {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-weight: 500;
 }
 
 /* Empty State Adjustments */
@@ -364,19 +505,11 @@ function handleResultClick(result: SearchResult) {
 }
 
 .search-view :deep(.empty-icon) {
-  color: #9a9a9a;
+  color: var(--text-tertiary);
 }
 
 .search-view :deep(.empty-message) {
-  color: #6a6a6a;
+  color: var(--text-secondary);
   font-weight: 400;
-}
-
-:global(.dark) .search-view :deep(.empty-icon) {
-  color: #666666;
-}
-
-:global(.dark) .search-view :deep(.empty-message) {
-  color: #888888;
 }
 </style>

@@ -241,6 +241,8 @@ class PlaywrightBrowser:
         self._interactive_elements_cache: list[dict] = []
         self._connection_healthy = False
         self._randomize_fingerprint = randomize_fingerprint
+        # Serialize navigation to prevent concurrent page.goto() race conditions
+        self._navigation_lock = asyncio.Lock()
 
         # Extraction cache for performance (prevents duplicate extractions)
         self._extraction_cache: dict[str, Any] = {
@@ -1564,9 +1566,7 @@ class PlaywrightBrowser:
         Returns:
             ToolResult with navigation status, interactive elements, and optionally page content
         """
-        await self._ensure_page()
-
-        # Check if URL is a video URL - skip to save agent time
+        # Check if URL is a video URL before acquiring the lock
         if is_video_url(url):
             logger.info(f"Skipping video URL: {url}")
             return ToolResult(
@@ -1574,6 +1574,16 @@ class PlaywrightBrowser:
                 message=f"Skipped video URL (YouTube, TikTok, etc. are blocked to save time): {url}",
                 data={"skipped_video_url": url, "reason": "Video sites are blocked for efficiency"},
             )
+
+        # Serialize navigation — concurrent page.goto() causes ERR_ABORTED race conditions
+        async with self._navigation_lock:
+            return await self._navigate_impl(url, timeout, wait_until, auto_extract)
+
+    async def _navigate_impl(
+        self, url: str, timeout: int | None, wait_until: str, auto_extract: bool
+    ) -> ToolResult:
+        """Internal navigate implementation (caller must hold _navigation_lock)."""
+        await self._ensure_page()
 
         # Clear cache as the page is about to change
         self._interactive_elements_cache = []

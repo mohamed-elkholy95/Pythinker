@@ -186,8 +186,8 @@ const loadFileContent = async () => {
       originalContent.value = fileContent.value;
     }
     fileContent.value = nextContent;
-  } catch (error) {
-    console.error("Failed to load file content:", error);
+  } catch {
+    // File content load failed silently - UI shows last known content
   }
 };
 

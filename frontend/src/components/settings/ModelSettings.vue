@@ -203,8 +203,8 @@ onMounted(async () => {
     ])
     localSettings.value = { ...localSettings.value, ...settings }
     providers.value = providersInfo
-  } catch (error) {
-    console.error('Failed to load settings:', error)
+  } catch {
+    // Settings load failed - using defaults
   }
 })
 
@@ -228,8 +228,8 @@ const saveSettings = async () => {
       temperature: localSettings.value.temperature,
       max_tokens: localSettings.value.max_tokens,
     })
-  } catch (error) {
-    console.error('Failed to save settings:', error)
+  } catch {
+    // Settings save failed silently
   }
 }
 </script>

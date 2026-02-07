@@ -17,7 +17,7 @@ export function useBrowserState() {
 
     // Update URL if it's a navigation action
     if (func === 'browser_navigate' && args?.url) {
-      const url = args.url;
+      const url = String(args.url);
       currentBrowserUrl.value = url;
 
       // Add to history

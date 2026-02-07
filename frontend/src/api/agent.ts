@@ -532,3 +532,24 @@ export async function getSandboxUrl(sessionId: string): Promise<string> {
   );
   return response.data.data.sandbox_url;
 }
+
+/**
+ * Submit a rating for a report
+ * @param sessionId Session ID
+ * @param reportId Report ID
+ * @param rating Rating from 1 to 5
+ * @param feedback Optional feedback text
+ */
+export async function submitRating(
+  sessionId: string,
+  reportId: string,
+  rating: number,
+  feedback?: string
+): Promise<void> {
+  await apiClient.post<ApiResponse<void>>('/ratings', {
+    session_id: sessionId,
+    report_id: reportId,
+    rating,
+    feedback,
+  });
+}

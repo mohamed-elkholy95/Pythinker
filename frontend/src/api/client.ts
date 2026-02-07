@@ -1,5 +1,5 @@
 // Backend API client configuration
-import axios, { AxiosError } from 'axios';
+import axios, { AxiosError, type AxiosRequestConfig, type InternalAxiosRequestConfig } from 'axios';
 import { fetchEventSource, EventSourceMessage } from '@microsoft/fetch-event-source';
 import { router } from '@/main';
 import { clearStoredTokens, getStoredToken, getStoredRefreshToken, storeToken } from './auth';
@@ -57,9 +57,14 @@ apiClient.interceptors.request.use(
 
 // Track if we're currently refreshing token to prevent multiple concurrent requests
 let isRefreshing = false;
-let failedQueue: any[] = [];
+interface QueueItem {
+  resolve: (value: string | null) => void;
+  reject: (reason: unknown) => void;
+}
 
-const processQueue = (error: any, token: string | null = null) => {
+let failedQueue: QueueItem[] = [];
+
+const processQueue = (error: unknown, token: string | null = null) => {
   failedQueue.forEach(({ resolve, reject }) => {
     if (error) {
       reject(error);
@@ -118,7 +123,7 @@ const refreshAuthToken = async (): Promise<string | null> => {
     }, {
       // Add special marker to prevent interceptor from retrying this request
       __isRefreshRequest: true
-    } as any);
+    } as AxiosRequestConfig & { __isRefreshRequest: boolean });
     
     if (response.data && response.data.data) {
       const newAccessToken = response.data.data.access_token;
@@ -171,7 +176,7 @@ apiClient.interceptors.response.use(
     return response;
   },
   async (error: AxiosError) => {
-    const originalRequest = error.config as any;
+    const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean; __isRefreshRequest?: boolean };
     
     // Skip retry logic for refresh requests to prevent infinite loops
     if (originalRequest.__isRefreshRequest) {
@@ -212,12 +217,12 @@ apiClient.interceptors.response.use(
       
       // Try to extract detailed error information from response content
       if (error.response.data && typeof error.response.data === 'object') {
-        const data = error.response.data as any;
-        if (data.code && data.msg) {
+        const data = error.response.data as Record<string, unknown>;
+        if (typeof data.code === 'number' && typeof data.msg === 'string') {
           apiError.code = data.code;
           apiError.message = data.msg;
         } else {
-          apiError.message = data.message || error.response.statusText || 'Request failed';
+          apiError.message = (typeof data.message === 'string' ? data.message : null) || error.response.statusText || 'Request failed';
         }
         apiError.details = data;
       } else {
@@ -233,7 +238,7 @@ apiClient.interceptors.response.use(
   }
 ); 
 
-export interface SSECallbacks<T = any> {
+export interface SSECallbacks<T = unknown> {
   onOpen?: () => void;
   onMessage?: (event: { event: string; data: T }) => void;
   onClose?: () => void;
@@ -242,14 +247,14 @@ export interface SSECallbacks<T = any> {
 
 export interface SSEOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
-  body?: any;
+  body?: Record<string, unknown>;
   headers?: Record<string, string>;
 }
 
 /**
  * Handle SSE authentication errors and attempt token refresh
  */
-const handleSSEAuthError = async <T = any>(
+const handleSSEAuthError = async <T = unknown>(
   _error: Error,
   _endpoint: string,
   _options: SSEOptions,
@@ -281,7 +286,7 @@ const handleSSEAuthError = async <T = any>(
  * @param callbacks - Event callbacks
  * @returns Function to cancel the SSE connection
  */
-export const createSSEConnection = async <T = any>(
+export const createSSEConnection = async <T = unknown>(
   endpoint: string,
   options: SSEOptions = {},
   callbacks: SSECallbacks<T> = {}
@@ -421,7 +426,9 @@ export const createSSEConnection = async <T = any>(
         onmessage(event: EventSourceMessage) {
           if (event.event && event.event.trim() !== '') {
             // Track stream completion events to prevent unnecessary reconnection
-            if (event.event === 'done' || event.event === 'complete' || event.event === 'end') {
+            // Include error/failure events — agent errors are terminal, not retryable
+            if (event.event === 'done' || event.event === 'complete' || event.event === 'end'
+              || event.event === 'error' || event.event === 'agent_error' || event.event === 'session_error') {
               streamCompleted = true;
             }
 
@@ -466,7 +473,7 @@ export const createSSEConnection = async <T = any>(
             }
           }
         },
-        onerror(err: any) {
+        onerror(err: unknown) {
           const error = err instanceof Error ? err : new Error(String(err));
           console.error('EventSource error:', error);
 

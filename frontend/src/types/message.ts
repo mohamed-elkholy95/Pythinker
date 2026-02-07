@@ -49,7 +49,7 @@ export interface ToolContent extends BaseContent {
   tool_call_id: string;
   name: string;
   function: string;
-  args: any;
+  args: Record<string, unknown>;
   content?: ToolContentPayload;
   status: "calling" | "called";
   // Display metadata (Manus-style human-readable descriptions)

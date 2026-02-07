@@ -168,8 +168,8 @@ const updateSessions = async () => {
   try {
     const response = await getSessions()
     sessions.value = response.sessions
-  } catch (error) {
-    console.error('Failed to fetch sessions:', error)
+  } catch {
+    // Session fetch failed - will retry on next navigation
   }
 }
 
@@ -182,20 +182,20 @@ const fetchSessions = async () => {
     }
     cancelGetSessionsSSE.value = await getSessionsSSE({
       onOpen: () => {
-        console.log('Sessions SSE opened')
+        // SSE connection opened
       },
       onMessage: (event) => {
         sessions.value = event.data.sessions
       },
-      onError: (error) => {
-        console.error('Failed to fetch sessions:', error)
+      onError: () => {
+        // SSE error - will reconnect automatically
       },
       onClose: () => {
-        console.log('Sessions SSE closed')
+        // SSE connection closed
       }
     })
-  } catch (error) {
-    console.error('Failed to fetch sessions:', error)
+  } catch {
+    // SSE connection failed - will use cached sessions
   }
 }
 
@@ -208,12 +208,10 @@ const handleLibraryClick = () => {
 }
 
 const handleSessionDeleted = (sessionId: string) => {
-  console.log('handleSessionDeleted', sessionId)
   sessions.value = sessions.value.filter(session => session.session_id !== sessionId);
 }
 
 const handleSessionStopped = (sessionId: string) => {
-  console.log('handleSessionStopped', sessionId)
   handleSessionStatusChange(sessionId, SessionStatus.COMPLETED);
 }
 

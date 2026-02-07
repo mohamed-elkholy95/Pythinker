@@ -130,8 +130,7 @@ async function highlightCodeContent() {
       lineNumbers: props.showLineNumbers,
       highlightLines: props.highlightLines,
     })
-  } catch (error) {
-    console.error('Failed to highlight code:', error)
+  } catch {
     // Fallback to escaped plain text
     highlightedHtml.value = `<pre class="shiki"><code>${escapeHtml(props.code)}</code></pre>`
   } finally {

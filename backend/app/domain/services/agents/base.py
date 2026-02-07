@@ -626,14 +626,21 @@ class BaseAgent:
         """Check if all tool calls in the list can be executed in parallel.
 
         Supports both explicit tool whitelist and MCP read-only patterns.
+        Also checks SEQUENTIAL_ONLY_TOOLS blacklist from parallel_executor.
         """
+        from app.domain.services.agents.parallel_executor import ParallelToolExecutor
+
         if len(tool_calls) <= 1:
             return False
 
         for tc in tool_calls:
             tool_name = tc.get("function", {}).get("name", "")
 
-            # Check explicit whitelist first
+            # Check blacklist first — these must never run in parallel
+            if tool_name in ParallelToolExecutor.SEQUENTIAL_ONLY_TOOLS:
+                return False
+
+            # Check explicit whitelist
             if tool_name in SAFE_PARALLEL_TOOLS:
                 continue
 

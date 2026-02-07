@@ -208,7 +208,6 @@ async function connect(): Promise<void> {
     ws.binaryType = 'arraybuffer'
 
     ws.onopen = () => {
-      console.log('[SandboxViewer] Connected')
       isLoading.value = false
       connectionAttempts = 0
       emit('connected')
@@ -239,13 +238,11 @@ async function connect(): Promise<void> {
       }
     }
 
-    ws.onerror = (e) => {
-      console.error('[SandboxViewer] WebSocket error:', e)
+    ws.onerror = () => {
       handleError('Connection error')
     }
 
     ws.onclose = (e) => {
-      console.log('[SandboxViewer] Disconnected:', e.code, e.reason)
       ws = null
       stopStatsTracking()
       cleanupInput()
@@ -343,14 +340,13 @@ function displayFrame(data: ArrayBuffer): void {
 
   img.onerror = () => {
     URL.revokeObjectURL(url)
-    console.warn('[SandboxViewer] Frame decode error')
+    // Frame decode error - skip frame
   }
 
   img.src = url
 }
 
 function handleError(msg: string): void {
-  console.error('[SandboxViewer] Error:', msg)
   error.value = msg
   isLoading.value = false
   emit('error', msg)

@@ -110,8 +110,8 @@ const loadShellContent = async () => {
   try {
     const response = await viewShellSession(props.sessionId, shellSessionId.value);
     updateShellContent(response.console);
-  } catch (error) {
-    console.error("Failed to load shell content:", error);
+  } catch {
+    // Shell content load failed - UI shows last known content
   }
 };
 

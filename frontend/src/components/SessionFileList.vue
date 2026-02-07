@@ -385,8 +385,7 @@ const downloadAllFiles = async () => {
         const fileIds = filteredFiles.value.map(f => f.file_id);
         await downloadFilesAsZip(fileIds);
         showSuccessToast(t('Files downloaded'));
-    } catch (error) {
-        console.error('Failed to download files as zip:', error);
+    } catch {
         showErrorToast(t('Failed to download files'));
     } finally {
         isDownloadingZip.value = false;

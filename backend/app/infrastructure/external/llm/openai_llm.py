@@ -143,7 +143,7 @@ class OpenAILLM(LLM):
                 cached_tokens=cached_tokens,
             )
         except Exception as e:
-            logger.warning(f"Failed to record usage: {e}")
+            logger.warning(f"Failed to record usage: {type(e).__name__}: {e}")
 
     async def _record_usage_counts(
         self,
@@ -171,7 +171,7 @@ class OpenAILLM(LLM):
                 cached_tokens=cached_tokens,
             )
         except Exception as e:
-            logger.warning(f"Failed to record usage counts: {e}")
+            logger.warning(f"Failed to record usage counts: {type(e).__name__}: {e}")
 
     async def _record_stream_usage(
         self,
@@ -524,7 +524,19 @@ To extract data from a webpage:
             for key in extra_keys:
                 del msg_copy[key]
 
-            # 5. Validate tool_calls structure if present
+            # 5a. Ensure required fields for tool messages (GLM strict schema)
+            # After field removal, tool messages MUST have name and tool_call_id
+            if role == "tool":
+                if not msg_copy.get("name"):
+                    msg_copy["name"] = "unknown_tool"
+                else:
+                    msg_copy["name"] = str(msg_copy["name"])
+                if not msg_copy.get("tool_call_id"):
+                    msg_copy["tool_call_id"] = f"call_{uuid.uuid4().hex[:8]}"
+                else:
+                    msg_copy["tool_call_id"] = str(msg_copy["tool_call_id"])
+
+            # 5b. Validate tool_calls structure if present
             if msg_copy.get("tool_calls"):
                 valid_calls = []
                 for tc in msg_copy["tool_calls"]:

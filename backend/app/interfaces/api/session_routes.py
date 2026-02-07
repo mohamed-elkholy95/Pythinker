@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 from collections.abc import AsyncGenerator
 from datetime import datetime
@@ -208,22 +209,32 @@ async def stream_sessions(
     current_user: User = Depends(get_current_user), agent_service: AgentService = Depends(get_agent_service)
 ) -> EventSourceResponse:
     async def event_generator() -> AsyncGenerator[ServerSentEvent, None]:
-        while True:
-            sessions = await agent_service.get_all_sessions(current_user.id)
-            session_items = [
-                ListSessionItem(
-                    session_id=session.id,
-                    title=session.title,
-                    status=session.status,
-                    unread_message_count=session.unread_message_count,
-                    latest_message=session.latest_message,
-                    latest_message_at=int(session.latest_message_at.timestamp()) if session.latest_message_at else None,
-                    is_shared=session.is_shared,
-                )
-                for session in sessions
-            ]
-            yield ServerSentEvent(event="sessions", data=ListSessionResponse(sessions=session_items).model_dump_json())
-            await asyncio.sleep(SESSION_POLL_INTERVAL)
+        last_hash: str | None = None
+        try:
+            while True:
+                sessions = await agent_service.get_all_sessions(current_user.id)
+                session_items = [
+                    ListSessionItem(
+                        session_id=session.id,
+                        title=session.title,
+                        status=session.status,
+                        unread_message_count=session.unread_message_count,
+                        latest_message=session.latest_message,
+                        latest_message_at=int(session.latest_message_at.timestamp()) if session.latest_message_at else None,
+                        is_shared=session.is_shared,
+                    )
+                    for session in sessions
+                ]
+                data = ListSessionResponse(sessions=session_items).model_dump_json()
+                current_hash = hashlib.md5(data.encode()).hexdigest()
+                # Only send if data actually changed
+                if current_hash != last_hash:
+                    yield ServerSentEvent(event="sessions", data=data)
+                    last_hash = current_hash
+                await asyncio.sleep(SESSION_POLL_INTERVAL)
+        except asyncio.CancelledError:
+            logger.debug("Session SSE stream cancelled")
+            return
 
     return EventSourceResponse(event_generator())
 

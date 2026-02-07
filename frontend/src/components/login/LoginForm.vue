@@ -192,8 +192,7 @@ const handleSubmit = async () => {
     
     // Emit success event
     emits('success')
-  } catch (error: any) {
-    console.error('Login failed:', error)
+  } catch {
     // Display error message using toast
     showErrorToast(authError.value || t('Login failed, please try again'))
   }

@@ -407,7 +407,7 @@ const handleEvent = (event: AgentSSEEvent) => {
   } else if (event.event === 'done') {
     //isLoading.value = false;
   } else if (event.event === 'wait') {
-    // TODO: handle wait event
+    // Wait events signal agent is awaiting user confirmation — no action needed in shared view
   } else if (event.event === 'error') {
     handleErrorEvent(event.data as ErrorEventData);
   } else if (event.event === 'title') {
@@ -551,8 +551,7 @@ const handleCopyLink = async () => {
     } else {
       showErrorToast(t('Failed to copy link'));
     }
-  } catch (error) {
-    console.error('Error copying share link:', error);
+  } catch {
     showErrorToast(t('Failed to copy link'));
   }
 }

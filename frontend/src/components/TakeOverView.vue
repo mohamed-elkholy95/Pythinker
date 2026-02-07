@@ -166,11 +166,11 @@ const handleTakeOverEvent = (event: Event) => {
 
 // VNC event handlers
 const onVNCConnected = () => {
-    console.log('TakeOver VNC connection successful');
+    // VNC connection established
 };
 
-const onVNCDisconnected = (reason?: string) => {
-    console.log('TakeOver sandbox connection disconnected', reason);
+const onVNCDisconnected = (_reason?: string) => {
+    // VNC connection lost
 };
 
 // Calculate whether to show takeover view
@@ -230,8 +230,8 @@ const handleExitWithContext = async () => {
                 context: userContext.value || undefined,
                 persist_login_state: persistLoginState.value || undefined
             });
-        } catch (error) {
-            console.error('Failed to resume session:', error);
+        } catch {
+            // Resume failed - session will timeout and auto-resume
         }
     }
 

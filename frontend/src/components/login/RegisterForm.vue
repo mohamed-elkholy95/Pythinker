@@ -265,8 +265,7 @@ const handleSubmit = async () => {
 
     // Emit success event
     emits('success')
-  } catch (error: any) {
-    console.error('Registration failed:', error)
+  } catch {
     // Display error message using toast
     showErrorToast(authError.value || t('Registration failed, please try again'))
   }

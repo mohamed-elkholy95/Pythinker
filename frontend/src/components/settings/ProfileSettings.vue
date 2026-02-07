@@ -123,7 +123,6 @@ const updateFullname = async (newFullname: string) => {
     await loadCurrentUser()
     showSuccessToast(t('Full name updated successfully'))
   } catch (error: any) {
-    console.error('Failed to update fullname:', error)
     // Reset local state to original value
     localFullname.value = currentUser.value?.fullname || ''
 
