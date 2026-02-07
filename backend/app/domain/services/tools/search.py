@@ -597,6 +597,46 @@ class SearchTool(BaseTool):
 
         return ToolResult(success=True, data=aggregated_data, message=message)
 
+    async def _browse_top_results(self, search_data: Any, count: int = 3) -> None:
+        """Open top search result URLs in the browser for VNC visibility.
+
+        After API search returns results, navigates to the top URLs so the user
+        can see browsing activity in the sandbox VNC viewer. This is best-effort
+        and does not affect the search result returned to the agent.
+
+        Args:
+            search_data: SearchResults model or dict with results list
+            count: Number of top results to open (default 3)
+        """
+        try:
+            # Extract result items from SearchResults model or dict
+            if hasattr(search_data, "results"):
+                items = search_data.results
+            elif isinstance(search_data, dict):
+                items = search_data.get("results", [])
+            else:
+                return
+
+            urls: list[str] = []
+            for item in items[:count]:
+                url = getattr(item, "link", None) or (item.get("link") if isinstance(item, dict) else None)
+                if url:
+                    urls.append(url)
+
+            if not urls:
+                return
+
+            logger.info(f"Browsing top {len(urls)} search results for VNC visibility")
+            for url in urls:
+                try:
+                    await self._browser.navigate(url)
+                    # Brief pause to let the page render in VNC
+                    await asyncio.sleep(1.0)
+                except Exception as e:
+                    logger.debug(f"Failed to browse {url}: {e}")
+        except Exception as e:
+            logger.debug(f"_browse_top_results error (non-critical): {e}")
+
     def _is_research_query(self, query: str) -> bool:
         """Check if query indicates a research task"""
         query_lower = query.lower()
@@ -685,6 +725,11 @@ class SearchTool(BaseTool):
             result.message = f"[INFO SEARCH]\n{result.message}"
         elif result.success:
             result.message = "[INFO SEARCH]"
+
+        # Open top results in browser for VNC visibility (non-blocking best-effort)
+        if result.success and self._browser and result.data:
+            await self._browse_top_results(result.data, count=3)
+
         return result
 
     # Legacy alias for backward compatibility

@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     # NVIDIA Nemotron 3 Nano 30B A3B: 30B MoE (3B active), 262k context, agentic AI optimized
     model_name: str = "nvidia/nemotron-3-nano-30b-a3b"
     temperature: float = 0.3  # Lower temperature for deterministic JSON responses
-    max_tokens: int = 8000  # Increased from 2000 to allow complete responses
+    max_tokens: int = 16000  # Output token limit per LLM call (needs to be high enough for research synthesis)
 
     # Ollama configuration
     ollama_base_url: str = "http://localhost:11434"
@@ -109,7 +109,7 @@ class Settings(BaseSettings):
     # Search engine configuration
     search_provider: str | None = "duckduckgo"  #  "google", "bing", "duckduckgo", "brave", "tavily", "serper"
     search_prefer_browser: bool = (
-        True  # Use browser for search (visible in sandbox) instead of API (faster but invisible)
+        False  # API search is faster and more reliable; browser search only useful for sandbox VNC visibility
     )
     google_search_api_key: str | None = None
     google_search_engine_id: str | None = None

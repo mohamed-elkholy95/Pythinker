@@ -366,7 +366,7 @@ To extract data from a webpage:
                         tc = data["tool_call"]
                         return {
                             "role": "assistant",
-                            "content": None,
+                            "content": "",
                             "tool_calls": [
                                 {
                                     "id": f"call_{uuid.uuid4().hex[:8]}",
@@ -432,6 +432,83 @@ To extract data from a webpage:
 
         return cleaned
 
+    def _sanitize_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Sanitize messages for strict OpenAI-compatible APIs (Zhipu GLM, OpenRouter, etc.).
+
+        Many OpenAI-compatible APIs are stricter than OpenAI itself about message schema.
+        This method ensures all messages conform to the strictest common denominator:
+
+        1. Role normalization — 'developer' role converted to 'system' (GLM only accepts
+           system/user/assistant/tool)
+        2. Content is always a string (never None/null) — GLM rejects null content
+        3. Non-standard fields are removed (only role, content, tool_calls, tool_call_id,
+           name allowed)
+        4. Tool response messages use standard 'name' field (not 'function_name')
+        5. tool_calls entries have valid structure with required 'type' field
+        6. Empty messages are dropped to prevent "content cannot be empty" errors
+        """
+        # Standard fields per role (OpenAI Chat Completions API spec)
+        STANDARD_FIELDS = {
+            "system": {"role", "content", "name"},
+            "user": {"role", "content", "name"},
+            "assistant": {"role", "content", "tool_calls", "name", "refusal"},
+            "tool": {"role", "content", "tool_call_id", "name"},
+        }
+
+        sanitized = []
+        for msg in messages:
+            msg_copy = dict(msg)
+            role = msg_copy.get("role", "user")
+
+            # 1. Normalize roles for strict APIs
+            # GLM and similar only accept: system, user, assistant, tool
+            if role == "developer":
+                msg_copy["role"] = "system"
+                role = "system"
+
+            # 2. Ensure content is always a string (never None)
+            content = msg_copy.get("content")
+            if content is None:
+                msg_copy["content"] = ""
+
+            # 3. Convert non-standard 'function_name' to standard 'name' for tool messages
+            if role == "tool" and "function_name" in msg_copy:
+                if "name" not in msg_copy:
+                    msg_copy["name"] = msg_copy["function_name"]
+                del msg_copy["function_name"]
+
+            # 4. Remove non-standard fields that strict APIs reject
+            allowed = STANDARD_FIELDS.get(role, {"role", "content"})
+            # Keep internal fields prefixed with '_' (like _finish_reason) — stripped by SDK
+            extra_keys = {k for k in msg_copy if k not in allowed and not k.startswith("_")}
+            for key in extra_keys:
+                del msg_copy[key]
+
+            # 5. Validate tool_calls structure if present
+            if msg_copy.get("tool_calls"):
+                valid_calls = []
+                for tc in msg_copy["tool_calls"]:
+                    if isinstance(tc, dict) and tc.get("function"):
+                        # Ensure all required fields exist (GLM rejects empty type)
+                        tc.setdefault("id", f"call_{uuid.uuid4().hex[:8]}")
+                        tc.setdefault("type", "function")
+                        func = tc["function"]
+                        func.setdefault("name", "unknown")
+                        if func.get("arguments") is None:
+                            func["arguments"] = "{}"
+                        elif not isinstance(func["arguments"], str):
+                            func["arguments"] = json.dumps(func["arguments"])
+                        valid_calls.append(tc)
+                if valid_calls:
+                    msg_copy["tool_calls"] = valid_calls
+                else:
+                    # Remove tool_calls entirely if empty (some APIs reject null/empty)
+                    msg_copy.pop("tool_calls", None)
+
+            sanitized.append(msg_copy)
+
+        return sanitized
+
     def _validate_and_fix_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         Validate message sequence and fix tool_call/tool_response ordering issues.
@@ -444,6 +521,9 @@ To extract data from a webpage:
 
         # First, strip reasoning_content for thinking APIs
         messages = self._strip_reasoning_content(messages)
+
+        # Sanitize all messages for strict API compatibility
+        messages = self._sanitize_messages(messages)
 
         fixed_messages = []
         pending_tool_ids = set()
@@ -602,6 +682,16 @@ To extract data from a webpage:
 
                 result = response.choices[0].message.model_dump()
 
+                # Check finish_reason for truncation detection
+                finish_reason = response.choices[0].finish_reason
+                if finish_reason == "length":
+                    logger.warning(
+                        f"LLM response truncated (finish_reason=length, max_tokens={self._max_tokens})"
+                    )
+                    result["_finish_reason"] = "length"
+                elif finish_reason not in ("stop", "end_turn", "tool_calls"):
+                    logger.debug(f"LLM finish_reason: {finish_reason}")
+
                 # MLX mode: parse tool calls from text response
                 if self._is_mlx_mode and original_tools:
                     content = result.get("content", "")
@@ -656,6 +746,27 @@ To extract data from a webpage:
                 ):
                     logger.warning(f"Token limit exceeded: {e}")
                     raise TokenLimitExceededError(str(e)) from e
+
+                # Detect message validation errors from strict APIs (Zhipu GLM error 1214, etc.)
+                # These indicate message schema issues that won't resolve on retry
+                if any(
+                    term in error_msg
+                    for term in [
+                        "'1214'",               # Zhipu GLM invalid parameter error code
+                        "invalid messages",
+                        "message format",
+                        "invalid_request_error",
+                        "incorrect role",       # Zhipu GLM role validation
+                        "cannot be empty",      # Zhipu GLM empty content
+                        "parameter is illegal",  # Zhipu GLM translated error
+                    ]
+                ):
+                    logger.error(
+                        f"API message validation error (likely strict schema): {e!s}. "
+                        f"Messages were sanitized but API still rejected them."
+                    )
+                    # Don't retry — message schema errors won't fix themselves
+                    raise
 
                 error_log = f"Error calling API on attempt {attempt + 1}: {e!s}"
                 logger.error(error_log)
@@ -812,6 +923,12 @@ To extract data from a webpage:
                     ]
                 ):
                     raise TokenLimitExceededError(str(e)) from e
+                # Message validation errors won't fix on retry
+                if any(
+                    term in error_msg
+                    for term in ["参数非法", "messages参数", "invalid messages", "message format", "invalid_request_error"]
+                ):
+                    raise
                 if attempt == max_retries:
                     raise
                 logger.warning(f"Structured request failed on attempt {attempt + 1}: {e}")
