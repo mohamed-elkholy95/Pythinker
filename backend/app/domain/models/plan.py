@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, ClassVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ExecutionStatus(str, Enum):
@@ -122,6 +122,16 @@ class Plan(BaseModel):
     status: ExecutionStatus = ExecutionStatus.PENDING
     result: dict[str, Any] | None = None
     error: str | None = None
+
+    @field_validator("result", mode="before")
+    @classmethod
+    def _coerce_result(cls, v: Any) -> dict[str, Any] | None:
+        """Coerce string results from LLM into dict format."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            return {"message": v}
+        return v
 
     def is_done(self) -> bool:
         """Check if plan has reached a terminal state."""
