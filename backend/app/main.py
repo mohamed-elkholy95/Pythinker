@@ -396,32 +396,7 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.error(f"Enhanced components shutdown error: {e}")
 
-            # Disconnect from MongoDB
-            try:
-                await asyncio.wait_for(get_mongodb().shutdown(), timeout=10.0)
-                _health_state["mongodb"] = False
-            except TimeoutError:
-                logger.warning("MongoDB shutdown timed out")
-            except Exception as e:
-                logger.error(f"MongoDB shutdown error: {e}")
-
-            # Disconnect from Redis
-            try:
-                await asyncio.wait_for(get_redis().shutdown(), timeout=10.0)
-                _health_state["redis"] = False
-            except TimeoutError:
-                logger.warning("Redis shutdown timed out")
-            except Exception as e:
-                logger.error(f"Redis shutdown error: {e}")
-
-            # Disconnect from Qdrant
-            try:
-                await asyncio.wait_for(get_qdrant().shutdown(), timeout=10.0)
-                _health_state["qdrant"] = False
-            except TimeoutError:
-                logger.warning("Qdrant shutdown timed out")
-            except Exception as e:
-                logger.debug(f"Qdrant shutdown error (may not have been initialized): {e}")
+            # --- Application-level cleanup (requires DB connections) ---
 
             logger.info("Cleaning up AgentService instance")
             try:
@@ -466,6 +441,35 @@ async def lifespan(app: FastAPI):
                 await close_http_session()
             except Exception as e:
                 logger.debug(f"HTTP session cleanup error: {e}")
+
+            # --- Infrastructure disconnection (no more DB queries after this) ---
+
+            # Disconnect from MongoDB
+            try:
+                await asyncio.wait_for(get_mongodb().shutdown(), timeout=10.0)
+                _health_state["mongodb"] = False
+            except TimeoutError:
+                logger.warning("MongoDB shutdown timed out")
+            except Exception as e:
+                logger.error(f"MongoDB shutdown error: {e}")
+
+            # Disconnect from Redis
+            try:
+                await asyncio.wait_for(get_redis().shutdown(), timeout=10.0)
+                _health_state["redis"] = False
+            except TimeoutError:
+                logger.warning("Redis shutdown timed out")
+            except Exception as e:
+                logger.error(f"Redis shutdown error: {e}")
+
+            # Disconnect from Qdrant
+            try:
+                await asyncio.wait_for(get_qdrant().shutdown(), timeout=10.0)
+                _health_state["qdrant"] = False
+            except TimeoutError:
+                logger.warning("Qdrant shutdown timed out")
+            except Exception as e:
+                logger.debug(f"Qdrant shutdown error (may not have been initialized): {e}")
 
             logger.info("Application shutdown complete")
 
