@@ -5,7 +5,7 @@ Enhance the existing thinking indicator to read as a warm, active loading state.
 
 ## Scope
 - Frontend only.
-- CSS/visual changes localized to the indicator component (including small SVG additions for rays).
+- CSS/visual changes localized to the indicator component (including small SVG additions for rays), plus a small size override update where the indicator is explicitly sized.
 - No behavioral, layout, or data-flow changes.
 
 ## Proposed Approach (Selected)
