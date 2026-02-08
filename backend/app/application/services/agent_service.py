@@ -89,6 +89,8 @@ class AgentService:
         user_id: str,
         mode: AgentMode = AgentMode.AGENT,
         initial_message: str | None = None,
+        require_fresh_sandbox: bool = True,
+        sandbox_wait_seconds: float = 3.0,
     ) -> Session:
         logger.info(f"Creating new session for user: {user_id} with mode: {mode}")
 
@@ -129,11 +131,27 @@ class AgentService:
 
         agent = await self._create_agent()
         session = Session(agent_id=agent.id, user_id=user_id, mode=mode)
+        if require_fresh_sandbox:
+            session.status = SessionStatus.INITIALIZING
         logger.info(f"Created new Session with ID: {session.id} for user: {user_id} with mode: {mode}")
         await self._session_repository.save(session)
 
         # Phase 2: Start sandbox creation in background for faster first chat
         settings = get_settings()
+        if require_fresh_sandbox:
+            task = asyncio.create_task(self._warm_sandbox_for_session(session.id))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+            logger.info(f"Started background sandbox warm-up for session {session.id}")
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=sandbox_wait_seconds)
+            except TimeoutError:
+                logger.info(f"Sandbox warm-up still in progress for session {session.id}")
+            except Exception as e:
+                logger.warning(f"Sandbox warm-up failed for session {session.id}: {e}")
+            updated = await self._session_repository.find_by_id(session.id)
+            return updated or session
+
         if settings.sandbox_eager_init:
             task = asyncio.create_task(self._warm_sandbox_for_session(session.id))
             self._background_tasks.add(task)

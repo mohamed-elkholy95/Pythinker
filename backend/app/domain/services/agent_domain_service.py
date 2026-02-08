@@ -98,70 +98,74 @@ class AgentDomainService:
 
         if sandbox_id:
             sandbox = await self._sandbox_cls.get(sandbox_id)
-        if not sandbox:
-            # Phase 3: Try to acquire from pool if enabled
-            settings = get_settings()
+        settings = get_settings()
+
+        async def acquire_sandbox_from_pool() -> Sandbox:
             if settings.sandbox_pool_enabled:
                 try:
                     from app.core.sandbox_pool import get_sandbox_pool
 
                     pool = await get_sandbox_pool(self._sandbox_cls)
-                    sandbox = await pool.acquire(timeout=5.0)
-                    logger.info(f"Acquired sandbox {sandbox.id} from pool for session {session.id}")
+                    acquired = await pool.acquire(timeout=5.0)
+                    logger.info(f"Acquired sandbox {acquired.id} from pool for session {session.id}")
+                    return acquired
                 except Exception as e:
                     logger.warning(f"Failed to acquire from pool, creating on-demand: {e}")
-                    sandbox = await self._sandbox_cls.create()
-            else:
-                sandbox = await self._sandbox_cls.create()
+            return await self._sandbox_cls.create()
+
+        async def run_parallel_init(target_sandbox: Sandbox) -> None:
+            # Prepare parallel initialization tasks
+            parallel_tasks = []
+
+            # Workspace initialization (skip if lazy init is enabled - Phase 5)
+            async def init_workspace():
+                if settings.workspace_auto_init and not settings.workspace_lazy_init:
+                    try:
+                        exists_result = await target_sandbox.workspace_exists(session.id)
+                        if not exists_result.success or not exists_result.data.get("exists", False):
+                            logger.info(f"Auto-initializing workspace for session {session.id}")
+                            await target_sandbox.workspace_init(
+                                session_id=session.id,
+                                project_name=settings.workspace_default_project_name,
+                                template=settings.workspace_default_template,
+                            )
+                    except Exception as e:
+                        logger.warning(f"Workspace auto-init error (non-fatal): {e}")
+
+            # Framework bootstrap
+            async def init_framework():
+                if settings.sandbox_framework_enabled:
+                    try:
+                        await target_sandbox.ensure_framework(session.id)
+                    except Exception as e:
+                        if settings.sandbox_framework_required:
+                            raise
+                        logger.warning(f"Sandbox framework init error (non-fatal): {e}")
+
+            # Browser health check (verifies CDP connection)
+            async def verify_browser():
+                if hasattr(target_sandbox, "verify_browser_ready"):
+                    await target_sandbox.verify_browser_ready()
+
+            parallel_tasks.append(init_workspace())
+            parallel_tasks.append(init_framework())
+            parallel_tasks.append(verify_browser())
+
+            # Run all initialization tasks in parallel — log failures for diagnostics
+            init_results = await asyncio.gather(*parallel_tasks, return_exceptions=True)
+            init_names = ["workspace", "framework", "browser"]
+            for name, result in zip(init_names, init_results, strict=True):
+                if isinstance(result, Exception):
+                    logger.error(f"Session {session.id} {name} init failed: {result}")
+
+        if not sandbox:
+            sandbox = await acquire_sandbox_from_pool()
             session.sandbox_id = sandbox.id
+            sandbox_id = sandbox.id
             is_new_sandbox = True
             await self._session_repository.save(session)
 
-        settings = get_settings()
-
-        # Prepare parallel initialization tasks
-        parallel_tasks = []
-
-        # Workspace initialization (skip if lazy init is enabled - Phase 5)
-        async def init_workspace():
-            if settings.workspace_auto_init and not settings.workspace_lazy_init:
-                try:
-                    exists_result = await sandbox.workspace_exists(session.id)
-                    if not exists_result.success or not exists_result.data.get("exists", False):
-                        logger.info(f"Auto-initializing workspace for session {session.id}")
-                        await sandbox.workspace_init(
-                            session_id=session.id,
-                            project_name=settings.workspace_default_project_name,
-                            template=settings.workspace_default_template,
-                        )
-                except Exception as e:
-                    logger.warning(f"Workspace auto-init error (non-fatal): {e}")
-
-        # Framework bootstrap
-        async def init_framework():
-            if settings.sandbox_framework_enabled:
-                try:
-                    await sandbox.ensure_framework(session.id)
-                except Exception as e:
-                    if settings.sandbox_framework_required:
-                        raise
-                    logger.warning(f"Sandbox framework init error (non-fatal): {e}")
-
-        # Browser health check (verifies CDP connection)
-        async def verify_browser():
-            if hasattr(sandbox, "verify_browser_ready"):
-                await sandbox.verify_browser_ready()
-
-        parallel_tasks.append(init_workspace())
-        parallel_tasks.append(init_framework())
-        parallel_tasks.append(verify_browser())
-
-        # Run all initialization tasks in parallel — log failures for diagnostics
-        init_results = await asyncio.gather(*parallel_tasks, return_exceptions=True)
-        init_names = ["workspace", "framework", "browser"]
-        for name, result in zip(init_names, init_results, strict=True):
-            if isinstance(result, Exception):
-                logger.error(f"Session {session.id} {name} init failed: {result}")
+        await run_parallel_init(sandbox)
 
         # BROWSER SESSION PROTOCOL: Only clear browser for brand new sandboxes
         # Previously, this also triggered when session.task_id was None, but that caused
@@ -174,7 +178,32 @@ class AgentDomainService:
         should_clear_browser = is_new_sandbox
 
         # Browser connection is faster after parallel health check
-        browser = await sandbox.get_browser(clear_session=should_clear_browser, verify_connection=False)
+        try:
+            browser = await asyncio.wait_for(
+                sandbox.get_browser(clear_session=should_clear_browser, verify_connection=False),
+                timeout=settings.browser_init_timeout,
+            )
+        except TimeoutError:
+            logger.error(
+                f"Browser init timed out for sandbox {sandbox.id}; recycling sandbox for session {session.id}"
+            )
+            if hasattr(sandbox, "destroy"):
+                try:
+                    await sandbox.destroy()
+                except Exception as e:
+                    logger.debug(f"Sandbox destroy failed during recycle (non-critical): {e}")
+
+            sandbox = await acquire_sandbox_from_pool()
+            session.sandbox_id = sandbox.id
+            sandbox_id = sandbox.id
+            is_new_sandbox = True
+            should_clear_browser = True
+            await self._session_repository.save(session)
+            await run_parallel_init(sandbox)
+            browser = await asyncio.wait_for(
+                sandbox.get_browser(clear_session=should_clear_browser, verify_connection=False),
+                timeout=settings.browser_init_timeout,
+            )
         if not browser:
             logger.error(f"Failed to get browser for Sandbox {sandbox_id}")
             raise RuntimeError(f"Failed to get browser for Sandbox {sandbox_id}")
@@ -1008,8 +1037,15 @@ NOTE: The browser state may have changed. When you next use the browser:
         fast_path = FastPathRouter(browser=browser, search_engine=self._search_engine)
         logger.info(f"Executing fast browse to {url} for session {session_id}")
 
-        async for event in fast_path.execute_fast_browse(url):
-            # Add events to session history for persistence
-            if isinstance(event, (MessageEvent, DoneEvent, ErrorEvent)):
-                await self._session_repository.add_event(session_id, event)
-            yield event
+        try:
+            async for event in fast_path.execute_fast_browse(url):
+                # Add events to session history for persistence
+                if isinstance(event, (MessageEvent, DoneEvent, ErrorEvent)):
+                    await self._session_repository.add_event(session_id, event)
+                yield event
+        finally:
+            if sandbox and hasattr(sandbox, "release_pooled_browser"):
+                try:
+                    await sandbox.release_pooled_browser(browser, had_error=False)
+                except Exception as e:
+                    logger.debug(f"Pooled browser release failed (non-critical): {e}")

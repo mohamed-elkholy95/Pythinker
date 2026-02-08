@@ -185,6 +185,7 @@ class Settings(BaseSettings):
     browser_pool_timeout: float = 30.0  # Timeout waiting for available connection
     browser_pool_max_idle: float = 300.0  # Max idle time before cleanup (5 min)
     browser_pool_health_interval: float = 60.0  # Health check interval (1 min)
+    browser_init_timeout: float = 60.0  # Overall timeout for browser initialization (seconds)
 
     # Screenshot capture configuration (session replay)
     screenshot_capture_enabled: bool = True

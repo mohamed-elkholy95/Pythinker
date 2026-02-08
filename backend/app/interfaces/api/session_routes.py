@@ -71,6 +71,8 @@ async def create_session(
         current_user.id,
         mode=request.mode,
         initial_message=request.message,  # Phase 4 P0: Pass initial message for intent classification
+        require_fresh_sandbox=request.require_fresh_sandbox,
+        sandbox_wait_seconds=request.sandbox_wait_seconds,
     )
 
     # Phase 4: Include sandbox info if available for optimistic VNC connection

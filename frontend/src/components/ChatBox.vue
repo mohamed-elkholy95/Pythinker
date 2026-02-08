@@ -106,10 +106,11 @@ const props = defineProps<{
     isRunning: boolean;
     attachments: FileInfo[];
     showConnectorBanner?: boolean;
+    isBlocked?: boolean;
 }>();
 
 const sendEnabled = computed(() => {
-    return chatBoxFileListRef.value?.isAllUploaded && hasTextInput.value;
+    return !props.isBlocked && chatBoxFileListRef.value?.isAllUploaded && hasTextInput.value;
 });
 
 const emit = defineEmits<{

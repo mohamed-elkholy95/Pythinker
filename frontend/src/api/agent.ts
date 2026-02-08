@@ -11,13 +11,24 @@ import type { FileInfo } from './file';
  */
 export type AgentMode = 'discuss' | 'agent';
 
+export interface CreateSessionOptions {
+  require_fresh_sandbox?: boolean;
+  sandbox_wait_seconds?: number;
+}
+
 /**
  * Create Session
  * @param mode - Agent mode: 'discuss' (simple chat) or 'agent' (full capabilities)
  * @returns Session
  */
-export async function createSession(mode: AgentMode = 'agent'): Promise<CreateSessionResponse> {
-  const response = await apiClient.put<ApiResponse<CreateSessionResponse>>('/sessions', { mode });
+export async function createSession(
+  mode: AgentMode = 'agent',
+  options?: CreateSessionOptions
+): Promise<CreateSessionResponse> {
+  const response = await apiClient.put<ApiResponse<CreateSessionResponse>>('/sessions', {
+    mode,
+    ...(options || {}),
+  });
   return response.data.data;
 }
 

@@ -260,7 +260,7 @@ const handleNewTaskClick = async () => {
   const currentSessionId = route.params.sessionId as string | undefined;
   if (currentSessionId) {
     const currentSession = sessions.value.find(s => s.session_id === currentSessionId);
-    if (currentSession && (currentSession.status === SessionStatus.RUNNING || currentSession.status === SessionStatus.PENDING)) {
+    if (currentSession && [SessionStatus.RUNNING, SessionStatus.PENDING, SessionStatus.INITIALIZING].includes(currentSession.status)) {
       try {
         await stopSession(currentSessionId);
         handleSessionStatusChange(currentSessionId, SessionStatus.COMPLETED);
