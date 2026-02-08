@@ -17,9 +17,9 @@
         <defs>
           <!-- Animated gradient for bulb -->
           <linearGradient id="bulb-fuel" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#d4a060" stop-opacity="0.15" />
-            <stop offset="40%" stop-color="#c48a50" stop-opacity="0.5" />
-            <stop offset="100%" stop-color="#b07040" stop-opacity="0.8" />
+            <stop offset="0%" stop-color="#f8e5c4" stop-opacity="0.35" />
+            <stop offset="40%" stop-color="#f2c88a" stop-opacity="0.65" />
+            <stop offset="100%" stop-color="#e3a45a" stop-opacity="0.9" />
           </linearGradient>
           <!-- Circuit pattern clip -->
           <clipPath id="bulb-clip">
@@ -119,8 +119,8 @@ const hovered = ref(false)
 
 .thinking-lamp {
   position: relative;
-  width: 20px;
-  height: 24px;
+  width: 22px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -129,8 +129,8 @@ const hovered = ref(false)
 }
 
 .thinking-lamp.lamp-with-text {
-  width: 18px;
-  height: 22px;
+  width: 20px;
+  height: 24px;
 }
 
 /* Hover: slight scale + faster animations */
@@ -216,13 +216,13 @@ const hovered = ref(false)
 
 /* Bulb outline — dark stroke */
 .lamp-outline {
-  stroke: #2a2018;
+  stroke: #3b2a1a;
   animation: outline-pulse 2.5s ease-in-out infinite;
 }
 
 /* Circuit lines inside bulb */
 .circuit-lines line {
-  stroke: #2a2018;
+  stroke: #3b2a1a;
   opacity: 0.12;
   animation: circuit-flicker 3s ease-in-out infinite;
 }
@@ -233,7 +233,7 @@ const hovered = ref(false)
 
 /* Filament — dark energy arc */
 .lamp-filament {
-  stroke: #2a1a0e;
+  stroke: #4a3017;
   opacity: 0.7;
   animation: filament-flicker 1.8s ease-in-out infinite;
 }
@@ -249,7 +249,7 @@ const hovered = ref(false)
 
 /* Energy node — pulsing dot at filament peak */
 .filament-node {
-  fill: #c48a50;
+  fill: #f2b66b;
   opacity: 0.8;
   animation: node-pulse 0.8s ease-in-out infinite;
 }
@@ -278,9 +278,8 @@ const hovered = ref(false)
 
 /* Light rays — dark lines, staggered */
 .lamp-ray {
-  stroke: #1a1208;
-  opacity: 0;
-  animation: ray-appear 2.5s ease-in-out infinite;
+  stroke: #000000;
+  animation: ray-appear 2.4s ease-in-out infinite;
 }
 
 .ray-1 { animation-delay: 0s; }
@@ -291,9 +290,8 @@ const hovered = ref(false)
 
 /* Secondary short rays */
 .lamp-ray-s {
-  stroke: #1a1208;
-  opacity: 0;
-  animation: ray-appear-s 2.5s ease-in-out infinite;
+  stroke: #000000;
+  animation: ray-appear-s 2.4s ease-in-out infinite;
 }
 
 .ray-s1 { animation-delay: 0.1s; }
@@ -384,13 +382,10 @@ const hovered = ref(false)
 }
 
 :deep(.dark) .lamp-ray,
-.dark .lamp-ray {
-  stroke: #c4a078;
-}
-
+.dark .lamp-ray,
 :deep(.dark) .lamp-ray-s,
 .dark .lamp-ray-s {
-  stroke: #c4a078;
+  stroke: #000000;
 }
 
 :deep(.dark) .scan-line,
@@ -453,11 +448,11 @@ const hovered = ref(false)
 
 @keyframes filament-pulse {
   0%, 100% {
-    stroke: #2a1a0e;
+    stroke: #4a3017;
     opacity: 0.6;
   }
   50% {
-    stroke: #3d2a18;
+    stroke: #6d4220;
     opacity: 0.9;
   }
 }
