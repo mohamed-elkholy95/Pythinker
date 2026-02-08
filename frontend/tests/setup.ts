@@ -157,6 +157,9 @@ HTMLCanvasElement.prototype.getContext = vi.fn(() => ({
   measureText: vi.fn(() => ({ width: 0 })),
   fillText: vi.fn(),
   strokeText: vi.fn(),
+  createLinearGradient: vi.fn(() => ({
+    addColorStop: vi.fn(),
+  })),
 })) as unknown as typeof HTMLCanvasElement.prototype.getContext
 
 // Mock URL.createObjectURL and revokeObjectURL

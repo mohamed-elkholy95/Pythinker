@@ -641,6 +641,44 @@ class AgentTaskRunner(TaskRunner):
         # This ensures no null file_ids remain in the event
         event.attachments = synced_attachments
 
+    async def _ensure_report_file(self, event: ReportEvent) -> None:
+        """Persist report content as a file in the sandbox and attach it to the event."""
+        if not self._sandbox:
+            return
+        if not event.content or not event.content.strip():
+            return
+
+        # Avoid duplicating the same report attachment
+        existing = event.attachments or []
+        expected_name = f"report-{event.id}.md"
+        for attachment in existing:
+            if attachment.filename == expected_name:
+                return
+            if attachment.file_path and attachment.file_path.endswith(expected_name):
+                return
+
+        file_path = f"/home/ubuntu/{expected_name}"
+        try:
+            result = await self._sandbox.file_write(file=file_path, content=event.content)
+            if result is not None and hasattr(result, "success") and not result.success:
+                logger.warning(
+                    f"Agent {self._agent_id}: Failed to write report file '{file_path}' (success=False)"
+                )
+                return
+        except Exception as e:
+            logger.warning(f"Agent {self._agent_id}: Failed to write report file '{file_path}': {e}")
+            return
+
+        report_size = len(event.content.encode("utf-8"))
+        report_info = FileInfo(
+            filename=expected_name,
+            file_path=file_path,
+            size=report_size,
+            content_type="text/markdown",
+            user_id=self._user_id,
+        )
+        event.attachments = existing + [report_info]
+
     def _get_tool_execution_agent(self):
         """Return an agent instance capable of invoking tools."""
         flow = self._flow
@@ -1258,7 +1296,12 @@ class AgentTaskRunner(TaskRunner):
                 if isinstance(event, ToolEvent):
                     # TODO: move to tool function
                     await self._handle_tool_event(event)
-                elif isinstance(event, (MessageEvent, ReportEvent)):
+                elif isinstance(event, ReportEvent):
+                    await self._ensure_report_file(event)
+                    # Sync attachments to storage for events that contain file references
+                    # This resolves file_path to file_id for proper frontend access
+                    await self._sync_event_attachments_to_storage(event)
+                elif isinstance(event, MessageEvent):
                     # Sync attachments to storage for events that contain file references
                     # This resolves file_path to file_id for proper frontend access
                     await self._sync_event_attachments_to_storage(event)
@@ -1298,7 +1341,11 @@ class AgentTaskRunner(TaskRunner):
 
                     if isinstance(event, ToolEvent):
                         await self._handle_tool_event(event)
-                    elif isinstance(event, (MessageEvent, ReportEvent)):
+                    elif isinstance(event, ReportEvent):
+                        await self._ensure_report_file(event)
+                        # Sync attachments to storage for events that contain file references
+                        await self._sync_event_attachments_to_storage(event)
+                    elif isinstance(event, MessageEvent):
                         # Sync attachments to storage for events that contain file references
                         await self._sync_event_attachments_to_storage(event)
                     yield event
@@ -1343,6 +1390,12 @@ class AgentTaskRunner(TaskRunner):
 
         # Destroy sandbox environment with timeout to avoid hanging on container cleanup
         if self._sandbox:
+            # Release pooled browser connection before sandbox cleanup to prevent pool exhaustion
+            if self._browser and hasattr(self._sandbox, "release_pooled_browser"):
+                try:
+                    await self._sandbox.release_pooled_browser(self._browser, had_error=False)
+                except Exception as e:
+                    logger.debug(f"Pooled browser release failed (non-critical): {e}")
             logger.debug(f"Destroying Agent {self._agent_id}'s sandbox environment")
             try:
                 await asyncio.wait_for(self._sandbox.destroy(), timeout=15.0)

@@ -99,6 +99,18 @@
       </div>
       <div class="mx-auto w-full max-w-full sm:max-w-[768px] sm:min-w-[390px] flex flex-col flex-1 min-h-[calc(100vh-60px)]">
         <div class="flex flex-col w-full gap-[12px] pb-[80px] pt-[12px] flex-1">
+          <div v-if="isSandboxInitializing" class="flex items-center gap-3 px-4 py-2 bg-[var(--fill-tsp-white-main)] border border-[var(--border-main)] rounded-xl">
+            <div class="w-2 h-2 bg-[var(--text-secondary)] rounded-full animate-pulse"></div>
+            <span v-if="!sessionInitTimedOut" class="text-sm text-[var(--text-secondary)]">{{ $t('Preparing clean sandbox...') }}</span>
+            <span v-else class="text-sm text-[var(--text-secondary)]">{{ $t('Sandbox is taking longer than usual.') }}</span>
+            <button
+              v-if="sessionInitTimedOut"
+              @click="handleRetryInitialize"
+              class="ml-auto px-2.5 py-1 text-xs font-medium rounded-md border border-[var(--border-main)] hover:bg-[var(--fill-tsp-white-main)]"
+            >
+              {{ $t('Retry') }}
+            </button>
+          </div>
           <ChatMessage v-for="message in messages" :key="message.id" :message="message"
             :suggestions="message.type === 'report' ? suggestions : undefined"
             :activeThinkingStepId="activeThinkingStepId"
@@ -176,7 +188,7 @@
 
           <!-- Task Progress Bar - shown above ChatBox when ToolPanel is closed -->
           <TaskProgressBar
-            v-if="!isToolPanelOpen && (plan?.steps?.length > 0 || lastNoMessageTool || isInitializing)"
+            v-if="!isToolPanelOpen && (plan?.steps?.length > 0 || lastNoMessageTool || isInitializing || isSandboxInitializing)"
             :plan="plan"
             :isLoading="isLoading"
             :isThinking="isThinking"
@@ -184,13 +196,13 @@
             :sessionId="sessionId"
             :currentTool="currentToolInfo"
             :toolContent="lastNoMessageTool"
-            :isInitializing="isInitializing"
+            :isInitializing="isInitializing || isSandboxInitializing"
             :isSummaryStreaming="isSummaryStreaming"
             @openPanel="handleOpenPanel"
             @requestRefresh="handleThumbnailRefresh"
             class="mb-2"
           />
-          <ChatBox v-model="inputMessage" :rows="1" @submit="handleSubmit" :isRunning="isLoading" @stop="handleStop"
+          <ChatBox v-model="inputMessage" :rows="1" @submit="handleSubmit" :isRunning="isLoading" :isBlocked="isSandboxInitializing" @stop="handleStop"
             :attachments="attachments" @fileClick="handleAttachmentFileClick" :showConnectorBanner="!sessionId" />
         </div>
       </div>
@@ -257,6 +269,7 @@ import * as agentApi from '../api/agent';
 import { BASE_URL } from '../api/client';
 import { getStoredToken } from '@/api/auth';
 import { Message, MessageContent, ToolContent, StepContent, AttachmentsContent, ReportContent, SkillDeliveryContent } from '../types/message';
+import { waitForSessionReady } from '@/utils/sessionReady';
 import {
   StepEventData,
   ToolEventData,
@@ -449,26 +462,84 @@ const chatContainerRef = ref<HTMLDivElement>();
 
 // Track session status
 const sessionStatus = ref<SessionStatus | undefined>(undefined);
+const isSandboxInitializing = computed(() => sessionStatus.value === SessionStatus.INITIALIZING);
+const isWaitingForSessionReady = ref(false);
+const pendingInitialMessage = ref<{ message: string; files: FileInfo[] } | null>(null);
+const sessionInitTimedOut = ref(false);
 
 // Track active canvas project from canvas_update SSE events
 const activeCanvasProjectId = ref<string | null>(null);
+
+const refreshSessionStatus = async (targetSessionId?: string) => {
+  const activeSessionId = targetSessionId ?? sessionId.value;
+  if (!activeSessionId) {
+    sessionStatus.value = undefined;
+    return;
+  }
+
+  try {
+    const session = await agentApi.getSession(activeSessionId);
+    sessionStatus.value = session.status as SessionStatus;
+    if (sessionStatus.value !== SessionStatus.INITIALIZING) {
+      sessionInitTimedOut.value = false;
+    }
+  } catch {
+    // Session status fetch failed - non-critical
+  }
+};
+
+const maybeSendPendingInitialMessage = () => {
+  const pending = pendingInitialMessage.value;
+  if (pending && sessionStatus.value !== SessionStatus.INITIALIZING) {
+    pendingInitialMessage.value = null;
+    chat(pending.message, pending.files);
+  }
+};
+
+const waitForSessionIfInitializing = async () => {
+  if (!sessionId.value || isWaitingForSessionReady.value) return;
+  if (sessionStatus.value !== SessionStatus.INITIALIZING) return;
+
+  const targetSessionId = sessionId.value;
+  isWaitingForSessionReady.value = true;
+  sessionInitTimedOut.value = false;
+  try {
+    const result = await waitForSessionReady(targetSessionId, agentApi.getSession, {
+      pollIntervalMs: 500,
+      maxWaitMs: 30000,
+    });
+    if (sessionId.value === targetSessionId) {
+      sessionStatus.value = result.status;
+      sessionInitTimedOut.value = result.timedOut && result.status === SessionStatus.INITIALIZING;
+      if (!sessionInitTimedOut.value) {
+        maybeSendPendingInitialMessage();
+      }
+    }
+  } finally {
+    isWaitingForSessionReady.value = false;
+  }
+};
+
+const handleRetryInitialize = async () => {
+  sessionInitTimedOut.value = false;
+  await refreshSessionStatus();
+  await waitForSessionIfInitializing();
+  maybeSendPendingInitialMessage();
+};
+
+watch(sessionStatus, (status) => {
+  if (status !== SessionStatus.INITIALIZING) {
+    sessionInitTimedOut.value = false;
+  }
+});
 
 // Watch sessionId changes to update status
 watch(sessionId, async (newSessionId) => {
   // Clear session-level skills when switching sessions
   clearSessionSkills();
 
-  if (newSessionId) {
-    // Fetch session to get current status
-    try {
-      const session = await agentApi.getSession(newSessionId);
-      sessionStatus.value = session.status as SessionStatus;
-    } catch {
-      // Session status fetch failed - non-critical
-    }
-  } else {
-    sessionStatus.value = undefined;
-  }
+  await refreshSessionStatus(newSessionId);
+  await waitForSessionIfInitializing();
 }, { immediate: true });
 
 // Reset all refs to their initial values
@@ -1423,6 +1494,7 @@ const restoreSession = async () => {
     return;
   }
   const session = await agentApi.getSession(sessionId.value);
+  sessionStatus.value = session.status as SessionStatus;
   // Initialize share mode based on session state
   shareMode.value = session.is_shared ? 'public' : 'private';
   realTime.value = false;
@@ -1430,9 +1502,12 @@ const restoreSession = async () => {
     handleEvent(event);
   }
   realTime.value = true;
-  if (session.status === SessionStatus.RUNNING || session.status === SessionStatus.PENDING) {
+  if (sessionStatus.value === SessionStatus.INITIALIZING) {
+    await waitForSessionIfInitializing();
+  }
+  if (sessionStatus.value === SessionStatus.RUNNING || sessionStatus.value === SessionStatus.PENDING) {
     await chat();
-  } else if (session.status === SessionStatus.COMPLETED || session.status === SessionStatus.FAILED) {
+  } else if (sessionStatus.value === SessionStatus.COMPLETED || sessionStatus.value === SessionStatus.FAILED) {
     // Load screenshots for replay mode
     replay.loadScreenshots()
   }
@@ -1475,7 +1550,7 @@ const handleInsertMessage = (event: Event) => {
   }
 };
 
-onMounted(() => {
+onMounted(async () => {
   hideFilePanel();
   // Listen for message insert event from settings dialog
   window.addEventListener('pythinker:insert-chat-message', handleInsertMessage);
@@ -1489,9 +1564,12 @@ onMounted(() => {
     const files: FileInfo[] = history.state?.files;
     history.replaceState({}, document.title);
     if (message) {
-      chat(message, files);
+      pendingInitialMessage.value = { message, files };
+      await refreshSessionStatus(sessionId.value);
+      await waitForSessionIfInitializing();
+      maybeSendPendingInitialMessage();
     } else {
-      restoreSession();
+      await restoreSession();
     }
   }
 });

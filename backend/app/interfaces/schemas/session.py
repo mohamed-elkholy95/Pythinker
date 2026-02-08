@@ -9,6 +9,8 @@ class CreateSessionRequest(BaseModel):
 
     mode: AgentMode | None = AgentMode.AGENT
     message: str | None = None  # Phase 4 P0: Initial message for intent classification
+    require_fresh_sandbox: bool = True
+    sandbox_wait_seconds: float = 3.0
 
 
 class ChatRequest(BaseModel):

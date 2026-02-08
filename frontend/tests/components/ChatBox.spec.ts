@@ -45,20 +45,24 @@ vi.mock('@/components/ChatBoxFiles.vue', () => ({
   },
 }))
 
-vi.mock('lucide-vue-next', () => ({
-  Paperclip: {
-    name: 'Paperclip',
-    template: '<span class="mock-paperclip" />',
-  },
-}))
+vi.mock('lucide-vue-next', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('lucide-vue-next')>()
+  return {
+    ...actual,
+    Paperclip: {
+      name: 'Paperclip',
+      template: '<span class="mock-paperclip" />',
+    },
+  }
+})
 
 // Mock useSkills composable
 vi.mock('@/composables/useSkills', () => ({
   useSkills: () => ({
-    selectedSkills: { value: [] },
-    deselectSkill: vi.fn(),
-    clearSelectedSkills: vi.fn(),
-    getSelectedSkillIds: () => [],
+    sessionSkillIds: ref([]),
+    availableSkills: ref([]),
+    removeSessionSkill: vi.fn(),
+    selectSkill: vi.fn(),
   }),
 }))
 
@@ -76,6 +80,29 @@ vi.mock('@/components/SkillsPopover.vue', () => ({
   default: {
     name: 'SkillsPopover',
     template: '<span class="mock-skills-popover"><slot /></span>',
+  },
+}))
+
+// Mock Connector components
+vi.mock('@/components/connectors/ConnectorButton.vue', () => ({
+  default: {
+    name: 'ConnectorButton',
+    template: '<span class="mock-connector-button" />',
+  },
+}))
+
+vi.mock('@/components/connectors/ConnectorBanner.vue', () => ({
+  default: {
+    name: 'ConnectorBanner',
+    template: '<span class="mock-connector-banner" />',
+  },
+}))
+
+// Mock SkillPicker component
+vi.mock('@/components/SkillPicker.vue', () => ({
+  default: {
+    name: 'SkillPicker',
+    template: '<span class="mock-skill-picker" />',
   },
 }))
 
@@ -176,6 +203,25 @@ describe('ChatBox', () => {
     // Check for the send button with enabled class
     const sendButton = wrapper.find('.chatbox-send-btn.enabled')
     expect(sendButton.exists()).toBe(true)
+  })
+
+  it('should disable send button when blocked', async () => {
+    const wrapper = mount(ChatBox, {
+      props: {
+        ...defaultProps,
+        modelValue: '',
+        isBlocked: true,
+      },
+    })
+
+    await wrapper.setProps({ modelValue: 'Some text' })
+    await wrapper.vm.$nextTick()
+
+    const sendButton = wrapper.find('.chatbox-send-btn.disabled')
+    expect(sendButton.exists()).toBe(true)
+
+    await sendButton.trigger('click')
+    expect(wrapper.emitted('submit')).toBeFalsy()
   })
 
   it('should emit submit when clicking enabled send button', async () => {
