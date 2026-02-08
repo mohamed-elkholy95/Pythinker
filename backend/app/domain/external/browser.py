@@ -97,6 +97,21 @@ class Browser(Protocol):
         """
         ...
 
+    async def navigate_for_display(self, url: str, timeout: int = 10000) -> bool:
+        """Navigate to URL purely for VNC display (best-effort, non-blocking).
+
+        Used after HTTP-based content fetching so the user can see the
+        fetched page in the VNC viewer. Does not extract content.
+
+        Args:
+            url: URL to display in the browser
+            timeout: Navigation timeout in milliseconds
+
+        Returns:
+            bool: True if navigation succeeded, False if skipped or failed
+        """
+        ...
+
     def is_connected(self) -> bool:
         """Check if browser connection is healthy
 

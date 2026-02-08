@@ -33,6 +33,8 @@ services:
       - redis
       - qdrant
     restart: unless-stopped
+    ports:
+      - "8000:8000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       #- ./mcp.json:/etc/mcp.json # Mount MCP servers directory
@@ -40,6 +42,9 @@ services:
       - pythinker-network
     env_file:
       - .env
+    environment:
+      - GRPC_ENABLE_FORK_SUPPORT=0  # Suppress gRPC fork warning from qdrant-client
+      - NODE_OPTIONS=--no-deprecation  # Suppress Playwright url.parse() deprecation
 
   sandbox:
     image: ${IMAGE_REGISTRY:-pythinker}/pythinker-sandbox:${IMAGE_TAG:-latest}

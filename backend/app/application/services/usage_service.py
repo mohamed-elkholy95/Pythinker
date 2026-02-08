@@ -149,9 +149,9 @@ class UsageService:
         # Sanitize model name for MongoDB key (/ and . are path separators)
         safe_model_key = _sanitize_model_key(record.model)
 
-        # Use Beanie's get_motor_collection() with a guard against None
+        # Use Beanie's get_pymongo_collection() with a guard against None
         # (Beanie can return None under concurrent access race conditions)
-        collection = DailyUsageDocument.get_motor_collection()
+        collection = DailyUsageDocument.get_pymongo_collection()
         if collection is None:
             logger.warning("DailyUsageDocument motor collection is None, skipping daily aggregate update")
             return

@@ -4,9 +4,12 @@ This module extracts tool-specific metadata from ToolEvent instances,
 following the Strategy pattern for clean separation of concerns.
 """
 
+import logging
 from collections.abc import Callable
 
 from app.domain.models.event import ToolEvent
+
+logger = logging.getLogger(__name__)
 
 
 class ToolEventHandler:
@@ -68,9 +71,7 @@ class ToolEventHandler:
         """
         return event.tool_name == "file" and event.function_name == "file_write"
 
-    def _get_action_handler(
-        self, tool_name: str
-    ) -> Callable[[ToolEvent], None] | None:
+    def _get_action_handler(self, tool_name: str) -> Callable[[ToolEvent], None] | None:
         """Get the action metadata handler for a tool.
 
         Args:
@@ -90,9 +91,7 @@ class ToolEventHandler:
         }
         return handlers.get(tool_name)
 
-    def _get_observation_handler(
-        self, tool_name: str
-    ) -> Callable[[ToolEvent], None] | None:
+    def _get_observation_handler(self, tool_name: str) -> Callable[[ToolEvent], None] | None:
         """Get the observation metadata handler for a tool.
 
         Args:
@@ -147,6 +146,47 @@ class ToolEventHandler:
     def _handle_mcp_action(self, event: ToolEvent) -> None:
         """Handle MCP tool action metadata."""
         event.action_type = "call_tool"
+
+    async def log_tool_to_vectors(
+        self,
+        tool_name: str,
+        input_summary: str,
+        outcome: str,
+        error_type: str | None,
+        session_id: str,
+        user_id: str,
+    ) -> None:
+        """Log tool execution to vector store for cross-session learning.
+
+        Wraps in try/except — tool logging must never block execution.
+        """
+        try:
+            import uuid
+
+            from app.domain.repositories.vector_repos import (
+                get_embedding_provider,
+                get_tool_log_repository,
+            )
+
+            tool_repo = get_tool_log_repository()
+            embedding_provider = get_embedding_provider()
+            if not tool_repo or not embedding_provider:
+                return
+
+            embedding = await embedding_provider.embed(f"{tool_name}: {input_summary[:500]}")
+
+            await tool_repo.log_tool_execution(
+                log_id=str(uuid.uuid4()),
+                user_id=user_id,
+                session_id=session_id,
+                tool_name=tool_name,
+                embedding=embedding,
+                outcome=outcome,
+                input_summary=input_summary[:500],
+                error_type=error_type,
+            )
+        except Exception as e:
+            logger.debug(f"Tool vector logging failed (non-critical): {e}")
 
     # --- Observation Handlers ---
 

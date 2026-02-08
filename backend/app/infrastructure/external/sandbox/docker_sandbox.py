@@ -41,9 +41,22 @@ class DockerSandbox(Sandbox):
 
     @property
     def client(self) -> httpx.AsyncClient:
-        """Auto-healing httpx client — recreates if closed or None."""
+        """Auto-healing httpx client — recreates if closed or None.
+
+        Note: Property access is synchronous and single-threaded in asyncio,
+        so concurrent coroutines won't interleave within this property.
+        """
         if self._client is None or self._client.is_closed:
+            old = self._client
             self._client = httpx.AsyncClient(timeout=600)
+            # Prevent leak if old client was not fully closed
+            if old is not None and not old.is_closed:
+                try:
+                    import asyncio
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(old.aclose())
+                except RuntimeError:
+                    pass
         return self._client
 
     @client.setter
@@ -317,10 +330,10 @@ class DockerSandbox(Sandbox):
                     continue
 
                 # Check if all services are RUNNING
-                # Note: context_generator is expected to EXITED (runs once at startup)
+                # Note: context_generator, xrandr_setup, fix_permissions are expected to EXIT (run once at startup)
                 all_running = True
                 non_running_services = []
-                expected_exit_services = {"context_generator", "xrandr_setup"}
+                expected_exit_services = {"context_generator", "xrandr_setup", "fix_permissions"}
 
                 for service in services:
                     service_name = service.get("name", "unknown")
@@ -366,7 +379,9 @@ class DockerSandbox(Sandbox):
                 # Connection refused — sandbox container is not reachable, reduce retries
                 if attempt >= 5:
                     logger.error(f"Sandbox unreachable after {attempt + 1} attempts, giving up")
-                    return
+                    raise RuntimeError(
+                        f"Sandbox unreachable after {attempt + 1} connection attempts"
+                    )
                 logger.warning(f"Sandbox unreachable (attempt {attempt + 1}/{max_retries})")
                 await asyncio.sleep(retry_interval)
             except Exception as e:
@@ -378,6 +393,7 @@ class DockerSandbox(Sandbox):
             f"Sandbox failed to become ready after {max_retries} attempts ({max_retries * retry_interval} seconds)"
         )
         logger.error(error_message)
+        raise RuntimeError(error_message)
 
     async def ensure_framework(self, session_id: str) -> None:
         """Initialize sandbox framework state for the session."""
@@ -833,11 +849,12 @@ class DockerSandbox(Sandbox):
                 return addr_info[0][4][
                     0
                 ]  # Return sockaddr[0] from (family, type, proto, canonname, sockaddr), which is the IP address
-            return None
+            logger.warning(f"No addresses found for hostname {hostname}, using as-is")
+            return hostname
         except Exception as e:
-            # Log error and return None on failure
-            logger.error(f"Failed to resolve hostname {hostname}: {e!s}")
-            return None
+            # Log error and return hostname as-is instead of None
+            logger.error(f"Failed to resolve hostname {hostname}: {e!s}, using as-is")
+            return hostname
 
     async def destroy(self) -> bool:
         """Destroy Docker sandbox"""
@@ -853,8 +870,12 @@ class DockerSandbox(Sandbox):
                 await self._client.aclose()
             self._client = None
             if self._container_name:
-                docker_client = docker.from_env()
-                docker_client.containers.get(self._container_name).remove(force=True)
+
+                def _remove_container(name: str) -> None:
+                    dc = docker.from_env()
+                    dc.containers.get(name).remove(force=True)
+
+                await asyncio.to_thread(_remove_container, self._container_name)
             return True
         except Exception as e:
             logger.error(f"Failed to destroy Docker sandbox: {e!s}")

@@ -61,8 +61,12 @@ def compute_trigram_embedding(text: str, embedding_dim: int = 128) -> list[float
     if total > 0:
         inv_total = 1.0 / total  # Compute inverse once
         for trigram, count in trigrams.items():
-            # Hash trigram to embedding dimension
-            idx = hash(trigram) % embedding_dim
+            # Hash trigram to embedding dimension using deterministic hash
+            # (hash() is randomized across Python processes via PYTHONHASHSEED)
+            idx = int.from_bytes(
+                hashlib.md5(trigram.encode(), usedforsecurity=False).digest()[:4],
+                "little",
+            ) % embedding_dim
             embedding[idx] += count * inv_total
 
     # Normalize
@@ -309,6 +313,7 @@ class StuckDetector:
                 self._stuck_count = 0
                 self._recovery_attempts = 0
                 self._semantic_stuck_detected = False
+                self._stuck_analysis = None
 
         # Phase 4 P1: Log detection check
         logger.debug(

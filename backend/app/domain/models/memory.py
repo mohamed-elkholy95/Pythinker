@@ -15,22 +15,26 @@ class MemoryConfig:
 
     max_messages: int = 100
     auto_compact_threshold: int = 50
-    # Token-based threshold for smart compaction (default: 80k tokens)
-    auto_compact_token_threshold: int = 80000
+    # Token-based threshold for smart compaction (default: 60k tokens — leave buffer for response)
+    auto_compact_token_threshold: int = 60000
     # Use token-based compaction instead of message count
     use_token_threshold: bool = True
     compactable_functions: list[str] = None
-    preserve_recent: int = 10
+    preserve_recent: int = 8
 
     def __post_init__(self):
         if self.compactable_functions is None:
             self.compactable_functions = [
                 "browser_view",
                 "browser_navigate",
+                "browser_get_content",
                 "shell_exec",
+                "shell_view",
                 "file_read",
                 "file_list",
-                "browser_get_content",
+                "file_list_directory",
+                "code_execute",
+                "code_run_artifact",
             ]
 
 
@@ -133,15 +137,23 @@ class Memory(BaseModel):
 
             function_name = message.get("function_name", "")
 
-            # Check if this function should be compacted
+            content = message.get("content", "")
+
+            # Check if this function should be compacted (replace with stub)
             if function_name in self.config.compactable_functions:
-                # Check if already compacted
-                content = message.get("content", "")
                 if "(removed)" not in content and "(compacted)" not in content:
-                    # Compact the content
                     message["content"] = ToolResult(success=True, data="(compacted)").model_dump_json()
                     compacted += 1
                     logger.debug(f"Smart-compacted tool result: {function_name}")
+            elif function_name and len(content) > 8000 and "(compacted)" not in content and "(removed)" not in content:
+                head = content[:3000]
+                tail = content[-1000:]
+                chars_removed = len(content) - 4000
+                message["content"] = f"{head}\n\n... [truncated {chars_removed} chars] ...\n\n{tail}"
+                compacted += 1
+                logger.debug(
+                    f"Truncated large tool result: {function_name} ({len(content)} -> {len(message['content'])} chars)"
+                )
 
         if compacted > 0:
             logger.info(f"Smart-compacted {compacted} tool results")

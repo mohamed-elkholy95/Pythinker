@@ -87,6 +87,10 @@
           :is-active="index === stepContent.tools.length - 1"
           @click="handleToolClick(tool)"
         />
+        <!-- Thinking indicator inside step (Manus-style) -->
+        <div v-if="showStepThinking" class="flex items-center gap-2 py-1">
+          <ThinkingIndicator :showText="true" />
+        </div>
       </div>
     </div>
   </div>
@@ -136,6 +140,7 @@ import { ReportCard, AttachmentsInlineGrid, TaskCompletedFooter } from './report
 import type { ReportData } from './report';
 import type { FileInfo } from '../api/file';
 import DeepResearchCard from './DeepResearchCard.vue';
+import ThinkingIndicator from './ui/ThinkingIndicator.vue';
 import { useShiki } from '@/composables/useShiki';
 
 
@@ -143,6 +148,7 @@ const props = defineProps<{
   message: Message;
   sessionId?: string;
   suggestions?: string[];
+  activeThinkingStepId?: string;
 }>();
 
 const emit = defineEmits<{
@@ -150,7 +156,7 @@ const emit = defineEmits<{
   (e: 'reportOpen', report: ReportData): void;
   (e: 'reportFileOpen', file: FileInfo): void;
   (e: 'showAllFiles'): void;
-  (e: 'reportRate', rating: number): void;
+  (e: 'reportRate', rating: number, feedback?: string): void;
   (e: 'selectSuggestion', suggestion: string): void;
   (e: 'deepResearchRun', researchId: string): void;
   (e: 'deepResearchSkip', researchId: string, queryId?: string): void;
@@ -173,8 +179,8 @@ const handleShowAllFiles = () => {
   emit('showAllFiles');
 };
 
-const handleReportRate = (rating: number) => {
-  emit('reportRate', rating);
+const handleReportRate = (rating: number, feedback?: string) => {
+  emit('reportRate', rating, feedback);
 };
 
 const handleSelectSuggestion = (suggestion: string) => {
@@ -200,6 +206,12 @@ const toolContent = computed(() => props.message.content as ToolContent);
 const attachmentsContent = computed(() => props.message.content as AttachmentsContent);
 const reportContent = computed(() => props.message.content as ReportContent);
 const deepResearchContent = computed(() => props.message.content as DeepResearchContent);
+
+// Show thinking indicator inside this step when it's the active thinking step
+const showStepThinking = computed(() => {
+  if (props.message.type !== 'step') return false;
+  return stepContent.value.id === props.activeThinkingStepId;
+});
 
 // Convert ReportContent to ReportData for the component
 const reportData = computed<ReportData>(() => {
@@ -294,10 +306,13 @@ const handleStepToggle = () => {
 };
 
 watch(
-  () => stepContent.value?.status,
-  (status) => {
+  () => [stepContent.value?.status, props.activeThinkingStepId] as const,
+  ([status, thinkingId]) => {
     if (status === 'completed' && !userToggled.value) {
       isExpanded.value = false;
+    }
+    if (thinkingId === stepContent.value?.id && !userToggled.value) {
+      isExpanded.value = true;
     }
   },
   { immediate: true }

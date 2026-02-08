@@ -86,6 +86,7 @@ class ParallelToolExecutor:
         "browser_click",
         "browser_type",
         "browser_get_content",
+        "search",  # Now navigates browser for VNC display
         "info_search_web",
     }
 
@@ -181,17 +182,17 @@ class ParallelToolExecutor:
             True if call depends on prior
         """
         # File operations on same path (tools use "file" parameter, not "path")
+        write_tools = {"file_write", "file_append", "file_delete", "file_str_replace"}
         if "file_" in call.tool_name and "file_" in prior.tool_name:
             call_path = call.arguments.get("file", "") or call.arguments.get("path", "")
             prior_path = prior.arguments.get("file", "") or prior.arguments.get("path", "")
-            if (
-                call_path
-                and prior_path
-                and call_path == prior_path
-                and call.tool_name in ("file_write", "file_append", "file_delete", "file_str_replace")
-            ):
+            if call_path and prior_path and call_path == prior_path:
                 # Write/modify after any file op on same path is dependent
-                return True
+                if call.tool_name in write_tools:
+                    return True
+                # Read after write on same path is also dependent
+                if prior.tool_name in write_tools:
+                    return True
 
         # Shell operations: sequential by default (shared state: cwd, env vars)
         if "shell_" in call.tool_name and "shell_" in prior.tool_name:
@@ -225,9 +226,11 @@ class ParallelToolExecutor:
             ready = [call for call in remaining if call.depends_on.issubset(completed_ids)]
 
             if not ready:
-                # Circular dependency or bug - fall back to sequential
-                logger.warning("Circular dependency detected, executing sequentially")
-                batches.append(remaining)
+                # Circular dependency or bug - fall back to sequential (one at a time)
+                logger.warning("Circular dependency detected, executing remaining calls one-by-one")
+                for call in remaining:
+                    batches.append([call])
+                remaining.clear()
                 break
 
             # Group parallelizable calls
@@ -382,10 +385,13 @@ class ParallelToolExecutor:
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Convert any exceptions to ToolResults
+        # Convert any exceptions to ToolResults, re-raise CancelledError
         processed_results: list[ToolResult] = []
         for i, result in enumerate(results):
-            if isinstance(result, Exception):
+            if isinstance(result, asyncio.CancelledError):
+                # Re-raise CancelledError — don't treat cancellation as a tool result
+                raise result
+            elif isinstance(result, Exception):
                 processed_results.append(
                     ToolResult(
                         call_id=batch[i].id,

@@ -11,6 +11,7 @@ from qdrant_client import models
 
 from app.core.config import get_settings
 from app.domain.models.long_term_memory import MemoryImportance, MemoryType
+from app.domain.repositories.vector_memory_repository import VectorMemoryRepository, VectorSearchResult
 from app.infrastructure.storage.qdrant import get_qdrant
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,7 @@ class QdrantSearchResult:
         self.importance = importance
 
 
-class QdrantMemoryRepository:
+class QdrantMemoryRepository(VectorMemoryRepository):
     """Qdrant-based vector search for memories.
 
     This repository handles only vector operations in Qdrant.
@@ -121,7 +122,7 @@ class QdrantMemoryRepository:
         memory_types: list[MemoryType] | None = None,
         min_importance: MemoryImportance | None = None,
         tags: list[str] | None = None,
-    ) -> list[QdrantSearchResult]:
+    ) -> list[VectorSearchResult]:
         """Search for similar memories using Qdrant.
 
         Args:
@@ -134,7 +135,7 @@ class QdrantMemoryRepository:
             tags: Optional filter by tags (any match)
 
         Returns:
-            List of QdrantSearchResult with memory_id and relevance_score
+            List of VectorSearchResult with memory_id and relevance_score
         """
         # Build filter conditions
         must_conditions = [models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id))]
@@ -176,7 +177,7 @@ class QdrantMemoryRepository:
         )
 
         return [
-            QdrantSearchResult(
+            VectorSearchResult(
                 memory_id=str(point.id),
                 relevance_score=point.score,
                 memory_type=point.payload.get("memory_type") if point.payload else None,

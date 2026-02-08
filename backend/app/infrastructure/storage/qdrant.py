@@ -1,3 +1,4 @@
+import contextlib
 import logging
 from functools import lru_cache
 
@@ -6,6 +7,22 @@ from qdrant_client import AsyncQdrantClient, models
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# Collection definitions for multi-collection architecture
+COLLECTIONS: dict[str, models.VectorParams] = {
+    "user_knowledge": models.VectorParams(size=1536, distance=models.Distance.COSINE),
+    "task_artifacts": models.VectorParams(size=1536, distance=models.Distance.COSINE),
+    "tool_logs": models.VectorParams(size=1536, distance=models.Distance.COSINE),
+    "semantic_cache": models.VectorParams(size=1536, distance=models.Distance.COSINE),
+}
+
+# Payload indexes for each collection (for fast filtered search)
+COLLECTION_INDEXES: dict[str, list[str]] = {
+    "user_knowledge": ["user_id", "memory_type", "importance"],
+    "task_artifacts": ["user_id", "session_id", "artifact_type", "agent_role"],
+    "tool_logs": ["user_id", "session_id", "tool_name", "outcome"],
+    "semantic_cache": ["context_hash", "model"],
+}
 
 
 class QdrantStorage:
@@ -31,20 +48,22 @@ class QdrantStorage:
             await self._client.get_collections()
             logger.info("Successfully connected to Qdrant")
 
-            # Ensure collection exists
-            await self._ensure_collection()
+            # Ensure all collections exist
+            await self._ensure_collections()
         except Exception as e:
             logger.error(f"Failed to connect to Qdrant: {e}")
             raise
 
-    async def _ensure_collection(self) -> None:
-        """Create collection if it doesn't exist."""
-        collection_name = self._settings.qdrant_collection
-        collections = await self._client.get_collections()
+    async def _ensure_collections(self) -> None:
+        """Create all collections if they don't exist, including payload indexes."""
+        existing = await self._client.get_collections()
+        existing_names = {c.name for c in existing.collections}
 
-        if collection_name not in [c.name for c in collections.collections]:
+        # Legacy collection for backward compatibility
+        legacy_name = self._settings.qdrant_collection
+        if legacy_name not in existing_names and legacy_name not in COLLECTIONS:
             await self._client.create_collection(
-                collection_name=collection_name,
+                collection_name=legacy_name,
                 vectors_config=models.VectorParams(
                     size=1536,  # OpenAI text-embedding-3-small dimension
                     distance=models.Distance.COSINE,
@@ -53,7 +72,30 @@ class QdrantStorage:
                     indexing_threshold=20000,  # Start HNSW indexing at 20k points
                 ),
             )
-            logger.info(f"Created Qdrant collection: {collection_name}")
+            logger.info(f"Created legacy Qdrant collection: {legacy_name}")
+
+        # Multi-collection architecture collections
+        for name, params in COLLECTIONS.items():
+            if name not in existing_names:
+                await self._client.create_collection(
+                    collection_name=name,
+                    vectors_config=params,
+                    optimizers_config=models.OptimizersConfigDiff(
+                        indexing_threshold=20000,
+                    ),
+                )
+                logger.info(f"Created Qdrant collection: {name}")
+
+        # Create payload indexes for filtered search
+        for collection_name, fields in COLLECTION_INDEXES.items():
+            for field in fields:
+                with contextlib.suppress(Exception):
+                    # Index may already exist — suppress duplicates
+                    await self._client.create_payload_index(
+                        collection_name=collection_name,
+                        field_name=field,
+                        field_schema=models.PayloadSchemaType.KEYWORD,
+                    )
 
     async def shutdown(self) -> None:
         """Shutdown Qdrant connection."""

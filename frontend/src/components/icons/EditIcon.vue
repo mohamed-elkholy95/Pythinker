@@ -6,13 +6,13 @@
                 d="M2 4.7C2 3.20883 3.20883 2 4.7 2H13.3C14.7912 2 16 3.20883 16 4.7V13.3C16 14.7912 14.7912 16 13.3 16H4.7C3.20883 16 2 14.7912 2 13.3V4.7Z"
                 :fill="`url(#${gradientId})`"></path>
         </g>
-        <path
+        <path class="icon-border"
             d="M2.42857 4.7C2.42857 3.44552 3.44552 2.42857 4.7 2.42857H13.3C14.5545 2.42857 15.5714 3.44552 15.5714 4.7V13.3C15.5714 14.5545 14.5545 15.5714 13.3 15.5714H4.7C3.44552 15.5714 2.42857 14.5545 2.42857 13.3V4.7Z"
-            stroke="#B9B9B7" stroke-width="0.857143"></path>
-        <path
+            stroke-width="0.857143"></path>
+        <path class="icon-detail"
             d="M9.24211 5.70711C9.63264 5.31658 10.2658 5.31658 10.6563 5.70711V5.70711V5.70711C11.0468 6.09763 11.0468 6.7308 10.6563 7.12132L7.12079 10.6569H5.70658V9.24264L9.24211 5.70711Z"
-            stroke="#535350" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"></path>
-        <path d="M8 12H12" stroke="#535350" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"></path>
+            stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path class="icon-detail" d="M8 12H12" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"></path>
         <defs>
             <filter :id="filterId" x="1.5" y="1.5" width="15" height="15" filterUnits="userSpaceOnUse"
                 color-interpolation-filters="sRGB">
@@ -57,3 +57,12 @@ const uid = Math.random().toString(36).substring(2, 9);
 const filterId = computed(() => `edit_filter_${uid}`);
 const gradientId = computed(() => `edit_gradient_${uid}`);
 </script>
+
+<style scoped>
+.icon-border {
+    stroke: var(--border-main, #B9B9B7);
+}
+.icon-detail {
+    stroke: var(--icon-secondary, #535350);
+}
+</style>

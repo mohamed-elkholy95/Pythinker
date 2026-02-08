@@ -33,6 +33,10 @@
       }"
     >
       <div class="left-panel-header px-4 py-3 h-[56px]">
+        <div class="flex items-center gap-2">
+          <Bot :size="20" class="logo-robot" :stroke-width="2.2" />
+          <PythinkerLogoTextIcon />
+        </div>
         <button
           class="collapse-btn"
           @click="toggleLeftPanel"
@@ -127,7 +131,8 @@
 </template>
 
 <script setup lang="ts">
-import { PanelLeft, Plus, Command, MessageSquareDashed, Settings2, Search, Library, FolderPlus, SquarePen } from 'lucide-vue-next';
+import { PanelLeft, Plus, Command, MessageSquareDashed, Settings2, Search, Library, FolderPlus, SquarePen, Bot } from 'lucide-vue-next';
+import PythinkerLogoTextIcon from './icons/PythinkerLogoTextIcon.vue';
 import SessionItem from './SessionItem.vue';
 import { useLeftPanel } from '../composables/useLeftPanel';
 import { ref, onMounted, watch, onUnmounted, computed } from 'vue';
@@ -296,6 +301,10 @@ watch(() => route.path, async (newPath, oldPath) => {
   gap: 8px;
 }
 
+.left-panel-header .logo-robot {
+  color: var(--text-primary);
+}
+
 .collapse-btn {
   display: inline-flex;
   width: 36px;
@@ -308,6 +317,7 @@ watch(() => route.path, async (newPath, oldPath) => {
   color: var(--icon-secondary);
   background: transparent;
   border: 1px solid transparent;
+  margin-left: auto;
 }
 
 .collapse-btn:hover {

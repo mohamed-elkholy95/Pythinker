@@ -13,9 +13,14 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
 from app.core.sandbox_pool import start_sandbox_pool, stop_sandbox_pool
+from app.infrastructure.models.connector_documents import (
+    ConnectorDocument,
+    UserConnectorDocument,
+)
 from app.infrastructure.models.documents import (
     AgentDocument,
     DailyUsageDocument,
+    ScreenshotDocument,
     SessionDocument,
     SkillDocument,
     SnapshotDocument,
@@ -120,6 +125,9 @@ class RateLimitMiddleware:
     # Auth endpoints have stricter limits
     AUTH_PATHS: ClassVar[set[str]] = {"/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/refresh"}
 
+    # Exempt paths: SSE long-poll and health checks don't count toward rate limits
+    EXEMPT_PATHS: ClassVar[set[str]] = {"/api/v1/auth/status", "/health"}
+
     # In-memory fallback storage: {key: (count, window_start_time)}
     _fallback_storage: ClassVar[dict] = {}
     _fallback_window_seconds: ClassVar[int] = 60
@@ -177,6 +185,18 @@ class RateLimitMiddleware:
 
         request = Request(scope, receive)
         path = request.url.path
+        method = scope.get("method", "GET")
+
+        # Exempt health checks and auth status from rate limiting
+        if path in self.EXEMPT_PATHS:
+            await self.app(scope, receive, send)
+            return
+
+        # SSE endpoints (POST /sessions for session list, POST /sessions/{id}/chat)
+        # are long-lived streaming connections — exempt from rate limiting
+        if method == "POST" and (path == "/api/v1/sessions" or "/chat" in path):
+            await self.app(scope, receive, send)
+            return
 
         # Determine rate limit based on path
         if path in self.AUTH_PATHS:
@@ -186,7 +206,17 @@ class RateLimitMiddleware:
 
         # Get client identifier (IP or user ID from token)
         client_id = request.client.host if request.client else "unknown"
-        key = f"rate_limit:{client_id}:{path.split('/')[3] if len(path.split('/')) > 3 else 'default'}"
+        # Use method + normalized path for granular buckets
+        # Strip session IDs to group per-endpoint (e.g., GET /sessions/* → one bucket)
+        parts = path.split("/")
+        if len(parts) > 4:
+            # Normalize: /api/v1/sessions/{id}/action → sessions:action
+            bucket = f"{parts[3]}:{parts[-1]}"
+        elif len(parts) > 3:
+            bucket = parts[3]
+        else:
+            bucket = "default"
+        key = f"rate_limit:{client_id}:{method}:{bucket}"
 
         rate_limit_exceeded = False
         using_fallback = False
@@ -299,9 +329,12 @@ async def lifespan(app: FastAPI):
             database=get_mongodb().client[settings.mongodb_database],
             document_models=[
                 AgentDocument,
+                ConnectorDocument,
+                ScreenshotDocument,
                 SessionDocument,
                 SkillDocument,
                 SnapshotDocument,
+                UserConnectorDocument,
                 UserDocument,
                 UsageDocument,
                 DailyUsageDocument,
@@ -317,6 +350,15 @@ async def lifespan(app: FastAPI):
             logger.info(f"Seeded {skill_count} official skills")
         except Exception as e:
             logger.warning(f"Failed to seed skills (non-critical): {e}")
+
+        # Seed official connectors
+        try:
+            from app.infrastructure.seeds.connectors_seed import seed_connectors
+
+            connector_count = await seed_connectors()
+            logger.info(f"Seeded {connector_count} official connectors")
+        except Exception as e:
+            logger.warning(f"Failed to seed connectors (non-critical): {e}")
 
         # Cleanup stale running sessions from previous crashes/restarts
         try:
@@ -343,6 +385,31 @@ async def lifespan(app: FastAPI):
         try:
             await get_qdrant().initialize()
             _health_state["qdrant"] = True
+
+            # Connect Qdrant to domain layer for vector memory operations
+            from app.domain.repositories.vector_memory_repository import set_vector_memory_repository
+            from app.infrastructure.repositories.qdrant_memory_repository import QdrantMemoryRepository
+
+            qdrant_repo = QdrantMemoryRepository()
+            set_vector_memory_repository(qdrant_repo)
+
+            # Wire task artifact, tool log repos, and embedding provider
+            from app.domain.repositories.vector_repos import (
+                set_embedding_provider,
+                set_task_artifact_repository,
+                set_tool_log_repository,
+            )
+            from app.infrastructure.external.embedding.client import get_embedding_client
+            from app.infrastructure.repositories.qdrant_task_repository import QdrantTaskRepository
+            from app.infrastructure.repositories.qdrant_tool_log_repository import QdrantToolLogRepository
+
+            set_task_artifact_repository(QdrantTaskRepository())
+            set_tool_log_repository(QdrantToolLogRepository())
+            try:
+                set_embedding_provider(get_embedding_client())
+            except RuntimeError:
+                logger.warning("No embedding API key — embedding provider not set")
+            logger.info("Vector memory repositories connected to Qdrant")
         except Exception as e:
             logger.warning(f"Qdrant initialization failed (graceful degradation): {e}")
             _health_state["qdrant"] = False
@@ -369,12 +436,37 @@ async def lifespan(app: FastAPI):
         _health_state["ready"] = True
         logger.info("Application startup complete - all services initialized")
 
+        # Start background memory cleanup task (Phase 7)
+        memory_cleanup_task = None
+        if _health_state["qdrant"]:
+            async def _memory_cleanup_loop():
+                """Periodic memory maintenance -- runs every hour."""
+                while True:
+                    await asyncio.sleep(3600)  # Every hour
+                    try:
+                        from app.interfaces.dependencies import get_memory_service
+                        memory_service = get_memory_service()
+                        if memory_service:
+                            await memory_service.cleanup(remove_expired=True, consolidate=False)
+                            logger.debug("Memory cleanup cycle completed")
+                    except Exception as e:
+                        logger.debug(f"Memory cleanup failed (non-critical): {e}")
+
+            memory_cleanup_task = asyncio.create_task(_memory_cleanup_loop())
+            logger.info("Memory cleanup background task started")
+
         try:
             yield
         finally:
             # Code executed on shutdown
             logger.info("Application shutdown - Pythinker AI Agent terminating")
             _health_state["ready"] = False
+
+            # Cancel memory cleanup task
+            if memory_cleanup_task is not None:
+                memory_cleanup_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await memory_cleanup_task
 
             # Shutdown sandbox pool first (Phase 3)
             if settings.sandbox_pool_enabled:
@@ -398,14 +490,20 @@ async def lifespan(app: FastAPI):
 
             # --- Application-level cleanup (requires DB connections) ---
 
-            logger.info("Cleaning up AgentService instance")
-            try:
-                await asyncio.wait_for(get_agent_service().shutdown(), timeout=30.0)
-                logger.info("AgentService shutdown completed successfully")
-            except TimeoutError:
-                logger.warning("AgentService shutdown timed out after 30 seconds")
-            except Exception as e:
-                logger.error(f"Error during AgentService cleanup: {e!s}")
+            # Only shut down AgentService if it was actually created (lru_cache populated).
+            # Without this guard, get_agent_service() creates a brand-new instance
+            # (LLM, search, memory) just to immediately shut it down on hot-reload.
+            if get_agent_service.cache_info().currsize > 0:
+                logger.info("Cleaning up AgentService instance")
+                try:
+                    await asyncio.wait_for(get_agent_service().shutdown(), timeout=30.0)
+                    logger.info("AgentService shutdown completed successfully")
+                except TimeoutError:
+                    logger.warning("AgentService shutdown timed out after 30 seconds")
+                except Exception as e:
+                    logger.error(f"Error during AgentService cleanup: {e!s}")
+            else:
+                logger.info("AgentService was never created, skipping shutdown")
 
             # Destroy orphaned sandbox containers from active sessions
             # (catches sandboxes missed by task registry cleanup)
@@ -501,7 +599,7 @@ if not cors_origins:
     if settings.is_development:
         cors_origins = [
             "http://localhost:5173",
-            "http://localhost:3000",
+            "http://localhost:5174",
             "http://localhost:3000",
             "http://127.0.0.1:5173",
             "http://127.0.0.1:5174",

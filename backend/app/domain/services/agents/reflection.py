@@ -232,6 +232,9 @@ class ReflectionAgent:
         except Exception as e:
             logger.error(f"Reflection failed: {e}")
             # Fail-open: emit CONTINUE recommendation
+            # Still increment counter to prevent reflection storm under repeated LLM failures
+            self._reflection_count += 1
+            self._last_reflection_step = progress.steps_completed
             _record_reflection_decision("continue")
             yield ReflectionEvent(
                 status=ReflectionStatus.COMPLETED,
@@ -453,6 +456,8 @@ class ReflectionAgent:
 
         except Exception as e:
             logger.error(f"Stuck pattern reflection failed: {e}")
+            # Still increment counter to prevent reflection storm under repeated LLM failures
+            self._reflection_count += 1
             # Fail-open with ADJUST recommendation
             yield ReflectionEvent(
                 status=ReflectionStatus.COMPLETED,

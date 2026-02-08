@@ -216,8 +216,9 @@ class MemoryService:
     ) -> MemoryEntry:
         """Store memory in parallel to MongoDB and vector store.
 
-        Phase 5 Enhancement: Uses TaskGroup for parallel writes to reduce
-        total write latency.
+        Phase 5 Enhancement: MongoDB write must complete first (to get the ID),
+        then vector store write runs. For true parallelism across multiple
+        memories, use _store_many_parallel which uses gather_compat.
 
         Args:
             memory: Memory entry to store
@@ -229,48 +230,27 @@ class MemoryService:
         Returns:
             Created memory entry from MongoDB
         """
-        settings = get_settings()
-        use_taskgroup = settings.feature_taskgroup_enabled
-
-        # Create MongoDB write task
-        async def mongo_write() -> MemoryEntry:
-            return await self._repository.create(memory)
-
-        # Create vector store write task (needs memory ID from MongoDB first for consistency)
-        # For true parallelism, we generate a temp ID and update after
-        vector_repo = _get_vector_repo()
-        mongo_result: MemoryEntry | None = None
-        qdrant_error: Exception | None = None
-
+        # MongoDB write first to get the generated ID
         try:
-            # First write to MongoDB to get the ID
             mongo_result = await self._repository.create(memory)
-
-            # Then write to vector store in parallel with any subsequent operations
-            if vector_repo:
-                async def qdrant_write():
-                    await vector_repo.upsert_memory(
-                        memory_id=mongo_result.id,
-                        user_id=mongo_result.user_id,
-                        embedding=embedding,
-                        memory_type=memory_type.value,
-                        importance=importance.value,
-                        tags=tags,
-                    )
-
-                try:
-                    await qdrant_write()
-                except Exception as e:
-                    qdrant_error = e
-                    logger.warning(f"vector store write failed in parallel: {e}")
-
         except Exception as e:
             logger.error(f"MongoDB write failed: {e}")
             raise
 
-        if qdrant_error:
-            # Log but don't fail - vector store is for search optimization
-            logger.warning(f"Memory created in MongoDB but vector store sync failed: {qdrant_error}")
+        # Vector store write (non-blocking for caller — failure is logged but not raised)
+        vector_repo = _get_vector_repo()
+        if vector_repo:
+            try:
+                await vector_repo.upsert_memory(
+                    memory_id=mongo_result.id,
+                    user_id=mongo_result.user_id,
+                    embedding=embedding,
+                    memory_type=memory_type.value,
+                    importance=importance.value,
+                    tags=tags,
+                )
+            except Exception as e:
+                logger.warning(f"Memory created in MongoDB but vector store sync failed: {e}")
 
         return mongo_result
 
@@ -822,6 +802,142 @@ class MemoryService:
             current_length += len(line)
 
         return "\n".join(lines)
+
+    # Cross-session intelligence methods (Phase 5)
+
+    async def find_similar_tasks(
+        self,
+        user_id: str,
+        task_description: str,
+        limit: int = 5,
+    ) -> list[dict]:
+        """Find past tasks similar to the current one.
+
+        Searches the task_artifacts Qdrant collection for semantically
+        similar past tasks, returning their outcomes and lessons learned.
+
+        Args:
+            user_id: User to scope results to
+            task_description: Current task description for similarity matching
+            limit: Maximum results
+
+        Returns:
+            List of similar task dicts with content_summary, success, and relevance_score
+        """
+        try:
+            from app.domain.repositories.vector_repos import get_task_artifact_repository
+
+            task_repo = get_task_artifact_repository()
+            if not task_repo:
+                return []
+
+            embedding = await self._generate_embedding(task_description)
+
+            return await task_repo.find_similar_tasks(
+                user_id=user_id,
+                query_vector=embedding,
+                limit=limit,
+                artifact_types=["task_outcome", "procedure"],
+            )
+        except Exception as e:
+            logger.warning(f"Similar task retrieval failed: {e}")
+            return []
+
+    async def store_task_artifact(
+        self,
+        user_id: str,
+        session_id: str,
+        task_description: str,
+        result: str,
+        success: bool,
+        agent_role: str = "executor",
+    ) -> None:
+        """Store a task artifact for cross-session retrieval.
+
+        Args:
+            user_id: User who owns this artifact
+            session_id: Session where the task was executed
+            task_description: Description of the task
+            result: Task result/outcome
+            success: Whether the task succeeded
+            agent_role: Role of the agent that executed this
+        """
+        try:
+            import uuid
+
+            from app.domain.repositories.vector_repos import get_task_artifact_repository
+
+            task_repo = get_task_artifact_repository()
+            if not task_repo:
+                return
+
+            embedding = await self._generate_embedding(f"{task_description}\n{result}")
+
+            await task_repo.store_task_artifact(
+                artifact_id=str(uuid.uuid4()),
+                user_id=user_id,
+                session_id=session_id,
+                embedding=embedding,
+                artifact_type="task_outcome",
+                agent_role=agent_role,
+                success=success,
+                content_summary=f"{task_description[:200]} → {result[:300]}",
+            )
+            logger.debug(f"Stored task artifact for session {session_id}")
+        except Exception as e:
+            logger.debug(f"Task artifact storage failed (non-critical): {e}")
+
+    async def get_error_context(
+        self,
+        user_id: str,
+        tool_name: str,
+        context: str,
+        limit: int = 3,
+    ) -> str:
+        """Get historical error context for a tool.
+
+        Searches past tool execution failures to provide
+        proactive error avoidance guidance.
+
+        Args:
+            user_id: User scope
+            tool_name: Tool being used
+            context: Current task/tool context
+            limit: Max results
+
+        Returns:
+            Formatted error context string
+        """
+        try:
+            from app.domain.repositories.vector_repos import get_tool_log_repository
+
+            tool_repo = get_tool_log_repository()
+            if not tool_repo:
+                return ""
+
+            embedding = await self._generate_embedding(f"{tool_name}: {context}")
+
+            results = await tool_repo.find_similar_tool_executions(
+                user_id=user_id,
+                query_vector=embedding,
+                tool_name=tool_name,
+                outcome="failure",
+                limit=limit,
+            )
+
+            if not results:
+                return ""
+
+            lines = [f"Past {tool_name} failures (avoid repeating):"]
+            for r in results:
+                summary = r.get("input_summary", "")
+                error = r.get("error_type", "unknown")
+                lines.append(f"- {summary[:100]} (error: {error})")
+
+            return "\n".join(lines)
+        except Exception as e:
+            logger.debug(f"Error context retrieval failed: {e}")
+            return ""
 
     # Private helper methods
 

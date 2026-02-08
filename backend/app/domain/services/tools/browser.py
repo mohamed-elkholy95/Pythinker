@@ -1,6 +1,11 @@
+import asyncio
+import contextlib
 import logging
 import re
+import time
 from enum import Enum
+from typing import ClassVar
+from urllib.parse import urlparse
 
 import aiohttp
 
@@ -51,6 +56,32 @@ BROWSER_INTENT_CONFIG = {
     },
 }
 
+# Domains known to be fully open-access — skip paywall detection
+OPEN_ACCESS_DOMAINS: set[str] = {
+    "docs.python.org",
+    "docs.anthropic.com",
+    "developer.mozilla.org",
+    "github.com",
+    "en.wikipedia.org",
+    "stackoverflow.com",
+    "docs.google.com",
+    "react.dev",
+    "vuejs.org",
+    "nextjs.org",
+    "fastapi.tiangolo.com",
+    "docs.pydantic.dev",
+    "platform.openai.com",
+    "arxiv.org",
+    "news.ycombinator.com",
+    "pypi.org",
+    "npmjs.com",
+    "hub.docker.com",
+    "docs.docker.com",
+    "learn.microsoft.com",
+    "dev.to",
+    "medium.com",
+}
+
 # Singleton paywall detector
 _paywall_detector: PaywallDetector | None = None
 
@@ -65,21 +96,25 @@ def get_paywall_detector() -> PaywallDetector:
 
 # Singleton HTTP client session for connection pooling
 _http_session: aiohttp.ClientSession | None = None
+_http_session_lock = asyncio.Lock()
 
 
 async def get_http_session() -> aiohttp.ClientSession:
     """Get or create shared HTTP session for connection pooling.
 
     Uses reduced timeouts (15s total, 5s connect) for faster failure detection.
+    Thread-safe via asyncio.Lock to prevent duplicate session creation.
     """
     global _http_session
-    if _http_session is None or _http_session.closed:
-        # Reduced timeout: 15s total, 5s connect for faster failure detection
-        # (was 30s total, 10s connect)
-        timeout = aiohttp.ClientTimeout(total=15, connect=5, sock_read=10)
-        _http_session = aiohttp.ClientSession(
-            timeout=timeout, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        )
+    if _http_session is not None and not _http_session.closed:
+        return _http_session
+    async with _http_session_lock:
+        # Double-check after acquiring lock
+        if _http_session is None or _http_session.closed:
+            timeout = aiohttp.ClientTimeout(total=15, connect=5, sock_read=10)
+            _http_session = aiohttp.ClientSession(
+                timeout=timeout, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            )
     return _http_session
 
 
@@ -92,19 +127,44 @@ async def close_http_session() -> None:
 
 
 def html_to_text(html: str, max_length: int = 50000) -> str:
-    """Convert HTML to clean text, stripping tags and extracting content.
+    """Convert HTML to clean readable text, preserving key structure.
 
-    A lightweight alternative to BeautifulSoup for simple text extraction.
+    Preserves headings, links, lists, and basic formatting
+    without external dependencies.
     """
     # Remove scripts and styles
     html = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL | re.IGNORECASE)
     html = re.sub(r"<style[^>]*>.*?</style>", "", html, flags=re.DOTALL | re.IGNORECASE)
-
-    # Remove HTML comments
     html = re.sub(r"<!--.*?-->", "", html, flags=re.DOTALL)
 
+    # Preserve headings as markdown
+    for i in range(1, 7):
+        prefix = "#" * i
+        html = re.sub(
+            rf"<h{i}[^>]*>(.*?)</h{i}>",
+            rf"\n\n{prefix} \1\n",
+            html,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+
+    # Preserve links as [text](url)
+    html = re.sub(
+        r'<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>',
+        r"[\2](\1)",
+        html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    # Preserve list items
+    html = re.sub(r"<li[^>]*>(.*?)</li>", r"\n- \1", html, flags=re.IGNORECASE | re.DOTALL)
+
+    # Convert table cells to pipe-separated (basic table support)
+    html = re.sub(r"<th[^>]*>(.*?)</th>", r"| \1 ", html, flags=re.IGNORECASE | re.DOTALL)
+    html = re.sub(r"<td[^>]*>(.*?)</td>", r"| \1 ", html, flags=re.IGNORECASE | re.DOTALL)
+    html = re.sub(r"</tr>", " |\n", html, flags=re.IGNORECASE)
+
     # Convert common block elements to newlines
-    html = re.sub(r"<(p|div|br|h[1-6]|li|tr)[^>]*>", "\n", html, flags=re.IGNORECASE)
+    html = re.sub(r"<(p|div|br|tr|ul|ol|blockquote)[^>]*>", "\n", html, flags=re.IGNORECASE)
 
     # Remove all other HTML tags
     html = re.sub(r"<[^>]+>", "", html)
@@ -118,7 +178,7 @@ def html_to_text(html: str, max_length: int = 50000) -> str:
     html = html.replace("&#39;", "'")
 
     # Clean up whitespace
-    html = re.sub(r"\n\s*\n", "\n\n", html)
+    html = re.sub(r"\n\s*\n\s*\n", "\n\n", html)  # Max 2 consecutive newlines
     html = re.sub(r" +", " ", html)
     html = html.strip()
 
@@ -129,6 +189,11 @@ class BrowserTool(BaseTool):
     """Browser tool class, providing browser interaction functions with text-first mode"""
 
     name: str = "browser"
+
+    # URL content cache: url -> (timestamp, text_content)
+    _url_cache: ClassVar[dict[str, tuple[float, str]]] = {}
+    _url_cache_ttl: ClassVar[int] = 300  # 5 minutes
+    _url_cache_max: ClassVar[int] = 50
 
     def __init__(self, browser: Browser, max_observe: int | None = None):
         """Initialize browser tool class
@@ -249,6 +314,29 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
             Page text content
         """
         logger.info(f"Searching URL: {url}" + (f" (focus: {focus})" if focus else ""))
+
+        # Check URL content cache
+        if url in self._url_cache:
+            cached_ts, cached_text = self._url_cache[url]
+            if time.time() - cached_ts < self._url_cache_ttl:
+                logger.debug(f"URL cache hit: {url[:80]}")
+                if focus:
+                    cached_text = self._extract_focused_content(cached_text, focus, 100000)
+                message = f"Content fetched (cached): {len(cached_text)} chars."
+                if focus:
+                    message = f"[FOCUSED: {focus}] {message}"
+                return ToolResult(
+                    success=True,
+                    message=message,
+                    data={"content": cached_text, "url": url, "access_status": "full", "focus": focus},
+                )
+            del self._url_cache[url]
+
+        # Start browser navigation concurrently so VNC shows activity immediately
+        nav_task: asyncio.Task[None] | None = None
+        if hasattr(self.browser, "navigate_for_display"):
+            nav_task = asyncio.create_task(self.browser.navigate_for_display(url))
+
         try:
             session = await get_http_session()
             async with session.get(url, allow_redirects=True) as response:
@@ -258,9 +346,13 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
                         html = await response.text()
                         text = html_to_text(html)
                         if len(text) > 500:  # Valid content threshold
-                            # Detect paywall
-                            detector = get_paywall_detector()
-                            paywall_result = detector.detect(html, text, url)
+                            # Detect paywall (skip for known open-access domains)
+                            parsed_domain = urlparse(url).hostname or ""
+                            if any(parsed_domain.endswith(d) for d in OPEN_ACCESS_DOMAINS):
+                                paywall_result = type("PaywallResult", (), {"detected": False, "access_type": "full", "confidence": 0, "indicators": []})()
+                            else:
+                                detector = get_paywall_detector()
+                                paywall_result = detector.detect(html, text, url)
 
                             # Determine access status
                             if paywall_result.detected:
@@ -277,6 +369,18 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
                             message = f"Content fetched ({access_status}): {len(text)} chars. {access_message}"
                             if focus:
                                 message = f"[FOCUSED: {focus}] {message}"
+
+                            # Cache the fetched content
+                            if len(self._url_cache) >= self._url_cache_max:
+                                oldest = min(self._url_cache, key=lambda k: self._url_cache[k][0])
+                                del self._url_cache[oldest]
+                            self._url_cache[url] = (time.time(), text)
+
+                            # Wait for browser nav to complete (already running concurrently)
+                            if nav_task:
+                                with contextlib.suppress(Exception):
+                                    await nav_task
+                                nav_task = None
 
                             return ToolResult(
                                 success=True,
@@ -295,6 +399,10 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
                     logger.debug(f"Content type {content_type} not suitable for fast fetch")
         except Exception as e:
             logger.debug(f"Fast fetch failed for {url}: {e}, falling back to browser")
+            if nav_task and not nav_task.done():
+                nav_task.cancel()
+                with contextlib.suppress(Exception):
+                    await nav_task
 
         # Fallback to full browser navigation with focus
         if focus:

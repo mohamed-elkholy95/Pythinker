@@ -4,11 +4,11 @@
         <g :filter="`url(#${filterId})`">
             <rect x="1.5" y="1.5" width="15" height="15" rx="7.5" :fill="`url(#${gradientId})`"></rect>
         </g>
-        <rect x="1.92857" y="1.92857" width="14.1429" height="14.1429" rx="7.07143" stroke="#B9B9B7"
+        <rect class="icon-border" x="1.92857" y="1.92857" width="14.1429" height="14.1429" rx="7.07143"
             stroke-width="0.857143"></rect>
-        <path
+        <path class="icon-detail"
             d="M7.52172 7.76297C7.56208 7.65057 7.65057 7.56208 7.76297 7.52172L11.2014 6.28681C11.5197 6.17249 11.8274 6.48026 11.7131 6.79854L10.4776 10.2365C10.4373 10.3488 10.3488 10.4373 10.2365 10.4776L6.79854 11.7131C6.48026 11.8274 6.17249 11.5197 6.28681 11.2014L7.52172 7.76297Z"
-            stroke="#535350" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"></path>
+            stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"></path>
         <defs>
             <filter :id="filterId" x="1" y="1" width="16" height="16" filterUnits="userSpaceOnUse"
                 color-interpolation-filters="sRGB">
@@ -54,3 +54,12 @@ const uid = Math.random().toString(36).substring(2, 9);
 const filterId = computed(() => `browser_filter_${uid}`);
 const gradientId = computed(() => `browser_gradient_${uid}`);
 </script>
+
+<style scoped>
+.icon-border {
+    stroke: var(--border-main, #B9B9B7);
+}
+.icon-detail {
+    stroke: var(--icon-secondary, #535350);
+}
+</style>

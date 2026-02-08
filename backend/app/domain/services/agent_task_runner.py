@@ -56,6 +56,7 @@ from app.domain.utils.diff import build_unified_diff
 from app.domain.utils.json_parser import JsonParser
 
 if TYPE_CHECKING:
+    from app.application.services.screenshot_service import ScreenshotCaptureService
     from app.domain.models.state_manifest import StateManifest
     from app.domain.services.agent_factory import ManusAgentFactory
     from app.domain.services.attention_injector import AttentionInjector
@@ -100,6 +101,7 @@ class AgentTaskRunner(TaskRunner):
         mongodb_db: Any | None = None,  # MongoDB database for LangGraph checkpointing
         agent_factory: Optional["ManusAgentFactory"] = None,
         usage_recorder: Callable[..., Coroutine[Any, Any, None]] | None = None,
+        extra_mcp_configs: dict[str, Any] | None = None,
     ):
         self._session_id = session_id
         self._agent_id = agent_id
@@ -115,6 +117,7 @@ class AgentTaskRunner(TaskRunner):
         self._file_storage = file_storage
         self._mcp_repository = mcp_repository
         self._mcp_tool = MCPTool()
+        self._extra_mcp_configs = extra_mcp_configs or {}
         self._mode = mode
 
         # Multi-agent configuration
@@ -136,6 +139,10 @@ class AgentTaskRunner(TaskRunner):
         self._context_manager: SandboxContextManager | None = None
         self._attention_injector: AttentionInjector | None = None
         self._initialized: bool = False
+
+        # Screenshot capture service (created after sandbox init if enabled)
+        self._screenshot_service: ScreenshotCaptureService | None = None
+        self._background_tasks: set[asyncio.Task[object]] = set()
 
         # Current task description for attention manipulation
         self.current_task: str | None = None
@@ -163,6 +170,12 @@ class AgentTaskRunner(TaskRunner):
                 self._init_plan_act_flow()
         else:
             self._init_discuss_flow()
+
+    def _fire_and_forget(self, coro: object) -> None:
+        """Create a fire-and-forget task with proper reference tracking."""
+        task = asyncio.create_task(coro)  # type: ignore[arg-type]
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     def _init_plan_act_flow(self) -> None:
         """Initialize PlanActFlow for Agent mode"""
@@ -693,6 +706,17 @@ class AgentTaskRunner(TaskRunner):
 
             # Handle CALLING status for streaming preview (file_write shows content being generated)
             if event.status == ToolStatus.CALLING:
+                # Capture screenshot before visual tool execution
+                if self._screenshot_service and event.tool_name in ("browser", "browser_agent", "shell", "code_executor"):
+                    from app.domain.models.screenshot import ScreenshotTrigger
+
+                    self._fire_and_forget(self._screenshot_service.capture(
+                        ScreenshotTrigger.TOOL_BEFORE,
+                        tool_call_id=event.tool_call_id,
+                        tool_name=event.tool_name,
+                        function_name=event.function_name,
+                    ))
+
                 # Track tool start time for duration measurement
                 self._tool_start_times[event.tool_call_id] = time.perf_counter()
 
@@ -733,10 +757,24 @@ class AgentTaskRunner(TaskRunner):
                         event.tool_content = FileToolContent(content=content)
                         logger.debug(f"File write preview: {len(content)} chars")
             elif event.status == ToolStatus.CALLED:
+                # Capture screenshot after visual tool execution
+                if self._screenshot_service and event.tool_name in ("browser", "browser_agent", "shell", "code_executor"):
+                    from app.domain.models.screenshot import ScreenshotTrigger
+
+                    self._fire_and_forget(self._screenshot_service.capture(
+                        ScreenshotTrigger.TOOL_AFTER,
+                        tool_call_id=event.tool_call_id,
+                        tool_name=event.tool_name,
+                        function_name=event.function_name,
+                    ))
+
                 # Duration measurement
                 start_time = self._tool_start_times.pop(event.tool_call_id, None)
                 if start_time is not None:
                     event.duration_ms = int((time.perf_counter() - start_time) * 1000)
+
+                # Clean up pending tool call tracking
+                self._pending_tool_calls.pop(event.tool_call_id, None)
 
                 # Enrich observation metadata using ToolEventHandler
                 self._tool_event_handler.enrich_observation_metadata(event)
@@ -767,9 +805,7 @@ class AgentTaskRunner(TaskRunner):
                         elif isinstance(data, dict):
                             if isinstance(data.get("results"), list):
                                 normalized_results = data["results"]
-                            elif isinstance(data.get("data"), dict) and isinstance(
-                                data["data"].get("results"), list
-                            ):
+                            elif isinstance(data.get("data"), dict) and isinstance(data["data"].get("results"), list):
                                 normalized_results = data["data"]["results"]
 
                     logger.info(
@@ -918,19 +954,38 @@ class AgentTaskRunner(TaskRunner):
             # Initialize sandbox and MCP tool concurrently
             async def init_mcp():
                 config = await self._mcp_repository.get_mcp_config()
+                # Merge user's extra MCP server configs (e.g. from connectors)
+                if self._extra_mcp_configs:
+                    for server_name, server_config in self._extra_mcp_configs.items():
+                        config.mcp_servers[server_name] = server_config
+                    logger.info(f"Agent {self._agent_id}: Merged {len(self._extra_mcp_configs)} user MCP connectors")
                 await self._mcp_tool.initialized(config)
 
-            init_results = await asyncio.gather(
-                self._sandbox.ensure_sandbox(), init_mcp(), return_exceptions=True
-            )
+            init_results = await asyncio.gather(self._sandbox.ensure_sandbox(), init_mcp(), return_exceptions=True)
             # Log initialization failures but allow agent to continue (graceful degradation)
             for i, result in enumerate(init_results):
                 if isinstance(result, Exception):
                     component = "sandbox" if i == 0 else "MCP"
                     logger.error(f"Agent {self._agent_id} {component} init failed: {result}")
             logger.debug(f"Agent {self._agent_id} concurrent initialization completed")
+
+            # Initialize screenshot capture service after sandbox is ready
+            settings = get_settings()
+            if settings.screenshot_capture_enabled and not isinstance(init_results[0], Exception):
+                try:
+                    from app.application.services.screenshot_service import ScreenshotCaptureService
+                    from app.domain.models.screenshot import ScreenshotTrigger
+
+                    self._screenshot_service = ScreenshotCaptureService(self._sandbox, self._session_id)
+                    self._fire_and_forget(self._screenshot_service.capture(ScreenshotTrigger.SESSION_START))
+                    await self._screenshot_service.start_periodic()
+                except Exception as e:
+                    logger.debug(f"Screenshot capture init failed (non-critical): {e}")
+
             while not await task.input_stream.is_empty():
                 event = await self._pop_event(task)
+                if event is None:
+                    continue  # Skip empty/unparseable events
                 message = ""
                 if isinstance(event, MessageEvent):
                     message = event.message or ""
@@ -987,7 +1042,7 @@ class AgentTaskRunner(TaskRunner):
         except Exception as e:
             logger.exception(f"Agent {self._agent_id} task encountered exception: {e!s}")
             await self._put_and_add_event(task, ErrorEvent(error=f"Task error: {e!s}"))
-            await self._session_repository.update_status(self._session_id, SessionStatus.COMPLETED)
+            await self._session_repository.update_status(self._session_id, SessionStatus.FAILED)
 
     async def _run_flow(self, message: Message, task: Task | None = None) -> AsyncGenerator[BaseEvent, None]:
         """Process a single message through the agent's flow and yield events
@@ -1069,6 +1124,16 @@ class AgentTaskRunner(TaskRunner):
         """Destroy the task and release resources"""
         logger.info("Starting to destroy agent task")
 
+        # Stop periodic screenshot capture and take final screenshot
+        if self._screenshot_service:
+            try:
+                await self._screenshot_service.stop_periodic()
+                from app.domain.models.screenshot import ScreenshotTrigger
+
+                await self._screenshot_service.capture(ScreenshotTrigger.SESSION_END)
+            except Exception as e:
+                logger.debug(f"Screenshot cleanup failed (non-critical): {e}")
+
         # Cleanup background tasks on the execution agent (e.g. background memory saves)
         agent = self._get_tool_execution_agent()
         if agent and hasattr(agent, "cleanup_background_tasks"):
@@ -1105,5 +1170,10 @@ class AgentTaskRunner(TaskRunner):
                 logger.warning(f"MCP tool cleanup timed out for Agent {self._agent_id}")
             except Exception as e:
                 logger.warning(f"MCP tool cleanup failed for Agent {self._agent_id}: {e}")
+
+        # Clean up tool metadata caches to prevent unbounded growth
+        self._tool_start_times.clear()
+        self._file_before_cache.clear()
+        self._pending_tool_calls.clear()
 
         logger.debug(f"Agent {self._agent_id} has been fully closed and resources cleared")

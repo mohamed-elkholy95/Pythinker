@@ -215,6 +215,7 @@ class MCPClientManager:
     def __init__(self, config: MCPConfig | None = None):
         self._clients: dict[str, ClientSession] = {}
         self._exit_stack = AsyncExitStack()
+        self._server_exit_stacks: dict[str, AsyncExitStack] = {}  # Per-server stacks for clean reconnect
         self._tools_cache: dict[str, CachedToolSchema] = {}  # Now uses TTL-based caching
         self._initialized = False
         self._config = config
@@ -439,8 +440,24 @@ class MCPClientManager:
                 continue
 
     async def _connect_server(self, server_name: str, server_config: MCPServerConfig):
-        """Connect to a single MCP server"""
+        """Connect to a single MCP server.
+
+        On reconnect, closes the old per-server exit stack to avoid
+        accumulating stale connection contexts.
+        """
         try:
+            # Close old per-server exit stack if reconnecting
+            old_stack = self._server_exit_stacks.pop(server_name, None)
+            if old_stack:
+                try:
+                    await old_stack.aclose()
+                except Exception as e:
+                    logger.warning(f"Failed to close old exit stack for {server_name}: {e}")
+            self._clients.pop(server_name, None)
+
+            # Create a fresh exit stack for this server
+            self._server_exit_stacks[server_name] = AsyncExitStack()
+
             transport_type = server_config.transport
 
             if transport_type == "stdio":
@@ -467,17 +484,19 @@ class MCPClientManager:
 
         # Create server parameters (path handling done in config provider)
         server_params = StdioServerParameters(command=command, args=args, env={**os.environ, **env})
+        stack = self._server_exit_stacks[server_name]
 
         try:
-            # Establish connection
-            stdio_transport = await self._exit_stack.enter_async_context(stdio_client(server_params))
-            read_stream, write_stream = stdio_transport
+            async with asyncio.timeout(30):  # 30s connection timeout
+                # Establish connection
+                stdio_transport = await stack.enter_async_context(stdio_client(server_params))
+                read_stream, write_stream = stdio_transport
 
-            # Create session
-            session = await self._exit_stack.enter_async_context(ClientSession(read_stream, write_stream))
+                # Create session
+                session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
 
-            # Initialize session
-            await session.initialize()
+                # Initialize session
+                await session.initialize()
 
             # Cache client
             self._clients[server_name] = session
@@ -487,6 +506,9 @@ class MCPClientManager:
 
             logger.info(f"Successfully connected to stdio MCP server: {server_name}")
 
+        except TimeoutError:
+            logger.error(f"Timeout connecting to stdio MCP server {server_name} (30s)")
+            raise
         except Exception as e:
             logger.error(f"Failed to connect to stdio MCP server {server_name}: {e}")
             raise
@@ -497,16 +519,19 @@ class MCPClientManager:
         if not url:
             raise ValueError(f"Server {server_name} missing url configuration")
 
+        stack = self._server_exit_stacks[server_name]
+
         try:
-            # Establish SSE connection
-            sse_transport = await self._exit_stack.enter_async_context(sse_client(url))
-            read_stream, write_stream = sse_transport
+            async with asyncio.timeout(30):  # 30s connection timeout
+                # Establish SSE connection
+                sse_transport = await stack.enter_async_context(sse_client(url))
+                read_stream, write_stream = sse_transport
 
-            # Create session
-            session = await self._exit_stack.enter_async_context(ClientSession(read_stream, write_stream))
+                # Create session
+                session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
 
-            # Initialize session
-            await session.initialize()
+                # Initialize session
+                await session.initialize()
 
             # Cache client
             self._clients[server_name] = session
@@ -534,6 +559,8 @@ class MCPClientManager:
         # Get optional configuration
         headers = server_config.headers or {}
 
+        stack = self._server_exit_stacks[server_name]
+
         try:
             # Prepare connection parameters
             client_params = {"url": url}
@@ -543,7 +570,7 @@ class MCPClientManager:
                 client_params["headers"] = headers
 
             # Establish streamable-http connection
-            streamable_transport = await self._exit_stack.enter_async_context(streamablehttp_client(**client_params))
+            streamable_transport = await stack.enter_async_context(streamablehttp_client(**client_params))
 
             # Unpack returned streams and optional third parameter
             if len(streamable_transport) == 3:
@@ -552,7 +579,7 @@ class MCPClientManager:
                 read_stream, write_stream = streamable_transport
 
             # Create MCP session
-            session = await self._exit_stack.enter_async_context(ClientSession(read_stream, write_stream))
+            session = await stack.enter_async_context(ClientSession(read_stream, write_stream))
 
             # Initialize session
             await session.initialize()
@@ -960,12 +987,15 @@ class MCPClientManager:
             if not session:
                 return ToolResult(success=False, message=f"MCP server {server_name} not connected")
 
-            # Call tool
-            result = await session.call_tool(original_tool_name, arguments)
+            # Call tool with timeout to prevent hung servers from blocking forever
+            result = await asyncio.wait_for(
+                session.call_tool(original_tool_name, arguments),
+                timeout=120.0,  # 2 minute timeout per tool call
+            )
 
             # Record successful call
             duration_ms = (time.time() - start_time) * 1000
-            self.record_tool_usage(tool_name, success=True, duration_ms=duration_ms)
+            self.record_tool_usage(tool_name, success=True, duration_ms=duration_ms, server_name=server_name)
 
             # Mark server as healthy on success
             if server_name in self._server_health:
@@ -989,7 +1019,15 @@ class MCPClientManager:
         except Exception as e:
             # Record failed call
             duration_ms = (time.time() - start_time) * 1000
-            self.record_tool_usage(tool_name, success=False, duration_ms=duration_ms)
+            is_timeout = isinstance(e, TimeoutError)
+            self.record_tool_usage(
+                tool_name,
+                success=False,
+                duration_ms=duration_ms,
+                error=str(e),
+                timeout=is_timeout,
+                server_name=server_name,
+            )
 
             # Mark server as unhealthy on failure
             if server_name and server_name in self._server_health:
@@ -1003,16 +1041,39 @@ class MCPClientManager:
             return ToolResult(success=False, message=f"Failed to call MCP tool: {e!s}")
 
     async def cleanup(self):
-        """Cleanup resources"""
+        """Cleanup resources, killing subprocess transports on failure."""
+        # Close per-server exit stacks first
+        for server_name, stack in list(self._server_exit_stacks.items()):
+            try:
+                await stack.aclose()
+            except Exception as e:
+                logger.warning(f"Failed to close exit stack for {server_name}: {e}")
+        self._server_exit_stacks.clear()
+
         try:
             await self._exit_stack.aclose()
+        except Exception as e:
+            logger.error(f"Failed to cleanup MCP exit stack: {e}")
+            # Attempt individual client session cleanup to avoid zombie processes
+            for server_name, session in list(self._clients.items()):
+                try:
+                    transport = getattr(session, "_transport", None)
+                    if transport and hasattr(transport, "close"):
+                        transport.close()
+                    # Kill subprocess if it exists
+                    proc = getattr(transport, "_process", None) or getattr(transport, "process", None)
+                    if proc and hasattr(proc, "kill"):
+                        try:
+                            proc.kill()
+                        except ProcessLookupError:
+                            pass
+                except Exception as inner_e:
+                    logger.warning(f"Failed to cleanup MCP client {server_name}: {inner_e}")
+        finally:
             self._clients.clear()
             self._tools_cache.clear()
             self._initialized = False
             logger.info("MCP client manager cleaned up")
-
-        except Exception as e:
-            logger.error(f"Failed to cleanup MCP client manager: {e}")
 
 
 class MCPHealthMonitor:

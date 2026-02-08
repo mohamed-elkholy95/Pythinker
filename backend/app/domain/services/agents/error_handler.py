@@ -13,7 +13,7 @@ import logging
 import secrets
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, TypeVar
 
@@ -67,7 +67,7 @@ class ErrorContext:
     recoverable: bool = True
     recovery_strategy: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(tz=timezone.utc))
     retry_count: int = 0
     max_retries: int = 3
     # Backoff configuration
@@ -289,7 +289,13 @@ class ErrorHandler:
         return ("Retry LLM request", True)
 
     def _record_error(self, error_context: ErrorContext) -> None:
-        """Record error in history for analysis and Prometheus metrics"""
+        """Record error in history for analysis and Prometheus metrics.
+
+        Clears the original_exception reference to avoid holding full tracebacks
+        in memory. The error message string is already captured in error_context.message.
+        """
+        # Release the exception object to avoid retaining traceback frames in memory
+        error_context.original_exception = None
         self._error_history.append(error_context)
 
         # Record to metrics for monitoring
@@ -486,7 +492,7 @@ class ErrorHandler:
 
             except Exception as e:
                 error_context = self.classify_error(e, context)
-                error_context.retry_count = attempt
+                error_context.retry_count = attempt + 1  # 1-indexed: first failure = retry_count 1
                 error_context.max_retries = max_retries
                 last_error_context = error_context
 
@@ -501,7 +507,7 @@ class ErrorHandler:
                     )
                     return False, error_context
 
-                # Calculate delay
+                # Calculate delay (uses retry_count for backoff exponent)
                 delay = error_context.get_retry_delay()
 
                 logger.info(
@@ -513,12 +519,11 @@ class ErrorHandler:
                     try:
                         await on_retry(error_context, attempt + 1)
                     except Exception as callback_error:
-                        logger.warning(f"Retry callback failed: {callback_error}")
+                        logger.warning(f"Retry callback failed: {callback_error}"
+                        )
 
                 # Wait before retry
                 await asyncio.sleep(delay)
-
-                error_context.increment_retry()
 
         # Should not reach here, but handle edge case
         if last_error_context:
@@ -550,14 +555,16 @@ class ErrorHandler:
         Returns:
             Dict with recovery success rates and stats
         """
-        total_recoveries = self._successful_recoveries + sum(
-            stats["failure"] for stats in self._recovery_stats.values()
-        )
-        success_rate = self._successful_recoveries / total_recoveries if total_recoveries > 0 else 0.0
+        # Derive totals from _recovery_stats to avoid double-counting with
+        # _successful_recoveries (which is also incremented by retry_with_backoff).
+        total_successes = sum(stats["success"] for stats in self._recovery_stats.values())
+        total_failures = sum(stats["failure"] for stats in self._recovery_stats.values())
+        total_recoveries = total_successes + total_failures
+        success_rate = total_successes / total_recoveries if total_recoveries > 0 else 0.0
 
         return {
             "total_retry_attempts": self._total_retry_attempts,
-            "successful_recoveries": self._successful_recoveries,
+            "successful_recoveries": total_successes,
             "success_rate": success_rate,
             "by_error_type": {error_type.value: stats for error_type, stats in self._recovery_stats.items()},
         }
@@ -586,16 +593,19 @@ class ErrorHandler:
         Raises:
             Last exception if all retries exhausted
         """
-        while context.can_retry():
+        last_exception: Exception | None = None
+        # Always attempt at least once, even if can_retry() is initially False
+        while True:
             try:
                 result = await operation()
 
                 # Phase 4 P1: Record successful retry
-                self._retry_outcomes[context.error_type].append(True)
-                self._successful_recoveries += 1
+                if context.retry_count > 0:
+                    self._retry_outcomes[context.error_type].append(True)
+                    self._successful_recoveries += 1
 
                 logger.info(
-                    "Retry succeeded",
+                    "Operation succeeded",
                     extra={
                         "error_type": context.error_type.value,
                         "retry_attempt": context.retry_count,
@@ -603,7 +613,8 @@ class ErrorHandler:
                 )
 
                 return result
-            except Exception:
+            except Exception as exc:
+                last_exception = exc
                 # Phase 4 P1: Record failed retry attempt
                 self._total_retry_attempts += 1
 
@@ -631,7 +642,7 @@ class ErrorHandler:
                     )
                     raise
 
-        raise RuntimeError("Retry attempts exhausted")
+        raise RuntimeError("Retry attempts exhausted") from last_exception  # pragma: no cover
 
     def get_retry_success_rate(self, error_type: ErrorType) -> float:
         """Calculate retry success rate for error type (Phase 4 P1).

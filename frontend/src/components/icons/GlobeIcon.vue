@@ -4,12 +4,12 @@
         <g filter="url(#filter0_ii_globe)">
             <rect x="1.5" y="1.5" width="15" height="15" rx="7.5" fill="url(#paint0_linear_globe)"></rect>
         </g>
-        <rect x="1.92857" y="1.92857" width="14.1429" height="14.1429" rx="7.07143" stroke="#B9B9B7"
+        <rect class="icon-border" x="1.92857" y="1.92857" width="14.1429" height="14.1429" rx="7.07143"
             stroke-width="0.857143"></rect>
         <!-- Globe icon - circle with latitude/longitude lines -->
-        <circle cx="9" cy="9" r="4" stroke="#535350" stroke-width="1.1" fill="none"></circle>
-        <ellipse cx="9" cy="9" rx="2" ry="4" stroke="#535350" stroke-width="1.1" fill="none"></ellipse>
-        <line x1="5" y1="9" x2="13" y2="9" stroke="#535350" stroke-width="1.1"></line>
+        <circle class="icon-detail" cx="9" cy="9" r="4" stroke-width="1.1" fill="none"></circle>
+        <ellipse class="icon-detail" cx="9" cy="9" rx="2" ry="4" stroke-width="1.1" fill="none"></ellipse>
+        <line class="icon-detail" x1="5" y1="9" x2="13" y2="9" stroke-width="1.1"></line>
         <defs>
             <filter id="filter0_ii_globe" x="1" y="1" width="16" height="16" filterUnits="userSpaceOnUse"
                 color-interpolation-filters="sRGB">
@@ -48,3 +48,12 @@ defineProps({
     }
 });
 </script>
+
+<style scoped>
+.icon-border {
+    stroke: var(--border-main, #B9B9B7);
+}
+.icon-detail {
+    stroke: var(--icon-secondary, #535350);
+}
+</style>

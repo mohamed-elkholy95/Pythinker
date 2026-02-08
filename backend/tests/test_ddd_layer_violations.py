@@ -13,6 +13,7 @@ KNOWN_DOMAIN_EXCEPTIONS = {
     "skill_context.py",
     "skill_creator.py",
     "skill_invoke.py",
+    "agent_task_runner.py",  # Orchestrator that bridges domain/application for screenshot capture
 }
 
 

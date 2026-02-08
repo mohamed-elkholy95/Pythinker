@@ -752,11 +752,8 @@ export const FUNCTION_VIEW_OVERRIDES: Record<string, ViewMode> = {
 };
 
 /**
- * Functions that show a text placeholder instead of VNC
- * (operations that don't require visual output - HTTP-based, not browser UI)
+ * Functions that show a text placeholder instead of VNC.
+ * Empty — all browser operations now show live VNC since navigate_for_display()
+ * runs concurrently with HTTP fetch, giving the user visual feedback.
  */
-export const TEXT_ONLY_FUNCTIONS = new Set([
-  'search',               // Search results displayed via SearchContentView
-  'browser_get_content',  // Legacy support - fetches HTML via HTTP, no browser UI needed
-  'wide_research',        // Research results displayed via SearchContentView
-]);
+export const TEXT_ONLY_FUNCTIONS = new Set<string>([]);

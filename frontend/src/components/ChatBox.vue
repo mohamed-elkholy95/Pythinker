@@ -1,6 +1,7 @@
 <template>
     <div class="chatbox-wrapper">
         <div class="chatbox-container">
+            <ConnectorBanner v-if="showConnectorBanner" />
             <ChatBoxFiles ref="chatBoxFileListRef" :attachments="attachments" @fileClick="$emit('fileClick', $event)" />
             <div class="chatbox-input-area">
                 <textarea
@@ -19,6 +20,8 @@
                     <button @click="uploadFile" class="chatbox-attach-btn">
                         <Paperclip :size="16" />
                     </button>
+                    <ConnectorButton />
+                    <SkillPicker />
                 </div>
                 <div class="chatbox-actions-right">
                     <button v-if="!isRunning || sendEnabled"
@@ -42,6 +45,9 @@ import SendIcon from './icons/SendIcon.vue';
 import { useI18n } from 'vue-i18n';
 import ChatBoxFiles from './ChatBoxFiles.vue';
 import { Paperclip } from 'lucide-vue-next';
+import ConnectorButton from './connectors/ConnectorButton.vue';
+import ConnectorBanner from './connectors/ConnectorBanner.vue';
+import SkillPicker from './SkillPicker.vue';
 import type { FileInfo } from '../api/file';
 import { showInfoToast } from '../utils/toast';
 
@@ -61,6 +67,7 @@ const props = defineProps<{
     rows: number;
     isRunning: boolean;
     attachments: FileInfo[];
+    showConnectorBanner?: boolean;
 }>();
 
 const sendEnabled = computed(() => {

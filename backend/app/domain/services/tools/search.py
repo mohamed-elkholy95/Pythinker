@@ -2,6 +2,7 @@ import asyncio
 import logging
 import re
 import time
+from collections import OrderedDict
 from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import quote
@@ -182,11 +183,6 @@ STOPWORDS: set[str] = {
     "him",
     "us",
     "them",
-    "best",
-    "top",
-    "good",
-    "new",
-    "latest",
 }
 
 # Domains that are typically authoritative sources
@@ -276,10 +272,10 @@ class SearchTool(BaseTool):
 
     name: str = "search"
 
-    # Class-level cache shared across instances
-    _cache: ClassVar[dict[str, tuple[float, Any]]] = {}
     _cache_ttl: ClassVar[int] = 3600  # 1 hour cache TTL
     _cache_max_size: ClassVar[int] = 100  # Maximum cache entries
+    # prevent GC of fire-and-forget browse tasks
+    _background_tasks: ClassVar[set[asyncio.Task[None]]] = set()
 
     def __init__(
         self,
@@ -297,6 +293,8 @@ class SearchTool(BaseTool):
         super().__init__(max_observe=max_observe)
         self.search_engine = search_engine
         self._browser = browser
+        # Instance-level cache with O(1) LRU eviction
+        self._cache: OrderedDict[str, tuple[float, Any]] = OrderedDict()
 
     def _should_use_browser_search(self) -> bool:
         """Check if browser-based search should be used.
@@ -435,10 +433,11 @@ class SearchTool(BaseTool):
         return f"{search_type.value}:{normalized}:{date_range or 'all'}"
 
     def _get_from_cache(self, cache_key: str) -> ToolResult | None:
-        """Get cached result if valid"""
+        """Get cached result if valid, with LRU promotion."""
         if cache_key in self._cache:
             timestamp, data = self._cache[cache_key]
             if time.time() - timestamp < self._cache_ttl:
+                self._cache.move_to_end(cache_key)  # LRU: promote on hit
                 logger.debug(f"Search cache hit for: {cache_key[:50]}")
                 return data
             # Cache expired, remove it
@@ -446,40 +445,13 @@ class SearchTool(BaseTool):
         return None
 
     def _save_to_cache(self, cache_key: str, result: ToolResult) -> None:
-        """Save result to cache with size limit enforcement"""
-        # Evict oldest entries if cache is full
+        """Save result to cache with O(1) LRU eviction."""
+        # Evict oldest entry if cache is full (O(1) with OrderedDict)
         if len(self._cache) >= self._cache_max_size:
-            oldest_key = min(self._cache.keys(), key=lambda k: self._cache[k][0])
-            del self._cache[oldest_key]
+            self._cache.popitem(last=False)
 
         self._cache[cache_key] = (time.time(), result)
         logger.debug(f"Search cached: {cache_key[:50]}")
-
-    async def batch_search(
-        self,
-        queries: list[str],
-        date_range: str | None = None,
-        search_type: SearchType = SearchType.INFO,
-        max_concurrent: int = 5,
-    ) -> list[ToolResult]:
-        """Execute multiple searches concurrently with caching
-
-        Args:
-            queries: List of search queries
-            date_range: Optional time range filter
-            search_type: Type of search to perform
-            max_concurrent: Maximum concurrent searches
-
-        Returns:
-            List of search results in order
-        """
-        semaphore = asyncio.Semaphore(max_concurrent)
-
-        async def search_with_limit(query: str) -> ToolResult:
-            async with semaphore:
-                return await self._execute_typed_search(query, date_range, search_type)
-
-        return await asyncio.gather(*[search_with_limit(q) for q in queries])
 
     async def _execute_typed_search(
         self, query: str, date_range: str | None = None, search_type: SearchType = SearchType.INFO
@@ -562,24 +534,30 @@ class SearchTool(BaseTool):
         logger.info(f"Expanded query into {len(variants)} variants: {variants}")
 
         # Execute variants concurrently with early deduplication
-        # Use a shared seen_urls set so later variants skip already-found URLs
+        # Use a lock to protect shared state from concurrent mutation
         all_items = []
         seen_urls: set[str] = set()
         semaphore = asyncio.Semaphore(3)
+        dedup_lock = asyncio.Lock()
 
         async def search_and_dedup(query: str) -> None:
             async with semaphore:
                 result = await self._execute_typed_search(query, date_range, search_type)
                 if result.success and result.data:
-                    for item in result.data.results:
-                        if item.link not in seen_urls:
-                            seen_urls.add(item.link)
-                            all_items.append(item)
+                    async with dedup_lock:
+                        for item in result.data.results:
+                            if item.link not in seen_urls:
+                                seen_urls.add(item.link)
+                                all_items.append(item)
 
-        await asyncio.gather(
+        results = await asyncio.gather(
             *[search_and_dedup(v) for v in variants],
             return_exceptions=True,
         )
+        # Log any exceptions from variant searches
+        for i, r in enumerate(results):
+            if isinstance(r, Exception):
+                logger.warning(f"Search variant {i} failed: {r}")
 
         # Create aggregated result
         from app.domain.models.search import SearchResults
@@ -607,8 +585,8 @@ class SearchTool(BaseTool):
         """Open top search result URLs in the browser for VNC visibility.
 
         After API search returns results, navigates to the top URLs so the user
-        can see browsing activity in the sandbox VNC viewer. This is best-effort
-        and does not affect the search result returned to the agent.
+        can see browsing activity in the sandbox VNC viewer. This runs as a
+        fire-and-forget background task and does not block the search response.
 
         Args:
             search_data: SearchResults model or dict with results list
@@ -635,8 +613,11 @@ class SearchTool(BaseTool):
             logger.info(f"Browsing top {len(urls)} search results for VNC visibility")
             for url in urls:
                 try:
-                    await self._browser.navigate(url)
-                    # Brief pause to let the page render in VNC
+                    if hasattr(self._browser, "navigate_for_display"):
+                        await self._browser.navigate_for_display(url)
+                    else:
+                        await self._browser.navigate(url)
+                    # Brief pause for VNC render (kept short to avoid blocking)
                     await asyncio.sleep(1.0)
                 except Exception as e:
                     logger.debug(f"Failed to browse {url}: {e}")
@@ -700,30 +681,19 @@ class SearchTool(BaseTool):
         """
         logger.info(f"Info search web: {query}")
 
-        # Try browser-based search first (visible in VNC) if browser is available
-        if self._browser:
+        # Try browser-based search first only when explicitly enabled via settings
+        if self._should_use_browser_search():
             result = await self._search_via_browser(query, date_range)
-            # Check if browser search succeeded AND has actual content
             if result.success and result.message:
-                # Extract content after the header metadata
                 content_parts = result.message.split("\n\n", 1)
                 actual_content = content_parts[1] if len(content_parts) > 1 else ""
                 if actual_content.strip():
-                    # Also fetch structured API results for SearchContentView display
-                    try:
-                        api_result = await self.search_engine.search(query, date_range)
-                        if api_result.success and api_result.data:
-                            result.data = api_result.data
-                    except Exception as e:
-                        logger.debug(f"Structured search results fetch failed (non-critical): {e}")
                     return result
-                # Browser search returned empty content, fall back to API
                 logger.warning("Browser search returned empty content, falling back to API")
             else:
-                # Browser search failed, fall back to API
                 logger.warning(f"Browser search failed, falling back to API: {result.message}")
 
-        # Fall back to API-based search directly (bypass browser search check)
+        # API-based search (default path)
         logger.info(f"Using API search for: {query}")
         result = await self.search_engine.search(query, date_range)
         result = self._add_verification_guidance(result, query)
@@ -732,9 +702,19 @@ class SearchTool(BaseTool):
         elif result.success:
             result.message = "[INFO SEARCH]"
 
-        # Open top results in browser for VNC visibility (non-blocking best-effort)
+        # Fire-and-forget: open top 3 results in browser for VNC visibility
         if result.success and self._browser and result.data:
-            await self._browse_top_results(result.data, count=3)
+            task = asyncio.create_task(self._browse_top_results(result.data, count=3))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+
+            # Append system note to prevent LLM from re-navigating these same URLs
+            result.message = (
+                (result.message or "")
+                + "\n\n[SYSTEM NOTE: Top search result URLs are being opened automatically in the browser. "
+                "Do NOT call browser_navigate to these same URLs. Proceed to analyze the search snippets "
+                "or use browser_get_content to read pages already opened.]"
+            )
 
         return result
 
@@ -829,21 +809,24 @@ wide_research(
 
         logger.info(f"Wide research on '{topic}': {len(all_queries)} total queries across {len(stypes)} search types")
 
-        # Execute all searches in parallel
+        # Execute all searches in parallel with lock-protected dedup
         all_items: list[SearchResultItem] = []
         seen_urls: set[str] = set()
         errors: list[str] = []
+        dedup_lock = asyncio.Lock()
 
         async def search_one(query_str: str, stype: SearchType) -> None:
             try:
                 result = await self._execute_typed_search(query_str, date_range, stype)
                 if result.success and result.data and hasattr(result.data, "results"):
-                    for item in result.data.results:
-                        if item.link not in seen_urls:
-                            seen_urls.add(item.link)
-                            all_items.append(item)
+                    async with dedup_lock:
+                        for item in result.data.results:
+                            if item.link not in seen_urls:
+                                seen_urls.add(item.link)
+                                all_items.append(item)
             except Exception as e:
-                errors.append(f"{query_str}: {e}")
+                async with dedup_lock:
+                    errors.append(f"{query_str}: {e}")
 
         # Run with concurrency limit
         semaphore = asyncio.Semaphore(5)
@@ -906,6 +889,19 @@ wide_research(
             message += (
                 "\n\nVERIFICATION REQUIRED: These are search snippets only. "
                 "Visit official pages to verify before making claims."
+            )
+
+        # Fire-and-forget: open top 3 results in browser for VNC visibility
+        if self._browser and search_data:
+            task = asyncio.create_task(self._browse_top_results(search_data, count=3))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+
+            # Append system note to prevent LLM from re-navigating these same URLs
+            message += (
+                "\n\n[SYSTEM NOTE: Top search result URLs are being opened automatically in the browser. "
+                "Do NOT call browser_navigate to these same URLs. Proceed to analyze the search snippets "
+                "or use browser_get_content to read pages already opened.]"
             )
 
         return ToolResult(

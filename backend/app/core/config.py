@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     qdrant_collection: str = "agent_memories"
     qdrant_api_key: str | None = None
 
+    # Multi-collection configuration
+    qdrant_user_knowledge_collection: str = "user_knowledge"
+    qdrant_task_artifacts_collection: str = "task_artifacts"
+    qdrant_tool_logs_collection: str = "tool_logs"
+
     # Sandbox configuration
     sandbox_address: str | None = None
     sandbox_image: str | None = None
@@ -168,6 +173,14 @@ class Settings(BaseSettings):
     browser_pool_max_idle: float = 300.0  # Max idle time before cleanup (5 min)
     browser_pool_health_interval: float = 60.0  # Health check interval (1 min)
 
+    # Screenshot capture configuration (session replay)
+    screenshot_capture_enabled: bool = True
+    screenshot_periodic_interval: float = 10.0  # seconds between periodic captures
+    screenshot_quality: int = 75  # JPEG quality for full-res (1-100)
+    screenshot_scale: float = 0.5  # Scale factor for full-res
+    screenshot_thumbnail_quality: int = 40  # JPEG quality for thumbnails
+    screenshot_thumbnail_scale: float = 0.25  # Scale factor for thumbnails
+
     # Stuck Detection Configuration (P3.2/P3.3: faster loop detection)
     stuck_detection_window: int = 5  # Response window size (reduced from 10)
     stuck_detection_threshold: int = 3  # Threshold for stuck detection (reduced from 5)
@@ -198,6 +211,7 @@ class Settings(BaseSettings):
     email_username: str | None = None
     email_password: str | None = None
     email_from: str | None = None
+    rating_notification_email: str | None = None
 
     # JWT configuration
     jwt_secret_key: str | None = None  # REQUIRED - must be set via environment

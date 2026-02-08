@@ -9,8 +9,6 @@ Supported providers:
 """
 
 import logging
-from functools import lru_cache
-
 from app.domain.external.llm import LLM
 from app.infrastructure.external.llm.factory import (
     LLMProviderRegistry,
@@ -20,17 +18,32 @@ from app.infrastructure.external.llm.factory import (
 logger = logging.getLogger(__name__)
 
 
-@lru_cache
+_cached_llm: LLM | None = None
+_llm_init_attempted: bool = False
+
+
 def get_llm() -> LLM | None:
     """Get LLM instance based on configuration.
 
     Uses the LLMProviderRegistry to dynamically select and instantiate
     the appropriate LLM based on LLM_PROVIDER setting.
 
+    Caches successful results but retries on None to avoid permanently
+    caching a failed initialization.
+
     Returns:
         LLM instance or None if configuration is invalid
     """
-    return get_llm_from_factory()
+    global _cached_llm, _llm_init_attempted
+    if _cached_llm is not None:
+        return _cached_llm
+    result = get_llm_from_factory()
+    if result is not None:
+        _cached_llm = result
+    elif not _llm_init_attempted:
+        _llm_init_attempted = True
+        logger.warning("LLM initialization returned None — will retry on next call")
+    return result
 
 
 __all__ = [

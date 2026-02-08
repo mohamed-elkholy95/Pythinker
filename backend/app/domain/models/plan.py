@@ -144,6 +144,54 @@ class Plan(BaseModel):
                 return step
         return None
 
+    def has_blocked_steps(self) -> bool:
+        """Check if there are any blocked steps remaining."""
+        return any(step.status == ExecutionStatus.BLOCKED for step in self.steps)
+
+    def get_blocked_steps(self) -> list[Step]:
+        """Get all currently blocked steps."""
+        return [step for step in self.steps if step.status == ExecutionStatus.BLOCKED]
+
+    def unblock_independent_steps(self) -> list[str]:
+        """Unblock steps whose blocking dependency has partial results or completed.
+
+        When a step fails but still produced partial results (non-empty result),
+        its dependent steps can be unblocked back to PENDING so they can attempt
+        execution with whatever data is available.
+
+        Returns:
+            List of step IDs that were unblocked
+        """
+        unblocked_ids: list[str] = []
+
+        for step in self.steps:
+            if step.status != ExecutionStatus.BLOCKED or not step.blocked_by:
+                continue
+
+            blocker = self.get_step_by_id(step.blocked_by)
+            if not blocker:
+                # Blocker no longer exists — unblock
+                step.status = ExecutionStatus.PENDING
+                step.notes = ""
+                step.blocked_by = None
+                unblocked_ids.append(step.id)
+                continue
+
+            # Unblock if blocker completed (race condition fix) or has partial results
+            if blocker.status == ExecutionStatus.COMPLETED:
+                step.status = ExecutionStatus.PENDING
+                step.notes = ""
+                step.blocked_by = None
+                unblocked_ids.append(step.id)
+            elif blocker.status == ExecutionStatus.FAILED and blocker.result:
+                # Blocker failed but produced partial results — unblock dependents
+                step.status = ExecutionStatus.PENDING
+                step.notes = f"Unblocked: blocker {blocker.id} has partial results"
+                step.blocked_by = None
+                unblocked_ids.append(step.id)
+
+        return unblocked_ids
+
     def get_running_step(self) -> Step | None:
         """Get currently running step if any."""
         for step in self.steps:

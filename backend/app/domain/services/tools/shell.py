@@ -88,11 +88,14 @@ class ShellTool(BaseTool):
 
         Args:
             id: Unique identifier of the target Shell session
-            seconds: Wait time (seconds)
+            seconds: Wait time (seconds), capped at 300s
 
         Returns:
             Wait result
         """
+        max_wait_seconds = 300
+        if seconds is not None:
+            seconds = min(seconds, max_wait_seconds)
         return await self.sandbox.wait_for_process(id, seconds)
 
     @tool(

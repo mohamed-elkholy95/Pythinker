@@ -1801,6 +1801,49 @@ class PlaywrightBrowser:
             logger.error(f"Fast navigation failed: {e}")
             return ToolResult(success=False, message=f"Failed to navigate to {url}: {e!s}")
 
+    async def navigate_for_display(self, url: str, timeout: int = 10000) -> bool:
+        """Navigate to URL purely for VNC display (best-effort, non-blocking).
+
+        This is a lightweight navigation used after HTTP-based content fetching
+        so the user can see the fetched page in the VNC viewer. It does NOT
+        extract content, scroll, or interact with the page.
+
+        Uses a trylock pattern: if the browser is already busy navigating,
+        this returns False immediately without blocking.
+
+        Args:
+            url: URL to display in the browser
+            timeout: Navigation timeout in milliseconds (default: 10000)
+
+        Returns:
+            True if navigation succeeded, False if skipped or failed
+        """
+        if is_video_url(url):
+            return False
+
+        # Trylock: if browser is already navigating, skip VNC display
+        if self._navigation_lock.locked():
+            logger.debug("navigate_for_display: browser busy, skipping VNC display")
+            return False
+
+        try:
+            async with self._navigation_lock:
+                await self._ensure_page()
+                await self.page.goto(url, timeout=timeout, wait_until="domcontentloaded")
+                # Bring page to front for VNC visibility
+                await self.page.bring_to_front()
+                try:
+                    cdp_session = await self.page.context.new_cdp_session(self.page)
+                    await cdp_session.send("Page.bringToFront")
+                    await cdp_session.detach()
+                except Exception:
+                    pass  # CDP activation is best-effort
+                logger.debug(f"navigate_for_display: showed {url} on VNC")
+                return True
+        except Exception as e:
+            logger.debug(f"navigate_for_display failed for {url}: {e}")
+            return False
+
     async def restart(self, url: str) -> ToolResult:
         """Restart the browser and navigate to the specified URL
 

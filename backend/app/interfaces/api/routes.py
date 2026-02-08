@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from . import (
     auth_routes,
+    connectors_routes,
     file_routes,
     health_routes,
     maintenance_routes,
@@ -29,6 +30,7 @@ def create_api_router() -> APIRouter:
     api_router.include_router(metrics_routes.router)
     api_router.include_router(settings_routes.router)
     api_router.include_router(skills_routes.router)
+    api_router.include_router(connectors_routes.router)
     api_router.include_router(usage_routes.router)
     api_router.include_router(monitoring_routes.router)
     api_router.include_router(rating_routes.router)

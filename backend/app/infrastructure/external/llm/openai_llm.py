@@ -498,6 +498,12 @@ To extract data from a webpage:
         sanitized = []
         for msg in messages:
             msg_copy = dict(msg)
+            # Deep-copy tool_calls to avoid mutating originals
+            if "tool_calls" in msg_copy and isinstance(msg_copy["tool_calls"], list):
+                msg_copy["tool_calls"] = [
+                    {**tc, "function": dict(tc["function"])} if isinstance(tc, dict) and "function" in tc else dict(tc) if isinstance(tc, dict) else tc
+                    for tc in msg_copy["tool_calls"]
+                ]
             role = msg_copy.get("role", "user")
 
             # 1. Normalize roles for strict APIs
@@ -561,12 +567,52 @@ To extract data from a webpage:
 
         return sanitized
 
+    @staticmethod
+    def _tool_calls_to_text(tool_calls: list[dict[str, Any]]) -> str:
+        """Convert tool_calls to a text description for context preservation.
+
+        When orphaned assistant messages with tool_calls must be cleaned up,
+        this preserves the context of what was attempted rather than discarding
+        the entire message.
+        """
+        parts = []
+        for tc in tool_calls:
+            func = tc.get("function", {})
+            name = func.get("name", "unknown")
+            args_str = func.get("arguments", "{}")
+            # Truncate large arguments for readability
+            if len(args_str) > 200:
+                args_str = args_str[:200] + "..."
+            parts.append(f"[Attempted to call {name} with {args_str}]")
+        return "\n".join(parts)
+
+    def _convert_orphaned_assistant(self, msg: dict[str, Any]) -> dict[str, Any]:
+        """Convert an orphaned assistant message with tool_calls into a text-only message.
+
+        Preserves the content and a text description of the attempted tool calls
+        so the LLM retains context about what was tried.
+        """
+        tool_calls = msg.get("tool_calls", [])
+        original_content = msg.get("content") or ""
+        tool_text = self._tool_calls_to_text(tool_calls)
+
+        combined = f"{original_content}\n{tool_text}".strip() if original_content else tool_text
+
+        converted = dict(msg)
+        converted.pop("tool_calls", None)
+        converted["content"] = combined
+        return converted
+
     def _validate_and_fix_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         Validate message sequence and fix tool_call/tool_response ordering issues.
 
         Ensures every assistant message with tool_calls is followed by the
         corresponding tool responses before any other message type.
+
+        Orphaned assistant messages (with tool_calls but no matching tool responses)
+        are converted to text-only messages preserving context about what was attempted,
+        rather than being removed entirely.
         """
         if not messages:
             return messages
@@ -586,11 +632,16 @@ To extract data from a webpage:
             # Check if this is an assistant message with tool_calls
             if role == "assistant" and msg.get("tool_calls"):
                 # If we have pending tool_ids from a previous assistant message,
-                # that means we never got responses - skip the orphaned message
+                # that means we never got responses — convert to text to preserve context
                 if pending_tool_ids:
                     logger.warning(
-                        f"Removing orphaned assistant message with unfulfilled tool_calls: {pending_tool_ids}"
+                        f"Converting orphaned assistant message with unfulfilled tool_calls: {pending_tool_ids}"
                     )
+                    # Find and convert the last assistant message with tool_calls
+                    for j in range(len(fixed_messages) - 1, -1, -1):
+                        if fixed_messages[j].get("role") == "assistant" and fixed_messages[j].get("tool_calls"):
+                            fixed_messages[j] = self._convert_orphaned_assistant(fixed_messages[j])
+                            break
                     pending_tool_ids = set()
 
                 # Track the new tool_call_ids
@@ -612,23 +663,23 @@ To extract data from a webpage:
             else:
                 # Regular message (user/system/assistant without tool_calls)
                 if pending_tool_ids:
-                    # We have an incomplete tool sequence - remove the assistant message
-                    logger.warning("Incomplete tool sequence detected, removing last assistant message")
-                    # Find and remove the last assistant message with tool_calls
+                    # Incomplete tool sequence — convert assistant to text instead of removing
+                    logger.warning("Incomplete tool sequence detected, converting assistant message to text")
                     for j in range(len(fixed_messages) - 1, -1, -1):
                         if fixed_messages[j].get("role") == "assistant" and fixed_messages[j].get("tool_calls"):
-                            fixed_messages.pop(j)
+                            fixed_messages[j] = self._convert_orphaned_assistant(fixed_messages[j])
                             break
+                    # Also remove any orphaned tool responses after the converted assistant
                     pending_tool_ids = set()
 
                 fixed_messages.append(msg)
 
         # Handle trailing incomplete tool sequence
         if pending_tool_ids:
-            logger.warning("Trailing incomplete tool sequence, removing last assistant message")
+            logger.warning("Trailing incomplete tool sequence, converting last assistant message to text")
             for j in range(len(fixed_messages) - 1, -1, -1):
                 if fixed_messages[j].get("role") == "assistant" and fixed_messages[j].get("tool_calls"):
-                    fixed_messages.pop(j)
+                    fixed_messages[j] = self._convert_orphaned_assistant(fixed_messages[j])
                     break
 
         if len(fixed_messages) != len(messages):
@@ -828,6 +879,68 @@ To extract data from a webpage:
         # This should never be reached - all paths should either return or raise
         raise ValueError(f"LLM request failed after {max_retries + 1} attempts with no response")
 
+    @staticmethod
+    def _extract_json_from_text(text: str) -> str | None:
+        """Extract outermost JSON object from text using balanced-brace matching.
+
+        Useful when the LLM returns JSON embedded in prose or thinking content.
+
+        Args:
+            text: Text that may contain a JSON object
+
+        Returns:
+            Extracted JSON string, or None if no valid JSON found
+        """
+        # Find the first '{' that could start a JSON object
+        start = text.find("{")
+        if start == -1:
+            return None
+
+        depth = 0
+        in_string = False
+        escape_next = False
+
+        for i in range(start, len(text)):
+            ch = text[i]
+
+            if escape_next:
+                escape_next = False
+                continue
+
+            if ch == "\\":
+                if in_string:
+                    escape_next = True
+                continue
+
+            if ch == '"' and not escape_next:
+                in_string = not in_string
+                continue
+
+            if in_string:
+                continue
+
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start : i + 1]
+                    # Validate it's actually parseable JSON
+                    try:
+                        json.loads(candidate)
+                        return candidate
+                    except json.JSONDecodeError:
+                        # Try next opening brace
+                        next_start = text.find("{", start + 1)
+                        if next_start == -1:
+                            return None
+                        start = next_start
+                        depth = 0
+                        # Reset and continue from new start
+                        continue
+
+        return None
+
     def get_cache_metrics(self) -> dict[str, Any]:
         """Get prompt caching performance metrics"""
         if self._cache_manager:
@@ -872,6 +985,10 @@ To extract data from a webpage:
 
         max_retries = 3
         base_delay = 1.0
+        # Flag to control thinking API behavior across retries.
+        # Starts True for thinking APIs; set to False if empty response
+        # indicates the model needs thinking enabled to produce output.
+        disable_thinking = self._is_thinking_api
 
         for attempt in range(max_retries + 1):
             try:
@@ -892,8 +1009,9 @@ To extract data from a webpage:
                     params["max_tokens"] = self._max_tokens
                     params["temperature"] = self._temperature
 
-                # For thinking APIs (Kimi, etc.), explicitly disable extended thinking
-                if self._is_thinking_api:
+                # For thinking APIs (Kimi, etc.), disable extended thinking unless
+                # a previous empty response indicated thinking is needed for output
+                if disable_thinking:
                     params["extra_body"] = {"thinking": {"type": "disabled"}}
 
                 if supports_strict_schema:
@@ -935,7 +1053,13 @@ To extract data from a webpage:
                         raise ValueError("API returned invalid response")
                     continue
 
-                content = response.choices[0].message.content
+                message = response.choices[0].message
+                content = message.content
+
+                # For reasoning models (Kimi Code, o1, etc.), check reasoning_content if content is empty
+                if not content and hasattr(message, 'reasoning_content') and message.reasoning_content:
+                    logger.info("Using reasoning_content as fallback for empty content field")
+                    content = message.reasoning_content
 
                 # Check for truncation before parsing
                 finish_reason = response.choices[0].finish_reason
@@ -946,12 +1070,31 @@ To extract data from a webpage:
                     continue
 
                 if not content:
+                    # For thinking APIs: empty content with thinking disabled means
+                    # the model's primary output mechanism was suppressed. Retry with
+                    # thinking enabled and extract JSON from reasoning output.
+                    if disable_thinking:
+                        logger.warning(
+                            "Thinking API returned empty content with thinking disabled — "
+                            "retrying with thinking enabled"
+                        )
+                        disable_thinking = False
+                        continue
                     if attempt == max_retries:
                         raise ValueError("Empty response content")
                     continue
 
                 # Parse and validate with Pydantic
-                parsed = json.loads(content)
+                try:
+                    parsed = json.loads(content)
+                except json.JSONDecodeError:
+                    # Try balanced-brace extraction for JSON embedded in prose/thinking
+                    extracted = self._extract_json_from_text(content)
+                    if extracted:
+                        logger.info("Extracted JSON from prose via balanced-brace matching")
+                        parsed = json.loads(extracted)
+                    else:
+                        raise
                 return response_model.model_validate(parsed)
 
             except json.JSONDecodeError as e:
@@ -1162,10 +1305,16 @@ To extract data from a webpage:
                         "completion_tokens": completion_tokens,
                         "cached_tokens": cached_tokens,
                     }
-                if chunk.choices and chunk.choices[0].delta.content:
-                    content = chunk.choices[0].delta.content
-                    completion_parts.append(content)
-                    yield content
+                if chunk.choices:
+                    delta = chunk.choices[0].delta
+                    if delta.content:
+                        completion_parts.append(delta.content)
+                        yield delta.content
+                    if delta.tool_calls:
+                        logger.warning(
+                            "ask_stream received tool_call chunks — tool calls are not "
+                            "supported in streaming mode. Use ask() for tool-calling requests."
+                        )
 
             if usage_counts:
                 await self._record_usage_counts(

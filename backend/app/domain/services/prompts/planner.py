@@ -143,7 +143,7 @@ Respond ONLY with valid JSON (no other text):
 
 ```json
 {
-  "goal": "The user's FULL original request — preserve every detail, entity, and name exactly as stated. Do NOT summarize or shorten.",
+  "goal": "The user's FULL original request — preserve intent and all details. Correct obvious typos/misspellings (e.g. 'devastral'→'Devstral', 'xompare'→'compare', 'opne'→'open'). Do NOT summarize or shorten.",
   "title": "Brief descriptive title (3-6 words)",
   "language": "en",
   "steps": [
@@ -153,7 +153,7 @@ Respond ONLY with valid JSON (no other text):
 }
 ```
 
-CRITICAL: The "goal" field MUST contain the user's complete request with ALL specifics preserved (model names, version numbers, quantities, etc). Never truncate or paraphrase it.
+CRITICAL: The "goal" field MUST contain the user's complete request with intent preserved (model names, version numbers, quantities, etc). Correct obvious typos/misspellings to their intended terms. Never truncate or paraphrase it.
 The "title" field is the only short summary — keep it 3-6 words.
 
 Remember: Your plan is a GPS route, not a travel diary. Steps should be concise, actionable, complete."""
@@ -273,9 +273,9 @@ For simple web queries (single search, one website):
 
 Response format (JSON only, no other text):
 ```json
-{{"goal": "FULL user request — preserve every detail, entity name, and version number exactly as stated. NEVER summarize or shorten.", "title": "brief title (3-6 words)", "language": "en", "steps": [{{"id": "1", "description": "..."}}]}}
+{{"goal": "FULL user request — preserve intent and all details. Correct obvious typos/misspellings to intended terms (e.g. 'devastral'→'Devstral'). NEVER summarize or shorten.", "title": "brief title (3-6 words)", "language": "en", "steps": [{{"id": "1", "description": "..."}}]}}
 ```
-CRITICAL: "goal" = user's COMPLETE original request verbatim. "title" = short 3-6 word summary.
+CRITICAL: "goal" = user's COMPLETE original request with intent preserved (correct obvious typos). "title" = short 3-6 word summary.
 
 User message: {message}
 Attachments: {attachments}

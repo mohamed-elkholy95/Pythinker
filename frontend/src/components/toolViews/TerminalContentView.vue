@@ -307,16 +307,11 @@ watch(
   flex: 1;
   width: 100%;
   height: 100%;
-  background: #ffffff;
-  color: #1f2937;
+  background: var(--bolt-elements-bg-depth-1);
+  color: var(--bolt-elements-textPrimary);
   font-family: 'SF Mono', Menlo, Monaco, 'Cascadia Code', 'Courier New', monospace;
   font-size: 13px;
   overflow: hidden;
-}
-
-.terminal-shell.dark-mode {
-  background: #1a1a1a;
-  color: #e5e7eb;
 }
 
 .terminal-surface {

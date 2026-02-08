@@ -1,8 +1,8 @@
 <template>
   <div class="timeline-controls px-4 py-3 bg-[var(--background-menu-white)] border-t border-black/8 dark:border-[var(--border-main)]">
-    <!-- Jump to Live Button (shown when not in live mode) -->
+    <!-- Jump to Live Button (shown when not in live mode, hidden in replay mode) -->
     <div
-      v-if="!isLive"
+      v-if="!isLive && !isReplayMode"
       class="flex items-center justify-center mb-2"
     >
       <button
@@ -81,17 +81,17 @@
         </div>
       </div>
 
-      <!-- Live Indicator -->
+      <!-- Live / Replay Indicator -->
       <div class="flex items-center gap-1.5 min-w-[50px] justify-end">
         <span
           class="w-2 h-2 rounded-full"
-          :class="isLive ? 'bg-green-500 animate-pulse' : 'bg-gray-400'"
+          :class="isReplayMode ? 'bg-gray-400' : isLive ? 'bg-green-500 animate-pulse' : 'bg-gray-400'"
         />
         <span
           class="text-xs font-medium"
-          :class="isLive ? 'text-green-600 dark:text-green-400' : 'text-[var(--text-tertiary)]'"
+          :class="isReplayMode ? 'text-[var(--text-tertiary)]' : isLive ? 'text-green-600 dark:text-green-400' : 'text-[var(--text-tertiary)]'"
         >
-          live
+          {{ isReplayMode ? 'replay' : 'live' }}
         </span>
       </div>
     </div>
@@ -106,6 +106,7 @@ interface Props {
   progress: number
   currentTimestamp?: number
   isLive: boolean
+  isReplayMode?: boolean
   canStepForward: boolean
   canStepBackward: boolean
   showTimestampOnInteract?: boolean

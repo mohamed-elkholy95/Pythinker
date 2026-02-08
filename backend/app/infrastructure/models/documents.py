@@ -11,6 +11,7 @@ from app.domain.models.event import AgentEvent
 from app.domain.models.file import FileInfo
 from app.domain.models.memory import Memory
 from app.domain.models.multi_task import MultiTaskChallenge
+from app.domain.models.screenshot import SessionScreenshot
 from app.domain.models.session import AgentMode, Session, SessionStatus
 from app.domain.models.skill import Skill, SkillCategory, SkillInvocationType, SkillSource
 from app.domain.models.usage import DailyUsageAggregate, UsageRecord, UsageType
@@ -479,6 +480,31 @@ class VisitedSourceDocument(
             IndexModel([("session_id", ASCENDING), ("url", ASCENDING)]),
             IndexModel([("session_id", ASCENDING), ("access_time", DESCENDING)]),
             IndexModel([("content_hash", ASCENDING)]),
+        ]
+
+
+class ScreenshotDocument(BaseDocument[SessionScreenshot], id_field="screenshot_id", domain_model_class=SessionScreenshot):
+    """MongoDB document for session screenshots."""
+
+    screenshot_id: str
+    session_id: str
+    sequence_number: int = 0
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    gridfs_file_id: str = ""
+    thumbnail_file_id: str | None = None
+    trigger: str = "periodic"
+    tool_call_id: str | None = None
+    tool_name: str | None = None
+    function_name: str | None = None
+    action_type: str | None = None
+    size_bytes: int = 0
+
+    class Settings:
+        name: ClassVar[str] = "session_screenshots"
+        indexes: ClassVar[list[Any]] = [
+            "session_id",
+            IndexModel([("session_id", ASCENDING), ("sequence_number", ASCENDING)]),
+            IndexModel([("session_id", ASCENDING), ("timestamp", ASCENDING)]),
         ]
 
 

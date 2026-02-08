@@ -18,6 +18,8 @@ from app.domain.external.sandbox import Sandbox
 from app.domain.models.event import PlanningPhase, ProgressEvent
 from app.domain.models.file import FileInfo
 from app.domain.models.user import User
+from app.infrastructure.repositories.mongo_screenshot_repository import MongoScreenshotRepository
+from app.infrastructure.storage.mongodb import get_mongodb
 from app.interfaces.dependencies import (
     get_agent_service,
     get_current_user,
@@ -31,6 +33,7 @@ from app.interfaces.schemas.base import APIResponse
 from app.interfaces.schemas.event import EventMapper
 from app.interfaces.schemas.file import FileViewRequest, FileViewResponse
 from app.interfaces.schemas.resource import AccessTokenRequest, SignedUrlResponse
+from app.interfaces.schemas.screenshot import ScreenshotListResponse, ScreenshotMetadataResponse
 from app.interfaces.schemas.session import (
     BrowseUrlRequest,
     ChatRequest,
@@ -113,6 +116,13 @@ async def delete_session(
     agent_service: AgentService = Depends(get_agent_service),
 ) -> APIResponse[None]:
     await agent_service.delete_session(session_id, current_user.id)
+    # Clean up screenshots for the deleted session (fire-and-forget)
+    try:
+        deleted = await _screenshot_repo.delete_by_session(session_id)
+        if deleted:
+            logger.info("Deleted %d screenshots for session %s", deleted, session_id)
+    except Exception as e:
+        logger.warning("Failed to cleanup screenshots for session %s: %s", session_id, e)
     return APIResponse.success()
 
 
@@ -637,6 +647,147 @@ async def get_sandbox_url(
         raise NotFoundError("Sandbox not found")
 
     return APIResponse.success(SandboxUrlResponse(sandbox_url=sandbox.base_url))
+
+
+# ============================================================================
+# Screenshot Replay Endpoints
+# ============================================================================
+
+_screenshot_repo = MongoScreenshotRepository()
+
+
+@router.get("/{session_id}/screenshots", response_model=APIResponse[ScreenshotListResponse])
+async def list_screenshots(
+    session_id: str,
+    limit: int = Query(default=500, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service),
+) -> APIResponse[ScreenshotListResponse]:
+    """List screenshot metadata for a session."""
+    session = await agent_service.get_session(session_id, current_user.id)
+    if not session:
+        raise NotFoundError("Session not found")
+
+    screenshots = await _screenshot_repo.find_by_session(session_id, limit=limit, offset=offset)
+    total = await _screenshot_repo.count_by_session(session_id)
+
+    items = [
+        ScreenshotMetadataResponse(
+            id=s.id,
+            session_id=s.session_id,
+            sequence_number=s.sequence_number,
+            timestamp=s.timestamp.timestamp(),
+            trigger=s.trigger.value if hasattr(s.trigger, "value") else str(s.trigger),
+            tool_call_id=s.tool_call_id,
+            tool_name=s.tool_name,
+            function_name=s.function_name,
+            action_type=s.action_type,
+            size_bytes=s.size_bytes,
+            has_thumbnail=s.thumbnail_file_id is not None,
+        )
+        for s in screenshots
+    ]
+
+    return APIResponse.success(ScreenshotListResponse(screenshots=items, total=total))
+
+
+@router.get("/{session_id}/screenshots/{screenshot_id}")
+async def get_screenshot_image(
+    session_id: str,
+    screenshot_id: str,
+    thumbnail: bool = Query(default=False),
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service),
+):
+    """Get screenshot image (JPEG bytes)."""
+    from fastapi.responses import Response
+
+    session = await agent_service.get_session(session_id, current_user.id)
+    if not session:
+        raise NotFoundError("Session not found")
+
+    screenshot = await _screenshot_repo.find_by_id(screenshot_id)
+    if not screenshot or screenshot.session_id != session_id:
+        raise NotFoundError("Screenshot not found")
+
+    file_id = screenshot.thumbnail_file_id if thumbnail and screenshot.thumbnail_file_id else screenshot.gridfs_file_id
+    mongodb = get_mongodb()
+    image_data = await mongodb.get_screenshot(file_id)
+
+    return Response(
+        content=image_data,
+        media_type="image/jpeg",
+        headers={
+            "Cache-Control": "public, max-age=31536000, immutable",
+        },
+    )
+
+
+@router.get("/shared/{session_id}/screenshots", response_model=APIResponse[ScreenshotListResponse])
+async def list_shared_screenshots(
+    session_id: str,
+    limit: int = Query(default=500, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+    agent_service: AgentService = Depends(get_agent_service),
+) -> APIResponse[ScreenshotListResponse]:
+    """List screenshot metadata for a shared session."""
+    session = await agent_service.get_shared_session(session_id)
+    if not session:
+        raise NotFoundError("Shared session not found")
+
+    screenshots = await _screenshot_repo.find_by_session(session_id, limit=limit, offset=offset)
+    total = await _screenshot_repo.count_by_session(session_id)
+
+    items = [
+        ScreenshotMetadataResponse(
+            id=s.id,
+            session_id=s.session_id,
+            sequence_number=s.sequence_number,
+            timestamp=s.timestamp.timestamp(),
+            trigger=s.trigger.value if hasattr(s.trigger, "value") else str(s.trigger),
+            tool_call_id=s.tool_call_id,
+            tool_name=s.tool_name,
+            function_name=s.function_name,
+            action_type=s.action_type,
+            size_bytes=s.size_bytes,
+            has_thumbnail=s.thumbnail_file_id is not None,
+        )
+        for s in screenshots
+    ]
+
+    return APIResponse.success(ScreenshotListResponse(screenshots=items, total=total))
+
+
+@router.get("/shared/{session_id}/screenshots/{screenshot_id}")
+async def get_shared_screenshot_image(
+    session_id: str,
+    screenshot_id: str,
+    thumbnail: bool = Query(default=False),
+    agent_service: AgentService = Depends(get_agent_service),
+):
+    """Get screenshot image for a shared session (JPEG bytes)."""
+    from fastapi.responses import Response
+
+    session = await agent_service.get_shared_session(session_id)
+    if not session:
+        raise NotFoundError("Shared session not found")
+
+    screenshot = await _screenshot_repo.find_by_id(screenshot_id)
+    if not screenshot or screenshot.session_id != session_id:
+        raise NotFoundError("Screenshot not found")
+
+    file_id = screenshot.thumbnail_file_id if thumbnail and screenshot.thumbnail_file_id else screenshot.gridfs_file_id
+    mongodb = get_mongodb()
+    image_data = await mongodb.get_screenshot(file_id)
+
+    return Response(
+        content=image_data,
+        media_type="image/jpeg",
+        headers={
+            "Cache-Control": "public, max-age=31536000, immutable",
+        },
+    )
 
 
 @router.post("/{session_id}/workspace/manifest", response_model=APIResponse[WorkspaceManifestResponse])

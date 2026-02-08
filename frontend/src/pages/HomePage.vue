@@ -5,11 +5,11 @@
       <!-- Minimal header - logo and user avatar, blended into background -->
       <div class="w-full pt-4 pb-4 px-5 sticky top-0 z-10">
         <div class="flex justify-between items-center w-full">
-          <div class="h-8 relative z-20 overflow-hidden flex gap-2 items-center flex-shrink-0">
+          <div v-if="!isLeftPanelShow" class="h-8 relative z-20 overflow-hidden flex gap-2 items-center flex-shrink-0">
             <Bot :size="20" class="logo-robot" :stroke-width="2.2" />
             <PythinkerLogoTextIcon />
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 ml-auto">
             <div class="relative flex items-center" aria-expanded="false" aria-haspopup="dialog"
               @mouseenter="handleUserMenuEnter" @mouseleave="handleUserMenuLeave">
               <div class="relative flex items-center justify-center font-bold cursor-pointer flex-shrink-0">
@@ -109,6 +109,7 @@ import PythinkerLogoTextIcon from '../components/icons/PythinkerLogoTextIcon.vue
 import type { FileInfo } from '../api/file';
 import { useFilePanel } from '../composables/useFilePanel';
 import { useAuth } from '../composables/useAuth';
+import { useLeftPanel } from '../composables/useLeftPanel';
 import UserMenu from '../components/UserMenu.vue';
 import type { Component } from 'vue';
 
@@ -128,6 +129,7 @@ const isSubmitting = ref(false);
 const attachments = ref<FileInfo[]>([]);
 const { hideFilePanel } = useFilePanel();
 const { currentUser } = useAuth();
+const { isLeftPanelShow } = useLeftPanel();
 
 // Visible feature buttons
 const visibleFeatures: Feature[] = [

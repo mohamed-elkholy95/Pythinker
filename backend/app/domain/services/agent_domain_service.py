@@ -64,6 +64,8 @@ class AgentDomainService:
         # Session-level locks to prevent concurrent task creation for the same session
         # This prevents race conditions when fast prompts arrive in quick succession
         self._task_creation_locks: dict[str, asyncio.Lock] = {}
+        # Background tasks (prevents garbage collection of fire-and-forget tasks)
+        self._background_tasks: set[asyncio.Task[None]] = set()
         logger.info("AgentDomainService initialization completed")
 
     def _get_task_creation_lock(self, session_id: str) -> asyncio.Lock:
@@ -78,7 +80,7 @@ class AgentDomainService:
         await self._task_cls.destroy()
         logger.info("All agents closed successfully")
 
-    async def _create_task(self, session: Session) -> Task:
+    async def _create_task(self, session: Session, extra_mcp_configs: dict[str, Any] | None = None) -> Task:
         """Create a new agent task
 
         Optimized for fast initialization by running independent operations in parallel:
@@ -205,6 +207,7 @@ class AgentDomainService:
             # MongoDB database for LangGraph checkpointing
             mongodb_db=self._mongodb_db,
             usage_recorder=self._usage_recorder,
+            extra_mcp_configs=extra_mcp_configs,
         )
 
         task = self._task_cls.create(task_runner)
@@ -453,6 +456,9 @@ class AgentDomainService:
 
         await self._session_repository.update_status(session_id, SessionStatus.COMPLETED)
 
+        # Clean up session lock to prevent unbounded growth
+        self._task_creation_locks.pop(session_id, None)
+
     async def pause_session(self, session_id: str) -> bool:
         """Pause a session (for user takeover)
 
@@ -569,6 +575,7 @@ IMPORTANT: The browser state may have changed. Before continuing:
         attachments: list[dict] | None = None,
         skills: list[str] | None = None,
         deep_research: bool | None = None,
+        extra_mcp_configs: dict[str, Any] | None = None,
     ) -> AsyncGenerator[BaseEvent, None]:
         """
         Chat with an agent
@@ -673,7 +680,7 @@ IMPORTANT: The browser state may have changed. Before continuing:
                             task = await self._get_task(session)
 
                         if session and (session.status != SessionStatus.RUNNING or task is None):
-                            task = await self._create_task(session)
+                            task = await self._create_task(session, extra_mcp_configs=extra_mcp_configs)
                             if not task:
                                 raise RuntimeError("Failed to create task")
 
@@ -701,17 +708,15 @@ IMPORTANT: The browser state may have changed. Before continuing:
                     )
 
                     # Parse /command syntax (Superpowers command system)
-                    command_skill_id, message_without_command = self._parse_command(message)
+                    command_skill_id, _message_without_command = self._parse_command(message)
                     if command_skill_id:
                         # Add command-invoked skill to skills list
                         skills = list(set((skills or []) + [command_skill_id]))
-                        # Use message without command for trigger matching
-                        message_for_triggers = message_without_command or message
-                    else:
-                        message_for_triggers = message
 
-                    # Auto-trigger skills based on message content (Superpowers integration)
-                    skills_to_use, auto_triggered = await self._apply_skill_triggers(message_for_triggers, skills)
+                    # Skills are only active when explicitly selected by the user
+                    # (from chatbox skill picker or settings). Auto-triggering is disabled
+                    # to avoid unexpected skill activation.
+                    skills_to_use = skills or []
 
                     resolved_attachments = await self._resolve_user_attachments(attachments, user_id)
                     message_event = MessageEvent(
@@ -730,28 +735,27 @@ IMPORTANT: The browser state may have changed. Before continuing:
                     # Yield the user message event so frontend can display it immediately
                     yield message_event
 
-                    # Emit skill activation event if skills were auto-triggered
-                    if auto_triggered:
+                    # Emit skill activation event if user explicitly selected skills
+                    if skills_to_use:
                         from app.domain.models.event import SkillActivationEvent
                         from app.domain.services.skill_registry import get_skill_registry
 
                         try:
                             registry = await get_skill_registry()
                             skill_names = []
-                            for skill_id in auto_triggered:
+                            for skill_id in skills_to_use:
                                 skill = await registry.get_skill(skill_id)
                                 if skill:
                                     skill_names.append(skill.name)
 
                             activation_event = SkillActivationEvent(
-                                skill_ids=auto_triggered,
+                                skill_ids=skills_to_use,
                                 skill_names=skill_names,
                             )
                             yield activation_event
 
                             logger.info(
-                                f"Auto-activated skills for session {session_id}: "
-                                f"{', '.join(skill_names or auto_triggered)}"
+                                f"Skills activated for session {session_id}: {', '.join(skill_names or skills_to_use)}"
                             )
                         except Exception as e:
                             logger.warning(f"Failed to emit skill activation event: {e}")
@@ -765,7 +769,7 @@ IMPORTANT: The browser state may have changed. Before continuing:
             while task and not task.done:
                 event_id, event_str = await task.output_stream.get(start_id=latest_event_id, block_ms=0)
                 if event_str is None:
-                    await asyncio.sleep(0.05)  # Yield control, prevent busy-wait
+                    await asyncio.sleep(0.1)  # Yield control, prevent busy-wait
                     continue
                 latest_event_id = event_id
                 event = TypeAdapter(AgentEvent).validate_json(event_str)
@@ -790,6 +794,81 @@ IMPORTANT: The browser state may have changed. Before continuing:
             yield event
         finally:
             await self._session_repository.update_unread_message_count(session_id, 0)
+            # Extract and store memories from session (fire-and-forget)
+            if self._memory_service:
+                import contextlib
+
+                with contextlib.suppress(Exception):
+                    task = asyncio.ensure_future(self._extract_session_memories(session_id, user_id))
+                    self._background_tasks.add(task)
+                    task.add_done_callback(self._background_tasks.discard)
+
+    async def _extract_session_memories(self, session_id: str, user_id: str) -> None:
+        """Extract and store memories from a completed session.
+
+        Called asynchronously after session completion. Failures are logged
+        but never propagate — memory extraction is non-critical.
+        """
+        if not self._memory_service:
+            return
+
+        try:
+            session = await self._session_repository.find_by_id(session_id)
+            if not session or not session.events:
+                return
+
+            # Build conversation from message events
+            conversation: list[dict[str, str]] = []
+            for event in session.events:
+                if isinstance(event, MessageEvent):
+                    conversation.append(
+                        {
+                            "role": event.role,
+                            "content": event.message,
+                        }
+                    )
+
+            if not conversation:
+                return
+
+            # Extract memories from conversation
+            extracted = await self._memory_service.extract_from_conversation(
+                user_id=user_id,
+                conversation=conversation,
+                session_id=session_id,
+            )
+
+            # Extract from task result if available
+            task_description: str | None = None
+            final_result: str | None = None
+            for event in session.events:
+                if isinstance(event, MessageEvent) and event.role == "user" and not task_description:
+                    task_description = event.message
+                elif isinstance(event, MessageEvent) and event.role == "assistant":
+                    # Keep updating — last assistant message is the final result
+                    final_result = event.message
+
+            if task_description and final_result:
+                task_memories = await self._memory_service.extract_from_task_result(
+                    user_id=user_id,
+                    task_description=task_description,
+                    task_result=final_result,
+                    success=True,
+                    session_id=session_id,
+                )
+                extracted.extend(task_memories)
+
+            # Store all extracted memories
+            if extracted:
+                await self._memory_service.store_many(
+                    user_id=user_id,
+                    memories=extracted,
+                    session_id=session_id,
+                )
+                logger.info(f"Extracted {len(extracted)} memories from session {session_id}")
+
+        except Exception as e:
+            logger.warning(f"Memory extraction failed for session {session_id}: {e}")
 
     async def confirm_action(
         self,

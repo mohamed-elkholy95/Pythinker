@@ -2,7 +2,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import Any, ClassVar
 
 from app.core.config import get_feature_flags
 from app.domain.external.llm import LLM
@@ -48,7 +48,7 @@ SAFE_PARALLEL_TOOLS = {
     "file_search",
     "file_list_directory",
     # Browser read operations
-    "search",  # Fast text-only fetch (renamed from browser_get_content)
+    # "search" removed — now navigates browser for VNC, must be sequential
     "browser_view",
     # Code executor read-only operations
     "code_list_artifacts",
@@ -84,6 +84,49 @@ class BaseAgent:
     iteration_warning_threshold: float = 0.8  # Warn at 80% of limit
     read_only_iteration_weight: float = 0.3  # Read-only ops count as 30% (reduced from 50%)
 
+    # Phase-based tool filtering: keeps active tool count <20 per phase
+    # to reduce hallucination (OpenAI guidance: accuracy drops above ~20 tools)
+    PHASE_TOOL_GROUPS: ClassVar[dict[str, set[str] | None]] = {
+        "planning": {
+            "file_read",
+            "file_list",
+            "file_list_directory",
+            "file_search",
+            "file_find",
+            "info_search_web",
+            "wide_research",
+            "browser_navigate",
+            "browser_view",
+            "browser_get_content",
+            "workspace_info",
+            "workspace_tree",
+            "shell_exec",
+            "shell_view",
+            "message_ask_user",
+            "message_notify_user",
+            "code_list_artifacts",
+            "code_read_artifact",
+        },
+        "executing": None,  # None = all tools available
+        "verifying": {
+            "file_read",
+            "file_list",
+            "file_list_directory",
+            "file_search",
+            "shell_exec",
+            "shell_view",
+            "browser_navigate",
+            "browser_view",
+            "browser_get_content",
+            "test_run",
+            "test_list",
+            "code_execute",
+            "code_list_artifacts",
+            "code_read_artifact",
+            "message_ask_user",
+        },
+    }
+
     def __init__(
         self,
         agent_id: str,
@@ -102,6 +145,7 @@ class BaseAgent:
         self.tools = tools
         self.memory = None
         self._background_tasks: set[asyncio.Task] = set()
+        self._active_phase: str | None = None  # Phase-based tool filtering (set by orchestrator)
 
         # Structured agent logger
         self._log = get_agent_logger(agent_id)
@@ -133,10 +177,17 @@ class BaseAgent:
         self.state_manifest: StateManifest | None = state_manifest
 
     def get_available_tools(self) -> list[dict[str, Any]] | None:
-        """Get all available tools list"""
+        """Get all available tools list, filtered by active phase if set."""
         available_tools = []
         for tool in self.tools:
             available_tools.extend(tool.get_tools())
+
+        # Apply phase-based filtering when a phase is active
+        if self._active_phase:
+            allowed = self.PHASE_TOOL_GROUPS.get(self._active_phase)
+            if allowed is not None:  # None means all tools
+                available_tools = [t for t in available_tools if t.get("function", {}).get("name", "") in allowed]
+
         return available_tools
 
     def _extract_tool_schemas(self, available_tools: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -565,7 +616,9 @@ class BaseAgent:
                     message=result.message if result else None,
                 )
                 self._log.tool_completed(
-                    function_name, tool_call_id, log_start,
+                    function_name,
+                    tool_call_id,
+                    log_start,
                     success=result.success if result else False,
                     message=result.message if result else None,
                 )
@@ -655,16 +708,6 @@ class BaseAgent:
 
         return True
 
-    async def _invoke_tool_with_semaphore(
-        self, semaphore: asyncio.Semaphore, tool_call: dict, function_args: dict[str, Any]
-    ) -> tuple[dict, BaseTool, ToolResult]:
-        """Invoke a single tool with semaphore limiting concurrent executions"""
-        async with semaphore:
-            function_name = tool_call["function"]["name"]
-            tool = self.get_tool(function_name)
-            result = await self.invoke_tool(tool, function_name, function_args)
-            return tool_call, tool, result
-
     def _is_read_only_tool(self, function_name: str) -> bool:
         """Check if a tool is read-only (doesn't modify state)."""
         read_only_patterns = {
@@ -698,7 +741,7 @@ class BaseAgent:
             "export_list",
         }
         name_lower = function_name.lower()
-        return any(pattern in name_lower for pattern in read_only_patterns)
+        return any(name_lower == pattern or name_lower.startswith(pattern + "_") for pattern in read_only_patterns)
 
     def _calculate_iteration_cost(self, tool_calls: list[dict]) -> float:
         """Calculate weighted iteration cost based on tool types."""
@@ -775,7 +818,7 @@ class BaseAgent:
                     if not tool_call.get("function"):
                         continue
                     function_name = tool_call["function"]["name"]
-                    tool_call_id = tool_call["id"] or str(uuid.uuid4())
+                    tool_call_id = tool_call.get("id") or str(uuid.uuid4())
                     function_args = await self.json_parser.parse(tool_call["function"]["arguments"])
                     tool = self.get_tool(function_name)
                     security_assessment = self._security_assessor.assess_action(function_name, function_args)
@@ -876,7 +919,7 @@ class BaseAgent:
                         continue
 
                     function_name = tool_call["function"]["name"]
-                    tool_call_id = tool_call["id"] or str(uuid.uuid4())
+                    tool_call_id = tool_call.get("id") or str(uuid.uuid4())
                     function_args = await self.json_parser.parse(tool_call["function"]["arguments"])
 
                     tool = self.get_tool(function_name)
@@ -912,10 +955,7 @@ class BaseAgent:
 
                     result = await self.invoke_tool(tool, function_name, function_args)
 
-                    security_assessment = self._security_assessor.assess_action(function_name, function_args)
-                    confirmation_state = "awaiting_confirmation" if security_assessment.requires_confirmation else None
-
-                    # Generate event after tool call
+                    # Generate event after tool call (reuse pre-execution security_assessment)
                     yield self._create_tool_event(
                         tool_call_id=tool_call_id,
                         tool_name=tool.name,
@@ -972,11 +1012,11 @@ class BaseAgent:
         final_content = message.get("content")
         if not final_content:
             logger.warning("Agent produced empty final message — yielding fallback")
-            final_content = (
-                "I was unable to produce a complete response. "
-                "Please try again or rephrase your request."
-            )
+            final_content = "I was unable to produce a complete response. Please try again or rephrase your request."
         yield MessageEvent(message=final_content)
+
+        # Cleanup background tasks on normal exit (e.g. background memory saves)
+        await self.cleanup_background_tasks()
 
     async def _execute_parallel_tool(
         self,
@@ -1039,7 +1079,10 @@ class BaseAgent:
         if format:
             response_format = {"type": format}
 
-        for _retry in range(self.max_retries):
+        empty_response_count = 0
+        max_empty_responses = 5
+
+        for _retry in range(self.max_retries + max_empty_responses):
             try:
                 message = await self.llm.ask(
                     self.memory.get_messages(),
@@ -1063,9 +1106,7 @@ class BaseAgent:
 
             if is_truncated and message.get("tool_calls"):
                 # Truncated tool calls likely have malformed JSON — drop and retry
-                logger.error(
-                    "LLM response truncated with partial tool_calls — dropping and requesting continuation"
-                )
+                logger.error("LLM response truncated with partial tool_calls — dropping and requesting continuation")
                 await self._add_to_memory(
                     [
                         {"role": "assistant", "content": message.get("content") or ""},
@@ -1084,15 +1125,27 @@ class BaseAgent:
             if is_truncated and message.get("content"):
                 # Text-only truncation: return partial answer with note
                 logger.warning("Final answer may be truncated (finish_reason=length)")
-                message["content"] = (
-                    message["content"]
-                    + "\n\n[Note: Response may be incomplete due to length limits]"
-                )
+                message["content"] = message["content"] + "\n\n[Note: Response may be incomplete due to length limits]"
 
             filtered_message = {}
             if message.get("role") == "assistant":
                 if not message.get("content") and not message.get("tool_calls"):
-                    logger.warning("Assistant message has no content, retry")
+                    empty_response_count += 1
+                    if empty_response_count >= max_empty_responses:
+                        logger.error(
+                            f"Empty response from LLM after {empty_response_count} attempts, returning fallback"
+                        )
+                        return {
+                            "role": "assistant",
+                            "content": (
+                                "I encountered difficulties completing this step. "
+                                "The information gathered so far has been preserved. "
+                                "Please try again or rephrase your request."
+                            ),
+                        }
+                    logger.warning(
+                        f"Assistant message has no content ({empty_response_count}/{max_empty_responses}), retry"
+                    )
                     await self._add_to_memory(
                         [
                             {"role": "assistant", "content": ""},
@@ -1154,8 +1207,19 @@ class BaseAgent:
                 continue
 
             await self._add_to_memory([filtered_message])
+            empty_response_count = 0  # Reset on successful non-empty response
             return filtered_message
-        raise Exception(f"Empty response from LLM after {self.max_retries} retries")
+
+        # Retry loop exhausted — return graceful fallback instead of crashing
+        logger.error("LLM retry loop exhausted, returning fallback response")
+        return {
+            "role": "assistant",
+            "content": (
+                "I encountered difficulties completing this step. "
+                "The information gathered so far has been preserved. "
+                "Please try again or rephrase your request."
+            ),
+        }
 
     async def _ensure_within_token_limit(self) -> None:
         """Ensure memory is within token limits, trim if necessary"""
@@ -1191,9 +1255,14 @@ class BaseAgent:
         self.memory.messages = trimmed_messages
 
         # Save to MongoDB in background (non-blocking) to avoid delaying retry
+        # Snapshot messages to avoid race with main loop mutating self.memory
+        from app.domain.models.memory import Memory
+
+        memory_snapshot = Memory(messages=list(self.memory.messages))
+
         async def _save_background():
             try:
-                await self._repository.save_memory(self._agent_id, self.name, self.memory)
+                await self._repository.save_memory(self._agent_id, self.name, memory_snapshot)
                 logger.debug("Background memory save completed after token limit handling")
             except Exception as e:
                 logger.warning(f"Background memory save failed after token limit handling: {e}")
@@ -1315,8 +1384,9 @@ class BaseAgent:
 
         # Check if LLM supports streaming
         if not hasattr(self.llm, "ask_stream"):
-            # Fall back to non-streaming
-            response = await self.ask(request, format)
+            # Fall back to non-streaming — use ask_with_messages([]) since
+            # user message was already added to memory above
+            response = await self.ask_with_messages([], format)
             yield MessageEvent(message=response.get("content", ""))
             return
 
