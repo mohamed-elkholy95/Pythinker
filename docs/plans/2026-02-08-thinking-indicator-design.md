@@ -13,7 +13,7 @@ Enhance the existing thinking indicator to read as a warm, active loading state.
 - Warm, lighter bulb gradient (light amber/gold) with slightly higher opacity.
 - Outline/filament tones adjusted for clarity against the warmer fill.
 - Rays set to solid black with a smooth, rhythmic pulse to read as loading.
-- Add additional short horizontal rays that progress from left to right (staggered pulse).
+- Keep only the existing angled rays and slow their cadence slightly.
 - Slightly increase the lamp size for better readability across all uses.
 - Energy ring and scan-line remain but are slightly de-emphasized.
 - Dark mode keeps rays black per requirement.
@@ -21,7 +21,7 @@ Enhance the existing thinking indicator to read as a warm, active loading state.
 ## Architecture / Components
 - Target component: `frontend/src/components/ui/ThinkingIndicator.vue`.
 - No new components or props.
-- Minor SVG additions for the new left-to-right rays.
+- No new SVG additions beyond existing rays.
 
 ## Data Flow
 Unchanged. The component remains presentational and controlled solely by `showText`.
