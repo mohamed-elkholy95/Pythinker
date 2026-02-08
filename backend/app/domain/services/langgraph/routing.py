@@ -237,10 +237,7 @@ def should_use_browser_node(state: PlanActState) -> bool:
 
     # Check if step has explicit browser_task metadata
     metadata = getattr(step, "metadata", {}) or {}
-    if metadata.get("use_browser_agent"):
-        return True
-
-    return False
+    return bool(metadata.get("use_browser_agent"))
 
 
 def route_with_browser_check(

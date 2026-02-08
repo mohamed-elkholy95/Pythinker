@@ -3,8 +3,8 @@ import type { SourceCitation, DeepResearchQuery, DeepResearchStatus, SkillPackag
 import type { ToolContentPayload } from './toolContent';
 
 export type AgentSSEEvent = {
-  event: 'tool' | 'step' | 'message' | 'error' | 'done' | 'title' | 'wait' | 'plan' | 'attachments' | 'mode_change' | 'suggestion' | 'report' | 'stream' | 'progress' | 'deep_research' | 'wide_research' | 'skill_delivery' | 'skill_activation' | 'thought';
-  data: ToolEventData | StepEventData | MessageEventData | ErrorEventData | DoneEventData | TitleEventData | WaitEventData | PlanEventData | ModeChangeEventData | SuggestionEventData | ReportEventData | StreamEventData | ProgressEventData | DeepResearchEventData | WideResearchEventData | SkillDeliveryEventData | SkillActivationEventData | ThoughtEventData;
+  event: 'tool' | 'step' | 'message' | 'error' | 'done' | 'title' | 'wait' | 'plan' | 'attachments' | 'mode_change' | 'suggestion' | 'report' | 'stream' | 'progress' | 'deep_research' | 'wide_research' | 'skill_delivery' | 'skill_activation' | 'thought' | 'canvas_update';
+  data: ToolEventData | StepEventData | MessageEventData | ErrorEventData | DoneEventData | TitleEventData | WaitEventData | PlanEventData | ModeChangeEventData | SuggestionEventData | ReportEventData | StreamEventData | ProgressEventData | DeepResearchEventData | WideResearchEventData | SkillDeliveryEventData | SkillActivationEventData | ThoughtEventData | CanvasUpdateEventData;
 }
 
 export interface BaseEventData {
@@ -87,6 +87,7 @@ export interface ReportEventData extends BaseEventData {
 export interface StreamEventData extends BaseEventData {
   content: string;
   is_final: boolean;
+  phase?: 'thinking' | 'summarizing';
 }
 
 export type PlanningPhase = 'received' | 'analyzing' | 'planning' | 'finalizing';
@@ -152,4 +153,11 @@ export interface ThoughtEventData extends BaseEventData {
   step_name?: string;
   chain_id?: string;
   is_final?: boolean;
+}
+
+export interface CanvasUpdateEventData extends BaseEventData {
+  project_id: string;
+  operation: string;
+  element_count: number;
+  project_name?: string;
 }

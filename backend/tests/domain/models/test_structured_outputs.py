@@ -442,7 +442,7 @@ class TestValidateLlmOutput:
                 "steps": [{"description": "Test step"}],
             }
         )
-        result, validation = validate_llm_output(json_content, PlanOutput)
+        _result, validation = validate_llm_output(json_content, PlanOutput)
         assert validation.is_valid is False
         assert "required" in validation.suggestions[0].lower()
 
@@ -455,7 +455,7 @@ class TestValidateLlmOutput:
                 "confidence": 0.2,
             }
         )
-        result, validation = validate_llm_output(json_content, ReflectionOutput)
+        _result, validation = validate_llm_output(json_content, ReflectionOutput)
         assert validation.is_valid is True
         assert any("confidence" in w.lower() for w in validation.warnings)
 
@@ -467,7 +467,7 @@ class TestValidateLlmOutput:
                 "citations": [],
             }
         )
-        result, validation = validate_llm_output(json_content, CitedResponse)
+        _result, validation = validate_llm_output(json_content, CitedResponse)
         assert validation.is_valid is True
         assert any("citation" in w.lower() for w in validation.warnings)
 

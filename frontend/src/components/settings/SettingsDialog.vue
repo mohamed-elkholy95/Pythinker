@@ -153,13 +153,14 @@ const handleBuildWithPythinker = () => {
   // The skill creation message
   const skillCreationMessage = 'Help me create a skill together using /skill-creator. First ask me what the skill should do.'
 
-  // Dispatch event to insert message into HomePage chat input
+  // Dispatch event to insert message into chat input (works on both HomePage and ChatPage)
   window.dispatchEvent(new CustomEvent('pythinker:insert-chat-message', {
-    detail: { message: skillCreationMessage }
+    detail: { message: skillCreationMessage, skillId: 'skill-creator' }
   }))
 
-  // Navigate to home page if not already there
-  if (router.currentRoute.value.path !== '/') {
+  // Navigate to home page if not already on a chat page
+  const currentPath = router.currentRoute.value.path
+  if (currentPath !== '/' && !currentPath.startsWith('/chat/')) {
     router.push('/')
   }
 }

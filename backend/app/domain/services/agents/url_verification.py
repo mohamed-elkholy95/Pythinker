@@ -102,17 +102,15 @@ class URLVerificationService:
             True if URL appears to be a placeholder/fake
         """
         # Check against placeholder patterns
-        for pattern in self.PLACEHOLDER_PATTERNS:
-            if pattern.search(url):
-                return True
+        if any(pattern.search(url) for pattern in self.PLACEHOLDER_PATTERNS):
+            return True
 
         # Check for suspicious TLDs
         try:
             parsed = urlparse(url)
             hostname = parsed.hostname or ""
-            for tld in self.SUSPICIOUS_TLDS:
-                if hostname.endswith(tld):
-                    return True
+            if any(hostname.endswith(tld) for tld in self.SUSPICIOUS_TLDS):
+                return True
         except Exception:
             pass
 
@@ -255,11 +253,7 @@ class URLVerificationService:
             return True
 
         # Check normalized versions of session URLs
-        for session_url in session_urls:
-            if self._normalize_url(session_url) == normalized:
-                return True
-
-        return False
+        return any(self._normalize_url(session_url) == normalized for session_url in session_urls)
 
     def _normalize_url(self, url: str) -> str:
         """Normalize URL for comparison.

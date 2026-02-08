@@ -8,6 +8,14 @@
     />
 
     <div v-else class="generic-body">
+      <CanvasMiniPreview
+        v-if="isCanvasTool"
+        :project-id="canvasProjectId"
+        :project-name="canvasProjectName"
+        :operation="canvasOperation"
+        :element-count="canvasElementCount"
+      />
+
       <!-- Tool name and function -->
       <div v-if="toolDisplayLabel" class="tool-section">
         <div class="tool-title">
@@ -50,8 +58,10 @@ import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue
 import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
 import LoadingDots from '@/components/toolViews/shared/LoadingDots.vue';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
+import CanvasMiniPreview from '@/components/canvas/CanvasMiniPreview.vue';
 import { useShiki } from '@/composables/useShiki';
 import { getToolDisplay } from '@/utils/toolDisplay';
+import type { CanvasToolContent } from '@/types/toolContent';
 
 const props = defineProps<{
   toolName?: string;
@@ -140,6 +150,41 @@ const toolDisplay = computed(() => getToolDisplay({
 const toolDisplayLabel = computed(() => {
   if (!props.functionName && !props.toolName) return '';
   return `${toolDisplay.value.displayName} · ${toolDisplay.value.actionLabel}`;
+});
+
+const isCanvasTool = computed(() => {
+  if (props.toolName === 'canvas') return true;
+  return !!props.functionName && props.functionName.startsWith('canvas_');
+});
+
+const canvasContent = computed(() => {
+  return (props.content as CanvasToolContent | undefined) || undefined;
+});
+
+const canvasOperation = computed(() => {
+  if (canvasContent.value?.operation) return canvasContent.value.operation;
+  return props.functionName || '';
+});
+
+const canvasProjectId = computed(() => {
+  const fromContent = canvasContent.value?.project_id;
+  if (fromContent) return fromContent;
+  const argId = props.args?.project_id;
+  return typeof argId === 'string' ? argId : null;
+});
+
+const canvasProjectName = computed(() => {
+  const fromContent = canvasContent.value?.project_name;
+  if (fromContent) return fromContent;
+  const argName = props.args?.name;
+  return typeof argName === 'string' ? argName : null;
+});
+
+const canvasElementCount = computed(() => {
+  if (typeof canvasContent.value?.element_count === 'number') {
+    return canvasContent.value.element_count;
+  }
+  return 0;
 });
 
 const hasResult = computed(() => props.result !== undefined && props.result !== null);

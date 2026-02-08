@@ -92,6 +92,9 @@ class AgentService:
     ) -> Session:
         logger.info(f"Creating new session for user: {user_id} with mode: {mode}")
 
+        # Auto-stop any stale running sessions to release sandbox/browser resources
+        await self._cleanup_stale_sessions(user_id)
+
         # Phase 4 P0: Intent classification for simple queries
         if initial_message and mode == AgentMode.AGENT:
             from app.domain.services.agents.intent_classifier import get_intent_classifier
@@ -138,6 +141,28 @@ class AgentService:
             logger.info(f"Started background sandbox warm-up for session {session.id}")
 
         return session
+
+    async def _cleanup_stale_sessions(self, user_id: str) -> None:
+        """Stop any stale running/initializing sessions for this user.
+
+        When a user starts a new task, any previously running sessions should be
+        stopped to release sandbox and browser resources, preventing connection
+        pool exhaustion (BROWSER_1004).
+        """
+        active_statuses = {SessionStatus.RUNNING, SessionStatus.INITIALIZING}
+        try:
+            sessions = await self._session_repository.find_by_user_id(user_id)
+            stale = [s for s in sessions if s.status in active_statuses]
+            for session in stale:
+                try:
+                    logger.info(f"Auto-stopping stale session {session.id} (status={session.status}) for user {user_id}")
+                    await self._agent_domain_service.stop_session(session.id)
+                except Exception as e:
+                    logger.warning(f"Failed to auto-stop stale session {session.id}: {e}")
+            if stale:
+                logger.info(f"Cleaned up {len(stale)} stale session(s) for user {user_id}")
+        except Exception as e:
+            logger.warning(f"Stale session cleanup failed for user {user_id}: {e}")
 
     async def _warm_sandbox_for_session(self, session_id: str) -> None:
         """Background task to pre-warm sandbox for session.
@@ -328,7 +353,7 @@ class AgentService:
 
     async def get_all_sessions(self, user_id: str) -> list[Session]:
         """Get all sessions for a specific user"""
-        logger.info(f"Getting all sessions for user {user_id}")
+        logger.debug(f"Getting all sessions for user {user_id}")
         return await self._session_repository.find_by_user_id(user_id)
 
     async def delete_session(self, session_id: str, user_id: str) -> None:

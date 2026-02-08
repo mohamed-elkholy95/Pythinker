@@ -13,6 +13,10 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
 from app.core.sandbox_pool import start_sandbox_pool, stop_sandbox_pool
+from app.infrastructure.models.canvas_documents import (
+    CanvasProjectDocument,
+    CanvasVersionDocument,
+)
 from app.infrastructure.models.connector_documents import (
     ConnectorDocument,
     UserConnectorDocument,
@@ -20,6 +24,7 @@ from app.infrastructure.models.connector_documents import (
 from app.infrastructure.models.documents import (
     AgentDocument,
     DailyUsageDocument,
+    RatingDocument,
     ScreenshotDocument,
     SessionDocument,
     SkillDocument,
@@ -329,7 +334,10 @@ async def lifespan(app: FastAPI):
             database=get_mongodb().client[settings.mongodb_database],
             document_models=[
                 AgentDocument,
+                CanvasProjectDocument,
+                CanvasVersionDocument,
                 ConnectorDocument,
+                RatingDocument,
                 ScreenshotDocument,
                 SessionDocument,
                 SkillDocument,

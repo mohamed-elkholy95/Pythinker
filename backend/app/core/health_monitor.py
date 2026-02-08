@@ -160,10 +160,7 @@ class HealthMonitor:
         healthy = stats["healthy_sandboxes"]
 
         # No sandboxes is a valid idle state — not unhealthy
-        if total == 0:
-            healthy_ratio = 1.0
-        else:
-            healthy_ratio = healthy / total
+        healthy_ratio = 1.0 if total == 0 else healthy / total
 
         if healthy_ratio < 0.5:
             health.status = ComponentStatus.UNHEALTHY

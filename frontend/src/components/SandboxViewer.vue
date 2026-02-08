@@ -78,7 +78,7 @@ import WideResearchOverlay from '@/components/WideResearchOverlay.vue'
 import { useSandboxInput } from '@/composables/useSandboxInput'
 import { useWideResearchGlobal } from '@/composables/useWideResearch'
 import { markCanvasForRecording } from '@/composables/useOpenReplay'
-import { getSandboxUrl } from '@/api/agent'
+import { getScreencastUrl, getInputStreamUrl } from '@/api/agent'
 
 const props = withDefaults(
   defineProps<{
@@ -118,7 +118,7 @@ const canvasRef = ref<HTMLCanvasElement | null>(null)
 const isLoading = ref(false)
 const statusText = ref('Connecting...')
 const error = ref<string | null>(null)
-const sandboxUrl = ref<string | null>(null)
+const screencastWsUrl = ref<string | null>(null)
 
 // Input forwarding
 const { isForwarding, startForwarding, stopForwarding, attachInputListeners } = useSandboxInput()
@@ -154,53 +154,42 @@ let lastStatsTime = Date.now()
 let lastStatsFrameCount = 0
 let lastStatsBytesReceived = 0
 
-// Fetch sandbox URL and connect
+// Fetch screencast URL (proxied through backend) and connect
 async function initConnection(): Promise<void> {
   if (!props.enabled || !props.sessionId) {
     return
   }
 
   isLoading.value = true
-  statusText.value = 'Fetching sandbox URL...'
+  statusText.value = 'Connecting...'
   error.value = null
 
   try {
-    sandboxUrl.value = await getSandboxUrl(props.sessionId)
-    if (sandboxUrl.value) {
+    screencastWsUrl.value = await getScreencastUrl(props.sessionId, props.quality, props.maxFps)
+    if (screencastWsUrl.value) {
       await connect()
     } else {
-      handleError('Failed to get sandbox URL')
+      handleError('Failed to get screencast URL')
     }
   } catch (e) {
     handleError(`Failed to initialize: ${e}`)
   }
 }
 
-// Computed WebSocket URL
-function getWsUrl(): string | null {
-  if (!sandboxUrl.value) return null
-  const baseUrl = sandboxUrl.value.replace(/^http/, 'ws')
-  return `${baseUrl}/api/v1/screencast/stream?quality=${props.quality}&max_fps=${props.maxFps}`
-}
-
-// Connect to WebSocket stream
+// Connect to WebSocket stream (proxied through backend)
 async function connect(): Promise<void> {
   if (ws) {
     disconnect()
   }
 
-  if (!props.enabled || !sandboxUrl.value) {
+  if (!props.enabled || !screencastWsUrl.value) {
     return
   }
 
-  const wsUrl = getWsUrl()
-  if (!wsUrl) {
-    handleError('No WebSocket URL available')
-    return
-  }
+  const wsUrl = screencastWsUrl.value
 
   isLoading.value = true
-  statusText.value = 'Connecting to sandbox...'
+  statusText.value = 'Connecting...'
   error.value = null
 
   try {
@@ -215,9 +204,13 @@ async function connect(): Promise<void> {
       setupCanvas()
 
       // Setup input forwarding if not view-only
-      if (!props.viewOnly && sandboxUrl.value) {
-        startForwarding(sandboxUrl.value)
-        setupInputListeners()
+      if (!props.viewOnly && props.sessionId) {
+        getInputStreamUrl(props.sessionId).then((inputUrl) => {
+          startForwarding(inputUrl)
+          setupInputListeners()
+        }).catch((e) => {
+          console.warn('Failed to setup input forwarding:', e)
+        })
       }
     }
 
@@ -431,9 +424,13 @@ watch(
   (viewOnly) => {
     if (viewOnly) {
       cleanupInput()
-    } else if (ws && ws.readyState === WebSocket.OPEN && sandboxUrl.value) {
-      startForwarding(sandboxUrl.value)
-      setupInputListeners()
+    } else if (ws && ws.readyState === WebSocket.OPEN && props.sessionId) {
+      getInputStreamUrl(props.sessionId).then((inputUrl) => {
+        startForwarding(inputUrl)
+        setupInputListeners()
+      }).catch((e) => {
+        console.warn('Failed to setup input forwarding:', e)
+      })
     }
   }
 )

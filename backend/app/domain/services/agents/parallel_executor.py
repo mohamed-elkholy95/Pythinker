@@ -391,7 +391,7 @@ class ParallelToolExecutor:
             if isinstance(result, asyncio.CancelledError):
                 # Re-raise CancelledError — don't treat cancellation as a tool result
                 raise result
-            elif isinstance(result, Exception):
+            if isinstance(result, Exception):
                 processed_results.append(
                     ToolResult(
                         call_id=batch[i].id,

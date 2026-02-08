@@ -190,9 +190,11 @@ class CitationValidator:
                     for cid in claim.citation_ids:
                         if cid in available_citations:
                             url = available_citations[cid].get("url", "")
-                            if url in source_scores:
-                                if source_scores[url].reliability_score < self.config.min_source_reliability:
-                                    weak_citations.append(f"{claim.claim_text[:50]}... (source: {url})")
+                            if (
+                                url in source_scores
+                                and source_scores[url].reliability_score < self.config.min_source_reliability
+                            ):
+                                weak_citations.append(f"{claim.claim_text[:50]}... (source: {url})")
 
         # Calculate scores
         total = len(validated_claims)
@@ -380,14 +382,13 @@ class CitationValidator:
         modified = content
 
         for claim in validation_result.claims:
-            if claim.requires_caveat and claim.caveat_text:
+            if claim.requires_caveat and claim.caveat_text and claim.claim_text in modified:
                 # Insert caveat after the claim
-                if claim.claim_text in modified:
-                    modified = modified.replace(
-                        claim.claim_text,
-                        f"{claim.claim_text} {claim.caveat_text}",
-                        1,  # Only replace first occurrence
-                    )
+                modified = modified.replace(
+                    claim.claim_text,
+                    f"{claim.claim_text} {claim.caveat_text}",
+                    1,  # Only replace first occurrence
+                )
 
         return modified
 

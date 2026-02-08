@@ -1,5 +1,9 @@
 """Graph-based PlanAct workflow implementation.
 
+.. deprecated::
+    PlanActGraphFlow is experimental and not used in production.
+    Use PlanActFlow via FlowMode.PLAN_ACT instead.
+
 This module provides a graph-based implementation of the PlanAct workflow
 using the WorkflowGraph engine. It demonstrates declarative workflow definition
 with clear state transitions.

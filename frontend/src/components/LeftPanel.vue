@@ -61,7 +61,7 @@
       </div>
       <div class="px-3">
         <div class="nav-section">
-          <button class="nav-item nav-item-disabled" type="button" aria-disabled="true" title="Coming soon">
+          <button class="nav-item" type="button" @click="openSearch">
             <Search class="nav-icon" />
             <span>{{ t('Search') }}</span>
           </button>
@@ -78,14 +78,40 @@
           </button>
         </div>
       </div>
-      <div class="left-panel-section-title">{{ t('All tasks') }}</div>
+      <!-- Search bar -->
+      <div v-if="isSearching" class="search-bar-container">
+        <div class="search-bar">
+          <Search :size="14" class="search-bar-icon" />
+          <input
+            ref="searchInputRef"
+            v-model="searchQuery"
+            type="text"
+            :placeholder="t('Search tasks...')"
+            class="search-input"
+            @keydown.escape="closeSearch"
+          />
+          <button v-if="searchQuery" class="search-clear-btn" @click="searchQuery = ''">
+            <X :size="12" />
+          </button>
+          <button class="search-close-btn" @click="closeSearch">
+            <X :size="14" />
+          </button>
+        </div>
+        <div v-if="searchQuery && filteredSessions.length === 0" class="search-no-results">
+          {{ t('No matching tasks') }}
+        </div>
+      </div>
+      <div class="left-panel-section-title">
+        <template v-if="isSearching && searchQuery">{{ filteredSessions.length }} {{ t('results') }}</template>
+        <template v-else>{{ t('All tasks') }}</template>
+      </div>
       <div class="flex flex-col flex-1 min-h-0">
-        <div v-if="sessions.length > 0" class="flex flex-col flex-1 min-h-0 overflow-auto pt-1 pb-4 px-2 overflow-x-hidden minimal-scrollbar">
-          <SessionItem v-for="session in sessions" :key="session.session_id" :session="session"
+        <div v-if="filteredSessions.length > 0" class="flex flex-col flex-1 min-h-0 overflow-auto pt-1 pb-4 px-2 overflow-x-hidden minimal-scrollbar">
+          <SessionItem v-for="session in filteredSessions" :key="session.session_id" :session="session"
             @deleted="handleSessionDeleted"
             @stopped="handleSessionStopped" />
         </div>
-        <div v-else class="flex flex-1 flex-col items-center justify-center gap-4">
+        <div v-else-if="!isSearching" class="flex flex-1 flex-col items-center justify-center gap-4">
           <div class="flex flex-col items-center gap-2 text-[var(--text-tertiary)]">
             <MessageSquareDashed :size="38" />
             <span class="text-sm font-medium">{{ t('Create a task to get started') }}</span></div>
@@ -131,13 +157,13 @@
 </template>
 
 <script setup lang="ts">
-import { PanelLeft, Plus, Command, MessageSquareDashed, Settings2, Search, Library, FolderPlus, SquarePen, Bot } from 'lucide-vue-next';
+import { PanelLeft, Plus, Command, MessageSquareDashed, Settings2, Search, Library, FolderPlus, SquarePen, Bot, X } from 'lucide-vue-next';
 import PythinkerLogoTextIcon from './icons/PythinkerLogoTextIcon.vue';
 import SessionItem from './SessionItem.vue';
 import { useLeftPanel } from '../composables/useLeftPanel';
-import { ref, onMounted, watch, onUnmounted, computed } from 'vue';
+import { ref, nextTick, onMounted, watch, onUnmounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { getSessionsSSE, getSessions } from '../api/agent';
+import { getSessionsSSE, getSessions, stopSession } from '../api/agent';
 import { ListSessionItem, SessionStatus } from '../types/response';
 import { useI18n } from 'vue-i18n';
 import { useSettingsDialog } from '@/composables/useSettingsDialog';
@@ -155,6 +181,31 @@ const route = useRoute()
 const router = useRouter()
 
 const sessions = ref<ListSessionItem[]>([])
+
+// Search state
+const searchQuery = ref('')
+const isSearching = ref(false)
+const searchInputRef = ref<HTMLInputElement | null>(null)
+
+const filteredSessions = computed(() => {
+  if (!searchQuery.value.trim()) return sessions.value
+  const q = searchQuery.value.toLowerCase().trim()
+  return sessions.value.filter(s =>
+    s.title?.toLowerCase().includes(q) ||
+    s.latest_message?.toLowerCase().includes(q)
+  )
+})
+
+const openSearch = async () => {
+  isSearching.value = true
+  await nextTick()
+  searchInputRef.value?.focus()
+}
+
+const closeSearch = () => {
+  searchQuery.value = ''
+  isSearching.value = false
+}
 
 // Handle session status changes from other components (e.g., ChatPage)
 const handleSessionStatusChange = (sessionId: string, status: SessionStatus) => {
@@ -204,7 +255,20 @@ const fetchSessions = async () => {
   }
 }
 
-const handleNewTaskClick = () => {
+const handleNewTaskClick = async () => {
+  // Stop current running session to release sandbox/browser resources
+  const currentSessionId = route.params.sessionId as string | undefined;
+  if (currentSessionId) {
+    const currentSession = sessions.value.find(s => s.session_id === currentSessionId);
+    if (currentSession && (currentSession.status === SessionStatus.RUNNING || currentSession.status === SessionStatus.PENDING)) {
+      try {
+        await stopSession(currentSessionId);
+        handleSessionStatusChange(currentSessionId, SessionStatus.COMPLETED);
+      } catch {
+        // Non-critical — backend safety net will clean up on next create_session
+      }
+    }
+  }
   router.push('/')
 }
 
@@ -418,16 +482,6 @@ watch(() => route.path, async (newPath, oldPath) => {
   color: var(--text-secondary);
 }
 
-.nav-item-disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.nav-item-disabled:hover {
-  background: transparent;
-  border-color: transparent;
-}
-
 .nav-icon {
   width: 16px;
   height: 16px;
@@ -499,5 +553,75 @@ watch(() => route.path, async (newPath, oldPath) => {
   font-size: 10px;
   font-weight: 600;
   color: var(--bolt-elements-textTertiary);
+}
+
+/* ===== SEARCH BAR ===== */
+.search-bar-container {
+  padding: 0 12px 4px;
+}
+
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: var(--fill-tsp-gray-main);
+  border: 1px solid var(--border-light);
+  transition: border-color 0.15s ease;
+}
+
+.search-bar:focus-within {
+  border-color: var(--bolt-elements-borderColorActive);
+}
+
+.search-bar-icon {
+  flex-shrink: 0;
+  color: var(--icon-tertiary);
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.search-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.search-clear-btn,
+.search-close-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  color: var(--icon-tertiary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: transparent;
+  border: none;
+}
+
+.search-clear-btn:hover,
+.search-close-btn:hover {
+  background: var(--bolt-elements-bg-depth-2);
+  color: var(--text-secondary);
+}
+
+.search-no-results {
+  padding: 8px 4px 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  text-align: center;
 }
 </style>

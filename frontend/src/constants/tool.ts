@@ -42,7 +42,6 @@ export const TOOL_FUNCTION_MAP: {[key: string]: string} = {
   // === BROWSER AGENT (autonomous browsing) ===
   "browser_agent_run": "Browsing",
   "browser_agent_extract": "Extracting",
-  "browsing": "Browsing",
 
   // === BROWSER-USE INTERNAL ACTIONS ===
   "go_to_url": "Opening",
@@ -171,6 +170,16 @@ export const TOOL_FUNCTION_MAP: {[key: string]: string} = {
 
   // === REPO MAP ===
   "repo_map": "Mapping",
+
+  // === CANVAS ===
+  "canvas_create_project": "Creating",
+  "canvas_get_state": "Reading",
+  "canvas_add_element": "Adding",
+  "canvas_modify_element": "Modifying",
+  "canvas_delete_elements": "Deleting",
+  "canvas_generate_image": "Generating",
+  "canvas_arrange_layer": "Arranging",
+  "canvas_export": "Exporting",
 };
 
 /**
@@ -230,7 +239,6 @@ export const TOOL_FUNCTION_ARG_MAP: {[key: string]: string} = {
   // Browser Agent
   "browser_agent_run": "task",
   "browser_agent_extract": "extraction_goal",
-  "browsing": "task",
   "go_to_url": "url",
   "click_element": "element",
   "input_text": "text",
@@ -262,9 +270,9 @@ export const TOOL_FUNCTION_ARG_MAP: {[key: string]: string} = {
   "code_execute_python": "code",
   "code_execute_javascript": "code",
   "code_list_artifacts": "working_dir",
-  "code_read_artifact": "path",
+  "code_read_artifact": "filename",
   "code_cleanup_workspace": "working_dir",
-  "code_save_artifact": "path",
+  "code_save_artifact": "filename",
 
   // Code Dev
   "code_format": "file",
@@ -334,6 +342,16 @@ export const TOOL_FUNCTION_ARG_MAP: {[key: string]: string} = {
 
   // Repo Map
   "repo_map": "path",
+
+  // Canvas
+  "canvas_create_project": "name",
+  "canvas_get_state": "project_id",
+  "canvas_add_element": "element_type",
+  "canvas_modify_element": "element_id",
+  "canvas_delete_elements": "element_ids",
+  "canvas_generate_image": "prompt",
+  "canvas_arrange_layer": "element_id",
+  "canvas_export": "format",
 };
 
 /**
@@ -351,7 +369,6 @@ export const TOOL_NAME_MAP: {[key: string]: string} = {
   "file": "Editor",
   "browser": "Browser",
   "browser_agent": "Web Pilot",
-  "browsing": "Web Pilot",
   "playwright": "Browser",
 
   // === SEARCH ===
@@ -395,6 +412,9 @@ export const TOOL_NAME_MAP: {[key: string]: string} = {
   "deep_scan_analyzer": "Analyzer",
   "deep_scan": "Analyzer",
 
+  // === CANVAS ===
+  "canvas": "Canvas",
+
   // === SYSTEM ===
   "agent_mode": "Mode Switch",
   "plan": "Planner",
@@ -410,7 +430,7 @@ import ShellIcon from '../components/icons/ShellIcon.vue';
 import GlobeIcon from '../components/icons/GlobeIcon.vue';
 import IdleIcon from '../components/icons/IdleIcon.vue';
 import AgentModeIcon from '../components/icons/AgentModeIcon.vue';
-import { GitBranch, Play, Download, Presentation, FolderTree, Calendar, Scan, Wand2, FileCode, Map, Wrench, MessageCircle, TestTube, Terminal } from 'lucide-vue-next';
+import { GitBranch, Play, Download, Presentation, FolderTree, Calendar, Scan, Wand2, FileCode, Map, Wrench, MessageCircle, TestTube, Terminal, Palette } from 'lucide-vue-next';
 
 /**
  * Tool icon mapping - Consistent visual identity for each tool
@@ -427,7 +447,6 @@ export const TOOL_ICON_MAP: Record<string, Component> = {
   "file": EditIcon,
   "browser": BrowserIcon,
   "browser_agent": GlobeIcon,
-  "browsing": GlobeIcon,
   "playwright": BrowserIcon,
 
   // === SEARCH ===
@@ -468,6 +487,9 @@ export const TOOL_ICON_MAP: Record<string, Component> = {
   "deep_scan_analyzer": Scan,
   "deep_scan": Scan,
 
+  // === CANVAS ===
+  "canvas": Palette,
+
   // === SYSTEM ===
   "agent_mode": AgentModeIcon,
   "plan": Play,
@@ -479,7 +501,7 @@ export const TOOL_ICON_MAP: Record<string, Component> = {
 /**
  * Content view types for the unified tool panel
  */
-export type ContentViewType = 'vnc' | 'terminal' | 'editor' | 'search' | 'generic' | 'wide_research' | 'git' | 'test' | 'skill' | 'export' | 'slides' | 'workspace' | 'schedule' | 'scan';
+export type ContentViewType = 'vnc' | 'terminal' | 'editor' | 'search' | 'generic' | 'wide_research';
 export type ViewMode = 'primary' | 'secondary' | 'tertiary';
 
 export interface ContentConfig {
@@ -520,13 +542,6 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
     defaultView: 'primary',
     showTabs: false
   },
-  browsing: {
-    primaryView: 'vnc',
-    secondaryView: 'terminal',
-    tabLabels: [],
-    defaultView: 'primary',
-    showTabs: false
-  },
   playwright: {
     primaryView: 'vnc',
     secondaryView: 'terminal',
@@ -538,7 +553,8 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
   // === CODE ===
   code_executor: {
     primaryView: 'terminal',
-    secondaryView: 'vnc',
+    secondaryView: 'editor',
+    tertiaryView: 'vnc',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
@@ -546,7 +562,8 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
   // Alias for code_executor (backend sends this name)
   code_execute: {
     primaryView: 'terminal',
-    secondaryView: 'vnc',
+    secondaryView: 'editor',
+    tertiaryView: 'vnc',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
@@ -571,8 +588,8 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
 
   // === GIT ===
   git: {
-    primaryView: 'git',
-    secondaryView: 'terminal',
+    primaryView: 'terminal',
+    secondaryView: 'vnc',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
@@ -617,8 +634,16 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
 
   // === TEST ===
   test_runner: {
-    primaryView: 'test',
-    secondaryView: 'terminal',
+    primaryView: 'terminal',
+    secondaryView: 'vnc',
+    tabLabels: [],
+    defaultView: 'primary',
+    showTabs: false
+  },
+
+  // === CANVAS ===
+  canvas: {
+    primaryView: 'generic',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
@@ -634,19 +659,19 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
 
   // === SKILL ===
   skill: {
-    primaryView: 'skill',
+    primaryView: 'generic',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
   },
   skill_invoke: {
-    primaryView: 'skill',
+    primaryView: 'generic',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
   },
   skill_creator: {
-    primaryView: 'skill',
+    primaryView: 'generic',
     secondaryView: 'editor',
     tabLabels: [],
     defaultView: 'primary',
@@ -655,7 +680,7 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
 
   // === EXPORT ===
   export: {
-    primaryView: 'export',
+    primaryView: 'generic',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
@@ -663,7 +688,7 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
 
   // === SLIDES ===
   slides: {
-    primaryView: 'slides',
+    primaryView: 'generic',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
@@ -671,7 +696,8 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
 
   // === WORKSPACE ===
   workspace: {
-    primaryView: 'workspace',
+    primaryView: 'terminal',
+    secondaryView: 'vnc',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
@@ -679,7 +705,7 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
 
   // === SCHEDULE ===
   schedule: {
-    primaryView: 'schedule',
+    primaryView: 'generic',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
@@ -687,15 +713,15 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
 
   // === DEEP SCAN ===
   deep_scan_analyzer: {
-    primaryView: 'scan',
-    secondaryView: 'terminal',
+    primaryView: 'terminal',
+    secondaryView: 'vnc',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
   },
   deep_scan: {
-    primaryView: 'scan',
-    secondaryView: 'terminal',
+    primaryView: 'terminal',
+    secondaryView: 'vnc',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
@@ -719,7 +745,8 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
 
   // === REPO MAP ===
   repo_map: {
-    primaryView: 'workspace',
+    primaryView: 'terminal',
+    secondaryView: 'vnc',
     tabLabels: [],
     defaultView: 'primary',
     showTabs: false
@@ -749,6 +776,9 @@ export const TOOL_CONTENT_CONFIG: Record<string, ContentConfig> = {
 export const FUNCTION_VIEW_OVERRIDES: Record<string, ViewMode> = {
   // Browser agent extraction - show output by default
   browser_agent_extract: 'secondary',
+  // Artifact operations - show editor preview
+  code_save_artifact: 'secondary',
+  code_read_artifact: 'secondary',
 };
 
 /**

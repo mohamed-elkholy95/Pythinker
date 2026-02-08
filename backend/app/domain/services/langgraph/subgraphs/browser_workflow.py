@@ -451,8 +451,6 @@ def route_after_update(state: BrowserWorkflowState) -> BrowserRoute:
 def route_after_error(state: BrowserWorkflowState) -> BrowserRoute:
     """Route after error handling."""
     error = state.get("error")
-    retry_count = state.get("retry_count", 0)
-    max_retries = state.get("max_retries", 2)
 
     # If error cleared (will retry)
     if not error:

@@ -632,7 +632,6 @@ class TestSecurityCriticEdgeCases:
         patterns_lower = critic.detect_dangerous_patterns(code_lower, language="python")
         patterns_upper = critic.detect_dangerous_patterns(code_upper, language="python")
 
-        # Both should detect eval pattern
+        # Both should detect eval pattern (matcher is case-insensitive)
         assert len(patterns_lower) > 0
-        # Note: eval in Python is case-sensitive, so EVAL won't match
-        # This test verifies the actual behavior
+        assert len(patterns_upper) > 0

@@ -3,7 +3,7 @@ import hashlib
 import logging
 import os
 import time
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, ClassVar
@@ -1063,10 +1063,8 @@ class MCPClientManager:
                     # Kill subprocess if it exists
                     proc = getattr(transport, "_process", None) or getattr(transport, "process", None)
                     if proc and hasattr(proc, "kill"):
-                        try:
+                        with suppress(ProcessLookupError):
                             proc.kill()
-                        except ProcessLookupError:
-                            pass
                 except Exception as inner_e:
                     logger.warning(f"Failed to cleanup MCP client {server_name}: {inner_e}")
         finally:

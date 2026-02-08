@@ -138,14 +138,10 @@
               class="suggestion-icon"
             />
           </div>
-          <div class="flex-1 min-w-0">
-            <p class="suggestion-text">
-              {{ suggestion }}
-            </p>
-          </div>
-          <div class="suggestion-arrow">
-            <ArrowRight class="w-4 h-4" />
-          </div>
+          <p class="suggestion-text">
+            {{ suggestion }}
+          </p>
+          <ArrowRight class="suggestion-arrow" :size="16" />
         </div>
       </div>
     </div>
@@ -427,15 +423,14 @@ const _handleSaveToOneDriveWork = () => {
 /* ===== SUGGESTIONS ===== */
 .suggestions-section {
   border-top: 1px solid var(--border-main);
+  padding: 0 6px 6px;
 }
 
 .suggestions-header {
-  padding: 14px 16px 8px;
-  font-size: 12px;
+  padding: 12px 10px 4px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
 
 .suggestions-list {
@@ -445,67 +440,54 @@ const _handleSaveToOneDriveWork = () => {
 
 .suggestion-item {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 14px 16px;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
   cursor: pointer;
-  border-top: 1px solid var(--border-light);
-  transition: all 0.15s ease;
+  border-radius: 10px;
+  transition: background 0.15s ease;
 }
 
 .suggestion-item:hover {
-  background: var(--bolt-elements-item-backgroundAccent);
+  background: var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.04));
 }
 
 .suggestion-icon-wrap {
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: var(--bolt-elements-bg-depth-4);
+  background: var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.04));
   border: 1px solid var(--border-light);
-  transition: all 0.15s ease;
-}
-
-.suggestion-item:hover .suggestion-icon-wrap {
-  background: var(--bolt-elements-item-backgroundAccent);
-  border-color: var(--bolt-elements-borderColorActive);
 }
 
 .suggestion-icon {
   width: 14px;
   height: 14px;
   color: var(--icon-tertiary);
-  transition: color 0.15s ease;
-}
-
-.suggestion-item:hover .suggestion-icon {
-  color: #3b82f6;
 }
 
 .suggestion-text {
-  font-size: 14px;
-  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 400;
   color: var(--text-primary);
-  line-height: 1.5;
+  line-height: 1.45;
 }
 
 .suggestion-arrow {
   flex-shrink: 0;
-  margin-top: 4px;
   color: var(--icon-tertiary);
-  opacity: 0;
-  transform: translateX(-4px);
-  transition: all 0.2s ease;
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
 }
 
 .suggestion-item:hover .suggestion-arrow {
   opacity: 1;
-  transform: translateX(0);
-  color: #3b82f6;
 }
 
 /* ===== MENU POPOVER ===== */

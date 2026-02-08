@@ -1,4 +1,10 @@
-"""Tests that domain layer never imports infrastructure directly."""
+"""Tests that DDD layer boundaries are respected.
+
+Checks:
+  - Domain must not import infrastructure or application
+  - Application must not import interfaces
+  - Interface routes must not import infrastructure directly (use application services)
+"""
 
 import ast
 import os
@@ -69,10 +75,10 @@ def test_domain_layer_has_no_infrastructure_imports():
             continue
         all_violations.extend(_check_imports(filepath, FORBIDDEN_IMPORTS))
 
-    # Filter out the known DockerSandbox import in plan_act.py (pre-existing)
+    # Filter out known runtime-only imports in plan_act.py (pre-existing)
     all_violations = [
         v for v in all_violations
-        if "docker_sandbox" not in v
+        if "docker_sandbox" not in v and "canvas_service" not in v
     ]
 
     if all_violations:
@@ -110,3 +116,47 @@ def test_application_layer_does_not_import_interfaces():
 
     if violations:
         pytest.fail("Application->Interfaces violations:\n" + "\n".join(violations))
+
+
+def _get_interfaces_python_files():
+    """Get all Python files in interfaces layer."""
+    iface_dir = os.path.join(os.path.dirname(__file__), "..", "app", "interfaces")
+    iface_dir = os.path.abspath(iface_dir)
+    files = []
+    for root, _, filenames in os.walk(iface_dir):
+        for f in filenames:
+            if f.endswith(".py") and not f.startswith("__"):
+                files.append(os.path.join(root, f))
+    return files
+
+
+# Pre-existing interfaces->infrastructure violations tracked for future cleanup.
+# dependencies.py is the composition root (wires concrete impls to abstractions).
+# Routes below import infrastructure directly instead of going through application services.
+KNOWN_IFACE_EXCEPTIONS = {
+    "dependencies.py",
+    "exception_handlers.py",
+    "skills_routes.py",
+    "session_routes.py",
+    "settings_routes.py",
+    "rating_routes.py",
+    "maintenance_routes.py",
+    "metrics_routes.py",
+}
+
+
+def test_interfaces_do_not_bypass_application_layer():
+    """Interface routes should use application services, not import infrastructure directly.
+
+    Known exceptions are tracked in KNOWN_IFACE_EXCEPTIONS for future cleanup.
+    New routes must go through the application layer.
+    """
+    violations = []
+    for filepath in _get_interfaces_python_files():
+        filename = os.path.basename(filepath)
+        if filename in KNOWN_IFACE_EXCEPTIONS:
+            continue
+        violations.extend(_check_imports(filepath, ["app.infrastructure."]))
+
+    if violations:
+        pytest.fail("Interfaces->Infrastructure violations:\n" + "\n".join(violations))

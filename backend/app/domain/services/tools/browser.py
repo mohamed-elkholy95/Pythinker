@@ -334,7 +334,7 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
 
         # Start browser navigation concurrently so VNC shows activity immediately
         nav_task: asyncio.Task[None] | None = None
-        if hasattr(self.browser, "navigate_for_display"):
+        if hasattr(self.browser, "navigate_for_display") and self.browser.is_connected():
             nav_task = asyncio.create_task(self.browser.navigate_for_display(url))
 
         try:

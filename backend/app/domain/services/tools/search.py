@@ -593,6 +593,11 @@ class SearchTool(BaseTool):
             count: Number of top results to open (default 3)
         """
         try:
+            # Pre-check: skip entirely if browser is already known-unhealthy
+            if hasattr(self._browser, "is_connected") and not self._browser.is_connected():
+                logger.info("_browse_top_results: browser disconnected, skipping VNC display")
+                return
+
             # Extract result items from SearchResults model or dict
             if hasattr(search_data, "results"):
                 items = search_data.results
@@ -611,16 +616,30 @@ class SearchTool(BaseTool):
                 return
 
             logger.info(f"Browsing top {len(urls)} search results for VNC visibility")
+            consecutive_failures = 0
+            max_failures = 2
             for url in urls:
                 try:
                     if hasattr(self._browser, "navigate_for_display"):
-                        await self._browser.navigate_for_display(url)
+                        success = await self._browser.navigate_for_display(url)
+                        if not success:
+                            consecutive_failures += 1
+                        else:
+                            consecutive_failures = 0
                     else:
                         await self._browser.navigate(url)
+                        consecutive_failures = 0
                     # Brief pause for VNC render (kept short to avoid blocking)
                     await asyncio.sleep(1.0)
                 except Exception as e:
+                    consecutive_failures += 1
                     logger.debug(f"Failed to browse {url}: {e}")
+
+                if consecutive_failures >= max_failures:
+                    logger.info(
+                        f"_browse_top_results: stopping early after {consecutive_failures} consecutive failures"
+                    )
+                    break
         except Exception as e:
             logger.debug(f"_browse_top_results error (non-critical): {e}")
 

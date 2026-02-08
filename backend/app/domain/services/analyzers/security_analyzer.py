@@ -5,7 +5,7 @@ Security analyzer for detecting vulnerabilities in code.
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +162,7 @@ class SecurityAnalyzer:
     """
 
     # Supported languages
-    SUPPORTED_LANGUAGES = {"python", "py"}
+    SUPPORTED_LANGUAGES: ClassVar[set[str]] = {"python", "py"}
 
     def __init__(self, strict_mode: bool = False):
         """
@@ -175,10 +175,7 @@ class SecurityAnalyzer:
 
     def _is_safe_pattern(self, line: str) -> bool:
         """Check if a line contains a safe pattern (e.g., env variable lookup)."""
-        for pattern in SAFE_PATTERNS:
-            if re.search(pattern, line, re.IGNORECASE):
-                return True
-        return False
+        return any(re.search(pattern, line, re.IGNORECASE) for pattern in SAFE_PATTERNS)
 
     def scan_code(
         self, code: str, file_path: str, language: str

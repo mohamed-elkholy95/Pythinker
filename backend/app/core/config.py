@@ -1,9 +1,22 @@
 import logging
 import secrets
 import warnings
+from enum import Enum
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings
+
+
+class FlowMode(str, Enum):
+    """Unified flow engine selection.
+
+    Controls which execution flow is used for agent tasks.
+    Replaces the legacy enable_coordinator / use_langgraph_flow booleans.
+    """
+
+    PLAN_ACT = "plan_act"  # Default: custom PlanActFlow
+    LANGGRAPH = "langgraph"  # LangGraph-based PlanActFlow
+    COORDINATOR = "coordinator"  # Swarm coordinator mode
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +181,7 @@ class Settings(BaseSettings):
 
     # Browser Connection Pool Configuration (Phase 3: connection reuse)
     browser_pool_enabled: bool = True  # Enable browser connection pooling
-    browser_pool_max_per_url: int = 8  # Max connections per CDP URL (increased to prevent exhaustion)
+    browser_pool_max_per_url: int = 16  # Max connections per CDP URL (sessions hold long-lived connections)
     browser_pool_timeout: float = 30.0  # Timeout waiting for available connection
     browser_pool_max_idle: float = 300.0  # Max idle time before cleanup (5 min)
     browser_pool_health_interval: float = 60.0  # Health check interval (1 min)
@@ -270,7 +283,7 @@ class Settings(BaseSettings):
 
     # Multi-Agent Orchestration configuration
     enable_multi_agent: bool = True  # Enable specialized agent dispatch per step
-    enable_coordinator: bool = False  # Enable full swarm coordinator mode
+    enable_coordinator: bool = False  # Deprecated: use flow_mode instead
     multi_agent_max_parallel: int = 3  # Max concurrent agents in swarm mode
 
     # Parallel Step Execution configuration (Phase 4)
@@ -281,7 +294,24 @@ class Settings(BaseSettings):
     enable_plan_verification: bool = False  # Skip verification phase for faster execution
 
     # LangGraph Flow configuration
-    use_langgraph_flow: bool = False  # Use LangGraph-based PlanActFlow instead of custom
+    use_langgraph_flow: bool = False  # Deprecated: use flow_mode instead
+
+    # Unified flow engine selection (replaces enable_coordinator + use_langgraph_flow)
+    flow_mode: FlowMode = FlowMode.PLAN_ACT
+
+    @property
+    def resolved_flow_mode(self) -> FlowMode:
+        """Resolve flow mode from new field or legacy booleans.
+
+        Priority: flow_mode (if explicitly set) > enable_coordinator > use_langgraph_flow > PLAN_ACT.
+        """
+        if self.flow_mode != FlowMode.PLAN_ACT:
+            return self.flow_mode
+        if self.enable_coordinator:
+            return FlowMode.COORDINATOR
+        if self.use_langgraph_flow:
+            return FlowMode.LANGGRAPH
+        return FlowMode.PLAN_ACT
 
     # Agent Enhancement Feature Flags (Phase 0+)
     feature_plan_validation_v2: bool = False
@@ -364,6 +394,13 @@ class Settings(BaseSettings):
     openreplay_project_key: str = "pythinker-dev"  # OpenReplay project key
     openreplay_ingest_url: str = "http://localhost:9001"  # OpenReplay ingestion endpoint
     openreplay_api_url: str = "http://localhost:8090"  # OpenReplay API endpoint
+
+    # Canvas / Image Generation configuration
+    fal_api_key: str | None = None  # fal.ai API key for FLUX image generation
+    image_generation_provider: str = "fal"  # "fal" (only supported provider)
+    image_generation_max_size: int = 2048  # Max width/height in pixels
+    canvas_max_elements: int = 500  # Max elements per page
+    canvas_max_versions: int = 100  # Max version snapshots per project
 
     # Research Enhancement Configuration (Phase 6)
     # Source filtering

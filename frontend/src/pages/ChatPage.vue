@@ -185,6 +185,7 @@
             :currentTool="currentToolInfo"
             :toolContent="lastNoMessageTool"
             :isInitializing="isInitializing"
+            :isSummaryStreaming="isSummaryStreaming"
             @openPanel="handleOpenPanel"
             @requestRefresh="handleThumbnailRefresh"
             class="mb-2"
@@ -201,6 +202,8 @@
       :plan="plan"
       :isLoading="isLoading"
       :isThinking="isThinking"
+      :summaryStreamText="summaryStreamText"
+      :isSummaryStreaming="isSummaryStreaming"
       @jumpToRealTime="jumpToRealTime"
       :showTimeline="showTimelineControls"
       :timelineProgress="effectiveTimelineProgress"
@@ -246,12 +249,14 @@
 <script setup lang="ts">
 import SimpleBar from '../components/SimpleBar.vue';
 import { ref, computed, onMounted, watch, nextTick, onUnmounted, reactive, toRefs } from 'vue';
-import { useRouter, onBeforeRouteUpdate } from 'vue-router';
+import { useRouter, onBeforeRouteUpdate, onBeforeRouteLeave } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import ChatBox from '../components/ChatBox.vue';
 import ChatMessage from '../components/ChatMessage.vue';
 import * as agentApi from '../api/agent';
-import { Message, MessageContent, ToolContent, StepContent, AttachmentsContent, ReportContent } from '../types/message';
+import { BASE_URL } from '../api/client';
+import { getStoredToken } from '@/api/auth';
+import { Message, MessageContent, ToolContent, StepContent, AttachmentsContent, ReportContent, SkillDeliveryContent } from '../types/message';
 import {
   StepEventData,
   ToolEventData,
@@ -269,6 +274,7 @@ import {
   WideResearchEventData,
   SkillDeliveryEventData,
   SkillActivationEventData,
+  CanvasUpdateEventData,
 } from '../types/event';
 import type { DeepResearchContent } from '../types/message';
 import Suggestions from '../components/Suggestions.vue';
@@ -309,7 +315,7 @@ const { showSessionFileList } = useSessionFileList()
 const { hideFilePanel } = useFilePanel()
 const { isReportModalOpen, currentReport, openReport, closeReport } = useReport()
 const { emitStatusChange } = useSessionStatus()
-const { getSelectedSkillIds, clearSelectedSkills } = useSkills()
+const { getEffectiveSkillIds, clearSelectedSkills, lockSkillsForSession, clearSessionSkills, selectSkill } = useSkills()
 const { toggleAutoRun } = useDeepResearch()
 const wideResearch = useWideResearchGlobal()
 // ConnectorDialog composable — dialog manages its own visibility
@@ -351,6 +357,8 @@ const createInitialState = () => ({
   seenEventIds: new Set<string>(), // Track seen event IDs to prevent duplicates
   thinkingText: '', // Accumulated streaming thinking text
   isThinkingStreaming: false, // True when streaming thinking is in progress
+  summaryStreamText: '', // Accumulated streaming summary text
+  isSummaryStreaming: false, // True when summary is streaming live
   lastEventTime: 0, // Timestamp of last received event (for stale detection)
   isStale: false, // True when agent appears unresponsive (no events for 60s)
   filePreviewOpen: false,
@@ -390,6 +398,8 @@ const {
   seenEventIds,
   thinkingText,
   isThinkingStreaming,
+  summaryStreamText,
+  isSummaryStreaming,
   lastEventTime,
   isStale,
   filePreviewOpen,
@@ -440,8 +450,14 @@ const chatContainerRef = ref<HTMLDivElement>();
 // Track session status
 const sessionStatus = ref<SessionStatus | undefined>(undefined);
 
+// Track active canvas project from canvas_update SSE events
+const activeCanvasProjectId = ref<string | null>(null);
+
 // Watch sessionId changes to update status
 watch(sessionId, async (newSessionId) => {
+  // Clear session-level skills when switching sessions
+  clearSessionSkills();
+
   if (newSessionId) {
     // Fetch session to get current status
     try {
@@ -709,6 +725,10 @@ const handleMessageEvent = (messageData: MessageEventData) => {
     isThinking.value = false;
   }
 
+  // Clear summary streaming overlay — message takes over
+  summaryStreamText.value = '';
+  isSummaryStreaming.value = false;
+
   // Prevent duplicate user messages - check against LAST user message (not just last message)
   // This handles cases where tool/step events appear between duplicate user messages
   if (messageData.role === 'user' && messages.value.length > 0) {
@@ -866,8 +886,22 @@ const handlePlanEvent = (planData: PlanEventData) => {
   plan.value = planData;
 }
 
-// Handle stream event (thinking text streaming)
+// Handle stream event (thinking text streaming or summary streaming)
 const handleStreamEvent = (streamData: StreamEventData) => {
+  const phase = streamData.phase || 'thinking';
+
+  if (phase === 'summarizing') {
+    if (streamData.is_final) {
+      isSummaryStreaming.value = false;
+      // Keep text visible briefly — cleared when ReportEvent arrives
+    } else {
+      isSummaryStreaming.value = true;
+      summaryStreamText.value += streamData.content;
+    }
+    return;
+  }
+
+  // Default: thinking phase (existing behavior)
   if (streamData.is_final) {
     isThinkingStreaming.value = false;
     thinkingText.value = '';
@@ -955,6 +989,10 @@ const handleSuggestionEvent = (suggestionData: SuggestionEventData) => {
 
 // Handle report event
 const handleReportEvent = (reportData: ReportEventData) => {
+  // Clear summary streaming overlay — report card takes over
+  summaryStreamText.value = '';
+  isSummaryStreaming.value = false;
+
   const sections = extractSectionsFromMarkdown(reportData.content);
   messages.value.push({
     id: generateMessageId(),
@@ -1066,6 +1104,24 @@ const handleWideResearchEvent = (data: WideResearchEventData) => {
 // Handle skill delivery events
 const handleSkillDeliveryEvent = (data: SkillDeliveryEventData) => {
   showInfoToast(`Skill "${data.name}" package ready`);
+  messages.value.push({
+    id: generateMessageId(),
+    type: 'skill_delivery',
+    content: {
+      package_id: data.package_id,
+      name: data.name,
+      description: data.description,
+      version: data.version,
+      icon: data.icon,
+      category: data.category,
+      author: data.author,
+      file_tree: data.file_tree,
+      files: data.files,
+      file_id: data.file_id,
+      skill_id: data.skill_id,
+      timestamp: data.timestamp,
+    } as SkillDeliveryContent,
+  });
 };
 
 // Handle skill activation events
@@ -1073,6 +1129,15 @@ const handleSkillActivationEvent = (data: SkillActivationEventData) => {
   if (data.skill_names.length > 0) {
     showInfoToast(`Skills activated: ${data.skill_names.join(', ')}`);
   }
+  // Lock activated skills for the session so they persist across messages
+  if (data.skill_ids?.length > 0) {
+    lockSkillsForSession(data.skill_ids);
+  }
+};
+
+// Handle canvas update events
+const handleCanvasUpdateEvent = (data: CanvasUpdateEventData) => {
+  activeCanvasProjectId.value = data.project_id;
 };
 
 // Handle suggestion selection (user clicks a suggestion)
@@ -1225,6 +1290,8 @@ const processEvent = (event: AgentSSEEvent) => {
     handleSkillDeliveryEvent(event.data as SkillDeliveryEventData);
   } else if (event.event === 'skill_activation') {
     handleSkillActivationEvent(event.data as SkillActivationEventData);
+  } else if (event.event === 'canvas_update') {
+    handleCanvasUpdateEvent(event.data as CanvasUpdateEventData);
   }
   lastEventId.value = event.data.event_id;
 }
@@ -1265,7 +1332,7 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
   // Automatically enable follow mode when sending message
   follow.value = true;
 
-  // Clear input field, selected skills, and reset waiting state
+  // Clear input field and per-message skill picks (session skills persist)
   inputMessage.value = '';
   clearSelectedSkills();
   isLoading.value = true;
@@ -1292,7 +1359,7 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
         size: file.size,
         upload_date: file.upload_date
       })),
-      getSelectedSkillIds(), // skills
+      getEffectiveSkillIds(), // session + per-message skills
       undefined, // options
       {
         onOpen: () => {
@@ -1309,6 +1376,8 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
           isThinking.value = false;
           thinkingText.value = '';
           isThinkingStreaming.value = false;
+          summaryStreamText.value = '';
+          isSummaryStreaming.value = false;
           isInitializing.value = false;
           planningProgress.value = null;
           stopPlanningMessageCycle();
@@ -1326,6 +1395,8 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
           isThinking.value = false;
           thinkingText.value = '';
           isThinkingStreaming.value = false;
+          summaryStreamText.value = '';
+          isSummaryStreaming.value = false;
           isInitializing.value = false;
           planningProgress.value = null;
           stopPlanningMessageCycle();
@@ -1370,7 +1441,18 @@ const restoreSession = async () => {
 
 
 
-onBeforeRouteUpdate((to, _, next) => {
+onBeforeRouteUpdate(async (to, from, next) => {
+  // Stop the current session if it's still running to release sandbox/browser resources
+  const prevSessionId = from.params.sessionId as string | undefined;
+  if (prevSessionId && sessionStatus.value === SessionStatus.RUNNING) {
+    try {
+      await agentApi.stopSession(prevSessionId);
+      emitStatusChange(prevSessionId, SessionStatus.COMPLETED);
+    } catch {
+      // Non-critical — backend safety net will clean up
+    }
+  }
+
   toolPanel.value?.clearContent();  // Clear tool panel content when switching sessions
   hideFilePanel();
   resetState();
@@ -1383,8 +1465,21 @@ onBeforeRouteUpdate((to, _, next) => {
 })
 
 // Initialize active conversation
+// Handle insert message event from settings (e.g., "Build with Pythinker" button)
+const handleInsertMessage = (event: Event) => {
+  const detail = (event as CustomEvent<{ message: string; skillId?: string }>).detail;
+  inputMessage.value = detail.message;
+  // Auto-select the skill if provided
+  if (detail.skillId) {
+    selectSkill(detail.skillId);
+  }
+};
+
 onMounted(() => {
   hideFilePanel();
+  // Listen for message insert event from settings dialog
+  window.addEventListener('pythinker:insert-chat-message', handleInsertMessage);
+
   const routeParams = router.currentRoute.value.params;
   if (routeParams.sessionId) {
     // If sessionId is included in URL, use it directly
@@ -1399,11 +1494,47 @@ onMounted(() => {
       restoreSession();
     }
   }
+});
 
+// Stop running session when navigating away from chat entirely (e.g., to home page)
+onBeforeRouteLeave(async (_to, from, next) => {
+  const leavingSessionId = from.params.sessionId as string | undefined;
+  if (leavingSessionId && sessionStatus.value === SessionStatus.RUNNING) {
+    try {
+      await agentApi.stopSession(leavingSessionId);
+      emitStatusChange(leavingSessionId, SessionStatus.COMPLETED);
+    } catch {
+      // Non-critical — backend safety net will clean up
+    }
+  }
+  next();
+});
 
+// Stop active session on browser tab close / page refresh via keepalive fetch
+const handleBeforeUnload = () => {
+  if (sessionId.value && sessionStatus.value === SessionStatus.RUNNING) {
+    const token = getStoredToken();
+    const url = `${BASE_URL}/sessions/${sessionId.value}/stop`;
+    // fetch with keepalive survives page unload (unlike XHR/axios)
+    fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: '{}',
+      keepalive: true,
+    }).catch(() => { /* fire-and-forget */ });
+  }
+};
+
+onMounted(() => {
+  window.addEventListener('beforeunload', handleBeforeUnload);
 });
 
 onUnmounted(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload);
+  window.removeEventListener('pythinker:insert-chat-message', handleInsertMessage);
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value();
     cancelCurrentChat.value = null;
@@ -1499,6 +1630,8 @@ const handleStop = () => {
   isStale.value = false;
   thinkingText.value = '';
   isThinkingStreaming.value = false;
+  summaryStreamText.value = '';
+  isSummaryStreaming.value = false;
   isInitializing.value = false;
   planningProgress.value = null;
   stopPlanningMessageCycle();
@@ -1661,9 +1794,9 @@ const handleCopyLink = async () => {
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
 }
 
-.planning-thinking :deep(.thinking-shape) {
-  width: 14px;
-  height: 14px;
+.planning-thinking :deep(.thinking-lamp) {
+  width: 18px;
+  height: 22px;
 }
 
 .planning-percent {

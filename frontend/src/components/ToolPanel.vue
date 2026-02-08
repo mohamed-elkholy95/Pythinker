@@ -27,6 +27,8 @@
         :isReplayMode="panelProps.isReplayMode"
         :replayScreenshotUrl="panelProps.replayScreenshotUrl"
         :replayMetadata="panelProps.replayMetadata"
+        :summaryStreamText="panelProps.summaryStreamText"
+        :isSummaryStreaming="panelProps.isSummaryStreaming"
         @hide="() => hideToolPanel(true)"
         @jumpToRealTime="jumpToRealTime"
         @stepForward="handleTimelineStepForward"
@@ -84,6 +86,8 @@ const panelProps = defineProps<{
   isReplayMode?: boolean
   replayScreenshotUrl?: string
   replayMetadata?: ScreenshotMetadata | null
+  summaryStreamText?: string
+  isSummaryStreaming?: boolean
 }>()
 
 // Track if state change was from user action

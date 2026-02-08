@@ -3,6 +3,20 @@
         <div class="chatbox-container">
             <ConnectorBanner v-if="showConnectorBanner" />
             <ChatBoxFiles ref="chatBoxFileListRef" :attachments="attachments" @fileClick="$emit('fileClick', $event)" />
+            <!-- Active session skills chip row -->
+            <div v-if="sessionSkillChips.length > 0" class="session-skills-row">
+              <div
+                v-for="chip in sessionSkillChips"
+                :key="chip.id"
+                class="session-skill-chip"
+              >
+                <Puzzle :size="10" />
+                <span>{{ chip.name }}</span>
+                <button class="session-skill-remove" @click="removeSessionSkill(chip.id)">
+                  <X :size="10" />
+                </button>
+              </div>
+            </div>
             <div class="chatbox-input-area">
                 <textarea
                     ref="textareaRef"
@@ -44,18 +58,42 @@ import { ref, watch, computed } from 'vue';
 import SendIcon from './icons/SendIcon.vue';
 import { useI18n } from 'vue-i18n';
 import ChatBoxFiles from './ChatBoxFiles.vue';
-import { Paperclip } from 'lucide-vue-next';
+import { Paperclip, Puzzle, X } from 'lucide-vue-next';
 import ConnectorButton from './connectors/ConnectorButton.vue';
 import ConnectorBanner from './connectors/ConnectorBanner.vue';
 import SkillPicker from './SkillPicker.vue';
+import { useSkills } from '@/composables/useSkills';
 import type { FileInfo } from '../api/file';
 import { showInfoToast } from '../utils/toast';
 
 const { t } = useI18n();
+const { sessionSkillIds, availableSkills, removeSessionSkill, selectSkill } = useSkills();
 const hasTextInput = ref(false);
 const isComposing = ref(false);
 const chatBoxFileListRef = ref();
 const textareaRef = ref<HTMLTextAreaElement>();
+
+// Session skill chips: resolve skill IDs to name/id pairs for display
+const sessionSkillChips = computed(() => {
+  return sessionSkillIds.value
+    .map((id) => {
+      const skill = availableSkills.value.find((s) => s.id === id);
+      return skill ? { id: skill.id, name: skill.name } : { id, name: id };
+    });
+});
+
+// Command → skill ID mapping for auto-detection
+const COMMAND_SKILL_MAP: Record<string, string> = {
+  'skill-creator': 'skill-creator',
+  'build-skill': 'skill-creator',
+  'brainstorm': 'brainstorming',
+  'design': 'brainstorming',
+  'write-plan': 'writing-plans',
+  'plan': 'writing-plans',
+  'tdd': 'test-driven-development',
+  'debug': 'systematic-debugging',
+  'verify': 'verification-before-completion',
+};
 
 // Threshold for converting pasted text to file attachment
 const LONG_TEXT_CHAR_THRESHOLD = 500;  // Characters
@@ -194,8 +232,23 @@ const uploadFile = () => {
     chatBoxFileListRef.value?.uploadFile();
 };
 
+// Track which commands have already been auto-detected (prevent repeated toasts)
+const detectedCommands = ref<Set<string>>(new Set());
+
 watch(() => props.modelValue, (value) => {
     hasTextInput.value = value.trim() !== '';
+
+    // Auto-detect /commands in input text
+    const commandMatch = value.match(/\/([a-zA-Z0-9_-]+)/);
+    if (commandMatch) {
+      const command = commandMatch[1].toLowerCase();
+      const skillId = COMMAND_SKILL_MAP[command];
+      if (skillId && !detectedCommands.value.has(command)) {
+        detectedCommands.value.add(command);
+        selectSkill(skillId);
+        showInfoToast(t('Skill auto-activated: {command}', { command: `/${command}` }));
+      }
+    }
 });
 </script>
 
@@ -357,5 +410,45 @@ watch(() => props.modelValue, (value) => {
     height: 10px;
     background: white;
     border-radius: 2px;
+}
+
+.session-skills-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 0 14px 4px;
+}
+
+.session-skill-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px 2px 5px;
+    border-radius: 10px;
+    background: rgba(59, 130, 246, 0.08);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    color: #3b82f6;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.2;
+}
+
+.session-skill-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: #3b82f6;
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.1s ease;
+}
+
+.session-skill-remove:hover {
+    background: rgba(59, 130, 246, 0.15);
 }
 </style>

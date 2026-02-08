@@ -86,6 +86,7 @@ class ToolEventHandler:
             "file": self._handle_file_action,
             "browser": self._handle_browser_action,
             "browser_agent": self._handle_browser_action,
+            "browsing": self._handle_browser_action,
             "search": self._handle_search_action,
             "mcp": self._handle_mcp_action,
         }

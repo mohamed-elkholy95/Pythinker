@@ -268,7 +268,7 @@ class BenchmarkExtractor:
             by_name[key].append(b)
 
         comparisons = []
-        for name, group in by_name.items():
+        for _name, group in by_name.items():
             if len(group) >= 2:  # Only create comparison if 2+ entries
                 entries = [
                     {

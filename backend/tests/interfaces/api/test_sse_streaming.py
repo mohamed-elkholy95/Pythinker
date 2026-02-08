@@ -75,8 +75,7 @@ class TestSSEStreamingV2:
     @pytest.fixture
     def mock_graph(self):
         """Create mock LangGraph."""
-        graph = MagicMock()
-        return graph
+        return MagicMock()
 
     @pytest.fixture
     def mock_event_queue(self):
@@ -365,7 +364,7 @@ class TestStreamingPerformance:
 
         async def consumer():
             while True:
-                send_time, content = await queue.get()
+                send_time, _content = await queue.get()
                 if send_time is None:
                     break
                 latency = time.time() - send_time

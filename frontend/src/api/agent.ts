@@ -507,30 +507,45 @@ export async function browseUrl(
 // ============================================================================
 
 /**
- * Sandbox URL response
+ * Get a signed WebSocket URL for sandbox access (proxied through backend)
+ * @param sessionId Session ID
+ * @param target 'screencast' or 'input'
+ * @returns Signed WebSocket URL
  */
-export interface SandboxUrlResponse {
-  sandbox_url: string;
+async function getSandboxSignedUrl(sessionId: string, target: string): Promise<string> {
+  const response = await apiClient.post<ApiResponse<SignedUrlResponse>>(
+    `/sessions/${sessionId}/sandbox/signed-url?target=${target}`,
+    { expire_minutes: 15 }
+  );
+  const wsBaseUrl = API_CONFIG.host.replace(/^http/, 'ws');
+  return `${wsBaseUrl}${response.data.data.signed_url}`;
 }
 
 /**
- * Get sandbox URL for a session
- * This returns the direct sandbox API URL for CDP screencast streaming
- *
+ * Get screencast WebSocket URL via signed URL (proxied through backend)
  * @param sessionId Session ID
- * @returns Sandbox base URL (e.g., http://sandbox:8080)
- *
- * @example
- * ```typescript
- * const sandboxUrl = await getSandboxUrl('session123');
- * // Use for CDP screencast: ws://{sandboxUrl}/api/v1/screencast/stream
- * ```
+ * @param quality JPEG quality (1-100)
+ * @param maxFps Max frames per second (1-30)
+ * @returns Signed WebSocket URL for screencast stream
  */
-export async function getSandboxUrl(sessionId: string): Promise<string> {
-  const response = await apiClient.get<ApiResponse<SandboxUrlResponse>>(
-    `/sessions/${sessionId}/sandbox/url`
-  );
-  return response.data.data.sandbox_url;
+export async function getScreencastUrl(
+  sessionId: string,
+  quality: number = 70,
+  maxFps: number = 15,
+): Promise<string> {
+  const baseUrl = await getSandboxSignedUrl(sessionId, 'screencast');
+  const separator = baseUrl.includes('?') ? '&' : '?';
+  return `${baseUrl}${separator}quality=${quality}&max_fps=${maxFps}`;
+}
+
+/**
+ * Get input stream WebSocket URL via signed URL (proxied through backend)
+ * Used for interactive takeover - forwards mouse/keyboard events to sandbox
+ * @param sessionId Session ID
+ * @returns Signed WebSocket URL for input stream
+ */
+export async function getInputStreamUrl(sessionId: string): Promise<string> {
+  return getSandboxSignedUrl(sessionId, 'input');
 }
 
 /**

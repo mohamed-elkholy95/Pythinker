@@ -47,11 +47,10 @@ class CitedClaim(BaseModel):
     def validate_citation_requirements(self) -> "CitedClaim":
         """Ensure citations match claim type requirements."""
         # Factual and statistical claims MUST have citations
-        if self.claim_type in (ClaimType.FACTUAL, ClaimType.STATISTICAL, ClaimType.QUOTATION):
-            if not self.citation_ids:
-                self.requires_caveat = True
-                self.caveat_text = f"[Unverified {self.claim_type.value} claim]"
-                self.confidence = min(self.confidence, 0.3)
+        if self.claim_type in (ClaimType.FACTUAL, ClaimType.STATISTICAL, ClaimType.QUOTATION) and not self.citation_ids:
+            self.requires_caveat = True
+            self.caveat_text = f"[Unverified {self.claim_type.value} claim]"
+            self.confidence = min(self.confidence, 0.3)
 
         # Inferences should note they are inferred
         if self.claim_type == ClaimType.INFERENCE and not self.caveat_text:

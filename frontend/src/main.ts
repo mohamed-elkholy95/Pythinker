@@ -32,6 +32,7 @@ import { configure } from "vue-gtag";
 import SharePage from './pages/SharePage.vue';
 import ShareLayout from './pages/ShareLayout.vue';
 import SessionHistoryPage from './pages/SessionHistoryPage.vue';
+import CanvasPage from './pages/CanvasPage.vue'
 
 const storedTheme = localStorage.getItem('bolt_theme')
 const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches
@@ -61,6 +62,11 @@ export const router = createRouter({
         {
           path: 'history',
           component: SessionHistoryPage,
+          meta: { requiresAuth: true }
+        },
+        {
+          path: 'canvas/:projectId?',
+          component: CanvasPage,
           meta: { requiresAuth: true }
         },
         {

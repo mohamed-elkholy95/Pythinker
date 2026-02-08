@@ -31,6 +31,9 @@ const error = ref<string | null>(null);
 // Per-message selected skills (reset after sending)
 const selectedSkillIds = ref<string[]>([]);
 
+// Session-level persistent skills (persist across messages in same session)
+const sessionSkillIds = ref<string[]>([]);
+
 export function useSkills() {
   // Computed properties
   const userSkills = computed<UserSkill[]>(() => userSkillsData.value?.skills ?? []);
@@ -189,10 +192,34 @@ export function useSkills() {
   }
 
   /**
-   * Clear selected skills (called after message is sent)
+   * Clear per-message selected skills (called after message is sent)
+   * Session skills are preserved.
    */
   function clearSelectedSkills(): void {
     selectedSkillIds.value = [];
+  }
+
+  /**
+   * Lock skills for the current session (persist across messages).
+   * Called when skill_activation SSE event arrives.
+   */
+  function lockSkillsForSession(skillIds: string[]): void {
+    const combined = new Set([...sessionSkillIds.value, ...skillIds]);
+    sessionSkillIds.value = [...combined];
+  }
+
+  /**
+   * Remove a single skill from session persistence.
+   */
+  function removeSessionSkill(skillId: string): void {
+    sessionSkillIds.value = sessionSkillIds.value.filter((id) => id !== skillId);
+  }
+
+  /**
+   * Clear all session-level skills (called on session change).
+   */
+  function clearSessionSkills(): void {
+    sessionSkillIds.value = [];
   }
 
   /**
@@ -200,6 +227,14 @@ export function useSkills() {
    */
   function getSelectedSkillIds(): string[] {
     return [...selectedSkillIds.value];
+  }
+
+  /**
+   * Get effective skill IDs = session skills + per-message picks (deduplicated).
+   * This is what gets sent with each message.
+   */
+  function getEffectiveSkillIds(): string[] {
+    return [...new Set([...sessionSkillIds.value, ...selectedSkillIds.value])];
   }
 
   /**
@@ -333,6 +368,9 @@ export function useSkills() {
     selectedSkills,
     canSelectMore,
 
+    // Session-level persistent skills
+    sessionSkillIds: readonly(sessionSkillIds),
+
     // Actions - settings management
     loadAvailableSkills,
     loadUserSkills,
@@ -353,6 +391,12 @@ export function useSkills() {
     toggleSkillSelection,
     clearSelectedSkills,
     getSelectedSkillIds,
+
+    // Actions - session-level persistence
+    lockSkillsForSession,
+    removeSessionSkill,
+    clearSessionSkills,
+    getEffectiveSkillIds,
 
     // Utilities
     clearError,

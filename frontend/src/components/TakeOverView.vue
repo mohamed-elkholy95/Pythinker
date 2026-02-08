@@ -1,5 +1,5 @@
 <template>
-    <div v-if="shouldShow" class="fixed bg-[var(--background-gray-main)] z-50 transition-all w-full h-full inset-0">
+    <div v-if="shouldShow" class="fixed bg-[var(--background-gray-main)] z-[60] transition-all w-full h-full inset-0">
         <div class="w-full h-full">
             <SandboxViewer
                 :session-id="sessionId"
@@ -23,7 +23,7 @@
                     <div class="flex-1 min-w-0">
                         <h4 class="text-sm font-semibold text-[var(--text-primary)]">{{ t('You\'re in control!') }}</h4>
                         <p class="text-xs text-[var(--text-secondary)] mt-0.5">
-                            {{ t('You can interact directly with the browser. The agent is paused while you explore.') }}
+                            {{ t('You can interact directly with the browser. The agent continues working in the background.') }}
                         </p>
                     </div>
                     <button
@@ -53,9 +53,9 @@
                 class="w-[440px] max-w-[95vw]"
             >
                 <DialogHeader>
-                    <DialogTitle>{{ t('Let Pythinker know what you\'ve changed') }}</DialogTitle>
+                    <DialogTitle>{{ t('Let Pythinker know what you changed') }}</DialogTitle>
                     <p class="text-sm text-[var(--text-tertiary)] mt-1">
-                        {{ t('Summarize your browser actions to help Pythinker work smoothly.') }}
+                        {{ t('Optionally describe your browser actions so the agent can adapt.') }}
                     </p>
                 </DialogHeader>
 
@@ -209,9 +209,11 @@ const handleExitClick = () => {
     showExitDialog.value = true;
 };
 
-// Handle dialog submission - exit with context
+// Handle dialog submission - exit and optionally notify agent of changes
 const handleExitWithContext = async () => {
     const currentSession = sessionId.value;
+    const contextText = userContext.value || '';
+    const persistLogin = persistLoginState.value;
 
     // Close dialog first
     showExitDialog.value = false;
@@ -223,15 +225,15 @@ const handleExitWithContext = async () => {
         detail: { sessionId: currentSession, active: false }
     }));
 
-    // Resume the agent with context
-    if (currentSession) {
+    // Notify agent of user's browser changes (context injection only, agent was never paused)
+    if (currentSession && (contextText.trim() || persistLogin)) {
         try {
             await resumeSession(currentSession, {
-                context: userContext.value || undefined,
-                persist_login_state: persistLoginState.value || undefined
+                context: contextText || undefined,
+                persist_login_state: persistLogin || undefined
             });
         } catch {
-            // Resume failed - session will timeout and auto-resume
+            // Context injection failed — agent continues regardless
         }
     }
 

@@ -693,6 +693,11 @@ The system will automatically:
 
 ## Design Patterns
 
+For complex skills, consult these reference guides:
+- **Sequential workflows**: `file_read(path="/workspace/skills/skill-creator/references/workflows.md")`
+- **Output format patterns**: `file_read(path="/workspace/skills/skill-creator/references/output-patterns.md")`
+- **Progressive disclosure**: `file_read(path="/workspace/skills/skill-creator/references/progressive-disclosure-patterns.md")`
+
 ### Sequential Workflow
 ```markdown
 ## Workflow
@@ -710,6 +715,12 @@ The system will automatically:
 - Default: [fallback action]
 ```
 
+### Progressive Disclosure (for complex skills)
+Keep SKILL.md under 500 lines. When a skill supports multiple domains or variants:
+- Put core workflow in SKILL.md
+- Move variant-specific details to `references/` files
+- Reference them clearly: "For AWS deployment, see references/aws.md"
+
 ### Output Template
 ```markdown
 ## Output Format
@@ -724,50 +735,15 @@ The system will automatically:
 [Actionable next steps]
 ```
 
-## Example Skill
+## Quality Checklist
 
-```yaml
----
-name: "Security Code Reviewer"
-description: "Reviews code for security vulnerabilities and best practices. Use for: auditing code security, reviewing PRs, identifying OWASP vulnerabilities."
----
-
-# Security Code Reviewer
-
-## Overview
-Analyze code for security vulnerabilities following OWASP guidelines.
-
-## Workflow
-1. Read the target file(s) completely
-2. Identify potential vulnerabilities:
-   - Injection flaws (SQL, XSS, command)
-   - Authentication/authorization issues
-   - Sensitive data exposure
-   - Security misconfigurations
-3. Classify findings by severity
-4. Provide remediation guidance
-
-## Output Format
-## Security Review: {filename}
-
-### CRITICAL
-[Issues that must be fixed immediately]
-
-### HIGH
-[Serious vulnerabilities]
-
-### MEDIUM
-[Issues that should be addressed]
-
-### LOW
-[Minor improvements]
-
-## Guidelines
-- Include line numbers for all findings
-- Provide code examples for fixes
-- Never modify files during review
-- Focus on security, not style
-```
+Before calling `skill_create`, verify:
+- [ ] Description says WHAT the skill does AND WHEN to use it
+- [ ] SKILL.md body uses imperative form ("Read the file" not "You should read")
+- [ ] Skill is under 4000 characters (system_prompt_addition)
+- [ ] No generic knowledge the agent already has — only procedural or domain-specific content
+- [ ] Scripts tested via `code_execute_python` if included
+- [ ] Example input/output pairs included where output quality matters
 
 ## CRITICAL RULES
 
@@ -778,6 +754,7 @@ Analyze code for security vulnerabilities following OWASP guidelines.
 5. **One question at a time** - Don't overwhelm with multiple questions
 6. **Create bundled resources** - Scripts, references, templates for reusable content
 7. **CALL skill_create** at the end - This packages and delivers the skill
+8. **Load design pattern references** when the skill involves workflows, output formats, or multi-domain content
 
 </skill_creator>""",
         default_enabled=False,

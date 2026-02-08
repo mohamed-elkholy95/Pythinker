@@ -10,11 +10,13 @@ Pythinker is an AI Agent system that runs tools (browser, terminal, files, searc
 
 > **Core Principles:**
 > 1. **Reuse First**: Search existing codebase for components, utilities, and services before creating new ones
-> 2. **Dependency Rule**: Domain → Application → Infrastructure → Interfaces (inward only)
-> 3. **SOLID**: Single responsibility, depend on abstractions, inject dependencies
-> 4. **Type Safety**: Full type hints (Python) / strict mode (TypeScript); no `any`
-> 5. **Layer Discipline**: Business logic in domain, not in API routes or components
-> 6. **Naming**: Python `snake_case` functions / `PascalCase` classes; Vue `PascalCase` components / `useX` composables
+> 2. **Simplicity First**: Design with simplicity and directness — prefer straightforward solutions that maintain robustness, reliability, and best practices; avoid unnecessary complexity or overcomplication
+> 3. **Full-Stack Design**: Design each feature by thoroughly evaluating and integrating front-end and back-end architecture considerations, ensuring seamless compatibility, optimal performance, and cohesive system integration across all components
+> 4. **Dependency Rule**: Domain → Application → Infrastructure → Interfaces (inward only)
+> 5. **SOLID**: Single responsibility, depend on abstractions, inject dependencies
+> 6. **Type Safety**: Full type hints (Python) / strict mode (TypeScript); no `any`
+> 7. **Layer Discipline**: Business logic in domain, not in API routes or components
+> 8. **Naming**: Python `snake_case` functions / `PascalCase` classes; Vue `PascalCase` components / `useX` composables
 >
 > **Before committing:**
 > - **Frontend**: `cd frontend && bun run lint && bun run type-check`
@@ -120,6 +122,7 @@ bun run test:run     # Single test run
 4. **Magic Strings** - Use enums and constants
 5. **Deep Nesting** - Prefer early returns and guard clauses
 6. **Redundant Code** - Never create new files, components, utilities, or services without first searching for existing ones that serve the same or similar purpose
+7. **Over-Engineering** - Avoid unnecessary abstractions, premature generalization, or complex patterns when a simple direct solution works equally well
 
 ---
 

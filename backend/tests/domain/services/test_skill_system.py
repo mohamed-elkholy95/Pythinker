@@ -551,10 +551,7 @@ class TestSkillTriggerMatcherReDoS:
 
     def test_long_pattern_skipped_during_init(self):
         """Verify that patterns exceeding MAX_TRIGGER_PATTERN_LENGTH are skipped."""
-        from app.domain.services.skill_trigger_matcher import (
-            MAX_TRIGGER_PATTERN_LENGTH,
-            SkillTriggerMatcher,
-        )
+        from app.domain.services.skill_trigger_matcher import MAX_TRIGGER_PATTERN_LENGTH
 
         long_pattern = "a" * (MAX_TRIGGER_PATTERN_LENGTH + 1)
         skill = Skill(
@@ -568,7 +565,6 @@ class TestSkillTriggerMatcherReDoS:
             trigger_patterns=[long_pattern],
         )
 
-        matcher = SkillTriggerMatcher()
         # Manually compile patterns like _ensure_initialized would
         import re
 
@@ -584,10 +580,7 @@ class TestSkillTriggerMatcherReDoS:
 
     def test_short_pattern_accepted(self):
         """Verify that patterns within MAX_TRIGGER_PATTERN_LENGTH are accepted."""
-        from app.domain.services.skill_trigger_matcher import (
-            MAX_TRIGGER_PATTERN_LENGTH,
-            SkillTriggerMatcher,
-        )
+        from app.domain.services.skill_trigger_matcher import MAX_TRIGGER_PATTERN_LENGTH
 
         short_pattern = r"research\s+"
         assert len(short_pattern) <= MAX_TRIGGER_PATTERN_LENGTH
@@ -603,7 +596,6 @@ class TestSkillTriggerMatcherReDoS:
             trigger_patterns=[short_pattern],
         )
 
-        matcher = SkillTriggerMatcher()
         import re
 
         patterns = []

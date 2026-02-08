@@ -6,6 +6,11 @@ workflow in a BaseFlow-compatible interface.
 Phase 3 Enhancement: SSE Streaming v2
 - Added support for LangGraph astream_events(version="v2") API
 - Improved disconnect handling and event streaming
+
+LIMITATION: Skills are not supported in the LangGraph flow. Skill context injection,
+activation events, and tool restriction enforcement are only implemented in PlanActFlow.
+Adding full skill parity requires changes to planning and execution nodes. Defer until
+LangGraph is promoted to production use.
 """
 
 import asyncio

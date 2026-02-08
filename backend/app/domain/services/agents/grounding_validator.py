@@ -906,13 +906,11 @@ class EnhancedGroundingValidator(GroundingValidator):
                 fabricated_entity.append(f"{claim.entity}: {claim.claim_about[:50]}...")
 
         # Update grounding level based on verification
-        if fabricated_numeric or fabricated_entity:
-            if self.strict_numeric_mode:
-                level = GroundingLevel.WEAKLY_GROUNDED
-            else:
-                level = basic_result.level
-        else:
-            level = basic_result.level
+        level = (
+            GroundingLevel.WEAKLY_GROUNDED
+            if (fabricated_numeric or fabricated_entity) and self.strict_numeric_mode
+            else basic_result.level
+        )
 
         # Add fabrication warnings
         warnings = list(basic_result.warnings)
@@ -1223,17 +1221,15 @@ class CitationValidator:
 
             elif citation.source_type == SourceType.TOOL_RESULT:
                 # Check if tool result exists
-                if available_sources and citation.source_id:
-                    if citation.source_id not in available_sources:
-                        is_valid = False
-                        reason = f"Referenced tool result not found: {citation.source_id}"
+                if available_sources and citation.source_id and citation.source_id not in available_sources:
+                    is_valid = False
+                    reason = f"Referenced tool result not found: {citation.source_id}"
 
-            elif citation.source_type == SourceType.INFERENCE:
+            elif citation.source_type == SourceType.INFERENCE and citation.confidence > 0.7:
                 # Inference citations should have low confidence
-                if citation.confidence > 0.7:
-                    suggestions.append(
-                        f"Inference citation has high confidence ({citation.confidence}) - consider adding source"
-                    )
+                suggestions.append(
+                    f"Inference citation has high confidence ({citation.confidence}) - consider adding source"
+                )
 
             # Record result
             if is_valid:
@@ -1274,10 +1270,7 @@ class CitationValidator:
             return False
 
         # Check for placeholder patterns
-        if any(re.search(pattern, url, re.IGNORECASE) for pattern in self.PLACEHOLDER_PATTERNS):
-            return False
-
-        return True
+        return not any(re.search(pattern, url, re.IGNORECASE) for pattern in self.PLACEHOLDER_PATTERNS)
 
 
 # Global citation validator instance

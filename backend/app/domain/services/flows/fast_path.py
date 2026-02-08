@@ -367,7 +367,12 @@ class FastPathRouter:
 
             # Try to ensure browser is connected - this will initialize if needed
             if hasattr(self._browser, "_ensure_browser"):
-                await self._browser._ensure_browser()
+                await asyncio.wait_for(self._browser._ensure_browser(), timeout=15.0)
+        except TimeoutError:
+            logger.warning("Browser initialization timed out for fast browse")
+            yield ErrorEvent(error="Browser not ready (timeout) - please try again")
+            yield DoneEvent()
+            return
         except Exception as e:
             logger.warning(f"Browser initialization failed: {e}")
             yield ErrorEvent(error="Browser not ready - please try again")
@@ -397,12 +402,14 @@ class FastPathRouter:
         )
 
         try:
-            # Use fast navigation mode
+            # Use fast navigation mode (with 30s overall timeout to prevent hanging)
             if hasattr(self._browser, "navigate_fast"):
-                result = await self._browser.navigate_fast(url)
+                result = await asyncio.wait_for(self._browser.navigate_fast(url), timeout=30.0)
             else:
                 # Fallback to regular navigate with minimal options
-                result = await self._browser.navigate(url, timeout=15000, auto_extract=True)
+                result = await asyncio.wait_for(
+                    self._browser.navigate(url, timeout=15000, auto_extract=True), timeout=30.0
+                )
 
             if result.success:
                 yield ProgressEvent(
@@ -439,6 +446,17 @@ class FastPathRouter:
                 )
                 yield ErrorEvent(error=f"Failed to navigate: {result.message}")
 
+        except TimeoutError:
+            logger.warning(f"Fast browse timed out for {url}")
+            yield ToolEvent(
+                status=ToolStatus.CALLED,
+                tool_call_id=tool_call_id,
+                tool_name="browser",
+                function_name="browser_navigate",
+                function_args={"url": url},
+                function_result={"success": False, "error": "Navigation timed out"},
+            )
+            yield ErrorEvent(error=f"Browser navigation to {url} timed out")
         except Exception as e:
             logger.exception(f"Fast browse error: {e}")
             # Emit ToolEvent CALLED with error

@@ -121,11 +121,16 @@
     @skip="handleDeepResearchSkip"
     @toggle-auto-run="handleToggleAutoRun"
   />
+  <!-- Skill Delivery Card -->
+  <div v-else-if="message.type === 'skill_delivery'" class="flex flex-col w-full mt-3">
+    <SkillDeliveryCard :skill="skillDeliveryContent" />
+    <TaskCompletedFooter @rate="handleReportRate" />
+  </div>
 </template>
 
 <script setup lang="ts">
 import PythinkerTextIcon from './icons/PythinkerTextIcon.vue';
-import { Message, MessageContent, AttachmentsContent, ReportContent, DeepResearchContent } from '../types/message';
+import { Message, MessageContent, AttachmentsContent, ReportContent, DeepResearchContent, SkillDeliveryContent } from '../types/message';
 import ToolUse from './ToolUse.vue';
 import { marked, Renderer } from 'marked';
 import DOMPurify from 'dompurify';
@@ -140,6 +145,7 @@ import { ReportCard, AttachmentsInlineGrid, TaskCompletedFooter } from './report
 import type { ReportData } from './report';
 import type { FileInfo } from '../api/file';
 import DeepResearchCard from './DeepResearchCard.vue';
+import SkillDeliveryCard from './SkillDeliveryCard.vue';
 import ThinkingIndicator from './ui/ThinkingIndicator.vue';
 import { useShiki } from '@/composables/useShiki';
 
@@ -206,6 +212,7 @@ const toolContent = computed(() => props.message.content as ToolContent);
 const attachmentsContent = computed(() => props.message.content as AttachmentsContent);
 const reportContent = computed(() => props.message.content as ReportContent);
 const deepResearchContent = computed(() => props.message.content as DeepResearchContent);
+const skillDeliveryContent = computed(() => props.message.content as SkillDeliveryContent);
 
 // Show thinking indicator inside this step when it's the active thinking step
 const showStepThinking = computed(() => {

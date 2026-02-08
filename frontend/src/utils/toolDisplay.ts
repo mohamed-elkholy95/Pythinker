@@ -72,6 +72,7 @@ const DEFAULT_ACTION_BY_TOOL: Record<string, string> = {
   repo_map: 'Mapping',
   message: 'Notifying',
   idle: 'Waiting',
+  canvas: 'Designing',
 };
 
 function humanize(input: string): string {
@@ -153,6 +154,7 @@ function inferToolKeyFromFunction(functionName: string): string {
   if (func.startsWith('workspace_')) return 'workspace';
   if (func.startsWith('schedule_')) return 'schedule';
   if (func.startsWith('deep_scan')) return 'deep_scan';
+  if (func.startsWith('canvas_')) return 'canvas';
   if (func.startsWith('plan_') || func === 'plan') return 'plan';
   if (func.startsWith('agent_mode') || func === 'mode_switch') return 'agent_mode';
   if (func.startsWith('repo_map')) return 'repo_map';

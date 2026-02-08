@@ -65,6 +65,16 @@ class ExecutionStatus(str, Enum):
         return self.value in self.get_failure_statuses()
 
 
+class RetryPolicy(BaseModel):
+    """Per-step retry configuration."""
+
+    max_retries: int = 0  # 0 means no retry (fail immediately)
+    backoff_seconds: float = 2.0  # Initial backoff delay
+    backoff_multiplier: float = 2.0  # Exponential backoff factor
+    retry_on_timeout: bool = True  # Retry on TimeoutError
+    retry_on_tool_error: bool = True  # Retry on tool execution failures
+
+
 class Step(BaseModel):
     """Step in a plan with enhanced status tracking."""
 
@@ -82,6 +92,10 @@ class Step(BaseModel):
     blocked_by: str | None = None  # ID of step that caused blocking
     # Metadata for merged steps and additional context
     metadata: dict[str, Any] | None = None  # Stores merged_steps, original_descriptions, etc.
+    # Execution control
+    expected_output: str | None = None  # Description of what this step should produce
+    retry_policy: RetryPolicy = Field(default_factory=RetryPolicy)  # Per-step retry config
+    budget_tokens: int | None = None  # Max tokens allocated for this step
 
     def is_done(self) -> bool:
         """Check if step has reached a terminal state."""

@@ -6,7 +6,7 @@
         <span v-if="selectedCount > 0" class="skill-picker-badge">{{ selectedCount }}</span>
       </button>
     </PopoverTrigger>
-    <PopoverContent side="bottom" :side-offset="8" align="start" class="skill-picker-popover">
+    <PopoverContent side="bottom" :side-offset="8" align="start" :avoid-collisions="false" class="skill-picker-popover">
       <div class="skill-picker-content">
         <!-- Search -->
         <div class="skill-picker-search">
@@ -74,6 +74,7 @@ const { t } = useI18n();
 const {
   availableSkills,
   selectedSkillIds,
+  sessionSkillIds,
   canSelectMore,
   toggleSkillSelection,
   loadAvailableSkills,
@@ -85,7 +86,11 @@ const isOpen = ref(false);
 const searchQuery = ref('');
 const searchInputRef = ref<HTMLInputElement>();
 
-const selectedCount = computed(() => selectedSkillIds.value.length);
+// Count both per-message and session skills (deduplicated)
+const selectedCount = computed(() => {
+  const combined = new Set([...selectedSkillIds.value, ...sessionSkillIds.value]);
+  return combined.size;
+});
 
 const filteredSkills = computed(() => {
   const query = searchQuery.value.toLowerCase().trim();
@@ -98,7 +103,7 @@ const filteredSkills = computed(() => {
 });
 
 function isSelected(skillId: string): boolean {
-  return selectedSkillIds.value.includes(skillId);
+  return selectedSkillIds.value.includes(skillId) || sessionSkillIds.value.includes(skillId);
 }
 
 function sourceLabel(source: string): string {
@@ -179,20 +184,20 @@ watch(isOpen, (open) => {
 }
 
 .skill-picker-popover {
-  width: 320px !important;
+  width: 260px !important;
 }
 
 .skill-picker-content {
   display: flex;
   flex-direction: column;
-  padding: 8px 0;
+  padding: 4px 0;
 }
 
 .skill-picker-search {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 12px 8px;
+  gap: 6px;
+  padding: 4px 10px 6px;
   border-bottom: 1px solid var(--border-light);
 }
 
@@ -206,9 +211,9 @@ watch(isOpen, (open) => {
   border: none;
   outline: none;
   background: transparent;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-primary);
-  padding: 4px 0;
+  padding: 2px 0;
 }
 
 .skill-picker-search-input::placeholder {
@@ -216,29 +221,34 @@ watch(isOpen, (open) => {
 }
 
 .skill-picker-list {
-  max-height: 300px;
+  max-height: 220px;
   overflow-y: auto;
-  padding: 4px 0;
+  padding: 2px 0;
 }
 
 .skill-picker-empty {
-  padding: 20px 16px;
+  padding: 12px 10px;
   text-align: center;
   color: var(--text-tertiary);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .skill-picker-item {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 8px 12px;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
   cursor: pointer;
   transition: background 0.1s ease;
   width: 100%;
   text-align: left;
   border: none;
+  border-bottom: 1px solid var(--border-light, var(--border-main));
   background: transparent;
+}
+
+.skill-picker-item:last-child {
+  border-bottom: none;
 }
 
 .skill-picker-item:hover {
@@ -248,7 +258,6 @@ watch(isOpen, (open) => {
 .skill-picker-item-icon {
   color: var(--text-tertiary);
   flex-shrink: 0;
-  margin-top: 2px;
 }
 
 .skill-picker-item-info {
@@ -256,17 +265,17 @@ watch(isOpen, (open) => {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .skill-picker-item-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
 
 .skill-picker-item-name {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
@@ -275,10 +284,10 @@ watch(isOpen, (open) => {
 }
 
 .skill-picker-item-source {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 500;
-  padding: 1px 6px;
-  border-radius: 4px;
+  padding: 0px 4px;
+  border-radius: 3px;
   flex-shrink: 0;
   text-transform: uppercase;
   letter-spacing: 0.02em;
@@ -300,7 +309,7 @@ watch(isOpen, (open) => {
 }
 
 .skill-picker-item-desc {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-tertiary);
   white-space: nowrap;
   overflow: hidden;
@@ -310,22 +319,21 @@ watch(isOpen, (open) => {
 .skill-picker-item-check {
   color: #3b82f6;
   flex-shrink: 0;
-  margin-top: 2px;
 }
 
 .skill-picker-footer {
-  padding: 6px 12px 4px;
+  padding: 4px 10px 2px;
   border-top: 1px solid var(--border-light);
 }
 
 .skill-picker-manage {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: 5px;
+  font-size: 11px;
   color: var(--text-secondary);
   cursor: pointer;
-  padding: 4px 0;
+  padding: 3px 0;
   border: none;
   background: transparent;
   transition: color 0.1s ease;

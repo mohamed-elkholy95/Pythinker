@@ -350,6 +350,7 @@ class TestExecutionNodeConstraints:
         result = await execution_node(state)
 
         # Should not request human input for low severity
+        assert result.get("needs_human_input") is not True
         # Note: "simple" in constraint and "basic" in step might not overlap enough
         # This documents actual behavior
 
