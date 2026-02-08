@@ -24,6 +24,9 @@
         :plan="plan"
         :isLoading="isLoading"
         :isThinking="isThinking"
+        :isReplayMode="panelProps.isReplayMode"
+        :replayScreenshotUrl="panelProps.replayScreenshotUrl"
+        :replayMetadata="panelProps.replayMetadata"
         @hide="() => hideToolPanel(true)"
         @jumpToRealTime="jumpToRealTime"
         @stepForward="handleTimelineStepForward"
@@ -39,6 +42,7 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import type { ToolContent } from '../types/message'
 import type { PlanEventData } from '../types/event'
+import type { ScreenshotMetadata } from '../types/screenshot'
 import ToolPanelContent from './ToolPanelContent.vue'
 import { useResizeObserver } from '../composables/useResizeObserver'
 import { eventBus } from '../utils/eventBus'
@@ -65,7 +69,7 @@ const emit = defineEmits<{
   (e: 'timelineSeek', progress: number): void
 }>()
 
-defineProps<{
+const panelProps = defineProps<{
   sessionId?: string
   realTime: boolean
   isShare: boolean
@@ -77,6 +81,9 @@ defineProps<{
   timelineTimestamp?: number
   timelineCanStepForward?: boolean
   timelineCanStepBackward?: boolean
+  isReplayMode?: boolean
+  replayScreenshotUrl?: string
+  replayMetadata?: ScreenshotMetadata | null
 }>()
 
 // Track if state change was from user action

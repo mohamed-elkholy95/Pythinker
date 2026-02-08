@@ -63,27 +63,39 @@ class TestRetrySuccessTracking:
 
     @pytest.mark.asyncio
     async def test_retry_stats_aggregation(self):
-        """Test that retry statistics are aggregated correctly."""
+        """Test that retry statistics are aggregated correctly.
+
+        Only actual retries (retry_count > 0) are tracked in _retry_outcomes.
+        First-attempt successes are not counted as retries.
+        """
         handler = ErrorHandler()
 
-        # Multiple successful retries
+        # 3 operations that fail once then succeed (actual retries)
         for _ in range(3):
             context = ErrorContext(
                 error_type=ErrorType.BROWSER_TIMEOUT,
                 message="Timeout",
-                max_retries=1,
+                max_retries=2,
+                min_retry_delay=0.01,
             )
+            attempt_count = 0
 
-            async def ok_op():
+            async def retry_then_ok():
+                nonlocal attempt_count
+                attempt_count += 1
+                if attempt_count == 1:
+                    raise RuntimeError("First attempt fails")
                 return "ok"
 
-            await handler.retry_with_backoff(ok_op, context)
+            attempt_count = 0
+            await handler.retry_with_backoff(retry_then_ok, context)
 
-        # One failed retry
+        # One operation that always fails (exhausts retries)
         context_fail = ErrorContext(
             error_type=ErrorType.BROWSER_TIMEOUT,
             message="Timeout",
             max_retries=1,
+            min_retry_delay=0.01,
         )
 
         async def fail_op():

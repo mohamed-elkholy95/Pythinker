@@ -1154,7 +1154,7 @@ Response specification:
 {{
   "title": "string",       // Clear title (e.g., "Best Practices for Coding with Claude")
   "message": "string",     // FULL report in clean Markdown - NO meta-commentary
-  "attachments": []        // File paths created during execution
+  "attachments": []        // ALWAYS leave empty — report content is delivered automatically
 }}
 ```
 

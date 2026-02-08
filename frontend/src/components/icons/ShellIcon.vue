@@ -8,13 +8,13 @@
                         d="M2 4.7C2 3.20883 3.20883 2 4.7 2H13.3C14.7912 2 16 3.20883 16 4.7V13.3C16 14.7912 14.7912 16 13.3 16H4.7C3.20883 16 2 14.7912 2 13.3V4.7Z"
                         :fill="`url(#${gradientId})`"></path>
                 </g>
-                <path
+                <path class="icon-border"
                     d="M2.42857 4.7C2.42857 3.44552 3.44552 2.42857 4.7 2.42857H13.3C14.5545 2.42857 15.5714 3.44552 15.5714 4.7V13.3C15.5714 14.5545 14.5545 15.5714 13.3 15.5714H4.7C3.44552 15.5714 2.42857 14.5545 2.42857 13.3V4.7Z"
-                    stroke="#B9B9B7" stroke-width="0.857143"></path>
+                    stroke-width="0.857143"></path>
             </g>
-            <path d="M5.25 7L7 9L5.25 11" stroke="#535350" stroke-width="1.2" stroke-linecap="round"
+            <path class="icon-detail" d="M5.25 7L7 9L5.25 11" stroke-width="1.2" stroke-linecap="round"
                 stroke-linejoin="round"></path>
-            <path d="M8.625 11H12" stroke="#535350" stroke-width="1.2" stroke-linecap="round"
+            <path class="icon-detail" d="M8.625 11H12" stroke-width="1.2" stroke-linecap="round"
                 stroke-linejoin="round"></path>
         </g>
         <defs>
@@ -61,3 +61,12 @@ const uid = Math.random().toString(36).substring(2, 9);
 const filterId = computed(() => `shell_filter_${uid}`);
 const gradientId = computed(() => `shell_gradient_${uid}`);
 </script>
+
+<style scoped>
+.icon-border {
+    stroke: var(--border-main, #B9B9B7);
+}
+.icon-detail {
+    stroke: var(--icon-secondary, #535350);
+}
+</style>

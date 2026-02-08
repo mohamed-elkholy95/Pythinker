@@ -182,6 +182,10 @@ COPY . .
 RUN touch /app/sandbox_context.json /app/sandbox_context.md && \
     chown ubuntu:ubuntu /app/sandbox_context.json /app/sandbox_context.md
 
+# Copy and make executable the permission fix script
+COPY fix-permissions.sh /app/fix-permissions.sh
+RUN chmod +x /app/fix-permissions.sh
+
 # Configure supervisor
 COPY supervisord.conf /etc/supervisor/conf.d/app.conf
 

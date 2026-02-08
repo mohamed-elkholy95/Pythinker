@@ -1,29 +1,31 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-import json
-import yaml
-from typing import List, Optional, Dict, Any
-import os
-from pathlib import Path
-import asyncio
+"""Pythinker Demo Mock Server.
+
+A complete standalone mock backend that serves all frontend API endpoints
+using in-memory state. No external dependencies (MongoDB, Redis, Docker) needed.
+
+Usage:
+    cd mockserver
+    pip install -r requirements.txt
+    uvicorn main:app --port 8000 --reload
+"""
+from __future__ import annotations
+
 import logging
 import sys
 
-# Configure logging
-logger = logging.getLogger()
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+# ── Logging ──────────────────────────────────────────────────────────
+logger = logging.getLogger("mockserver")
 logger.setLevel(logging.INFO)
-formatter = logging.Formatter(
-    '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setFormatter(formatter)
-logger.addHandler(console_handler)
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S"))
+logger.addHandler(handler)
 
-app = FastAPI()
+# ── App ──────────────────────────────────────────────────────────────
+app = FastAPI(title="Pythinker Demo Mock Server", version="1.0.0")
 
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -32,58 +34,53 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class Message(BaseModel):
-    role: str
-    content: Optional[str] = None
-    tool_calls: Optional[List[Dict[str, Any]]] = None
+# ── Routes ───────────────────────────────────────────────────────────
+from routes.health import router as health_router
+from routes.auth import router as auth_router
+from routes.sessions import router as sessions_router
+from routes.files import router as files_router
+from routes.skills import router as skills_router
+from routes.settings import router as settings_router
+from routes.usage import router as usage_router
+from routes.workspace import router as workspace_router
+from routes.ratings import router as ratings_router
+from routes.llm import router as llm_router
 
-class ChatCompletionRequest(BaseModel):
-    model: str
-    messages: List[Message]
-    temperature: Optional[float] = 0.7
-    max_tokens: Optional[int] = None
-    stream: Optional[bool] = False
+# All routes are prefixed with /api/v1 to match the real backend
+PREFIX = "/api/v1"
 
-class ChatCompletionResponse(BaseModel):
-    #id: str
-    #object: str
-    #created: int
-    #model: str
-    choices: List[Dict[str, Any]]
+app.include_router(health_router, prefix=PREFIX)
+app.include_router(auth_router, prefix=PREFIX)
+app.include_router(sessions_router, prefix=PREFIX)
+app.include_router(files_router, prefix=PREFIX)
+app.include_router(skills_router, prefix=PREFIX)
+app.include_router(settings_router, prefix=PREFIX)
+app.include_router(usage_router, prefix=PREFIX)
+app.include_router(workspace_router, prefix=PREFIX)
+app.include_router(ratings_router, prefix=PREFIX)
 
-def load_mock_data():
-    # Get mock data filename from environment variable, default to default.yaml
-    mock_file = os.getenv("MOCK_DATA_FILE", "default.yaml")
-    mock_file_path = Path(__file__).parent / "mock_datas" / mock_file
+# LLM endpoint at /v1/chat/completions (no /api prefix — OpenAI-compatible)
+app.include_router(llm_router)
 
-    with open(mock_file_path, 'r', encoding='utf-8') as f:
-        logger.info(f"Loading mock data from {mock_file}")
-        if mock_file.endswith('.json'):
-            return json.load(f)
-        else:
-            return yaml.safe_load(f)
+# ── Seed Data ────────────────────────────────────────────────────────
+@app.on_event("startup")
+async def seed():
+    from seed_data.users import seed_users
+    from seed_data.sessions import seed_sessions
 
-current_index = 0
+    seed_users()
+    seed_sessions()
+    logger.info("Mock server ready — seeded demo user + 3 sessions")
+    logger.info("Auth bypass: GET /api/v1/auth/status → auth_provider='none'")
+    logger.info("Frontend: cd frontend && BACKEND_URL=http://localhost:8000 bun run dev")
 
-@app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
-async def chat_completions(request: ChatCompletionRequest):
-    global current_index
-    mock_data = load_mock_data()
-    if not mock_data:
-        current_index = 0
-        logger.error("No mock data available")
-        raise HTTPException(status_code=500, detail="No mock data available")
 
-    if len(request.messages) == 2 and current_index > 1:
-        current_index = 0
-        logger.info("Reset index to 0")
-    
-    delay = float(os.getenv("MOCK_DELAY", "1"))
-    if delay > 0:
-        logger.debug(f"Applying mock delay of {delay} seconds")
-        await asyncio.sleep(delay)
-    
-    response = mock_data[current_index]
-    current_index = (current_index + 1) % len(mock_data)
-    logger.info(f"Returning mock response {current_index}/{len(mock_data)}")
-    return response
+# ── Root ─────────────────────────────────────────────────────────────
+@app.get("/")
+async def root():
+    return {
+        "name": "Pythinker Demo Mock Server",
+        "version": "1.0.0",
+        "docs": "/docs",
+        "endpoints": f"{PREFIX}/*",
+    }

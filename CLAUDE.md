@@ -9,11 +9,12 @@ Pythinker is an AI Agent system that runs tools (browser, terminal, files, searc
 ## Quick Reference
 
 > **Core Principles:**
-> 1. **Dependency Rule**: Domain → Application → Infrastructure → Interfaces (inward only)
-> 2. **SOLID**: Single responsibility, depend on abstractions, inject dependencies
-> 3. **Type Safety**: Full type hints (Python) / strict mode (TypeScript); no `any`
-> 4. **Layer Discipline**: Business logic in domain, not in API routes or components
-> 5. **Naming**: Python `snake_case` functions / `PascalCase` classes; Vue `PascalCase` components / `useX` composables
+> 1. **Reuse First**: Search existing codebase for components, utilities, and services before creating new ones
+> 2. **Dependency Rule**: Domain → Application → Infrastructure → Interfaces (inward only)
+> 3. **SOLID**: Single responsibility, depend on abstractions, inject dependencies
+> 4. **Type Safety**: Full type hints (Python) / strict mode (TypeScript); no `any`
+> 5. **Layer Discipline**: Business logic in domain, not in API routes or components
+> 6. **Naming**: Python `snake_case` functions / `PascalCase` classes; Vue `PascalCase` components / `useX` composables
 >
 > **Before committing:**
 > - **Frontend**: `cd frontend && bun run lint && bun run type-check`
@@ -22,6 +23,7 @@ Pythinker is an AI Agent system that runs tools (browser, terminal, files, searc
 ## Development Guidelines
 
 - **Read [instructions.md](instructions.md) first** - Core engineering behaviors and patterns
+- **Reuse Before Creating**: Before implementing any new code, component, utility, or feature, **search the existing codebase** for similar functionality. Check composables, services, utilities, domain models, and components that may already solve the problem or can be extended. Never create a duplicate when an existing piece can be reused or adapted.
 - **Pydantic v2**: `@field_validator` methods **must** be `@classmethod`
 - **Python Environment**: Always `conda activate pythinker` before running tests
 - **Plan Execution**: Complete ALL phases - priorities indicate order, not optional phases
@@ -117,11 +119,13 @@ bun run test:run     # Single test run
 3. **Circular Dependencies** - Maintain strict layer boundaries
 4. **Magic Strings** - Use enums and constants
 5. **Deep Nesting** - Prefer early returns and guard clauses
+6. **Redundant Code** - Never create new files, components, utilities, or services without first searching for existing ones that serve the same or similar purpose
 
 ---
 
 ## Refactoring Checklist
 
+- [ ] Searched codebase for existing similar functionality before creating new code
 - [ ] Dependencies point inward (domain has no external imports)
 - [ ] Each class/function has single responsibility
 - [ ] Type hints/annotations complete

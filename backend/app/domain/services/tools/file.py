@@ -1,6 +1,7 @@
 import base64
 import contextlib
 import mimetypes
+import shlex
 from pathlib import Path
 
 from app.domain.external.sandbox import Sandbox
@@ -349,18 +350,19 @@ class FileTool(BaseTool):
             # Try to extract text using sandbox
             if extract_text:
                 # Use shell command to extract text with pdftotext if available
-                extract_cmd = f"pdftotext '{file}' -"
+                safe_file = shlex.quote(file)
+                extract_cmd = f"pdftotext {safe_file} -"
                 if pages_to_extract:
                     first_page = min(pages_to_extract)
                     last_page = max(pages_to_extract)
-                    extract_cmd = f"pdftotext -f {first_page} -l {last_page} '{file}' -"
+                    extract_cmd = f"pdftotext -f {first_page} -l {last_page} {safe_file} -"
 
                 text_result = await self.sandbox.shell_exec(extract_cmd)
                 if text_result.success:
                     result_data["extracted_text"] = text_result.result[:10000]  # Limit text length
 
             # Get page count
-            page_count_cmd = f"pdfinfo '{file}' | grep 'Pages:' | awk '{{print $2}}'"
+            page_count_cmd = f"pdfinfo {shlex.quote(file)} | grep 'Pages:' | awk '{{print $2}}'"
             page_result = await self.sandbox.shell_exec(page_count_cmd)
             if page_result.success and page_result.result.strip().isdigit():
                 result_data["page_count"] = int(page_result.result.strip())
@@ -501,18 +503,30 @@ class FileTool(BaseTool):
                 message=f"Error viewing text file: {e!s}",
             )
 
-    def _parse_page_range(self, page_range: str) -> list[int]:
-        """Parse page range string into list of page numbers."""
-        pages = []
+    def _parse_page_range(self, page_range: str, max_page: int = 10000) -> list[int]:
+        """Parse page range string into list of page numbers.
+
+        Args:
+            page_range: Page range string (e.g., '1-5' or '1,3,5')
+            max_page: Maximum allowed page number (default: 10000)
+
+        Returns:
+            Sorted list of unique page numbers within bounds
+        """
+        pages: list[int] = []
         parts = page_range.replace(" ", "").split(",")
 
         for part in parts:
             if "-" in part:
-                start, end = part.split("-", 1)
+                start_str, end_str = part.split("-", 1)
                 with contextlib.suppress(ValueError):
-                    pages.extend(range(int(start), int(end) + 1))
+                    start_val = max(1, min(int(start_str), max_page))
+                    end_val = max(1, min(int(end_str), max_page))
+                    pages.extend(range(start_val, end_val + 1))
             else:
                 with contextlib.suppress(ValueError):
-                    pages.append(int(part))
+                    page_num = int(part)
+                    if 1 <= page_num <= max_page:
+                        pages.append(page_num)
 
         return sorted(set(pages))

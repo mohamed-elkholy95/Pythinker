@@ -48,6 +48,7 @@ def set_metrics(metrics: MetricsPort) -> None:
     global _metrics
     _metrics = metrics
 
+
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
 
@@ -107,13 +108,14 @@ class ExecutionAgent(BaseAgent):
             json_parser=json_parser,
             max_questions=5,
             parallel_verification=True,
-            min_response_length=300,  # Only verify substantial responses
+            min_response_length=200,  # Lowered to catch more hallucinations
         )
         self._cove_enabled = True  # Can be configured via feature flags
 
-        # Source citation tracking for reports
+        # Source citation tracking for reports (capped to prevent unbounded growth)
+        self._max_collected_sources: int = 200
         self._collected_sources: list[SourceCitation] = []
-        self._seen_urls: set = set()
+        self._seen_urls: set[str] = set()
 
         # Multimodal information persistence (P5.2)
         # Per Manus pattern: persist key findings every 2 view operations
@@ -128,26 +130,10 @@ class ExecutionAgent(BaseAgent):
         # Set current step for inter-step context synthesis (Phase 2.5)
         self._context_manager.set_current_step(step.id)
 
-        # Phase 3.5: Auto-detect skills from message and merge with explicitly selected ones
-        try:
-            from app.domain.services.skill_trigger_matcher import get_skill_trigger_matcher
-
-            matcher = await get_skill_trigger_matcher()
-            suggested_skills = await matcher.get_suggested_skills(
-                message.message,
-                max_suggestions=2,
-            )
-            existing = set(message.skills or [])
-            merged = existing.union(set(suggested_skills or []))
-            if merged and merged != existing:
-                message.skills = list(merged)
-                logger.info(
-                    f"Skills selected (explicit + auto): explicit={list(existing)} auto={suggested_skills} merged={message.skills}"
-                )
-        except Exception as e:
-            logger.debug(f"Skill auto-detection skipped: {e}")
-
-        # Build skill context if skills are enabled for this message (Phase 3: Custom Skills)
+        # Build skill context if skills are explicitly enabled by the user
+        # Save/restore tools and system_prompt to avoid permanent mutation across steps
+        original_tools = list(self.tools)
+        original_system_prompt = self.system_prompt
         if message.skills:
             logger.info(f"Loading skill context for skills: {message.skills}")
             try:
@@ -166,7 +152,7 @@ class ExecutionAgent(BaseAgent):
                     logger.warning(f"No skills found in registry for IDs: {message.skills}")
 
                 if skill_context.prompt_addition:
-                    # Extend system prompt with skill context
+                    # Extend system prompt with skill context (restored after step)
                     self.system_prompt = SYSTEM_PROMPT + EXECUTION_SYSTEM_PROMPT + skill_context.prompt_addition
                     logger.info(
                         f"✓ Injected skill context for skills: {skill_context.skill_ids} "
@@ -176,7 +162,7 @@ class ExecutionAgent(BaseAgent):
                 else:
                     logger.warning(f"Skill context built but no prompt_addition for: {message.skills}")
 
-                # Phase 3.5: Apply tool restrictions from skills
+                # Phase 3.5: Apply tool restrictions from skills (restored after step)
                 tool_restrictions = None
                 if skill_context.has_tool_restrictions():
                     original_count = len(self.tools)
@@ -188,15 +174,11 @@ class ExecutionAgent(BaseAgent):
                         f"(allowed: {allowed})"
                     )
 
-                # Emit skill activation event for frontend debugging
-                from app.domain.models.event import SkillActivationEvent
-
-                skills_loaded = await registry.get_skills(message.skills)
-                yield SkillActivationEvent(
-                    skill_ids=message.skills,
-                    skill_names=[s.name for s in skills_loaded],
-                    tool_restrictions=tool_restrictions,
-                    prompt_chars=len(skill_context.prompt_addition) if skill_context.prompt_addition else 0,
+                # Log skill activation (event is emitted once by agent_domain_service)
+                logger.info(
+                    f"Skill context applied: skills={message.skills}, "
+                    f"tool_restrictions={tool_restrictions}, "
+                    f"prompt_chars={len(skill_context.prompt_addition) if skill_context.prompt_addition else 0}"
                 )
             except Exception as e:
                 logger.warning(f"Failed to build skill context: {e}")
@@ -222,7 +204,7 @@ class ExecutionAgent(BaseAgent):
                     user_id=self._user_id, task_description=step.description, limit=5
                 )
                 if memories:
-                    memory_context = self._memory_service.format_memories_for_context(memories, max_tokens=500)
+                    memory_context = await self._memory_service.format_memories_for_context(memories, max_tokens=500)
                     logger.debug(f"Injected {len(memories)} memories into execution context")
             except Exception as e:
                 logger.warning(f"Failed to retrieve memories for step: {e}")
@@ -301,11 +283,29 @@ class ExecutionAgent(BaseAgent):
                 yield StepEvent(status=StepStatus.FAILED, step=step)
             elif isinstance(event, MessageEvent):
                 step.status = ExecutionStatus.COMPLETED
-                parsed_response = await self.json_parser.parse(event.message)
-                new_step = Step.model_validate(parsed_response)
-                step.success = new_step.success
-                step.result = new_step.result
-                step.attachments = new_step.attachments
+                try:
+                    parsed_response = await self.json_parser.parse(event.message)
+                    new_step = Step.model_validate(parsed_response)
+                    step.success = new_step.success
+                    step.result = new_step.result
+                    step.attachments = new_step.attachments
+                except Exception as parse_err:
+                    logger.warning(f"Failed to parse step response as JSON: {parse_err}")
+                    # Treat raw message as the result
+                    step.success = True
+                    step.result = event.message
+
+                # Apply CoVe on step results for factual content (step-level verification)
+                if step.result and self._cove_enabled and self._user_request:
+                    result_str = str(step.result)
+                    if self._needs_cove_verification(result_str, self._user_request):
+                        verified_result, cove_result = await self._apply_cove_verification(
+                            result_str, self._user_request
+                        )
+                        if cove_result and cove_result.has_contradictions:
+                            step.result = verified_result
+                            logger.info(f"CoVe refined step result: {cove_result.claims_contradicted} claims corrected")
+
                 yield StepEvent(status=StepStatus.COMPLETED, step=step)
                 if step.result:
                     yield MessageEvent(message=step.result)
@@ -345,7 +345,6 @@ class ExecutionAgent(BaseAgent):
                                 )
 
                         # Track tool executions for non-file operations
-                        func_name = event.function_name or ""
                         if not func_name.startswith("file_"):
                             result_summary = (
                                 str(event.function_result.message)[:200]
@@ -384,7 +383,13 @@ class ExecutionAgent(BaseAgent):
                         return
                     continue
             yield event
-        step.status = ExecutionStatus.COMPLETED
+        # Only mark as COMPLETED if not already set to FAILED
+        if step.status != ExecutionStatus.FAILED:
+            step.status = ExecutionStatus.COMPLETED
+
+        # Restore tools and system prompt after step (H6+H7)
+        self.tools = original_tools
+        self.system_prompt = original_system_prompt
 
     async def summarize(self) -> AsyncGenerator[BaseEvent, None]:
         """
@@ -435,6 +440,15 @@ class ExecutionAgent(BaseAgent):
                 message_content = message.message
                 message_title = message.title
                 message_attachments = message.attachments
+
+            # Summarizer runs with tools=None so it cannot create files.
+            # LLMs often hallucinate file paths here — clear them to prevent 404 sync errors.
+            if message_attachments:
+                logger.warning(
+                    f"Summarizer returned {len(message_attachments)} attachments but has no file tools — "
+                    f"clearing hallucinated paths: {message_attachments}"
+                )
+                message_attachments = []
 
             attachments = [FileInfo(file_path=file_path) for file_path in message_attachments]
 
@@ -723,8 +737,8 @@ class ExecutionAgent(BaseAgent):
         Returns:
             True if content should be verified
         """
-        # Length threshold
-        if len(content) < 300:
+        # Length threshold — lowered to catch hallucinations in shorter responses
+        if len(content) < 200:
             return False
 
         query_lower = query.lower() if query else ""
@@ -980,20 +994,6 @@ class ExecutionAgent(BaseAgent):
             importance=0.8,  # High importance for visual findings
         )
 
-        # Store in memory service if available
-        if self._memory_service and self._user_id:
-            try:
-                # Store as a memory for future reference
-                for finding in self._multimodal_findings:
-                    self._memory_service.store_observation(
-                        user_id=self._user_id,
-                        observation_type=finding.get("type", "view"),
-                        content=finding.get("content_preview") or finding.get("result", ""),
-                        metadata=finding,
-                    )
-            except Exception as e:
-                logger.debug(f"Failed to persist finding to memory: {e}")
-
         # Clear findings after persistence
         self._multimodal_findings = []
         logger.debug("Persisted multimodal findings to context")
@@ -1092,7 +1092,7 @@ class ExecutionAgent(BaseAgent):
             else:
                 continue
 
-            if url and url not in self._seen_urls:
+            if url and url not in self._seen_urls and len(self._collected_sources) < self._max_collected_sources:
                 self._seen_urls.add(url)
                 self._collected_sources.append(
                     SourceCitation(
@@ -1113,7 +1113,7 @@ class ExecutionAgent(BaseAgent):
             access_time: When the page was accessed
         """
         url = event.function_args.get("url", "")
-        if not url or url in self._seen_urls:
+        if not url or url in self._seen_urls or len(self._collected_sources) >= self._max_collected_sources:
             return
 
         # Try to extract title from page content or result

@@ -287,9 +287,29 @@ class AgentService:
         except ImportError:
             pass  # Structured logging not available
 
+        # Load user's connected MCP server configs from connectors
+        extra_mcp_configs: dict | None = None
+        try:
+            from app.application.services.connector_service import get_connector_service
+
+            connector_service = get_connector_service()
+            user_mcp_list = await connector_service.get_user_mcp_configs(user_id)
+            if user_mcp_list:
+                extra_mcp_configs = dict(user_mcp_list)
+        except Exception as e:
+            logger.warning(f"Failed to load user MCP connectors for {user_id}: {e}")
+
         # Directly use the domain service's chat method, which will check if the session exists
         async for event in self._agent_domain_service.chat(
-            session_id, user_id, message, timestamp, event_id, attachments, skills, deep_research
+            session_id,
+            user_id,
+            message,
+            timestamp,
+            event_id,
+            attachments,
+            skills,
+            deep_research,
+            extra_mcp_configs=extra_mcp_configs,
         ):
             logger.debug(f"Received event: {event}")
             yield event

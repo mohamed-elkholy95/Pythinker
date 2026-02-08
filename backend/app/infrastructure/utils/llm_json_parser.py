@@ -286,8 +286,15 @@ JSON:"""
             return f'"{escaped_content}"'
 
         # Pattern to match string values in arrays: "content with potential " quotes"
-        # Look for quotes that are preceded by [ or , (with optional whitespace) and followed by , or ] (with optional whitespace)
-        return re.sub(r'(?<=[\[,]\s*)(".*?)"(?=\s*[,\]])', fix_unescaped_quotes_in_array_values, text)
+        # Use a non-lookbehind approach since Python re requires fixed-width lookbehinds
+        def fix_array_values(m: re.Match) -> str:
+            prefix = m.group(1)  # [ or , plus whitespace
+            value = m.group(2)   # the quoted string content
+            suffix = m.group(3)  # trailing context
+            escaped_content = re.sub(r'(?<!\\)"', r'\\"', value)
+            return f'{prefix}"{escaped_content}"{suffix}'
+
+        return re.sub(r'([\[,]\s*)(".*?)"(\s*[,\]])', fix_array_values, text)
 
     def _strip_thinking_tags(self, text: str) -> str:
         """Strip Qwen3 <think>...</think> reasoning tags from output.

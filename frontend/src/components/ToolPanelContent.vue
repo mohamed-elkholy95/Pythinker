@@ -78,9 +78,20 @@
 
         <!-- Content Area: Dynamic content rendering -->
         <div class="flex-1 min-h-0 min-w-0 w-full overflow-hidden relative">
+          <!-- Replay mode: static screenshots for completed sessions -->
+          <div
+            v-if="currentViewType === 'vnc' && isReplayMode"
+            class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
+          >
+            <ScreenshotReplayViewer
+              :src="replayScreenshotUrl || ''"
+              :metadata="replayMetadata || null"
+            />
+          </div>
+
           <!-- VNC View (via backend proxy - works from browser) -->
           <div
-            v-if="currentViewType === 'vnc'"
+            v-else-if="currentViewType === 'vnc'"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
             <!-- Placeholder for loading/text-only operations -->
@@ -196,6 +207,7 @@
             :progress="showTimeline ? (timelineProgress ?? 0) : 0"
             :current-timestamp="showTimeline ? timelineTimestamp : undefined"
             :is-live="realTime"
+            :is-replay-mode="!!isReplayMode"
             :can-step-forward="showTimeline ? !!timelineCanStepForward : false"
             :can-step-backward="showTimeline ? !!timelineCanStepBackward : false"
             :show-timestamp-on-interact="true"
@@ -249,9 +261,11 @@ import EditorContentView from '@/components/toolViews/EditorContentView.vue';
 import SearchContentView from '@/components/toolViews/SearchContentView.vue';
 import GenericContentView from '@/components/toolViews/GenericContentView.vue';
 import WideResearchOverlay from '@/components/WideResearchOverlay.vue';
+import ScreenshotReplayViewer from '@/components/ScreenshotReplayViewer.vue';
 import { useWideResearchGlobal } from '@/composables/useWideResearch';
 import { normalizeSearchResults } from '@/utils/searchResults';
 import type { SearchResultsEnvelope, SearchResultsPayload } from '@/types/search';
+import type { ScreenshotMetadata } from '@/types/screenshot';
 
 const props = defineProps<{
   sessionId?: string;
@@ -267,6 +281,9 @@ const props = defineProps<{
   plan?: PlanEventData;
   isLoading?: boolean;
   isThinking?: boolean;
+  isReplayMode?: boolean;
+  replayScreenshotUrl?: string;
+  replayMetadata?: ScreenshotMetadata | null;
 }>();
 
 // Computed for TaskProgressBar current tool
@@ -296,7 +313,6 @@ const {
   contentConfig,
   viewModeIndex,
   currentViewType: computedViewType,
-  isTextOnlyOperation,
   hasNewOutput,
   setViewModeByIndex,
   markNewOutput
@@ -349,67 +365,20 @@ const toolSubtitle = computed(() => toolDisplay.value?.description || '');
 // Content header label - consistent, user-friendly tool name
 const contentHeaderLabel = computed(() => toolDisplay.value?.displayName || '');
 
-// Placeholder label for text-only operations
-const placeholderLabel = computed(() => toolDisplay.value?.actionLabel || 'Processing');
-
-// Placeholder detail
-const placeholderDetail = computed(() => {
-  return toolDisplay.value?.resourceLabel || '';
-});
-
-
 const showVncPlaceholder = computed(() => {
-  // When forcing browser view (e.g., clicking search result), don't show placeholder
   if (forceBrowserView.value) return false;
-  // For text-only operations (like browser_get_content which uses HTTP, not browser),
-  // ALWAYS show placeholder - never show VNC since browser isn't being used
-  if (isTextOnlyOperation.value) return true;
   if (!props.sessionId) return true;
   if (vncDisconnected.value) return true;
   return false;
 });
 
 const vncPlaceholderLabel = computed(() => {
-  // Text-only operations (e.g., browser_get_content uses HTTP, not browser)
-  if (isTextOnlyOperation.value) {
-    if (isActiveOperation.value) {
-      return placeholderLabel.value;
-    }
-    // Completed: show domain-specific label
-    const url = props.toolContent?.args?.url;
-    if (url && typeof url === 'string') {
-      try {
-        const u = new URL(url);
-        return `Fetched from ${u.hostname}`;
-      } catch {
-        return 'Content fetched';
-      }
-    }
-    return 'Content fetched';
-  }
   if (!props.sessionId) return 'No live session';
   if (vncDisconnected.value) return 'Reconnecting';
   return 'Connecting';
 });
 
 const vncPlaceholderDetail = computed(() => {
-  // Text-only operations
-  if (isTextOnlyOperation.value) {
-    if (isActiveOperation.value) {
-      return placeholderDetail.value;
-    }
-    // Show truncated URL for completed operation
-    const url = props.toolContent?.args?.url;
-    if (url) {
-      try {
-        const u = new URL(url);
-        return u.hostname + u.pathname.slice(0, 30) + (u.pathname.length > 30 ? '...' : '');
-      } catch {
-        return url.slice(0, 50);
-      }
-    }
-    return 'Data ready for processing';
-  }
   if (!props.sessionId) return 'Open a session to view the screen.';
   if (vncDisconnected.value) return 'Waiting for the VNC stream.';
   return '';
@@ -417,11 +386,6 @@ const vncPlaceholderDetail = computed(() => {
 
 // Animation type for VNC placeholder
 const vncPlaceholderAnimation = computed<'globe' | 'check' | 'spinner'>(() => {
-  // Text-only operations: show check when completed, globe when active
-  if (isTextOnlyOperation.value) {
-    return isActiveOperation.value ? 'globe' : 'check';
-  }
-  // Default animation for other cases
   return 'globe';
 });
 

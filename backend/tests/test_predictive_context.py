@@ -112,20 +112,21 @@ class TestPredictivePressure:
         """Test that predicted level escalates appropriately."""
         tm = TokenManager(max_context_tokens=32000)
 
-        # Mock count_tokens to return a controlled value (70% of 32000 = 22400)
+        # effective = 32000 - 4096 = 27904
+        # Mock count_tokens to return a controlled value that lands in CRITICAL range
+        # CRITICAL range: 0.70 * 27904 = 19533 to 0.85 * 27904 = 23718
         messages = [{"role": "user", "content": "test message"}]
 
-        with patch.object(tm, "count_tokens", return_value=22400):
+        with patch.object(tm, "count_tokens", return_value=17000):
             # With 2000 tokens/step growth, 3 steps = +6000 tokens
-            # 22400 + 6000 = 28400 = ~88.75% = CRITICAL
+            # 17000 + 6000 = 23000, 23000/27904 ≈ 0.824 = CRITICAL
             tm._default_growth_rate = 2000
 
             predicted = tm.predict_pressure(messages, steps_ahead=3)
 
-            # Predicted tokens should be approximately 22400 + 6000 = 28400
-            # (small variance from message overhead is acceptable)
-            assert 28000 <= predicted.current_tokens <= 29000
-            # 28400 / effective_limit is well above 85% = CRITICAL
+            # Predicted tokens should be approximately 17000 + 6000 = 23000
+            assert 22500 <= predicted.current_tokens <= 23500
+            # 23000 / effective_limit ≈ 0.824, within CRITICAL (0.70-0.85)
             assert predicted.level == PressureLevel.CRITICAL
 
     def test_predict_pressure_recommendations(self):
@@ -225,16 +226,16 @@ class TestGrowthStats:
         tm = TokenManager(max_context_tokens=32000)
         now = time.time()
 
-        # At 50% usage with 2000 tokens/step growth
+        # At ~25% usage with 2000 tokens/step growth
+        # effective = 32000 - 4096 = 27904, warning at 60% = 16742
+        # steps to warning = (16742 - 8000) / 2000 ≈ 4.37
         tm._growth_history = [
-            (now - 1, 14000),
-            (now, 16000),  # 50% of 32000
+            (now - 1, 6000),
+            (now, 8000),  # ~29% of effective
         ]
 
         stats = tm.get_growth_stats()
 
-        # Steps to 75% warning: (75% * 32000 - 16000) / 2000 = (24000 - 16000) / 2000 = 4
-        # But effective limit has safety margin
         assert stats["steps_to_warning"] is not None
         assert stats["steps_to_warning"] > 0
 

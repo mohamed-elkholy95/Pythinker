@@ -84,10 +84,11 @@ class TokenManager:
     MESSAGE_OVERHEAD = 4
 
     # Context pressure thresholds (fraction of max tokens)
+    # Research recommends 64-75% for early compaction (Anthropic 2025, ArXiv 2601.06007)
     PRESSURE_THRESHOLDS: ClassVar[dict[str, float]] = {
-        "warning": 0.75,  # 75% - suggest planning for summarization
-        "critical": 0.85,  # 85% - begin proactive trimming
-        "overflow": 0.95,  # 95% - force summarization
+        "warning": 0.60,  # 60% - suggest planning for summarization
+        "critical": 0.70,  # 70% - begin proactive trimming
+        "overflow": 0.85,  # 85% - force summarization
     }
 
     # Default model context limits
@@ -117,8 +118,8 @@ class TokenManager:
         "default": 32768,  # Increased default for modern models
     }
 
-    # Safety margin (reserve tokens for response) - reduced from 4096 for better context utilization
-    SAFETY_MARGIN = 2048
+    # Safety margin (reserve tokens for response) — ensures completion buffer for final answers
+    SAFETY_MARGIN = 4096
 
     # Token count cache settings
     TOKEN_CACHE_MAX_SIZE = 1000  # Max cached entries
@@ -196,7 +197,7 @@ class TokenManager:
         """Generate a hash for content to use as cache key."""
         import hashlib
 
-        return hashlib.md5(text.encode()).hexdigest()[:16]
+        return hashlib.md5(text.encode()).hexdigest()  # Full 128-bit hash to avoid collisions
 
     def count_tokens(self, text: str) -> int:
         """
@@ -486,10 +487,7 @@ class TokenManager:
             elif msg.get("role") == "assistant" and msg.get("tool_calls"):
                 # Remove tool_call entries that have no matching response
                 original_calls = msg["tool_calls"]
-                kept_calls = [
-                    tc for tc in original_calls
-                    if tc.get("id") in responded_tool_call_ids
-                ]
+                kept_calls = [tc for tc in original_calls if tc.get("id") in responded_tool_call_ids]
                 if len(kept_calls) < len(original_calls):
                     orphan_count += len(original_calls) - len(kept_calls)
                     if kept_calls:

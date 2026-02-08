@@ -16,7 +16,7 @@ services:
       - "5174:5174"  # Vite default development port
     environment:
       - NODE_ENV=development
-      - VITE_API_URL=http://localhost:8000
+      - VITE_API_URL=
       - BACKEND_URL=http://backend:8000
       - VITE_USE_POLLING=true
       - VITE_POLLING_INTERVAL=100
@@ -70,6 +70,8 @@ services:
     environment:
       - SANDBOX_ADDRESS=sandbox # Use single container as sandbox
       - "LOCAL_AUTH_PASSWORD=admin*123"  # Override .env to handle special chars
+      - GRPC_ENABLE_FORK_SUPPORT=0  # Suppress gRPC fork warning from qdrant-client
+      - NODE_OPTIONS=--no-deprecation  # Suppress Playwright url.parse() deprecation
 
   sandbox:
     build:
@@ -125,21 +127,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-
-  mockserver:
-    build:
-      context: ./mockserver
-      dockerfile: Dockerfile
-    volumes:
-      - ./mockserver:/app  # Mount source code directory
-      - /app/__pycache__  # Avoid overwriting cache files
-      - /app/.venv  # Avoid overwriting virtual environment
-    restart: unless-stopped
-    environment:
-      - MOCK_DATA_FILE=default.yaml
-      - MOCK_DELAY=1
-    networks:
-      - pythinker-network
 
   mongodb:
     image: mongo:7.0

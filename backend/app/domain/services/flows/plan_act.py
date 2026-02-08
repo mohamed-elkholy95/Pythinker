@@ -165,6 +165,18 @@ class PlanActFlow(BaseFlow):
         self._memory_service = memory_service
         self._user_id = user_id
 
+        # Role-scoped memory for context injection (Phase 4: Role-Scoped Memory Access)
+        from app.domain.services.role_scoped_memory import RoleScopedMemory
+
+        self._scoped_memory: dict[str, RoleScopedMemory] = {}
+        if memory_service and user_id:
+            self._scoped_memory = {
+                "planner": RoleScopedMemory(memory_service, "planner", user_id),
+                "executor": RoleScopedMemory(memory_service, "executor", user_id),
+                "researcher": RoleScopedMemory(memory_service, "researcher", user_id),
+                "reflector": RoleScopedMemory(memory_service, "reflector", user_id),
+            }
+
         # State management for error recovery
         self._previous_status: AgentStatus | None = None
         self._error_context: ErrorContext | None = None
@@ -657,6 +669,69 @@ class PlanActFlow(BaseFlow):
         if len(self._recent_tools) > self._max_recent_tools:
             self._recent_tools = self._recent_tools[-self._max_recent_tools :]
 
+    async def _save_progress_artifact(self) -> None:
+        """Save current plan progress to sandbox for session bridging.
+
+        Writes a structured status file so that if the context window is
+        exhausted and a new session continues the task, it can load the
+        progress state without re-discovering completed work.
+        """
+        if not self.plan or not self._sandbox:
+            return
+        try:
+            import json
+
+            completed_steps = []
+            pending_steps = []
+            for step in self.plan.steps:
+                step_info = {
+                    "id": str(step.id),
+                    "description": step.description[:200],
+                    "status": step.status.value if hasattr(step.status, "value") else str(step.status),
+                }
+                if step.status == ExecutionStatus.COMPLETED:
+                    step_info["result"] = str(step.result)[:500] if step.result else None
+                    completed_steps.append(step_info)
+                else:
+                    pending_steps.append(step_info)
+
+            artifact = json.dumps(
+                {
+                    "plan_title": self.plan.title or "Untitled",
+                    "total_steps": len(self.plan.steps),
+                    "completed": completed_steps,
+                    "pending": pending_steps,
+                    "session_id": self._session_id,
+                },
+                indent=2,
+            )
+
+            await self._sandbox.file_write(
+                file="/home/user/.agent_progress.json",
+                content=artifact,
+            )
+            logger.debug(f"Saved progress artifact: {len(completed_steps)}/{len(self.plan.steps)} steps")
+        except Exception as e:
+            logger.debug(f"Failed to save progress artifact: {e}")
+
+    async def _load_progress_artifact(self) -> dict | None:
+        """Load previously saved progress artifact from sandbox.
+
+        Returns:
+            Progress dict if found, None otherwise
+        """
+        if not self._sandbox:
+            return None
+        try:
+            import json
+
+            result = await self._sandbox.file_read(file="/home/user/.agent_progress.json")
+            if result and result.success and result.data:
+                return json.loads(str(result.data))
+        except Exception:
+            pass
+        return None
+
     def _transition_to(self, new_status: AgentStatus, *, force: bool = False, reason: str = "") -> None:
         """Transition to a new status with optional validation."""
         if self.status == new_status:
@@ -679,6 +754,21 @@ class PlanActFlow(BaseFlow):
             to_state=new_status.value,
             reason=reason,
         )
+        # Reset per-phase counters on successful forward transitions
+        if new_status == AgentStatus.EXECUTING:
+            self._plan_validation_failures = 0
+            self._error_recovery_attempts = 0
+
+        # Set phase-based tool filtering on agents to reduce hallucination
+        if new_status == AgentStatus.PLANNING:
+            self.planner._active_phase = "planning"
+        elif new_status == AgentStatus.EXECUTING:
+            self.executor._active_phase = None  # All tools for execution
+        elif new_status == AgentStatus.VERIFYING:
+            if self.verifier and hasattr(self.verifier, "_active_phase"):
+                self.verifier._active_phase = "verifying"
+        elif new_status == AgentStatus.SUMMARIZING:
+            self.executor._active_phase = None  # All tools for summarization
 
     def _generate_acknowledgment(self, user_message: str) -> str:
         """Generate an acknowledgment message before starting to plan.
@@ -1168,13 +1258,15 @@ class PlanActFlow(BaseFlow):
         is_optional = any(pattern in description_lower for pattern in optional_patterns)
 
         if is_optional:
-            # Check if we already have successful steps that might make this redundant
-            completed_count = sum(
-                1 for s in self.plan.steps if s.status == ExecutionStatus.COMPLETED and s.id != step.id
+            # Check if any dependency failed — optional steps with failed deps can be skipped
+            has_failed_dep = any(
+                dep_step.status == ExecutionStatus.FAILED
+                for dep_id in step.dependencies
+                for dep_step in self.plan.steps
+                if dep_step.id == dep_id
             )
-            if completed_count > 0:
-                # Could potentially skip - but be conservative
-                return False, ""
+            if has_failed_dep:
+                return True, "Optional step skipped: dependency failed"
 
         return False, ""
 
@@ -1502,69 +1594,71 @@ class PlanActFlow(BaseFlow):
             )
 
         # === FAST PATH: Check if this is a simple query that can skip planning ===
-        # For PENDING or COMPLETED sessions (not INITIALIZING where browser may not be ready)
-        # COMPLETED sessions can still receive new messages and should use fast path for greetings/simple queries
+        # Always classify messages to detect greetings/simple queries
+        # Greetings and knowledge queries work regardless of session status
+        # Browser-dependent queries (browse/search) need session to be PENDING or COMPLETED
         logger.info(f"Fast path check: session.status={session.status}, message={message.message[:50]}")
-        if session.status in (SessionStatus.PENDING, SessionStatus.COMPLETED):
-            try:
-                fast_path_router = FastPathRouter(
-                    browser=self._browser,
-                    llm=self._llm,
-                    search_engine=self._search_engine,
-                )
-                intent, params = fast_path_router.classify(message.message)
-                logger.info(f"Fast path classification: intent={intent.value}, params={params}")
 
-                # Determine if fast path can be used based on intent
-                use_fast_path = False
-                skip_reason = ""
+        try:
+            fast_path_router = FastPathRouter(
+                browser=self._browser,
+                llm=self._llm,
+                search_engine=self._search_engine,
+            )
+            intent, params = fast_path_router.classify(message.message)
+            logger.info(f"Fast path classification: intent={intent.value}, params={params}")
 
-                if intent == QueryIntent.GREETING:
-                    # Greetings don't need browser or tools - always use fast path
-                    use_fast_path = True
-                elif intent == QueryIntent.KNOWLEDGE:
-                    # Knowledge queries don't need browser - always safe
-                    use_fast_path = True
-                elif intent in (QueryIntent.DIRECT_BROWSE, QueryIntent.WEB_SEARCH):
-                    # Browser queries need verified browser readiness (Phase 2)
+            # Determine if fast path can be used based on intent
+            use_fast_path = False
+            skip_reason = ""
+
+            if intent == QueryIntent.GREETING:
+                # Greetings don't need browser or tools - always use fast path, even during init
+                use_fast_path = True
+            elif intent == QueryIntent.KNOWLEDGE:
+                # Knowledge queries don't need browser - always safe, even during init
+                use_fast_path = True
+            elif intent in (QueryIntent.DIRECT_BROWSE, QueryIntent.WEB_SEARCH):
+                # Browser queries need session to be ready (not INITIALIZING)
+                if session.status in (SessionStatus.PENDING, SessionStatus.COMPLETED):
                     browser_ready = await self._verify_browser_ready(session)
                     if browser_ready:
                         use_fast_path = True
                     else:
                         skip_reason = "browser not ready"
                 else:
-                    skip_reason = "TASK intent requires full workflow"
+                    skip_reason = f"browser queries need initialized session (status={session.status.value})"
+            else:
+                skip_reason = "TASK intent requires full workflow"
 
-                if use_fast_path:
-                    logger.info(f"Fast path activated for {intent.value} query: {message.message[:50]}...")
+            if use_fast_path:
+                logger.info(f"Fast path activated for {intent.value} query: {message.message[:50]}...")
 
-                    # Update session status
-                    await self._session_repository.update_status(self._session_id, SessionStatus.RUNNING)
+                # Update session status
+                await self._session_repository.update_status(self._session_id, SessionStatus.RUNNING)
 
-                    # Execute fast path and yield all events
-                    async for event in fast_path_router.execute(intent, params, message):
-                        yield event
+                # Execute fast path and yield all events
+                async for event in fast_path_router.execute(intent, params, message):
+                    yield event
 
-                    # For GREETING, keep session PENDING (waiting for actual task)
-                    # For other fast paths (BROWSE, SEARCH, KNOWLEDGE), mark as COMPLETED
-                    if intent == QueryIntent.GREETING:
-                        await self._session_repository.update_status(self._session_id, SessionStatus.PENDING)
-                        logger.info(f"Greeting fast path completed, session {self._session_id} waiting for task")
-                    else:
-                        await self._session_repository.update_status(self._session_id, SessionStatus.COMPLETED)
-                        logger.info(f"Fast path completed for session {self._session_id}")
-
-                    return  # Exit early - don't proceed with full workflow
-                elif intent in (QueryIntent.DIRECT_BROWSE, QueryIntent.WEB_SEARCH):
-                    logger.info(f"Fast path skipped for {intent.value} - {skip_reason}, using normal workflow")
+                # For GREETING, keep session PENDING (waiting for actual task)
+                # For other fast paths (BROWSE, SEARCH, KNOWLEDGE), mark as COMPLETED
+                if intent == QueryIntent.GREETING:
+                    await self._session_repository.update_status(self._session_id, SessionStatus.PENDING)
+                    logger.info(f"Greeting fast path completed, session {self._session_id} waiting for task")
                 else:
-                    logger.debug("Query classified as TASK, proceeding with full workflow")
-            except Exception as e:
-                logger.exception(f"Fast path analysis failed: {e}")
-                yield ErrorEvent(error=f"Failed to analyze request: {str(e)[:200]}")
-                # Continue with normal workflow instead of failing completely
-        elif session.status == SessionStatus.INITIALIZING:
-            logger.debug("Session still INITIALIZING, skipping fast path check")
+                    await self._session_repository.update_status(self._session_id, SessionStatus.COMPLETED)
+                    logger.info(f"Fast path completed for session {self._session_id}")
+
+                return  # Exit early - don't proceed with full workflow
+            elif intent in (QueryIntent.DIRECT_BROWSE, QueryIntent.WEB_SEARCH) and skip_reason:
+                logger.info(f"Fast path skipped for {intent.value} - {skip_reason}, using normal workflow")
+            elif skip_reason:
+                logger.debug(f"Fast path skipped: {skip_reason}")
+        except Exception as e:
+            logger.exception(f"Fast path analysis failed: {e}")
+            yield ErrorEvent(error=f"Failed to analyze request: {str(e)[:200]}")
+            # Continue with normal workflow instead of failing completely
 
         # === END FAST PATH ===
 
@@ -1658,6 +1752,15 @@ class PlanActFlow(BaseFlow):
             )
             logger.info(f"TaskStateManager initialized with {len(self.plan.steps)} steps for resumed session")
 
+        # Session bridging: load prior progress artifact if resuming
+        if not self.plan:
+            prior_progress = await self._load_progress_artifact()
+            if prior_progress:
+                logger.info(
+                    f"Loaded progress artifact: {len(prior_progress.get('completed', []))}/"
+                    f"{prior_progress.get('total_steps', 0)} steps completed from prior session"
+                )
+
         logger.info(f"Agent {self._agent_id} started processing message: {message.message[:50]}...")
 
         # NOTE: Acknowledgment moved earlier (before fast path) for instant feedback
@@ -1727,6 +1830,23 @@ class PlanActFlow(BaseFlow):
                     with trace_ctx.span("planning", "plan_create") as plan_span:
                         # Pass replan context if we're replanning after verification
                         replan_context = self._verification_feedback if self._verification_verdict == "revise" else None
+
+                        # Inject cross-session memory context (Phase 4: Role-Scoped Memory)
+                        if "planner" in self._scoped_memory:
+                            try:
+                                memory_context = await self._scoped_memory["planner"].get_context(message.message)
+                                if memory_context:
+                                    if replan_context:
+                                        replan_context = f"{memory_context}\n\n{replan_context}"
+                                    else:
+                                        replan_context = memory_context
+                                    logger.debug(
+                                        "Injected role-scoped planner memory (%d chars)",
+                                        len(memory_context),
+                                    )
+                            except Exception as e:
+                                logger.debug("Role-scoped memory injection skipped: %s", e)
+
                         async for event in self.planner.create_plan(message, replan_context=replan_context):
                             if isinstance(event, PlanEvent) and event.status == PlanStatus.CREATED:
                                 self.plan = event.plan
@@ -1758,17 +1878,21 @@ class PlanActFlow(BaseFlow):
                                 f"Agent {self._agent_id} plan validation failed {self._plan_validation_failures} times, "
                                 "forcing summarization"
                             )
-                            self._transition_to(AgentStatus.SUMMARIZING, force=True, reason="repeated plan validation failures")
+                            self._transition_to(
+                                AgentStatus.SUMMARIZING, force=True, reason="repeated plan validation failures"
+                            )
                             continue
-                        logger.info(f"Agent {self._agent_id} replanning due to validation errors "
-                                    f"({self._plan_validation_failures}/{self._max_plan_validation_failures})")
+                        logger.info(
+                            f"Agent {self._agent_id} replanning due to validation errors "
+                            f"({self._plan_validation_failures}/{self._max_plan_validation_failures})"
+                        )
                         continue
 
                     # Reset verification feedback after replanning
                     self._verification_verdict = None
                     self._verification_feedback = None
 
-                    if len(event.plan.steps) == 0:
+                    if not self.plan or len(self.plan.steps) == 0:
                         logger.info(f"Agent {self._agent_id} created plan successfully with no steps")
                         self._transition_to(AgentStatus.COMPLETED)
                     elif self.verifier:
@@ -1813,7 +1937,9 @@ class PlanActFlow(BaseFlow):
                             self._plan_validation_failures += 1
                             if self._plan_validation_failures >= self._max_plan_validation_failures:
                                 logger.error(f"Agent {self._agent_id} repeated validation failures, summarizing")
-                                self._transition_to(AgentStatus.SUMMARIZING, force=True, reason="repeated validation failures")
+                                self._transition_to(
+                                    AgentStatus.SUMMARIZING, force=True, reason="repeated validation failures"
+                                )
                             else:
                                 logger.info(f"Agent {self._agent_id} plan failed validation after verification")
                                 self._transition_to(AgentStatus.PLANNING)
@@ -1826,8 +1952,12 @@ class PlanActFlow(BaseFlow):
                             )
                             if not self._validate_plan_before_execution():
                                 # After max verification loops, don't loop back to PLANNING — summarize
-                                logger.warning(f"Agent {self._agent_id} plan invalid after max verifications, summarizing")
-                                self._transition_to(AgentStatus.SUMMARIZING, force=True, reason="plan invalid after max verifications")
+                                logger.warning(
+                                    f"Agent {self._agent_id} plan invalid after max verifications, summarizing"
+                                )
+                                self._transition_to(
+                                    AgentStatus.SUMMARIZING, force=True, reason="plan invalid after max verifications"
+                                )
                             else:
                                 self._transition_to(AgentStatus.EXECUTING)
                         else:
@@ -1842,7 +1972,9 @@ class PlanActFlow(BaseFlow):
                             self._plan_validation_failures += 1
                             if self._plan_validation_failures >= self._max_plan_validation_failures:
                                 logger.error(f"Agent {self._agent_id} repeated validation failures, summarizing")
-                                self._transition_to(AgentStatus.SUMMARIZING, force=True, reason="repeated validation failures")
+                                self._transition_to(
+                                    AgentStatus.SUMMARIZING, force=True, reason="repeated validation failures"
+                                )
                             else:
                                 logger.info(f"Agent {self._agent_id} plan failed validation after verification")
                                 self._transition_to(AgentStatus.PLANNING)
@@ -1855,15 +1987,35 @@ class PlanActFlow(BaseFlow):
                         self._plan_validation_failures += 1
                         if self._plan_validation_failures >= self._max_plan_validation_failures:
                             logger.error(f"Agent {self._agent_id} repeated validation failures, summarizing")
-                            self._transition_to(AgentStatus.SUMMARIZING, force=True, reason="repeated validation failures")
+                            self._transition_to(
+                                AgentStatus.SUMMARIZING, force=True, reason="repeated validation failures"
+                            )
                             continue
-                        logger.info(f"Agent {self._agent_id} plan failed validation before execution "
-                                    f"({self._plan_validation_failures}/{self._max_plan_validation_failures})")
+                        logger.info(
+                            f"Agent {self._agent_id} plan failed validation before execution "
+                            f"({self._plan_validation_failures}/{self._max_plan_validation_failures})"
+                        )
                         self._transition_to(AgentStatus.PLANNING, force=True, reason="plan validation failed")
                         continue
                     self.plan.status = ExecutionStatus.RUNNING
                     step = self.plan.get_next_step()
                     if not step:
+                        # Before transitioning to SUMMARIZING, try to unblock steps
+                        if self.plan.has_blocked_steps():
+                            unblocked = self.plan.unblock_independent_steps()
+                            if unblocked:
+                                logger.info(
+                                    f"Agent {self._agent_id} unblocked {len(unblocked)} steps "
+                                    f"with partial results: {unblocked}"
+                                )
+                                continue
+                            # Still blocked — log which steps are stuck
+                            blocked = self.plan.get_blocked_steps()
+                            logger.warning(
+                                f"Agent {self._agent_id} has {len(blocked)} blocked steps "
+                                f"that cannot be unblocked: "
+                                f"{[s.description[:60] for s in blocked]}"
+                            )
                         logger.info(
                             f"Agent {self._agent_id} has no more steps, state changed from {AgentStatus.EXECUTING} to {AgentStatus.COMPLETED}"
                         )
@@ -1934,6 +2086,9 @@ class PlanActFlow(BaseFlow):
                         else:
                             self._task_state_manager.update_step_status(str(step.id), "failed")
                         step_span.set_attribute("step.success", step.success)
+
+                        # Session bridging: save progress after each step
+                        await self._save_progress_artifact()
 
                         # Handle step failure - cascade blocking to dependent steps
                         if not step.success and step.status == ExecutionStatus.FAILED:
@@ -2019,11 +2174,17 @@ class PlanActFlow(BaseFlow):
                     if not self._validate_plan_before_execution():
                         self._plan_validation_failures += 1
                         if self._plan_validation_failures >= self._max_plan_validation_failures:
-                            logger.error(f"Agent {self._agent_id} repeated validation failures after update, summarizing")
-                            self._transition_to(AgentStatus.SUMMARIZING, force=True, reason="repeated validation failures")
+                            logger.error(
+                                f"Agent {self._agent_id} repeated validation failures after update, summarizing"
+                            )
+                            self._transition_to(
+                                AgentStatus.SUMMARIZING, force=True, reason="repeated validation failures"
+                            )
                             continue
-                        logger.info(f"Agent {self._agent_id} plan update failed validation, replanning "
-                                    f"({self._plan_validation_failures}/{self._max_plan_validation_failures})")
+                        logger.info(
+                            f"Agent {self._agent_id} plan update failed validation, replanning "
+                            f"({self._plan_validation_failures}/{self._max_plan_validation_failures})"
+                        )
                         self._transition_to(AgentStatus.PLANNING, force=True, reason="plan update validation failed")
                         continue
                     self._transition_to(AgentStatus.EXECUTING)

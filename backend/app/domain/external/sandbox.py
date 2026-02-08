@@ -515,6 +515,19 @@ class Sandbox(Protocol):
         """
         ...
 
+    async def get_screenshot(self, quality: int = 75, scale: float = 0.5, format: str = "jpeg"):
+        """Capture screenshot of the sandbox desktop.
+
+        Args:
+            quality: JPEG quality (1-100)
+            scale: Scale factor (0.1-1.0)
+            format: Image format (jpeg or png)
+
+        Returns:
+            HTTP response with image bytes
+        """
+        ...
+
     async def destroy(self) -> bool:
         """Destroy current sandbox instance
 

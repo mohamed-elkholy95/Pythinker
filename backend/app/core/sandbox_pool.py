@@ -119,14 +119,16 @@ class SandboxPool:
                 await self._warming_task
             self._warming_task = None
 
-        # Cleanup all pooled sandboxes
+        # Cleanup all pooled sandboxes (with per-sandbox timeout to avoid hanging)
         cleanup_count = 0
         while not self._pool.empty():
             try:
                 sandbox = self._pool.get_nowait()
                 try:
-                    await sandbox.destroy()
+                    await asyncio.wait_for(sandbox.destroy(), timeout=15.0)
                     cleanup_count += 1
+                except TimeoutError:
+                    logger.warning(f"Timeout destroying pooled sandbox {getattr(sandbox, 'id', '?')}")
                 except Exception as e:
                     logger.warning(f"Error destroying pooled sandbox: {e}")
             except asyncio.QueueEmpty:
@@ -248,7 +250,9 @@ class SandboxPool:
         browser = None
         try:
             # Get sandbox IP for CDP connection
-            if not hasattr(sandbox, "ip_address") or not sandbox.ip_address:
+            # DockerSandbox uses `ip`, not `ip_address`
+            sandbox_ip = getattr(sandbox, "ip_address", None) or getattr(sandbox, "ip", None)
+            if not sandbox_ip:
                 logger.debug(f"Sandbox {sandbox.id} has no IP address, skipping browser pre-warm")
                 return
 
@@ -256,7 +260,7 @@ class SandboxPool:
             from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
 
             # Create browser instance with CDP URL
-            cdp_url = f"ws://{sandbox.ip_address}:9222"
+            cdp_url = f"ws://{sandbox_ip}:9222"
             browser = PlaywrightBrowser(cdp_url=cdp_url)
 
             # Initialize browser (this connects to Chrome via CDP)
@@ -276,23 +280,17 @@ class SandboxPool:
             # Non-fatal - browser will be initialized on first use
             logger.warning(f"Browser pre-warm failed (non-fatal) for sandbox {sandbox.id}: {e}")
         finally:
-            # Close browser resources properly to prevent connection leaks
+            # Disconnect playwright without closing the browser context/browser
+            # The browser stays running in the sandbox; we only release our local
+            # Playwright connection. The agent will create its own connection later.
             if browser:
                 try:
-                    if browser.context:
-                        await browser.context.close()
-                except Exception as ctx_err:
-                    logger.debug(f"Browser context close error (non-fatal): {ctx_err}")
-                try:
-                    if browser.browser:
-                        await browser.browser.close()
-                except Exception as br_err:
-                    logger.debug(f"Browser close error (non-fatal): {br_err}")
-                try:
+                    # Disconnect (don't close) — browser.browser.close() would
+                    # terminate Chrome in the sandbox, defeating the pre-warm.
                     if browser.playwright:
                         await browser.playwright.stop()
                 except Exception as pw_err:
-                    logger.debug(f"Playwright stop error (non-fatal): {pw_err}")
+                    logger.debug(f"Playwright disconnect error (non-fatal): {pw_err}")
                 browser.page = None
                 browser.context = None
                 browser.browser = None

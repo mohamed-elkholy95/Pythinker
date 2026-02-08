@@ -101,6 +101,7 @@
         <div class="flex flex-col w-full gap-[12px] pb-[80px] pt-[12px] flex-1">
           <ChatMessage v-for="message in messages" :key="message.id" :message="message"
             :suggestions="message.type === 'report' ? suggestions : undefined"
+            :activeThinkingStepId="activeThinkingStepId"
             @toolClick="handleToolClick"
             @reportOpen="handleReportOpen"
             @reportFileOpen="handleReportFileOpen"
@@ -111,27 +112,11 @@
             @deepResearchSkip="handleDeepResearchSkip"
             @toggleAutoRun="handleToggleAutoRun" />
 
-          <!-- Loading/Thinking indicators - only show when no tool is actively being called -->
-          <!-- Morphing shape thinking indicator - only shown when chat is actively thinking -->
-          <div v-if="isLoading && (isThinkingStreaming || isThinking) && lastTool?.status !== 'calling'" class="flex flex-col">
-            <div class="flex">
-              <div class="w-[24px] relative h-4">
-                <div class="border-l border-dashed border-[var(--border-dark)] absolute start-[8px] top-0 bottom-0"></div>
-              </div>
-              <div class="flex-1"></div>
-            </div>
-            <div class="flex items-center">
-              <div class="w-[24px] flex items-center justify-center" style="padding-left: 3px;">
-                <div class="thinking-shape-wrapper">
-                  <ThinkingIndicator :showText="false" />
-                </div>
-              </div>
-              <div class="flex-1 min-w-0">
-                <span class="thinking-text-shimmer text-sm font-normal">Thinking</span>
-              </div>
-            </div>
+          <!-- Loading/Thinking indicators - fallback for discuss mode (no active step) -->
+          <div v-if="isLoading && (isThinkingStreaming || isThinking) && !activeThinkingStepId && lastTool?.status !== 'calling'" class="flex items-center gap-2 pl-1">
+            <ThinkingIndicator :showText="true" />
           </div>
-          <LoadingIndicator v-else-if="isLoading" :text="$t('Loading')" />
+          <LoadingIndicator v-else-if="isLoading && !activeThinkingStepId" :text="$t('Loading')" />
 
           <!-- Waiting for user reply indicator -->
           <WaitingForReply v-if="isWaitingForReply" />
@@ -205,9 +190,11 @@
             class="mb-2"
           />
           <ChatBox v-model="inputMessage" :rows="1" @submit="handleSubmit" :isRunning="isLoading" @stop="handleStop"
-            :attachments="attachments" @fileClick="handleAttachmentFileClick" />
+            :attachments="attachments" @fileClick="handleAttachmentFileClick" :showConnectorBanner="!sessionId" />
         </div>
       </div>
+      <!-- Wide Research Overlay -->
+      <WideResearchOverlay :state="wideResearch.overlayState.value" />
     </div>
     <ToolPanel ref="toolPanel" :size="toolPanelSize" :sessionId="sessionId" :realTime="realTime"
       :isShare="false"
@@ -216,15 +203,21 @@
       :isThinking="isThinking"
       @jumpToRealTime="jumpToRealTime"
       :showTimeline="showTimelineControls"
-      :timelineProgress="toolTimelineProgress"
-      :timelineTimestamp="toolTimelineTimestamp"
-      :timelineCanStepForward="toolTimelineCanStepForward"
-      :timelineCanStepBackward="toolTimelineCanStepBackward"
+      :timelineProgress="effectiveTimelineProgress"
+      :timelineTimestamp="effectiveTimelineTimestamp"
+      :timelineCanStepForward="effectiveCanStepForward"
+      :timelineCanStepBackward="effectiveCanStepBackward"
+      :isReplayMode="isReplayMode"
+      :replayScreenshotUrl="replay.currentScreenshotUrl.value"
+      :replayMetadata="replay.currentScreenshot.value"
       @timelineStepForward="handleTimelineStepForward"
       @timelineStepBackward="handleTimelineStepBackward"
       @timelineSeek="handleTimelineSeek"
       @panelStateChange="handlePanelStateChange" />
   </SimpleBar>
+
+  <!-- Connectors Dialog -->
+  <ConnectorsDialog />
 
   <!-- Report Modal -->
   <ReportModal
@@ -273,13 +266,16 @@ import {
   StreamEventData,
   ProgressEventData,
   DeepResearchEventData,
+  WideResearchEventData,
+  SkillDeliveryEventData,
+  SkillActivationEventData,
 } from '../types/event';
 import type { DeepResearchContent } from '../types/message';
 import Suggestions from '../components/Suggestions.vue';
 import ToolPanel from '../components/ToolPanel.vue'
 import { ArrowDown, FileSearch, Lock, Globe, Link, Check } from 'lucide-vue-next';
 import ShareIcon from '@/components/icons/ShareIcon.vue';
-import { showErrorToast, showSuccessToast } from '../utils/toast';
+import { showErrorToast, showSuccessToast, showInfoToast } from '../utils/toast';
 import type { FileInfo } from '../api/file';
 import { useLeftPanel } from '../composables/useLeftPanel'
 import { useSessionFileList } from '../composables/useSessionFileList'
@@ -296,10 +292,15 @@ import { useReport, extractSectionsFromMarkdown } from '@/composables/useReport'
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import ThinkingIndicator from '@/components/ui/ThinkingIndicator.vue';
 import WaitingForReply from '@/components/WaitingForReply.vue';
+import WideResearchOverlay from '@/components/WideResearchOverlay.vue';
 import { useSessionStatus } from '@/composables/useSessionStatus';
 import { getToolDisplay } from '@/utils/toolDisplay';
 import { useSkills } from '@/composables/useSkills';
 import { useDeepResearch } from '@/composables/useDeepResearch';
+import { useWideResearchGlobal } from '@/composables/useWideResearch';
+import ConnectorsDialog from '@/components/connectors/ConnectorsDialog.vue';
+import { useConnectorDialog } from '@/composables/useConnectorDialog';
+import { useScreenshotReplay } from '@/composables/useScreenshotReplay';
 
 const router = useRouter()
 const { t } = useI18n()
@@ -308,8 +309,21 @@ const { showSessionFileList } = useSessionFileList()
 const { hideFilePanel } = useFilePanel()
 const { isReportModalOpen, currentReport, openReport, closeReport } = useReport()
 const { emitStatusChange } = useSessionStatus()
-const { getSelectedSkillIds } = useSkills()
+const { getSelectedSkillIds, clearSelectedSkills } = useSkills()
 const { toggleAutoRun } = useDeepResearch()
+const wideResearch = useWideResearchGlobal()
+// ConnectorDialog composable — dialog manages its own visibility
+useConnectorDialog()
+
+// Screenshot replay for completed sessions
+const replay = useScreenshotReplay(computed(() => sessionId.value))
+
+// Replay mode: session is completed/failed and has screenshots
+const isReplayMode = computed(() => {
+  const ended = !isLoading.value && sessionStatus.value &&
+    [SessionStatus.COMPLETED, SessionStatus.FAILED].includes(sessionStatus.value)
+  return !!ended && replay.hasScreenshots.value
+})
 
 // Create initial state factory
 const createInitialState = () => ({
@@ -549,6 +563,16 @@ const getLastStep = (): StepContent | undefined => {
   return messages.value.filter(message => message.type === 'step').pop()?.content as StepContent;
 }
 
+// Identify the active step that should show the thinking indicator inside it
+const activeThinkingStepId = computed<string | undefined>(() => {
+  if (!isLoading.value) return undefined;
+  if (!(isThinkingStreaming.value || isThinking.value)) return undefined;
+  if (lastTool.value?.status === 'calling') return undefined;
+  const lastStep = getLastStep();
+  if (lastStep?.status === 'running') return lastStep.id;
+  return undefined;
+});
+
 // Check if there's a report message (suggestions should appear inside it)
 const hasReportMessage = computed(() => {
   return messages.value.some(message => message.type === 'report');
@@ -631,7 +655,21 @@ const toolTimelineCanStepForward = computed(() => {
 
 const toolTimelineCanStepBackward = computed(() => toolTimelineIndex.value > 0);
 
-const showTimelineControls = computed(() => toolTimelineIndex.value >= 0);
+const showTimelineControls = computed(() => isReplayMode.value || toolTimelineIndex.value >= 0);
+
+// Effective timeline values — replay mode overrides tool timeline
+const effectiveTimelineProgress = computed(() =>
+  isReplayMode.value ? replay.progress.value : toolTimelineProgress.value
+);
+const effectiveTimelineTimestamp = computed(() =>
+  isReplayMode.value ? replay.currentTimestamp.value : toolTimelineTimestamp.value
+);
+const effectiveCanStepForward = computed(() =>
+  isReplayMode.value ? replay.canStepForward.value : toolTimelineCanStepForward.value
+);
+const effectiveCanStepBackward = computed(() =>
+  isReplayMode.value ? replay.canStepBackward.value : toolTimelineCanStepBackward.value
+);
 
 // Handle opening the panel from TaskProgressBar
 const handleOpenPanel = () => {
@@ -997,6 +1035,46 @@ const handleToggleAutoRun = () => {
   toggleAutoRun();
 };
 
+// Handle wide research SSE events
+const handleWideResearchEvent = (data: WideResearchEventData) => {
+  if (data.status === 'pending') {
+    wideResearch.startResearch({
+      research_id: data.research_id,
+      topic: data.topic,
+      search_types: data.search_types,
+      aggregation_strategy: data.aggregation_strategy,
+    });
+  } else if (data.status === 'searching' || data.status === 'aggregating') {
+    wideResearch.updateProgress({
+      research_id: data.research_id,
+      total_queries: data.total_queries,
+      completed_queries: data.completed_queries,
+      sources_found: data.sources_found,
+      current_query: data.current_query,
+    });
+  } else if (data.status === 'completed') {
+    wideResearch.completeResearch({
+      research_id: data.research_id,
+      sources_count: data.sources_found,
+      errors: data.errors,
+    });
+  } else if (data.status === 'failed') {
+    wideResearch.failResearch(data.research_id, data.errors?.[0] || 'Research failed');
+  }
+};
+
+// Handle skill delivery events
+const handleSkillDeliveryEvent = (data: SkillDeliveryEventData) => {
+  showInfoToast(`Skill "${data.name}" package ready`);
+};
+
+// Handle skill activation events
+const handleSkillActivationEvent = (data: SkillActivationEventData) => {
+  if (data.skill_names.length > 0) {
+    showInfoToast(`Skills activated: ${data.skill_names.join(', ')}`);
+  }
+};
+
 // Handle suggestion selection (user clicks a suggestion)
 const handleSuggestionSelect = (suggestion: string) => {
   inputMessage.value = suggestion;
@@ -1029,10 +1107,10 @@ const handleAttachmentFileClick = (file: FileInfo) => {
 }
 
 // Handle report rate
-const handleReportRate = async (rating: number) => {
+const handleReportRate = async (rating: number, feedback?: string) => {
   if (!sessionId.value || !currentReport.value) return;
   try {
-    await agentApi.submitRating(sessionId.value, currentReport.value.id, rating);
+    await agentApi.submitRating(sessionId.value, currentReport.value.id, rating, feedback);
     showSuccessToast(t('Rating submitted'));
   } catch {
     showErrorToast(t('Failed to submit rating'));
@@ -1115,6 +1193,9 @@ const processEvent = (event: AgentSSEEvent) => {
     if (sessionId.value) {
       emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
     }
+    // Load screenshots for replay mode (seamless live → replay transition)
+    sessionStatus.value = SessionStatus.COMPLETED;
+    replay.loadScreenshots();
   } else if (event.event === 'wait') {
     // Agent is waiting for user input - show waiting indicator
     isWaitingForReply.value = true;
@@ -1138,10 +1219,12 @@ const processEvent = (event: AgentSSEEvent) => {
     handleProgressEvent(event.data as ProgressEventData);
   } else if (event.event === 'deep_research') {
     handleDeepResearchEvent(event.data as DeepResearchEventData);
+  } else if (event.event === 'wide_research') {
+    handleWideResearchEvent(event.data as WideResearchEventData);
   } else if (event.event === 'skill_delivery') {
-    // Skill package created (viewer components exist but need integration)
+    handleSkillDeliveryEvent(event.data as SkillDeliveryEventData);
   } else if (event.event === 'skill_activation') {
-    // Skills auto-activated for this message
+    handleSkillActivationEvent(event.data as SkillActivationEventData);
   }
   lastEventId.value = event.data.event_id;
 }
@@ -1182,8 +1265,9 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
   // Automatically enable follow mode when sending message
   follow.value = true;
 
-  // Clear input field and reset waiting state
+  // Clear input field, selected skills, and reset waiting state
   inputMessage.value = '';
+  clearSelectedSkills();
   isLoading.value = true;
   isWaitingForReply.value = false;
 
@@ -1277,6 +1361,9 @@ const restoreSession = async () => {
   realTime.value = true;
   if (session.status === SessionStatus.RUNNING || session.status === SessionStatus.PENDING) {
     await chat();
+  } else if (session.status === SessionStatus.COMPLETED || session.status === SessionStatus.FAILED) {
+    // Load screenshots for replay mode
+    replay.loadScreenshots()
   }
   agentApi.clearUnreadMessageCount(sessionId.value);
 }
@@ -1356,16 +1443,19 @@ const showToolFromTimeline = (index: number) => {
 }
 
 const handleTimelineStepForward = () => {
+  if (isReplayMode.value) { replay.stepForward(); return; }
   if (!toolTimelineCanStepForward.value) return;
   showToolFromTimeline(toolTimelineIndex.value + 1);
 }
 
 const handleTimelineStepBackward = () => {
+  if (isReplayMode.value) { replay.stepBackward(); return; }
   if (!toolTimelineCanStepBackward.value) return;
   showToolFromTimeline(toolTimelineIndex.value - 1);
 }
 
 const handleTimelineSeek = (progress: number) => {
+  if (isReplayMode.value) { replay.seekByProgress(progress); return; }
   if (toolTimeline.value.length === 0) return;
   const maxIndex = toolTimeline.value.length - 1;
   const targetIndex = Math.round((progress / 100) * maxIndex);
@@ -1487,7 +1577,7 @@ const handleCopyLink = async () => {
 <style scoped>
 /* ===== CHAT HEADER ===== */
 .chat-header {
-  background-color: transparent;
+  background-color: var(--background-gray-main);
   margin-left: -1.25rem;
   margin-right: -1.25rem;
   padding-left: 1.25rem;

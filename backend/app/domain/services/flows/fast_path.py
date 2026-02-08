@@ -11,9 +11,10 @@ These queries bypass the full plan-execute-reflect workflow for much faster resp
 import asyncio
 import logging
 import re
+import time
 from collections.abc import AsyncGenerator
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import quote
 
 from app.domain.models.event import (
@@ -196,6 +197,10 @@ class FastPathRouter:
     answering a simple question), this router provides much faster responses
     by skipping the plan-execute-reflect workflow.
     """
+
+    # Simple search cache for fast path to avoid redundant API calls
+    _search_cache: ClassVar[dict[str, tuple[float, Any]]] = {}
+    _search_cache_ttl: ClassVar[int] = 3600  # 1 hour, same as SearchTool
 
     def __init__(
         self,
@@ -489,8 +494,16 @@ class FastPathRouter:
             # Prefer API search (faster, more reliable) over browser search
             # Browser content extraction has reliability issues
             if self._search_engine:
-                # Use search engine API directly (faster but invisible)
-                search_result = await self._search_engine.search(query)
+                # Check fast-path search cache
+                cache_key = query.lower().strip()
+                cached = self._search_cache.get(cache_key)
+                if cached and (time.time() - cached[0]) < self._search_cache_ttl:
+                    search_result = cached[1]
+                else:
+                    # Use search engine API directly (faster but invisible)
+                    search_result = await self._search_engine.search(query)
+                    if search_result.success:
+                        self._search_cache[cache_key] = (time.time(), search_result)
 
                 yield ProgressEvent(
                     phase=PlanningPhase.FINALIZING,
@@ -745,13 +758,19 @@ class FastPathRouter:
             yield DoneEvent()
 
 
+# Module-level singleton for classify-only checks (no browser/llm/search needed)
+_classify_router: FastPathRouter | None = None
+
+
 def should_use_fast_path(message: str) -> bool:
     """Return True when a message should be handled by the fast path."""
+    global _classify_router
     if not message or not message.strip():
         return False
 
-    router = FastPathRouter()
-    intent, _ = router.classify(message)
+    if _classify_router is None:
+        _classify_router = FastPathRouter()
+    intent, _ = _classify_router.classify(message)
     return intent != QueryIntent.TASK
 
 

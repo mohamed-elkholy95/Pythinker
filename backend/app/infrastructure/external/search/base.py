@@ -7,6 +7,7 @@ Provides common functionality for all search engine implementations:
 - Result parsing utilities
 """
 
+import asyncio
 import logging
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -76,6 +77,9 @@ class SearchEngineBase(ABC, SearchEngine):
         "Accept-Encoding": "gzip, deflate",
         "Connection": "keep-alive",
     }
+
+    # HTTP status codes that are worth retrying
+    RETRYABLE_STATUS_CODES: ClassVar[set[int]] = {429, 502, 503, 504}
 
     def __init__(self, timeout: float | None = None):
         """Initialize search engine base.
@@ -303,10 +307,10 @@ class SearchEngineBase(ABC, SearchEngine):
         return ""
 
     async def search(self, query: str, date_range: str | None = None) -> ToolResult[SearchResults]:
-        """Execute search with standardized error handling.
+        """Execute search with standardized error handling and retry.
 
-        This is the template method that orchestrates the search flow.
-        Subclasses implement the abstract methods for provider-specific behavior.
+        Retries once on transient HTTP errors (429, 502, 503, 504)
+        with exponential backoff.
 
         Args:
             query: Search query string
@@ -315,19 +319,45 @@ class SearchEngineBase(ABC, SearchEngine):
         Returns:
             ToolResult containing SearchResults
         """
-        try:
-            client = await self._get_client()
-            params = self._build_request_params(query, date_range)
-            response = await self._execute_request(client, params)
-            response.raise_for_status()
+        last_error: Exception | None = None
+        for attempt in range(2):  # max 2 attempts (1 retry)
+            try:
+                client = await self._get_client()
+                params = self._build_request_params(query, date_range)
+                response = await self._execute_request(client, params)
+                response.raise_for_status()
 
-            results, total_results = self._parse_response(response)
-            return self._create_success_result(query, date_range, results, total_results)
+                results, total_results = self._parse_response(response)
+                return self._create_success_result(query, date_range, results, total_results)
 
-        except httpx.HTTPStatusError as e:
-            return self._create_error_result(query, date_range, self._handle_http_error(e))
-        except Exception as e:
-            return self._create_error_result(query, date_range, e)
+            except httpx.HTTPStatusError as e:
+                last_error = e
+                if attempt == 0 and e.response.status_code in self.RETRYABLE_STATUS_CODES:
+                    delay = 1.0 * (2 ** attempt)  # 1s backoff
+                    logger.warning(
+                        f"{self.provider_name} search got {e.response.status_code}, "
+                        f"retrying in {delay}s..."
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                return self._create_error_result(query, date_range, self._handle_http_error(e))
+
+            except (httpx.ConnectTimeout, httpx.ReadTimeout) as e:
+                last_error = e
+                if attempt == 0:
+                    delay = 1.0 * (2 ** attempt)
+                    logger.warning(
+                        f"{self.provider_name} search timeout, retrying in {delay}s..."
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                return self._create_error_result(query, date_range, e)
+
+            except Exception as e:
+                return self._create_error_result(query, date_range, e)
+
+        # Should not reach here, but just in case
+        return self._create_error_result(query, date_range, last_error or Exception("Search failed after retry"))
 
     async def __aenter__(self) -> "SearchEngineBase":
         """Async context manager entry."""

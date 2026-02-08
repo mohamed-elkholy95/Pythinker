@@ -4,11 +4,11 @@
         <g filter="url(#filter0_ii_idle)">
             <rect x="1.5" y="1.5" width="15" height="15" rx="7.5" fill="url(#paint0_linear_idle)"></rect>
         </g>
-        <rect x="1.92857" y="1.92857" width="14.1429" height="14.1429" rx="7.07143" stroke="#B9B9B7"
+        <rect class="icon-border" x="1.92857" y="1.92857" width="14.1429" height="14.1429" rx="7.07143"
             stroke-width="0.857143"></rect>
         <!-- Pause icon - two vertical bars -->
-        <rect x="6.5" y="6" width="2" height="6" rx="0.5" fill="#535350"></rect>
-        <rect x="10.5" y="6" width="2" height="6" rx="0.5" fill="#535350"></rect>
+        <rect class="icon-detail-fill" x="6.5" y="6" width="2" height="6" rx="0.5"></rect>
+        <rect class="icon-detail-fill" x="10.5" y="6" width="2" height="6" rx="0.5"></rect>
         <defs>
             <filter id="filter0_ii_idle" x="1" y="1" width="16" height="16" filterUnits="userSpaceOnUse"
                 color-interpolation-filters="sRGB">
@@ -47,3 +47,12 @@ defineProps({
     }
 });
 </script>
+
+<style scoped>
+.icon-border {
+    stroke: var(--border-main, #B9B9B7);
+}
+.icon-detail-fill {
+    fill: var(--icon-secondary, #535350);
+}
+</style>
