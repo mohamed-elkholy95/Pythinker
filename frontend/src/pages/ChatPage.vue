@@ -1795,8 +1795,8 @@ const handleCopyLink = async () => {
 }
 
 .planning-thinking :deep(.thinking-lamp) {
-  width: 18px;
-  height: 22px;
+  width: 20px;
+  height: 24px;
 }
 
 .planning-percent {
