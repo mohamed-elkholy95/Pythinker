@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Optional
 from app.core.config import get_feature_flags
 from app.domain.external.llm import LLM
 from app.domain.external.observability import MetricsPort, get_null_metrics
-from app.domain.models.agent_response import SummarizeResponse
 from app.domain.models.event import (
     BaseEvent,
     ErrorEvent,
@@ -15,6 +14,8 @@ from app.domain.models.event import (
     ReportEvent,
     StepEvent,
     StepStatus,
+    StreamEvent,
+    SuggestionEvent,
     ToolEvent,
     ToolStatus,
     WaitEvent,
@@ -33,7 +34,11 @@ from app.domain.services.agents.prompt_adapter import PromptAdapter
 from app.domain.services.agents.reward_scoring import RewardScorer
 from app.domain.services.agents.task_state_manager import get_task_state_manager
 from app.domain.services.attention_injector import AttentionInjector
-from app.domain.services.prompts.execution import EXECUTION_SYSTEM_PROMPT, SUMMARIZE_PROMPT, build_execution_prompt
+from app.domain.services.prompts.execution import (
+    EXECUTION_SYSTEM_PROMPT,
+    STREAMING_SUMMARIZE_PROMPT,
+    build_execution_prompt,
+)
 from app.domain.services.prompts.system import SYSTEM_PROMPT
 from app.domain.services.tools.base import BaseTool
 from app.domain.services.tools.tool_tracing import get_tool_tracer
@@ -267,206 +272,178 @@ class ExecutionAgent(BaseAgent):
 
         step.status = ExecutionStatus.RUNNING
         yield StepEvent(status=StepStatus.STARTED, step=step)
-        async for event in self.execute(execution_message):
-            if isinstance(event, ErrorEvent):
-                step.status = ExecutionStatus.FAILED
-                step.error = event.error
-                # Track error for prompt adapter
-                self._prompt_adapter.track_tool_use("error", success=False, error=event.error)
-                # Record error as insight for inter-step context (Phase 2.5)
-                self._context_manager.add_insight(
-                    insight_type=InsightType.ERROR_LEARNING,
-                    content=f"Step failed: {event.error[:200]}",
-                    confidence=0.95,
-                    tags=["error", "step_failure"],
-                )
-                yield StepEvent(status=StepStatus.FAILED, step=step)
-            elif isinstance(event, MessageEvent):
-                step.status = ExecutionStatus.COMPLETED
-                try:
-                    parsed_response = await self.json_parser.parse(event.message)
-                    new_step = Step.model_validate(parsed_response)
-                    step.success = new_step.success
-                    step.result = new_step.result
-                    step.attachments = new_step.attachments
-                except Exception as parse_err:
-                    logger.warning(f"Failed to parse step response as JSON: {parse_err}")
-                    # Treat raw message as the result
-                    step.success = True
-                    step.result = event.message
-
-                # Apply CoVe on step results for factual content (step-level verification)
-                if step.result and self._cove_enabled and self._user_request:
-                    result_str = str(step.result)
-                    if self._needs_cove_verification(result_str, self._user_request):
-                        verified_result, cove_result = await self._apply_cove_verification(
-                            result_str, self._user_request
-                        )
-                        if cove_result and cove_result.has_contradictions:
-                            step.result = verified_result
-                            logger.info(f"CoVe refined step result: {cove_result.claims_contradicted} claims corrected")
-
-                yield StepEvent(status=StepStatus.COMPLETED, step=step)
-                if step.result:
-                    yield MessageEvent(message=step.result)
-                continue
-            elif isinstance(event, ToolEvent):
-                # Track tool usage for prompt adapter
-                if event.status == ToolStatus.CALLED:
-                    success = event.function_result.success if event.function_result else True
-                    error = event.function_result.message if event.function_result and not success else None
-                    # Guard against None function_name
-                    func_name = event.function_name or "unknown"
-                    self._prompt_adapter.track_tool_use(func_name, success=success, error=error)
-
-                    # Track sources from tool events for report bibliography
-                    self._track_sources_from_tool_event(event)
-
-                    # Track multimodal findings (P5.2 - Manus pattern)
-                    self._track_multimodal_findings(event)
-
-                    # Track in context manager (Phase 1)
-                    if success and event.function_result:
-                        # Track file operations
-                        if func_name in ["file_write", "file_create"]:
-                            file_path = event.function_args.get("path", "")
-                            if file_path:
-                                self._context_manager.track_file_operation(
-                                    path=file_path,
-                                    operation="created",
-                                    content_summary=f"Created via {func_name}",
-                                )
-                        elif func_name == "file_read":
-                            file_path = event.function_args.get("path", "")
-                            if file_path:
-                                self._context_manager.track_file_operation(
-                                    path=file_path,
-                                    operation="read",
-                                )
-
-                        # Track tool executions for non-file operations
-                        if not func_name.startswith("file_"):
-                            result_summary = (
-                                str(event.function_result.message)[:200]
-                                if hasattr(event.function_result, "message")
-                                else "Success"
-                            )
-                            self._context_manager.track_tool_execution(
-                                tool_name=event.tool_name or "unknown",
-                                summary=result_summary,
-                            )
-
-                        # Record insights for inter-step context synthesis (Phase 2.5)
-                        result_text = (
-                            str(event.function_result.message)[:500]
-                            if hasattr(event.function_result, "message")
-                            else str(event.function_result)[:500]
-                        )
-                        self._context_manager.record_tool_insight(
-                            tool_name=func_name or "unknown",
-                            result=result_text,
-                            success=success,
-                            args=event.function_args,
-                        )
-
-                if event.function_name and event.function_name == "message_ask_user":
-                    if event.status == ToolStatus.CALLING:
-                        yield MessageEvent(message=event.function_args.get("text", ""))
-                    elif event.status == ToolStatus.CALLED:
-                        # Mark step as completed before waiting for user input
-                        step.status = ExecutionStatus.COMPLETED
+        try:
+            async for event in self.execute(execution_message):
+                if isinstance(event, ErrorEvent):
+                    step.status = ExecutionStatus.FAILED
+                    step.error = event.error
+                    # Track error for prompt adapter
+                    self._prompt_adapter.track_tool_use("error", success=False, error=event.error)
+                    # Record error as insight for inter-step context (Phase 2.5)
+                    self._context_manager.add_insight(
+                        insight_type=InsightType.ERROR_LEARNING,
+                        content=f"Step failed: {event.error[:200]}",
+                        confidence=0.95,
+                        tags=["error", "step_failure"],
+                    )
+                    yield StepEvent(status=StepStatus.FAILED, step=step)
+                elif isinstance(event, MessageEvent):
+                    step.status = ExecutionStatus.COMPLETED
+                    try:
+                        parsed_response = await self.json_parser.parse(event.message)
+                        new_step = Step.model_validate(parsed_response)
+                        step.success = new_step.success
+                        step.result = new_step.result
+                        step.attachments = new_step.attachments
+                    except Exception as parse_err:
+                        logger.warning(f"Failed to parse step response as JSON: {parse_err}")
+                        # Treat raw message as the result
                         step.success = True
-                        step.result = "Waiting for user input"
-                        # Emit StepEvent so it's persisted for session resume
-                        yield StepEvent(status=StepStatus.COMPLETED, step=step)
-                        yield WaitEvent()
-                        return
-                    continue
-            yield event
-        # Only mark as COMPLETED if not already set to FAILED
-        if step.status != ExecutionStatus.FAILED:
-            step.status = ExecutionStatus.COMPLETED
+                        step.result = event.message
 
-        # Restore tools and system prompt after step (H6+H7)
-        self.tools = original_tools
-        self.system_prompt = original_system_prompt
+                    # Apply CoVe on step results for factual content (step-level verification)
+                    if step.result and self._cove_enabled and self._user_request:
+                        result_str = str(step.result)
+                        if self._needs_cove_verification(result_str, self._user_request):
+                            verified_result, cove_result = await self._apply_cove_verification(
+                                result_str, self._user_request
+                            )
+                            if cove_result and cove_result.has_contradictions:
+                                step.result = verified_result
+                                logger.info(f"CoVe refined step result: {cove_result.claims_contradicted} claims corrected")
+
+                    yield StepEvent(status=StepStatus.COMPLETED, step=step)
+                    if step.result:
+                        yield MessageEvent(message=step.result)
+                    continue
+                elif isinstance(event, ToolEvent):
+                    # Track tool usage for prompt adapter
+                    if event.status == ToolStatus.CALLED:
+                        success = event.function_result.success if event.function_result else True
+                        error = event.function_result.message if event.function_result and not success else None
+                        # Guard against None function_name
+                        func_name = event.function_name or "unknown"
+                        self._prompt_adapter.track_tool_use(func_name, success=success, error=error)
+
+                        # Track sources from tool events for report bibliography
+                        self._track_sources_from_tool_event(event)
+
+                        # Track multimodal findings (P5.2 - Manus pattern)
+                        self._track_multimodal_findings(event)
+
+                        # Track in context manager (Phase 1)
+                        if success and event.function_result:
+                            # Track file operations
+                            if func_name in ["file_write", "file_create"]:
+                                file_path = event.function_args.get("path", "")
+                                if file_path:
+                                    self._context_manager.track_file_operation(
+                                        path=file_path,
+                                        operation="created",
+                                        content_summary=f"Created via {func_name}",
+                                    )
+                            elif func_name == "file_read":
+                                file_path = event.function_args.get("path", "")
+                                if file_path:
+                                    self._context_manager.track_file_operation(
+                                        path=file_path,
+                                        operation="read",
+                                    )
+
+                            # Track tool executions for non-file operations
+                            if not func_name.startswith("file_"):
+                                result_summary = (
+                                    str(event.function_result.message)[:200]
+                                    if hasattr(event.function_result, "message")
+                                    else "Success"
+                                )
+                                self._context_manager.track_tool_execution(
+                                    tool_name=event.tool_name or "unknown",
+                                    summary=result_summary,
+                                )
+
+                            # Record insights for inter-step context synthesis (Phase 2.5)
+                            result_text = (
+                                str(event.function_result.message)[:500]
+                                if hasattr(event.function_result, "message")
+                                else str(event.function_result)[:500]
+                            )
+                            self._context_manager.record_tool_insight(
+                                tool_name=func_name or "unknown",
+                                result=result_text,
+                                success=success,
+                                args=event.function_args,
+                            )
+
+                    if event.function_name and event.function_name == "message_ask_user":
+                        if event.status == ToolStatus.CALLING:
+                            yield MessageEvent(message=event.function_args.get("text", ""))
+                        elif event.status == ToolStatus.CALLED:
+                            # Mark step as completed before waiting for user input
+                            step.status = ExecutionStatus.COMPLETED
+                            step.success = True
+                            step.result = "Waiting for user input"
+                            # Emit StepEvent so it's persisted for session resume
+                            yield StepEvent(status=StepStatus.COMPLETED, step=step)
+                            yield WaitEvent()
+                            return
+                        continue
+                yield event
+            # Only mark as COMPLETED if not already set to FAILED
+            if step.status != ExecutionStatus.FAILED:
+                step.status = ExecutionStatus.COMPLETED
+        finally:
+            # Always restore tools and system prompt after step, even on early return/exception
+            self.tools = original_tools
+            self.system_prompt = original_system_prompt
 
     async def summarize(self) -> AsyncGenerator[BaseEvent, None]:
         """
-        Summarize the completed task without tool execution.
-        This method asks the LLM for a summary directly, bypassing the tool loop.
+        Summarize the completed task, streaming tokens for live display.
+        Uses ask_stream() to yield StreamEvent chunks so the frontend can render
+        the report progressively. CoVe and Critic run as post-processing on the
+        accumulated text after streaming completes.
         """
-        # Yield a status event to indicate summarizing phase
         yield StepEvent(
             status=StepStatus.RUNNING,
-            step=Step(id="summarize", description="Preparing final summary...", status=ExecutionStatus.RUNNING),
+            step=Step(id="summarize", description="Composing final report...", status=ExecutionStatus.RUNNING),
         )
 
-        # Add summarize prompt to memory and ask LLM directly (no tools)
-        await self._add_to_memory([{"role": "user", "content": SUMMARIZE_PROMPT}])
+        # Use streaming prompt (plain markdown, no JSON wrapper)
+        await self._add_to_memory([{"role": "user", "content": STREAMING_SUMMARIZE_PROMPT}])
         await self._ensure_within_token_limit()
 
         try:
-            summary_response = None
-            message_content = ""
-            message_title = None
-            message_attachments: list[str] = []
+            accumulated_text = ""
 
-            # Try structured output first
-            if hasattr(self.llm, "ask_structured"):
-                try:
-                    summary_response = await self.llm.ask_structured(
-                        self.memory.get_messages(), response_model=SummarizeResponse, tools=None, tool_choice=None
-                    )
-                    message_content = summary_response.message
-                    message_title = summary_response.title
-                    message_attachments = summary_response.attachments
-                    logger.debug(f"Summarize using structured output: {message_title}")
-                except Exception as e:
-                    logger.warning(f"Structured summarize failed, falling back: {e}")
-                    summary_response = None
+            # Phase 1: Stream tokens live via StreamEvent
+            async for chunk in self.llm.ask_stream(
+                self.memory.get_messages(), tools=None, tool_choice=None
+            ):
+                accumulated_text += chunk
+                yield StreamEvent(content=chunk, is_final=False, phase="summarizing")
 
-            # Fallback to regular JSON parsing
-            if summary_response is None:
-                response = await self.llm.ask(
-                    self.memory.get_messages(), tools=None, response_format={"type": "json_object"}, tool_choice=None
-                )
+            # Signal streaming complete
+            yield StreamEvent(content="", is_final=True, phase="summarizing")
 
-                content = response.get("content", "")
-                logger.debug(f"Execution agent summary response: {content}")
+            message_content = accumulated_text.strip()
 
-                parsed_response = await self.json_parser.parse(content)
-                message = Message.model_validate(parsed_response)
-                message_content = message.message
-                message_title = message.title
-                message_attachments = message.attachments
+            # Extract title from first # heading
+            message_title = self._extract_title(message_content)
 
-            # Summarizer runs with tools=None so it cannot create files.
-            # LLMs often hallucinate file paths here — clear them to prevent 404 sync errors.
-            if message_attachments:
-                logger.warning(
-                    f"Summarizer returned {len(message_attachments)} attachments but has no file tools — "
-                    f"clearing hallucinated paths: {message_attachments}"
-                )
-                message_attachments = []
-
-            attachments = [FileInfo(file_path=file_path) for file_path in message_attachments]
-
-            # Apply Chain-of-Verification for factual/research content (Phase 2)
-            # CoVe runs BEFORE critic to catch hallucinations early
-            cove_result = None
+            # Phase 2: Post-processing (CoVe + Critic on complete text)
             if len(message_content) > 300 and self._user_request:
-                message_content, cove_result = await self._apply_cove_verification(message_content, self._user_request)
+                message_content, cove_result = await self._apply_cove_verification(
+                    message_content, self._user_request
+                )
                 if cove_result and cove_result.has_contradictions:
                     logger.info(
                         f"CoVe refined output: {cove_result.claims_contradicted} claims corrected, "
                         f"new confidence: {cove_result.confidence_score:.2f}"
                     )
 
-            # Run critic review on the summary with actual revision support
-            # Critic runs AFTER CoVe to catch remaining issues
             if len(message_content) > 200 and self._user_request:
-                message_content = await self._apply_critic_revision(message_content, attachments)
+                message_content = await self._apply_critic_revision(message_content, [])
 
             # Reward hacking detection (log-only)
             flags = get_feature_flags()
@@ -494,32 +471,56 @@ class ExecutionAgent(BaseAgent):
                 except Exception as e:
                     logger.debug(f"Reward hacking detection failed: {e}")
 
-            # Mark summarize step as completed
             yield StepEvent(
                 status=StepStatus.COMPLETED,
                 step=Step(id="summarize", description="Summary complete", status=ExecutionStatus.COMPLETED),
             )
 
-            # Emit ReportEvent if there are attachments or substantial content
-            # Otherwise emit a simple MessageEvent
-            has_attachments = len(attachments) > 0
+            # Emit final report/message event
             is_substantial = len(message_content) > 500
             has_title = bool(message_title)
             is_report_structure = self._is_report_structure(message_content)
 
-            if has_attachments or is_substantial or has_title or is_report_structure:
-                title = message_title or self._extract_title(message_content)
-                # Include collected sources in the report
+            if is_substantial or has_title or is_report_structure:
+                title = message_title or "Summary"
                 sources = self.get_collected_sources() if self._collected_sources else None
                 yield ReportEvent(
                     id=str(uuid.uuid4()),
                     title=title,
                     content=message_content,
-                    attachments=attachments if attachments else None,
+                    attachments=None,
                     sources=sources,
                 )
             else:
-                yield MessageEvent(message=message_content, attachments=attachments)
+                yield MessageEvent(message=message_content)
+
+            # Generate follow-up suggestions via a lightweight call
+            try:
+                suggestion_response = await self.llm.ask(
+                    [
+                        {
+                            "role": "user",
+                            "content": (
+                                f'Given this report title: "{message_title or "Summary"}", '
+                                "suggest exactly 3 short follow-up questions (5-15 words each). "
+                                "Return ONLY a JSON array of 3 strings."
+                            ),
+                        }
+                    ],
+                    tools=None,
+                    response_format={"type": "json_object"},
+                    tool_choice=None,
+                )
+                import json
+
+                raw = suggestion_response.get("content", "[]")
+                parsed = json.loads(raw) if isinstance(raw, str) else raw
+                suggestions = parsed if isinstance(parsed, list) else parsed.get("suggestions", [])
+                suggestions = [str(s) for s in suggestions[:3]]
+                if suggestions:
+                    yield SuggestionEvent(suggestions=suggestions)
+            except Exception as e:
+                logger.debug(f"Suggestion generation failed (non-critical): {e}")
 
         except Exception as e:
             logger.error(f"Error during summarization: {e}")

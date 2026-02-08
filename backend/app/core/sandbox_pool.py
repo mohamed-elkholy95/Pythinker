@@ -260,7 +260,7 @@ class SandboxPool:
             from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
 
             # Create browser instance with CDP URL
-            cdp_url = f"ws://{sandbox_ip}:9222"
+            cdp_url = f"http://{sandbox_ip}:9222"
             browser = PlaywrightBrowser(cdp_url=cdp_url)
 
             # Initialize browser (this connects to Chrome via CDP)

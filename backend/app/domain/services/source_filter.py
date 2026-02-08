@@ -221,9 +221,8 @@ class SourceFilterService:
         if score.is_paywalled and not self.config.allow_paywalled:
             return "Source is paywalled"
 
-        if self.config.blocked_domains:
-            if any(d in score.domain for d in self.config.blocked_domains):
-                return f"Domain {score.domain} is blocked"
+        if self.config.blocked_domains and any(d in score.domain for d in self.config.blocked_domains):
+            return f"Domain {score.domain} is blocked"
 
         # Check URL scheme if HTTPS required
         if self.config.require_https:
@@ -286,10 +285,7 @@ class SourceFilterService:
             return True
 
         # Check domain patterns
-        if "docs." in domain or domain.startswith("api."):
-            return True
-
-        return False
+        return "docs." in domain or domain.startswith("api.")
 
     def _has_citations(self, source: dict) -> bool:
         """Check if source has its own citations/references."""

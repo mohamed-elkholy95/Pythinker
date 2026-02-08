@@ -127,6 +127,7 @@ const router = useRouter();
 const message = ref('');
 const isSubmitting = ref(false);
 const attachments = ref<FileInfo[]>([]);
+const pendingSkillId = ref<string | null>(null);
 const { hideFilePanel } = useFilePanel();
 const { currentUser } = useAuth();
 const { isLeftPanelShow } = useLeftPanel();
@@ -257,9 +258,14 @@ const handleClickOutside = (event: MouseEvent) => {
   }
 };
 
-// Handle insert message event from settings
-const handleInsertMessage = (event: CustomEvent<{ message: string }>) => {
-  message.value = event.detail.message;
+// Handle insert message event from settings (e.g., "Build with Pythinker" button)
+const handleInsertMessage = (event: Event) => {
+  const detail = (event as CustomEvent<{ message: string; skillId?: string }>).detail;
+  message.value = detail.message;
+  // Store skillId for session creation (forwarded via history.state)
+  if (detail.skillId) {
+    pendingSkillId.value = detail.skillId;
+  }
 };
 
 onMounted(() => {
@@ -316,6 +322,12 @@ const createSessionWithMode = async (mode: AgentMode, initialMessage?: string) =
 };
 
 const handleSubmit = async (skillIds: string[] = []) => {
+  // Merge pending skill from "Build with Pythinker" button if present
+  if (pendingSkillId.value && !skillIds.includes(pendingSkillId.value)) {
+    skillIds = [...skillIds, pendingSkillId.value];
+  }
+  pendingSkillId.value = null;
+
   const trimmedMessage = message.value.trim();
   if ((trimmedMessage || skillIds.includes('skill-creator')) && !isSubmitting.value) {
     isSubmitting.value = true;

@@ -64,24 +64,24 @@
               <span class="item-desc">Build great skills through conversation</span>
             </div>
           </button>
-          <button class="add-dropdown-item" @click="showCreatorDialog = true; showAddDropdown = false">
+          <button class="add-dropdown-item add-dropdown-item-disabled" disabled>
             <Upload class="w-5 h-5" />
             <div class="item-text">
-              <span class="item-title">Upload a skill</span>
+              <span class="item-title">Upload a skill <span class="coming-soon">(coming soon)</span></span>
               <span class="item-desc">Upload .zip, .skill, or folder</span>
             </div>
           </button>
-          <button class="add-dropdown-item" @click="showCreatorDialog = true; showAddDropdown = false">
+          <button class="add-dropdown-item add-dropdown-item-disabled" disabled>
             <ShieldCheck class="w-5 h-5" />
             <div class="item-text">
-              <span class="item-title">Add from official</span>
+              <span class="item-title">Add from official <span class="coming-soon">(coming soon)</span></span>
               <span class="item-desc">Pre-built skills maintained by Pythinker</span>
             </div>
           </button>
-          <button class="add-dropdown-item" @click="showCreatorDialog = true; showAddDropdown = false">
+          <button class="add-dropdown-item add-dropdown-item-disabled" disabled>
             <Github class="w-5 h-5" />
             <div class="item-text">
-              <span class="item-title">Import from GitHub</span>
+              <span class="item-title">Import from GitHub <span class="coming-soon">(coming soon)</span></span>
               <span class="item-desc">Paste a repository link to get started</span>
             </div>
           </button>
@@ -977,8 +977,19 @@ function onSkillUpdated(_skill: Skill) {
   transition: background 0.15s;
 }
 
-.add-dropdown-item:hover {
+.add-dropdown-item:hover:not(:disabled) {
   background: #f7f7f7;
+}
+
+.add-dropdown-item-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.coming-soon {
+  font-size: 11px;
+  font-weight: 400;
+  color: #999;
 }
 
 .add-dropdown-item + .add-dropdown-item {

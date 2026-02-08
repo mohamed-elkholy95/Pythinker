@@ -1116,6 +1116,11 @@ async def install_skill_from_package(
 
     created_skill = await skill_service.create_skill(skill)
 
+    # Invalidate caches so the new skill is immediately available
+    from app.domain.services.skill_registry import invalidate_skill_caches
+
+    await invalidate_skill_caches(skill_id)
+
     # Update package with skill_id reference
     await packages_collection.update_one(
         {"id": package_id},

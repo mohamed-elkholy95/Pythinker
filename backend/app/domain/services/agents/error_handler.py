@@ -13,7 +13,7 @@ import logging
 import secrets
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, TypeVar
 
@@ -56,6 +56,37 @@ class ErrorType(str, Enum):
     BROWSER_TIMEOUT = "browser_timeout"
     UNKNOWN = "unknown"
 
+    @property
+    def is_recoverable(self) -> bool:
+        """Whether this error type is generally recoverable with retry."""
+        return self in _RECOVERABLE_ERRORS
+
+    @property
+    def is_fatal(self) -> bool:
+        """Whether this error type should stop execution immediately."""
+        return self in _FATAL_ERRORS
+
+
+# Recoverable: transient issues that typically resolve on retry
+_RECOVERABLE_ERRORS = {
+    ErrorType.TIMEOUT,
+    ErrorType.BROWSER_TIMEOUT,
+    ErrorType.BROWSER_CONNECTION,
+    ErrorType.MCP_CONNECTION,
+    ErrorType.LLM_API,
+    ErrorType.LLM_EMPTY_RESPONSE,
+    ErrorType.JSON_PARSE,
+    ErrorType.TOOL_EXECUTION,
+    ErrorType.BROWSER_NAVIGATION,
+    ErrorType.BROWSER_ELEMENT_NOT_FOUND,
+}
+
+# Fatal: cannot be resolved by simple retry
+_FATAL_ERRORS = {
+    ErrorType.TOKEN_LIMIT,
+    ErrorType.STUCK_LOOP,
+}
+
 
 @dataclass
 class ErrorContext:
@@ -67,7 +98,7 @@ class ErrorContext:
     recoverable: bool = True
     recovery_strategy: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=lambda: datetime.now(tz=timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
     retry_count: int = 0
     max_retries: int = 3
     # Backoff configuration

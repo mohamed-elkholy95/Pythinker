@@ -1,5 +1,9 @@
 """Tree-of-Thoughts Flow for multi-path exploration.
 
+.. deprecated::
+    TreeOfThoughtsFlow is experimental and not used in production.
+    Use PlanActFlow via FlowMode.PLAN_ACT instead.
+
 This flow enables exploration of multiple solution strategies for complex tasks,
 implementing the Tree-of-Thoughts pattern:
 

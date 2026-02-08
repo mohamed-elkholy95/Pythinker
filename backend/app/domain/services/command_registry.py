@@ -118,6 +118,13 @@ SUPERPOWERS_COMMANDS: list[CommandMapping] = [
         description="Create new skills following best practices",
         aliases=["create-skill", "new-skill"],
     ),
+    # Skill creation via guided conversation
+    CommandMapping(
+        command="skill-creator",
+        skill_id="skill-creator",
+        description="Create new skills through guided conversation with the agent",
+        aliases=["build-skill"],
+    ),
 ]
 
 

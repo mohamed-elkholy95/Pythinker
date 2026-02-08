@@ -119,264 +119,23 @@
       <div v-if="isActive" class="activity-indicator"></div>
     </div>
 
-    <!-- Generic/MCP view -->
-    <div v-else-if="currentViewType === 'generic'" class="content-preview generic-preview">
-      <div class="generic-window">
-        <div class="generic-header">
-          <Wrench :size="10" class="generic-header-icon" />
-          <span class="generic-title">{{ toolFunction || toolName || 'Tool' }}</span>
+    <!-- Summary streaming preview -->
+    <div v-else-if="isSummaryStreaming" class="content-preview streaming-preview">
+      <div class="streaming-mini-window">
+        <div class="streaming-mini-header">
+          <span class="streaming-mini-title">Composing report</span>
         </div>
-        <div class="generic-body">
-          <div class="generic-accent"></div>
-          <div class="generic-content-area">
-            <div v-if="genericResult" class="generic-result-mini">
-              <pre class="preview-text">{{ truncate(genericResultText, 100) }}</pre>
-            </div>
-            <div v-else-if="isActive" class="generic-loading">
-              <Loader2 :size="14" class="loading-spinner" />
-              <span class="loading-text">Executing...</span>
-            </div>
-            <div v-else class="generic-empty">
-              <component :is="toolIcon" class="empty-icon" />
-            </div>
+        <div class="streaming-mini-body">
+          <div class="streaming-mini-lines">
+            <div class="streaming-line" v-for="n in 5" :key="n" :style="{ animationDelay: `${n * 0.15}s`, width: `${60 + (n * 7)}%` }"></div>
           </div>
         </div>
       </div>
-      <div v-if="isActive" class="activity-indicator"></div>
+      <div class="activity-indicator"></div>
     </div>
 
-    <!-- Git view -->
-    <div v-else-if="currentViewType === 'git'" class="content-preview git-preview">
-      <div class="tool-card-window">
-        <div class="tool-card-header git-header">
-          <GitBranch :size="10" class="tool-card-header-icon" />
-          <span class="tool-card-title">{{ gitOperationLabel }}</span>
-        </div>
-        <div class="tool-card-body">
-          <div class="tool-card-accent git-accent"></div>
-          <div class="tool-card-content-area">
-            <div v-if="gitInfo?.branch" class="git-branch-badge">
-              <GitBranch :size="8" />
-              <span>{{ truncate(gitInfo.branch, 15) }}</span>
-            </div>
-            <div v-if="contentPreview" class="git-output">
-              <pre class="preview-text terminal-text">{{ truncate(contentPreview, 80) }}</pre>
-            </div>
-            <div v-else-if="isActive" class="tool-card-loading">
-              <Loader2 :size="14" class="loading-spinner" />
-              <span class="loading-text">{{ gitOperationLabel }}...</span>
-            </div>
-            <div v-else class="tool-card-empty">
-              <GitBranch :size="16" class="empty-icon" />
-            </div>
-          </div>
-        </div>
-      </div>
-      <div v-if="isActive" class="activity-indicator"></div>
-    </div>
-
-    <!-- Test runner view -->
-    <div v-else-if="currentViewType === 'test'" class="content-preview test-preview">
-      <div class="tool-card-window">
-        <div class="tool-card-header test-header">
-          <TestTube :size="10" class="tool-card-header-icon" />
-          <span class="tool-card-title">Tests</span>
-        </div>
-        <div class="tool-card-body">
-          <div class="tool-card-accent test-accent"></div>
-          <div class="tool-card-content-area">
-            <div v-if="testResults" class="test-results-mini">
-              <div class="test-stat passed">
-                <CheckCircle :size="10" />
-                <span>{{ testResults.passed || 0 }}</span>
-              </div>
-              <div class="test-stat failed">
-                <XCircle :size="10" />
-                <span>{{ testResults.failed || 0 }}</span>
-              </div>
-              <div v-if="testResults.skipped" class="test-stat skipped">
-                <AlertCircle :size="10" />
-                <span>{{ testResults.skipped }}</span>
-              </div>
-            </div>
-            <div v-else-if="isActive" class="tool-card-loading">
-              <Loader2 :size="14" class="loading-spinner" />
-              <span class="loading-text">Running tests...</span>
-            </div>
-            <div v-else class="tool-card-empty">
-              <TestTube :size="16" class="empty-icon" />
-            </div>
-          </div>
-        </div>
-      </div>
-      <div v-if="isActive" class="activity-indicator"></div>
-    </div>
-
-    <!-- Skill view -->
-    <div v-else-if="currentViewType === 'skill'" class="content-preview skill-preview">
-      <div class="tool-card-window">
-        <div class="tool-card-header skill-header">
-          <Wand2 :size="10" class="tool-card-header-icon" />
-          <span class="tool-card-title">{{ skillInfo?.name || 'Skill' }}</span>
-        </div>
-        <div class="tool-card-body">
-          <div class="tool-card-accent skill-accent"></div>
-          <div class="tool-card-content-area">
-            <div v-if="skillInfo?.status" class="skill-status">
-              <Wand2 :size="14" class="skill-icon" />
-              <span class="skill-status-text">{{ skillInfo.status }}</span>
-            </div>
-            <div v-else-if="isActive" class="tool-card-loading">
-              <Loader2 :size="14" class="loading-spinner" />
-              <span class="loading-text">Loading skill...</span>
-            </div>
-            <div v-else class="tool-card-empty">
-              <Wand2 :size="16" class="empty-icon" />
-            </div>
-          </div>
-        </div>
-      </div>
-      <div v-if="isActive" class="activity-indicator"></div>
-    </div>
-
-    <!-- Export view -->
-    <div v-else-if="currentViewType === 'export'" class="content-preview export-preview">
-      <div class="tool-card-window">
-        <div class="tool-card-header export-header">
-          <Download :size="10" class="tool-card-header-icon" />
-          <span class="tool-card-title">Export</span>
-        </div>
-        <div class="tool-card-body">
-          <div class="tool-card-accent export-accent"></div>
-          <div class="tool-card-content-area">
-            <div v-if="exportInfo?.filename" class="export-info">
-              <Download :size="14" class="export-icon" />
-              <span class="export-filename">{{ truncate(exportInfo.filename, 20) }}</span>
-              <span v-if="exportInfo.format" class="export-format">.{{ exportInfo.format }}</span>
-            </div>
-            <div v-else-if="isActive" class="tool-card-loading">
-              <Loader2 :size="14" class="loading-spinner" />
-              <span class="loading-text">Exporting...</span>
-            </div>
-            <div v-else class="tool-card-empty">
-              <Download :size="16" class="empty-icon" />
-            </div>
-          </div>
-        </div>
-      </div>
-      <div v-if="isActive" class="activity-indicator"></div>
-    </div>
-
-    <!-- Slides view -->
-    <div v-else-if="currentViewType === 'slides'" class="content-preview slides-preview">
-      <div class="tool-card-window">
-        <div class="tool-card-header slides-header">
-          <Presentation :size="10" class="tool-card-header-icon" />
-          <span class="tool-card-title">{{ slidesInfo?.title || 'Slides' }}</span>
-        </div>
-        <div class="tool-card-body">
-          <div class="tool-card-accent slides-accent"></div>
-          <div class="tool-card-content-area">
-            <div v-if="slidesInfo?.count" class="slides-info">
-              <Presentation :size="14" class="slides-icon" />
-              <span class="slides-count">{{ slidesInfo.count }} slides</span>
-            </div>
-            <div v-else-if="isActive" class="tool-card-loading">
-              <Loader2 :size="14" class="loading-spinner" />
-              <span class="loading-text">Creating slides...</span>
-            </div>
-            <div v-else class="tool-card-empty">
-              <Presentation :size="16" class="empty-icon" />
-            </div>
-          </div>
-        </div>
-      </div>
-      <div v-if="isActive" class="activity-indicator"></div>
-    </div>
-
-    <!-- Workspace view -->
-    <div v-else-if="currentViewType === 'workspace'" class="content-preview workspace-preview">
-      <div class="tool-card-window">
-        <div class="tool-card-header workspace-header">
-          <FolderTree :size="10" class="tool-card-header-icon" />
-          <span class="tool-card-title">{{ workspaceInfo?.type || 'Workspace' }}</span>
-        </div>
-        <div class="tool-card-body">
-          <div class="tool-card-accent workspace-accent"></div>
-          <div class="tool-card-content-area">
-            <div v-if="workspaceInfo?.filesCount" class="workspace-info">
-              <FolderTree :size="14" class="workspace-icon" />
-              <span class="workspace-count">{{ workspaceInfo.filesCount }} files</span>
-            </div>
-            <div v-else-if="isActive" class="tool-card-loading">
-              <Loader2 :size="14" class="loading-spinner" />
-              <span class="loading-text">Organizing...</span>
-            </div>
-            <div v-else class="tool-card-empty">
-              <FolderTree :size="16" class="empty-icon" />
-            </div>
-          </div>
-        </div>
-      </div>
-      <div v-if="isActive" class="activity-indicator"></div>
-    </div>
-
-    <!-- Schedule view -->
-    <div v-else-if="currentViewType === 'schedule'" class="content-preview schedule-preview">
-      <div class="tool-card-window">
-        <div class="tool-card-header schedule-header">
-          <Calendar :size="10" class="tool-card-header-icon" />
-          <span class="tool-card-title">Schedule</span>
-        </div>
-        <div class="tool-card-body">
-          <div class="tool-card-accent schedule-accent"></div>
-          <div class="tool-card-content-area">
-            <div v-if="scheduleInfo?.time" class="schedule-info">
-              <Calendar :size="14" class="schedule-icon" />
-              <span class="schedule-time">{{ scheduleInfo.time }}</span>
-            </div>
-            <div v-else-if="isActive" class="tool-card-loading">
-              <Loader2 :size="14" class="loading-spinner" />
-              <span class="loading-text">Scheduling...</span>
-            </div>
-            <div v-else class="tool-card-empty">
-              <Calendar :size="16" class="empty-icon" />
-            </div>
-          </div>
-        </div>
-      </div>
-      <div v-if="isActive" class="activity-indicator"></div>
-    </div>
-
-    <!-- Scan/Analyzer view -->
-    <div v-else-if="currentViewType === 'scan'" class="content-preview scan-preview">
-      <div class="tool-card-window">
-        <div class="tool-card-header scan-header">
-          <Scan :size="10" class="tool-card-header-icon" />
-          <span class="tool-card-title">{{ scanInfo?.type || 'Analysis' }}</span>
-        </div>
-        <div class="tool-card-body">
-          <div class="tool-card-accent scan-accent"></div>
-          <div class="tool-card-content-area">
-            <div v-if="scanInfo?.findingsCount !== undefined" class="scan-info">
-              <Scan :size="14" class="scan-icon" />
-              <span class="scan-count">{{ scanInfo.findingsCount }} findings</span>
-            </div>
-            <div v-else-if="isActive" class="tool-card-loading">
-              <Loader2 :size="14" class="loading-spinner" />
-              <span class="loading-text">Analyzing...</span>
-            </div>
-            <div v-else class="tool-card-empty">
-              <Scan :size="16" class="empty-icon" />
-            </div>
-          </div>
-        </div>
-      </div>
-      <div v-if="isActive" class="activity-indicator"></div>
-    </div>
-
-    <!-- VNC view (browser, browser_agent, browsing) -->
-    <div v-else-if="currentViewType === 'vnc' && sessionId && enabled" class="vnc-container">
+    <!-- VNC view (catch-all for any active session) -->
+    <div v-else-if="sessionId && enabled" class="vnc-container">
       <VNCViewer
         :session-id="sessionId"
         :enabled="enabled"
@@ -402,7 +161,7 @@
 
 <script setup lang="ts">
 import { computed, toRef } from 'vue';
-import { Monitor, Terminal, FileText, Globe, Code, Wrench, Search, Loader2, GitBranch, TestTube, Wand2, Download, Presentation, FolderTree, Calendar, Scan, CheckCircle, XCircle, AlertCircle } from 'lucide-vue-next';
+import { Monitor, Terminal, FileText, Globe, Code, Wrench, Search, GitBranch, TestTube, Wand2, Download, Presentation, FolderTree, Calendar, Scan } from 'lucide-vue-next';
 import VNCViewer from '@/components/VNCViewer.vue';
 import WideResearchMiniPreview from '@/components/WideResearchMiniPreview.vue';
 import { useContentConfig } from '@/composables/useContentConfig';
@@ -426,26 +185,10 @@ const props = withDefaults(defineProps<{
   searchResults?: Array<{ title?: string; name?: string; url?: string; link?: string; snippet?: string }>;
   /** Search query for search/info tools */
   searchQuery?: string;
-  /** Generic result for MCP/generic tools */
-  genericResult?: unknown;
   /** Full tool content for content config */
   toolContent?: ToolContent;
-  /** Git operation info */
-  gitInfo?: { operation?: string; branch?: string; output?: string };
-  /** Test results */
-  testResults?: { total?: number; passed?: number; failed?: number; skipped?: number };
-  /** Skill info */
-  skillInfo?: { name?: string; status?: string };
-  /** Export info */
-  exportInfo?: { format?: string; filename?: string };
-  /** Slides info */
-  slidesInfo?: { title?: string; count?: number };
-  /** Workspace info */
-  workspaceInfo?: { type?: string; filesCount?: number };
-  /** Schedule info */
-  scheduleInfo?: { time?: string; status?: string };
-  /** Scan info */
-  scanInfo?: { type?: string; findingsCount?: number };
+  /** Whether summary is currently streaming */
+  isSummaryStreaming?: boolean;
 }>(), {
   enabled: true,
   size: 'md',
@@ -457,16 +200,8 @@ const props = withDefaults(defineProps<{
   isInitializing: false,
   searchResults: () => [],
   searchQuery: '',
-  genericResult: undefined,
   toolContent: undefined,
-  gitInfo: undefined,
-  testResults: undefined,
-  skillInfo: undefined,
-  exportInfo: undefined,
-  slidesInfo: undefined,
-  workspaceInfo: undefined,
-  scheduleInfo: undefined,
-  scanInfo: undefined
+  isSummaryStreaming: false
 });
 
 const emit = defineEmits<{
@@ -481,7 +216,7 @@ const effectiveToolContent = computed<ToolContent | undefined>(() => {
     name: props.toolName,
     function: props.toolFunction,
     args: {},
-    content: props.genericResult,
+    content: undefined,
     status: props.isActive ? 'calling' : 'completed'
   } as ToolContent;
 });
@@ -504,17 +239,6 @@ const truncate = (text: string, maxLength: number): string => {
   if (!text) return '';
   return text.length > maxLength ? text.slice(0, maxLength - 3) + '...' : text;
 };
-
-// Convert generic result to displayable text
-const genericResultText = computed(() => {
-  if (!props.genericResult) return '';
-  if (typeof props.genericResult === 'string') return props.genericResult;
-  try {
-    return JSON.stringify(props.genericResult, null, 2);
-  } catch {
-    return String(props.genericResult);
-  }
-});
 
 // Get favicon URL for a given link using Google's favicon service
 const getFavicon = (link: string): string => {
@@ -568,17 +292,6 @@ const styledTerminalContent = computed(() => {
   );
 
   return styled;
-});
-
-// Git operation label
-const gitOperationLabel = computed(() => {
-  const func = props.toolFunction || '';
-  if (func.includes('clone')) return 'Cloning';
-  if (func.includes('status')) return 'Status';
-  if (func.includes('diff')) return 'Diff';
-  if (func.includes('log')) return 'Log';
-  if (func.includes('branch')) return 'Branches';
-  return 'Git';
 });
 
 // Get appropriate icon for fallback
@@ -898,108 +611,6 @@ const sizeClass = computed(() => {
   color: var(--bolt-elements-textTertiary);
 }
 
-/* ===== Generic/MCP Preview ===== */
-.generic-preview {
-  background: var(--bolt-elements-bg-depth-1);
-}
-
-.generic-window {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: var(--bolt-elements-bg-depth-1);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.generic-header {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 4px 8px;
-  background: var(--bolt-elements-bg-depth-2);
-  border-bottom: 1px solid var(--bolt-elements-borderColor);
-  flex-shrink: 0;
-}
-
-.generic-header-icon {
-  color: #8b5cf6;
-  flex-shrink: 0;
-}
-
-.generic-title {
-  font-size: 7px;
-  font-weight: 500;
-  color: var(--bolt-elements-textPrimary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 80%;
-}
-
-.generic-body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.generic-accent {
-  width: 2px;
-  background: linear-gradient(180deg, #8b5cf6 0%, #7c3aed 100%);
-  flex-shrink: 0;
-}
-
-.generic-content-area {
-  flex: 1;
-  padding: 4px 6px;
-  overflow: hidden;
-  background: var(--bolt-elements-bg-depth-1);
-}
-
-.generic-result-mini {
-  height: 100%;
-  overflow: hidden;
-}
-
-.generic-result-mini .preview-text {
-  font-size: 5px;
-  line-height: 1.2;
-}
-
-.generic-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  gap: 4px;
-}
-
-.loading-spinner {
-  color: #8b5cf6;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.generic-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-}
-
-.empty-icon {
-  width: 16px;
-  height: 16px;
-  color: var(--bolt-elements-textTertiary);
-}
-
 /* Decorated terminal window */
 .terminal-window {
   display: flex;
@@ -1099,6 +710,56 @@ const sizeClass = computed(() => {
   background: #3b82f6;
   border-radius: 50%;
   animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* Streaming mini preview */
+.streaming-preview {
+  background: var(--bolt-elements-bg-depth-1);
+}
+
+.streaming-mini-window {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.streaming-mini-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  background: var(--bolt-elements-bg-depth-2);
+  border-bottom: 1px solid var(--bolt-elements-borderColor);
+  flex-shrink: 0;
+}
+
+.streaming-mini-title {
+  font-size: 7px;
+  font-weight: 500;
+  color: var(--bolt-elements-textPrimary);
+}
+
+.streaming-mini-body {
+  flex: 1;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.streaming-line {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--bolt-elements-borderColor);
+  animation: line-appear 0.6s ease-out both;
+}
+
+@keyframes line-appear {
+  from { width: 0; opacity: 0; }
+  to { opacity: 0.6; }
 }
 
 /* Tool Preview (fallback) */
@@ -1286,8 +947,6 @@ const sizeClass = computed(() => {
   pointer-events: none;
 }
 
-/* Dark mode for init state - only animation-specific overrides */
-
 /* Hover overlay */
 .hover-overlay {
   position: absolute;
@@ -1313,239 +972,4 @@ const sizeClass = computed(() => {
   height: 20px;
   color: white;
 }
-
-/* Dark mode - handled by CSS variables, only accent overrides needed */
-
-/* ===== Unified Tool Card Styles (for git, test, skill, export, slides, workspace, schedule, scan) ===== */
-.tool-card-window {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: var(--bolt-elements-bg-depth-1);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.tool-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--bolt-elements-borderColor);
-  flex-shrink: 0;
-}
-
-.tool-card-header-icon {
-  flex-shrink: 0;
-}
-
-.tool-card-title {
-  font-size: 7px;
-  font-weight: 500;
-  color: var(--bolt-elements-textPrimary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 80%;
-}
-
-.tool-card-body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.tool-card-accent {
-  width: 2px;
-  flex-shrink: 0;
-}
-
-.tool-card-content-area {
-  flex: 1;
-  padding: 4px 6px;
-  overflow: hidden;
-  background: var(--bolt-elements-bg-depth-1);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-}
-
-.tool-card-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  gap: 4px;
-}
-
-.tool-card-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-}
-
-/* Git preview */
-.git-preview { background: var(--bolt-elements-bg-depth-1); }
-.git-header { background: #fef3c7; }
-.git-header .tool-card-header-icon { color: #d97706; }
-.git-accent { background: linear-gradient(180deg, #f59e0b 0%, #d97706 100%); }
-
-.git-branch-badge {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  padding: 2px 6px;
-  background: var(--fill-tsp-white-main);
-  border-radius: 4px;
-  font-size: 6px;
-  color: var(--bolt-elements-textSecondary);
-}
-
-.git-output {
-  width: 100%;
-  overflow: hidden;
-}
-
-.git-output .preview-text {
-  font-size: 5px;
-  line-height: 1.2;
-}
-
-/* Test preview */
-.test-preview { background: var(--bolt-elements-bg-depth-1); }
-.test-header { background: #ecfdf5; }
-.test-header .tool-card-header-icon { color: #059669; }
-.test-accent { background: linear-gradient(180deg, #10b981 0%, #059669 100%); }
-
-.test-results-mini {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.test-stat {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  font-size: 8px;
-  font-weight: 600;
-}
-
-.test-stat.passed { color: #059669; }
-.test-stat.failed { color: #dc2626; }
-.test-stat.skipped { color: var(--bolt-elements-textTertiary); }
-
-/* Skill preview */
-.skill-preview { background: var(--bolt-elements-bg-depth-1); }
-.skill-header { background: #faf5ff; }
-.skill-header .tool-card-header-icon { color: #7c3aed; }
-.skill-accent { background: linear-gradient(180deg, #8b5cf6 0%, #7c3aed 100%); }
-
-.skill-status {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-
-.skill-icon { color: #7c3aed; }
-.skill-status-text { font-size: 7px; color: var(--bolt-elements-textSecondary); }
-
-/* Export preview */
-.export-preview { background: var(--bolt-elements-bg-depth-1); }
-.export-header { background: #eff6ff; }
-.export-header .tool-card-header-icon { color: #2563eb; }
-.export-accent { background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%); }
-
-.export-info {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-}
-
-.export-icon { color: #2563eb; }
-.export-filename { font-size: 7px; color: var(--bolt-elements-textPrimary); }
-.export-format { font-size: 6px; color: var(--bolt-elements-textTertiary); }
-
-/* Slides preview */
-.slides-preview { background: var(--bolt-elements-bg-depth-1); }
-.slides-header { background: #fff7ed; }
-.slides-header .tool-card-header-icon { color: #ea580c; }
-.slides-accent { background: linear-gradient(180deg, #f97316 0%, #ea580c 100%); }
-
-.slides-info {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-}
-
-.slides-icon { color: #ea580c; }
-.slides-count { font-size: 7px; color: var(--bolt-elements-textPrimary); }
-
-/* Workspace preview */
-.workspace-preview { background: var(--bolt-elements-bg-depth-1); }
-.workspace-header { background: #f0fdf4; }
-.workspace-header .tool-card-header-icon { color: #16a34a; }
-.workspace-accent { background: linear-gradient(180deg, #22c55e 0%, #16a34a 100%); }
-
-.workspace-info {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-}
-
-.workspace-icon { color: #16a34a; }
-.workspace-count { font-size: 7px; color: var(--bolt-elements-textPrimary); }
-
-/* Schedule preview */
-.schedule-preview { background: var(--bolt-elements-bg-depth-1); }
-.schedule-header { background: #fdf4ff; }
-.schedule-header .tool-card-header-icon { color: #c026d3; }
-.schedule-accent { background: linear-gradient(180deg, #d946ef 0%, #c026d3 100%); }
-
-.schedule-info {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-}
-
-.schedule-icon { color: #c026d3; }
-.schedule-time { font-size: 7px; color: var(--bolt-elements-textPrimary); }
-
-/* Scan preview */
-.scan-preview { background: var(--bolt-elements-bg-depth-1); }
-.scan-header { background: #fef2f2; }
-.scan-header .tool-card-header-icon { color: #dc2626; }
-.scan-accent { background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%); }
-
-.scan-info {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-}
-
-.scan-icon { color: #dc2626; }
-.scan-count { font-size: 7px; color: var(--bolt-elements-textPrimary); }
-
-/* Dark mode for tool card accent headers */
-:global(.dark) .git-header { background: rgba(217, 119, 6, 0.15); }
-:global(.dark) .test-header { background: rgba(5, 150, 105, 0.15); }
-:global(.dark) .skill-header { background: rgba(124, 58, 237, 0.15); }
-:global(.dark) .export-header { background: rgba(37, 99, 235, 0.15); }
-:global(.dark) .slides-header { background: rgba(234, 88, 12, 0.15); }
-:global(.dark) .workspace-header { background: rgba(22, 163, 74, 0.15); }
-:global(.dark) .schedule-header { background: rgba(192, 38, 211, 0.15); }
-:global(.dark) .scan-header { background: rgba(220, 38, 38, 0.15); }
-
 </style>

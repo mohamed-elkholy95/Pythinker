@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from pydantic import TypeAdapter
 
-from app.core.config import get_settings
+from app.core.config import FlowMode, get_settings
 from app.domain.external.browser import Browser
 from app.domain.external.file import FileStorage
 from app.domain.external.llm import LLM
@@ -19,9 +19,11 @@ from app.domain.models.event import (
     BaseEvent,
     BrowserAgentToolContent,
     BrowserToolContent,
+    CanvasToolContent,
     DoneEvent,
     ErrorEvent,
     FileToolContent,
+    FlowSelectionEvent,
     McpToolContent,
     MessageEvent,
     ModeChangeEvent,
@@ -42,6 +44,7 @@ from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.mcp_repository import MCPRepository
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.agents.usage_context import UsageContextManager
+from app.domain.services.flows.base import BaseFlow
 from app.domain.services.flows.discuss import DiscussFlow
 from app.domain.services.flows.plan_act import PlanActFlow
 from app.domain.services.langgraph import LangGraphPlanActFlow
@@ -68,6 +71,28 @@ logger = logging.getLogger(__name__)
 # Type alias for events that contain attachments requiring storage sync
 # Both MessageEvent and ReportEvent have an 'attachments' field of type Optional[List[FileInfo]]
 EventWithAttachments = MessageEvent | ReportEvent
+
+# File sweep constants — extensions worth delivering to users
+DELIVERABLE_EXTENSIONS = {
+    # Documents
+    ".md", ".txt", ".pdf", ".docx", ".doc", ".rtf", ".csv", ".tsv",
+    # Code
+    ".py", ".js", ".ts", ".jsx", ".tsx", ".html", ".css", ".scss",
+    ".java", ".go", ".rs", ".c", ".cpp", ".h", ".rb", ".php",
+    ".swift", ".kt", ".scala", ".sh", ".bash", ".zsh",
+    # Data
+    ".json", ".yaml", ".yml", ".xml", ".toml", ".ini", ".cfg", ".env",
+    # Images
+    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico",
+    # Other
+    ".sql", ".graphql", ".proto", ".dockerfile", ".makefile",
+}
+SKIP_DIRECTORIES = {
+    "node_modules", ".git", "__pycache__", ".venv", "venv",
+    ".cache", ".npm", ".local", ".config", "snap",
+}
+MAX_SYNC_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+MAX_SWEEP_FILES = 50
 
 
 class AgentTaskRunner(TaskRunner):
@@ -98,6 +123,7 @@ class AgentTaskRunner(TaskRunner):
         enable_coordinator: bool = False,
         memory_service: Optional["MemoryService"] = None,
         use_langgraph_flow: bool = False,
+        flow_mode: FlowMode = FlowMode.PLAN_ACT,
         mongodb_db: Any | None = None,  # MongoDB database for LangGraph checkpointing
         agent_factory: Optional["ManusAgentFactory"] = None,
         usage_recorder: Callable[..., Coroutine[Any, Any, None]] | None = None,
@@ -122,10 +148,20 @@ class AgentTaskRunner(TaskRunner):
 
         # Multi-agent configuration
         self._enable_multi_agent = enable_multi_agent
-        self._enable_coordinator = enable_coordinator
 
-        # LangGraph flow configuration
-        self._use_langgraph_flow = use_langgraph_flow
+        # Unified flow mode (resolves legacy booleans)
+        if flow_mode != FlowMode.PLAN_ACT:
+            self._flow_mode = flow_mode
+        elif enable_coordinator:
+            self._flow_mode = FlowMode.COORDINATOR
+        elif use_langgraph_flow:
+            self._flow_mode = FlowMode.LANGGRAPH
+        else:
+            self._flow_mode = FlowMode.PLAN_ACT
+
+        # Legacy compat
+        self._enable_coordinator = self._flow_mode == FlowMode.COORDINATOR
+        self._use_langgraph_flow = self._flow_mode == FlowMode.LANGGRAPH
 
         # Memory service for long-term context (Phase 6: Qdrant integration)
         self._memory_service = memory_service
@@ -162,14 +198,19 @@ class AgentTaskRunner(TaskRunner):
         self._coordinator_flow: CoordinatorFlow | None = None
 
         if mode == AgentMode.AGENT:
-            if enable_coordinator:
+            if self._flow_mode == FlowMode.COORDINATOR:
                 self._init_coordinator_flow()
-            elif use_langgraph_flow:
+            elif self._flow_mode == FlowMode.LANGGRAPH:
                 self._init_langgraph_flow()
             else:
                 self._init_plan_act_flow()
         else:
             self._init_discuss_flow()
+
+        logger.info(
+            "Flow selected: mode=%s, flow=%s, session=%s",
+            mode.value, self._flow_mode.value, session_id,
+        )
 
     def _fire_and_forget(self, coro: object) -> None:
         """Create a fire-and-forget task with proper reference tracking."""
@@ -199,6 +240,7 @@ class AgentTaskRunner(TaskRunner):
                 parallel_max_concurrency=settings.parallel_max_concurrency,
                 memory_service=self._memory_service,
                 user_id=self._user_id,
+                file_sweep_callback=self._sweep_workspace_files,
             )
             logger.debug(
                 f"Initialized PlanActFlow for agent {self._agent_id} "
@@ -317,9 +359,9 @@ class AgentTaskRunner(TaskRunner):
         self._mode = AgentMode.AGENT
 
         # Initialize appropriate flow based on configuration
-        if self._enable_coordinator:
+        if self._flow_mode == FlowMode.COORDINATOR:
             self._init_coordinator_flow()
-        elif self._use_langgraph_flow:
+        elif self._flow_mode == FlowMode.LANGGRAPH:
             self._init_langgraph_flow()
         else:
             self._init_plan_act_flow()
@@ -327,14 +369,12 @@ class AgentTaskRunner(TaskRunner):
         await self._session_repository.update_mode(self._session_id, AgentMode.AGENT)
 
     @property
-    def _flow(self):
-        """Get the current flow based on mode and configuration"""
+    def _flow(self) -> BaseFlow | None:
+        """Get the current flow based on mode and configuration."""
         if self._mode == AgentMode.AGENT:
-            # Prefer coordinator flow if enabled
-            if self._enable_coordinator and self._coordinator_flow:
+            if self._flow_mode == FlowMode.COORDINATOR and self._coordinator_flow:
                 return self._coordinator_flow
-            # Use LangGraph flow if enabled
-            if self._use_langgraph_flow and self._langgraph_flow:
+            if self._flow_mode == FlowMode.LANGGRAPH and self._langgraph_flow:
                 return self._langgraph_flow
             return self._plan_act_flow
         return self._discuss_flow
@@ -451,6 +491,79 @@ class AgentTaskRunner(TaskRunner):
                 return file_info
         except Exception as e:
             logger.exception(f"Agent {self._agent_id} failed to sync file: {e}")
+
+    async def _sweep_workspace_files(self) -> list[FileInfo]:
+        """
+        Discover and sync all deliverable files in the sandbox workspace.
+
+        Runs a find command in the sandbox to discover files with deliverable extensions,
+        then syncs any that are not already tracked in session.files.
+
+        Returns:
+            List of newly synced FileInfo objects.
+        """
+        try:
+            # Build find command: search /home/ubuntu, filter by extension, skip junk dirs, limit size
+            prune_clauses = " -o ".join(f'-name "{d}"' for d in sorted(SKIP_DIRECTORIES))
+            ext_clauses = " -o ".join(f'-name "*{ext}"' for ext in sorted(DELIVERABLE_EXTENSIONS))
+            find_cmd = (
+                f"find /home/ubuntu "
+                f"\\( {prune_clauses} \\) -prune -o "
+                f"\\( -type f \\( {ext_clauses} \\) "
+                f"-size -{MAX_SYNC_FILE_SIZE}c -print \\) "
+                f"2>/dev/null | head -n {MAX_SWEEP_FILES}"
+            )
+
+            result = await self._sandbox.exec_command("sweep", "/home/ubuntu", find_cmd)
+            if not result.success:
+                logger.warning(f"Agent {self._agent_id}: File sweep find command failed: {result.message}")
+                return []
+
+            output = (result.data or {}).get("output", "")
+            if not output or not output.strip():
+                logger.debug(f"Agent {self._agent_id}: File sweep found no files")
+                return []
+
+            discovered_paths = [p.strip() for p in output.strip().split("\n") if p.strip()]
+            if not discovered_paths:
+                return []
+
+            # Get already-tracked files
+            session = await self._session_repository.find_by_id(self._session_id)
+            existing_paths: set[str] = set()
+            if session and session.files:
+                for f in session.files:
+                    if f.file_path:
+                        existing_paths.add(f.file_path)
+
+            # Filter to only untracked files
+            new_paths = [p for p in discovered_paths if p not in existing_paths]
+            if not new_paths:
+                logger.debug(f"Agent {self._agent_id}: File sweep — all {len(discovered_paths)} files already tracked")
+                return []
+
+            logger.info(
+                f"Agent {self._agent_id}: File sweep found {len(new_paths)} untracked files "
+                f"(of {len(discovered_paths)} total)"
+            )
+
+            # Sync untracked files concurrently (capped)
+            sync_tasks = [self._sync_file_to_storage(p) for p in new_paths[:MAX_SWEEP_FILES]]
+            results = await asyncio.gather(*sync_tasks, return_exceptions=True)
+
+            synced: list[FileInfo] = []
+            for i, res in enumerate(results):
+                if isinstance(res, Exception):
+                    logger.warning(f"Agent {self._agent_id}: Failed to sweep-sync '{new_paths[i]}': {res}")
+                elif res is not None:
+                    synced.append(res)
+
+            logger.info(f"Agent {self._agent_id}: File sweep synced {len(synced)}/{len(new_paths)} files")
+            return synced
+
+        except Exception as e:
+            logger.exception(f"Agent {self._agent_id}: File sweep failed: {e}")
+            return []
 
     async def _sync_event_attachments_to_storage(self, event: EventWithAttachments) -> None:
         """
@@ -871,8 +984,8 @@ class AgentTaskRunner(TaskRunner):
                     if event.tool_content:
                         logger.debug(f"MCP tool_content.result: {event.tool_content.result}")
                         logger.debug(f"MCP tool_content dict: {event.tool_content.model_dump()}")
-                elif event.tool_name == "browser_agent":
-                    logger.debug(f"Processing browser_agent tool event: function_result={event.function_result}")
+                elif event.tool_name in ("browser_agent", "browsing"):
+                    logger.debug(f"Processing {event.tool_name} tool event: function_result={event.function_result}")
                     if event.function_result:
                         result_data = event.function_result.data if hasattr(event.function_result, "data") else {}
                         steps_taken = result_data.get("steps_taken", 0) if isinstance(result_data, dict) else 0
@@ -896,38 +1009,106 @@ class AgentTaskRunner(TaskRunner):
                     if event.function_result and hasattr(event.function_result, "data"):
                         data = event.function_result.data
                         if isinstance(data, dict):
-                            # Extract stdout/stderr for console display
-                            console_output = []
-                            if data.get("stdout"):
-                                console_output.append(data["stdout"])
-                            if data.get("stderr"):
-                                console_output.append(f"[stderr] {data['stderr']}")
-                            if data.get("exit_code") is not None:
-                                console_output.append(f"[exit code: {data['exit_code']}]")
-                            event.stdout = data.get("stdout")
-                            event.stderr = data.get("stderr")
-                            event.exit_code = data.get("exit_code")
-                            event.tool_content = ShellToolContent(
-                                console="\n".join(console_output) if console_output else "(No output)"
-                            )
+                            # Artifact operations should surface file content directly
+                            if event.function_name == "code_save_artifact":
+                                content = event.function_args.get("content")
+                                if isinstance(content, str):
+                                    event.tool_content = FileToolContent(content=content)
+                                else:
+                                    event.tool_content = FileToolContent(content="")
+                                artifact_path = data.get("path")
+                                if isinstance(artifact_path, str):
+                                    event.file_path = artifact_path
+                            elif event.function_name == "code_read_artifact":
+                                content = data.get("content")
+                                if isinstance(content, str):
+                                    event.tool_content = FileToolContent(content=content)
+                                else:
+                                    event.tool_content = FileToolContent(content="")
+                                artifact_name = data.get("filename")
+                                if isinstance(artifact_name, str):
+                                    event.file_path = artifact_name
+                            else:
+                                # Extract stdout/stderr for console display
+                                console_output = []
+                                if data.get("stdout"):
+                                    console_output.append(data["stdout"])
+                                if data.get("stderr"):
+                                    console_output.append(f"[stderr] {data['stderr']}")
+                                if data.get("exit_code") is not None:
+                                    console_output.append(f"[exit code: {data['exit_code']}]")
+                                event.stdout = data.get("stdout")
+                                event.stderr = data.get("stderr")
+                                event.exit_code = data.get("exit_code")
+                                event.tool_content = ShellToolContent(
+                                    console="\n".join(console_output) if console_output else "(No output)"
+                                )
 
-                            # Sync artifacts to session files
-                            artifacts = data.get("artifacts", [])
-                            if artifacts:
-                                sync_tasks = []
-                                for artifact in artifacts:
-                                    artifact_path = artifact.get("path") if isinstance(artifact, dict) else None
-                                    if artifact_path:
-                                        sync_tasks.append(self._sync_file_to_storage(artifact_path))
-                                if sync_tasks:
-                                    await asyncio.gather(*sync_tasks, return_exceptions=True)
-                                    logger.debug(
-                                        f"Agent {self._agent_id}: Synced {len(sync_tasks)} artifacts from code_executor"
-                                    )
+                                # Sync artifacts to session files
+                                artifacts = data.get("artifacts", [])
+                                if artifacts:
+                                    sync_tasks = []
+                                    for artifact in artifacts:
+                                        artifact_path = artifact.get("path") if isinstance(artifact, dict) else None
+                                        if artifact_path:
+                                            sync_tasks.append(self._sync_file_to_storage(artifact_path))
+                                    if sync_tasks:
+                                        await asyncio.gather(*sync_tasks, return_exceptions=True)
+                                        logger.debug(
+                                            f"Agent {self._agent_id}: Synced {len(sync_tasks)} artifacts from code_executor"
+                                        )
                         else:
                             event.tool_content = ShellToolContent(console=str(data) if data else "(No output)")
                     else:
                         event.tool_content = ShellToolContent(console="(No output)")
+                elif event.tool_name == "canvas":
+                    operation = event.function_name.replace("canvas_", "") if event.function_name else "unknown"
+                    project_id: str | None = None
+                    project_name: str | None = None
+                    element_count = 0
+                    image_urls: list[str] | None = None
+
+                    data: Any | None = None
+                    if event.function_result and hasattr(event.function_result, "data"):
+                        data = event.function_result.data
+
+                    if isinstance(data, dict):
+                        project_id = data.get("project_id") or data.get("id")
+                        project_name = data.get("project_name") or data.get("name")
+                        if isinstance(data.get("elements"), list):
+                            element_count = len(data["elements"])
+                        elif isinstance(data.get("element_count"), int):
+                            element_count = data["element_count"]
+                        else:
+                            pages = data.get("pages")
+                            if isinstance(pages, list):
+                                for page in pages:
+                                    if isinstance(page, dict):
+                                        elems = page.get("elements")
+                                        if isinstance(elems, list):
+                                            element_count += len(elems)
+                        if isinstance(data.get("image_url"), str):
+                            image_urls = [data["image_url"]]
+                        elif isinstance(data.get("image_urls"), list):
+                            image_urls = [str(url) for url in data["image_urls"]]
+
+                    if not project_id:
+                        arg_project_id = event.function_args.get("project_id")
+                        if isinstance(arg_project_id, str):
+                            project_id = arg_project_id
+
+                    if not project_name:
+                        arg_name = event.function_args.get("name")
+                        if isinstance(arg_name, str):
+                            project_name = arg_name
+
+                    event.tool_content = CanvasToolContent(
+                        operation=operation,
+                        project_id=project_id,
+                        project_name=project_name,
+                        element_count=element_count,
+                        image_urls=image_urls,
+                    )
                 elif event.tool_name == "wide_research":
                     # wide_research results are handled via WideResearchEvent and ReportEvent
                     logger.debug("Processing wide_research tool event")
@@ -981,6 +1162,14 @@ class AgentTaskRunner(TaskRunner):
                     await self._screenshot_service.start_periodic()
                 except Exception as e:
                     logger.debug(f"Screenshot capture init failed (non-critical): {e}")
+
+            # Emit flow selection telemetry
+            flow_event = FlowSelectionEvent(
+                flow_mode=self._flow_mode.value,
+                model=getattr(self._llm, "model", None),
+                session_id=self._session_id,
+            )
+            await self._put_and_add_event(task, flow_event)
 
             while not await task.input_stream.is_empty():
                 event = await self._pop_event(task)

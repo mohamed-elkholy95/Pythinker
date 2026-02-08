@@ -3,7 +3,7 @@ import io
 import logging
 import socket
 import uuid
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 import docker
 import httpx
@@ -38,6 +38,7 @@ class DockerSandbox(Sandbox):
         self._cdp_url = f"http://{self.ip}:9222"
         self._framework_url = f"http://{self.ip}:{settings.sandbox_framework_port}"
         self._container_name = container_name
+        self._background_tasks: set[asyncio.Task[Any]] = set()
 
     @property
     def client(self) -> httpx.AsyncClient:
@@ -54,7 +55,9 @@ class DockerSandbox(Sandbox):
                 try:
                     import asyncio
                     loop = asyncio.get_running_loop()
-                    loop.create_task(old.aclose())
+                    task = loop.create_task(old.aclose())
+                    self._background_tasks.add(task)
+                    task.add_done_callback(self._background_tasks.discard)
                 except RuntimeError:
                     pass
         return self._client
@@ -375,13 +378,13 @@ class DockerSandbox(Sandbox):
                 logger.info(f"Sandbox fully ready: {len(services)} services running, browser healthy")
                 return  # Success - all checks passed
 
-            except httpx.ConnectError:
+            except httpx.ConnectError as e:
                 # Connection refused — sandbox container is not reachable, reduce retries
                 if attempt >= 5:
                     logger.error(f"Sandbox unreachable after {attempt + 1} attempts, giving up")
                     raise RuntimeError(
                         f"Sandbox unreachable after {attempt + 1} connection attempts"
-                    )
+                    ) from e
                 logger.warning(f"Sandbox unreachable (attempt {attempt + 1}/{max_retries})")
                 await asyncio.sleep(retry_interval)
             except Exception as e:
@@ -857,8 +860,18 @@ class DockerSandbox(Sandbox):
             return hostname
 
     async def destroy(self) -> bool:
-        """Destroy Docker sandbox"""
+        """Destroy Docker sandbox and release all browser pool connections."""
         try:
+            # Force-release browser pool connections for this sandbox's CDP URL
+            # to prevent connection pool exhaustion on subsequent sessions
+            try:
+                pool = BrowserConnectionPool.get_instance()
+                released = await pool.force_release_all(self._cdp_url)
+                if released > 0:
+                    logger.info(f"Force-released {released} browser pool connections for {self._cdp_url}")
+            except Exception as e:
+                logger.debug(f"Browser pool cleanup skipped: {e}")
+
             # Invalidate LRU cache so future get() calls create a fresh instance
             if hasattr(DockerSandbox.get, "cache_invalidate"):
                 if self._container_name:
@@ -1065,9 +1078,15 @@ class DockerSandbox(Sandbox):
 
         logger.warning("Could not find browser in pool to release")
 
+    # Round-robin counter for multi-sandbox dev mode
+    _sandbox_rr_index: int = 0
+
     @classmethod
     async def create(cls) -> Sandbox:
         """Create a new sandbox instance
+
+        Supports comma-separated sandbox addresses for concurrent dev sessions
+        (e.g. SANDBOX_ADDRESS=sandbox,sandbox2). Uses round-robin allocation.
 
         Returns:
             New sandbox instance
@@ -1075,9 +1094,14 @@ class DockerSandbox(Sandbox):
         settings = get_settings()
 
         if settings.sandbox_address:
-            # Chrome CDP needs IP address
-            ip = await cls._resolve_hostname_to_ip(settings.sandbox_address)
-            return DockerSandbox(ip=ip)
+            addresses = [a.strip() for a in settings.sandbox_address.split(",") if a.strip()]
+            # Round-robin across available addresses
+            address = addresses[cls._sandbox_rr_index % len(addresses)]
+            cls._sandbox_rr_index += 1
+            ip = await cls._resolve_hostname_to_ip(address)
+            container_name = f"dev-sandbox-{address}"
+            logger.info(f"Assigned dev sandbox '{address}' (IP: {ip}) via round-robin")
+            return DockerSandbox(ip=ip, container_name=container_name)
 
         return await asyncio.to_thread(DockerSandbox._create_task)
 
@@ -1094,7 +1118,16 @@ class DockerSandbox(Sandbox):
         """
         settings = get_settings()
         if settings.sandbox_address:
-            ip = await cls._resolve_hostname_to_ip(settings.sandbox_address)
+            # For multi-sandbox dev mode, extract hostname from container_name
+            # Container names are "dev-sandbox-{hostname}" when using round-robin
+            addresses = [a.strip() for a in settings.sandbox_address.split(",") if a.strip()]
+            # Try to match the sandbox ID to a known address
+            for addr in addresses:
+                if id == f"dev-sandbox-{addr}":
+                    ip = await cls._resolve_hostname_to_ip(addr)
+                    return DockerSandbox(ip=ip, container_name=id)
+            # Fallback: use first address
+            ip = await cls._resolve_hostname_to_ip(addresses[0])
             return DockerSandbox(ip=ip, container_name=id)
 
         docker_client = docker.from_env()

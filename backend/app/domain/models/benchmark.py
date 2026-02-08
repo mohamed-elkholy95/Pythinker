@@ -163,12 +163,11 @@ class BenchmarkQuery(BaseModel):
         if benchmark.confidence < self.min_confidence:
             return False
 
-        if self.date_after and benchmark.report_date:
-            if benchmark.report_date < self.date_after:
-                return False
+        if self.date_after and benchmark.report_date and benchmark.report_date < self.date_after:
+            return False
 
-        if self.date_before and benchmark.report_date:
-            if benchmark.report_date > self.date_before:
-                return False
-
-        return True
+        return not (
+            self.date_before
+            and benchmark.report_date
+            and benchmark.report_date > self.date_before
+        )

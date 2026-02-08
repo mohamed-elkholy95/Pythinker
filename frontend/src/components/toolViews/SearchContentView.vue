@@ -16,7 +16,7 @@
           readonly
         />
         <span class="searching-pill">
-          <Loader2 :size="11" class="searching-pill-spinner" />
+          <Loader2 :size="10" class="searching-pill-spinner" />
           {{ t('Searching') }}
         </span>
       </div>
@@ -203,8 +203,8 @@ function getIconLetter(result: SearchResult): string {
 function formatSnippet(snippet: string): string {
   if (!snippet) return '';
   const cleaned = snippet.replace(/\s+/g, ' ').trim();
-  if (cleaned.length > 120) {
-    return cleaned.slice(0, 120).trim() + '...';
+  if (cleaned.length > 95) {
+    return cleaned.slice(0, 95).trim() + '...';
   }
   return cleaned;
 }
@@ -243,18 +243,18 @@ function handleResultClick(result: SearchResult) {
 .search-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  margin: 12px 12px 8px 12px;
-  border-radius: 12px;
+  gap: 6px;
+  padding: 6px 10px;
+  margin: 8px 8px 6px 8px;
+  border-radius: 10px;
   border: 1px solid var(--border-light);
   background: var(--background-white-main);
-  box-shadow: 0 6px 16px var(--shadow-XS);
+  box-shadow: 0 4px 10px var(--shadow-XS);
 }
 
 .search-bar-icon {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   color: var(--icon-secondary);
 }
 
@@ -263,7 +263,7 @@ function handleResultClick(result: SearchResult) {
   outline: none;
   background: transparent;
   width: 100%;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-primary);
 }
 
@@ -274,13 +274,13 @@ function handleResultClick(result: SearchResult) {
 .searching-pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 22px;
-  padding: 0 8px;
+  gap: 3px;
+  height: 18px;
+  padding: 0 6px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   color: var(--text-brand);
   background: var(--fill-blue);
   border: 1px solid rgba(59, 130, 246, 0.2);
@@ -299,12 +299,12 @@ function handleResultClick(result: SearchResult) {
 .results-count-pill {
   display: inline-flex;
   align-items: center;
-  height: 22px;
-  padding: 0 8px;
+  height: 18px;
+  padding: 0 6px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   color: var(--text-tertiary);
   background: var(--fill-tsp-gray-main);
   border: 1px solid var(--border-light);
@@ -329,7 +329,7 @@ function handleResultClick(result: SearchResult) {
 
 /* Individual Result Item */
 .search-result-item {
-  padding: 12px 20px;
+  padding: 8px 14px;
   border-bottom: 1px solid var(--border-light);
   cursor: pointer;
   transition: background-color 0.15s ease;
@@ -347,34 +347,34 @@ function handleResultClick(result: SearchResult) {
 .result-header {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 4px;
+  gap: 8px;
+  margin-bottom: 2px;
 }
 
 /* Circular Icon Wrapper */
 .result-icon-wrapper {
-  width: 22px;
-  height: 22px;
-  min-width: 22px;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
   border-radius: 50%;
   background: var(--fill-tsp-gray-main);
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  margin-top: 1px;
+  margin-top: 2px;
 }
 
 /* Favicon Image */
 .result-favicon {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   object-fit: contain;
 }
 
 /* Fallback Letter Icon */
 .result-icon-fallback {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 500;
   color: var(--text-tertiary);
   letter-spacing: -0.02em;
@@ -384,9 +384,9 @@ function handleResultClick(result: SearchResult) {
 /* Result Title */
 .result-title {
   color: var(--text-primary);
-  font-size: 14.5px;
+  font-size: 13px;
   font-weight: 600;
-  line-height: 1.35;
+  line-height: 1.25;
   letter-spacing: -0.01em;
   margin: 0;
   flex: 1;
@@ -398,17 +398,17 @@ function handleResultClick(result: SearchResult) {
   color: var(--function-success);
   opacity: 0.6;
   margin-left: auto;
-  margin-top: 2px;
+  margin-top: 1px;
 }
 
 /* Result Snippet/Description */
 .result-snippet {
   color: var(--text-secondary);
-  font-size: 13.5px;
+  font-size: 12px;
   font-weight: 400;
-  line-height: 1.45;
+  line-height: 1.35;
   margin: 0;
-  margin-left: 32px; /* 22px icon + 10px gap */
+  margin-left: 26px; /* 18px icon + 8px gap */
   letter-spacing: -0.005em;
 }
 
@@ -416,7 +416,7 @@ function handleResultClick(result: SearchResult) {
 .read-more-link {
   color: var(--text-tertiary);
   text-decoration: none;
-  font-size: 13.5px;
+  font-size: 12px;
   font-weight: 400;
   cursor: pointer;
 }
@@ -427,21 +427,21 @@ function handleResultClick(result: SearchResult) {
 
 /* Skeleton loading placeholders */
 .search-skeleton {
-  padding: 8px 0;
+  padding: 6px 0;
   flex: 1;
 }
 
 .skeleton-item {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 14px 20px;
+  gap: 8px;
+  padding: 10px 14px;
 }
 
 .skeleton-icon {
-  width: 22px;
-  height: 22px;
-  min-width: 22px;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
   border-radius: 50%;
   background: var(--fill-tsp-gray-main);
   animation: skeleton-pulse 1.5s ease-in-out infinite;
@@ -451,11 +451,11 @@ function handleResultClick(result: SearchResult) {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .skeleton-line {
-  height: 12px;
+  height: 10px;
   border-radius: 4px;
   background: var(--fill-tsp-gray-main);
   animation: skeleton-pulse 1.5s ease-in-out infinite;
@@ -473,16 +473,16 @@ function handleResultClick(result: SearchResult) {
 .search-activity-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
+  gap: 6px;
+  padding: 6px 14px;
   border-top: 1px solid var(--border-light);
   background: var(--background-white-main);
   flex-shrink: 0;
 }
 
 .activity-pulse {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: var(--text-brand);
   animation: pulse-dot 1.5s ease-in-out infinite;
@@ -494,7 +494,7 @@ function handleResultClick(result: SearchResult) {
 }
 
 .activity-text {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-tertiary);
   font-weight: 500;
 }

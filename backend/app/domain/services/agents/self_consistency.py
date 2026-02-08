@@ -420,9 +420,7 @@ class SelfConsistencyChecker:
         normalized = re.sub(r"\s+", " ", normalized)
 
         # Remove trailing punctuation
-        normalized = normalized.rstrip(".,;:")
-
-        return normalized
+        return normalized.rstrip(".,;:")
 
     def _calculate_consistency_level(
         self, claim_consistencies: list[ClaimConsistency]

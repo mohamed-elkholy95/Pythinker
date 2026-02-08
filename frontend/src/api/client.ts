@@ -321,6 +321,9 @@ export const createSSEConnection = async <T = unknown>(
   // Track if stream completed normally (received 'done' or 'complete' event)
   let streamCompleted = false;
 
+  // Track whether any events were received in this connection
+  let receivedAnyEvents = false;
+
   // Track the last event_id received for reconnection resume
   let lastReceivedEventId: string | undefined = (body as { event_id?: string })?.event_id;
 
@@ -424,6 +427,7 @@ export const createSSEConnection = async <T = unknown>(
           }
         },
         onmessage(event: EventSourceMessage) {
+          receivedAnyEvents = true;
           if (event.event && event.event.trim() !== '') {
             // Track stream completion events to prevent unnecessary reconnection
             // Include error/failure events — agent errors are terminal, not retryable
@@ -453,7 +457,9 @@ export const createSSEConnection = async <T = unknown>(
           }
 
           // Don't reconnect if stream completed normally (received done/complete/end event)
-          if (streamCompleted) {
+          // Also don't reconnect if the stream closed without any events at all — this
+          // indicates the session/task already completed (not a network interruption)
+          if (streamCompleted || (messageSent && !receivedAnyEvents)) {
             return;
           }
 

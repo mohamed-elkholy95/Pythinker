@@ -561,3 +561,24 @@ class ClaimProvenanceDocument(
             IndexModel([("session_id", ASCENDING), ("is_numeric", ASCENDING)]),
             IndexModel([("report_id", ASCENDING)]),
         ]
+
+
+class RatingDocument(Document):
+    """MongoDB document for session ratings / user feedback."""
+
+    session_id: str
+    report_id: str
+    user_id: str
+    user_email: str
+    user_name: str
+    rating: int = Field(ge=1, le=5)
+    feedback: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    class Settings:
+        name: ClassVar[str] = "ratings"
+        indexes: ClassVar[list[Any]] = [
+            "session_id",
+            "user_id",
+            IndexModel([("created_at", DESCENDING)]),
+        ]

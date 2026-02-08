@@ -15,16 +15,17 @@ import json
 import site
 import sys
 import tempfile
-
-# Increase recursion limit for test collection with many test files
-# The default 1000 can be exceeded during deep import chains when running full suite
-sys.setrecursionlimit(10000)
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
+import requests
+
+# Increase recursion limit for test collection with many test files
+# The default 1000 can be exceeded during deep import chains when running full suite
+sys.setrecursionlimit(10000)
 
 
 # Fix langgraph import shadowing issue BEFORE any app imports
@@ -61,8 +62,6 @@ _preload_langgraph()
 
 # Add the parent directory to Python path so we can import app modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
-
-import requests
 
 # Base URL for API testing
 BASE_URL = "http://localhost:8000/api/v1"

@@ -54,6 +54,16 @@ Example step: "Gather detailed requirements from the user"
 ✅ CORRECT: Call message_ask_user(text="What would you like?")
 ❌ WRONG: Write "What would you like?" as text
 
+### CRITICAL: File Output Best Practice
+
+**When creating deliverable files (reports, code, config, data):**
+- ALWAYS use `file_write` or `file_create` — these tools ensure files are tracked and delivered to the user
+- NEVER create deliverable files via shell commands (`echo >`, `cat <<`, `python -c "open(...).write(..."`)
+- Shell-created files are NOT automatically tracked and may be lost
+- If you must generate a file via code execution, save the result with `file_write` afterward
+
+**Deliverable file = any file the user needs to see or download after the task completes.**
+
 ### Tool Selection Hierarchy (prefer higher)
 
 1. **Specialized Tools** (always prefer):
@@ -1154,9 +1164,17 @@ Response specification:
 {{
   "title": "string",       // Clear title (e.g., "Best Practices for Coding with Claude")
   "message": "string",     // FULL report in clean Markdown - NO meta-commentary
-  "attachments": []        // ALWAYS leave empty — report content is delivered automatically
+  "attachments": [],       // ALWAYS leave empty — report content is delivered automatically
+  "suggestions": ["string", "string", "string"]  // Exactly 3 short follow-up questions the user might ask next (each 5-15 words)
 }}
 ```
+
+SUGGESTIONS GUIDELINES:
+- Always provide exactly 3 follow-up suggestions
+- Each suggestion should be a natural question or request the user might ask next
+- Make them specific to the completed task, not generic
+- Keep each suggestion concise (5-15 words)
+- Examples: "How can I optimize this further?", "Compare this with alternative approaches", "What are the potential risks?"
 
 IMPORTANT: Your ENTIRE response must be this JSON object and nothing else. Do NOT write any text before or after the JSON.
 """
@@ -1169,6 +1187,54 @@ IMPORTANT: Your ENTIRE response must be this JSON object and nothing else. Do NO
 EXECUTION_SYSTEM_PROMPT = ENHANCED_EXECUTION_SYSTEM_PROMPT
 EXECUTION_PROMPT = ENHANCED_EXECUTION_PROMPT
 SUMMARIZE_PROMPT = ENHANCED_SUMMARIZE_PROMPT
+
+STREAMING_SUMMARIZE_PROMPT = """Deliver the completed result as a professional research report in Markdown.
+
+REPORT STRUCTURE (follow this format exactly):
+
+# [Clear, Descriptive Title]
+
+## Introduction
+Brief context and scope of the research (2-3 sentences).
+
+## [Main Section 1]
+### [Subsection if needed]
+Content with **bold** for key terms. Use tables for comparisons:
+
+| Category | Details | Notes |
+|----------|---------|-------|
+| Item 1   | Value   | Info  |
+
+## [Main Section 2]
+Continue with clear, factual content.
+
+## Conclusion
+Key takeaways and recommendations.
+
+## References
+[1] Source Name - URL
+
+WRITING GUIDELINES:
+- Be CONCISE - no filler text, disclaimers, or meta-commentary
+- NO revision notes, change logs, or "this report has been updated" sections
+- NO "Important Disclaimer" or similar notices
+- Focus on FACTS and FINDINGS only
+- Use **bold** for key terms, not for entire headings
+- Use tables for structured comparisons
+- Use bullet points for lists of items
+- Include numbered references at the end
+- Write in professional, direct tone
+
+FORBIDDEN:
+- "This report has been revised..."
+- "Changes Made:" sections
+- "IMPORTANT DISCLAIMER:"
+- Meta-commentary about the report itself
+- Work-in-progress language
+- Excessive caveats or hedging
+
+IMPORTANT: Write ONLY the Markdown report. No JSON wrapping, no prose before or after. Start directly with the # title heading.
+"""
 
 # ============================================================================
 # BUILDER FUNCTION

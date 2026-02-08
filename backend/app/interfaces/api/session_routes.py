@@ -47,7 +47,6 @@ from app.interfaces.schemas.session import (
     ListSessionResponse,
     ResumeSessionRequest,
     SandboxInfo,
-    SandboxUrlResponse,
     SharedSessionResponse,
     ShareSessionResponse,
     ShellViewRequest,
@@ -230,7 +229,9 @@ async def stream_sessions(
                         status=session.status,
                         unread_message_count=session.unread_message_count,
                         latest_message=session.latest_message,
-                        latest_message_at=int(session.latest_message_at.timestamp()) if session.latest_message_at else None,
+                        latest_message_at=int(session.latest_message_at.timestamp())
+                        if session.latest_message_at
+                        else None,
                         is_shared=session.is_shared,
                     )
                     for session in sessions
@@ -263,6 +264,11 @@ async def chat(
     When feature_sse_v2 is enabled, uses enhanced event streaming with
     disconnect detection and timeouts for better reliability.
     """
+    # Validate session exists before starting SSE stream (returns 404 instead of 200 with error)
+    session = await agent_service.get_session(session_id, current_user.id)
+    if not session:
+        raise NotFoundError("Session not found")
+
     settings = get_settings()
     use_sse_v2 = settings.feature_sse_v2
 
@@ -331,10 +337,7 @@ async def chat(
         except Exception as e:
             logger.error(f"Error in chat stream for session {session_id}: {e}")
             # Yield error event before closing
-            yield ServerSentEvent(
-                event="error",
-                data=f'{{"message": "Stream error: {str(e)[:100]}"}}'
-            )
+            yield ServerSentEvent(event="error", data=f'{{"message": "Stream error: {str(e)[:100]}"}}')
 
     return EventSourceResponse(event_generator())
 
@@ -621,32 +624,194 @@ async def get_vnc_screenshot(
         raise HTTPException(status_code=500, detail=f"Failed to fetch screenshot: {e!s}") from e
 
 
-@router.get("/{session_id}/sandbox/url", response_model=APIResponse[SandboxUrlResponse])
-async def get_sandbox_url(
+@router.post("/{session_id}/sandbox/signed-url", response_model=APIResponse[SignedUrlResponse])
+async def create_sandbox_signed_url(
     session_id: str,
+    request_data: AccessTokenRequest,
+    target: str = Query(default="screencast"),
     current_user: User = Depends(get_current_user),
     agent_service: AgentService = Depends(get_agent_service),
-    sandbox_cls: type[Sandbox] = Depends(get_sandbox_cls),
-) -> APIResponse[SandboxUrlResponse]:
-    """Get sandbox URL for CDP screencast streaming
+    token_service: TokenService = Depends(get_token_service),
+) -> APIResponse[SignedUrlResponse]:
+    """Generate signed URL for sandbox WebSocket access
 
-    Returns the direct sandbox API URL for connecting to the CDP screencast
-    WebSocket stream. This is used for the SandboxViewer component.
+    Creates a signed URL for the screencast or input WebSocket proxy.
+    Target must be 'screencast' or 'input'.
     """
-    # Check if session exists and belongs to user
+    allowed_targets = {"screencast", "input"}
+    if target not in allowed_targets:
+        raise HTTPException(status_code=400, detail=f"Invalid target: {target}. Must be one of {allowed_targets}")
+
+    expire_minutes = request_data.expire_minutes or 15
+    if expire_minutes > 15:
+        expire_minutes = 15
+
     session = await agent_service.get_session(session_id, current_user.id)
     if not session:
         raise NotFoundError("Session not found")
 
-    if not session.sandbox_id:
-        raise NotFoundError("Session has no active sandbox")
+    ws_base_url = f"/api/v1/sessions/{session_id}/{target}"
+    signed_url = token_service.create_signed_url(base_url=ws_base_url, expire_minutes=expire_minutes)
 
-    # Get sandbox
-    sandbox = await sandbox_cls.get(session.sandbox_id)
-    if not sandbox:
-        raise NotFoundError("Sandbox not found")
+    return APIResponse.success(
+        SignedUrlResponse(
+            signed_url=signed_url,
+            expires_in=expire_minutes * 60,
+        )
+    )
 
-    return APIResponse.success(SandboxUrlResponse(sandbox_url=sandbox.base_url))
+
+@router.websocket("/{session_id}/screencast")
+async def screencast_websocket(
+    websocket: WebSocket,
+    session_id: str,
+    quality: int = Query(default=70, ge=1, le=100),
+    max_fps: int = Query(default=15, ge=1, le=30),
+    signature: str = Depends(verify_signature_websocket),
+    agent_service: AgentService = Depends(get_agent_service),
+    sandbox_cls: type[Sandbox] = Depends(get_sandbox_cls),
+) -> None:
+    """CDP screencast WebSocket proxy
+
+    Proxies the sandbox CDP screencast stream to the browser.
+    The browser cannot reach sandbox containers directly, so the
+    backend acts as a WebSocket relay.
+    """
+    await websocket.accept()
+    logger.info(f"Accepted screencast WebSocket for session {session_id}")
+
+    try:
+        session = await agent_service.get_session(session_id)
+        if not session or not session.sandbox_id:
+            await websocket.close(code=1008, reason="Session or sandbox not found")
+            return
+
+        sandbox = await sandbox_cls.get(session.sandbox_id)
+        if not sandbox:
+            await websocket.close(code=1008, reason="Sandbox not found")
+            return
+
+        sandbox_ws_url = sandbox.base_url.replace("http", "ws")
+        sandbox_ws_url = f"{sandbox_ws_url}/api/v1/screencast/stream?quality={quality}&max_fps={max_fps}"
+
+        logger.info(f"Connecting to screencast at {sandbox_ws_url}")
+
+        async with websockets.connect(sandbox_ws_url) as sandbox_ws:
+            logger.info(f"Connected to screencast at {sandbox_ws_url}")
+
+            async def forward_to_sandbox():
+                try:
+                    while True:
+                        data = await websocket.receive()
+                        if "text" in data:
+                            await sandbox_ws.send(data["text"])
+                        elif "bytes" in data:
+                            await sandbox_ws.send(data["bytes"])
+                except WebSocketDisconnect:
+                    logger.info("Browser -> screencast connection closed")
+                except Exception as e:
+                    logger.error(f"Error forwarding to screencast: {e}")
+
+            async def forward_from_sandbox():
+                try:
+                    async for message in sandbox_ws:
+                        if isinstance(message, bytes):
+                            await websocket.send_bytes(message)
+                        else:
+                            await websocket.send_text(message)
+                except websockets.exceptions.ConnectionClosed:
+                    logger.info("Screencast -> browser connection closed")
+                except Exception as e:
+                    logger.error(f"Error forwarding from screencast: {e}")
+
+            task1 = asyncio.create_task(forward_to_sandbox())
+            task2 = asyncio.create_task(forward_from_sandbox())
+
+            _done, pending = await asyncio.wait(
+                [task1, task2], return_when=asyncio.FIRST_COMPLETED
+            )
+
+            for task in pending:
+                task.cancel()
+
+    except ConnectionError as e:
+        logger.error(f"Unable to connect to screencast: {e!s}")
+        await websocket.close(code=1011, reason=f"Unable to connect to sandbox: {e!s}")
+    except Exception as e:
+        logger.error(f"Screencast WebSocket error: {e!s}")
+        await websocket.close(code=1011, reason=f"Screencast error: {e!s}")
+
+
+@router.websocket("/{session_id}/input")
+async def input_websocket(
+    websocket: WebSocket,
+    session_id: str,
+    signature: str = Depends(verify_signature_websocket),
+    agent_service: AgentService = Depends(get_agent_service),
+    sandbox_cls: type[Sandbox] = Depends(get_sandbox_cls),
+) -> None:
+    """Input stream WebSocket proxy for interactive takeover
+
+    Proxies mouse/keyboard input from the browser to the sandbox.
+    """
+    await websocket.accept()
+
+    try:
+        session = await agent_service.get_session(session_id)
+        if not session or not session.sandbox_id:
+            await websocket.close(code=1008, reason="Session or sandbox not found")
+            return
+
+        sandbox = await sandbox_cls.get(session.sandbox_id)
+        if not sandbox:
+            await websocket.close(code=1008, reason="Sandbox not found")
+            return
+
+        sandbox_ws_url = sandbox.base_url.replace("http", "ws")
+        sandbox_ws_url = f"{sandbox_ws_url}/api/v1/input/stream"
+
+        async with websockets.connect(sandbox_ws_url) as sandbox_ws:
+            async def forward_to_sandbox():
+                try:
+                    while True:
+                        data = await websocket.receive()
+                        if "text" in data:
+                            await sandbox_ws.send(data["text"])
+                        elif "bytes" in data:
+                            await sandbox_ws.send(data["bytes"])
+                except WebSocketDisconnect:
+                    pass
+                except Exception as e:
+                    logger.error(f"Error forwarding input to sandbox: {e}")
+
+            async def forward_from_sandbox():
+                try:
+                    async for message in sandbox_ws:
+                        if isinstance(message, bytes):
+                            await websocket.send_bytes(message)
+                        else:
+                            await websocket.send_text(message)
+                except websockets.exceptions.ConnectionClosed:
+                    pass
+                except Exception as e:
+                    logger.error(f"Error forwarding from sandbox input: {e}")
+
+            task1 = asyncio.create_task(forward_to_sandbox())
+            task2 = asyncio.create_task(forward_from_sandbox())
+
+            _done, pending = await asyncio.wait(
+                [task1, task2], return_when=asyncio.FIRST_COMPLETED
+            )
+
+            for task in pending:
+                task.cancel()
+
+    except ConnectionError as e:
+        logger.error(f"Unable to connect to sandbox input: {e!s}")
+        await websocket.close(code=1011, reason=f"Unable to connect to sandbox: {e!s}")
+    except Exception as e:
+        logger.error(f"Input WebSocket error: {e!s}")
+        await websocket.close(code=1011, reason=f"Input error: {e!s}")
 
 
 # ============================================================================

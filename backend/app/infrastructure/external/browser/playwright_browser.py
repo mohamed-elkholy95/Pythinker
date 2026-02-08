@@ -83,6 +83,20 @@ BLOCKED_URL_PATTERNS = [
     r".*optimizely\.com.*",
 ]
 
+# Browser crash error signatures — when exceptions contain these strings,
+# the browser/renderer has crashed and needs recovery, not retry.
+BROWSER_CRASH_SIGNATURES: list[str] = [
+    "Target closed",
+    "Target page, context or browser has been closed",
+    "Browser has been closed",
+    "Browser closed",
+    "Session closed",
+    "Execution context was destroyed",
+    "Protocol error",
+    "Connection closed",
+    "Page crashed",
+]
+
 # Video domains to skip - these waste agent time and resources
 VIDEO_DOMAINS: set[str] = {
     "youtube.com",
@@ -254,10 +268,28 @@ class PlaywrightBrowser:
             "content": None,
         }
 
+        # Circuit breaker for navigate_for_display (VNC display)
+        # Stops attempting VNC navigations after repeated failures (e.g., browser crash)
+        self._display_failure_count: int = 0
+        self._display_failure_threshold: int = 2
+
         # Current fingerprint values (randomized on each session)
         self._current_user_agent: str = DEFAULT_USER_AGENT
         self._current_viewport: dict[str, int] = DEFAULT_VIEWPORT
         self._current_timezone: str = DEFAULT_TIMEZONE
+
+    @staticmethod
+    def _is_crash_error(error: BaseException) -> bool:
+        """Check if an exception indicates a browser/renderer crash.
+
+        Args:
+            error: The exception to check
+
+        Returns:
+            True if the error matches a known crash signature
+        """
+        msg = str(error).lower()
+        return any(sig.lower() in msg for sig in BROWSER_CRASH_SIGNATURES)
 
     def _randomize_browser_fingerprint(self) -> tuple[str, dict[str, int], str]:
         """Randomize browser fingerprint for anti-detection.
@@ -805,7 +837,11 @@ class PlaywrightBrowser:
             await self.page.evaluate("() => true")
             return True
         except Exception as e:
-            logger.warning(f"Connection health check failed: {e}")
+            if self._is_crash_error(e):
+                logger.error(f"Browser crash detected during health check: {e}")
+                self._connection_healthy = False
+            else:
+                logger.warning(f"Connection health check failed: {e}")
             return False
 
     async def clear_session(self) -> None:
@@ -1645,6 +1681,8 @@ class PlaywrightBrowser:
                     logger.warning(f"Auto-extract content failed: {e}")
                     # Continue without content - non-critical
 
+            # Successful navigation — reset display circuit breaker
+            self._display_failure_count = 0
             return ToolResult(success=True, data=result_data)
         except PlaywrightTimeoutError:
             # Page might still be usable even after timeout
@@ -1685,6 +1723,22 @@ class PlaywrightBrowser:
             except Exception:
                 return ToolResult(success=False, message=f"Navigation to {url} timed out")
         except Exception as e:
+            if self._is_crash_error(e):
+                logger.error(f"Browser crash detected during navigation to {url}: {e}")
+                self._connection_healthy = False
+                # Attempt auto-recovery via restart
+                try:
+                    recovery_result = await self.restart(url)
+                    if recovery_result.success:
+                        logger.info(f"Browser auto-recovered after crash, navigated to {url}")
+                        self._display_failure_count = 0
+                        return recovery_result
+                except Exception as recovery_err:
+                    logger.error(f"Browser crash recovery failed: {recovery_err}")
+                return ToolResult(
+                    success=False,
+                    message=f"Browser crashed navigating to {url}. Recovery failed — try again.",
+                )
             return ToolResult(success=False, message=f"Failed to navigate to {url}: {e!s}")
 
     async def navigate_fast(self, url: str, timeout: int = 15000) -> ToolResult:
@@ -1821,6 +1875,11 @@ class PlaywrightBrowser:
         if is_video_url(url):
             return False
 
+        # Circuit breaker: stop attempting VNC display after repeated failures
+        if self._display_failure_count >= self._display_failure_threshold:
+            logger.debug("navigate_for_display: circuit breaker open, skipping VNC display")
+            return False
+
         # Trylock: if browser is already navigating, skip VNC display
         if self._navigation_lock.locked():
             logger.debug("navigate_for_display: browser busy, skipping VNC display")
@@ -1839,9 +1898,15 @@ class PlaywrightBrowser:
                 except Exception:
                     pass  # CDP activation is best-effort
                 logger.debug(f"navigate_for_display: showed {url} on VNC")
+                self._display_failure_count = 0
                 return True
         except Exception as e:
-            logger.debug(f"navigate_for_display failed for {url}: {e}")
+            self._display_failure_count += 1
+            if self._is_crash_error(e):
+                logger.error(f"navigate_for_display: browser crash detected for {url}: {e}")
+                self._connection_healthy = False
+            else:
+                logger.debug(f"navigate_for_display failed for {url}: {e}")
             return False
 
     async def restart(self, url: str) -> ToolResult:

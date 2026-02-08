@@ -451,7 +451,7 @@ CRITICAL INSTRUCTIONS:
         return response.strip()
 
     @tool(
-        name="browsing",
+        name="browser_agent_run",
         description="""Execute web tasks autonomously using AI-powered browser agent.
 
 ALL ACTIONS VISIBLE IN REAL-TIME VIA VNC.

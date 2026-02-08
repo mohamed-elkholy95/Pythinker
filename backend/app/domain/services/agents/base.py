@@ -550,6 +550,14 @@ class BaseAgent:
             except TimeoutError:
                 last_error = "Tool execution timed out after 120s"
                 self._log.tool_failed(function_name, tool_call_id, last_error, log_start)
+                # Classify timeout: network-related tools are recoverable, others are fatal
+                network_tools = {"info_search_web", "browser_get_content", "browser_navigate", "mcp_call_tool"}
+                if function_name in network_tools and retries < self.max_retries:
+                    retries += 1
+                    logger.info(f"Recoverable timeout for {function_name}, retrying ({retries}/{self.max_retries})")
+                    await asyncio.sleep(current_interval)
+                    current_interval *= self.retry_backoff
+                    continue
                 envelope.mark_failed(last_error)
                 break
             except Exception as e:

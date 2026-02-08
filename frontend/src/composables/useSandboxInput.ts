@@ -52,14 +52,14 @@ let flushInterval: number | null = null
 
 /**
  * Start input forwarding to the sandbox
- * @param sandboxUrl - Base sandbox URL
+ * @param inputWsUrl - Full WebSocket URL for input stream (proxied through backend)
  */
-function startForwarding(sandboxUrl: string): void {
+function startForwarding(inputWsUrl: string): void {
   if (isForwarding.value) {
     return
   }
 
-  const wsUrl = sandboxUrl.replace(/^http/, 'ws') + '/api/v1/input/stream'
+  const wsUrl = inputWsUrl
 
   try {
     inputWs = new WebSocket(wsUrl)

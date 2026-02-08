@@ -231,6 +231,16 @@ class CodeDevToolContent(BaseModel):
     suggestions: list[str] | None = None
 
 
+class CanvasToolContent(BaseModel):
+    """Canvas tool content for canvas operations"""
+
+    operation: str  # create_project, add_element, modify_element, etc.
+    project_id: str | None = None
+    project_name: str | None = None
+    element_count: int = 0
+    image_urls: list[str] | None = None
+
+
 class PlanToolContent(BaseModel):
     """Plan tool content"""
 
@@ -266,6 +276,7 @@ ToolContent = (
     | DeepScanToolContent
     | AgentModeToolContent
     | CodeDevToolContent
+    | CanvasToolContent
     | PlanToolContent
     | RepoMapToolContent
 )
@@ -541,6 +552,7 @@ class StreamEvent(BaseEvent):
     type: Literal["stream"] = "stream"
     content: str  # Streamed content chunk
     is_final: bool = False  # Whether this is the final chunk
+    phase: str = "thinking"  # "thinking" for planning, "summarizing" for report generation
 
 
 class VerificationStatus(str, Enum):
@@ -734,6 +746,43 @@ class ConfidenceEvent(BaseEvent):
     risk_factors: list[str] = Field(default_factory=list)
 
 
+class FlowSelectionEvent(BaseEvent):
+    """Emitted when a flow engine is selected for a session.
+
+    Enables observability of which flow is used, with what model,
+    and why it was selected.
+    """
+
+    type: Literal["flow_selection"] = "flow_selection"
+    flow_mode: str  # FlowMode value: plan_act, langgraph, coordinator
+    model: str | None = None  # LLM model identifier
+    session_id: str | None = None
+
+
+class CanvasUpdateEvent(BaseEvent):
+    """Canvas update event emitted when agent modifies a canvas project."""
+
+    type: Literal["canvas_update"] = "canvas_update"
+    project_id: str
+    operation: str  # create_project, add_element, modify_element, etc.
+    element_count: int = 0
+    project_name: str | None = None
+
+
+class FlowTransitionEvent(BaseEvent):
+    """Emitted when the workflow transitions between states.
+
+    Enables full observability of flow lifecycle and state changes.
+    """
+
+    type: Literal["flow_transition"] = "flow_transition"
+    from_state: str  # Previous AgentStatus value
+    to_state: str  # New AgentStatus value
+    reason: str | None = None  # Why the transition happened
+    step_id: str | None = None  # Current step ID if applicable
+    elapsed_ms: float | None = None  # Time spent in previous state
+
+
 # Discriminated union on 'type' field for efficient Pydantic v2 validation
 # Using Union[] syntax required for Annotated discriminator pattern
 AgentEvent = Annotated[
@@ -770,6 +819,9 @@ AgentEvent = Annotated[
         WideResearchEvent,
         ThoughtEvent,
         ConfidenceEvent,
+        CanvasUpdateEvent,
+        FlowSelectionEvent,
+        FlowTransitionEvent,
     ],
     Discriminator("type"),
 ]

@@ -11,6 +11,7 @@ Tests cover:
 """
 
 import asyncio
+import contextlib
 from datetime import datetime
 
 import pytest
@@ -134,10 +135,8 @@ class TestGatherWithTaskgroup:
             task = asyncio.create_task(gather_with_taskgroup(slow_task(1), slow_task(2), slow_task(3)))
             await asyncio.sleep(0.05)  # Let tasks start
             task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
 
         await run_and_cancel()
 

@@ -237,7 +237,7 @@ async def _execute_browser_agent(
         try:
             async with asyncio.timeout(config.timeout_seconds):
                 # Run agent with step callbacks
-                async for step in _run_agent_with_streaming(agent, config, emit_event):
+                async for _step in _run_agent_with_streaming(agent, config, emit_event):
                     step_count += 1
 
                     # Check for interruption request
@@ -476,10 +476,7 @@ def should_use_browser_node(state: "PlanActState") -> bool:
             return True
 
     # Check if step explicitly has browser_task set
-    if state.get("browser_task"):
-        return True
-
-    return False
+    return bool(state.get("browser_task"))
 
 
 __all__ = [

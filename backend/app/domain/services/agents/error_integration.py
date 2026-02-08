@@ -364,8 +364,8 @@ class ErrorIntegrationBridge:
         # Get pattern-based prompt
         if self._pattern_analyzer and self._error_handler:
             try:
-                recent_errors = self._error_handler.get_recent_errors(limit=10)
-                patterns = self._pattern_analyzer.analyze_patterns(recent_errors)
+                self._error_handler.get_recent_errors(limit=10)  # Refresh error window
+                patterns = self._pattern_analyzer.analyze_patterns()
                 if patterns:
                     best_pattern = max(patterns, key=lambda p: p.confidence)
                     if best_pattern.confidence > 0.6:

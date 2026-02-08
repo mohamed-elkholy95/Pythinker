@@ -53,6 +53,9 @@ services:
       sandbox:
         condition: service_started
         required: false
+      sandbox2:
+        condition: service_started
+        required: false
       mongodb:
         condition: service_started
         required: true
@@ -68,7 +71,7 @@ services:
     env_file:
       - .env
     environment:
-      - SANDBOX_ADDRESS=sandbox # Use single container as sandbox
+      - SANDBOX_ADDRESS=sandbox,sandbox2 # Two sandbox containers for concurrent tasks
       - "LOCAL_AUTH_PASSWORD=admin*123"  # Override .env to handle special chars
       - GRPC_ENABLE_FORK_SUPPORT=0  # Suppress gRPC fork warning from qdrant-client
       - NODE_OPTIONS=--no-deprecation  # Suppress Playwright url.parse() deprecation
@@ -106,6 +109,54 @@ services:
         soft: 4096
         hard: 8192
     # Resource limits for browser sandbox
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
+    environment:
+      - UVI_ARGS="--reload"
+      - FRAMEWORK_UVI_ARGS="--reload"
+      - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
+      - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
+      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  sandbox2:
+    build:
+      context: ./sandbox
+      dockerfile: Dockerfile
+    hostname: sandbox2
+    volumes:
+      - ./sandbox:/app  # Mount source code directory
+      - ./sandbox/supervisord.conf:/etc/supervisor/conf.d/app.conf
+      - ./sandbox/openbox-rc.xml:/home/ubuntu/.config/openbox/rc.xml
+      - /app/__pycache__
+      - /app/.venv
+    ports:
+      - "8084:8080"         # Sandbox API (different port)
+      - "8085:8082"         # Framework API (different port)
+    shm_size: '2gb'
+    tmpfs:
+      - /run:size=100M,nosuid,nodev
+      - /tmp:size=500M,nosuid,nodev
+      - /home/ubuntu/.cache:size=200M,nosuid,nodev
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+      nproc:
+        soft: 4096
+        hard: 8192
     deploy:
       resources:
         limits:

@@ -20,7 +20,7 @@
               :tool-content="props.toolContent || undefined"
               :search-results="searchResults"
               :search-query="searchQuery"
-              :generic-result="genericResult"
+              :is-summary-streaming="props.isSummaryStreaming"
               size="lg"
               @click="emit('openPanel')"
             />
@@ -166,7 +166,7 @@
           :tool-content="props.toolContent || undefined"
           :search-results="searchResults"
           :search-query="searchQuery"
-          :generic-result="genericResult"
+          :is-summary-streaming="props.isSummaryStreaming"
           size="md"
           @click="emit('openPanel')"
         />
@@ -273,6 +273,8 @@ interface Props {
   hideExpandedHeader?: boolean
   /** Whether the sandbox environment is initializing */
   isInitializing?: boolean
+  /** Whether summary is currently streaming */
+  isSummaryStreaming?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -282,7 +284,8 @@ const props = withDefaults(defineProps<Props>(), {
   sessionId: '',
   currentTool: null,
   hideExpandedHeader: false,
-  isInitializing: false
+  isInitializing: false,
+  isSummaryStreaming: false
 })
 
 const emit = defineEmits<{
@@ -529,7 +532,10 @@ const contentPreview = computed(() => {
 // Extract file path from toolContent
 const filePath = computed(() => {
   if (!props.toolContent) return ''
-  return props.toolContent.args?.file || props.toolContent.file_path || ''
+  return props.toolContent.args?.file ||
+    props.toolContent.file_path ||
+    props.toolContent.args?.filename ||
+    ''
 })
 
 // Extract search results from toolContent (for search/info tools)
@@ -542,17 +548,6 @@ const searchResults = computed(() => {
 const searchQuery = computed(() => {
   if (!props.toolContent) return ''
   return props.toolContent.args?.query || ''
-})
-
-// Extract generic result from toolContent (for MCP/generic tools)
-const genericResult = computed(() => {
-  if (!props.toolContent) return undefined
-  const toolName = props.toolContent.name || ''
-  // Return result for MCP tools or tools without specific view
-  if (toolName === 'mcp' || toolName.includes('mcp')) {
-    return props.toolContent.content?.result || props.toolContent.content
-  }
-  return undefined
 })
 
 const toggleExpand = () => {

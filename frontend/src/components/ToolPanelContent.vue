@@ -6,6 +6,7 @@
         <div class="text-[var(--text-primary)] text-[15px] font-semibold flex-1">{{ $t("Pythinker's Computer") }}</div>
         <div class="flex items-center gap-1">
           <button
+            v-if="!!props.sessionId"
             class="w-7 h-7 rounded-md inline-flex items-center justify-center cursor-pointer border border-transparent hover:bg-[var(--fill-tsp-gray-main)] hover:border-[var(--border-light)]"
             @click="takeOver"
             aria-label="Open takeover"
@@ -30,7 +31,11 @@
       </div>
 
       <!-- Activity Bar: Icon + "Pythinker is using X" | Action -->
-      <div v-if="toolDisplay" class="flex items-center gap-2 mt-2 text-[13px] text-[var(--text-tertiary)] overflow-hidden">
+      <div v-if="isSummaryStreaming" class="flex items-center gap-2 mt-2 text-[13px] text-[var(--text-tertiary)] overflow-hidden">
+        <Loader2 :size="18" class="flex-shrink-0 text-[var(--icon-secondary)] animate-spin" style="min-width: 18px; min-height: 18px;" />
+        <span class="flex-shrink-0 whitespace-nowrap">{{ $t('Pythinker is') }} <span class="text-[var(--text-secondary)] font-medium">{{ $t('composing a report') }}</span></span>
+      </div>
+      <div v-else-if="toolDisplay" class="flex items-center gap-2 mt-2 text-[13px] text-[var(--text-tertiary)] overflow-hidden">
         <component :is="toolDisplay.icon" :size="18" class="flex-shrink-0 text-[var(--icon-secondary)]" style="min-width: 18px; min-height: 18px;" />
         <span class="flex-shrink-0 whitespace-nowrap">{{ $t('Pythinker is using') }} <span class="text-[var(--text-secondary)] font-medium">{{ toolDisplay.displayName }}</span></span>
         <span v-if="toolSubtitle" class="text-[var(--text-quaternary)] flex-shrink-0">|</span>
@@ -49,7 +54,7 @@
           class="h-[36px] flex items-center justify-center px-3 w-full bg-[var(--background-white-main)] border-b border-[var(--border-light)] rounded-t-[14px] shadow-[inset_0px_1px_0px_0px_#FFFFFF] dark:shadow-[inset_0px_1px_0px_0px_#FFFFFF30] relative">
 
           <!-- Left: Activity indicator (absolute positioned) -->
-          <div v-if="isFileWriting" class="absolute left-3 flex items-center gap-2">
+          <div v-if="isWriting" class="absolute left-3 flex items-center gap-2">
             <div class="flex items-center gap-1.5">
               <div class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
               <span class="text-xs text-blue-500 font-medium">Writing</span>
@@ -78,9 +83,16 @@
 
         <!-- Content Area: Dynamic content rendering -->
         <div class="flex-1 min-h-0 min-w-0 w-full overflow-hidden relative">
+          <!-- Streaming Report (live summary composition — highest priority) -->
+          <StreamingReportView
+            v-if="isSummaryStreaming || summaryStreamText"
+            :text="summaryStreamText || ''"
+            :is-final="!isSummaryStreaming"
+          />
+
           <!-- Replay mode: static screenshots for completed sessions -->
           <div
-            v-if="currentViewType === 'vnc' && isReplayMode"
+            v-else-if="currentViewType === 'vnc' && isReplayMode"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
             <ScreenshotReplayViewer
@@ -129,9 +141,9 @@
               <span class="vnc-url-text">{{ vncUrlBarText }}</span>
             </div>
 
-            <!-- Take over button -->
+            <!-- Take over button — visible whenever session is active -->
             <button
-              v-if="!isShare && live && !showVncPlaceholder"
+              v-if="!isShare && !!props.sessionId && !showVncPlaceholder"
               @click="takeOver"
               class="absolute right-3 bottom-3 z-10 min-w-10 h-10 flex items-center justify-center rounded-full bg-[var(--background-white-main)] text-[var(--text-primary)] border border-[var(--border-main)] shadow-lg cursor-pointer hover:bg-[var(--text-brand)] hover:px-4 hover:text-white group transition-all duration-300">
               <TakeOverIcon />
@@ -147,7 +159,7 @@
             :content="terminalContent"
             :content-type="terminalContentType"
             :is-live="isActiveOperation"
-            :is-writing="isFileWriting"
+            :is-writing="isWriting"
             :auto-scroll="true"
             @new-content="onNewTerminalContent"
           />
@@ -157,7 +169,7 @@
             v-else-if="currentViewType === 'editor'"
             :content="editorContent"
             :filename="fileName"
-            :is-writing="isFileWriting"
+            :is-writing="isWriting"
             :is-loading="isEditorLoading"
           />
 
@@ -189,7 +201,22 @@
             :always-show="true"
           />
 
-          <!-- Fallback: render GenericContentView for unimplemented view types (git, test, skill, export, slides, workspace, schedule, scan) -->
+          <!-- VNC fallback when session exists but no dedicated view -->
+          <div
+            v-else-if="sessionId"
+            class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
+          >
+            <VNCViewer
+              :key="'vnc-fallback-' + (sessionId || 'none')"
+              :session-id="sessionId"
+              :enabled="true"
+              :view-only="true"
+              @connected="onVNCConnected"
+              @disconnected="onVNCDisconnected"
+            />
+          </div>
+
+          <!-- Fallback: render GenericContentView when no session -->
           <GenericContentView
             v-else
             :tool-name="toolContent?.name"
@@ -201,15 +228,15 @@
           />
         </div>
 
-        <!-- Timeline Controls -->
-        <div class="mt-auto">
+        <!-- Timeline Controls — only render when timeline data exists -->
+        <div v-if="showTimeline" class="mt-auto">
           <TimelineControls
-            :progress="showTimeline ? (timelineProgress ?? 0) : 0"
-            :current-timestamp="showTimeline ? timelineTimestamp : undefined"
+            :progress="timelineProgress ?? 0"
+            :current-timestamp="timelineTimestamp"
             :is-live="realTime"
             :is-replay-mode="!!isReplayMode"
-            :can-step-forward="showTimeline ? !!timelineCanStepForward : false"
-            :can-step-backward="showTimeline ? !!timelineCanStepBackward : false"
+            :can-step-forward="!!timelineCanStepForward"
+            :can-step-backward="!!timelineCanStepBackward"
             :show-timestamp-on-interact="true"
             @jump-to-live="jumpToRealTime"
             @step-forward="handleStepForward"
@@ -247,7 +274,7 @@ import type { ToolContent } from '@/types/message';
 import type { PlanEventData } from '@/types/event';
 import { useContentConfig } from '@/composables/useContentConfig';
 import { getToolDisplay } from '@/utils/toolDisplay';
-import { viewFile, viewShellSession, pauseSession, browseUrl } from '@/api/agent';
+import { viewFile, viewShellSession, browseUrl } from '@/api/agent';
 import TimelineControls from '@/components/timeline/TimelineControls.vue';
 import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';
 import TaskProgressBar from '@/components/TaskProgressBar.vue';
@@ -260,6 +287,7 @@ import TerminalContentView from '@/components/toolViews/TerminalContentView.vue'
 import EditorContentView from '@/components/toolViews/EditorContentView.vue';
 import SearchContentView from '@/components/toolViews/SearchContentView.vue';
 import GenericContentView from '@/components/toolViews/GenericContentView.vue';
+import StreamingReportView from '@/components/toolViews/StreamingReportView.vue';
 import WideResearchOverlay from '@/components/WideResearchOverlay.vue';
 import ScreenshotReplayViewer from '@/components/ScreenshotReplayViewer.vue';
 import { useWideResearchGlobal } from '@/composables/useWideResearch';
@@ -284,6 +312,8 @@ const props = defineProps<{
   isReplayMode?: boolean;
   replayScreenshotUrl?: string;
   replayMetadata?: ScreenshotMetadata | null;
+  summaryStreamText?: string;
+  isSummaryStreaming?: boolean;
 }>();
 
 // Computed for TaskProgressBar current tool
@@ -320,8 +350,14 @@ const {
 
 // Override view type when browsing from search results
 const forceBrowserView = ref(false);
+const shouldShowArtifactEditor = computed(() => {
+  if (!isArtifactTool.value) return false;
+  return !!artifactInlineContent.value || !!resolvedFilePath.value;
+});
+
 const currentViewType = computed(() => {
   if (forceBrowserView.value) return 'vnc';
+  if (shouldShowArtifactEditor.value) return 'editor';
   return computedViewType.value;
 });
 
@@ -329,6 +365,41 @@ const currentViewType = computed(() => {
 const toolName = computed(() => props.toolContent?.name || '');
 const toolFunction = computed(() => props.toolContent?.function || '');
 const toolStatus = computed(() => props.toolContent?.status || '');
+
+// Artifact tools (report outputs saved via code executor)
+const isArtifactTool = computed(() => {
+  return toolName.value === 'code_executor' && (
+    toolFunction.value === 'code_save_artifact' ||
+    toolFunction.value === 'code_read_artifact'
+  );
+});
+
+const artifactInlineContent = computed(() => {
+  if (!isArtifactTool.value) return '';
+  const argContent = props.toolContent?.args?.content;
+  if (typeof argContent === 'string' && argContent.length > 0) return argContent;
+  const payload = props.toolContent?.content as { content?: unknown } | undefined;
+  if (payload && typeof payload.content === 'string') return payload.content;
+  return '';
+});
+
+const artifactFilePath = computed(() => {
+  if (!isArtifactTool.value) return '';
+  if (props.toolContent?.file_path) return String(props.toolContent.file_path);
+  const payload = props.toolContent?.content as { path?: unknown } | undefined;
+  if (payload && typeof payload.path === 'string') return payload.path;
+  return '';
+});
+
+const resolvedFilePath = computed(() => {
+  if (toolName.value === 'file') {
+    return String(props.toolContent?.args?.file || props.toolContent?.file_path || '');
+  }
+  if (isArtifactTool.value) {
+    return artifactFilePath.value;
+  }
+  return '';
+});
 
 const toolDisplay = computed(() => {
   if (!props.toolContent) return null;
@@ -350,6 +421,12 @@ const isFileWriting = computed(() => {
   return toolFunction.value === 'file_write' && toolStatus.value === 'calling';
 });
 
+const isArtifactWriting = computed(() => {
+  return isArtifactTool.value && toolFunction.value === 'code_save_artifact' && toolStatus.value === 'calling';
+});
+
+const isWriting = computed(() => isFileWriting.value || isArtifactWriting.value);
+
 const isSearching = computed(() => {
   // Unified search detection - all search operations under one status
   const isSearchTool = toolDisplay.value?.toolKey === 'search' || toolDisplay.value?.toolKey === 'wide_research';
@@ -363,7 +440,18 @@ const isSearching = computed(() => {
 const toolSubtitle = computed(() => toolDisplay.value?.description || '');
 
 // Content header label - consistent, user-friendly tool name
-const contentHeaderLabel = computed(() => toolDisplay.value?.displayName || '');
+const contentHeaderLabel = computed(() => {
+  if (currentViewType.value === 'editor') {
+    const nameArg = props.toolContent?.args?.filename;
+    if (typeof nameArg === 'string' && nameArg) return nameArg;
+    if (resolvedFilePath.value) {
+      const parts = resolvedFilePath.value.split('/');
+      const name = parts[parts.length - 1] || '';
+      if (name) return name;
+    }
+  }
+  return toolDisplay.value?.displayName || '';
+});
 
 const showVncPlaceholder = computed(() => {
   if (forceBrowserView.value) return false;
@@ -606,10 +694,20 @@ const getToolContentText = () => {
 const fileName = computed(() => {
   const file = props.toolContent?.args?.file;
   if (file) return String(file).split('/').pop() || '';
+  const filename = props.toolContent?.args?.filename;
+  if (typeof filename === 'string' && filename) return filename;
+  if (resolvedFilePath.value) {
+    const parts = resolvedFilePath.value.split('/');
+    return parts[parts.length - 1] || '';
+  }
   return '';
 });
 
 const editorContent = computed(() => {
+  if (isArtifactTool.value) {
+    return fileContent.value || artifactInlineContent.value || '';
+  }
+
   // For file view modes
   if (toolName.value !== 'file') return '';
 
@@ -641,8 +739,8 @@ const editorContent = computed(() => {
 });
 
 const isEditorLoading = computed(() => {
-  if (toolName.value !== 'file') return false;
-  if (!isFileWriting.value) return false;
+  if (!(toolName.value === 'file' || isArtifactTool.value)) return false;
+  if (!isWriting.value) return false;
   return editorContent.value.trim().length === 0;
 });
 
@@ -672,10 +770,10 @@ const buildSimpleDiff = (original: string, modified: string): string => {
 
 // Load file content
 const loadFileContent = async () => {
-  const filePath = props.toolContent?.args?.file;
+  const filePath = resolvedFilePath.value;
 
   // During file_write, show streaming content
-  if (isFileWriting.value) {
+  if (toolName.value === 'file' && isFileWriting.value) {
     const argContent = typeof props.toolContent?.args?.content === 'string'
       ? props.toolContent?.args?.content
       : '';
@@ -684,6 +782,24 @@ const loadFileContent = async () => {
       originalContent.value = fileContent.value;
     }
     fileContent.value = streamingContent;
+    return;
+  }
+
+  // Artifact preview (report files saved via code executor)
+  if (isArtifactTool.value) {
+    const inlineContent = artifactInlineContent.value;
+    if (inlineContent) {
+      fileContent.value = inlineContent;
+    }
+    if (!props.live || !filePath || !props.sessionId) return;
+    if (!filePath.startsWith('/')) return;
+
+    try {
+      const response = await viewFile(props.sessionId, filePath);
+      fileContent.value = response.content;
+    } catch {
+      // File content load failed - UI shows last known content
+    }
     return;
   }
 
@@ -729,6 +845,31 @@ watch(() => props.toolContent?.args?.content, () => {
   }
 });
 
+// Artifact content updates
+watch(() => props.toolContent?.file_path, () => {
+  if (isArtifactTool.value) {
+    loadFileContent();
+  }
+});
+
+watch(() => props.toolContent?.args?.content, () => {
+  if (isArtifactTool.value) {
+    loadFileContent();
+  }
+});
+
+watch(() => toolFunction.value, () => {
+  if (isArtifactTool.value) {
+    loadFileContent();
+  }
+});
+
+onMounted(() => {
+  if (toolName.value === 'file' || isArtifactTool.value) {
+    loadFileContent();
+  }
+});
+
 // Confirmation state watcher removed
 
 // ============ Search Content ============
@@ -768,22 +909,17 @@ const hide = () => {
   emit('hide');
 };
 
-const takeOver = async () => {
+const takeOver = () => {
   if (!props.sessionId) return;
 
-  // Pause the agent before takeover
-  try {
-    await pauseSession(props.sessionId);
-  } catch {
-    // Continue with takeover even if pause fails
-  }
-
+  // Agent keeps working during takeover — no pause
   window.dispatchEvent(new CustomEvent('takeover', {
     detail: { sessionId: props.sessionId, active: true }
   }));
 };
 
 const jumpToRealTime = () => {
+  forceBrowserView.value = false; // Reset forced view so live tool determines view type
   emit('jumpToRealTime');
 };
 

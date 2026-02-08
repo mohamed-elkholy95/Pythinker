@@ -36,8 +36,7 @@ class TestParallelMemoryWrites:
     @pytest.fixture
     def mock_llm(self):
         """Create mock LLM."""
-        llm = MagicMock()
-        return llm
+        return MagicMock()
 
     @pytest.mark.asyncio
     async def test_gather_compat_parallel_execution(self):

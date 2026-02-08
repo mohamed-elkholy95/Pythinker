@@ -19,6 +19,7 @@ from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.mcp_repository import MCPRepository
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.agent_task_runner import AgentTaskRunner
+from app.domain.services.agents.usage_context import UsageContextManager
 from app.domain.services.workspace import get_session_workspace_initializer
 from app.domain.utils.json_parser import JsonParser
 
@@ -199,9 +200,8 @@ class AgentDomainService:
             mode=session.mode,  # Pass session mode to task runner
             # Multi-agent orchestration configuration
             enable_multi_agent=settings.enable_multi_agent,
-            enable_coordinator=settings.enable_coordinator,
-            # LangGraph flow configuration
-            use_langgraph_flow=settings.use_langgraph_flow,
+            # Unified flow engine selection
+            flow_mode=settings.resolved_flow_mode,
             # Long-term memory service (Phase 6: Qdrant integration)
             memory_service=self._memory_service,
             # MongoDB database for LangGraph checkpointing
@@ -499,14 +499,13 @@ class AgentDomainService:
         if context is not None:
             context_text = context.strip() if context else ""
             context_message = MessageEvent(
-                message=f"""[User Browser Takeover Complete]
-The user took control of the browser and made changes.
+                message=f"""[User Browser Interaction]
+The user interacted with the browser directly.
 User's summary: {context_text if context_text else "No details provided."}
 
-IMPORTANT: The browser state may have changed. Before continuing:
+NOTE: The browser state may have changed. When you next use the browser:
 1. Take a fresh screenshot to see the current state
-2. Re-evaluate what actions are needed
-3. Continue with the original goal""",
+2. Adapt your actions based on any changes the user made""",
                 role="user",
             )
             await self._session_repository.add_event(session_id, context_message)
@@ -650,6 +649,47 @@ IMPORTANT: The browser state may have changed. Before continuing:
                         )
                         return
                 else:
+                    # EARLY FAST PATH: For simple queries (GREETING/KNOWLEDGE) on new sessions,
+                    # skip expensive task creation (sandbox + browser init ~60s) and respond directly.
+                    # This reduces "Hello" latency from 60-90s to <2s.
+                    if task is None and not attachments and not skills and not deep_research:
+                        from app.domain.models.message import Message
+                        from app.domain.services.flows.fast_path import (
+                            FastPathRouter,
+                            QueryIntent,
+                            should_use_fast_path,
+                        )
+
+                        if should_use_fast_path(message):
+                            fast_router = FastPathRouter(llm=self._llm, search_engine=self._search_engine)
+                            intent, params = fast_router.classify(message)
+
+                            if intent in (QueryIntent.GREETING, QueryIntent.KNOWLEDGE):
+                                logger.info(
+                                    f"Early fast path for session {session_id}: "
+                                    f"intent={intent.value}, skipping task creation"
+                                )
+
+                                # Store user message event
+                                await self._session_repository.update_latest_message(
+                                    session_id, message, timestamp or datetime.now()
+                                )
+                                message_event = MessageEvent(message=message, role="user")
+                                await self._session_repository.add_event(session_id, message_event)
+                                yield message_event
+
+                                # Execute fast path directly (no sandbox needed)
+                                # Wrap in UsageContextManager so LLM token usage is recorded
+                                msg = Message(message=message, attachments=[], skills=[])
+                                async with UsageContextManager(
+                                    user_id=user_id, session_id=session_id
+                                ):
+                                    async for event in fast_router.execute(intent, params, msg):
+                                        await self._session_repository.add_event(session_id, event)
+                                        yield event
+
+                                return
+
                     # Context-aware intent classification to determine if mode should change
                     # This considers attachments, URLs, skills, and conversation context
                     recommended_mode = await self._classify_intent_with_context(
@@ -712,6 +752,9 @@ IMPORTANT: The browser state may have changed. Before continuing:
                     if command_skill_id:
                         # Add command-invoked skill to skills list
                         skills = list(set((skills or []) + [command_skill_id]))
+                    elif "/skill-creator" in message.lower():
+                        # Fallback: detect embedded /skill-creator (e.g., from "Build with Pythinker" button)
+                        skills = list(set((skills or []) + ["skill-creator"]))
 
                     # Skills are only active when explicitly selected by the user
                     # (from chatbox skill picker or settings). Auto-triggering is disabled
@@ -748,9 +791,22 @@ IMPORTANT: The browser state may have changed. Before continuing:
                                 if skill:
                                     skill_names.append(skill.name)
 
+                            # Build context to populate prompt_chars and tool_restrictions
+                            prompt_chars = 0
+                            tool_restrictions: list[str] | None = None
+                            try:
+                                skill_context = await registry.build_context(skills_to_use, expand_dynamic=False)
+                                if skill_context:
+                                    prompt_chars = len(skill_context.prompt_addition) if skill_context.prompt_addition else 0
+                                    tool_restrictions = skill_context.tool_restrictions or None
+                            except Exception:
+                                pass  # Non-critical — activation event still emitted
+
                             activation_event = SkillActivationEvent(
                                 skill_ids=skills_to_use,
                                 skill_names=skill_names,
+                                prompt_chars=prompt_chars,
+                                tool_restrictions=tool_restrictions,
                             )
                             yield activation_event
 
@@ -766,11 +822,13 @@ IMPORTANT: The browser state may have changed. Before continuing:
             logger.info(f"Session {session_id} started")
             logger.debug(f"Session {session_id} task: {task}")
 
+            received_events = False
             while task and not task.done:
                 event_id, event_str = await task.output_stream.get(start_id=latest_event_id, block_ms=0)
                 if event_str is None:
                     await asyncio.sleep(0.1)  # Yield control, prevent busy-wait
                     continue
+                received_events = True
                 latest_event_id = event_id
                 event = TypeAdapter(AgentEvent).validate_json(event_str)
                 event.id = event_id
@@ -779,6 +837,14 @@ IMPORTANT: The browser state may have changed. Before continuing:
                 yield event
                 if isinstance(event, (DoneEvent, ErrorEvent, WaitEvent)):
                     break
+
+            # If the task completed without producing any events, emit a DoneEvent
+            # so the SSE client knows the stream completed normally and doesn't retry
+            if not received_events:
+                logger.warning(f"Session {session_id} task completed without producing events")
+                session = await self._session_repository.find_by_id(session_id)
+                title = session.title if session else "Task completed"
+                yield DoneEvent(title=title, summary="Session completed.")
 
             logger.info(f"Session {session_id} completed")
 

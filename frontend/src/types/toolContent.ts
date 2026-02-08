@@ -128,6 +128,14 @@ export interface CodeDevToolContent extends ToolContentBase {
   suggestions?: string[] | null;
 }
 
+export interface CanvasToolContent extends ToolContentBase {
+  operation: string;
+  project_id?: string | null;
+  project_name?: string | null;
+  element_count?: number;
+  image_urls?: string[] | null;
+}
+
 export interface PlanToolContent extends ToolContentBase {
   operation: string;
   plan_id?: string | null;
@@ -159,5 +167,6 @@ export type ToolContentPayload =
   | DeepScanToolContent
   | AgentModeToolContent
   | CodeDevToolContent
+  | CanvasToolContent
   | PlanToolContent
   | RepoMapToolContent;

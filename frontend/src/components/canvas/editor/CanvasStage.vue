@@ -1,0 +1,350 @@
+<template>
+  <div ref="containerRef" class="canvas-stage-container">
+    <v-stage
+      ref="stageRef"
+      :config="stageConfig"
+      @mousedown="handleStageMouseDown"
+      @wheel="handleWheel"
+    >
+      <!-- Background layer (non-interactive) -->
+      <v-layer :config="{ listening: false }">
+        <v-rect :config="backgroundConfig" />
+      </v-layer>
+
+      <!-- Objects layer (interactive) -->
+      <v-layer ref="objectLayerRef">
+        <template v-for="element in sortedElements" :key="element.id">
+          <v-rect
+            v-if="element.type === 'rectangle'"
+            :config="getRectConfig(element)"
+            @click="handleElementClick($event, element)"
+            @dragend="handleDragEnd($event, element)"
+            @transformend="handleTransformEnd($event, element)"
+          />
+          <v-ellipse
+            v-if="element.type === 'ellipse'"
+            :config="getEllipseConfig(element)"
+            @click="handleElementClick($event, element)"
+            @dragend="handleDragEnd($event, element)"
+            @transformend="handleTransformEnd($event, element)"
+          />
+          <v-text
+            v-if="element.type === 'text'"
+            :config="getTextConfig(element)"
+            @click="handleElementClick($event, element)"
+            @dragend="handleDragEnd($event, element)"
+            @transformend="handleTransformEnd($event, element)"
+          />
+          <v-image
+            v-if="element.type === 'image'"
+            :config="getImageConfig(element)"
+            @click="handleElementClick($event, element)"
+            @dragend="handleDragEnd($event, element)"
+            @transformend="handleTransformEnd($event, element)"
+          />
+          <v-line
+            v-if="element.type === 'line' || element.type === 'path'"
+            :config="getLineConfig(element)"
+            @click="handleElementClick($event, element)"
+            @dragend="handleDragEnd($event, element)"
+            @transformend="handleTransformEnd($event, element)"
+          />
+        </template>
+      </v-layer>
+
+      <!-- Selection / transformer layer -->
+      <v-layer>
+        <v-transformer
+          ref="transformerRef"
+          :config="transformerConfig"
+        />
+      </v-layer>
+    </v-stage>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import type Konva from 'konva'
+import type { CanvasElement, EditorState } from '@/types/canvas'
+
+interface Props {
+  elements: CanvasElement[]
+  selectedElementIds: string[]
+  editorState: EditorState
+  pageWidth: number
+  pageHeight: number
+  pageBackground: string
+}
+
+const props = defineProps<Props>()
+
+const emit = defineEmits<{
+  (e: 'element-select', elementId: string, multi: boolean): void
+  (e: 'element-move', elementId: string, x: number, y: number): void
+  (e: 'element-transform', elementId: string, updates: Partial<CanvasElement>): void
+  (e: 'stage-click'): void
+  (e: 'wheel', deltaY: number, ctrl: boolean): void
+}>()
+
+const containerRef = ref<HTMLElement | null>(null)
+const stageRef = ref<{ getNode: () => Konva.Stage } | null>(null)
+const objectLayerRef = ref<{ getNode: () => Konva.Layer } | null>(null)
+const transformerRef = ref<{ getNode: () => Konva.Transformer } | null>(null)
+
+const containerWidth = ref(800)
+const containerHeight = ref(600)
+
+let resizeObserver: ResizeObserver | null = null
+
+// Image cache for v-image elements
+const imageCache = ref<Record<string, HTMLImageElement>>({})
+
+function loadImage(src: string): HTMLImageElement | undefined {
+  if (imageCache.value[src]) return imageCache.value[src]
+  const img = new Image()
+  img.src = src
+  img.onload = () => {
+    imageCache.value = { ...imageCache.value, [src]: img }
+  }
+  return undefined
+}
+
+const sortedElements = computed(() =>
+  [...props.elements]
+    .filter((el) => el.visible)
+    .sort((a, b) => a.z_index - b.z_index)
+)
+
+const stageConfig = computed(() => ({
+  width: containerWidth.value,
+  height: containerHeight.value,
+  scaleX: props.editorState.zoom,
+  scaleY: props.editorState.zoom,
+  x: props.editorState.panX,
+  y: props.editorState.panY,
+  draggable: props.editorState.activeTool === 'hand',
+}))
+
+const backgroundConfig = computed(() => ({
+  x: 0,
+  y: 0,
+  width: props.pageWidth,
+  height: props.pageHeight,
+  fill: props.pageBackground || '#ffffff',
+}))
+
+const transformerConfig = computed(() => ({
+  rotateEnabled: true,
+  enabledAnchors: [
+    'top-left', 'top-center', 'top-right',
+    'middle-left', 'middle-right',
+    'bottom-left', 'bottom-center', 'bottom-right',
+  ],
+  boundBoxFunc: (oldBox: Konva.Box, newBox: Konva.Box) => {
+    if (newBox.width < 5 || newBox.height < 5) return oldBox
+    return newBox
+  },
+}))
+
+function isElementDraggable(element: CanvasElement): boolean {
+  return props.editorState.activeTool === 'select' && !element.locked
+}
+
+function extractFillColor(element: CanvasElement): string {
+  if (!element.fill) return 'transparent'
+  const fill = element.fill as Record<string, unknown>
+  if (fill.type === 'solid' && typeof fill.color === 'string') return fill.color
+  return 'transparent'
+}
+
+function extractStroke(element: CanvasElement): { stroke: string; strokeWidth: number } {
+  if (!element.stroke) return { stroke: '', strokeWidth: 0 }
+  const s = element.stroke as Record<string, unknown>
+  return {
+    stroke: (s.color as string) || '',
+    strokeWidth: (s.width as number) || 0,
+  }
+}
+
+function getBaseConfig(element: CanvasElement): Record<string, unknown> {
+  const { stroke, strokeWidth } = extractStroke(element)
+  return {
+    id: element.id,
+    name: element.id,
+    x: element.x,
+    y: element.y,
+    rotation: element.rotation,
+    scaleX: element.scale_x,
+    scaleY: element.scale_y,
+    opacity: element.opacity,
+    draggable: isElementDraggable(element),
+    stroke,
+    strokeWidth,
+  }
+}
+
+function getRectConfig(element: CanvasElement): Record<string, unknown> {
+  return {
+    ...getBaseConfig(element),
+    width: element.width,
+    height: element.height,
+    fill: extractFillColor(element),
+    cornerRadius: element.corner_radius,
+  }
+}
+
+function getEllipseConfig(element: CanvasElement): Record<string, unknown> {
+  return {
+    ...getBaseConfig(element),
+    radiusX: element.width / 2,
+    radiusY: element.height / 2,
+    fill: extractFillColor(element),
+    offsetX: 0,
+    offsetY: 0,
+  }
+}
+
+function getTextConfig(element: CanvasElement): Record<string, unknown> {
+  const style = (element.text_style ?? {}) as Record<string, unknown>
+  return {
+    ...getBaseConfig(element),
+    width: element.width,
+    height: element.height,
+    text: element.text || '',
+    fontSize: (style.font_size as number) || 16,
+    fontFamily: (style.font_family as string) || 'Arial',
+    fontStyle: (style.font_style as string) || 'normal',
+    fontVariant: undefined,
+    align: (style.text_align as string) || 'left',
+    verticalAlign: (style.vertical_align as string) || 'top',
+    lineHeight: (style.line_height as number) || 1.2,
+    letterSpacing: (style.letter_spacing as number) || 0,
+    fill: extractFillColor(element),
+    wrap: 'word',
+  }
+}
+
+function getImageConfig(element: CanvasElement): Record<string, unknown> {
+  const img = element.src ? loadImage(element.src) : undefined
+  return {
+    ...getBaseConfig(element),
+    width: element.width,
+    height: element.height,
+    image: img,
+  }
+}
+
+function getLineConfig(element: CanvasElement): Record<string, unknown> {
+  return {
+    ...getBaseConfig(element),
+    points: element.points || [],
+    fill: extractFillColor(element),
+    closed: element.type === 'path',
+    tension: element.type === 'path' ? 0.5 : 0,
+  }
+}
+
+function handleStageMouseDown(e: Konva.KonvaEventObject<MouseEvent>) {
+  // If the click is on the stage background (not on any shape), deselect
+  const clickedOnEmpty = e.target === e.target.getStage()
+  if (clickedOnEmpty) {
+    emit('stage-click')
+  }
+}
+
+function handleElementClick(e: Konva.KonvaEventObject<MouseEvent>, element: CanvasElement) {
+  if (props.editorState.activeTool !== 'select') return
+  e.cancelBubble = true
+  const multi = e.evt.shiftKey || e.evt.metaKey || e.evt.ctrlKey
+  emit('element-select', element.id, multi)
+}
+
+function handleDragEnd(e: Konva.KonvaEventObject<MouseEvent>, element: CanvasElement) {
+  const node = e.target
+  emit('element-move', element.id, node.x(), node.y())
+}
+
+function handleTransformEnd(e: Konva.KonvaEventObject<Event>, element: CanvasElement) {
+  const node = e.target
+  emit('element-transform', element.id, {
+    x: node.x(),
+    y: node.y(),
+    width: Math.max(5, node.width() * node.scaleX()),
+    height: Math.max(5, node.height() * node.scaleY()),
+    rotation: node.rotation(),
+    scale_x: 1,
+    scale_y: 1,
+  })
+  // Reset scale after applying to width/height
+  node.scaleX(1)
+  node.scaleY(1)
+}
+
+function handleWheel(e: Konva.KonvaEventObject<WheelEvent>) {
+  e.evt.preventDefault()
+  const ctrl = e.evt.ctrlKey || e.evt.metaKey
+  emit('wheel', e.evt.deltaY, ctrl)
+}
+
+function updateTransformer() {
+  if (!transformerRef.value || !objectLayerRef.value) return
+  const transformer = transformerRef.value.getNode()
+  const layer = objectLayerRef.value.getNode()
+  const selectedIds = new Set(props.selectedElementIds)
+
+  const selectedNodes = layer.getChildren((node: Konva.Node) =>
+    selectedIds.has(node.name())
+  )
+
+  transformer.nodes(selectedNodes)
+  transformer.getLayer()?.batchDraw()
+}
+
+watch(
+  () => props.selectedElementIds,
+  () => nextTick(updateTransformer),
+  { deep: true }
+)
+
+watch(
+  () => props.elements,
+  () => nextTick(updateTransformer),
+  { deep: true }
+)
+
+onMounted(() => {
+  if (containerRef.value) {
+    const rect = containerRef.value.getBoundingClientRect()
+    containerWidth.value = Math.floor(rect.width)
+    containerHeight.value = Math.floor(rect.height)
+
+    resizeObserver = new ResizeObserver(() => {
+      if (!containerRef.value) return
+      const r = containerRef.value.getBoundingClientRect()
+      containerWidth.value = Math.floor(r.width)
+      containerHeight.value = Math.floor(r.height)
+    })
+    resizeObserver.observe(containerRef.value)
+  }
+  nextTick(updateTransformer)
+})
+
+onUnmounted(() => {
+  resizeObserver?.disconnect()
+})
+
+defineExpose({
+  getStage: () => stageRef.value?.getNode(),
+})
+</script>
+
+<style scoped>
+.canvas-stage-container {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--fill-tsp-gray-main, #f5f5f5);
+  cursor: v-bind("props.editorState.activeTool === 'hand' ? 'grab' : 'default'");
+}
+</style>

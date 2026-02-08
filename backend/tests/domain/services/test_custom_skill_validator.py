@@ -9,8 +9,6 @@ Tests the custom skill content validation and sanitization:
 - Prompt sanitization
 """
 
-import pytest
-
 from app.domain.models.skill import Skill, SkillCategory, SkillSource
 from app.domain.services.skill_validator import CustomSkillValidator
 

@@ -6,7 +6,7 @@
         <span v-if="connectedCount > 0" class="connector-badge">{{ connectedCount }}</span>
       </button>
     </PopoverTrigger>
-    <PopoverContent side="bottom" :side-offset="8" align="start" class="connector-popover">
+    <PopoverContent side="bottom" :side-offset="8" align="start" :avoid-collisions="false" class="connector-popover">
       <div class="connector-popover-content">
         <!-- Connector list -->
         <div class="connector-list">
@@ -21,7 +21,7 @@
               @click="handleToggle(conn)"
             >
               <div class="connector-item-icon" :style="{ color: conn.brand_color }">
-                <component :is="getIcon(conn.icon)" :size="20" />
+                <component :is="getIcon(conn.icon)" :size="16" />
               </div>
               <span class="connector-item-name">{{ conn.name }}</span>
               <div class="connector-item-action">
@@ -43,12 +43,12 @@
 
         <!-- Footer -->
         <div class="connector-footer">
-          <button class="connector-footer-btn" @click="handleAddConnectors">
-            <Plus :size="16" />
+          <button class="connector-footer-btn connector-footer-btn--border" @click="handleAddConnectors">
+            <Plus :size="14" />
             <span>{{ t('Add connectors') }}</span>
           </button>
           <button class="connector-footer-btn" @click="handleManageConnectors">
-            <SlidersHorizontal :size="16" />
+            <SlidersHorizontal :size="14" />
             <span>{{ t('Manage connectors') }}</span>
           </button>
         </div>
@@ -192,7 +192,7 @@ watch(isOpen, (open) => {
 }
 
 .connector-popover {
-  width: 340px !important;
+  width: 260px !important;
   padding: 0 !important;
 }
 
@@ -202,23 +202,28 @@ watch(isOpen, (open) => {
 }
 
 .connector-list {
-  padding: 6px 0;
+  padding: 2px 0;
 }
 
 .connector-list-empty {
-  padding: 20px 16px;
+  padding: 12px 10px;
   text-align: center;
   color: var(--text-tertiary);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .connector-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
+  gap: 8px;
+  padding: 6px 10px;
   cursor: pointer;
   transition: background 0.1s ease;
+  border-bottom: 1px solid var(--border-light, var(--border-main));
+}
+
+.connector-item:last-child {
+  border-bottom: none;
 }
 
 .connector-item:hover {
@@ -226,8 +231,8 @@ watch(isOpen, (open) => {
 }
 
 .connector-item-icon {
-  width: 28px;
-  height: 28px;
+  width: 20px;
+  height: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -236,7 +241,7 @@ watch(isOpen, (open) => {
 
 .connector-item-name {
   flex: 1;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-primary);
 }
@@ -248,7 +253,7 @@ watch(isOpen, (open) => {
 }
 
 .connector-action-text {
-  font-size: 13px;
+  font-size: 11px;
   color: var(--text-tertiary);
   font-weight: 500;
 }
@@ -259,9 +264,9 @@ watch(isOpen, (open) => {
 
 /* Toggle switch */
 .connector-toggle {
-  width: 36px;
-  height: 20px;
-  border-radius: 10px;
+  width: 30px;
+  height: 16px;
+  border-radius: 8px;
   padding: 2px;
   cursor: pointer;
   transition: background 0.2s ease;
@@ -273,8 +278,8 @@ watch(isOpen, (open) => {
 }
 
 .connector-toggle-thumb {
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: white;
   transition: transform 0.2s ease;
@@ -282,12 +287,12 @@ watch(isOpen, (open) => {
 }
 
 .connector-toggle--on .connector-toggle-thumb {
-  transform: translateX(16px);
+  transform: translateX(14px);
 }
 
 .connector-spinner {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border: 2px solid var(--border-main);
   border-top-color: var(--text-primary);
   border-radius: 50%;
@@ -303,22 +308,26 @@ watch(isOpen, (open) => {
 /* Footer */
 .connector-footer {
   border-top: 1px solid var(--border-light, var(--border-main));
-  padding: 4px 0;
+  padding: 2px 0;
 }
 
 .connector-footer-btn {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
-  padding: 10px 16px;
-  font-size: 14px;
+  padding: 6px 10px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
   cursor: pointer;
   border: none;
   background: transparent;
   transition: all 0.1s ease;
+}
+
+.connector-footer-btn--border {
+  border-bottom: 1px solid var(--border-light, var(--border-main));
 }
 
 .connector-footer-btn:hover {

@@ -83,20 +83,17 @@ function initializeTracker(): Tracker | null {
       captureIFrames: false
     })
 
-    // Initialize Assist for co-browsing
+    // Initialize Assist for co-browsing (call/remote-control UI disabled)
+    // The Assist call window injects a position:fixed iframe at z-index ~2.1B
+    // which overlays and conflicts with our VNC Take Over controls.
+    // We keep Assist for session linking but disable the call/control UI.
     trackerInstance.use(
       trackerAssist({
         serverURL: config.assistUrl,
-        callConfirm: {
-          text: 'A support agent wants to connect. Allow?',
-          confirmBtn: 'Allow',
-          declineBtn: 'Decline'
-        },
-        controlConfirm: {
-          text: 'A support agent wants to take control. Allow?',
-          confirmBtn: 'Allow',
-          declineBtn: 'Decline'
-        },
+        // Disable call/control confirmation dialogs — prevents the iframe
+        // widget from appearing and conflicting with VNC overlay buttons
+        callConfirm: undefined,
+        controlConfirm: undefined,
         onAgentConnect: () => {
           assistConnected.value = true
           console.info('[OpenReplay Assist] Agent connected')
@@ -116,6 +113,12 @@ function initializeTracker(): Tracker | null {
         }
       })
     )
+
+    // Suppress any residual OpenReplay Assist iframe overlay that may still
+    // be injected — prevents z-index conflicts with VNC controls
+    const style = document.createElement('style')
+    style.textContent = 'iframe[data-openreplay-ignore] { display: none !important; }'
+    document.head.appendChild(style)
 
     isInitialized.value = true
     console.info('[OpenReplay] Tracker initialized', { projectKey: config.projectKey })

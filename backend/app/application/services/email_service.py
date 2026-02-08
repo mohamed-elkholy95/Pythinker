@@ -1,7 +1,8 @@
+import json
 import logging
 import secrets
 import smtplib
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -170,6 +171,74 @@ class EmailService:
         finally:
             if server:
                 server.quit()
+
+    async def send_rating_email(
+        self,
+        *,
+        user_email: str,
+        user_name: str,
+        session_id: str,
+        report_id: str,
+        rating: int,
+        feedback: str | None = None,
+    ) -> None:
+        """Send rating notification email with structured JSON data."""
+        target = self.settings.rating_notification_email
+        if not target:
+            logger.debug("No rating_notification_email configured, skipping")
+            return
+
+        if not all([
+            self.settings.email_host,
+            self.settings.email_port,
+            self.settings.email_username,
+            self.settings.email_password,
+        ]):
+            logger.debug("Email config incomplete, skipping rating email")
+            return
+
+        stars = "\u2605" * rating + "\u2606" * (5 - rating)
+        rating_data = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "user_email": user_email,
+            "user_name": user_name,
+            "session_id": session_id,
+            "report_id": report_id,
+            "rating": rating,
+            "rating_display": stars,
+            "feedback": feedback,
+        }
+
+        msg = MIMEMultipart()
+        msg["From"] = self.settings.email_from or self.settings.email_username
+        msg["To"] = target
+        msg["Subject"] = f"Pythinker Rating: {stars} ({rating}/5) from {user_name}"
+
+        json_str = json.dumps(rating_data, indent=2, ensure_ascii=False)
+        body = f"""
+        <html>
+        <body style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: #333;">
+            <h2 style="margin-bottom: 4px;">Session Rating: {stars}</h2>
+            <p style="color: #666; margin-top: 0;">
+                <strong>{user_name}</strong> ({user_email}) rated <strong>{rating}/5</strong>
+            </p>
+            {f'<p style="background: #f5f5f5; padding: 12px; border-radius: 8px; border-left: 3px solid #3b82f6;">{feedback}</p>' if feedback else ''}
+            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+            <details>
+                <summary style="cursor: pointer; color: #888; font-size: 13px;">JSON Data</summary>
+                <pre style="background: #f8f8f8; padding: 12px; border-radius: 8px; font-size: 12px; overflow-x: auto;">{json_str}</pre>
+            </details>
+            <p style="color: #aaa; font-size: 11px; margin-top: 20px;">Pythinker Rating System</p>
+        </body>
+        </html>
+        """
+        msg.attach(MIMEText(body, "html"))
+
+        try:
+            await self._send_smtp_email(msg, target)
+            logger.info("Rating email sent to %s for session %s", target, session_id)
+        except Exception:
+            logger.exception("Failed to send rating email")
 
     async def cleanup_expired_codes(self) -> None:
         """Clean up expired verification codes - Cache TTL handles this automatically"""

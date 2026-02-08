@@ -2,7 +2,8 @@ import asyncio
 import logging
 import os
 import re
-from collections.abc import AsyncGenerator
+import time
+from collections.abc import AsyncGenerator, Callable, Coroutine
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Optional
@@ -17,6 +18,7 @@ from app.domain.models.event import (
     BaseEvent,
     DoneEvent,
     ErrorEvent,
+    FlowTransitionEvent,
     MessageEvent,
     PlanEvent,
     PlanningPhase,
@@ -43,7 +45,7 @@ from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.agents.base import BaseAgent
 from app.domain.services.agents.execution import ExecutionAgent
 from app.domain.services.agents.planner import PlannerAgent
-from app.domain.services.flows.base import BaseFlow
+from app.domain.services.flows.base import BaseFlow, FlowStatus
 from app.domain.services.flows.fast_path import FastPathRouter, QueryIntent
 
 # Import research task detection for acknowledgment messages
@@ -82,12 +84,6 @@ from app.domain.services.agents.memory_manager import (
 )
 from app.domain.services.agents.task_state_manager import TaskStateManager
 from app.domain.services.agents.verifier import VerifierAgent, VerifierConfig
-
-# Import parallel executor for Phase 4
-from app.domain.services.flows.parallel_executor import (
-    ParallelExecutionMode,
-    ParallelExecutor,
-)
 from app.domain.services.orchestration.agent_factory import (
     DefaultAgentFactory,
     SpecializedAgentFactory,
@@ -101,6 +97,7 @@ from app.domain.services.orchestration.agent_types import (
     get_agent_registry,
 )
 from app.domain.services.prediction.failure_predictor import FailurePredictor
+from app.domain.services.tools.canvas import CanvasTool
 from app.domain.services.tools.idle import IdleTool
 from app.domain.services.tools.message import MessageTool
 from app.domain.services.tools.search import SearchTool
@@ -143,6 +140,7 @@ class PlanActFlow(BaseFlow):
         parallel_max_concurrency: int = 3,
         memory_service: Optional["MemoryService"] = None,
         user_id: str | None = None,
+        file_sweep_callback: Callable[[], Coroutine[Any, Any, None]] | None = None,
     ):
         self._agent_id = agent_id
         self._repository = agent_repository
@@ -150,7 +148,9 @@ class PlanActFlow(BaseFlow):
         self._session_repository = session_repository
         self._log = get_agent_logger(agent_id, session_id)
         self.status = AgentStatus.IDLE
+        self._last_transition_time: float = time.time()
         self.plan = None
+        self._file_sweep_callback = file_sweep_callback
 
         # Store references for multi-agent factory initialization
         self._llm = llm
@@ -240,6 +240,18 @@ class PlanActFlow(BaseFlow):
         tools.append(self._skill_invoke_tool)
         self._skill_invoke_initialized = False
 
+        # Canvas tool for visual design creation
+        from app.application.services.canvas_service import get_canvas_service
+
+        canvas_service = get_canvas_service()
+        canvas_tool = CanvasTool(
+            canvas_service=canvas_service,
+            user_id=user_id or "",
+            session_id=session_id,
+        )
+        tools.append(canvas_tool)
+        logger.debug(f"Added canvas tool for Agent {agent_id}")
+
         # Create planner and execution agents
         self.planner = PlannerAgent(
             agent_id=self._agent_id,
@@ -300,15 +312,6 @@ class PlanActFlow(BaseFlow):
         self._enable_multi_agent = enable_multi_agent
         self._agent_registry: AgentRegistry | None = None
 
-        # Phase 4: Parallel step execution configuration
-        self._enable_parallel_execution = enable_parallel_execution
-        self._parallel_executor: ParallelExecutor | None = None
-        if enable_parallel_execution:
-            self._parallel_executor = ParallelExecutor(
-                max_concurrency=parallel_max_concurrency,
-                mode=ParallelExecutionMode.PARALLEL,
-            )
-            logger.info(f"Parallel step execution enabled with max_concurrency={parallel_max_concurrency}")
         self._agent_factory: DefaultAgentFactory | None = None
         self._specialized_agents: dict[str, BaseAgent] = {}
 
@@ -749,6 +752,22 @@ class PlanActFlow(BaseFlow):
             )
         old_status = self.status
         self.status = new_status
+
+        # Emit structured flow transition event for observability
+        now = time.time()
+        elapsed_ms = (now - self._last_transition_time) * 1000
+        self._last_transition_time = now
+        current_step = self.plan.get_running_step() if self.plan else None
+        self._pending_events.append(
+            FlowTransitionEvent(
+                from_state=old_status.value,
+                to_state=new_status.value,
+                reason=reason or None,
+                step_id=current_step.id if current_step else None,
+                elapsed_ms=round(elapsed_ms, 1),
+            )
+        )
+
         self._log.workflow_transition(
             from_state=old_status.value,
             to_state=new_status.value,
@@ -795,14 +814,8 @@ class PlanActFlow(BaseFlow):
                 return f'I\'ll help you create the "{match.group(1).strip()}" skill. Let me first review the skill creation guidelines.'
             return "I'll help you create that skill. Let me first review the skill creation guidelines."
 
-        # Check for research-type tasks
+        # Check for research-type tasks — use generic message to avoid echoing typos
         if is_research_task(user_message):
-            # Extract the actual research topic from the user's message
-            topic = self._extract_research_topic(user_message)
-            if topic:
-                # Truncate long topics for the acknowledgment
-                display_topic = topic[:100] + "..." if len(topic) > 100 else topic
-                return f"I'll research {display_topic} and provide you with a detailed report."
             return "I'll conduct comprehensive research on this topic and provide you with a detailed report."
 
         # Check for specific task types and generate appropriate acknowledgments
@@ -1578,6 +1591,13 @@ class PlanActFlow(BaseFlow):
         # Phase 3.5: Initialize skill_invoke tool with available skills (lazy load)
         await self._init_skill_invoke_tool()
 
+        # Cross-session learning: load historical error patterns
+        if self._user_id and self._memory_service:
+            try:
+                await self._error_bridge.on_session_start(self._user_id, self._memory_service)
+            except Exception as e:
+                logger.debug(f"Error pattern loading failed (non-critical): {e}")
+
         # === INSTANT ACKNOWLEDGMENT: Emit before any processing ===
         # This gives users immediate feedback that their message was received
         if session.status not in (SessionStatus.WAITING, SessionStatus.RUNNING):
@@ -1765,11 +1785,9 @@ class PlanActFlow(BaseFlow):
 
         # NOTE: Acknowledgment moved earlier (before fast path) for instant feedback
 
-        # Emit a skill loading tool event for /skill-creator commands
-        skill_command = self._extract_skill_creator_command(message.message)
-        if skill_command:
-            async for event in self._emit_skill_invoke_events(*skill_command):
-                yield event
+        # Skill-creator command tool events are now handled by the command registry
+        # in agent_domain_service.py — the "skill-creator" skill's system_prompt_addition
+        # is injected via the normal skill context pipeline (execution.py/planner.py).
 
         # === DEEP RESEARCH MODE ===
         # When deep_research is True, directly execute wide_research tool
@@ -2043,42 +2061,82 @@ class PlanActFlow(BaseFlow):
                         "agent_step",
                         {"step.id": step.id, "step.description": step.description[:100]},
                     ) as step_span:
-                        # Mark step as in progress BEFORE execution starts
-                        # This fixes "0/4" stall by updating progress immediately
-                        step.status = ExecutionStatus.RUNNING
-                        self._task_state_manager.update_step_status(str(step.id), "in_progress")
+                        # Retry loop: honor step.retry_policy
+                        retry = step.retry_policy
+                        max_attempts = 1 + retry.max_retries
+                        attempt = 0
+                        backoff = retry.backoff_seconds
 
-                        # Emit PlanEvent so frontend sees updated progress immediately
-                        yield PlanEvent(status=PlanStatus.UPDATED, plan=self.plan)
+                        for attempt in range(max_attempts):
+                            if attempt > 0:
+                                logger.info(
+                                    f"Step {step.id} retry {attempt}/{retry.max_retries} "
+                                    f"after {backoff:.1f}s backoff"
+                                )
+                                step_span.set_attribute("step.retry_attempt", attempt)
+                                await asyncio.sleep(backoff)
+                                backoff *= retry.backoff_multiplier
+                                # Reset step state for retry
+                                step.success = False
+                                step.error = None
+                                step.result = None
 
-                        # Select appropriate executor for this step (multi-agent dispatch)
-                        step_executor = await self._get_executor_for_step(step)
-                        if step_executor != self.executor:
-                            step_span.set_attribute(
-                                "step.executor",
-                                step_executor.name if hasattr(step_executor, "name") else type(step_executor).__name__,
+                            # Mark step as in progress BEFORE execution starts
+                            # This fixes "0/4" stall by updating progress immediately
+                            step.status = ExecutionStatus.RUNNING
+                            self._task_state_manager.update_step_status(str(step.id), "in_progress")
+
+                            # Emit PlanEvent so frontend sees updated progress immediately
+                            yield PlanEvent(status=PlanStatus.UPDATED, plan=self.plan)
+
+                            # Select appropriate executor for this step (multi-agent dispatch)
+                            step_executor = await self._get_executor_for_step(step)
+                            if step_executor != self.executor:
+                                step_span.set_attribute(
+                                    "step.executor",
+                                    step_executor.name if hasattr(step_executor, "name") else type(step_executor).__name__,
+                                )
+                                logger.info(f"Using specialized executor for step {step.id}")
+
+                            # Phase 4 P1: Mark step executing to prevent compaction
+                            if hasattr(step_executor, "_token_manager"):
+                                step_executor._token_manager.mark_step_executing()
+
+                            async for event in step_executor.execute_step(self.plan, step, message):
+                                # Phase 3: Track tool usage for proactive compaction
+                                if isinstance(event, ToolEvent) and event.tool_name:
+                                    self._track_tool_usage(event.tool_name)
+                                yield event
+
+                                # Yield any pending events from skill creator tools (Phase 3: Custom Skills)
+                                while self._pending_events:
+                                    pending_event = self._pending_events.pop(0)
+                                    logger.info(f"Yielding pending event: {type(pending_event).__name__}")
+                                    yield pending_event
+
+                            # Phase 4 P1: Mark step completed to allow compaction
+                            if hasattr(step_executor, "_token_manager"):
+                                step_executor._token_manager.mark_step_completed()
+
+                            # If step succeeded, break out of retry loop
+                            if step.success:
+                                break
+
+                            # Check if this error type is retryable
+                            is_timeout = step.error and "timeout" in step.error.lower()
+                            is_tool_error = step.error and "tool" in step.error.lower()
+                            should_retry = (
+                                attempt < max_attempts - 1
+                                and (
+                                    (is_timeout and retry.retry_on_timeout)
+                                    or (is_tool_error and retry.retry_on_tool_error)
+                                    or (not is_timeout and not is_tool_error and retry.max_retries > 0)
+                                )
                             )
-                            logger.info(f"Using specialized executor for step {step.id}")
+                            if not should_retry:
+                                break
 
-                        # Phase 4 P1: Mark step executing to prevent compaction
-                        if hasattr(step_executor, "_token_manager"):
-                            step_executor._token_manager.mark_step_executing()
-
-                        async for event in step_executor.execute_step(self.plan, step, message):
-                            # Phase 3: Track tool usage for proactive compaction
-                            if isinstance(event, ToolEvent) and event.tool_name:
-                                self._track_tool_usage(event.tool_name)
-                            yield event
-
-                            # Yield any pending events from skill creator tools (Phase 3: Custom Skills)
-                            while self._pending_events:
-                                pending_event = self._pending_events.pop(0)
-                                logger.info(f"Yielding pending event: {type(pending_event).__name__}")
-                                yield pending_event
-
-                        # Phase 4 P1: Mark step completed to allow compaction
-                        if hasattr(step_executor, "_token_manager"):
-                            step_executor._token_manager.mark_step_completed()
+                        step_span.set_attribute("step.attempts", attempt + 1)
 
                         # Mark step status based on actual success/failure
                         if step.success:
@@ -2192,6 +2250,13 @@ class PlanActFlow(BaseFlow):
                     # Conclusion with tracing
                     logger.info(f"Agent {self._agent_id} started summarizing")
 
+                    # Sweep workspace for untracked files before summarizing
+                    if self._file_sweep_callback:
+                        try:
+                            await self._file_sweep_callback()
+                        except Exception as e:
+                            logger.warning(f"File sweep failed before summarizing: {e}")
+
                     # Fetch session files to include in the final report
                     session_files: list[FileInfo] = []
                     try:
@@ -2260,6 +2325,14 @@ class PlanActFlow(BaseFlow):
                     self.plan.status = ExecutionStatus.COMPLETED
                     logger.info(f"Agent {self._agent_id} plan has been completed")
                     yield PlanEvent(status=PlanStatus.COMPLETED, plan=self.plan)
+
+                    # Cross-session learning: persist error patterns at session end
+                    if self._memory_service:
+                        try:
+                            await self._error_bridge.on_session_end(self._memory_service)
+                        except Exception as e:
+                            logger.debug(f"Error pattern persistence failed (non-critical): {e}")
+
                     self._transition_to(AgentStatus.IDLE)
                     break
 
@@ -2300,3 +2373,18 @@ class PlanActFlow(BaseFlow):
 
     def is_done(self) -> bool:
         return self.status == AgentStatus.IDLE
+
+    def get_status(self) -> FlowStatus:
+        """Map internal AgentStatus to canonical FlowStatus."""
+        _map = {
+            AgentStatus.IDLE: FlowStatus.IDLE,
+            AgentStatus.PLANNING: FlowStatus.PLANNING,
+            AgentStatus.EXECUTING: FlowStatus.EXECUTING,
+            AgentStatus.VERIFYING: FlowStatus.VERIFYING,
+            AgentStatus.REFLECTING: FlowStatus.REFLECTING,
+            AgentStatus.SUMMARIZING: FlowStatus.SUMMARIZING,
+            AgentStatus.COMPLETED: FlowStatus.COMPLETED,
+            AgentStatus.UPDATING: FlowStatus.EXECUTING,
+            AgentStatus.ERROR: FlowStatus.FAILED,
+        }
+        return _map.get(self.status, FlowStatus.IDLE)

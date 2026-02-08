@@ -303,10 +303,7 @@ class ChainOfVerification:
 
         # Calculate confidence score
         total = len(answered)
-        if total > 0:
-            confidence = (verified_count + 0.5 * uncertain_count) / total
-        else:
-            confidence = 0.8
+        confidence = (verified_count + 0.5 * uncertain_count) / total if total > 0 else 0.8
 
         processing_time_ms = (time.time() - start_time) * 1000
 
