@@ -30,7 +30,10 @@ from app.domain.services.agents.chain_of_verification import ChainOfVerification
 from app.domain.services.agents.context_manager import ContextManager, InsightType
 from app.domain.services.agents.critic import CriticAgent, CriticConfig, CriticVerdict
 from app.domain.services.agents.error_pattern_analyzer import get_error_pattern_analyzer
+from app.domain.services.agents.output_coverage_validator import OutputCoverageValidator
 from app.domain.services.agents.prompt_adapter import PromptAdapter
+from app.domain.services.agents.response_compressor import ResponseCompressor
+from app.domain.services.agents.response_policy import ResponsePolicy, VerbosityMode
 from app.domain.services.agents.reward_scoring import RewardScorer
 from app.domain.services.agents.task_state_manager import get_task_state_manager
 from app.domain.services.attention_injector import AttentionInjector
@@ -127,6 +130,15 @@ class ExecutionAgent(BaseAgent):
         self._view_operation_count: int = 0
         self._multimodal_findings: list[dict] = []
         self._view_tools = {"file_view", "browser_view", "browser_get_content", "browser_agent_extract"}
+
+        # Adaptive response policy controls
+        self._response_policy: ResponsePolicy | None = None
+        self._output_coverage_validator = OutputCoverageValidator()
+        self._response_compressor = ResponseCompressor()
+
+    def set_response_policy(self, policy: ResponsePolicy | None) -> None:
+        """Set per-run response policy for summarize stage."""
+        self._response_policy = policy
 
     async def execute_step(self, plan: Plan, step: Step, message: Message) -> AsyncGenerator[BaseEvent, None]:
         # Store user request for critic context
@@ -399,20 +411,38 @@ class ExecutionAgent(BaseAgent):
             self.tools = original_tools
             self.system_prompt = original_system_prompt
 
-    async def summarize(self) -> AsyncGenerator[BaseEvent, None]:
+    async def summarize(self, response_policy: ResponsePolicy | None = None) -> AsyncGenerator[BaseEvent, None]:
         """
         Summarize the completed task, streaming tokens for live display.
         Uses ask_stream() to yield StreamEvent chunks so the frontend can render
         the report progressively. CoVe and Critic run as post-processing on the
         accumulated text after streaming completes.
         """
+        active_policy = (
+            response_policy
+            or self._response_policy
+            or ResponsePolicy(
+                mode=VerbosityMode.STANDARD, min_required_sections=["final result"], allow_compression=False
+            )
+        )
+
         yield StepEvent(
             status=StepStatus.RUNNING,
             step=Step(id="summarize", description="Composing final report...", status=ExecutionStatus.RUNNING),
         )
 
         # Use streaming prompt (plain markdown, no JSON wrapper)
-        await self._add_to_memory([{"role": "user", "content": STREAMING_SUMMARIZE_PROMPT}])
+        summarize_prompt = STREAMING_SUMMARIZE_PROMPT
+        if active_policy.mode == VerbosityMode.CONCISE:
+            summarize_prompt += (
+                "\n\nKeep the final response concise while preserving: final result, key artifacts, "
+                "critical caveats, and one practical next step."
+            )
+        elif active_policy.mode == VerbosityMode.DETAILED:
+            summarize_prompt += (
+                "\n\nProvide a detailed and well-structured response with clear reasoning, deliverables, and caveats."
+            )
+        await self._add_to_memory([{"role": "user", "content": summarize_prompt}])
         await self._ensure_within_token_limit()
 
         try:
@@ -442,6 +472,41 @@ class ExecutionAgent(BaseAgent):
 
             if len(message_content) > 200 and self._user_request:
                 message_content = await self._apply_critic_revision(message_content, [])
+
+            base_coverage = self._output_coverage_validator.validate(
+                output=message_content,
+                user_request=self._user_request or "",
+                required_sections=active_policy.min_required_sections,
+            )
+            if not base_coverage.is_valid:
+                logger.warning(
+                    "Summary coverage missing required elements before compression: %s",
+                    ", ".join(base_coverage.missing_requirements) or "unknown",
+                )
+
+            if active_policy.allow_compression and active_policy.mode == VerbosityMode.CONCISE:
+                compressed_content = self._response_compressor.compress(
+                    message_content, mode=active_policy.mode, max_chars=active_policy.max_chars
+                )
+                compressed_coverage = self._output_coverage_validator.validate(
+                    output=compressed_content,
+                    user_request=self._user_request or "",
+                    required_sections=active_policy.min_required_sections,
+                )
+                if compressed_coverage.is_valid and len(compressed_content) < len(message_content):
+                    message_content = compressed_content
+                else:
+                    _metrics.record_counter(
+                        "compression_rejected_total",
+                        labels={"reason": "coverage_drop"},
+                    )
+
+            _metrics.record_counter("response_policy_mode_total", labels={"mode": active_policy.mode.value})
+            _metrics.record_histogram(
+                "final_response_tokens",
+                value=max(1, len(message_content) // 4),
+                labels={"mode": active_policy.mode.value},
+            )
 
             # Reward hacking detection (log-only)
             flags = get_feature_flags()

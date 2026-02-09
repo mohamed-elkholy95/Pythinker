@@ -170,6 +170,10 @@ const localSettings = ref<UserSettings>({
   browser_agent_max_steps: 25,
   browser_agent_timeout: 300,
   browser_agent_use_vision: true,
+  deep_research_auto_run: false,
+  response_verbosity_preference: 'adaptive',
+  clarification_policy: 'auto',
+  quality_floor_enforced: true,
 })
 
 // Providers info

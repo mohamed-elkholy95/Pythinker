@@ -179,9 +179,6 @@
                   {{ currentPlanningMessage }}
                 </span>
               </div>
-              <div class="planning-percent flex-shrink-0">
-                {{ planningProgress.percent || 10 }}%
-              </div>
             </div>
           </div>
 
@@ -714,16 +711,9 @@ const activeThinkingStepId = computed<string | undefined>(() => {
   return undefined;
 });
 
-// Track if user has explicitly closed the panel (don't auto-reopen)
-const userClosedPanel = ref(false);
-
 // Handle tool panel state changes
-const handlePanelStateChange = (isOpen: boolean, userAction: boolean = false) => {
+const handlePanelStateChange = (isOpen: boolean) => {
   isToolPanelOpen.value = isOpen;
-  // If user explicitly closed the panel, remember this preference
-  if (!isOpen && userAction) {
-    userClosedPanel.value = true;
-  }
 };
 
 // Computer-related tools that should show thumbnail
@@ -814,7 +804,6 @@ const effectiveCanStepBackward = computed(() =>
 
 // Handle opening the panel from TaskProgressBar
 const handleOpenPanel = () => {
-  userClosedPanel.value = false;
   if (lastNoMessageTool.value) {
     toolPanel.value?.showToolPanel(lastNoMessageTool.value, isLiveTool(lastNoMessageTool.value));
     panelToolId.value = lastNoMessageTool.value.tool_call_id;
@@ -941,9 +930,6 @@ const handleToolEvent = (toolData: ToolEventData) => {
       panelToolId.value = toolContent.tool_call_id;
       if (isToolPanelOpen.value) {
         // Auto-switch panel content when panel is open and new tool starts
-        toolPanel.value?.showToolPanel(toolContent, isLiveTool(toolContent));
-      } else if (!userClosedPanel.value) {
-        // Auto-open panel for tool execution (unless user explicitly closed it)
         toolPanel.value?.showToolPanel(toolContent, isLiveTool(toolContent));
       }
     }
@@ -1478,8 +1464,6 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
   // (when there are no messages or only 1 message which is the user's first message)
   if (message && (messages.value.length === 0 || (messages.value.length === 1 && messages.value[0].type === 'user'))) {
     isInitializing.value = true;
-    // Reset panel close preference for new conversations
-    userClosedPanel.value = false;
   }
 
   try {

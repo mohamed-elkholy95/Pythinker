@@ -135,8 +135,8 @@
       <div class="activity-indicator"></div>
     </div>
 
-    <!-- VNC view (catch-all for any active session) -->
-    <div v-else-if="sessionId && enabled" class="vnc-container">
+    <!-- VNC view (only with active tool context) -->
+    <div v-else-if="shouldShowLiveVnc" class="vnc-container">
       <LiveViewer
         :session-id="sessionId"
         :enabled="enabled"
@@ -225,6 +225,19 @@ const effectiveToolContent = computed<ToolContent | undefined>(() => {
 
 // Use content config to determine view type
 const { currentViewType } = useContentConfig(toRef(() => effectiveToolContent.value));
+
+const shouldShowLiveVnc = computed(() => {
+  if (!props.sessionId || !props.enabled || props.isInitializing) {
+    return false;
+  }
+
+  // Avoid opening a live VNC feed before the agent emits any concrete tool context.
+  if (!effectiveToolContent.value) {
+    return false;
+  }
+
+  return props.isActive || currentViewType.value === 'vnc';
+});
 
 // Wide research state
 const { miniState: wideResearchState, isActive: wideResearchActive } = useWideResearchGlobal();

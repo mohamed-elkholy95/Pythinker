@@ -82,6 +82,81 @@
       </div>
     </div>
 
+    <!-- Response Behavior Section -->
+    <div class="section-card">
+      <div class="section-header">
+        <div class="section-icon">
+          <Bot class="w-5 h-5" />
+        </div>
+        <div class="section-info">
+          <h4 class="section-title">Response Behavior</h4>
+          <p class="section-desc">Control answer length and clarification behavior</p>
+        </div>
+      </div>
+
+      <div class="setting-block">
+        <div class="setting-row-header">
+          <div class="setting-label-group">
+            <div class="setting-text">
+              <span class="setting-label">Response Verbosity</span>
+              <span class="setting-hint">Adaptive keeps answers short unless task risk/complexity is high</span>
+            </div>
+          </div>
+        </div>
+        <div class="input-container">
+          <select
+            v-model="localSettings.response_verbosity_preference"
+            @change="saveSettings"
+            class="settings-input"
+          >
+            <option value="adaptive">Adaptive</option>
+            <option value="concise">Concise</option>
+            <option value="detailed">Detailed</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="setting-block">
+        <div class="setting-row-header">
+          <div class="setting-label-group">
+            <div class="setting-text">
+              <span class="setting-label">Clarification Policy</span>
+              <span class="setting-hint">Choose when the agent pauses to ask follow-up questions</span>
+            </div>
+          </div>
+        </div>
+        <div class="input-container">
+          <select
+            v-model="localSettings.clarification_policy"
+            @change="saveSettings"
+            class="settings-input"
+          >
+            <option value="auto">Auto</option>
+            <option value="always">Always ask</option>
+            <option value="never">Never ask</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="vision-toggle-card" :class="{ 'vision-enabled': localSettings.quality_floor_enforced }">
+        <div class="vision-content">
+          <div class="vision-info">
+            <h5 class="vision-title">Quality Floor</h5>
+            <p class="vision-desc">
+              Keep enabled to prevent concise output from dropping critical details.
+            </p>
+          </div>
+        </div>
+        <button
+          @click="toggleQualityFloor"
+          class="toggle-switch"
+          :class="{ 'toggle-active': localSettings.quality_floor_enforced }"
+        >
+          <span class="toggle-thumb"></span>
+        </button>
+      </div>
+    </div>
+
     <!-- Vision Section -->
     <div class="section-card">
       <div class="section-header">
@@ -162,6 +237,10 @@ const localSettings = ref<UserSettings>({
   browser_agent_max_steps: 25,
   browser_agent_timeout: 300,
   browser_agent_use_vision: true,
+  deep_research_auto_run: false,
+  response_verbosity_preference: 'adaptive',
+  clarification_policy: 'auto',
+  quality_floor_enforced: true,
 })
 
 // Timeout presets
@@ -194,6 +273,11 @@ const toggleVision = async () => {
   await saveSettings()
 }
 
+const toggleQualityFloor = async () => {
+  localSettings.value.quality_floor_enforced = !localSettings.value.quality_floor_enforced
+  await saveSettings()
+}
+
 // Save settings
 const saveSettings = async () => {
   try {
@@ -201,6 +285,9 @@ const saveSettings = async () => {
       browser_agent_max_steps: localSettings.value.browser_agent_max_steps,
       browser_agent_timeout: localSettings.value.browser_agent_timeout,
       browser_agent_use_vision: localSettings.value.browser_agent_use_vision,
+      response_verbosity_preference: localSettings.value.response_verbosity_preference,
+      clarification_policy: localSettings.value.clarification_policy,
+      quality_floor_enforced: localSettings.value.quality_floor_enforced,
     })
   } catch {
     showErrorToast(t('Failed to save settings'))
