@@ -50,6 +50,4 @@ async def test_browse_url_releases_pooled_browser():
         events = [event async for event in service.browse_url("session-id", "http://example.com")]
 
     assert events
-    mock_sandbox.release_pooled_browser.assert_awaited_once_with(
-        mock_browser, had_error=False
-    )
+    mock_sandbox.release_pooled_browser.assert_awaited_once_with(mock_browser, had_error=False)

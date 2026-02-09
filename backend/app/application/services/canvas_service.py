@@ -119,14 +119,10 @@ class CanvasService:
     async def get_project(self, project_id: str) -> CanvasProject | None:
         return await self._repo.find_by_id(project_id)
 
-    async def list_projects(
-        self, user_id: str, skip: int = 0, limit: int = 50
-    ) -> list[CanvasProject]:
+    async def list_projects(self, user_id: str, skip: int = 0, limit: int = 50) -> list[CanvasProject]:
         return await self._repo.find_by_user_id(user_id, skip=skip, limit=limit)
 
-    async def update_project(
-        self, project_id: str, project: CanvasProject
-    ) -> CanvasProject | None:
+    async def update_project(self, project_id: str, project: CanvasProject) -> CanvasProject | None:
         """Update a project (full state save). Auto-saves a version."""
         existing = await self._repo.find_by_id(project_id)
         if not existing:
@@ -154,14 +150,10 @@ class CanvasService:
 
     # --- Version management ---
 
-    async def get_versions(
-        self, project_id: str, limit: int = 20
-    ) -> list[CanvasVersion]:
+    async def get_versions(self, project_id: str, limit: int = 20) -> list[CanvasVersion]:
         return await self._repo.get_versions(project_id, limit=limit)
 
-    async def restore_version(
-        self, project_id: str, version: int
-    ) -> CanvasProject | None:
+    async def restore_version(self, project_id: str, version: int) -> CanvasProject | None:
         """Restore a project to a previous version."""
         project = await self._repo.find_by_id(project_id)
         if not project:
@@ -233,9 +225,7 @@ class CanvasService:
 
         return None
 
-    async def delete_elements(
-        self, project_id: str, element_ids: list[str]
-    ) -> CanvasProject | None:
+    async def delete_elements(self, project_id: str, element_ids: list[str]) -> CanvasProject | None:
         """Delete elements by IDs."""
         project = await self._repo.find_by_id(project_id)
         if not project:
@@ -334,10 +324,7 @@ class CanvasService:
             "Only include operations that are directly supported by the schema."
         )
 
-        user_prompt = (
-            f"Instruction: {instruction}\n\n"
-            f"Canvas context (JSON):\n{json.dumps(context, indent=2)}"
-        )
+        user_prompt = f"Instruction: {instruction}\n\nCanvas context (JSON):\n{json.dumps(context, indent=2)}"
 
         try:
             plan = await llm.ask_structured(

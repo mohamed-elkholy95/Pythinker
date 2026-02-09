@@ -11,9 +11,7 @@ class MongoScreenshotRepository:
         document = ScreenshotDocument.from_domain(screenshot)
         await document.save()
 
-    async def find_by_session(
-        self, session_id: str, limit: int = 500, offset: int = 0
-    ) -> list[SessionScreenshot]:
+    async def find_by_session(self, session_id: str, limit: int = 500, offset: int = 0) -> list[SessionScreenshot]:
         documents = (
             await ScreenshotDocument.find(ScreenshotDocument.session_id == session_id)
             .sort("+sequence_number")
@@ -24,18 +22,12 @@ class MongoScreenshotRepository:
         return [doc.to_domain() for doc in documents]
 
     async def find_by_id(self, screenshot_id: str) -> SessionScreenshot | None:
-        document = await ScreenshotDocument.find_one(
-            ScreenshotDocument.screenshot_id == screenshot_id
-        )
+        document = await ScreenshotDocument.find_one(ScreenshotDocument.screenshot_id == screenshot_id)
         return document.to_domain() if document else None
 
     async def count_by_session(self, session_id: str) -> int:
-        return await ScreenshotDocument.find(
-            ScreenshotDocument.session_id == session_id
-        ).count()
+        return await ScreenshotDocument.find(ScreenshotDocument.session_id == session_id).count()
 
     async def delete_by_session(self, session_id: str) -> int:
-        result = await ScreenshotDocument.find(
-            ScreenshotDocument.session_id == session_id
-        ).delete()
+        result = await ScreenshotDocument.find(ScreenshotDocument.session_id == session_id).delete()
         return result.deleted_count if result else 0

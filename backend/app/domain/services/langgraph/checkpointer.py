@@ -24,22 +24,19 @@ def _import_from_site_packages(module_path: str):
 
     # Get site-packages directories
     site_packages = site.getsitepackages()
-    if hasattr(site, 'getusersitepackages'):
+    if hasattr(site, "getusersitepackages"):
         user_site = site.getusersitepackages()
         if user_site:
             site_packages.append(user_site)
 
     # Find the langgraph package
     for sp in site_packages:
-        pkg_path = Path(sp) / 'langgraph'
+        pkg_path = Path(sp) / "langgraph"
         if pkg_path.exists():
             # Found it! Import from here
-            checkpoint_init = pkg_path / 'checkpoint' / 'base' / '__init__.py'
+            checkpoint_init = pkg_path / "checkpoint" / "base" / "__init__.py"
             if checkpoint_init.exists():
-                spec = importlib.util.spec_from_file_location(
-                    'langgraph_checkpoint_base',
-                    checkpoint_init
-                )
+                spec = importlib.util.spec_from_file_location("langgraph_checkpoint_base", checkpoint_init)
                 if spec and spec.loader:
                     module = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(module)
@@ -51,9 +48,9 @@ def _import_from_site_packages(module_path: str):
 def _get_checkpoint_classes():
     """Get checkpoint classes, handling import shadowing during pytest."""
     # First, check if the correct module is already loaded
-    if 'langgraph.checkpoint.base' in sys.modules:
-        mod = sys.modules['langgraph.checkpoint.base']
-        if hasattr(mod, 'BaseCheckpointSaver'):
+    if "langgraph.checkpoint.base" in sys.modules:
+        mod = sys.modules["langgraph.checkpoint.base"]
+        if hasattr(mod, "BaseCheckpointSaver"):
             return (
                 mod.BaseCheckpointSaver,
                 mod.ChannelVersions,
@@ -73,6 +70,7 @@ def _get_checkpoint_classes():
             CheckpointTuple,
             get_checkpoint_id,
         )
+
         return (
             BaseCheckpointSaver,
             ChannelVersions,
@@ -83,7 +81,7 @@ def _get_checkpoint_classes():
         )
     except (ImportError, ModuleNotFoundError, AttributeError):
         # Direct import failed (likely due to shadowing), use file-based import
-        mod = _import_from_site_packages('langgraph.checkpoint.base')
+        mod = _import_from_site_packages("langgraph.checkpoint.base")
         return (
             mod.BaseCheckpointSaver,
             mod.ChannelVersions,

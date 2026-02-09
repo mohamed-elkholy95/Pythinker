@@ -34,28 +34,29 @@ def _preload_langgraph():
     """Preload the langgraph package from site-packages to prevent shadowing."""
     # Get site-packages directories
     site_packages = site.getsitepackages()
-    if hasattr(site, 'getusersitepackages'):
+    if hasattr(site, "getusersitepackages"):
         user_site = site.getusersitepackages()
         if user_site:
             site_packages.append(user_site)
 
     for sp in site_packages:
-        pkg_path = Path(sp) / 'langgraph'
+        pkg_path = Path(sp) / "langgraph"
         if pkg_path.exists():
             # Load the checkpoint module directly from site-packages
-            checkpoint_init = pkg_path / 'checkpoint' / 'base' / '__init__.py'
+            checkpoint_init = pkg_path / "checkpoint" / "base" / "__init__.py"
             if checkpoint_init.exists():
                 spec = importlib.util.spec_from_file_location(
-                    'langgraph.checkpoint.base',
+                    "langgraph.checkpoint.base",
                     checkpoint_init,
-                    submodule_search_locations=[str(pkg_path / 'checkpoint' / 'base')]
+                    submodule_search_locations=[str(pkg_path / "checkpoint" / "base")],
                 )
                 if spec and spec.loader:
                     module = importlib.util.module_from_spec(spec)
-                    sys.modules['langgraph.checkpoint.base'] = module
+                    sys.modules["langgraph.checkpoint.base"] = module
                     spec.loader.exec_module(module)
                     return True
     return False
+
 
 # Preload langgraph before any app imports
 _preload_langgraph()

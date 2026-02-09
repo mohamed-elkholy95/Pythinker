@@ -247,7 +247,9 @@ class PlannerAgent(BaseAgent):
         finally:
             self.system_prompt = original_system_prompt
 
-    async def _create_plan_inner(self, message: Message, replan_context: str | None = None) -> AsyncGenerator[BaseEvent, None]:
+    async def _create_plan_inner(
+        self, message: Message, replan_context: str | None = None
+    ) -> AsyncGenerator[BaseEvent, None]:
         """Inner implementation of create_plan, wrapped by try/finally for prompt restore."""
         from app.domain.models.event import PlanningPhase, ProgressEvent
 

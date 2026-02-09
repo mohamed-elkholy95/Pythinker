@@ -8,6 +8,7 @@ from typing import Any, BinaryIO
 import docker
 import httpx
 from async_lru import alru_cache
+from docker.errors import NotFound as DockerNotFound
 from docker.types import Ulimit
 
 from app.core.config import get_settings
@@ -54,6 +55,7 @@ class DockerSandbox(Sandbox):
             if old is not None and not old.is_closed:
                 try:
                     import asyncio
+
                     loop = asyncio.get_running_loop()
                     task = loop.create_task(old.aclose())
                     self._background_tasks.add(task)
@@ -382,9 +384,7 @@ class DockerSandbox(Sandbox):
                 # Connection refused — sandbox container is not reachable, reduce retries
                 if attempt >= 5:
                     logger.error(f"Sandbox unreachable after {attempt + 1} attempts, giving up")
-                    raise RuntimeError(
-                        f"Sandbox unreachable after {attempt + 1} connection attempts"
-                    ) from e
+                    raise RuntimeError(f"Sandbox unreachable after {attempt + 1} connection attempts") from e
                 logger.warning(f"Sandbox unreachable (attempt {attempt + 1}/{max_retries})")
                 await asyncio.sleep(retry_interval)
             except Exception as e:
@@ -886,7 +886,12 @@ class DockerSandbox(Sandbox):
 
                 def _remove_container(name: str) -> None:
                     dc = docker.from_env()
-                    dc.containers.get(name).remove(force=True)
+                    try:
+                        dc.containers.get(name).remove(force=True)
+                    except DockerNotFound:
+                        # Idempotent cleanup: container may already be removed by
+                        # another cleanup path.
+                        logger.info(f"Docker sandbox container already removed: {name}")
 
                 await asyncio.to_thread(_remove_container, self._container_name)
             return True

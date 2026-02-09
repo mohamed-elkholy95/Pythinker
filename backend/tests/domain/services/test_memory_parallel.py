@@ -68,6 +68,7 @@ class TestParallelMemoryWrites:
     @pytest.mark.asyncio
     async def test_gather_compat_with_taskgroup(self):
         """Test gather_compat with TaskGroup enabled."""
+
         async def task1():
             return "result1"
 
@@ -83,6 +84,7 @@ class TestParallelMemoryWrites:
     @pytest.mark.asyncio
     async def test_gather_compat_exception_handling(self):
         """Test gather_compat handles exceptions with return_exceptions."""
+
         async def success_task():
             return "success"
 
@@ -100,14 +102,10 @@ class TestParallelMemoryWrites:
         assert isinstance(results[1], ValueError)
 
     @pytest.mark.asyncio
-    async def test_parallel_mongodb_qdrant_write(
-        self, mock_memory_repository, mock_qdrant_repository
-    ):
+    async def test_parallel_mongodb_qdrant_write(self, mock_memory_repository, mock_qdrant_repository):
         """Test parallel writes to MongoDB and Qdrant."""
         # Simulate parallel write pattern from memory_service
-        mongo_task = mock_memory_repository.create(
-            MagicMock(id="mem_123", content="test", user_id="user_1")
-        )
+        mongo_task = mock_memory_repository.create(MagicMock(id="mem_123", content="test", user_id="user_1"))
         qdrant_task = mock_qdrant_repository.upsert_memory(
             memory_id="mem_123",
             embedding=[0.1, 0.2, 0.3],
@@ -122,14 +120,9 @@ class TestParallelMemoryWrites:
         mock_qdrant_repository.upsert_memory.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_batch_write_parallel(
-        self, mock_memory_repository, mock_qdrant_repository
-    ):
+    async def test_batch_write_parallel(self, mock_memory_repository, mock_qdrant_repository):
         """Test batch write to both stores in parallel."""
-        memories = [
-            MagicMock(id=f"mem_{i}", content=f"content_{i}", user_id="user_1")
-            for i in range(5)
-        ]
+        memories = [MagicMock(id=f"mem_{i}", content=f"content_{i}", user_id="user_1") for i in range(5)]
 
         # Create tasks for each memory
         mongo_tasks = [mock_memory_repository.create(m) for m in memories]
@@ -152,14 +145,10 @@ class TestParallelMemoryWrites:
         assert mock_qdrant_repository.upsert_memory.call_count == 5
 
     @pytest.mark.asyncio
-    async def test_partial_failure_handling(
-        self, mock_memory_repository, mock_qdrant_repository
-    ):
+    async def test_partial_failure_handling(self, mock_memory_repository, mock_qdrant_repository):
         """Test handling when one write fails."""
         mock_memory_repository.create = AsyncMock(return_value=MagicMock(id="mem_123"))
-        mock_qdrant_repository.upsert_memory = AsyncMock(
-            side_effect=Exception("Qdrant unavailable")
-        )
+        mock_qdrant_repository.upsert_memory = AsyncMock(side_effect=Exception("Qdrant unavailable"))
 
         results = await gather_compat(
             mock_memory_repository.create(MagicMock()),
@@ -211,9 +200,7 @@ class TestQdrantBatchUpsert:
     @pytest.mark.asyncio
     async def test_batch_upsert_single_memory(self, mock_qdrant_client):
         """Test batch upsert with single memory."""
-        memories = [
-            {"id": "mem_1", "embedding": [0.1, 0.2, 0.3], "payload": {"user_id": "u1"}}
-        ]
+        memories = [{"id": "mem_1", "embedding": [0.1, 0.2, 0.3], "payload": {"user_id": "u1"}}]
 
         # Simulate batch upsert
         await mock_qdrant_client.upsert(collection_name="memories", points=memories)
@@ -223,10 +210,7 @@ class TestQdrantBatchUpsert:
     @pytest.mark.asyncio
     async def test_batch_upsert_multiple_memories(self, mock_qdrant_client):
         """Test batch upsert with multiple memories."""
-        memories = [
-            {"id": f"mem_{i}", "embedding": [0.1 * i] * 3, "payload": {"user_id": "u1"}}
-            for i in range(10)
-        ]
+        memories = [{"id": f"mem_{i}", "embedding": [0.1 * i] * 3, "payload": {"user_id": "u1"}} for i in range(10)]
 
         await mock_qdrant_client.upsert(collection_name="memories", points=memories)
 
@@ -258,10 +242,7 @@ class TestMemoryServiceParallelIntegration:
     @pytest.mark.asyncio
     async def test_store_many_parallel_batch(self, memory_service_mock):
         """Test storing multiple memories in parallel."""
-        memories = [
-            MagicMock(content=f"content_{i}", memory_type="fact", importance="medium")
-            for i in range(5)
-        ]
+        memories = [MagicMock(content=f"content_{i}", memory_type="fact", importance="medium") for i in range(5)]
 
         # Simulate parallel store
         async def store_one(mem):
@@ -320,6 +301,7 @@ class TestTaskGroupParallelWrites:
     @pytest.mark.asyncio
     async def test_gather_compat_taskgroup_enabled(self):
         """Test gather_compat uses TaskGroup when enabled."""
+
         async def simple_task(value):
             return value * 2
 
@@ -336,6 +318,7 @@ class TestTaskGroupParallelWrites:
     @pytest.mark.asyncio
     async def test_gather_compat_taskgroup_with_exceptions(self):
         """Test gather_compat TaskGroup with return_exceptions=True."""
+
         async def success_task():
             return "ok"
 

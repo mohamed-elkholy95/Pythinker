@@ -101,7 +101,7 @@
         <div class="flex flex-col w-full gap-[12px] pb-[80px] pt-[12px] flex-1">
           <div v-if="isSandboxInitializing" class="flex items-center gap-3 px-4 py-2 bg-[var(--fill-tsp-white-main)] border border-[var(--border-main)] rounded-xl">
             <div class="w-2 h-2 bg-[var(--text-secondary)] rounded-full animate-pulse"></div>
-            <span v-if="!sessionInitTimedOut" class="text-sm text-[var(--text-secondary)]">{{ $t('Preparing clean sandbox...') }}</span>
+            <span v-if="!sessionInitTimedOut" class="text-sm text-[var(--text-secondary)]">Initializing my PC...</span>
             <span v-else class="text-sm text-[var(--text-secondary)]">{{ $t('Sandbox is taking longer than usual.') }}</span>
             <button
               v-if="sessionInitTimedOut"
@@ -321,6 +321,7 @@ import ConnectorsDialog from '@/components/connectors/ConnectorsDialog.vue';
 import { useConnectorDialog } from '@/composables/useConnectorDialog';
 import { useScreenshotReplay } from '@/composables/useScreenshotReplay';
 import { useOpenReplay } from '@/composables/useOpenReplay';
+import { shouldStopSessionOnExit } from '@/utils/sessionLifecycle';
 
 const router = useRouter()
 const { t } = useI18n()
@@ -338,15 +339,7 @@ useConnectorDialog()
 // OpenReplay session tracking (preferred replay source)
 const openReplay = useOpenReplay()
 const openReplayLinkInFlight = ref(false)
-const shouldStartOpenReplay = (status?: SessionStatus) => {
-  if (!status) return false
-  return [
-    SessionStatus.PENDING,
-    SessionStatus.INITIALIZING,
-    SessionStatus.RUNNING,
-    SessionStatus.WAITING
-  ].includes(status)
-}
+const shouldStartOpenReplay = (status?: SessionStatus) => shouldStopSessionOnExit(status)
 
 const maybeStartOpenReplay = async (targetSessionId: string, status?: SessionStatus) => {
   if (!openReplay.isEnabled.value) return
@@ -1597,7 +1590,7 @@ onBeforeRouteUpdate(async (to, from, next) => {
   }
   // Stop the current session if it's still running to release sandbox/browser resources
   const prevSessionId = from.params.sessionId as string | undefined;
-  if (prevSessionId && sessionStatus.value === SessionStatus.RUNNING) {
+  if (prevSessionId && shouldStopSessionOnExit(sessionStatus.value)) {
     try {
       await agentApi.stopSession(prevSessionId);
       emitStatusChange(prevSessionId, SessionStatus.COMPLETED);
@@ -1658,7 +1651,7 @@ onBeforeRouteLeave(async (_to, from, next) => {
     openReplay.stopSession();
   }
   const leavingSessionId = from.params.sessionId as string | undefined;
-  if (leavingSessionId && sessionStatus.value === SessionStatus.RUNNING) {
+  if (leavingSessionId && shouldStopSessionOnExit(sessionStatus.value)) {
     try {
       await agentApi.stopSession(leavingSessionId);
       emitStatusChange(leavingSessionId, SessionStatus.COMPLETED);
@@ -1671,7 +1664,7 @@ onBeforeRouteLeave(async (_to, from, next) => {
 
 // Stop active session on browser tab close / page refresh via keepalive fetch
 const handleBeforeUnload = () => {
-  if (sessionId.value && sessionStatus.value === SessionStatus.RUNNING) {
+  if (sessionId.value && shouldStopSessionOnExit(sessionStatus.value)) {
     const token = getStoredToken();
     const url = `${BASE_URL}/sessions/${sessionId.value}/stop`;
     // fetch with keepalive survives page unload (unlike XHR/axios)

@@ -351,11 +351,8 @@ class SearchEngineBase(ABC, SearchEngine):
             except httpx.HTTPStatusError as e:
                 last_error = e
                 if attempt == 0 and e.response.status_code in self.RETRYABLE_STATUS_CODES:
-                    delay = 1.0 * (2 ** attempt)  # 1s backoff
-                    logger.warning(
-                        f"{self.provider_name} search got {e.response.status_code}, "
-                        f"retrying in {delay}s..."
-                    )
+                    delay = 1.0 * (2**attempt)  # 1s backoff
+                    logger.warning(f"{self.provider_name} search got {e.response.status_code}, retrying in {delay}s...")
                     await asyncio.sleep(delay)
                     continue
                 return self._create_error_result(query, date_range, self._handle_http_error(e))
@@ -363,10 +360,8 @@ class SearchEngineBase(ABC, SearchEngine):
             except (httpx.ConnectTimeout, httpx.ReadTimeout) as e:
                 last_error = e
                 if attempt == 0:
-                    delay = 1.0 * (2 ** attempt)
-                    logger.warning(
-                        f"{self.provider_name} search timeout, retrying in {delay}s..."
-                    )
+                    delay = 1.0 * (2**attempt)
+                    logger.warning(f"{self.provider_name} search timeout, retrying in {delay}s...")
                     await asyncio.sleep(delay)
                     continue
                 return self._create_error_result(query, date_range, e)

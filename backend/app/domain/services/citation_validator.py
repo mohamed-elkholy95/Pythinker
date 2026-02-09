@@ -567,9 +567,7 @@ class CitationValidator:
                     break
 
             if not result.numeric_verified:
-                result.issues.append(
-                    f"Numeric claim ({result.claimed_number}) not found in source"
-                )
+                result.issues.append(f"Numeric claim ({result.claimed_number}) not found in source")
 
         # Extract entity claims
         entity_claims = grounding_validator.extract_entity_claims(claim_text)
@@ -584,9 +582,7 @@ class CitationValidator:
                     break
 
             if not result.entity_verified:
-                result.issues.append(
-                    f"Entity claim ({result.claimed_entity}) not verified in source"
-                )
+                result.issues.append(f"Entity claim ({result.claimed_entity}) not verified in source")
 
         # Calculate semantic similarity using word overlap (Jaccard)
         semantic_score = self._calculate_semantic_score(claim_text, source_content)
@@ -594,9 +590,7 @@ class CitationValidator:
         result.is_semantically_matched = semantic_score >= 0.3
 
         if not result.is_semantically_matched:
-            result.issues.append(
-                f"Low semantic similarity ({semantic_score:.2f}) between claim and source"
-            )
+            result.issues.append(f"Low semantic similarity ({semantic_score:.2f}) between claim and source")
 
         # Set verification method
         if result.numeric_verified:
@@ -628,12 +622,58 @@ class CitationValidator:
         """
         # Tokenize and normalize
         stop_words = {
-            "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-            "have", "has", "had", "do", "does", "did", "will", "would", "could",
-            "should", "may", "might", "must", "shall", "can", "to", "of", "in",
-            "for", "on", "with", "at", "by", "from", "as", "into", "through",
-            "and", "but", "or", "nor", "so", "yet", "both", "either", "neither",
-            "this", "that", "these", "those", "it", "its",
+            "the",
+            "a",
+            "an",
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "been",
+            "being",
+            "have",
+            "has",
+            "had",
+            "do",
+            "does",
+            "did",
+            "will",
+            "would",
+            "could",
+            "should",
+            "may",
+            "might",
+            "must",
+            "shall",
+            "can",
+            "to",
+            "of",
+            "in",
+            "for",
+            "on",
+            "with",
+            "at",
+            "by",
+            "from",
+            "as",
+            "into",
+            "through",
+            "and",
+            "but",
+            "or",
+            "nor",
+            "so",
+            "yet",
+            "both",
+            "either",
+            "neither",
+            "this",
+            "that",
+            "these",
+            "those",
+            "it",
+            "its",
         }
 
         def tokenize(text: str) -> set[str]:

@@ -65,6 +65,7 @@ class ImageGenerationService:
         status_url = f"{FAL_RESULT_URL}/{model_id}/requests/{request_id}/status"
         for _ in range(120):  # max ~2 min polling
             import asyncio
+
             await asyncio.sleep(1)
 
             status_resp = await self.client.get(status_url)

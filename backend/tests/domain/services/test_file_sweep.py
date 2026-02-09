@@ -45,9 +45,7 @@ def mock_session_repository() -> AsyncMock:
 @pytest.fixture
 def mock_file_storage() -> AsyncMock:
     storage = AsyncMock()
-    storage.upload_file = AsyncMock(
-        return_value=FileInfo(file_id="new-file-id", filename="test.md")
-    )
+    storage.upload_file = AsyncMock(return_value=FileInfo(file_id="new-file-id", filename="test.md"))
     return storage
 
 
@@ -99,9 +97,7 @@ class TestSweepWorkspaceFiles:
         assert mock_session_repository.add_file.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_skips_already_tracked_files(
-        self, runner, mock_sandbox, mock_session_repository, mock_file_storage
-    ):
+    async def test_skips_already_tracked_files(self, runner, mock_sandbox, mock_session_repository, mock_file_storage):
         """Sweep should not re-sync files already in session.files."""
         mock_sandbox.exec_command = AsyncMock(
             return_value=ToolResult(
@@ -121,33 +117,23 @@ class TestSweepWorkspaceFiles:
         assert mock_file_storage.upload_file.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_handles_empty_find_output(
-        self, runner, mock_sandbox, mock_session_repository
-    ):
+    async def test_handles_empty_find_output(self, runner, mock_sandbox, mock_session_repository):
         """Sweep should handle no files found gracefully."""
-        mock_sandbox.exec_command = AsyncMock(
-            return_value=ToolResult(success=True, data={"output": ""})
-        )
+        mock_sandbox.exec_command = AsyncMock(return_value=ToolResult(success=True, data={"output": ""}))
 
         result = await runner._sweep_workspace_files()
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_handles_find_command_failure(
-        self, runner, mock_sandbox
-    ):
+    async def test_handles_find_command_failure(self, runner, mock_sandbox):
         """Sweep should handle find command failure gracefully."""
-        mock_sandbox.exec_command = AsyncMock(
-            return_value=ToolResult(success=False, message="Command failed")
-        )
+        mock_sandbox.exec_command = AsyncMock(return_value=ToolResult(success=False, message="Command failed"))
 
         result = await runner._sweep_workspace_files()
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_handles_sandbox_exception(
-        self, runner, mock_sandbox
-    ):
+    async def test_handles_sandbox_exception(self, runner, mock_sandbox):
         """Sweep should handle sandbox exceptions without crashing."""
         mock_sandbox.exec_command = AsyncMock(side_effect=Exception("Connection lost"))
 
@@ -214,13 +200,9 @@ class TestSweepWorkspaceFiles:
         mock_sandbox.file_download.assert_awaited_once_with("/workspace/test-session/kept.py")
 
     @pytest.mark.asyncio
-    async def test_sweep_command_scoped_to_session_workspace(
-        self, runner, mock_sandbox, mock_session_repository
-    ):
+    async def test_sweep_command_scoped_to_session_workspace(self, runner, mock_sandbox, mock_session_repository):
         """Find command should run only under /workspace/<session_id>."""
-        mock_sandbox.exec_command = AsyncMock(
-            return_value=ToolResult(success=True, data={"output": ""})
-        )
+        mock_sandbox.exec_command = AsyncMock(return_value=ToolResult(success=True, data={"output": ""}))
         session = MagicMock()
         session.files = []
         mock_session_repository.find_by_id = AsyncMock(return_value=session)

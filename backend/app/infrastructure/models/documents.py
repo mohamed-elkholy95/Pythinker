@@ -438,9 +438,7 @@ class WorkflowStateDocument(Document):
         ]
 
 
-class VisitedSourceDocument(
-    BaseDocument[VisitedSource], id_field="source_id", domain_model_class=VisitedSource
-):
+class VisitedSourceDocument(BaseDocument[VisitedSource], id_field="source_id", domain_model_class=VisitedSource):
     """MongoDB document for VisitedSource - tracks URLs actually visited during sessions."""
 
     source_id: str
@@ -483,7 +481,9 @@ class VisitedSourceDocument(
         ]
 
 
-class ScreenshotDocument(BaseDocument[SessionScreenshot], id_field="screenshot_id", domain_model_class=SessionScreenshot):
+class ScreenshotDocument(
+    BaseDocument[SessionScreenshot], id_field="screenshot_id", domain_model_class=SessionScreenshot
+):
     """MongoDB document for session screenshots."""
 
     screenshot_id: str

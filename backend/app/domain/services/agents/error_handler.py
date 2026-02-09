@@ -35,6 +35,7 @@ def _record_error(error_type: str, source: str) -> None:
     """Record error metric."""
     _metrics.record_error(error_type, source)
 
+
 T = TypeVar("T")
 
 
@@ -550,8 +551,7 @@ class ErrorHandler:
                     try:
                         await on_retry(error_context, attempt + 1)
                     except Exception as callback_error:
-                        logger.warning(f"Retry callback failed: {callback_error}"
-                        )
+                        logger.warning(f"Retry callback failed: {callback_error}")
 
                 # Wait before retry
                 await asyncio.sleep(delay)

@@ -101,7 +101,9 @@ class TestNavigateImplCrashRecovery:
         recovery_result = ToolResult(success=True, data={"url": "https://example.com"})
         browser.restart = AsyncMock(return_value=recovery_result)
 
-        result = await browser._navigate_impl("https://example.com", timeout=5000, wait_until="load", auto_extract=False)
+        result = await browser._navigate_impl(
+            "https://example.com", timeout=5000, wait_until="load", auto_extract=False
+        )
 
         assert result.success is True
         browser.restart.assert_awaited_once_with("https://example.com")
@@ -115,7 +117,9 @@ class TestNavigateImplCrashRecovery:
         browser.page.goto = AsyncMock(side_effect=Exception("Browser has been closed"))
         browser.restart = AsyncMock(return_value=ToolResult(success=False, message="Restart failed"))
 
-        result = await browser._navigate_impl("https://example.com", timeout=5000, wait_until="load", auto_extract=False)
+        result = await browser._navigate_impl(
+            "https://example.com", timeout=5000, wait_until="load", auto_extract=False
+        )
 
         assert result.success is False
         assert "crashed" in result.message.lower() or "recovery failed" in result.message.lower()
@@ -125,7 +129,9 @@ class TestNavigateImplCrashRecovery:
         """_navigate_impl returns normal failure for non-crash errors."""
         browser.page.goto = AsyncMock(side_effect=Exception("Net::ERR_NAME_NOT_RESOLVED"))
 
-        result = await browser._navigate_impl("https://bad.example", timeout=5000, wait_until="load", auto_extract=False)
+        result = await browser._navigate_impl(
+            "https://bad.example", timeout=5000, wait_until="load", auto_extract=False
+        )
 
         assert result.success is False
         assert "ERR_NAME_NOT_RESOLVED" in result.message

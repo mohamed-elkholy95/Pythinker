@@ -100,7 +100,8 @@ class ClaimProvenance(BaseModel):
 
         # Detect if claim is numeric
         import re
-        numbers = re.findall(r'\d+(?:\.\d+)?', self.claim_text)
+
+        numbers = re.findall(r"\d+(?:\.\d+)?", self.claim_text)
         if numbers:
             self.is_numeric = True
             self.extracted_numbers = [float(n) for n in numbers]
@@ -275,24 +276,15 @@ class ProvenanceStore(BaseModel):
 
     def get_unverified_claims(self) -> list[ClaimProvenance]:
         """Get all unverified claims."""
-        return [
-            c for c in self.claims.values()
-            if not c.is_grounded
-        ]
+        return [c for c in self.claims.values() if not c.is_grounded]
 
     def get_fabricated_claims(self) -> list[ClaimProvenance]:
         """Get all fabricated claims."""
-        return [
-            c for c in self.claims.values()
-            if c.is_fabricated
-        ]
+        return [c for c in self.claims.values() if c.is_fabricated]
 
     def get_numeric_claims(self) -> list[ClaimProvenance]:
         """Get all numeric claims (need special verification)."""
-        return [
-            c for c in self.claims.values()
-            if c.is_numeric
-        ]
+        return [c for c in self.claims.values() if c.is_numeric]
 
     def get_verification_summary(self) -> dict:
         """Get summary statistics of claim verification.
@@ -306,7 +298,9 @@ class ProvenanceStore(BaseModel):
         inferred = sum(1 for c in self.claims.values() if c.verification_status == ClaimVerificationStatus.INFERRED)
         unverified = sum(1 for c in self.claims.values() if c.verification_status == ClaimVerificationStatus.UNVERIFIED)
         fabricated = sum(1 for c in self.claims.values() if c.is_fabricated)
-        contradicted = sum(1 for c in self.claims.values() if c.verification_status == ClaimVerificationStatus.CONTRADICTED)
+        contradicted = sum(
+            1 for c in self.claims.values() if c.verification_status == ClaimVerificationStatus.CONTRADICTED
+        )
 
         grounded_rate = (verified + partial) / total if total > 0 else 0
 

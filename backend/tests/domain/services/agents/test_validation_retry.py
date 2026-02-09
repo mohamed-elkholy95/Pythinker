@@ -81,12 +81,8 @@ class TestRetryWithValidation:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return {
-                    "content": '{"goal": "Test", "steps": [{"description": "Test step"}]}'
-                }  # Missing title
-            return {
-                "content": '{"goal": "Test", "title": "Valid Plan", "steps": [{"description": "Test step"}]}'
-            }
+                return {"content": '{"goal": "Test", "steps": [{"description": "Test step"}]}'}  # Missing title
+            return {"content": '{"goal": "Test", "title": "Valid Plan", "steps": [{"description": "Test step"}]}'}
 
         mock_llm.ask = mock_ask
 
@@ -311,9 +307,7 @@ class TestRecoveryFromValidationError:
         try:
             PlanOutput.model_validate({"goal": "Test"})
         except ValidationError as e:
-            missing_fields = [
-                err["loc"][0] for err in e.errors() if err["type"] == "missing"
-            ]
+            missing_fields = [err["loc"][0] for err in e.errors() if err["type"] == "missing"]
             assert "title" in missing_fields
             assert "steps" in missing_fields
 

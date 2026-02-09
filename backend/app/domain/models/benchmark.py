@@ -166,8 +166,4 @@ class BenchmarkQuery(BaseModel):
         if self.date_after and benchmark.report_date and benchmark.report_date < self.date_after:
             return False
 
-        return not (
-            self.date_before
-            and benchmark.report_date
-            and benchmark.report_date > self.date_before
-        )
+        return not (self.date_before and benchmark.report_date and benchmark.report_date > self.date_before)

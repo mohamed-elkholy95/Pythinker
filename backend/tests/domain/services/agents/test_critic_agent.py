@@ -21,11 +21,7 @@ from app.domain.services.agents.critic_agent import CriticAgent, CriticResult
 def mock_llm():
     """Mock LLM that returns approved response."""
     llm = AsyncMock()
-    llm.chat = AsyncMock(
-        return_value=MagicMock(
-            content='{"approved": true, "feedback": "Good quality", "issues": []}'
-        )
-    )
+    llm.chat = AsyncMock(return_value=MagicMock(content='{"approved": true, "feedback": "Good quality", "issues": []}'))
     return llm
 
 
@@ -34,9 +30,7 @@ def mock_llm_reject():
     """Mock LLM that returns rejection response."""
     llm = AsyncMock()
     llm.chat = AsyncMock(
-        return_value=MagicMock(
-            content='{"approved": false, "feedback": "Missing sources", "issues": ["No citations"]}'
-        )
+        return_value=MagicMock(content='{"approved": false, "feedback": "Missing sources", "issues": ["No citations"]}')
     )
     return llm
 
@@ -253,13 +247,15 @@ class TestCriticAgentJsonParsing:
         llm = AsyncMock()
         llm.chat = AsyncMock(
             return_value=MagicMock(
-                content=json.dumps({
-                    "approved": True,
-                    "feedback": "Well done",
-                    "issues": [],
-                    "suggestions": ["Consider adding examples"],
-                    "score": 0.9,
-                })
+                content=json.dumps(
+                    {
+                        "approved": True,
+                        "feedback": "Well done",
+                        "issues": [],
+                        "suggestions": ["Consider adding examples"],
+                        "score": 0.9,
+                    }
+                )
             )
         )
 
@@ -280,9 +276,9 @@ class TestCriticAgentJsonParsing:
         llm = AsyncMock()
         llm.chat = AsyncMock(
             return_value=MagicMock(
-                content='''```json
+                content="""```json
 {"approved": true, "feedback": "Good work", "issues": []}
-```'''
+```"""
             )
         )
 
@@ -301,9 +297,9 @@ class TestCriticAgentJsonParsing:
         llm = AsyncMock()
         llm.chat = AsyncMock(
             return_value=MagicMock(
-                content='''```
+                content="""```
 {"approved": false, "feedback": "Needs work", "issues": ["Issue 1"]}
-```'''
+```"""
             )
         )
 
@@ -321,9 +317,7 @@ class TestCriticAgentJsonParsing:
         """Test fallback when LLM returns non-JSON response."""
         llm = AsyncMock()
         llm.chat = AsyncMock(
-            return_value=MagicMock(
-                content="This looks good to me! The output is accurate and complete."
-            )
+            return_value=MagicMock(content="This looks good to me! The output is accurate and complete.")
         )
 
         critic = CriticAgent(session_id="test", llm=llm)
@@ -341,11 +335,7 @@ class TestCriticAgentJsonParsing:
     async def test_handles_missing_optional_fields(self):
         """Test handling of JSON response with missing optional fields."""
         llm = AsyncMock()
-        llm.chat = AsyncMock(
-            return_value=MagicMock(
-                content='{"approved": true, "feedback": "Good"}'
-            )
-        )
+        llm.chat = AsyncMock(return_value=MagicMock(content='{"approved": true, "feedback": "Good"}'))
 
         critic = CriticAgent(session_id="test", llm=llm)
         result = await critic.review(
@@ -449,12 +439,8 @@ class TestCriticAgentBatchReview:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return MagicMock(
-                    content='{"approved": true, "feedback": "Good", "issues": []}'
-                )
-            return MagicMock(
-                content='{"approved": false, "feedback": "Bad", "issues": ["Problem"]}'
-            )
+                return MagicMock(content='{"approved": true, "feedback": "Good", "issues": []}')
+            return MagicMock(content='{"approved": false, "feedback": "Bad", "issues": ["Problem"]}')
 
         llm.chat = mock_chat
 
@@ -534,9 +520,7 @@ class TestCriticAgentEdgeCases:
     async def test_handles_llm_returning_string_directly(self):
         """Test handling when LLM returns string instead of object with content."""
         llm = AsyncMock()
-        llm.chat = AsyncMock(
-            return_value='{"approved": true, "feedback": "Good", "issues": []}'
-        )
+        llm.chat = AsyncMock(return_value='{"approved": true, "feedback": "Good", "issues": []}')
 
         critic = CriticAgent(session_id="test", llm=llm)
         result = await critic.review(

@@ -349,7 +349,11 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
                             # Detect paywall (skip for known open-access domains)
                             parsed_domain = urlparse(url).hostname or ""
                             if any(parsed_domain.endswith(d) for d in OPEN_ACCESS_DOMAINS):
-                                paywall_result = type("PaywallResult", (), {"detected": False, "access_type": "full", "confidence": 0, "indicators": []})()
+                                paywall_result = type(
+                                    "PaywallResult",
+                                    (),
+                                    {"detected": False, "access_type": "full", "confidence": 0, "indicators": []},
+                                )()
                             else:
                                 detector = get_paywall_detector()
                                 paywall_result = detector.detect(html, text, url)

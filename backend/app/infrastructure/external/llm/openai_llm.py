@@ -461,11 +461,7 @@ To extract data from a webpage:
 
             # For assistant messages with tool_calls, ensure content is present
             # Some APIs expect content to be present even if empty
-            if (
-                msg_copy.get("role") == "assistant"
-                and msg_copy.get("tool_calls")
-                and msg_copy.get("content") is None
-            ):
+            if msg_copy.get("role") == "assistant" and msg_copy.get("tool_calls") and msg_copy.get("content") is None:
                 msg_copy["content"] = ""
 
             cleaned.append(msg_copy)
@@ -501,7 +497,11 @@ To extract data from a webpage:
             # Deep-copy tool_calls to avoid mutating originals
             if "tool_calls" in msg_copy and isinstance(msg_copy["tool_calls"], list):
                 msg_copy["tool_calls"] = [
-                    {**tc, "function": dict(tc["function"])} if isinstance(tc, dict) and "function" in tc else dict(tc) if isinstance(tc, dict) else tc
+                    {**tc, "function": dict(tc["function"])}
+                    if isinstance(tc, dict) and "function" in tc
+                    else dict(tc)
+                    if isinstance(tc, dict)
+                    else tc
                     for tc in msg_copy["tool_calls"]
                 ]
             role = msg_copy.get("role", "user")
@@ -788,9 +788,7 @@ To extract data from a webpage:
                 # Check finish_reason for truncation detection
                 finish_reason = response.choices[0].finish_reason
                 if finish_reason == "length":
-                    logger.warning(
-                        f"LLM response truncated (finish_reason=length, max_tokens={self._max_tokens})"
-                    )
+                    logger.warning(f"LLM response truncated (finish_reason=length, max_tokens={self._max_tokens})")
                     result["_finish_reason"] = "length"
                 elif finish_reason not in ("stop", "end_turn", "tool_calls"):
                     logger.debug(f"LLM finish_reason: {finish_reason}")
@@ -813,7 +811,7 @@ To extract data from a webpage:
                         with contextlib.suppress(ValueError, TypeError):
                             retry_after = float(retry_after_header)
                 if retry_after is None:
-                    retry_after = min(base_delay * (2 ** attempt), 60.0)
+                    retry_after = min(base_delay * (2**attempt), 60.0)
                 logger.warning(
                     f"OpenAI rate limit hit on attempt {attempt + 1}/{max_retries + 1}, "
                     f"retrying after {retry_after:.1f}s"
@@ -855,12 +853,12 @@ To extract data from a webpage:
                 if any(
                     term in error_msg
                     for term in [
-                        "'1214'",               # Zhipu GLM invalid parameter error code
+                        "'1214'",  # Zhipu GLM invalid parameter error code
                         "invalid messages",
                         "message format",
                         "invalid_request_error",
-                        "incorrect role",       # Zhipu GLM role validation
-                        "cannot be empty",      # Zhipu GLM empty content
+                        "incorrect role",  # Zhipu GLM role validation
+                        "cannot be empty",  # Zhipu GLM empty content
                         "parameter is illegal",  # Zhipu GLM translated error
                     ]
                 ):
@@ -1026,7 +1024,9 @@ To extract data from a webpage:
                     logger.debug("Using json_object response format")
                 else:
                     # Provider doesn't support json_object - use prompt-based JSON
-                    logger.info(f"Provider doesn't support json_object format, using prompt-based JSON for {self._model_name}")
+                    logger.info(
+                        f"Provider doesn't support json_object format, using prompt-based JSON for {self._model_name}"
+                    )
                     json_instruction = (
                         "\n\nCRITICAL: You must respond with valid JSON matching this schema:\n"
                         f"{json.dumps(schema, indent=2)}\n\n"
@@ -1057,7 +1057,7 @@ To extract data from a webpage:
                 content = message.content
 
                 # For reasoning models (Kimi Code, o1, etc.), check reasoning_content if content is empty
-                if not content and hasattr(message, 'reasoning_content') and message.reasoning_content:
+                if not content and hasattr(message, "reasoning_content") and message.reasoning_content:
                     logger.info("Using reasoning_content as fallback for empty content field")
                     content = message.reasoning_content
 
@@ -1109,7 +1109,7 @@ To extract data from a webpage:
                         with contextlib.suppress(ValueError, TypeError):
                             retry_after = float(retry_after_header)
                 if retry_after is None:
-                    retry_after = min(base_delay * (2 ** attempt), 60.0)
+                    retry_after = min(base_delay * (2**attempt), 60.0)
                 logger.warning(
                     f"OpenAI rate limit hit on structured request attempt {attempt + 1}/{max_retries + 1}, "
                     f"retrying after {retry_after:.1f}s"
@@ -1134,9 +1134,13 @@ To extract data from a webpage:
                 if any(
                     term in error_msg
                     for term in [
-                        "'1214'", "invalid messages", "message format",
-                        "invalid_request_error", "incorrect role",
-                        "cannot be empty", "parameter is illegal",
+                        "'1214'",
+                        "invalid messages",
+                        "message format",
+                        "invalid_request_error",
+                        "incorrect role",
+                        "cannot be empty",
+                        "parameter is illegal",
                     ]
                 ):
                     raise

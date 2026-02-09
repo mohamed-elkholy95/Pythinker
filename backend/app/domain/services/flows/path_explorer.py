@@ -55,9 +55,7 @@ class PathExplorer:
         self._token_budget_used: int = 0
         self._active_path: PathState | None = None
 
-    def create_paths(
-        self, strategies: list[dict[str, Any]], base_message: Message
-    ) -> Generator[PathEvent, None, None]:
+    def create_paths(self, strategies: list[dict[str, Any]], base_message: Message) -> Generator[PathEvent, None, None]:
         """Create exploration paths from strategy suggestions.
 
         Args:

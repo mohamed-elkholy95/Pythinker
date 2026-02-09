@@ -598,9 +598,24 @@ class EnhancedGroundingValidator(GroundingValidator):
 
     # Benchmark names that require numeric verification
     BENCHMARK_NAMES: ClassVar[set[str]] = {
-        "mmlu", "hellaswag", "arc", "truthfulqa", "gsm8k", "humaneval",
-        "math", "bbh", "winogrande", "drop", "squad", "naturalquestions",
-        "triviaqa", "webqa", "coqa", "toolbench", "bfcl", "swe-bench",
+        "mmlu",
+        "hellaswag",
+        "arc",
+        "truthfulqa",
+        "gsm8k",
+        "humaneval",
+        "math",
+        "bbh",
+        "winogrande",
+        "drop",
+        "squad",
+        "naturalquestions",
+        "triviaqa",
+        "webqa",
+        "coqa",
+        "toolbench",
+        "bfcl",
+        "swe-bench",
     }
 
     def __init__(
@@ -645,21 +660,23 @@ class EnhancedGroundingValidator(GroundingValidator):
                         unit = ""
                         if len(match.groups()) > 1 and match.group(2):
                             unit = match.group(2)
-                        elif "%" in sentence[match.start():match.end() + 5]:
+                        elif "%" in sentence[match.start() : match.end() + 5]:
                             unit = "%"
 
                         # Try to identify entity and metric
                         entity = self._extract_entity_from_context(sentence)
                         metric = self._extract_metric_from_context(sentence)
 
-                        claims.append(NumericClaim(
-                            text=sentence,
-                            value=value,
-                            unit=unit,
-                            entity=entity,
-                            metric=metric,
-                            context_window=sentence,
-                        ))
+                        claims.append(
+                            NumericClaim(
+                                text=sentence,
+                                value=value,
+                                unit=unit,
+                                entity=entity,
+                                metric=metric,
+                                context_window=sentence,
+                            )
+                        )
                     except (ValueError, IndexError):
                         continue
 
@@ -688,12 +705,14 @@ class EnhancedGroundingValidator(GroundingValidator):
                     claim_about = self._extract_claim_about_entity(sentence, entity)
 
                     if claim_about:
-                        claims.append(EntityClaim(
-                            text=sentence,
-                            entity=entity,
-                            claim_about=claim_about,
-                            entity_type=entity_type,
-                        ))
+                        claims.append(
+                            EntityClaim(
+                                text=sentence,
+                                entity=entity,
+                                claim_about=claim_about,
+                                entity_type=entity_type,
+                            )
+                        )
 
         return claims
 
@@ -774,7 +793,7 @@ class EnhancedGroundingValidator(GroundingValidator):
             return False
 
         # Extract all numbers from source
-        number_pattern = re.compile(r'(\d+(?:,\d+)*(?:\.\d+)?)\s*(%|percent)?', re.IGNORECASE)
+        number_pattern = re.compile(r"(\d+(?:,\d+)*(?:\.\d+)?)\s*(%|percent)?", re.IGNORECASE)
         source_numbers = []
 
         for match in number_pattern.finditer(source_content):
@@ -967,9 +986,7 @@ class EnhancedGroundingValidator(GroundingValidator):
             if self.verify_numeric_in_source(claim, all_source_content):
                 verified_numeric += 1
             else:
-                fabricated_numeric.append(
-                    f"{claim.entity or 'Unknown'}: {claim.value}{claim.unit}"
-                )
+                fabricated_numeric.append(f"{claim.entity or 'Unknown'}: {claim.value}{claim.unit}")
 
         # Extract and verify entity claims
         entity_claims = self.extract_entity_claims(response)

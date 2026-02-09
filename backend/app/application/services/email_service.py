@@ -188,12 +188,14 @@ class EmailService:
             logger.debug("No rating_notification_email configured, skipping")
             return
 
-        if not all([
-            self.settings.email_host,
-            self.settings.email_port,
-            self.settings.email_username,
-            self.settings.email_password,
-        ]):
+        if not all(
+            [
+                self.settings.email_host,
+                self.settings.email_port,
+                self.settings.email_username,
+                self.settings.email_password,
+            ]
+        ):
             logger.debug("Email config incomplete, skipping rating email")
             return
 
@@ -222,7 +224,7 @@ class EmailService:
             <p style="color: #666; margin-top: 0;">
                 <strong>{user_name}</strong> ({user_email}) rated <strong>{rating}/5</strong>
             </p>
-            {f'<p style="background: #f5f5f5; padding: 12px; border-radius: 8px; border-left: 3px solid #3b82f6;">{feedback}</p>' if feedback else ''}
+            {f'<p style="background: #f5f5f5; padding: 12px; border-radius: 8px; border-left: 3px solid #3b82f6;">{feedback}</p>' if feedback else ""}
             <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
             <details>
                 <summary style="cursor: pointer; color: #888; font-size: 13px;">JSON Data</summary>

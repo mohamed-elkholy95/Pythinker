@@ -21,13 +21,14 @@ def _truncate(text: str, max_length: int = 60) -> str:
     """Truncate text with ellipsis."""
     if len(text) <= max_length:
         return text
-    return text[:max_length - 3] + "..."
+    return text[: max_length - 3] + "..."
 
 
 def _format_url(url: str, max_length: int = 50) -> str:
     """Format URL for display: extract domain + path."""
     try:
         from urllib.parse import urlparse
+
         parsed = urlparse(url)
         display = parsed.netloc + parsed.path
         return _truncate(display, max_length)
@@ -107,7 +108,7 @@ class CommandFormatter:
         queries = args.get("queries", [])
 
         if topic:
-            description = f"Deep research on \"{_truncate(topic, 60)}\""
+            description = f'Deep research on "{_truncate(topic, 60)}"'
         elif queries:
             description = f"Research across {len(queries)} queries"
         else:
@@ -220,7 +221,7 @@ class CommandFormatter:
         if "find" in function_name:
             if "content" in function_name:
                 pattern = args.get("regex", "pattern")
-                return (f"Search for \"{_truncate(pattern, 30)}\" in {filename}", "file", filename)
+                return (f'Search for "{_truncate(pattern, 30)}" in {filename}', "file", filename)
             glob_pattern = args.get("glob", "*")
             return (f"Find files matching {glob_pattern}", "file", glob_pattern)
 

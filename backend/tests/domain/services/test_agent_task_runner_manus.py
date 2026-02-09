@@ -115,11 +115,13 @@ def mock_agent_factory() -> MagicMock:
     mock_context_manager.set_goal = AsyncMock()
 
     # Mock get_session_components to return proper components
-    factory.get_session_components = MagicMock(return_value={
-        "manifest": MagicMock(),
-        "context_manager": mock_context_manager,
-        "attention_injector": MagicMock(),
-    })
+    factory.get_session_components = MagicMock(
+        return_value={
+            "manifest": MagicMock(),
+            "context_manager": mock_context_manager,
+            "attention_injector": MagicMock(),
+        }
+    )
 
     factory.cleanup_session = MagicMock()
 
@@ -154,9 +156,7 @@ class TestAgentTaskRunnerManusIntegration:
         assert runner.current_task is None
 
     @pytest.mark.asyncio
-    async def test_initialize_gets_session_components(
-        self, runner_deps: dict, mock_agent_factory: MagicMock
-    ) -> None:
+    async def test_initialize_gets_session_components(self, runner_deps: dict, mock_agent_factory: MagicMock) -> None:
         """Test that initialize() calls get_session_components() on factory."""
         from app.domain.services.agent_task_runner import AgentTaskRunner
 
@@ -216,9 +216,7 @@ class TestAgentTaskRunnerManusIntegration:
         mock_context_manager.set_goal.assert_called_once_with("Build a REST API")
 
     @pytest.mark.asyncio
-    async def test_set_current_task_without_context_manager_only_sets_attribute(
-        self, runner_deps: dict
-    ) -> None:
+    async def test_set_current_task_without_context_manager_only_sets_attribute(self, runner_deps: dict) -> None:
         """Test that _set_current_task only sets attribute when context_manager is None."""
         from app.domain.services.agent_task_runner import AgentTaskRunner
 
@@ -231,9 +229,7 @@ class TestAgentTaskRunnerManusIntegration:
         # No error should occur
 
     @pytest.mark.asyncio
-    async def test_destroy_cleans_up_factory_session(
-        self, runner_deps: dict, mock_agent_factory: MagicMock
-    ) -> None:
+    async def test_destroy_cleans_up_factory_session(self, runner_deps: dict, mock_agent_factory: MagicMock) -> None:
         """Test that destroy() calls factory.cleanup_session()."""
         from app.domain.services.agent_task_runner import AgentTaskRunner
 

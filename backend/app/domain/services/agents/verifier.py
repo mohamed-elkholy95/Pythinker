@@ -69,6 +69,7 @@ def _record_plan_verification(status: str) -> None:
     """Record plan verification metric."""
     _metrics.record_plan_verification(status)
 
+
 logger = logging.getLogger(__name__)
 
 

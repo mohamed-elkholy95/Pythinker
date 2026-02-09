@@ -289,7 +289,7 @@ JSON:"""
         # Use a non-lookbehind approach since Python re requires fixed-width lookbehinds
         def fix_array_values(m: re.Match) -> str:
             prefix = m.group(1)  # [ or , plus whitespace
-            value = m.group(2)   # the quoted string content
+            value = m.group(2)  # the quoted string content
             suffix = m.group(3)  # trailing context
             escaped_content = re.sub(r'(?<!\\)"', r'\\"', value)
             return f'{prefix}"{escaped_content}"{suffix}'

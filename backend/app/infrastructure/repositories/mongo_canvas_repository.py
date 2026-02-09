@@ -18,14 +18,10 @@ class MongoCanvasRepository:
         return document.to_domain()
 
     async def find_by_id(self, project_id: str) -> CanvasProject | None:
-        document = await CanvasProjectDocument.find_one(
-            CanvasProjectDocument.project_id == project_id
-        )
+        document = await CanvasProjectDocument.find_one(CanvasProjectDocument.project_id == project_id)
         return document.to_domain() if document else None
 
-    async def find_by_user_id(
-        self, user_id: str, skip: int = 0, limit: int = 50
-    ) -> list[CanvasProject]:
+    async def find_by_user_id(self, user_id: str, skip: int = 0, limit: int = 50) -> list[CanvasProject]:
         documents = (
             await CanvasProjectDocument.find(CanvasProjectDocument.user_id == user_id)
             .sort("-updated_at")
@@ -36,9 +32,7 @@ class MongoCanvasRepository:
         return [doc.to_domain() for doc in documents]
 
     async def update(self, project_id: str, project: CanvasProject) -> CanvasProject | None:
-        document = await CanvasProjectDocument.find_one(
-            CanvasProjectDocument.project_id == project_id
-        )
+        document = await CanvasProjectDocument.find_one(CanvasProjectDocument.project_id == project_id)
         if not document:
             return None
         document.update_from_domain(project)
@@ -47,18 +41,14 @@ class MongoCanvasRepository:
         return document.to_domain()
 
     async def delete(self, project_id: str) -> bool:
-        document = await CanvasProjectDocument.find_one(
-            CanvasProjectDocument.project_id == project_id
-        )
+        document = await CanvasProjectDocument.find_one(CanvasProjectDocument.project_id == project_id)
         if not document:
             return False
         await document.delete()
         return True
 
     async def count_by_user_id(self, user_id: str) -> int:
-        return await CanvasProjectDocument.find(
-            CanvasProjectDocument.user_id == user_id
-        ).count()
+        return await CanvasProjectDocument.find(CanvasProjectDocument.user_id == user_id).count()
 
     async def save_version(self, version: CanvasVersion) -> CanvasVersion:
         document = CanvasVersionDocument.from_domain(version)
@@ -67,9 +57,7 @@ class MongoCanvasRepository:
 
     async def get_versions(self, project_id: str, limit: int = 20) -> list[CanvasVersion]:
         documents = (
-            await CanvasVersionDocument.find(
-                CanvasVersionDocument.project_id == project_id
-            )
+            await CanvasVersionDocument.find(CanvasVersionDocument.project_id == project_id)
             .sort("-version")
             .limit(limit)
             .to_list()
@@ -84,6 +72,4 @@ class MongoCanvasRepository:
         return document.to_domain() if document else None
 
     async def count_versions(self, project_id: str) -> int:
-        return await CanvasVersionDocument.find(
-            CanvasVersionDocument.project_id == project_id
-        ).count()
+        return await CanvasVersionDocument.find(CanvasVersionDocument.project_id == project_id).count()

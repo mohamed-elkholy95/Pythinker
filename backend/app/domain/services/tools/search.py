@@ -928,4 +928,3 @@ wide_research(
             message=message,
             data=search_data,
         )
-

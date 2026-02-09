@@ -99,9 +99,7 @@ class TestSSEStreamingV2:
             chunk_data = event.get("data", {})
             chunk_obj = chunk_data.get("chunk")
             if chunk_obj and hasattr(chunk_obj, "content") and chunk_obj.content:
-                await mock_event_queue.put(
-                    StreamEvent(content=chunk_obj.content, is_final=False)
-                )
+                await mock_event_queue.put(StreamEvent(content=chunk_obj.content, is_final=False))
 
         # Verify event was queued
         queued_event = await mock_event_queue.get()
@@ -119,9 +117,7 @@ class TestSSEStreamingV2:
 
         if event["event"] == "on_tool_start":
             tool_name = event.get("name", "unknown")
-            await mock_event_queue.put(
-                create_tool_event(tool_name=tool_name, status=ToolStatus.CALLING)
-            )
+            await mock_event_queue.put(create_tool_event(tool_name=tool_name, status=ToolStatus.CALLING))
 
         queued_event = await mock_event_queue.get()
         assert isinstance(queued_event, ToolEvent)
@@ -237,6 +233,7 @@ class TestDisconnectHandling:
     @pytest.mark.asyncio
     async def test_send_timeout_handling(self):
         """Test handling of send timeouts."""
+
         async def slow_send():
             await asyncio.sleep(2)
             return "sent"
@@ -248,6 +245,7 @@ class TestDisconnectHandling:
     @pytest.mark.asyncio
     async def test_send_with_timeout_success(self):
         """Test successful send within timeout."""
+
         async def fast_send():
             await asyncio.sleep(0.01)
             return "sent"

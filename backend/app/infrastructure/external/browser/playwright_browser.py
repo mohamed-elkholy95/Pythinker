@@ -1617,9 +1617,7 @@ class PlaywrightBrowser:
         async with self._navigation_lock:
             return await self._navigate_impl(url, timeout, wait_until, auto_extract)
 
-    async def _navigate_impl(
-        self, url: str, timeout: int | None, wait_until: str, auto_extract: bool
-    ) -> ToolResult:
+    async def _navigate_impl(self, url: str, timeout: int | None, wait_until: str, auto_extract: bool) -> ToolResult:
         """Internal navigate implementation (caller must hold _navigation_lock)."""
         await self._ensure_page()
 

@@ -905,8 +905,7 @@ Respond with JSON:
                             item_a=item_with_metric,
                             item_b=no_metric,
                             issue_description=(
-                                f"{item_with_metric.name} has metric but "
-                                f"{no_metric.name} has no comparable information"
+                                f"{item_with_metric.name} has metric but {no_metric.name} has no comparable information"
                             ),
                             severity="major",
                         )
@@ -969,14 +968,17 @@ Respond with JSON:
         # This captures "Claude: 92.0% on MMLU" type patterns
         named_patterns = [
             # Name: number% on/in Benchmark
-            (r"([A-Z][a-zA-Z0-9\-\s]{1,30}):\s*(\d+(?:\.\d+)?%)\s*(?:on|in|for)?\s*([A-Z][A-Za-z0-9\-]+)?",
-             "quantitative"),
+            (
+                r"([A-Z][a-zA-Z0-9\-\s]{1,30}):\s*(\d+(?:\.\d+)?%)\s*(?:on|in|for)?\s*([A-Z][A-Za-z0-9\-]+)?",
+                "quantitative",
+            ),
             # Name: number (with units)
-            (r"([A-Z][a-zA-Z0-9\-\s]{1,30}):\s*(\d+(?:\.\d+)?(?:ms|s|MB|GB|K|M|B)?)",
-             "quantitative"),
+            (r"([A-Z][a-zA-Z0-9\-\s]{1,30}):\s*(\d+(?:\.\d+)?(?:ms|s|MB|GB|K|M|B)?)", "quantitative"),
             # Name: Qualitative description (capitalized words)
-            (r"([A-Z][a-zA-Z0-9\-\s]{1,30}):\s*([A-Z][a-z]+(?:\s+[a-z]+){0,5}(?:capabilities|performance|support|features|handling|reasoning|quality)?)",
-             "qualitative"),
+            (
+                r"([A-Z][a-zA-Z0-9\-\s]{1,30}):\s*([A-Z][a-z]+(?:\s+[a-z]+){0,5}(?:capabilities|performance|support|features|handling|reasoning|quality)?)",
+                "qualitative",
+            ),
         ]
 
         seen_names = set()
@@ -993,12 +995,14 @@ Respond with JSON:
                     continue
                 seen_names.add(name_lower)
 
-                items.append(ComparisonItem(
-                    name=name,
-                    metric_value=value,
-                    metric_type=metric_type,
-                    metric_name=benchmark,
-                ))
+                items.append(
+                    ComparisonItem(
+                        name=name,
+                        metric_value=value,
+                        metric_type=metric_type,
+                        metric_name=benchmark,
+                    )
+                )
 
         # Pattern 2: Table-based comparisons (| Name | Value |)
         table_row_pattern = r"\|\s*([A-Za-z0-9\-\s]+)\s*\|\s*([^|]+)\s*\|"
@@ -1025,12 +1029,14 @@ Respond with JSON:
             benchmark_match = re.search(r"(?:on|in)\s+([A-Z][A-Za-z0-9]+)", value)
             benchmark = benchmark_match.group(1) if benchmark_match else None
 
-            items.append(ComparisonItem(
-                name=name,
-                metric_value=value[:50],  # Truncate long values
-                metric_type=metric_type,
-                metric_name=benchmark,
-            ))
+            items.append(
+                ComparisonItem(
+                    name=name,
+                    metric_value=value[:50],  # Truncate long values
+                    metric_type=metric_type,
+                    metric_name=benchmark,
+                )
+            )
 
         return items
 

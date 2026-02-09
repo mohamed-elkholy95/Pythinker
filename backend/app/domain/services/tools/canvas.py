@@ -108,15 +108,17 @@ class CanvasTool(BaseTool):
         elements: list[dict[str, Any]] = []
         for page in project.pages:
             for el in page.elements:
-                elements.append({
-                    "id": el.id,
-                    "type": el.type.value if hasattr(el.type, "value") else str(el.type),
-                    "name": el.name,
-                    "x": el.x,
-                    "y": el.y,
-                    "width": el.width,
-                    "height": el.height,
-                })
+                elements.append(
+                    {
+                        "id": el.id,
+                        "type": el.type.value if hasattr(el.type, "value") else str(el.type),
+                        "name": el.name,
+                        "x": el.x,
+                        "y": el.y,
+                        "width": el.width,
+                        "height": el.height,
+                    }
+                )
 
         return ToolResult(
             success=True,
