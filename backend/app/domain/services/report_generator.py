@@ -97,7 +97,9 @@ class ReportGenerator:
 
         raise ValueError(f"Failed to generate valid report after {self.MAX_RETRIES} attempts: {last_error}")
 
-    def _get_model_class(self, report_type: str) -> type[ResearchReport] | type[ComparisonReport] | type[AnalysisReport]:
+    def _get_model_class(
+        self, report_type: str
+    ) -> type[ResearchReport] | type[ComparisonReport] | type[AnalysisReport]:
         """Get the appropriate model class for report type."""
         type_map: dict[str, type[ResearchReport] | type[ComparisonReport] | type[AnalysisReport]] = {
             "research": ResearchReport,

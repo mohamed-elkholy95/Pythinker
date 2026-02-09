@@ -79,9 +79,7 @@ class SummarizeResponse(BaseModel):
     )
     title: str | None = Field(default=None, description="Optional title for the report")
     attachments: list[str] = Field(default_factory=list, description="List of deliverable file paths")
-    suggestions: list[str] = Field(
-        default_factory=list, description="Follow-up suggestions for the user (max 3)"
-    )
+    suggestions: list[str] = Field(default_factory=list, description="Follow-up suggestions for the user (max 3)")
 
     @classmethod
     def model_validate(cls, obj, *args, **kwargs):

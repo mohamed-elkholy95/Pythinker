@@ -65,6 +65,7 @@ def set_metrics(metrics: MetricsPort) -> None:
     global _metrics
     _metrics = metrics
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -475,10 +476,14 @@ class CriticAgent:
                     verdict=CriticVerdict.REVISE,
                     confidence=five_check_result.overall_confidence,
                     issues=issues,
-                    suggestions=[c.remediation for c in [
-                        five_check_result.accuracy_check,
-                        five_check_result.symmetry_check,
-                    ] if c.remediation],
+                    suggestions=[
+                        c.remediation
+                        for c in [
+                            five_check_result.accuracy_check,
+                            five_check_result.symmetry_check,
+                        ]
+                        if c.remediation
+                    ],
                     summary=f"5-check failed: {five_check_result.get_summary()}",
                     review_type=review_type,
                 )
@@ -1113,9 +1118,7 @@ class CriticAgent:
                     # Log summary
                     logger.info(f"5-check result: {result.get_summary()}")
                     if result.asymmetry_issues:
-                        logger.warning(
-                            f"5-check: Found {len(result.asymmetry_issues)} data asymmetry issues"
-                        )
+                        logger.warning(f"5-check: Found {len(result.asymmetry_issues)} data asymmetry issues")
                         for issue in result.asymmetry_issues[:3]:
                             logger.warning(
                                 f"  - Asymmetry: {issue.item_a} ({issue.item_a_metric_type}) vs "
@@ -1212,10 +1215,23 @@ class CriticAgent:
             True if comparison content is detected
         """
         comparison_indicators = [
-            "compare", "comparison", "versus", " vs ", " vs.", "vs ",
-            "better than", "worse than", "difference between",
-            "ranking", "ranked", "top ", "best ", "which is",
-            "pros and cons", "advantages", "disadvantages",
+            "compare",
+            "comparison",
+            "versus",
+            " vs ",
+            " vs.",
+            "vs ",
+            "better than",
+            "worse than",
+            "difference between",
+            "ranking",
+            "ranked",
+            "top ",
+            "best ",
+            "which is",
+            "pros and cons",
+            "advantages",
+            "disadvantages",
         ]
 
         # Table indicators (comparisons often use tables)
@@ -1277,13 +1293,13 @@ class CriticAgent:
                 issues.append("### Fabricated Claims (No Source Found)")
                 issues.append(f"**{len(fabricated)} claims have no source evidence:**")
                 for claim in fabricated[:10]:  # Limit to 10
-                    issues.append(f"  - FABRICATED: \"{claim.claim_text[:80]}...\"")
+                    issues.append(f'  - FABRICATED: "{claim.claim_text[:80]}..."')
 
             unverified = provenance_store.get_unverified_claims()
             if unverified:
                 issues.append(f"**{len(unverified)} claims could not be verified:**")
                 for claim in unverified[:5]:  # Limit to 5
-                    issues.append(f"  - UNVERIFIED: \"{claim.claim_text[:60]}...\"")
+                    issues.append(f'  - UNVERIFIED: "{claim.claim_text[:60]}..."')
 
         # Enhanced Grounding Issues
         if grounding_result:

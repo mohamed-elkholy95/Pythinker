@@ -437,9 +437,7 @@ class TaskStateManager:
         # Clear recent actions (fresh start)
         self._recent_actions = []
 
-        logger.info(
-            f"TaskStateManager recreated with {len(new_steps)} steps after comprehension"
-        )
+        logger.info(f"TaskStateManager recreated with {len(new_steps)} steps after comprehension")
         return self._state
 
     def should_trigger_comprehension(self, message: str, threshold_chars: int = 500) -> bool:

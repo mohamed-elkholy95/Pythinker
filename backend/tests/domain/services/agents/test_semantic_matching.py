@@ -238,9 +238,7 @@ class TestSemanticAlignmentIntegration:
         )
 
         # Work that semantically addresses some requirements
-        result = tracker.check_alignment(
-            "Implemented JWT-based auth and rate limiter middleware"
-        )
+        result = tracker.check_alignment("Implemented JWT-based auth and rate limiter middleware")
 
         # Should recognize semantic matches
         assert result.coverage_percent > 0
@@ -251,15 +249,10 @@ class TestSemanticAlignmentIntegration:
         tracker.extract_intent("Create a Python script to process CSV files")
 
         # Work that is semantically related (shouldn't trigger drift)
-        result = tracker.check_alignment(
-            "Writing Python code to parse and transform CSV data"
-        )
+        result = tracker.check_alignment("Writing Python code to parse and transform CSV data")
 
         # Should not detect topic drift since work is related
-        topic_drifts = [
-            alert for alert in result.drift_alerts
-            if alert.drift_type.value == "topic_drift"
-        ]
+        topic_drifts = [alert for alert in result.drift_alerts if alert.drift_type.value == "topic_drift"]
         assert len(topic_drifts) == 0
 
     def test_unrelated_work_triggers_drift_alert(self, tracker: IntentTracker):
@@ -267,9 +260,7 @@ class TestSemanticAlignmentIntegration:
         tracker.extract_intent("Build a mobile app for iOS")
 
         # Work that is completely different
-        result = tracker.check_alignment(
-            "Configured PostgreSQL database schema for analytics"
-        )
+        result = tracker.check_alignment("Configured PostgreSQL database schema for analytics")
 
         # May trigger topic drift
         # The exact behavior depends on similarity threshold
@@ -355,7 +346,7 @@ class TestSemanticMatchingPerformance:
     def test_many_requirements_handled_efficiently(self, tracker: IntentTracker):
         """Test that many requirements can be checked efficiently."""
         # Set up intent with many requirements
-        requirements = "\n".join([f"{i+1}. Requirement number {i+1}" for i in range(50)])
+        requirements = "\n".join([f"{i + 1}. Requirement number {i + 1}" for i in range(50)])
         tracker.extract_intent(f"Build a system with:\n{requirements}")
 
         # Check alignment with work covering some requirements

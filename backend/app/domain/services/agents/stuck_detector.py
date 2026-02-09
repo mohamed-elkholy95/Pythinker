@@ -63,10 +63,13 @@ def compute_trigram_embedding(text: str, embedding_dim: int = 128) -> list[float
         for trigram, count in trigrams.items():
             # Hash trigram to embedding dimension using deterministic hash
             # (hash() is randomized across Python processes via PYTHONHASHSEED)
-            idx = int.from_bytes(
-                hashlib.md5(trigram.encode(), usedforsecurity=False).digest()[:4],
-                "little",
-            ) % embedding_dim
+            idx = (
+                int.from_bytes(
+                    hashlib.md5(trigram.encode(), usedforsecurity=False).digest()[:4],
+                    "little",
+                )
+                % embedding_dim
+            )
             embedding[idx] += count * inv_total
 
     # Normalize

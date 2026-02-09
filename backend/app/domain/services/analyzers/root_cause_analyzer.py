@@ -172,9 +172,7 @@ class RootCauseAnalyzer:
         if not tool_executions:
             return 0.0
 
-        high_cpu_count = sum(
-            1 for t in tool_executions if t.container_cpu_percent and t.container_cpu_percent > 90
-        )
+        high_cpu_count = sum(1 for t in tool_executions if t.container_cpu_percent and t.container_cpu_percent > 90)
 
         high_memory_count = sum(
             1

@@ -396,7 +396,12 @@ class ChainOfVerification:
                 question.status = VerificationStatus.UNCERTAIN
             elif "incorrect" in explanation or "false" in explanation or "no" in explanation[:10]:
                 question.status = VerificationStatus.CONTRADICTED
-            elif "correct" in explanation or "true" in explanation or "yes" in explanation[:10] or question.confidence >= 0.7:
+            elif (
+                "correct" in explanation
+                or "true" in explanation
+                or "yes" in explanation[:10]
+                or question.confidence >= 0.7
+            ):
                 question.status = VerificationStatus.VERIFIED
             elif question.confidence <= 0.3:
                 question.status = VerificationStatus.CONTRADICTED
@@ -459,9 +464,7 @@ class ChainOfVerification:
             }.get(q.status, "? UNKNOWN")
 
             results_lines.append(
-                f"Claim: \"{q.claim_being_verified}\"\n"
-                f"Status: {status_emoji}\n"
-                f"Verification: {q.answer or 'N/A'}\n"
+                f'Claim: "{q.claim_being_verified}"\nStatus: {status_emoji}\nVerification: {q.answer or "N/A"}\n'
             )
 
         verification_results = "\n---\n".join(results_lines)
@@ -496,9 +499,7 @@ class ChainOfVerification:
         """
         total = self._stats["total_verifications"]
         claims_total = (
-            self._stats["claims_verified"]
-            + self._stats["claims_contradicted"]
-            + self._stats["claims_uncertain"]
+            self._stats["claims_verified"] + self._stats["claims_contradicted"] + self._stats["claims_uncertain"]
         )
 
         return {

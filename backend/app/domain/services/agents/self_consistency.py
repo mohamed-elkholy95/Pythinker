@@ -87,10 +87,10 @@ class SelfConsistencyResult:
     @property
     def is_high_confidence(self) -> bool:
         """Check if result has high confidence."""
-        return (
-            self.confidence_score >= 0.8
-            and self.consistency_level in [ConsistencyLevel.UNANIMOUS, ConsistencyLevel.STRONG]
-        )
+        return self.confidence_score >= 0.8 and self.consistency_level in [
+            ConsistencyLevel.UNANIMOUS,
+            ConsistencyLevel.STRONG,
+        ]
 
     @property
     def has_conflicts(self) -> bool:
@@ -253,9 +253,7 @@ class SelfConsistencyChecker:
 
         # Step 5: Generate consolidated answer if needed
         if self.consolidate_output and len(claim_consistencies) > 0:
-            consensus_answer = await self._generate_consensus(
-                query, claim_consistencies, responses
-            )
+            consensus_answer = await self._generate_consensus(query, claim_consistencies, responses)
         else:
             # Use the first response if not consolidating
             consensus_answer = responses[0] if responses else ""
@@ -334,6 +332,7 @@ class SelfConsistencyChecker:
         Returns:
             List of claim lists (one per response)
         """
+
         async def extract_from_one(response: str) -> list[str]:
             try:
                 prompt = CLAIM_EXTRACTION_PROMPT.format(response=response[:3000])
@@ -422,9 +421,7 @@ class SelfConsistencyChecker:
         # Remove trailing punctuation
         return normalized.rstrip(".,;:")
 
-    def _calculate_consistency_level(
-        self, claim_consistencies: list[ClaimConsistency]
-    ) -> ConsistencyLevel:
+    def _calculate_consistency_level(self, claim_consistencies: list[ClaimConsistency]) -> ConsistencyLevel:
         """Calculate overall consistency level.
 
         Args:
@@ -513,15 +510,14 @@ class SelfConsistencyChecker:
 
         # Format inconsistent claims
         inconsistent = [c for c in claim_consistencies if not c.is_consistent]
-        inconsistent_text = "\n".join(
-            f"- {c.claim} (appeared in {c.occurrences}/{c.total_samples} samples)"
-            for c in inconsistent
-        ) if inconsistent else "None"
+        inconsistent_text = (
+            "\n".join(f"- {c.claim} (appeared in {c.occurrences}/{c.total_samples} samples)" for c in inconsistent)
+            if inconsistent
+            else "None"
+        )
 
         # Format all responses
-        responses_text = "\n---\n".join(
-            f"Response {i+1}:\n{r[:1000]}" for i, r in enumerate(responses)
-        )
+        responses_text = "\n---\n".join(f"Response {i + 1}:\n{r[:1000]}" for i, r in enumerate(responses))
 
         prompt = CONSOLIDATION_PROMPT.format(
             num_samples=len(responses),
@@ -578,12 +574,8 @@ class SelfConsistencyChecker:
         total = self._stats["total_checks"]
         return {
             **self._stats,
-            "high_confidence_rate": (
-                f"{self._stats['high_confidence'] / total:.1%}" if total > 0 else "N/A"
-            ),
-            "conflict_rate": (
-                f"{self._stats['conflicts_detected'] / total:.1%}" if total > 0 else "N/A"
-            ),
+            "high_confidence_rate": (f"{self._stats['high_confidence'] / total:.1%}" if total > 0 else "N/A"),
+            "conflict_rate": (f"{self._stats['conflicts_detected'] / total:.1%}" if total > 0 else "N/A"),
         }
 
     def reset_stats(self) -> None:

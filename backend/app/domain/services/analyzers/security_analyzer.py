@@ -109,13 +109,13 @@ PYTHON_PATTERNS: list[tuple[str, str, str, str]] = [
         "Potential command injection via os.system with % formatting",
     ),
     (
-        r'os\.system\s*\(\s*.*\+',
+        r"os\.system\s*\(\s*.*\+",
         "COMMAND_INJECTION",
         "CRITICAL",
         "Potential command injection via os.system with concatenation",
     ),
     (
-        r'subprocess\.(?:run|call|Popen)\s*\([^)]*shell\s*=\s*True',
+        r"subprocess\.(?:run|call|Popen)\s*\([^)]*shell\s*=\s*True",
         "COMMAND_INJECTION",
         "CRITICAL",
         "Potential command injection via subprocess with shell=True",
@@ -149,10 +149,10 @@ PYTHON_PATTERNS: list[tuple[str, str, str, str]] = [
 
 # Safe patterns that should NOT trigger vulnerabilities (exclusions)
 SAFE_PATTERNS: list[str] = [
-    r'os\.environ\.get',
-    r'os\.getenv',
-    r'\.env',
-    r'environ\[',
+    r"os\.environ\.get",
+    r"os\.getenv",
+    r"\.env",
+    r"environ\[",
 ]
 
 
@@ -177,9 +177,7 @@ class SecurityAnalyzer:
         """Check if a line contains a safe pattern (e.g., env variable lookup)."""
         return any(re.search(pattern, line, re.IGNORECASE) for pattern in SAFE_PATTERNS)
 
-    def scan_code(
-        self, code: str, file_path: str, language: str
-    ) -> list[ScanVulnerability]:
+    def scan_code(self, code: str, file_path: str, language: str) -> list[ScanVulnerability]:
         """
         Scan code for security vulnerabilities.
 

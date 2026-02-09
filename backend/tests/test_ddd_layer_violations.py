@@ -76,10 +76,7 @@ def test_domain_layer_has_no_infrastructure_imports():
         all_violations.extend(_check_imports(filepath, FORBIDDEN_IMPORTS))
 
     # Filter out known runtime-only imports in plan_act.py (pre-existing)
-    all_violations = [
-        v for v in all_violations
-        if "docker_sandbox" not in v and "canvas_service" not in v
-    ]
+    all_violations = [v for v in all_violations if "docker_sandbox" not in v and "canvas_service" not in v]
 
     if all_violations:
         msg = "Domain layer violations found:\n" + "\n".join(all_violations)

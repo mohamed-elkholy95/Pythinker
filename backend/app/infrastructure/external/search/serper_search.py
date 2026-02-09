@@ -179,7 +179,8 @@ class SerperSearchEngine(SearchEngineBase):
         # Fast path: if current key is already exhausted, rotate before even trying
         if self._active_key_index in self._exhausted_keys and not self._rotate_key("current key already exhausted"):
             return self._create_error_result(
-                query, date_range,
+                query,
+                date_range,
                 f"All {len(self._api_keys)} Serper API keys exhausted (quota/billing limit)",
             )
 
@@ -192,13 +193,12 @@ class SerperSearchEngine(SearchEngineBase):
                 # Check HTTP status for quota/billing/auth errors
                 if response.status_code in _ROTATE_STATUS_CODES:
                     key_num = self._active_key_index + 1
-                    logger.warning(
-                        f"Serper key #{key_num} failed (HTTP {response.status_code})"
-                    )
+                    logger.warning(f"Serper key #{key_num} failed (HTTP {response.status_code})")
                     if self._rotate_key(f"HTTP {response.status_code}"):
                         continue
                     return self._create_error_result(
-                        query, date_range,
+                        query,
+                        date_range,
                         f"All {len(self._api_keys)} Serper API keys exhausted (quota/billing limit)",
                     )
 
@@ -207,14 +207,17 @@ class SerperSearchEngine(SearchEngineBase):
                 return self._create_success_result(query, date_range, results, total_results)
 
             except httpx.HTTPStatusError as e:
-                if e.response.status_code in _ROTATE_STATUS_CODES and self._rotate_key(f"HTTP {e.response.status_code}"):
+                if e.response.status_code in _ROTATE_STATUS_CODES and self._rotate_key(
+                    f"HTTP {e.response.status_code}"
+                ):
                     continue
                 return self._create_error_result(query, date_range, self._handle_http_error(e))
 
             except httpx.TimeoutException:
                 # Timeout is not a billing error — don't rotate, just fail
                 return self._create_error_result(
-                    query, date_range,
+                    query,
+                    date_range,
                     f"Serper search timed out after {self.timeout}s",
                 )
 

@@ -104,9 +104,7 @@ def get_embedding_client() -> EmbeddingClient:
     api_key = settings.embedding_api_key or settings.api_key
 
     if not api_key:
-        raise RuntimeError(
-            "No embedding API key configured. Set EMBEDDING_API_KEY or API_KEY."
-        )
+        raise RuntimeError("No embedding API key configured. Set EMBEDDING_API_KEY or API_KEY.")
 
     return EmbeddingClient(
         api_key=api_key,

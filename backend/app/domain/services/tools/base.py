@@ -27,6 +27,7 @@ class ToolSchema:
     parameters: dict[str, Any] = field(default_factory=dict)
     required: list[str] = field(default_factory=list)
 
+
 logger = logging.getLogger(__name__)
 
 

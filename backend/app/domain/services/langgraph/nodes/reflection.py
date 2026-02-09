@@ -43,6 +43,7 @@ def _record_failure_prediction(prediction: str, confidence: float) -> None:
     """Record failure prediction metric."""
     _metrics.record_failure_prediction(prediction, confidence)
 
+
 logger = logging.getLogger(__name__)
 
 

@@ -78,6 +78,7 @@ class AgentService:
         self._search_engine = search_engine
         self._sandbox_cls = sandbox_cls
         self._background_tasks: set[asyncio.Task] = set()
+        self._sandbox_warm_locks: dict[str, asyncio.Lock] = {}
 
     async def _record_usage(self, user_id: str, session_id: str) -> None:
         """Record tool call usage via the application usage service."""
@@ -173,7 +174,9 @@ class AgentService:
             stale = [s for s in sessions if s.status in active_statuses]
             for session in stale:
                 try:
-                    logger.info(f"Auto-stopping stale session {session.id} (status={session.status}) for user {user_id}")
+                    logger.info(
+                        f"Auto-stopping stale session {session.id} (status={session.status}) for user {user_id}"
+                    )
                     await self._agent_domain_service.stop_session(session.id)
                 except Exception as e:
                     logger.warning(f"Failed to auto-stop stale session {session.id}: {e}")
@@ -192,50 +195,85 @@ class AgentService:
         Phase 1 enhancement: Pre-warms browser context for immediate use.
         """
         settings = get_settings()
+        lock = self._sandbox_warm_locks.setdefault(session_id, asyncio.Lock())
+
+        async with lock:
+            try:
+                # Update session status to INITIALIZING
+                await self._session_repository.update_status(session_id, SessionStatus.INITIALIZING)
+
+                # Try to acquire from pool first (Phase 0: instant allocation)
+                sandbox = None
+                if settings.sandbox_pool_enabled:
+                    try:
+                        pool = await get_sandbox_pool(self._sandbox_cls)
+                        if pool.is_started and pool.size > 0:
+                            sandbox = await pool.acquire(timeout=5.0)
+                            logger.info(f"Acquired sandbox {sandbox.id} from pool for session {session_id}")
+                    except Exception as e:
+                        logger.warning(f"Pool acquisition failed, creating on-demand: {e}")
+
+                # Fall back to on-demand creation
+                if not sandbox:
+                    sandbox = await self._sandbox_cls.create()
+                    logger.info(f"Created sandbox {sandbox.id} on-demand for session {session_id}")
+
+                # Bind sandbox only if session still exists and is still unbound (or already points to this sandbox)
+                session = await self._session_repository.find_by_id(session_id)
+                if not session:
+                    await self._destroy_unbound_sandbox(
+                        sandbox,
+                        session_id=session_id,
+                        reason="session not found during sandbox warm-up",
+                    )
+                elif session.sandbox_id and session.sandbox_id != sandbox.id:
+                    await self._destroy_unbound_sandbox(
+                        sandbox,
+                        session_id=session_id,
+                        reason=f"session already bound to sandbox {session.sandbox_id}",
+                    )
+                else:
+                    if session.sandbox_id != sandbox.id:
+                        session.sandbox_id = sandbox.id
+                        await self._session_repository.save(session)
+
+                    # Run ensure_sandbox for full health check (includes browser verification)
+                    if hasattr(sandbox, "ensure_sandbox"):
+                        await sandbox.ensure_sandbox()
+
+                    # Phase 1: Pre-warm browser context for immediate use
+                    await self._prewarm_browser(sandbox, session_id)
+
+                    logger.info(f"Sandbox {sandbox.id} fully ready with browser for session {session_id}")
+
+                # Reset status to PENDING (ready for first chat)
+                await self._session_repository.update_status(session_id, SessionStatus.PENDING)
+
+            except Exception as e:
+                logger.warning(f"Failed to pre-warm sandbox for session {session_id}: {e}")
+                # Reset status to PENDING even on failure - first chat will create sandbox
+                with contextlib.suppress(Exception):
+                    await self._session_repository.update_status(session_id, SessionStatus.PENDING)
+
+    async def _destroy_unbound_sandbox(self, sandbox: Sandbox, session_id: str, reason: str) -> None:
+        """Destroy a sandbox that could not be bound to the session."""
+        destroy = getattr(sandbox, "destroy", None)
+        if not callable(destroy):
+            logger.warning(f"Sandbox {getattr(sandbox, 'id', '<unknown>')} has no destroy() during cleanup")
+            return
 
         try:
-            # Update session status to INITIALIZING
-            await self._session_repository.update_status(session_id, SessionStatus.INITIALIZING)
-
-            # Try to acquire from pool first (Phase 0: instant allocation)
-            sandbox = None
-            if settings.sandbox_pool_enabled:
-                try:
-                    pool = await get_sandbox_pool(self._sandbox_cls)
-                    if pool.is_started and pool.size > 0:
-                        sandbox = await pool.acquire(timeout=5.0)
-                        logger.info(f"Acquired sandbox {sandbox.id} from pool for session {session_id}")
-                except Exception as e:
-                    logger.warning(f"Pool acquisition failed, creating on-demand: {e}")
-
-            # Fall back to on-demand creation
-            if not sandbox:
-                sandbox = await self._sandbox_cls.create()
-                logger.info(f"Created sandbox {sandbox.id} on-demand for session {session_id}")
-
-            # Update session with sandbox_id
-            session = await self._session_repository.find_by_id(session_id)
-            if session and not session.sandbox_id:
-                session.sandbox_id = sandbox.id
-                await self._session_repository.save(session)
-
-                # Run ensure_sandbox for full health check (includes browser verification)
-                if hasattr(sandbox, "ensure_sandbox"):
-                    await sandbox.ensure_sandbox()
-
-                # Phase 1: Pre-warm browser context for immediate use
-                await self._prewarm_browser(sandbox, session_id)
-
-                logger.info(f"Sandbox {sandbox.id} fully ready with browser for session {session_id}")
-
-            # Reset status to PENDING (ready for first chat)
-            await self._session_repository.update_status(session_id, SessionStatus.PENDING)
-
+            result = destroy()
+            if asyncio.iscoroutine(result):
+                await result
+            logger.info(
+                f"Destroyed unbound sandbox {getattr(sandbox, 'id', '<unknown>')} for session {session_id}: {reason}"
+            )
         except Exception as e:
-            logger.warning(f"Failed to pre-warm sandbox for session {session_id}: {e}")
-            # Reset status to PENDING even on failure - first chat will create sandbox
-            with contextlib.suppress(Exception):
-                await self._session_repository.update_status(session_id, SessionStatus.PENDING)
+            logger.warning(
+                f"Failed to destroy unbound sandbox {getattr(sandbox, 'id', '<unknown>')} "
+                f"for session {session_id}: {reason}; error={e}"
+            )
 
     async def _prewarm_browser(self, sandbox: Sandbox, session_id: str) -> None:
         """Pre-warm browser context so it's ready for immediate use.

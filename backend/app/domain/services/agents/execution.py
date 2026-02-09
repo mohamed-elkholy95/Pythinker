@@ -310,7 +310,9 @@ class ExecutionAgent(BaseAgent):
                             )
                             if cove_result and cove_result.has_contradictions:
                                 step.result = verified_result
-                                logger.info(f"CoVe refined step result: {cove_result.claims_contradicted} claims corrected")
+                                logger.info(
+                                    f"CoVe refined step result: {cove_result.claims_contradicted} claims corrected"
+                                )
 
                     yield StepEvent(status=StepStatus.COMPLETED, step=step)
                     if step.result:
@@ -417,9 +419,7 @@ class ExecutionAgent(BaseAgent):
             accumulated_text = ""
 
             # Phase 1: Stream tokens live via StreamEvent
-            async for chunk in self.llm.ask_stream(
-                self.memory.get_messages(), tools=None, tool_choice=None
-            ):
+            async for chunk in self.llm.ask_stream(self.memory.get_messages(), tools=None, tool_choice=None):
                 accumulated_text += chunk
                 yield StreamEvent(content=chunk, is_final=False, phase="summarizing")
 
@@ -433,9 +433,7 @@ class ExecutionAgent(BaseAgent):
 
             # Phase 2: Post-processing (CoVe + Critic on complete text)
             if len(message_content) > 300 and self._user_request:
-                message_content, cove_result = await self._apply_cove_verification(
-                    message_content, self._user_request
-                )
+                message_content, cove_result = await self._apply_cove_verification(message_content, self._user_request)
                 if cove_result and cove_result.has_contradictions:
                     logger.info(
                         f"CoVe refined output: {cove_result.claims_contradicted} claims corrected, "

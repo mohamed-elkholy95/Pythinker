@@ -113,6 +113,19 @@ class AgentDomainService:
                     logger.warning(f"Failed to acquire from pool, creating on-demand: {e}")
             return await self._sandbox_cls.create()
 
+        async def recycle_sandbox(current_sandbox: Sandbox, reason: str) -> Sandbox:
+            logger.warning(f"Recycling sandbox {current_sandbox.id} for session {session.id}: {reason}")
+            if hasattr(current_sandbox, "destroy"):
+                try:
+                    await current_sandbox.destroy()
+                except Exception as e:
+                    logger.debug(f"Sandbox destroy failed during recycle (non-critical): {e}")
+
+            replacement = await acquire_sandbox_from_pool()
+            session.sandbox_id = replacement.id
+            await self._session_repository.save(session)
+            return replacement
+
         async def run_parallel_init(target_sandbox: Sandbox) -> None:
             # Prepare parallel initialization tasks
             parallel_tasks = []
@@ -145,7 +158,9 @@ class AgentDomainService:
             # Browser health check (verifies CDP connection)
             async def verify_browser():
                 if hasattr(target_sandbox, "verify_browser_ready"):
-                    await target_sandbox.verify_browser_ready()
+                    browser_ready = await target_sandbox.verify_browser_ready()
+                    if not browser_ready:
+                        raise RuntimeError(f"Sandbox browser is not ready: {target_sandbox.id}")
 
             parallel_tasks.append(init_workspace())
             parallel_tasks.append(init_framework())
@@ -154,9 +169,15 @@ class AgentDomainService:
             # Run all initialization tasks in parallel — log failures for diagnostics
             init_results = await asyncio.gather(*parallel_tasks, return_exceptions=True)
             init_names = ["workspace", "framework", "browser"]
+            browser_init_error: Exception | None = None
             for name, result in zip(init_names, init_results, strict=True):
                 if isinstance(result, Exception):
                     logger.error(f"Session {session.id} {name} init failed: {result}")
+                    if name == "browser":
+                        browser_init_error = result
+
+            if browser_init_error is not None:
+                raise RuntimeError(f"Browser init failed for sandbox {target_sandbox.id}") from browser_init_error
 
         if not sandbox:
             sandbox = await acquire_sandbox_from_pool()
@@ -165,7 +186,13 @@ class AgentDomainService:
             is_new_sandbox = True
             await self._session_repository.save(session)
 
-        await run_parallel_init(sandbox)
+        try:
+            await run_parallel_init(sandbox)
+        except Exception as e:
+            sandbox = await recycle_sandbox(sandbox, str(e))
+            sandbox_id = sandbox.id
+            is_new_sandbox = True
+            await run_parallel_init(sandbox)
 
         # BROWSER SESSION PROTOCOL: Only clear browser for brand new sandboxes
         # Previously, this also triggered when session.task_id was None, but that caused
@@ -184,21 +211,11 @@ class AgentDomainService:
                 timeout=settings.browser_init_timeout,
             )
         except TimeoutError:
-            logger.error(
-                f"Browser init timed out for sandbox {sandbox.id}; recycling sandbox for session {session.id}"
-            )
-            if hasattr(sandbox, "destroy"):
-                try:
-                    await sandbox.destroy()
-                except Exception as e:
-                    logger.debug(f"Sandbox destroy failed during recycle (non-critical): {e}")
-
-            sandbox = await acquire_sandbox_from_pool()
-            session.sandbox_id = sandbox.id
+            logger.error(f"Browser init timed out for sandbox {sandbox.id}; recycling sandbox for session {session.id}")
+            sandbox = await recycle_sandbox(sandbox, "browser initialization timeout")
             sandbox_id = sandbox.id
             is_new_sandbox = True
             should_clear_browser = True
-            await self._session_repository.save(session)
             await run_parallel_init(sandbox)
             browser = await asyncio.wait_for(
                 sandbox.get_browser(clear_session=should_clear_browser, verify_connection=False),
@@ -483,7 +500,10 @@ class AgentDomainService:
             except Exception as e:
                 logger.warning(f"Failed to destroy sandbox {session.sandbox_id} during stop: {e}")
 
-        await self._session_repository.update_status(session_id, SessionStatus.COMPLETED)
+        session.task_id = None
+        session.sandbox_id = None
+        session.status = SessionStatus.COMPLETED
+        await self._session_repository.save(session)
 
         # Clean up session lock to prevent unbounded growth
         self._task_creation_locks.pop(session_id, None)
@@ -710,9 +730,7 @@ NOTE: The browser state may have changed. When you next use the browser:
                                 # Execute fast path directly (no sandbox needed)
                                 # Wrap in UsageContextManager so LLM token usage is recorded
                                 msg = Message(message=message, attachments=[], skills=[])
-                                async with UsageContextManager(
-                                    user_id=user_id, session_id=session_id
-                                ):
+                                async with UsageContextManager(user_id=user_id, session_id=session_id):
                                     async for event in fast_router.execute(intent, params, msg):
                                         await self._session_repository.add_event(session_id, event)
                                         yield event
@@ -826,7 +844,9 @@ NOTE: The browser state may have changed. When you next use the browser:
                             try:
                                 skill_context = await registry.build_context(skills_to_use, expand_dynamic=False)
                                 if skill_context:
-                                    prompt_chars = len(skill_context.prompt_addition) if skill_context.prompt_addition else 0
+                                    prompt_chars = (
+                                        len(skill_context.prompt_addition) if skill_context.prompt_addition else 0
+                                    )
                                     tool_restrictions = skill_context.tool_restrictions or None
                             except Exception:
                                 pass  # Non-critical — activation event still emitted

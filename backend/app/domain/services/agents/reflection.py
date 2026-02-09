@@ -83,6 +83,7 @@ def _record_reflection_trigger(trigger_type: str) -> None:
     """Record reflection trigger metric."""
     _metrics.record_reflection_trigger(trigger_type)
 
+
 logger = logging.getLogger(__name__)
 
 

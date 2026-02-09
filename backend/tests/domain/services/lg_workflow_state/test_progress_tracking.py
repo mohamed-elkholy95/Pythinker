@@ -279,9 +279,7 @@ class TestUpdateRequirementProgress:
 
         # Create progress list
         if current_progress is None and requirements:
-            current_progress = [
-                RequirementProgress(requirement=req) for req in requirements
-            ]
+            current_progress = [RequirementProgress(requirement=req) for req in requirements]
 
         # Build tool results
         tool_results = []
@@ -581,15 +579,12 @@ class TestEdgeCases:
             is_addressed=True,
             evidence="Output: {\"key\": \"value\", 'single': 'quotes'}",
         )
-        assert "{\"key\":" in progress.evidence
+        assert '{"key":' in progress.evidence
 
     def test_alignment_score_bounds(self):
         """Alignment score should always be between 0 and 1."""
         # All addressed
-        progress_all = [
-            RequirementProgress(requirement=f"Req {i}", is_addressed=True)
-            for i in range(5)
-        ]
+        progress_all = [RequirementProgress(requirement=f"Req {i}", is_addressed=True) for i in range(5)]
         addressed = sum(1 for r in progress_all if r.is_addressed)
         total = len(progress_all)
         score = addressed / total
@@ -597,10 +592,7 @@ class TestEdgeCases:
         assert score == 1.0
 
         # None addressed
-        progress_none = [
-            RequirementProgress(requirement=f"Req {i}", is_addressed=False)
-            for i in range(5)
-        ]
+        progress_none = [RequirementProgress(requirement=f"Req {i}", is_addressed=False) for i in range(5)]
         addressed = sum(1 for r in progress_none if r.is_addressed)
         total = len(progress_none)
         score = addressed / total

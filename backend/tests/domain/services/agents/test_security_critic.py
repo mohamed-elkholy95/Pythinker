@@ -27,13 +27,15 @@ def mock_llm_safe():
     llm = AsyncMock()
     llm.chat = AsyncMock(
         return_value=MagicMock(
-            content=json.dumps({
-                "safe": True,
-                "risk_level": "low",
-                "issues": [],
-                "recommendations": [],
-                "patterns_detected": [],
-            })
+            content=json.dumps(
+                {
+                    "safe": True,
+                    "risk_level": "low",
+                    "issues": [],
+                    "recommendations": [],
+                    "patterns_detected": [],
+                }
+            )
         )
     )
     return llm
@@ -45,13 +47,15 @@ def mock_llm_dangerous():
     llm = AsyncMock()
     llm.chat = AsyncMock(
         return_value=MagicMock(
-            content=json.dumps({
-                "safe": False,
-                "risk_level": "critical",
-                "issues": ["Command injection vulnerability detected"],
-                "recommendations": ["Use subprocess with shell=False", "Sanitize user input"],
-                "patterns_detected": ["os.system with user input"],
-            })
+            content=json.dumps(
+                {
+                    "safe": False,
+                    "risk_level": "critical",
+                    "issues": ["Command injection vulnerability detected"],
+                    "recommendations": ["Use subprocess with shell=False", "Sanitize user input"],
+                    "patterns_detected": ["os.system with user input"],
+                }
+            )
         )
     )
     return llm
@@ -445,13 +449,15 @@ class TestSecurityCriticJsonParsing:
         llm = AsyncMock()
         llm.chat = AsyncMock(
             return_value=MagicMock(
-                content=json.dumps({
-                    "safe": True,
-                    "risk_level": "low",
-                    "issues": [],
-                    "recommendations": ["Consider input validation"],
-                    "patterns_detected": [],
-                })
+                content=json.dumps(
+                    {
+                        "safe": True,
+                        "risk_level": "low",
+                        "issues": [],
+                        "recommendations": ["Consider input validation"],
+                        "patterns_detected": [],
+                    }
+                )
             )
         )
 
@@ -468,9 +474,9 @@ class TestSecurityCriticJsonParsing:
         llm = AsyncMock()
         llm.chat = AsyncMock(
             return_value=MagicMock(
-                content='''```json
+                content="""```json
 {"safe": true, "risk_level": "low", "issues": [], "recommendations": [], "patterns_detected": []}
-```'''
+```"""
             )
         )
 
@@ -486,9 +492,9 @@ class TestSecurityCriticJsonParsing:
         llm = AsyncMock()
         llm.chat = AsyncMock(
             return_value=MagicMock(
-                content='''```
+                content="""```
 {"safe": false, "risk_level": "high", "issues": ["Issue 1"], "recommendations": [], "patterns_detected": []}
-```'''
+```"""
             )
         )
 
@@ -503,11 +509,7 @@ class TestSecurityCriticJsonParsing:
     async def test_fallback_on_json_error(self):
         """Test fallback when LLM returns non-JSON response."""
         llm = AsyncMock()
-        llm.chat = AsyncMock(
-            return_value=MagicMock(
-                content="This code looks dangerous and should not be executed."
-            )
-        )
+        llm.chat = AsyncMock(return_value=MagicMock(content="This code looks dangerous and should not be executed."))
 
         critic = SecurityCritic(llm=llm)
         result = await critic.review_code("eval('code')", language="python")
@@ -521,11 +523,7 @@ class TestSecurityCriticJsonParsing:
     async def test_handles_missing_optional_fields(self):
         """Test handling of JSON response with missing optional fields."""
         llm = AsyncMock()
-        llm.chat = AsyncMock(
-            return_value=MagicMock(
-                content='{"safe": true, "risk_level": "low"}'
-            )
-        )
+        llm.chat = AsyncMock(return_value=MagicMock(content='{"safe": true, "risk_level": "low"}'))
 
         critic = SecurityCritic(llm=llm)
         result = await critic.review_code("print('hello')", language="python")

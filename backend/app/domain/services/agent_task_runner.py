@@ -75,21 +75,74 @@ EventWithAttachments = MessageEvent | ReportEvent
 # File sweep constants — extensions worth delivering to users
 DELIVERABLE_EXTENSIONS = {
     # Documents
-    ".md", ".txt", ".pdf", ".docx", ".doc", ".rtf", ".csv", ".tsv",
+    ".md",
+    ".txt",
+    ".pdf",
+    ".docx",
+    ".doc",
+    ".rtf",
+    ".csv",
+    ".tsv",
     # Code
-    ".py", ".js", ".ts", ".jsx", ".tsx", ".html", ".css", ".scss",
-    ".java", ".go", ".rs", ".c", ".cpp", ".h", ".rb", ".php",
-    ".swift", ".kt", ".scala", ".sh", ".bash", ".zsh",
+    ".py",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".html",
+    ".css",
+    ".scss",
+    ".java",
+    ".go",
+    ".rs",
+    ".c",
+    ".cpp",
+    ".h",
+    ".rb",
+    ".php",
+    ".swift",
+    ".kt",
+    ".scala",
+    ".sh",
+    ".bash",
+    ".zsh",
     # Data
-    ".json", ".yaml", ".yml", ".xml", ".toml", ".ini", ".cfg", ".env",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".xml",
+    ".toml",
+    ".ini",
+    ".cfg",
+    ".env",
     # Images
-    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".webp",
+    ".ico",
     # Other
-    ".sql", ".graphql", ".proto", ".dockerfile", ".makefile",
+    ".sql",
+    ".graphql",
+    ".proto",
+    ".dockerfile",
+    ".makefile",
 }
 SKIP_DIRECTORIES = {
-    "node_modules", ".git", "__pycache__", ".venv", "venv",
-    ".cache", ".npm", ".local", ".config", "snap", ".pnpm-store", ".pki",
+    "node_modules",
+    ".git",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".cache",
+    ".npm",
+    ".local",
+    ".config",
+    "snap",
+    ".pnpm-store",
+    ".pki",
 }
 MAX_SYNC_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 MAX_SWEEP_FILES = 50
@@ -209,7 +262,9 @@ class AgentTaskRunner(TaskRunner):
 
         logger.info(
             "Flow selected: mode=%s, flow=%s, session=%s",
-            mode.value, self._flow_mode.value, session_id,
+            mode.value,
+            self._flow_mode.value,
+            session_id,
         )
 
     def _fire_and_forget(self, coro: object) -> None:
@@ -667,9 +722,7 @@ class AgentTaskRunner(TaskRunner):
         try:
             result = await self._sandbox.file_write(file=file_path, content=event.content)
             if result is not None and hasattr(result, "success") and not result.success:
-                logger.warning(
-                    f"Agent {self._agent_id}: Failed to write report file '{file_path}' (success=False)"
-                )
+                logger.warning(f"Agent {self._agent_id}: Failed to write report file '{file_path}' (success=False)")
                 return
         except Exception as e:
             logger.warning(f"Agent {self._agent_id}: Failed to write report file '{file_path}': {e}")
@@ -864,15 +917,22 @@ class AgentTaskRunner(TaskRunner):
             # Handle CALLING status for streaming preview (file_write shows content being generated)
             if event.status == ToolStatus.CALLING:
                 # Capture screenshot before visual tool execution
-                if self._screenshot_service and event.tool_name in ("browser", "browser_agent", "shell", "code_executor"):
+                if self._screenshot_service and event.tool_name in (
+                    "browser",
+                    "browser_agent",
+                    "shell",
+                    "code_executor",
+                ):
                     from app.domain.models.screenshot import ScreenshotTrigger
 
-                    self._fire_and_forget(self._screenshot_service.capture(
-                        ScreenshotTrigger.TOOL_BEFORE,
-                        tool_call_id=event.tool_call_id,
-                        tool_name=event.tool_name,
-                        function_name=event.function_name,
-                    ))
+                    self._fire_and_forget(
+                        self._screenshot_service.capture(
+                            ScreenshotTrigger.TOOL_BEFORE,
+                            tool_call_id=event.tool_call_id,
+                            tool_name=event.tool_name,
+                            function_name=event.function_name,
+                        )
+                    )
 
                 # Track tool start time for duration measurement
                 self._tool_start_times[event.tool_call_id] = time.perf_counter()
@@ -915,15 +975,22 @@ class AgentTaskRunner(TaskRunner):
                         logger.debug(f"File write preview: {len(content)} chars")
             elif event.status == ToolStatus.CALLED:
                 # Capture screenshot after visual tool execution
-                if self._screenshot_service and event.tool_name in ("browser", "browser_agent", "shell", "code_executor"):
+                if self._screenshot_service and event.tool_name in (
+                    "browser",
+                    "browser_agent",
+                    "shell",
+                    "code_executor",
+                ):
                     from app.domain.models.screenshot import ScreenshotTrigger
 
-                    self._fire_and_forget(self._screenshot_service.capture(
-                        ScreenshotTrigger.TOOL_AFTER,
-                        tool_call_id=event.tool_call_id,
-                        tool_name=event.tool_name,
-                        function_name=event.function_name,
-                    ))
+                    self._fire_and_forget(
+                        self._screenshot_service.capture(
+                            ScreenshotTrigger.TOOL_AFTER,
+                            tool_call_id=event.tool_call_id,
+                            tool_name=event.tool_name,
+                            function_name=event.function_name,
+                        )
+                    )
 
                 # Duration measurement
                 start_time = self._tool_start_times.pop(event.tool_call_id, None)

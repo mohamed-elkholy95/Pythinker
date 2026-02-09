@@ -45,6 +45,4 @@ def runner(mock_sandbox, mock_browser) -> AgentTaskRunner:
 async def test_destroy_releases_pooled_browser(runner, mock_sandbox, mock_browser):
     await runner.destroy()
 
-    mock_sandbox.release_pooled_browser.assert_awaited_once_with(
-        mock_browser, had_error=False
-    )
+    mock_sandbox.release_pooled_browser.assert_awaited_once_with(mock_browser, had_error=False)

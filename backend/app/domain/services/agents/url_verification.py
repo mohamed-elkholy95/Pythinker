@@ -127,11 +127,13 @@ class URLVerificationService:
         """
         try:
             parsed = urlparse(url)
-            return all([
-                parsed.scheme in ("http", "https"),
-                parsed.netloc,
-                len(url) < 2048,  # Reasonable URL length limit
-            ])
+            return all(
+                [
+                    parsed.scheme in ("http", "https"),
+                    parsed.netloc,
+                    len(url) < 2048,  # Reasonable URL length limit
+                ]
+            )
         except Exception:
             return False
 

@@ -2070,8 +2070,7 @@ class PlanActFlow(BaseFlow):
                         for attempt in range(max_attempts):
                             if attempt > 0:
                                 logger.info(
-                                    f"Step {step.id} retry {attempt}/{retry.max_retries} "
-                                    f"after {backoff:.1f}s backoff"
+                                    f"Step {step.id} retry {attempt}/{retry.max_retries} after {backoff:.1f}s backoff"
                                 )
                                 step_span.set_attribute("step.retry_attempt", attempt)
                                 await asyncio.sleep(backoff)
@@ -2094,7 +2093,9 @@ class PlanActFlow(BaseFlow):
                             if step_executor != self.executor:
                                 step_span.set_attribute(
                                     "step.executor",
-                                    step_executor.name if hasattr(step_executor, "name") else type(step_executor).__name__,
+                                    step_executor.name
+                                    if hasattr(step_executor, "name")
+                                    else type(step_executor).__name__,
                                 )
                                 logger.info(f"Using specialized executor for step {step.id}")
 
@@ -2125,13 +2126,10 @@ class PlanActFlow(BaseFlow):
                             # Check if this error type is retryable
                             is_timeout = step.error and "timeout" in step.error.lower()
                             is_tool_error = step.error and "tool" in step.error.lower()
-                            should_retry = (
-                                attempt < max_attempts - 1
-                                and (
-                                    (is_timeout and retry.retry_on_timeout)
-                                    or (is_tool_error and retry.retry_on_tool_error)
-                                    or (not is_timeout and not is_tool_error and retry.max_retries > 0)
-                                )
+                            should_retry = attempt < max_attempts - 1 and (
+                                (is_timeout and retry.retry_on_timeout)
+                                or (is_tool_error and retry.retry_on_tool_error)
+                                or (not is_timeout and not is_tool_error and retry.max_retries > 0)
                             )
                             if not should_retry:
                                 break

@@ -52,7 +52,7 @@ class SourceFilterService:
         result.accepted_sources.sort(key=lambda s: s.composite_score, reverse=True)
 
         logger.info(
-            f"Source filtering: {len(result.accepted_sources)} accepted, " f"{len(result.rejected_sources)} rejected"
+            f"Source filtering: {len(result.accepted_sources)} accepted, {len(result.rejected_sources)} rejected"
         )
 
         return result
@@ -150,9 +150,46 @@ class SourceFilterService:
         content_lower = content.lower()
 
         # Extract query terms (filter out common stop words)
-        stop_words = {"the", "a", "an", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do",
-                      "does", "did", "will", "would", "could", "should", "may", "might", "must", "shall", "can",
-                      "for", "and", "or", "but", "in", "on", "at", "to", "from", "with", "by", "of", "about"}
+        stop_words = {
+            "the",
+            "a",
+            "an",
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "been",
+            "being",
+            "have",
+            "has",
+            "had",
+            "do",
+            "does",
+            "did",
+            "will",
+            "would",
+            "could",
+            "should",
+            "may",
+            "might",
+            "must",
+            "shall",
+            "can",
+            "for",
+            "and",
+            "or",
+            "but",
+            "in",
+            "on",
+            "at",
+            "to",
+            "from",
+            "with",
+            "by",
+            "of",
+            "about",
+        }
         query_terms = set(re.findall(r"\w+", query.lower())) - stop_words
 
         if not query_terms:

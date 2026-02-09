@@ -123,9 +123,7 @@ class StepDescription(BaseModel):
 
     description: str = Field(..., min_length=5, description="Step description")
     tool_hint: str | None = Field(default=None, description="Suggested tool to use")
-    estimated_complexity: str | None = Field(
-        default=None, description="Estimated complexity: low, medium, high"
-    )
+    estimated_complexity: str | None = Field(default=None, description="Estimated complexity: low, medium, high")
     dependencies: list[str] = Field(default_factory=list, description="IDs of dependent steps")
     parallel_safe: bool = Field(default=True, description="Whether step can run in parallel")
 
@@ -156,9 +154,7 @@ class PlanOutput(BaseModel):
     message: str | None = Field(default=None, description="Message to user")
     steps: list[StepDescription] = Field(..., min_length=1, description="Plan steps")
     reasoning: str | None = Field(default=None, description="Reasoning for the approach")
-    estimated_complexity: str | None = Field(
-        default=None, description="Overall complexity: simple, medium, complex"
-    )
+    estimated_complexity: str | None = Field(default=None, description="Overall complexity: simple, medium, complex")
 
     @field_validator("steps")
     @classmethod
@@ -215,9 +211,7 @@ class ReflectionOutput(BaseModel):
     Used by ReflectionAgent for type-safe decisions.
     """
 
-    decision: str = Field(
-        ..., description="Decision: continue, adjust, replan, escalate, abort"
-    )
+    decision: str = Field(..., description="Decision: continue, adjust, replan, escalate, abort")
     reasoning: str = Field(..., description="Reasoning for the decision")
     adjustments: list[str] = Field(default_factory=list, description="Suggested adjustments")
     confidence: float = Field(default=0.7, ge=0.0, le=1.0, description="Confidence in decision")

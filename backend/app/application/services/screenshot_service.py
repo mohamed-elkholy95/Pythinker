@@ -40,9 +40,7 @@ class ScreenshotCaptureService:
                 quality = self._settings.screenshot_quality
                 scale = self._settings.screenshot_scale
 
-                response = await self._sandbox.get_screenshot(
-                    quality=quality, scale=scale
-                )
+                response = await self._sandbox.get_screenshot(quality=quality, scale=scale)
                 image_data = response.content
                 if not image_data:
                     return None

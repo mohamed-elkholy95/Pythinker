@@ -166,7 +166,7 @@ class VisitedSource(BaseModel):
             return False
 
         # Extract all numbers from content
-        number_pattern = re.compile(r'(\d+(?:\.\d+)?)\s*%?')
+        number_pattern = re.compile(r"(\d+(?:\.\d+)?)\s*%?")
         matches = number_pattern.findall(content)
 
         for match in matches:

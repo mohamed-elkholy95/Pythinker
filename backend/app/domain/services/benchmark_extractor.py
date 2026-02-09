@@ -81,15 +81,27 @@ class BenchmarkExtractor:
             # Token throughput: "1000 tokens/second"
             (r"([\d,]+)\s*tokens?[/\s]+(second|s|sec)", BenchmarkUnit.TOKENS_PER_SEC, BenchmarkCategory.THROUGHPUT),
             # Cost patterns: "$0.01 per 1M tokens"
-            (r"\$?([\d.]+)\s*(?:per|/)\s*(?:1?M|million)?\s*tokens?", BenchmarkUnit.USD_PER_MILLION, BenchmarkCategory.COST),
+            (
+                r"\$?([\d.]+)\s*(?:per|/)\s*(?:1?M|million)?\s*tokens?",
+                BenchmarkUnit.USD_PER_MILLION,
+                BenchmarkCategory.COST,
+            ),
             # Performance scores
-            (r"(?:score|rating)\s+(?:of\s+)?([\d.]+)(?:\s*/\s*100)?", BenchmarkUnit.PERCENTAGE, BenchmarkCategory.PERFORMANCE),
+            (
+                r"(?:score|rating)\s+(?:of\s+)?([\d.]+)(?:\s*/\s*100)?",
+                BenchmarkUnit.PERCENTAGE,
+                BenchmarkCategory.PERFORMANCE,
+            ),
             # F1 score
             (r"F1\s+(?:score)?\s*[:=]?\s*([\d.]+)", BenchmarkUnit.RATIO, BenchmarkCategory.ACCURACY),
             # BLEU score
             (r"BLEU\s+(?:score)?\s*[:=]?\s*([\d.]+)", BenchmarkUnit.RATIO, BenchmarkCategory.QUALITY),
             # Requests per second
-            (r"([\d,]+)\s*(?:requests?|req)[/\s]+(second|s|sec)", BenchmarkUnit.REQUESTS_PER_SEC, BenchmarkCategory.THROUGHPUT),
+            (
+                r"([\d,]+)\s*(?:requests?|req)[/\s]+(second|s|sec)",
+                BenchmarkUnit.REQUESTS_PER_SEC,
+                BenchmarkCategory.THROUGHPUT,
+            ),
         ]
 
     async def extract(

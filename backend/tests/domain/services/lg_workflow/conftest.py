@@ -4,6 +4,7 @@
 This conftest ensures proper module resolution to avoid conflicts
 with the installed langgraph package.
 """
+
 import sys
 from pathlib import Path
 

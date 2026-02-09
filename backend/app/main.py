@@ -379,9 +379,7 @@ async def lifespan(app: FastAPI):
                 dry_run=False,
             )
             if cleanup_result["sessions_cleaned"] > 0:
-                logger.info(
-                    f"Cleaned up {cleanup_result['sessions_cleaned']} stale sessions from previous run"
-                )
+                logger.info(f"Cleaned up {cleanup_result['sessions_cleaned']} stale sessions from previous run")
         except Exception as e:
             logger.warning(f"Stale session cleanup failed (non-critical): {e}")
 
@@ -447,12 +445,14 @@ async def lifespan(app: FastAPI):
         # Start background memory cleanup task (Phase 7)
         memory_cleanup_task = None
         if _health_state["qdrant"]:
+
             async def _memory_cleanup_loop():
                 """Periodic memory maintenance -- runs every hour."""
                 while True:
                     await asyncio.sleep(3600)  # Every hour
                     try:
                         from app.interfaces.dependencies import get_memory_service
+
                         memory_service = get_memory_service()
                         if memory_service:
                             await memory_service.cleanup(remove_expired=True, consolidate=False)
@@ -544,6 +544,7 @@ async def lifespan(app: FastAPI):
             # Close shared HTTP session (browser tool connection pool)
             try:
                 from app.domain.services.tools.browser import close_http_session
+
                 await close_http_session()
             except Exception as e:
                 logger.debug(f"HTTP session cleanup error: {e}")

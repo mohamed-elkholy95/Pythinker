@@ -345,11 +345,14 @@ class MaintenanceService:
                     if sandbox_id:
                         try:
                             from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
+
                             sandbox = await DockerSandbox.get(sandbox_id)
                             if sandbox:
                                 await asyncio.wait_for(sandbox.destroy(), timeout=15.0)
                                 stats["sandboxes_destroyed"] += 1
-                                logger.info(f"Destroyed orphaned sandbox {sandbox_id} for stale session {session_id_str}")
+                                logger.info(
+                                    f"Destroyed orphaned sandbox {sandbox_id} for stale session {session_id_str}"
+                                )
                         except TimeoutError:
                             logger.warning(f"Sandbox {sandbox_id} destroy timed out during stale cleanup")
                         except Exception as e:
@@ -376,9 +379,7 @@ class MaintenanceService:
 
             # Summary logging
             if dry_run:
-                logger.info(
-                    f"[DRY RUN] Would mark {stats['sessions_cleaned']} stale sessions as failed"
-                )
+                logger.info(f"[DRY RUN] Would mark {stats['sessions_cleaned']} stale sessions as failed")
             else:
                 logger.info(
                     f"Marked {stats['sessions_cleaned']} stale sessions as failed, "

@@ -32,16 +32,18 @@ class TestFindSimilarTasks:
         service._generate_embedding = AsyncMock(return_value=[0.1] * 1536)
 
         mock_task_repo = MagicMock()
-        mock_task_repo.find_similar_tasks = AsyncMock(return_value=[
-            {
-                "artifact_id": "a1",
-                "relevance_score": 0.9,
-                "success": True,
-                "content_summary": "Built React app",
-                "artifact_type": "task_outcome",
-                "session_id": "sess-1",
-            },
-        ])
+        mock_task_repo.find_similar_tasks = AsyncMock(
+            return_value=[
+                {
+                    "artifact_id": "a1",
+                    "relevance_score": 0.9,
+                    "success": True,
+                    "content_summary": "Built React app",
+                    "artifact_type": "task_outcome",
+                    "session_id": "sess-1",
+                },
+            ]
+        )
 
         with patch(
             "app.domain.repositories.vector_repos.get_task_artifact_repository",
@@ -148,9 +150,7 @@ class TestStoreTaskArtifact:
             "app.domain.repositories.vector_repos.get_task_artifact_repository",
             return_value=mock_task_repo,
         ):
-            await MemoryService.store_task_artifact(
-                service, "user-1", "session-1", "build website", "Done", True
-            )
+            await MemoryService.store_task_artifact(service, "user-1", "session-1", "build website", "Done", True)
 
         mock_task_repo.store_task_artifact.assert_called_once()
         call_kwargs = mock_task_repo.store_task_artifact.call_args.kwargs
@@ -173,9 +173,7 @@ class TestStoreTaskArtifact:
             return_value=None,
         ):
             # Should not raise
-            await MemoryService.store_task_artifact(
-                service, "user-1", "session-1", "task", "result", True
-            )
+            await MemoryService.store_task_artifact(service, "user-1", "session-1", "task", "result", True)
 
     @pytest.mark.asyncio
     async def test_stores_with_default_agent_role(self):
@@ -192,9 +190,7 @@ class TestStoreTaskArtifact:
             "app.domain.repositories.vector_repos.get_task_artifact_repository",
             return_value=mock_task_repo,
         ):
-            await MemoryService.store_task_artifact(
-                service, "user-1", "session-1", "task", "result", False
-            )
+            await MemoryService.store_task_artifact(service, "user-1", "session-1", "task", "result", False)
 
         call_kwargs = mock_task_repo.store_task_artifact.call_args.kwargs
         assert call_kwargs["agent_role"] == "executor"
@@ -235,9 +231,7 @@ class TestStoreTaskArtifact:
             return_value=mock_task_repo,
         ):
             # Should not raise
-            await MemoryService.store_task_artifact(
-                service, "user-1", "session-1", "task", "result", False
-            )
+            await MemoryService.store_task_artifact(service, "user-1", "session-1", "task", "result", False)
 
     @pytest.mark.asyncio
     async def test_generates_uuid_artifact_id(self):
@@ -254,9 +248,7 @@ class TestStoreTaskArtifact:
             "app.domain.repositories.vector_repos.get_task_artifact_repository",
             return_value=mock_task_repo,
         ):
-            await MemoryService.store_task_artifact(
-                service, "user-1", "session-1", "task", "result", True
-            )
+            await MemoryService.store_task_artifact(service, "user-1", "session-1", "task", "result", True)
 
         call_kwargs = mock_task_repo.store_task_artifact.call_args.kwargs
         artifact_id = call_kwargs["artifact_id"]
@@ -283,9 +275,7 @@ class TestGetErrorContext:
             "app.domain.repositories.vector_repos.get_tool_log_repository",
             return_value=mock_tool_repo,
         ):
-            result = await MemoryService.get_error_context(
-                service, "user-1", "shell_exec", "npm install"
-            )
+            result = await MemoryService.get_error_context(service, "user-1", "shell_exec", "npm install")
 
         assert result == ""
 
@@ -300,9 +290,7 @@ class TestGetErrorContext:
             "app.domain.repositories.vector_repos.get_tool_log_repository",
             return_value=None,
         ):
-            result = await MemoryService.get_error_context(
-                service, "user-1", "shell_exec", "npm install"
-            )
+            result = await MemoryService.get_error_context(service, "user-1", "shell_exec", "npm install")
 
         assert result == ""
 
@@ -315,24 +303,24 @@ class TestGetErrorContext:
         service._generate_embedding = AsyncMock(return_value=[0.1] * 1536)
 
         mock_tool_repo = MagicMock()
-        mock_tool_repo.find_similar_tool_executions = AsyncMock(return_value=[
-            {
-                "input_summary": "npm install --save",
-                "error_type": "EACCES",
-                "outcome": "failure",
-                "log_id": "log-1",
-                "relevance_score": 0.8,
-                "tool_name": "shell_exec",
-            },
-        ])
+        mock_tool_repo.find_similar_tool_executions = AsyncMock(
+            return_value=[
+                {
+                    "input_summary": "npm install --save",
+                    "error_type": "EACCES",
+                    "outcome": "failure",
+                    "log_id": "log-1",
+                    "relevance_score": 0.8,
+                    "tool_name": "shell_exec",
+                },
+            ]
+        )
 
         with patch(
             "app.domain.repositories.vector_repos.get_tool_log_repository",
             return_value=mock_tool_repo,
         ):
-            result = await MemoryService.get_error_context(
-                service, "user-1", "shell_exec", "npm install"
-            )
+            result = await MemoryService.get_error_context(service, "user-1", "shell_exec", "npm install")
 
         assert "EACCES" in result
         assert "failures" in result.lower()
@@ -352,9 +340,7 @@ class TestGetErrorContext:
             "app.domain.repositories.vector_repos.get_tool_log_repository",
             return_value=mock_tool_repo,
         ):
-            await MemoryService.get_error_context(
-                service, "user-1", "file_write", "write config.json"
-            )
+            await MemoryService.get_error_context(service, "user-1", "file_write", "write config.json")
 
         call_kwargs = mock_tool_repo.find_similar_tool_executions.call_args.kwargs
         assert call_kwargs["user_id"] == "user-1"
@@ -376,9 +362,7 @@ class TestGetErrorContext:
             "app.domain.repositories.vector_repos.get_tool_log_repository",
             return_value=mock_tool_repo,
         ):
-            await MemoryService.get_error_context(
-                service, "user-1", "shell_exec", "npm install", limit=5
-            )
+            await MemoryService.get_error_context(service, "user-1", "shell_exec", "npm install", limit=5)
 
         call_kwargs = mock_tool_repo.find_similar_tool_executions.call_args.kwargs
         assert call_kwargs["limit"] == 5
@@ -396,9 +380,7 @@ class TestGetErrorContext:
             "app.domain.repositories.vector_repos.get_tool_log_repository",
             return_value=mock_tool_repo,
         ):
-            result = await MemoryService.get_error_context(
-                service, "user-1", "shell_exec", "npm install"
-            )
+            result = await MemoryService.get_error_context(service, "user-1", "shell_exec", "npm install")
         assert result == ""
 
     @pytest.mark.asyncio
@@ -410,17 +392,13 @@ class TestGetErrorContext:
         service._generate_embedding = AsyncMock(return_value=[0.1] * 1536)
 
         mock_tool_repo = MagicMock()
-        mock_tool_repo.find_similar_tool_executions = AsyncMock(
-            side_effect=RuntimeError("Qdrant down")
-        )
+        mock_tool_repo.find_similar_tool_executions = AsyncMock(side_effect=RuntimeError("Qdrant down"))
 
         with patch(
             "app.domain.repositories.vector_repos.get_tool_log_repository",
             return_value=mock_tool_repo,
         ):
-            result = await MemoryService.get_error_context(
-                service, "user-1", "shell_exec", "npm install"
-            )
+            result = await MemoryService.get_error_context(service, "user-1", "shell_exec", "npm install")
 
         assert result == ""
 
@@ -433,26 +411,26 @@ class TestGetErrorContext:
         service._generate_embedding = AsyncMock(return_value=[0.1] * 1536)
 
         mock_tool_repo = MagicMock()
-        mock_tool_repo.find_similar_tool_executions = AsyncMock(return_value=[
-            {
-                "input_summary": "npm install --save react",
-                "error_type": "EACCES",
-                "outcome": "failure",
-            },
-            {
-                "input_summary": "npm install --global typescript",
-                "error_type": "ENOENT",
-                "outcome": "failure",
-            },
-        ])
+        mock_tool_repo.find_similar_tool_executions = AsyncMock(
+            return_value=[
+                {
+                    "input_summary": "npm install --save react",
+                    "error_type": "EACCES",
+                    "outcome": "failure",
+                },
+                {
+                    "input_summary": "npm install --global typescript",
+                    "error_type": "ENOENT",
+                    "outcome": "failure",
+                },
+            ]
+        )
 
         with patch(
             "app.domain.repositories.vector_repos.get_tool_log_repository",
             return_value=mock_tool_repo,
         ):
-            result = await MemoryService.get_error_context(
-                service, "user-1", "shell_exec", "npm install"
-            )
+            result = await MemoryService.get_error_context(service, "user-1", "shell_exec", "npm install")
 
         assert "EACCES" in result
         assert "ENOENT" in result
@@ -472,9 +450,7 @@ class TestGetErrorContext:
             "app.domain.repositories.vector_repos.get_tool_log_repository",
             return_value=mock_tool_repo,
         ):
-            await MemoryService.get_error_context(
-                service, "user-1", "shell_exec", "npm install"
-            )
+            await MemoryService.get_error_context(service, "user-1", "shell_exec", "npm install")
 
         # Should embed "shell_exec: npm install"
         call_args = service._generate_embedding.call_args[0][0]

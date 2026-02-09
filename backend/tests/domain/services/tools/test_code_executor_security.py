@@ -16,21 +16,11 @@ from app.domain.services.tools.code_executor import CodeExecutorTool
 def mock_sandbox() -> AsyncMock:
     """Create a mock sandbox for testing."""
     sandbox = AsyncMock()
-    sandbox.exec_command = AsyncMock(
-        return_value=AsyncMock(success=True, message="output")
-    )
-    sandbox.file_write = AsyncMock(
-        return_value=AsyncMock(success=True, message="written")
-    )
-    sandbox.file_read = AsyncMock(
-        return_value=AsyncMock(success=True, message="content")
-    )
-    sandbox.file_delete = AsyncMock(
-        return_value=AsyncMock(success=True, message="deleted")
-    )
-    sandbox.file_list = AsyncMock(
-        return_value=AsyncMock(success=True, message="")
-    )
+    sandbox.exec_command = AsyncMock(return_value=AsyncMock(success=True, message="output"))
+    sandbox.file_write = AsyncMock(return_value=AsyncMock(success=True, message="written"))
+    sandbox.file_read = AsyncMock(return_value=AsyncMock(success=True, message="content"))
+    sandbox.file_delete = AsyncMock(return_value=AsyncMock(success=True, message="deleted"))
+    sandbox.file_list = AsyncMock(return_value=AsyncMock(success=True, message=""))
     return sandbox
 
 

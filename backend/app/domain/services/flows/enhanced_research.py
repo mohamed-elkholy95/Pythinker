@@ -96,7 +96,11 @@ class EnhancedResearchFlow:
 
         logger.info("Extracting benchmarks")
         source_data = [
-            {"url": s.url, "content": self._get_content(s.url, raw_sources), "title": self._get_title(s.url, raw_sources)}
+            {
+                "url": s.url,
+                "content": self._get_content(s.url, raw_sources),
+                "title": self._get_title(s.url, raw_sources),
+            }
             for s in sources
         ]
         benchmark_result = await self.benchmark_extractor.extract(source_data)
@@ -144,7 +148,10 @@ class EnhancedResearchFlow:
         report_content = self._extract_report_content(report_output.report)
         citation_validation = await self.citation_validator.validate(
             content=report_content,
-            available_citations={c.id: {"url": c.url, "title": c.title, "excerpt": c.excerpt} for c in report_output.citation_bibliography},
+            available_citations={
+                c.id: {"url": c.url, "title": c.title, "excerpt": c.excerpt}
+                for c in report_output.citation_bibliography
+            },
             source_scores=source_scores,
         )
 
