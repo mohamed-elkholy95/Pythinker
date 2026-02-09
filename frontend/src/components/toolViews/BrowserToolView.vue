@@ -41,7 +41,7 @@
         />
 
         <!-- Live VNC -->
-        <VNCViewer
+        <LiveViewer
           v-else-if="showLiveVnc"
           :session-id="props.sessionId"
           :enabled="props.live"
@@ -118,7 +118,7 @@ import type { ConsoleRecord } from '@/types/response';
 import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
 import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
-import VNCViewer from '@/components/VNCViewer.vue';
+import LiveViewer from '@/components/LiveViewer.vue';
 import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';
 import { getToolDisplay } from '@/utils/toolDisplay';
 

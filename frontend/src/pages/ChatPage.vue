@@ -112,7 +112,6 @@
             </button>
           </div>
           <ChatMessage v-for="message in messages" :key="message.id" :message="message"
-            :suggestions="message.type === 'report' ? suggestions : undefined"
             :activeThinkingStepId="activeThinkingStepId"
             @toolClick="handleToolClick"
             @reportOpen="handleReportOpen"
@@ -152,9 +151,9 @@
             </button>
           </div>
 
-          <!-- Suggestions - only show standalone when last message is not a report -->
+          <!-- Suggestions - show in dedicated area after response is complete -->
           <Suggestions
-            v-if="suggestions.length > 0 && !isLoading && !hasReportMessage"
+            v-if="suggestions.length > 0 && isResponseSettled && !isLoading && !isThinking && !isSummaryStreaming"
             :suggestions="suggestions"
             @select="handleSuggestionSelect"
           />
@@ -225,6 +224,7 @@
       :isReplayMode="isReplayMode"
       :replayScreenshotUrl="replay.currentScreenshotUrl.value"
       :replayMetadata="replay.currentScreenshot.value"
+      :openReplaySessionId="openReplaySessionIdForReplay"
       @timelineStepForward="handleTimelineStepForward"
       @timelineStepBackward="handleTimelineStepBackward"
       @timelineSeek="handleTimelineSeek"
@@ -320,6 +320,7 @@ import { useWideResearchGlobal } from '@/composables/useWideResearch';
 import ConnectorsDialog from '@/components/connectors/ConnectorsDialog.vue';
 import { useConnectorDialog } from '@/composables/useConnectorDialog';
 import { useScreenshotReplay } from '@/composables/useScreenshotReplay';
+import { useOpenReplay } from '@/composables/useOpenReplay';
 
 const router = useRouter()
 const { t } = useI18n()
@@ -334,21 +335,69 @@ const wideResearch = useWideResearchGlobal()
 // ConnectorDialog composable — dialog manages its own visibility
 useConnectorDialog()
 
+// OpenReplay session tracking (preferred replay source)
+const openReplay = useOpenReplay()
+const openReplayLinkInFlight = ref(false)
+const shouldStartOpenReplay = (status?: SessionStatus) => {
+  if (!status) return false
+  return [
+    SessionStatus.PENDING,
+    SessionStatus.INITIALIZING,
+    SessionStatus.RUNNING,
+    SessionStatus.WAITING
+  ].includes(status)
+}
+
+const maybeStartOpenReplay = async (targetSessionId: string, status?: SessionStatus) => {
+  if (!openReplay.isEnabled.value) return
+  if (!shouldStartOpenReplay(status)) return
+  if (openReplaySessionId.value) return
+  if (openReplayLinkInFlight.value) return
+
+  openReplayLinkInFlight.value = true
+  try {
+    const sessionId = await openReplay.startSession({ pythinker_session_id: targetSessionId })
+    if (!sessionId) return
+
+    openReplay.linkPythinkerSession(targetSessionId)
+    const sessionUrl = openReplay.getSessionURL()
+    openReplaySessionId.value = sessionId
+
+    await agentApi.linkOpenReplaySession(targetSessionId, {
+      openreplay_session_id: sessionId,
+      openreplay_session_url: sessionUrl || undefined
+    })
+  } catch {
+    // OpenReplay linking failures shouldn't block chat
+  } finally {
+    openReplayLinkInFlight.value = false
+  }
+}
+
 // Screenshot replay for completed sessions
 const replay = useScreenshotReplay(computed(() => sessionId.value))
 
-// Replay mode: session is completed/failed and has screenshots
+const openReplaySessionIdForReplay = computed(() =>
+  openReplay.isEnabled.value ? openReplaySessionId.value : null
+)
+const hasOpenReplayReplay = computed(() => !!openReplaySessionIdForReplay.value)
+const hasScreenshotReplay = computed(() => replay.hasScreenshots.value)
+
+// Replay mode: session is completed/failed and has replay data
 const isReplayMode = computed(() => {
   const ended = !isLoading.value && sessionStatus.value &&
     [SessionStatus.COMPLETED, SessionStatus.FAILED].includes(sessionStatus.value)
-  return !!ended && replay.hasScreenshots.value
+  return !!ended && (hasOpenReplayReplay.value || hasScreenshotReplay.value)
 })
+
+const isScreenshotReplayMode = computed(() => isReplayMode.value && !hasOpenReplayReplay.value)
 
 // Create initial state factory
 const createInitialState = () => ({
   inputMessage: '',
   isLoading: false,
   sessionId: undefined as string | undefined,
+  openReplaySessionId: null as string | null,
   messages: [] as Message[],
   toolPanelSize: 0,
   realTime: true,
@@ -365,6 +414,7 @@ const createInitialState = () => ({
   linkCopied: false,
   sharingLoading: false, // Loading state for share operations
   suggestions: [] as string[], // End-of-response suggestions
+  isResponseSettled: false, // True only after done/wait/error (response lifecycle ended)
   agentMode: 'discuss' as 'discuss' | 'agent', // Current agent mode
   isThinking: false, // True when agent is actively thinking/processing
   seenEventIds: new Set<string>(), // Track seen event IDs to prevent duplicates
@@ -391,6 +441,7 @@ const {
   inputMessage,
   isLoading,
   sessionId,
+  openReplaySessionId,
   messages,
   toolPanelSize,
   realTime,
@@ -406,6 +457,7 @@ const {
   linkCopied,
   sharingLoading,
   suggestions,
+  isResponseSettled,
   agentMode,
   isThinking,
   seenEventIds,
@@ -467,6 +519,12 @@ const isWaitingForSessionReady = ref(false);
 const pendingInitialMessage = ref<{ message: string; files: FileInfo[] } | null>(null);
 const sessionInitTimedOut = ref(false);
 
+watch([sessionId, sessionStatus], ([activeSessionId, status]) => {
+  if (!activeSessionId) return
+  if (openReplaySessionId.value) return
+  void maybeStartOpenReplay(activeSessionId, status)
+})
+
 // Track active canvas project from canvas_update SSE events
 const activeCanvasProjectId = ref<string | null>(null);
 
@@ -480,6 +538,9 @@ const refreshSessionStatus = async (targetSessionId?: string) => {
   try {
     const session = await agentApi.getSession(activeSessionId);
     sessionStatus.value = session.status as SessionStatus;
+    if (session.openreplay_session_id) {
+      openReplaySessionId.value = session.openreplay_session_id;
+    }
     if (sessionStatus.value !== SessionStatus.INITIALIZING) {
       sessionInitTimedOut.value = false;
     }
@@ -660,11 +721,6 @@ const activeThinkingStepId = computed<string | undefined>(() => {
   return undefined;
 });
 
-// Check if there's a report message (suggestions should appear inside it)
-const hasReportMessage = computed(() => {
-  return messages.value.some(message => message.type === 'report');
-});
-
 // Track if user has explicitly closed the panel (don't auto-reopen)
 const userClosedPanel = ref(false);
 
@@ -742,20 +798,25 @@ const toolTimelineCanStepForward = computed(() => {
 
 const toolTimelineCanStepBackward = computed(() => toolTimelineIndex.value > 0);
 
-const showTimelineControls = computed(() => isReplayMode.value || toolTimelineIndex.value >= 0);
+const showTimelineControls = computed(() => {
+  if (isReplayMode.value && hasOpenReplayReplay.value) {
+    return false
+  }
+  return isScreenshotReplayMode.value || toolTimelineIndex.value >= 0
+});
 
 // Effective timeline values — replay mode overrides tool timeline
 const effectiveTimelineProgress = computed(() =>
-  isReplayMode.value ? replay.progress.value : toolTimelineProgress.value
+  isScreenshotReplayMode.value ? replay.progress.value : toolTimelineProgress.value
 );
 const effectiveTimelineTimestamp = computed(() =>
-  isReplayMode.value ? replay.currentTimestamp.value : toolTimelineTimestamp.value
+  isScreenshotReplayMode.value ? replay.currentTimestamp.value : toolTimelineTimestamp.value
 );
 const effectiveCanStepForward = computed(() =>
-  isReplayMode.value ? replay.canStepForward.value : toolTimelineCanStepForward.value
+  isScreenshotReplayMode.value ? replay.canStepForward.value : toolTimelineCanStepForward.value
 );
 const effectiveCanStepBackward = computed(() =>
-  isReplayMode.value ? replay.canStepBackward.value : toolTimelineCanStepBackward.value
+  isScreenshotReplayMode.value ? replay.canStepBackward.value : toolTimelineCanStepBackward.value
 );
 
 // Handle opening the panel from TaskProgressBar
@@ -1322,6 +1383,7 @@ const processEvent = (event: AgentSSEEvent) => {
   } else if (event.event === 'step') {
     handleStepEvent(event.data as StepEventData);
   } else if (event.event === 'done') {
+    isResponseSettled.value = true;
     isLoading.value = false;
     isThinking.value = false;
     isWaitingForReply.value = false;
@@ -1332,13 +1394,21 @@ const processEvent = (event: AgentSSEEvent) => {
     // Load screenshots for replay mode (seamless live → replay transition)
     sessionStatus.value = SessionStatus.COMPLETED;
     replay.loadScreenshots();
+    if (openReplay.isRecording.value) {
+      openReplay.stopSession();
+    }
   } else if (event.event === 'wait') {
+    isResponseSettled.value = true;
     // Agent is waiting for user input - show waiting indicator
     isWaitingForReply.value = true;
     isLoading.value = false;
     isThinking.value = false;
   } else if (event.event === 'error') {
+    isResponseSettled.value = true;
     handleErrorEvent(event.data as ErrorEventData);
+    if (openReplay.isRecording.value) {
+      openReplay.stopSession();
+    }
   } else if (event.event === 'title') {
     handleTitleEvent(event.data as TitleEventData);
   } else if (event.event === 'plan') {
@@ -1406,6 +1476,8 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
   // Clear input field and per-message skill picks (session skills persist)
   inputMessage.value = '';
   clearSelectedSkills();
+  suggestions.value = [];
+  isResponseSettled.value = false;
   isLoading.value = true;
   isWaitingForReply.value = false;
 
@@ -1443,6 +1515,7 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
           });
         },
         onClose: () => {
+          isResponseSettled.value = true;
           isLoading.value = false;
           isThinking.value = false;
           thinkingText.value = '';
@@ -1462,6 +1535,7 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
           }
         },
         onError: () => {
+          isResponseSettled.value = true;
           isLoading.value = false;
           isThinking.value = false;
           thinkingText.value = '';
@@ -1495,6 +1569,7 @@ const restoreSession = async () => {
   }
   const session = await agentApi.getSession(sessionId.value);
   sessionStatus.value = session.status as SessionStatus;
+  openReplaySessionId.value = session.openreplay_session_id ?? null;
   // Initialize share mode based on session state
   shareMode.value = session.is_shared ? 'public' : 'private';
   realTime.value = false;
@@ -1517,6 +1592,9 @@ const restoreSession = async () => {
 
 
 onBeforeRouteUpdate(async (to, from, next) => {
+  if (openReplay.isRecording.value) {
+    openReplay.stopSession();
+  }
   // Stop the current session if it's still running to release sandbox/browser resources
   const prevSessionId = from.params.sessionId as string | undefined;
   if (prevSessionId && sessionStatus.value === SessionStatus.RUNNING) {
@@ -1576,6 +1654,9 @@ onMounted(async () => {
 
 // Stop running session when navigating away from chat entirely (e.g., to home page)
 onBeforeRouteLeave(async (_to, from, next) => {
+  if (openReplay.isRecording.value) {
+    openReplay.stopSession();
+  }
   const leavingSessionId = from.params.sessionId as string | undefined;
   if (leavingSessionId && sessionStatus.value === SessionStatus.RUNNING) {
     try {
@@ -1652,19 +1733,19 @@ const showToolFromTimeline = (index: number) => {
 }
 
 const handleTimelineStepForward = () => {
-  if (isReplayMode.value) { replay.stepForward(); return; }
+  if (isScreenshotReplayMode.value) { replay.stepForward(); return; }
   if (!toolTimelineCanStepForward.value) return;
   showToolFromTimeline(toolTimelineIndex.value + 1);
 }
 
 const handleTimelineStepBackward = () => {
-  if (isReplayMode.value) { replay.stepBackward(); return; }
+  if (isScreenshotReplayMode.value) { replay.stepBackward(); return; }
   if (!toolTimelineCanStepBackward.value) return;
   showToolFromTimeline(toolTimelineIndex.value - 1);
 }
 
 const handleTimelineSeek = (progress: number) => {
-  if (isReplayMode.value) { replay.seekByProgress(progress); return; }
+  if (isScreenshotReplayMode.value) { replay.seekByProgress(progress); return; }
   if (toolTimeline.value.length === 0) return;
   const maxIndex = toolTimeline.value.length - 1;
   const targetIndex = Math.round((progress / 100) * maxIndex);
@@ -1702,7 +1783,11 @@ const handleStop = () => {
     // Notify sidebar that session is no longer running
     emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
   }
+  if (openReplay.isRecording.value) {
+    openReplay.stopSession();
+  }
   // Reset loading states
+  isResponseSettled.value = true;
   isLoading.value = false;
   isThinking.value = false;
   isStale.value = false;

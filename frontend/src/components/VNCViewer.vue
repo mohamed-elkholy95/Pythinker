@@ -131,10 +131,12 @@ async function initVNCConnection() {
       emit('credentialsRequired');
     });
 
-  } catch {
+  } catch (error) {
     isLoading.value = false;
     isConnecting = false;
     statusText.value = 'Connection failed';
+    const reason = error instanceof Error ? error.message : 'connection_failed';
+    emit('disconnected', reason);
   }
 }
 

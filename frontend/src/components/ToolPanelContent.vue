@@ -90,12 +90,20 @@
             :is-final="!isSummaryStreaming"
           />
 
-          <!-- Replay mode: static screenshots for completed sessions -->
+          <!-- Replay mode: OpenReplay player (preferred) or static screenshots -->
           <div
             v-else-if="currentViewType === 'vnc' && isReplayMode"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
+            <SessionReplayPlayer
+              v-if="openReplaySessionId && !openReplayFailed"
+              :session-id="sessionId"
+              :open-replay-session-id="openReplaySessionId"
+              class="w-full h-full"
+              @error="handleOpenReplayError"
+            />
             <ScreenshotReplayViewer
+              v-else
               :src="replayScreenshotUrl || ''"
               :metadata="replayMetadata || null"
             />
@@ -116,7 +124,7 @@
             />
 
             <!-- VNC Viewer when enabled -->
-            <VNCViewer
+            <LiveViewer
               v-else-if="vncEnabled"
               :key="'vnc-main-' + (sessionId || 'none')"
               :session-id="sessionId || ''"
@@ -206,7 +214,7 @@
             v-else-if="sessionId"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
-            <VNCViewer
+            <LiveViewer
               :key="'vnc-fallback-' + (sessionId || 'none')"
               :session-id="sessionId"
               :enabled="true"
@@ -280,7 +288,7 @@ import TakeOverIcon from '@/components/icons/TakeOverIcon.vue';
 import TaskProgressBar from '@/components/TaskProgressBar.vue';
 
 // Content views
-import VNCViewer from '@/components/VNCViewer.vue';
+import LiveViewer from '@/components/LiveViewer.vue';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
 import InactiveState from '@/components/toolViews/shared/InactiveState.vue';
 import TerminalContentView from '@/components/toolViews/TerminalContentView.vue';
@@ -290,6 +298,7 @@ import GenericContentView from '@/components/toolViews/GenericContentView.vue';
 import StreamingReportView from '@/components/toolViews/StreamingReportView.vue';
 import WideResearchOverlay from '@/components/WideResearchOverlay.vue';
 import ScreenshotReplayViewer from '@/components/ScreenshotReplayViewer.vue';
+import SessionReplayPlayer from '@/components/SessionReplayPlayer.vue';
 import { useWideResearchGlobal } from '@/composables/useWideResearch';
 import { normalizeSearchResults } from '@/utils/searchResults';
 import type { SearchResultsEnvelope, SearchResultsPayload } from '@/types/search';
@@ -312,6 +321,7 @@ const props = defineProps<{
   isReplayMode?: boolean;
   replayScreenshotUrl?: string;
   replayMetadata?: ScreenshotMetadata | null;
+  openReplaySessionId?: string | null;
   summaryStreamText?: string;
   isSummaryStreaming?: boolean;
 }>();
@@ -468,7 +478,7 @@ const vncPlaceholderLabel = computed(() => {
 
 const vncPlaceholderDetail = computed(() => {
   if (!props.sessionId) return 'Open a session to view the screen.';
-  if (vncDisconnected.value) return 'Waiting for the VNC stream.';
+  if (vncDisconnected.value) return 'Waiting for the live stream.';
   return '';
 });
 
@@ -680,6 +690,14 @@ onUnmounted(() => {
 const fileContent = ref('');
 const originalContent = ref('');
 const vncDisconnected = ref(false);
+const openReplayFailed = ref(false);
+
+watch(
+  () => [props.openReplaySessionId, props.sessionId] as const,
+  () => {
+    openReplayFailed.value = false;
+  }
+);
 
 const getToolContentText = () => {
   const content = props.toolContent?.content;
@@ -940,6 +958,10 @@ const onVNCConnected = () => {
 };
 const onVNCDisconnected = () => {
   vncDisconnected.value = true;
+};
+
+const handleOpenReplayError = () => {
+  openReplayFailed.value = true;
 };
 
 const onNewTerminalContent = () => {

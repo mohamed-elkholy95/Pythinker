@@ -11,7 +11,7 @@
 
     <!-- Live VNC - use absolute positioning to fill parent -->
     <div v-else-if="enabled" class="vnc-content-inner">
-      <VNCViewer
+      <LiveViewer
         ref="vncViewerRef"
         :session-id="sessionId"
         :enabled="enabled"
@@ -34,7 +34,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue';
-import VNCViewer from '@/components/VNCViewer.vue';
+import LiveViewer from '@/components/LiveViewer.vue';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
 import InactiveState from '@/components/toolViews/shared/InactiveState.vue';
 
@@ -57,7 +57,7 @@ const emit = defineEmits<{
   disconnected: [];
 }>();
 
-const vncViewerRef = ref<InstanceType<typeof VNCViewer> | null>(null);
+const vncViewerRef = ref<InstanceType<typeof LiveViewer> | null>(null);
 </script>
 
 <style scoped>

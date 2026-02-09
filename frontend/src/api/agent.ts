@@ -77,6 +77,11 @@ export interface ResumeSessionOptions {
   persist_login_state?: boolean;
 }
 
+export interface OpenReplayLinkRequest {
+  openreplay_session_id: string;
+  openreplay_session_url?: string;
+}
+
 /**
  * Resume a paused session after user takeover
  * This resumes agent execution after the user finishes their takeover session
@@ -85,6 +90,17 @@ export interface ResumeSessionOptions {
  */
 export async function resumeSession(sessionId: string, options?: ResumeSessionOptions): Promise<void> {
   await apiClient.post<ApiResponse<void>>(`/sessions/${sessionId}/resume`, options || {});
+}
+
+/**
+ * Link an OpenReplay session to a Pythinker session
+ * Stores the OpenReplay session ID and URL for replay access.
+ */
+export async function linkOpenReplaySession(
+  sessionId: string,
+  payload: OpenReplayLinkRequest
+): Promise<void> {
+  await apiClient.post<ApiResponse<void>>(`/sessions/${sessionId}/openreplay`, payload);
 }
 
 export async function renameSession(sessionId: string, title: string): Promise<void> {
@@ -523,9 +539,28 @@ export async function browseUrl(
  * @param target 'screencast' or 'input'
  * @returns Signed WebSocket URL
  */
-async function getSandboxSignedUrl(sessionId: string, target: string): Promise<string> {
+interface SandboxSignedUrlOptions {
+  quality?: number;
+  maxFps?: number;
+}
+
+async function getSandboxSignedUrl(
+  sessionId: string,
+  target: string,
+  options?: SandboxSignedUrlOptions
+): Promise<string> {
+  const params = new URLSearchParams({ target });
+  if (target === 'screencast') {
+    if (typeof options?.quality === 'number') {
+      params.set('quality', String(options.quality));
+    }
+    if (typeof options?.maxFps === 'number') {
+      params.set('max_fps', String(options.maxFps));
+    }
+  }
+
   const response = await apiClient.post<ApiResponse<SignedUrlResponse>>(
-    `/sessions/${sessionId}/sandbox/signed-url?target=${target}`,
+    `/sessions/${sessionId}/sandbox/signed-url?${params.toString()}`,
     { expire_minutes: 15 }
   );
   const wsBaseUrl = API_CONFIG.host.replace(/^http/, 'ws');
@@ -544,9 +579,7 @@ export async function getScreencastUrl(
   quality: number = 70,
   maxFps: number = 15,
 ): Promise<string> {
-  const baseUrl = await getSandboxSignedUrl(sessionId, 'screencast');
-  const separator = baseUrl.includes('?') ? '&' : '?';
-  return `${baseUrl}${separator}quality=${quality}&max_fps=${maxFps}`;
+  return getSandboxSignedUrl(sessionId, 'screencast', { quality, maxFps });
 }
 
 /**

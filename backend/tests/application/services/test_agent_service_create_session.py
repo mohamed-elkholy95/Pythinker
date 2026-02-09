@@ -100,7 +100,6 @@ async def test_create_session_returns_pending_when_warm_completes(monkeypatch):
 
     async def fast_warm(_session_id: str) -> None:
         await service._session_repository.update_status(_session_id, SessionStatus.PENDING)
-        return None
 
     monkeypatch.setattr(service, "_warm_sandbox_for_session", fast_warm)
 

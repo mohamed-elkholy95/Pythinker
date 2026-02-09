@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import hashlib
 import logging
 from collections.abc import AsyncGenerator
@@ -45,6 +46,7 @@ from app.interfaces.schemas.session import (
     GetSessionResponse,
     ListSessionItem,
     ListSessionResponse,
+    OpenReplaySessionRequest,
     ResumeSessionRequest,
     SandboxInfo,
     SharedSessionResponse,
@@ -56,6 +58,10 @@ from app.interfaces.schemas.workspace import WorkspaceManifest, WorkspaceManifes
 
 logger = logging.getLogger(__name__)
 SESSION_POLL_INTERVAL = 10
+SANDBOX_WS_CONNECT_KWARGS = {
+    "ping_interval": None,
+    "max_size": None,
+}
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -106,6 +112,8 @@ async def get_session(
             status=session.status,
             events=await EventMapper.events_to_sse_events(session.events),
             is_shared=session.is_shared,
+            openreplay_session_id=session.openreplay_session_id,
+            openreplay_session_url=session.openreplay_session_url,
         )
     )
 
@@ -171,6 +179,25 @@ async def resume_session(
     return APIResponse.success()
 
 
+@router.post("/{session_id}/openreplay", response_model=APIResponse[None])
+async def link_openreplay_session(
+    session_id: str,
+    request: OpenReplaySessionRequest,
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service),
+) -> APIResponse[None]:
+    """Link OpenReplay session metadata to a Pythinker session."""
+    updated = await agent_service.link_openreplay_session(
+        session_id,
+        current_user.id,
+        request.openreplay_session_id,
+        request.openreplay_session_url,
+    )
+    if not updated:
+        raise NotFoundError("Session not found")
+    return APIResponse.success()
+
+
 @router.patch("/{session_id}/rename", response_model=APIResponse[None])
 async def rename_session(
     session_id: str,
@@ -201,15 +228,17 @@ async def get_all_sessions(
 ) -> APIResponse[ListSessionResponse]:
     sessions = await agent_service.get_all_sessions(current_user.id)
     session_items = [
-        ListSessionItem(
-            session_id=session.id,
-            title=session.title,
-            status=session.status,
-            unread_message_count=session.unread_message_count,
-            latest_message=session.latest_message,
-            latest_message_at=int(session.latest_message_at.timestamp()) if session.latest_message_at else None,
-            is_shared=session.is_shared,
-        )
+            ListSessionItem(
+                session_id=session.id,
+                title=session.title,
+                status=session.status,
+                unread_message_count=session.unread_message_count,
+                latest_message=session.latest_message,
+                latest_message_at=int(session.latest_message_at.timestamp()) if session.latest_message_at else None,
+                is_shared=session.is_shared,
+                openreplay_session_id=session.openreplay_session_id,
+                openreplay_session_url=session.openreplay_session_url,
+            )
         for session in sessions
     ]
     return APIResponse.success(ListSessionResponse(sessions=session_items))
@@ -235,6 +264,8 @@ async def stream_sessions(
                         if session.latest_message_at
                         else None,
                         is_shared=session.is_shared,
+                        openreplay_session_id=session.openreplay_session_id,
+                        openreplay_session_url=session.openreplay_session_url,
                     )
                     for session in sessions
                 ]
@@ -468,7 +499,7 @@ async def vnc_websocket(
         logger.info(f"Connecting to VNC WebSocket at {sandbox_ws_url}")
 
         # Connect to sandbox WebSocket (standard RFB protocol)
-        async with websockets.connect(sandbox_ws_url) as sandbox_ws:
+        async with websockets.connect(sandbox_ws_url, **SANDBOX_WS_CONNECT_KWARGS) as sandbox_ws:
             logger.info(f"Connected to VNC WebSocket at {sandbox_ws_url}")
 
             # Create two tasks to forward data bidirectionally
@@ -479,7 +510,11 @@ async def vnc_websocket(
                         await sandbox_ws.send(data)
                 except WebSocketDisconnect:
                     logger.info("Web -> VNC connection closed")
-                    pass
+                except RuntimeError as e:
+                    if 'disconnect message has been received' in str(e):
+                        logger.info("Web -> VNC connection closed")
+                    else:
+                        logger.error(f"Error forwarding data to sandbox: {e}")
                 except Exception as e:
                     logger.error(f"Error forwarding data to sandbox: {e}")
 
@@ -506,13 +541,16 @@ async def vnc_websocket(
             # Cancel pending tasks
             for task in pending:
                 task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
 
     except ConnectionError as e:
         logger.error(f"Unable to connect to sandbox environment: {e!s}")
-        await websocket.close(code=1011, reason=f"Unable to connect to sandbox environment: {e!s}")
+        with contextlib.suppress(Exception):
+            await websocket.close(code=1011, reason=f"Unable to connect to sandbox environment: {e!s}")
     except Exception as e:
         logger.error(f"WebSocket error: {e!s}")
-        await websocket.close(code=1011, reason=f"WebSocket error: {e!s}")
+        with contextlib.suppress(Exception):
+            await websocket.close(code=1011, reason=f"WebSocket error: {e!s}")
 
 
 @router.get("/{session_id}/files")
@@ -631,6 +669,8 @@ async def create_sandbox_signed_url(
     session_id: str,
     request_data: AccessTokenRequest,
     target: str = Query(default="screencast"),
+    quality: int = Query(default=70, ge=1, le=100),
+    max_fps: int = Query(default=15, ge=1, le=30),
     current_user: User = Depends(get_current_user),
     agent_service: AgentService = Depends(get_agent_service),
     token_service: TokenService = Depends(get_token_service),
@@ -653,6 +693,8 @@ async def create_sandbox_signed_url(
         raise NotFoundError("Session not found")
 
     ws_base_url = f"/api/v1/sessions/{session_id}/{target}"
+    if target == "screencast":
+        ws_base_url = f"{ws_base_url}?quality={quality}&max_fps={max_fps}"
     signed_url = token_service.create_signed_url(base_url=ws_base_url, expire_minutes=expire_minutes)
 
     return APIResponse.success(
@@ -698,7 +740,7 @@ async def screencast_websocket(
 
         logger.info(f"Connecting to screencast at {sandbox_ws_url}")
 
-        async with websockets.connect(sandbox_ws_url) as sandbox_ws:
+        async with websockets.connect(sandbox_ws_url, **SANDBOX_WS_CONNECT_KWARGS) as sandbox_ws:
             logger.info(f"Connected to screencast at {sandbox_ws_url}")
 
             async def forward_to_sandbox():
@@ -711,6 +753,11 @@ async def screencast_websocket(
                             await sandbox_ws.send(data["bytes"])
                 except WebSocketDisconnect:
                     logger.info("Browser -> screencast connection closed")
+                except RuntimeError as e:
+                    if 'disconnect message has been received' in str(e):
+                        logger.info("Browser -> screencast connection closed")
+                    else:
+                        logger.error(f"Error forwarding to screencast: {e}")
                 except Exception as e:
                     logger.error(f"Error forwarding to screencast: {e}")
 
@@ -735,13 +782,16 @@ async def screencast_websocket(
 
             for task in pending:
                 task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
 
     except ConnectionError as e:
         logger.error(f"Unable to connect to screencast: {e!s}")
-        await websocket.close(code=1011, reason=f"Unable to connect to sandbox: {e!s}")
+        with contextlib.suppress(Exception):
+            await websocket.close(code=1011, reason=f"Unable to connect to sandbox: {e!s}")
     except Exception as e:
         logger.error(f"Screencast WebSocket error: {e!s}")
-        await websocket.close(code=1011, reason=f"Screencast error: {e!s}")
+        with contextlib.suppress(Exception):
+            await websocket.close(code=1011, reason=f"Screencast error: {e!s}")
 
 
 @router.websocket("/{session_id}/input")
@@ -772,7 +822,7 @@ async def input_websocket(
         sandbox_ws_url = sandbox.base_url.replace("http", "ws")
         sandbox_ws_url = f"{sandbox_ws_url}/api/v1/input/stream"
 
-        async with websockets.connect(sandbox_ws_url) as sandbox_ws:
+        async with websockets.connect(sandbox_ws_url, **SANDBOX_WS_CONNECT_KWARGS) as sandbox_ws:
             async def forward_to_sandbox():
                 try:
                     while True:
@@ -782,7 +832,12 @@ async def input_websocket(
                         elif "bytes" in data:
                             await sandbox_ws.send(data["bytes"])
                 except WebSocketDisconnect:
-                    pass
+                    logger.info("Browser -> input connection closed")
+                except RuntimeError as e:
+                    if 'disconnect message has been received' in str(e):
+                        logger.info("Browser -> input connection closed")
+                    else:
+                        logger.error(f"Error forwarding input to sandbox: {e}")
                 except Exception as e:
                     logger.error(f"Error forwarding input to sandbox: {e}")
 
@@ -807,13 +862,16 @@ async def input_websocket(
 
             for task in pending:
                 task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
 
     except ConnectionError as e:
         logger.error(f"Unable to connect to sandbox input: {e!s}")
-        await websocket.close(code=1011, reason=f"Unable to connect to sandbox: {e!s}")
+        with contextlib.suppress(Exception):
+            await websocket.close(code=1011, reason=f"Unable to connect to sandbox: {e!s}")
     except Exception as e:
         logger.error(f"Input WebSocket error: {e!s}")
-        await websocket.close(code=1011, reason=f"Input error: {e!s}")
+        with contextlib.suppress(Exception):
+            await websocket.close(code=1011, reason=f"Input error: {e!s}")
 
 
 # ============================================================================
@@ -1110,5 +1168,7 @@ async def get_shared_session(
             status=session.status,
             events=await EventMapper.events_to_sse_events(session.events),
             is_shared=session.is_shared,
+            openreplay_session_id=session.openreplay_session_id,
+            openreplay_session_url=session.openreplay_session_url,
         )
     )

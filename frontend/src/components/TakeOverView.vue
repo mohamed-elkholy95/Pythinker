@@ -1,7 +1,7 @@
 <template>
     <div v-if="shouldShow" class="fixed bg-[var(--background-gray-main)] z-[60] transition-all w-full h-full inset-0">
         <div class="w-full h-full">
-            <SandboxViewer
+            <LiveViewer
                 :session-id="sessionId"
                 :enabled="shouldShow"
                 :view-only="false"
@@ -119,7 +119,7 @@ import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { MousePointer, X, Monitor } from 'lucide-vue-next';
-import SandboxViewer from './SandboxViewer.vue';
+import LiveViewer from './LiveViewer.vue';
 import { resumeSession } from '@/api/agent';
 import {
     Dialog,

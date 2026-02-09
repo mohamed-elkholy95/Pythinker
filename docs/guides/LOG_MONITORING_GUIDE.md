@@ -288,7 +288,7 @@ docker ps --filter "name=pythinker" --format "table {{.Names}}\t{{.Status}}\t{{.
 # Health check endpoints
 curl http://localhost:8000/health        # Backend
 curl http://localhost:8080/health        # Sandbox
-curl http://localhost:5173               # Frontend
+curl http://localhost:5174               # Frontend
 
 # Service versions
 docker exec pythinker-sandbox-1 python3 --version

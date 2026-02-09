@@ -136,6 +136,7 @@ let ws: WebSocket | null = null
 let reconnectTimeout: number | null = null
 let connectionAttempts = 0
 const MAX_RECONNECT_ATTEMPTS = 5
+let intentionalClose = false
 
 // Canvas context for rendering
 let ctx: CanvasRenderingContext2D | null = null
@@ -172,7 +173,7 @@ async function initConnection(): Promise<void> {
       handleError('Failed to get screencast URL')
     }
   } catch (e) {
-    handleError(`Failed to initialize: ${e}`)
+    handleError(`Failed to initialize: ${formatError(e)}`)
   }
 }
 
@@ -193,6 +194,7 @@ async function connect(): Promise<void> {
   error.value = null
 
   try {
+    intentionalClose = false
     ws = new WebSocket(wsUrl)
     ws.binaryType = 'arraybuffer'
 
@@ -240,6 +242,13 @@ async function connect(): Promise<void> {
       stopStatsTracking()
       cleanupInput()
 
+      if (intentionalClose) {
+        return
+      }
+
+      const closeReason = e.reason || `WebSocket closed (code ${e.code})`
+      emit('disconnected', closeReason)
+
       if (props.enabled && connectionAttempts < MAX_RECONNECT_ATTEMPTS) {
         // Auto-reconnect with exponential backoff
         const delay = Math.min(1000 * Math.pow(2, connectionAttempts), 10000)
@@ -251,11 +260,11 @@ async function connect(): Promise<void> {
           connect()
         }, delay)
       } else {
-        emit('disconnected', e.reason)
+        emit('error', closeReason)
       }
     }
   } catch (e) {
-    handleError(`Failed to connect: ${e}`)
+    handleError(`Failed to connect: ${formatError(e)}`)
   }
 }
 
@@ -267,6 +276,7 @@ function disconnect(): void {
 
   if (ws) {
     try {
+      intentionalClose = true
       ws.close()
     } catch {
       // Ignore
@@ -343,6 +353,25 @@ function handleError(msg: string): void {
   error.value = msg
   isLoading.value = false
   emit('error', msg)
+}
+
+function formatError(err: unknown): string {
+  if (typeof err === 'string') return err
+  if (err && typeof err === 'object') {
+    const maybeErr = err as { code?: number; message?: string; details?: unknown }
+    const parts: string[] = []
+    if (typeof maybeErr.code === 'number') parts.push(String(maybeErr.code))
+    if (typeof maybeErr.message === 'string' && maybeErr.message.trim()) parts.push(maybeErr.message)
+    if (parts.length > 0) return parts.join(' ')
+
+    if (maybeErr.details && typeof maybeErr.details === 'object') {
+      const details = maybeErr.details as { detail?: string; msg?: string; message?: string }
+      if (typeof details.detail === 'string' && details.detail.trim()) return details.detail
+      if (typeof details.msg === 'string' && details.msg.trim()) return details.msg
+      if (typeof details.message === 'string' && details.message.trim()) return details.message
+    }
+  }
+  return 'Unknown error'
 }
 
 // Stats tracking
