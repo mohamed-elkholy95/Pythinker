@@ -19,11 +19,24 @@ from app.core.config import settings
 class FileService:
     """File Operation Service"""
 
+    _HOME_ALIAS_FROM = "/home/user"
+    _HOME_ALIAS_TO = "/home/ubuntu"
+
+    def _resolve_home_alias(self, path: str) -> str:
+        """Translate legacy home path aliases to the sandbox user home."""
+        if path == self._HOME_ALIAS_FROM:
+            return self._HOME_ALIAS_TO
+        if path.startswith(f"{self._HOME_ALIAS_FROM}/"):
+            suffix = path[len(self._HOME_ALIAS_FROM) + 1 :]
+            return f"{self._HOME_ALIAS_TO}/{suffix}"
+        return path
+
     def _normalize_path(self, path: str) -> str:
         """Normalize paths to absolute paths for validation."""
-        if not os.path.isabs(path):
-            return os.path.abspath(path)
-        return path
+        resolved = self._resolve_home_alias(path)
+        if not os.path.isabs(resolved):
+            return os.path.abspath(resolved)
+        return resolved
 
     async def read_file(self, file: str, start_line: Optional[int] = None, 
                  end_line: Optional[int] = None, sudo: bool = False, max_length: Optional[int] = 10000) -> FileReadResult:
@@ -163,7 +176,9 @@ class FileService:
                         os.unlink(temp_file)
             else:
                 # Ensure directory exists
-                os.makedirs(os.path.dirname(file), exist_ok=True)
+                parent_dir = os.path.dirname(file)
+                if parent_dir:
+                    os.makedirs(parent_dir, exist_ok=True)
                 
                 # Asynchronously write file
                 def write_file_async():
