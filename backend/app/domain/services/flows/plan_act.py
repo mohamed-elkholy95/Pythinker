@@ -6,7 +6,7 @@ import time
 from collections.abc import AsyncGenerator, Callable, Coroutine
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from uuid import uuid4
 
 from app.domain.external.browser import Browser
@@ -32,6 +32,7 @@ from app.domain.models.event import (
     ToolStatus,
     VerificationEvent,
     VerificationStatus,
+    WaitEvent,
     WideResearchEvent,
     WideResearchStatus,
 )
@@ -43,6 +44,7 @@ from app.domain.models.state_model import AgentStatus, StateTransitionError, val
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.agents.base import BaseAgent
+from app.domain.services.agents.complexity_assessor import ComplexityAssessor
 from app.domain.services.agents.execution import ExecutionAgent
 from app.domain.services.agents.planner import PlannerAgent
 from app.domain.services.flows.base import BaseFlow, FlowStatus
@@ -63,8 +65,6 @@ try:
 except ImportError:
     BrowserAgentTool = None
     BROWSER_USE_AVAILABLE = False
-# Import for type hints
-from typing import TYPE_CHECKING
 
 from app.core.alert_manager import get_alert_manager
 from app.core.config import get_feature_flags, get_settings
@@ -77,10 +77,16 @@ from app.domain.services.agents.error_integration import (
     AgentHealthLevel,
     ErrorIntegrationBridge,
 )
+from app.domain.services.agents.guardrails import InputGuardrails
 
 # Import memory management for Phase 3 proactive compaction
 from app.domain.services.agents.memory_manager import (
     get_memory_manager,
+)
+from app.domain.services.agents.response_policy import (
+    ResponsePolicy,
+    ResponsePolicyEngine,
+    TaskAssessment,
 )
 from app.domain.services.agents.task_state_manager import TaskStateManager
 from app.domain.services.agents.verifier import VerifierAgent, VerifierConfig
@@ -107,9 +113,6 @@ from app.domain.services.validation.plan_validator import PlanValidator
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
-
-# Import complexity assessor for dynamic iteration limits (Phase 3)
-from app.domain.services.agents.complexity_assessor import ComplexityAssessor
 
 logger = logging.getLogger(__name__)
 
@@ -329,6 +332,12 @@ class PlanActFlow(BaseFlow):
 
         # Cache complexity score for skip-update optimization
         self._cached_complexity: float | None = None
+
+        # Adaptive response policy and clarification state
+        self._input_guardrails = InputGuardrails()
+        self._response_policy_engine = ResponsePolicyEngine()
+        self._response_policy: ResponsePolicy | None = None
+        self._task_assessment: TaskAssessment | None = None
 
         # Error Integration Bridge for coordinated health assessment
         self._error_bridge = ErrorIntegrationBridge(
@@ -1187,6 +1196,34 @@ class PlanActFlow(BaseFlow):
                 artifacts.append({"path": path, "type": "file"})
         return self._compliance_gates.check_all(content, artifacts=artifacts, sources=[])
 
+    def _evaluate_response_policy_for_message(self, message_text: str) -> tuple[TaskAssessment, ResponsePolicy]:
+        """Evaluate adaptive response policy for the current user message."""
+        guardrail_result = self._input_guardrails.analyze(message_text)
+        assessment = self._response_policy_engine.assess_task(
+            task_description=message_text,
+            complexity_score=self._cached_complexity,
+            guardrail_result=guardrail_result,
+        )
+        policy = self._response_policy_engine.decide_policy(assessment=assessment)
+
+        self._task_assessment = assessment
+        self._response_policy = policy
+        self.executor.set_response_policy(policy)
+
+        metrics = get_metrics()
+        metrics.record_counter("response_policy_mode_total", labels={"mode": policy.mode.value})
+        return assessment, policy
+
+    def _should_pause_for_clarification(self, session_status: SessionStatus, assessment: TaskAssessment) -> bool:
+        """Determine whether we should ask for clarification and pause execution."""
+        if session_status != SessionStatus.PENDING:
+            return False
+        return self._response_policy_engine.should_request_clarification(assessment, clarification_policy="auto")
+
+    def _build_clarification_question(self, assessment: TaskAssessment) -> str:
+        """Build the clarification question shown to the user."""
+        return self._response_policy_engine.build_clarification_prompt(assessment)
+
     def _background_save_task_state(self, force: bool = False) -> None:
         """Schedule task state save as a non-blocking background task with debouncing.
 
@@ -1717,6 +1754,24 @@ class PlanActFlow(BaseFlow):
                 self._cached_complexity = session.complexity_score
             logger.debug(f"Applying existing iteration limit: {session.iteration_limit_override}")
 
+        task_assessment, response_policy = self._evaluate_response_policy_for_message(message.message)
+        logger.info(
+            "Response policy: mode=%s complexity=%.2f risk=%.2f ambiguity=%.2f confidence=%.2f",
+            response_policy.mode.value,
+            task_assessment.complexity_score,
+            task_assessment.risk_score,
+            task_assessment.ambiguity_score,
+            task_assessment.confidence_score,
+        )
+
+        if self._should_pause_for_clarification(session.status, task_assessment):
+            get_metrics().record_counter("clarification_requested_total", labels={"reason": "ambiguous_request"})
+            clarification_question = self._build_clarification_question(task_assessment)
+            logger.info("Pausing for clarification before execution")
+            yield MessageEvent(message=clarification_question)
+            yield WaitEvent()
+            return
+
         if session.status != SessionStatus.PENDING:
             logger.debug(f"Session {self._session_id} is not in PENDING status, rolling back")
             await self.executor.roll_back(message)
@@ -1728,6 +1783,7 @@ class PlanActFlow(BaseFlow):
 
         if session.status == SessionStatus.WAITING:
             logger.debug(f"Session {self._session_id} is in WAITING status")
+            get_metrics().record_counter("clarification_resolved_total", labels={"source": "user_reply"})
             self._transition_to(AgentStatus.EXECUTING, force=True, reason="resume waiting session")
 
         await self._session_repository.update_status(self._session_id, SessionStatus.RUNNING)
@@ -2266,7 +2322,7 @@ class PlanActFlow(BaseFlow):
                         logger.warning(f"Failed to fetch session files: {e}")
 
                     with trace_ctx.span("summarizing", "agent_step") as summary_span:
-                        async for event in self.executor.summarize():
+                        async for event in self.executor.summarize(response_policy=self._response_policy):
                             if isinstance(event, (ReportEvent, MessageEvent)):
                                 content = event.content if isinstance(event, ReportEvent) else event.message
                                 content = content or ""

@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -13,6 +15,9 @@ class UserSettingsResponse(BaseModel):
     browser_agent_timeout: int
     browser_agent_use_vision: bool
     deep_research_auto_run: bool = False
+    response_verbosity_preference: Literal["adaptive", "concise", "detailed"] = "adaptive"
+    clarification_policy: Literal["auto", "always", "never"] = "auto"
+    quality_floor_enforced: bool = True
 
 
 class UpdateUserSettingsRequest(BaseModel):
@@ -27,6 +32,9 @@ class UpdateUserSettingsRequest(BaseModel):
     browser_agent_timeout: int | None = None
     browser_agent_use_vision: bool | None = None
     deep_research_auto_run: bool | None = None
+    response_verbosity_preference: Literal["adaptive", "concise", "detailed"] | None = None
+    clarification_policy: Literal["auto", "always", "never"] | None = None
+    quality_floor_enforced: bool | None = None
 
 
 class ProvidersResponse(BaseModel):

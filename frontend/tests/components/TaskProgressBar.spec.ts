@@ -48,7 +48,10 @@ vi.mock('vue-i18n', () => ({
 }))
 
 // Mock lucide-vue-next
-vi.mock('lucide-vue-next', () => ({
+vi.mock('lucide-vue-next', async () => {
+  const actual = await vi.importActual<typeof import('lucide-vue-next')>('lucide-vue-next')
+  return {
+    ...actual,
   ChevronUp: {
     name: 'ChevronUp',
     template: '<span class="mock-chevron-up" />',
@@ -89,7 +92,7 @@ vi.mock('lucide-vue-next', () => ({
     name: 'MonitorPlay',
     template: '<span class="mock-monitor-play" />',
   },
-}))
+}})
 
 describe('TaskProgressBar', () => {
   const createMockPlan = (steps: Array<{ id: string; description: string; status: string }>): PlanEventData => ({

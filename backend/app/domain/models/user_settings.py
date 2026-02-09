@@ -23,6 +23,9 @@ class UserSettings(BaseModel):
     browser_agent_max_steps: int = 25
     browser_agent_timeout: int = 300
     browser_agent_use_vision: bool = True
+    response_verbosity_preference: str = "adaptive"  # adaptive, concise, detailed
+    clarification_policy: str = "auto"  # auto, always, never
+    quality_floor_enforced: bool = True
 
     # Skills configuration
     enabled_skills: list[str] = Field(

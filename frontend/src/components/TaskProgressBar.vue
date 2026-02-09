@@ -184,7 +184,7 @@
             <Check class="w-3.5 h-3.5 text-white" :stroke-width="2.5" />
           </div>
           <div
-            v-else
+            v-else-if="showStatusMorph"
             class="status-morph"
             :class="[
               isIdle ? 'status-morph-idle' : 'status-morph-active',
@@ -412,6 +412,7 @@ const isVisible = computed(() => {
 const isIdle = computed(() => {
   return !props.isLoading && !isAllCompleted.value && steps.value.length > 0
 })
+const showStatusMorph = computed(() => props.isLoading && !isAllCompleted.value)
 
 const steps = computed(() => props.plan?.steps ?? [])
 

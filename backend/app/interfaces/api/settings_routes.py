@@ -68,6 +68,10 @@ def get_default_settings() -> dict:
         "browser_agent_max_steps": config.browser_agent_max_steps,
         "browser_agent_timeout": config.browser_agent_timeout,
         "browser_agent_use_vision": config.browser_agent_use_vision,
+        "deep_research_auto_run": False,
+        "response_verbosity_preference": "adaptive",
+        "clarification_policy": "auto",
+        "quality_floor_enforced": True,
     }
 
 
@@ -94,6 +98,10 @@ async def get_user_settings(current_user: User = Depends(get_current_user)) -> A
                 browser_agent_max_steps=settings_doc.get("browser_agent_max_steps", 25),
                 browser_agent_timeout=settings_doc.get("browser_agent_timeout", 300),
                 browser_agent_use_vision=settings_doc.get("browser_agent_use_vision", True),
+                deep_research_auto_run=settings_doc.get("deep_research_auto_run", False),
+                response_verbosity_preference=settings_doc.get("response_verbosity_preference", "adaptive"),
+                clarification_policy=settings_doc.get("clarification_policy", "auto"),
+                quality_floor_enforced=settings_doc.get("quality_floor_enforced", True),
             )
         )
 
@@ -140,6 +148,10 @@ async def update_user_settings(
             browser_agent_max_steps=settings_doc.get("browser_agent_max_steps", 25),
             browser_agent_timeout=settings_doc.get("browser_agent_timeout", 300),
             browser_agent_use_vision=settings_doc.get("browser_agent_use_vision", True),
+            deep_research_auto_run=settings_doc.get("deep_research_auto_run", False),
+            response_verbosity_preference=settings_doc.get("response_verbosity_preference", "adaptive"),
+            clarification_policy=settings_doc.get("clarification_policy", "auto"),
+            quality_floor_enforced=settings_doc.get("quality_floor_enforced", True),
         )
     )
 
