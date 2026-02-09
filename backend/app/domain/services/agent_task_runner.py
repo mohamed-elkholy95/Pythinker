@@ -89,7 +89,7 @@ DELIVERABLE_EXTENSIONS = {
 }
 SKIP_DIRECTORIES = {
     "node_modules", ".git", "__pycache__", ".venv", "venv",
-    ".cache", ".npm", ".local", ".config", "snap",
+    ".cache", ".npm", ".local", ".config", "snap", ".pnpm-store", ".pki",
 }
 MAX_SYNC_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 MAX_SWEEP_FILES = 50
@@ -494,27 +494,31 @@ class AgentTaskRunner(TaskRunner):
 
     async def _sweep_workspace_files(self) -> list[FileInfo]:
         """
-        Discover and sync all deliverable files in the sandbox workspace.
+        Discover and sync deliverable files in the session workspace.
 
-        Runs a find command in the sandbox to discover files with deliverable extensions,
-        then syncs any that are not already tracked in session.files.
+        Runs a find command scoped to `/workspace/<session_id>` to avoid pulling
+        unrelated files from shared home directories (for example package caches).
+        Then syncs any files that are not already tracked in session.files.
 
         Returns:
             List of newly synced FileInfo objects.
         """
         try:
-            # Build find command: search /home/ubuntu, filter by extension, skip junk dirs, limit size
+            workspace_root = f"/workspace/{self._session_id}"
+
+            # Build find command: search only session workspace, filter by extension,
+            # skip junk dirs, limit size.
             prune_clauses = " -o ".join(f'-name "{d}"' for d in sorted(SKIP_DIRECTORIES))
             ext_clauses = " -o ".join(f'-name "*{ext}"' for ext in sorted(DELIVERABLE_EXTENSIONS))
             find_cmd = (
-                f"find /home/ubuntu "
+                f"find {workspace_root} "
                 f"\\( {prune_clauses} \\) -prune -o "
                 f"\\( -type f \\( {ext_clauses} \\) "
                 f"-size -{MAX_SYNC_FILE_SIZE}c -print \\) "
                 f"2>/dev/null | head -n {MAX_SWEEP_FILES}"
             )
 
-            result = await self._sandbox.exec_command("sweep", "/home/ubuntu", find_cmd)
+            result = await self._sandbox.exec_command("sweep", workspace_root, find_cmd)
             if not result.success:
                 logger.warning(f"Agent {self._agent_id}: File sweep find command failed: {result.message}")
                 return []
@@ -525,6 +529,8 @@ class AgentTaskRunner(TaskRunner):
                 return []
 
             discovered_paths = [p.strip() for p in output.strip().split("\n") if p.strip()]
+            # Defense-in-depth: only keep files from this session workspace.
+            discovered_paths = [p for p in discovered_paths if p.startswith(f"{workspace_root}/")]
             if not discovered_paths:
                 return []
 

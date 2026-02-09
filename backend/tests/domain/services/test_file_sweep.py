@@ -84,7 +84,7 @@ class TestSweepWorkspaceFiles:
         mock_sandbox.exec_command = AsyncMock(
             return_value=ToolResult(
                 success=True,
-                data={"output": "/home/ubuntu/report.md\n/home/ubuntu/code.py\n"},
+                data={"output": "/workspace/test-session/report.md\n/workspace/test-session/code.py\n"},
             )
         )
         # Session has no existing files
@@ -106,12 +106,12 @@ class TestSweepWorkspaceFiles:
         mock_sandbox.exec_command = AsyncMock(
             return_value=ToolResult(
                 success=True,
-                data={"output": "/home/ubuntu/report.md\n/home/ubuntu/code.py\n"},
+                data={"output": "/workspace/test-session/report.md\n/workspace/test-session/code.py\n"},
             )
         )
         # report.md is already tracked
         session = MagicMock()
-        session.files = [FileInfo(file_id="existing", file_path="/home/ubuntu/report.md")]
+        session.files = [FileInfo(file_id="existing", file_path="/workspace/test-session/report.md")]
         mock_session_repository.find_by_id = AsyncMock(return_value=session)
 
         result = await runner._sweep_workspace_files()
@@ -162,7 +162,7 @@ class TestSweepWorkspaceFiles:
         mock_sandbox.exec_command = AsyncMock(
             return_value=ToolResult(
                 success=True,
-                data={"output": "/home/ubuntu/good.md\n/home/ubuntu/bad.md\n"},
+                data={"output": "/workspace/test-session/good.md\n/workspace/test-session/bad.md\n"},
             )
         )
         session = MagicMock()
@@ -186,6 +186,52 @@ class TestSweepWorkspaceFiles:
         # Only 1 file should succeed
         assert len(result) == 1
 
+    @pytest.mark.asyncio
+    async def test_ignores_paths_outside_session_workspace(
+        self, runner, mock_sandbox, mock_session_repository, mock_file_storage
+    ):
+        """Sweep should ignore paths not under /workspace/<session_id>."""
+        mock_sandbox.exec_command = AsyncMock(
+            return_value=ToolResult(
+                success=True,
+                data={
+                    "output": (
+                        "/workspace/test-session/kept.py\n"
+                        "/home/ubuntu/.pnpm-store/v10/index/xx/some-package.json\n"
+                        "/home/ubuntu/old-report.md\n"
+                    )
+                },
+            )
+        )
+        session = MagicMock()
+        session.files = []
+        mock_session_repository.find_by_id = AsyncMock(return_value=session)
+
+        result = await runner._sweep_workspace_files()
+
+        assert len(result) == 1
+        assert mock_file_storage.upload_file.call_count == 1
+        mock_sandbox.file_download.assert_awaited_once_with("/workspace/test-session/kept.py")
+
+    @pytest.mark.asyncio
+    async def test_sweep_command_scoped_to_session_workspace(
+        self, runner, mock_sandbox, mock_session_repository
+    ):
+        """Find command should run only under /workspace/<session_id>."""
+        mock_sandbox.exec_command = AsyncMock(
+            return_value=ToolResult(success=True, data={"output": ""})
+        )
+        session = MagicMock()
+        session.files = []
+        mock_session_repository.find_by_id = AsyncMock(return_value=session)
+
+        await runner._sweep_workspace_files()
+
+        assert mock_sandbox.exec_command.await_count == 1
+        _session, exec_dir, command = mock_sandbox.exec_command.await_args.args
+        assert exec_dir == "/workspace/test-session"
+        assert "find /workspace/test-session" in command
+
 
 class TestSweepConstants:
     """Tests for sweep configuration constants."""
@@ -207,6 +253,8 @@ class TestSweepConstants:
         assert ".git" in SKIP_DIRECTORIES
         assert "__pycache__" in SKIP_DIRECTORIES
         assert ".venv" in SKIP_DIRECTORIES
+        assert ".pnpm-store" in SKIP_DIRECTORIES
+        assert ".pki" in SKIP_DIRECTORIES
 
     def test_max_sweep_files_is_bounded(self):
         """Ensure sweep is bounded to prevent excessive syncing."""
