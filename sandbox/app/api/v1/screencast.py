@@ -17,6 +17,8 @@ from app.services.cdp_screencast import CDPScreencastService, ScreencastConfig
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+_MAX_STREAM_CLIENTS = 1
+_STREAM_CLIENT_SEMAPHORE = asyncio.Semaphore(_MAX_STREAM_CLIENTS)
 
 
 @router.get("/frame")
@@ -97,10 +99,21 @@ async def stream_frames_ws(
     await websocket.accept()
     logger.info(f"[CDP Stream] WebSocket connected: quality={quality}, max_fps={max_fps}")
 
+    slot_acquired = False
+    try:
+        await asyncio.wait_for(_STREAM_CLIENT_SEMAPHORE.acquire(), timeout=0.5)
+        slot_acquired = True
+    except TimeoutError:
+        await websocket.send_json({"error": "Screencast is busy. Please retry."})
+        await websocket.close(code=1013, reason="Screencast is busy")
+        logger.warning("[CDP Stream] Rejected connection because screencast slot is busy")
+        return
+
     config = ScreencastConfig(format="jpeg", quality=quality)
     service = CDPScreencastService(config)
     min_frame_interval = 1.0 / max_fps
     paused = False
+    frame_count = 0
 
     try:
         if not await service.connect():
@@ -114,7 +127,6 @@ async def stream_frames_ws(
             return
 
         last_frame_time = 0
-        frame_count = 0
 
         # Create tasks for sending frames and receiving control messages
         async def receive_control():
@@ -172,7 +184,9 @@ async def stream_frames_ws(
     finally:
         await service.stop_screencast()
         await service.disconnect()
-        logger.info(f"[CDP Stream] Session ended, sent {frame_count if 'frame_count' in dir() else 0} frames")
+        if slot_acquired:
+            _STREAM_CLIENT_SEMAPHORE.release()
+        logger.info(f"[CDP Stream] Session ended, sent {frame_count} frames")
 
 
 @router.get("/stream/mjpeg")

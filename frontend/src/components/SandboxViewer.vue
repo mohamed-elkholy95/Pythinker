@@ -136,6 +136,7 @@ let ws: WebSocket | null = null
 let reconnectTimeout: number | null = null
 let connectionAttempts = 0
 const MAX_RECONNECT_ATTEMPTS = 5
+const NON_RETRYABLE_WS_CODES = new Set([1002, 1003, 1007, 1008])
 let intentionalClose = false
 
 // Canvas context for rendering
@@ -249,7 +250,17 @@ async function connect(): Promise<void> {
       const closeReason = e.reason || `WebSocket closed (code ${e.code})`
       emit('disconnected', closeReason)
 
-      if (props.enabled && connectionAttempts < MAX_RECONNECT_ATTEMPTS) {
+      const nonRetryableByCode = NON_RETRYABLE_WS_CODES.has(e.code)
+      const normalizedReason = closeReason.toLowerCase()
+      const nonRetryableByReason =
+        normalizedReason.includes('session or sandbox not found') ||
+        normalizedReason.includes('sandbox not found') ||
+        normalizedReason.includes('session not found') ||
+        normalizedReason.includes('invalid signature') ||
+        normalizedReason.includes('expired')
+      const shouldRetry = !nonRetryableByCode && !nonRetryableByReason
+
+      if (props.enabled && shouldRetry && connectionAttempts < MAX_RECONNECT_ATTEMPTS) {
         // Auto-reconnect with exponential backoff
         const delay = Math.min(1000 * Math.pow(2, connectionAttempts), 10000)
         connectionAttempts++
@@ -257,7 +268,9 @@ async function connect(): Promise<void> {
         isLoading.value = true
 
         reconnectTimeout = window.setTimeout(() => {
-          connect()
+          // Refresh signed URL for each reconnect attempt to avoid stale links.
+          screencastWsUrl.value = null
+          initConnection()
         }, delay)
       } else {
         emit('error', closeReason)

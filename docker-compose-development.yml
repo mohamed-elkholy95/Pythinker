@@ -33,7 +33,9 @@ services:
       - VITE_OPENREPLAY_CANVAS_FPS=${OPENREPLAY_CANVAS_FPS:-6}
       - VITE_OPENREPLAY_ENABLED=${OPENREPLAY_ENABLED:-true}
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+        required: true
     restart: unless-stopped
     networks:
       - pythinker-network
@@ -77,6 +79,12 @@ services:
       - "LOCAL_AUTH_PASSWORD=admin*123"  # Override .env to handle special chars
       - GRPC_ENABLE_FORK_SUPPORT=0  # Suppress gRPC fork warning from qdrant-client
       - NODE_OPTIONS=--no-deprecation  # Suppress Playwright url.parse() deprecation
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   sandbox:
     build:
@@ -101,7 +109,7 @@ services:
     tmpfs:
       - /run:size=100M,nosuid,nodev
       - /tmp:size=500M,nosuid,nodev
-      - /home/ubuntu/.cache:size=200M,nosuid,nodev
+      - /home/ubuntu/.cache:size=200M,nosuid,nodev,uid=1000,gid=1000,mode=0700
     # File descriptor limits for browser and node processes
     ulimits:
       nofile:
@@ -151,7 +159,7 @@ services:
     tmpfs:
       - /run:size=100M,nosuid,nodev
       - /tmp:size=500M,nosuid,nodev
-      - /home/ubuntu/.cache:size=200M,nosuid,nodev
+      - /home/ubuntu/.cache:size=200M,nosuid,nodev,uid=1000,gid=1000,mode=0700
     ulimits:
       nofile:
         soft: 65536
