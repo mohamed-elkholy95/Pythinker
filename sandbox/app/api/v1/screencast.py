@@ -177,10 +177,6 @@ async def stream_frames_ws(
         logger.info("[CDP Stream] Client disconnected")
     except Exception as e:
         logger.error(f"[CDP Stream] Error: {e}", exc_info=True)
-        try:
-            await websocket.send_json({"error": str(e)})
-        except Exception:
-            pass
     finally:
         await service.stop_screencast()
         await service.disconnect()

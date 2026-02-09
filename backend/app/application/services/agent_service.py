@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Optional
 
+from app.application.errors.exceptions import NotFoundError
 from app.application.services.usage_service import get_usage_service
 from app.core.config import get_settings
 from app.core.sandbox_pool import get_sandbox_pool
@@ -423,7 +424,7 @@ class AgentService:
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
-            raise RuntimeError("Session not found")
+            raise NotFoundError("Session not found")
 
         # Stop any running task first
         try:
@@ -453,7 +454,7 @@ class AgentService:
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
-            raise RuntimeError("Session not found")
+            raise NotFoundError("Session not found")
         await self._agent_domain_service.stop_session(session_id)
         logger.info(f"Session {session_id} stopped successfully")
 
@@ -464,7 +465,7 @@ class AgentService:
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
-            raise RuntimeError("Session not found")
+            raise NotFoundError("Session not found")
         result = await self._agent_domain_service.pause_session(session_id)
         if result:
             logger.info(f"Session {session_id} paused successfully")
@@ -486,7 +487,7 @@ class AgentService:
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
-            raise RuntimeError("Session not found")
+            raise NotFoundError("Session not found")
         result = await self._agent_domain_service.resume_session(
             session_id, context=context, persist_login_state=persist_login_state
         )
@@ -522,7 +523,7 @@ class AgentService:
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
-            raise RuntimeError("Session not found")
+            raise NotFoundError("Session not found")
 
         await self._session_repository.update_title(session_id, title)
         logger.info(f"Session {session_id} renamed successfully")
@@ -533,7 +534,7 @@ class AgentService:
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
-            raise RuntimeError("Session not found")
+            raise NotFoundError("Session not found")
         await self._session_repository.update_unread_message_count(session_id, 0)
         logger.info(f"Unread message count cleared for session {session_id}")
 
@@ -549,7 +550,7 @@ class AgentService:
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
-            raise RuntimeError("Session not found")
+            raise NotFoundError("Session not found")
 
         if not session.sandbox_id:
             raise RuntimeError("Session has no sandbox environment")
@@ -571,7 +572,7 @@ class AgentService:
         session = await self._session_repository.find_by_id(session_id)
         if not session:
             logger.error(f"Session {session_id} not found")
-            raise RuntimeError("Session not found")
+            raise NotFoundError("Session not found")
 
         if not session.sandbox_id:
             raise RuntimeError("Session has no sandbox environment")
@@ -589,7 +590,7 @@ class AgentService:
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
-            raise RuntimeError("Session not found")
+            raise NotFoundError("Session not found")
 
         if not session.sandbox_id:
             raise RuntimeError("Session has no sandbox environment")
@@ -621,7 +622,7 @@ class AgentService:
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
             logger.error("Session %s not found for user %s", session_id, user_id)
-            raise RuntimeError("Session not found")
+            raise NotFoundError("Session not found")
 
         sandbox = await self._get_or_create_sandbox(session)
         settings = get_settings()
@@ -750,7 +751,7 @@ class AgentService:
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
-            raise RuntimeError("Session not found")
+            raise NotFoundError("Session not found")
 
         pending_action = session.pending_action or {}
         if pending_action.get("tool_call_id") != action_id:
@@ -773,7 +774,7 @@ class AgentService:
         session = await self._session_repository.find_by_id(session_id)
         if not session:
             logger.error(f"Session {session_id} not found")
-            raise RuntimeError("Session not found")
+            raise NotFoundError("Session not found")
         return session.is_shared
 
     async def get_session_files(self, session_id: str, user_id: str | None = None) -> list[FileInfo]:
@@ -788,7 +789,7 @@ class AgentService:
         session = await self._session_repository.find_by_id(session_id)
         if not session or not session.is_shared:
             logger.error(f"Shared session {session_id} not found or not shared")
-            raise RuntimeError("Session not found")
+            raise NotFoundError("Session not found")
         return session.files
 
     async def share_session(self, session_id: str, user_id: str) -> None:
@@ -798,7 +799,7 @@ class AgentService:
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
-            raise RuntimeError("Session not found")
+            raise NotFoundError("Session not found")
 
         await self._session_repository.update_shared_status(session_id, True)
         logger.info(f"Session {session_id} shared successfully")
@@ -810,7 +811,7 @@ class AgentService:
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
-            raise RuntimeError("Session not found")
+            raise NotFoundError("Session not found")
 
         await self._session_repository.update_shared_status(session_id, False)
         logger.info(f"Session {session_id} unshared successfully")
@@ -844,7 +845,7 @@ class AgentService:
         session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
-            raise RuntimeError("Session not found")
+            raise NotFoundError("Session not found")
 
         # Delegate to domain service for fast-path browsing
         async for event in self._agent_domain_service.browse_url(session_id, url):

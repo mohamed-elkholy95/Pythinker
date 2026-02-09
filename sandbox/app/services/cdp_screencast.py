@@ -61,6 +61,7 @@ class CDPScreencastService:
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._session: aiohttp.ClientSession | None = None
         self._running = False
+        self._streaming = False
         self._frame_callback: Callable[[ScreencastFrame], None] | None = None
 
     async def get_ws_debugger_url(self) -> str | None:
@@ -119,7 +120,7 @@ class CDPScreencastService:
 
     async def _send_command(self, method: str, params: dict | None = None, timeout: float = 10.0) -> dict | None:
         """Send a CDP command and wait for response with timeout."""
-        if not self._ws:
+        if not self._ws or self._ws.closed:
             return None
 
         # Use incrementing counter for message IDs (CDP expects small integers)
@@ -162,6 +163,12 @@ class CDPScreencastService:
                     logger.error("CDP WebSocket closed unexpectedly")
                     return None
 
+        except RuntimeError as e:
+            # Transport can close during rapid restarts/teardown.
+            if "closing transport" in str(e).lower():
+                logger.debug(f"CDP command skipped on closing transport: {method}")
+            else:
+                logger.error(f"CDP command error: {e}")
         except Exception as e:
             logger.error(f"CDP command error: {e}")
         return None
@@ -191,9 +198,11 @@ class CDPScreencastService:
 
     async def stop_screencast(self):
         """Stop the screencast stream."""
-        if self._ws:
-            await self._send_command("Page.stopScreencast")
         self._running = False
+        # Do not send a CDP command while the stream reader is active; that causes
+        # concurrent receive() calls on the same websocket connection.
+        if self._ws and not self._streaming and not self._ws.closed:
+            await self._send_command("Page.stopScreencast")
         logger.info("CDP screencast stopped")
 
     async def ack_frame(self, session_id: int):
@@ -214,6 +223,7 @@ class CDPScreencastService:
             if not await self.start_screencast():
                 return
 
+        self._streaming = True
         try:
             async for msg in self._ws:
                 if not self._running:
@@ -254,7 +264,7 @@ class CDPScreencastService:
         except Exception as e:
             logger.error(f"Screencast stream error: {e}")
         finally:
-            await self.stop_screencast()
+            self._streaming = False
 
     async def capture_single_frame(self) -> bytes | None:
         """

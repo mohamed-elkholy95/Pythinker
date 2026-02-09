@@ -25,6 +25,17 @@ class ShellService:
     
     # Store shell tasks
     shell_tasks: Dict[str, ShellTask] = {}
+    _HOME_ALIAS_FROM = "/home/user"
+    _HOME_ALIAS_TO = "/home/ubuntu"
+
+    def _resolve_home_alias(self, path: str) -> str:
+        """Translate legacy /home/user paths to the sandbox user home."""
+        if path == self._HOME_ALIAS_FROM:
+            return self._HOME_ALIAS_TO
+        if path.startswith(f"{self._HOME_ALIAS_FROM}/"):
+            suffix = path[len(self._HOME_ALIAS_FROM) + 1 :]
+            return f"{self._HOME_ALIAS_TO}/{suffix}"
+        return path
 
     def _remove_ansi_escape_codes(self, text: str) -> str:
         """Remove ANSI escape codes from text"""
@@ -102,13 +113,22 @@ class ShellService:
         logger.info(f"Executing command in session {session_id}: {command}")
         if not exec_dir:
             exec_dir = os.path.expanduser("~")
+        exec_dir = self._resolve_home_alias(exec_dir)
         if not os.path.isabs(exec_dir):
             exec_dir = os.path.abspath(exec_dir)
 
         # Ensure directory exists
         if not os.path.exists(exec_dir):
-            logger.error(f"Directory does not exist: {exec_dir}")
-            raise BadRequestException(f"Directory does not exist: {exec_dir}")
+            if exec_dir == "/workspace" or exec_dir.startswith("/workspace/"):
+                try:
+                    os.makedirs(exec_dir, exist_ok=True)
+                    logger.warning(f"Auto-created missing workspace directory: {exec_dir}")
+                except OSError as e:
+                    logger.error(f"Failed to create workspace directory {exec_dir}: {e}")
+                    raise BadRequestException(f"Directory does not exist: {exec_dir}") from e
+            else:
+                logger.error(f"Directory does not exist: {exec_dir}")
+                raise BadRequestException(f"Directory does not exist: {exec_dir}")
         
         try:
             # Create PS1 format
