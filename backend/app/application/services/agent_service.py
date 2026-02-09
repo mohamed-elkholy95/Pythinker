@@ -456,6 +456,27 @@ class AgentService:
             logger.info(f"Session {session_id} resumed successfully")
         return result
 
+    async def link_openreplay_session(
+        self,
+        session_id: str,
+        user_id: str,
+        openreplay_session_id: str,
+        openreplay_session_url: str | None = None,
+    ) -> bool:
+        """Link OpenReplay session metadata to a Pythinker session."""
+        logger.info(f"Linking OpenReplay session for {session_id} (user {user_id})")
+        session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
+        if not session:
+            logger.error(f"Session {session_id} not found for user {user_id}")
+            return False
+
+        updates = {"openreplay_session_id": openreplay_session_id}
+        if openreplay_session_url is not None:
+            updates["openreplay_session_url"] = openreplay_session_url
+
+        await self._session_repository.update_by_id(session_id, updates)
+        return True
+
     async def rename_session(self, session_id: str, user_id: str, title: str) -> None:
         """Rename a session, ensuring it belongs to the user"""
         logger.info(f"Renaming session {session_id} for user {user_id} to '{title}'")

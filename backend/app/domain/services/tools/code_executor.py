@@ -587,10 +587,19 @@ class CodeExecutorTool(BaseTool):
         if not result.success:
             return ToolResult(success=False, message=f"Failed to read artifact: {result.message}")
 
+        content = ""
+        resolved_path = file_path
+        if isinstance(result.data, dict):
+            content = result.data.get("content") or ""
+            resolved_path = result.data.get("file") or file_path
+        elif isinstance(result.message, str):
+            # Fallback for legacy sandbox responses that put content in message.
+            content = result.message
+
         return ToolResult(
             success=True,
-            message=f"📄 Contents of {filename}:\n\n{result.message}",
-            data={"filename": filename, "content": result.message},
+            message=f"📄 Contents of {filename}:\n\n{content}",
+            data={"filename": filename, "content": content, "path": resolved_path},
         )
 
     @tool(

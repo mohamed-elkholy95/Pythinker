@@ -149,7 +149,7 @@
     <div class="collapsed-wrapper" :class="[showCollapsedThumbnail && sessionId ? 'has-thumbnail' : '', { 'invisible': isExpanded }]">
       <!-- Floating Live VNC Mini Preview -->
       <div
-        v-if="showCollapsedThumbnail && sessionId"
+        v-if="showCollapsedThumbnail && sessionId && !isExpanded"
         class="vnc-thumbnail-floating"
         @mouseenter="showTooltip"
         @mouseleave="scheduleHideTooltip"

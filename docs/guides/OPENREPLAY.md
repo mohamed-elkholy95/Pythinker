@@ -1,6 +1,6 @@
 # OpenReplay Integration & Sandbox Architecture
 
-Pythinker uses OpenReplay for session recording, replay, and live co-browsing. This replaces the previous VNC-based visualization.
+Pythinker uses OpenReplay for session recording and replay. Live view defaults to CDP screencast via `LiveViewer`, with VNC used as a runtime fallback.
 
 ## Architecture
 
@@ -35,6 +35,7 @@ Pythinker uses OpenReplay for session recording, replay, and live co-browsing. T
 | `useOpenReplay` | `frontend/src/composables/useOpenReplay.ts` | Tracker initialization, session recording |
 | `useAgentEvents` | `frontend/src/composables/useAgentEvents.ts` | Bridge SSE events to OpenReplay |
 | `useSandboxInput` | `frontend/src/composables/useSandboxInput.ts` | Mouse/keyboard forwarding for takeover |
+| `LiveViewer` | `frontend/src/components/LiveViewer.vue` | Live view renderer with CDP/VNC selection |
 | `SandboxViewer` | `frontend/src/components/SandboxViewer.vue` | CDP screencast canvas viewer |
 | `SessionReplayPlayer` | `frontend/src/components/SessionReplayPlayer.vue` | Embedded replay player |
 | `ReplayTimeline` | `frontend/src/components/ReplayTimeline.vue` | Timeline with event markers |
@@ -48,9 +49,11 @@ Pythinker uses OpenReplay for session recording, replay, and live co-browsing. T
 VITE_OPENREPLAY_PROJECT_KEY=pythinker-dev
 VITE_OPENREPLAY_INGEST_URL=http://localhost:9001
 VITE_OPENREPLAY_ASSIST_URL=ws://localhost:9003
+VITE_OPENREPLAY_API_URL=http://localhost:8090
 VITE_OPENREPLAY_CANVAS_QUALITY=medium  # low | medium | high
 VITE_OPENREPLAY_CANVAS_FPS=6
 VITE_OPENREPLAY_ENABLED=true
+VITE_LIVE_RENDERER=cdp  # cdp | vnc
 
 # Backend (.env)
 OPENREPLAY_PROJECT_KEY=pythinker-dev
@@ -58,23 +61,43 @@ OPENREPLAY_API_URL=http://localhost:8090
 OPENREPLAY_ENABLED=true
 ```
 
-## CDP Screencast (Replaced VNC)
+## Live View Strategy
 
-The sandbox browser view now uses Chrome DevTools Protocol (CDP) screencast instead of VNC:
+`LiveViewer` is the single live surface used by main panel, takeover, and mini preview contexts.
+
+- Default renderer: CDP (`VITE_LIVE_RENDERER=cdp`)
+- Runtime fallback: VNC when CDP fails/disconnects
+- Optional force: set `VITE_LIVE_RENDERER=vnc` to make VNC primary
+
+Mini previews explicitly prefer VNC to avoid competing CDP streams while the main panel is active.
+
+## CDP Screencast (Primary)
+
+The sandbox browser view defaults to Chrome DevTools Protocol (CDP) screencast:
 
 - **Lower latency**: Direct frame streaming (10-50ms vs 100-200ms VNC)
 - **Better integration**: Captured natively by OpenReplay canvas recording
 - **Simpler architecture**: No VNC server/client needed
 
-```typescript
-// SandboxViewer connects to CDP screencast
-const ws = new WebSocket(`ws://${sandboxHost}:8080/api/v1/screencast/stream`)
-ws.onmessage = (event) => {
-  const frame = JSON.parse(event.data)
-  // Render JPEG frame to canvas
-  renderFrame(frame.data)
-}
-```
+CDP is accessed through backend-signed URLs:
+
+- Frontend requests `POST /sessions/{session_id}/sandbox/signed-url?target=screencast&quality=...&max_fps=...`
+- Backend signs the full screencast path including `quality` and `max_fps`
+- Frontend connects to `WS /sessions/{session_id}/screencast?...signature=...`
+
+Important: `quality` and `max_fps` are part of signature verification and must be included at sign time.
+
+VNC remains available as a backend-proxied fallback via:
+
+- `POST /sessions/{session_id}/vnc/signed-url`
+- `WS /sessions/{session_id}/vnc?...signature=...`
+
+## Replay Strategy
+
+Replay surfaces prefer OpenReplay when available:
+
+- Primary: `SessionReplayPlayer` (OpenReplay embed)
+- Fallback: screenshot timeline/player for sessions without OpenReplay data
 
 ## Starting OpenReplay (Optional)
 
@@ -96,6 +119,16 @@ class Session:
     openreplay_session_id: str | None = None
     openreplay_session_url: str | None = None
 ```
+
+## Linking Sessions
+
+When a live chat starts, the frontend links the OpenReplay session to the Pythinker session via:
+
+```
+POST /sessions/{session_id}/openreplay
+```
+
+This enables Session History and replay surfaces to load the correct OpenReplay recording.
 
 ## OpenReplay Services (Optional)
 

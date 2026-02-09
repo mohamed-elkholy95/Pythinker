@@ -52,10 +52,11 @@
 
     <!-- Terminal tool running without content yet - show VNC -->
     <div v-else-if="currentViewType === 'terminal' && isActive && sessionId && enabled" class="vnc-container">
-      <VNCViewer
+      <LiveViewer
         :session-id="sessionId"
         :enabled="enabled"
         :view-only="true"
+        prefer="vnc"
       />
     </div>
 
@@ -136,10 +137,11 @@
 
     <!-- VNC view (catch-all for any active session) -->
     <div v-else-if="sessionId && enabled" class="vnc-container">
-      <VNCViewer
+      <LiveViewer
         :session-id="sessionId"
         :enabled="enabled"
         :view-only="true"
+        prefer="vnc"
       />
     </div>
 
@@ -162,7 +164,7 @@
 <script setup lang="ts">
 import { computed, toRef } from 'vue';
 import { Monitor, Terminal, FileText, Globe, Code, Wrench, Search, GitBranch, TestTube, Wand2, Download, Presentation, FolderTree, Calendar, Scan } from 'lucide-vue-next';
-import VNCViewer from '@/components/VNCViewer.vue';
+import LiveViewer from '@/components/LiveViewer.vue';
 import WideResearchMiniPreview from '@/components/WideResearchMiniPreview.vue';
 import { useContentConfig } from '@/composables/useContentConfig';
 import { useWideResearchGlobal } from '@/composables/useWideResearch';

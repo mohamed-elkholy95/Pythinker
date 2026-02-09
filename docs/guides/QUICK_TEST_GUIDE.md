@@ -1,267 +1,72 @@
-# Quick Test Guide - Desktop Screenshot Thumbnails
+# Quick Test Guide
 
-## Prerequisites
+Fast validation checklist for current live/replay stack.
 
-Wait for sandbox to finish building:
-```bash
-docker ps | grep pythinker-sandbox
-# Should show "Up X minutes (healthy)"
-```
-
----
-
-## Test 1: Screenshot API (30 seconds)
-
-### Check Availability
-```bash
-curl http://localhost:8083/api/v1/vnc/screenshot/test
-```
-
-**Expected output:**
-```json
-{
-  "available": true,
-  "tools": {
-    "xwd": true,
-    "convert": true,
-    "display_99": true
-  },
-  "message": "Screenshot system ready"
-}
-```
-
-### Capture Test Screenshot
-```bash
-curl http://localhost:8083/api/v1/vnc/screenshot -o /tmp/test_screenshot.jpg
-open /tmp/test_screenshot.jpg  # macOS
-```
-
-**Expected:** Should see a screenshot of the sandbox desktop
-
----
-
-## Test 2: End-to-End (2 minutes)
-
-### 1. Open Frontend
-```
-http://localhost:5174
-```
-
-### 2. Start New Chat
-Click "New Chat" or press Cmd+K
-
-### 3. Run Simple Command
-```
-Run 'ls -la' to list files
-```
-
-### 4. Watch TaskProgressBar
-
-**What to look for:**
-- ✅ Small thumbnail appears above progress bar
-- ✅ Shows terminal/desktop screenshot
-- ✅ Updates as task progresses
-- ✅ No "No preview" placeholder
-
-### 5. Click Thumbnail
-Should expand to show full task details
-
----
-
-## Test 3: Different Tool Types (5 minutes)
-
-Try these commands and verify screenshots:
-
-### Shell Commands
-```
-Run 'python --version'
-Run 'pwd'
-Run 'echo "Hello World"'
-```
-**Expected:** Desktop screenshots showing terminal output
-
-### Code Execution
-```
-Write a Python script that prints "Hello" and run it
-```
-**Expected:** Screenshot after code execution
-
-### File Operations (No Screenshot)
-```
-Read the README file
-```
-**Expected:** No thumbnail (file operations don't need screenshots)
-
----
-
-## Debugging
-
-### Issue: "available": false
+## 1) Service Health (30s)
 
 ```bash
-# Check if tools are installed
-docker exec pythinker-sandbox-1 which xwd
-docker exec pythinker-sandbox-1 which convert
-
-# If not found, rebuild sandbox
-docker-compose -f docker-compose-development.yml up -d --build sandbox
+docker compose ps
+curl -s http://localhost:8000/health
 ```
 
-### Issue: No thumbnails appearing
+Expected:
+- backend/frontend/sandbox are up
+- backend health endpoint responds
 
-1. **Check backend logs:**
-   ```bash
-   docker logs pythinker-backend-1 | grep -i screenshot
-   ```
+## 2) Live View Smoke Test (1 min)
 
-2. **Check browser console:**
-   - Open DevTools (F12)
-   - Look for errors in console
-   - Check Network tab for SSE events
+1. Open `http://localhost:5174`.
+2. Start a new session.
+3. Ask the agent to open `https://example.com`.
+4. Open "Pythinker's Computer" panel.
 
-3. **Verify tool_content:**
-   ```bash
-   docker logs pythinker-backend-1 | grep tool_content
-   ```
-   Should show `screenshot` field with data URL
+Expected:
+- Live stream appears quickly (CDP path).
+- Browser navigation is visible in real time.
 
-### Issue: Thumbnails too large/slow
+## 3) Fallback Test (1 min)
 
-Adjust in `backend/app/domain/services/agents/base.py`:
-```python
-response = await self.sandbox.get_screenshot(
-    quality=60,   # Lower (default: 75)
-    scale=0.3,    # Smaller (default: 0.5)
-)
-```
+1. While live view is active, restart sandbox:
 
----
-
-## Performance Check
-
-### Expected Metrics:
-- Screenshot capture: ~100-200ms
-- Image size: ~20-40KB (JPEG, 50% scale)
-- Total overhead per command: ~150-300ms
-
-### Monitor Performance:
 ```bash
-# Backend timing logs
-docker logs pythinker-backend-1 | grep "Screenshot capture"
-
-# Watch network traffic
-# Open DevTools → Network tab → Filter by SSE
-# Check size of events with screenshots
+docker compose restart sandbox
 ```
 
----
+2. Observe the panel after reconnect.
 
-## Success Indicators
+Expected:
+- Reconnect behavior is visible.
+- Viewer falls back to VNC if CDP is unavailable.
 
-✅ **Everything working if:**
-1. Screenshot test endpoint returns `"available": true`
-2. Thumbnail appears in TaskProgressBar after commands
-3. Thumbnail shows actual desktop/terminal content
-4. No errors in browser console
-5. Performance impact < 300ms per command
+## 4) Replay Test (1 min)
 
-❌ **Issues to investigate if:**
-1. Test endpoint returns `"available": false`
-2. Thumbnails never appear
-3. "No preview" still shows
-4. Console shows errors
-5. Commands take >1s longer than before
+1. Complete a session with browser activity.
+2. Open session history replay.
 
----
+Expected:
+- OpenReplay player is used when linked.
+- Screenshot replay is used as fallback.
 
-## Quick Fixes
+## 5) Useful Logs
 
-### Restart Everything
 ```bash
-cd /Users/panda/Desktop/Projects/pythinker
-./dev.sh restart
+docker logs pyth-main-backend-1 --tail 200
+docker logs pyth-main-sandbox-1 --tail 200
 ```
 
-### Rebuild Sandbox Only
+Look for:
+- Screencast signed-url success
+- Screencast websocket accepted
+- No repeated invalid-signature errors
+
+## 6) Sandbox Service Check (if fallback looks blank)
+
 ```bash
-docker-compose -f docker-compose-development.yml up -d --build sandbox
+docker exec pyth-main-sandbox-1 supervisorctl status
 ```
 
-### Check Service Health
-```bash
-docker ps
-docker logs pythinker-backend-1 --tail 50
-docker logs pythinker-sandbox-1 --tail 50
-```
-
----
-
-## Advanced Testing
-
-### Test Different Image Formats
-```bash
-# JPEG (default, smaller)
-curl "http://localhost:8083/api/v1/vnc/screenshot?format=jpeg" -o test.jpg
-
-# PNG (larger, higher quality)
-curl "http://localhost:8083/api/v1/vnc/screenshot?format=png" -o test.png
-```
-
-### Test Different Quality/Scale
-```bash
-# Lowest quality/size
-curl "http://localhost:8083/api/v1/vnc/screenshot?quality=50&scale=0.3" -o tiny.jpg
-
-# Highest quality/size
-curl "http://localhost:8083/api/v1/vnc/screenshot?quality=100&scale=1.0" -o large.jpg
-
-# Compare sizes
-ls -lh *.jpg
-```
-
-### Monitor Real-Time
-```bash
-# Terminal 1: Watch backend logs
-docker logs -f pythinker-backend-1 | grep screenshot
-
-# Terminal 2: Run commands in frontend
-# You'll see screenshot captures in real-time
-```
-
----
-
-## Next Steps After Successful Test
-
-1. ✅ Verify thumbnails work for multiple commands
-2. 📝 Test with different tool types (shell, code, browser)
-3. 🎨 Optional: Add live VNC in expanded view (see HYBRID_IMPLEMENTATION_COMPLETE.md)
-4. 📊 Monitor performance in production
-5. 💾 Consider adding screenshot caching
-
----
-
-## Get Help
-
-If issues persist:
-
-1. **Check all documentation:**
-   - `HYBRID_IMPLEMENTATION_COMPLETE.md` - Full implementation guide
-   - `HYBRID_THUMBNAIL_APPROACH.md` - Architecture details
-   - `THUMBNAIL_PREVIEW_FIX.md` - Why it was needed
-
-2. **Collect debug info:**
-   ```bash
-   docker logs pythinker-backend-1 > backend.log
-   docker logs pythinker-sandbox-1 > sandbox.log
-   curl http://localhost:8083/api/v1/vnc/screenshot/test > test.json
-   ```
-
-3. **Check git status:**
-   ```bash
-   git status
-   git diff
-   ```
-
----
-
-**Ready to test?** Start with Test 1, then Test 2. Should take ~3 minutes total.
+Expected RUNNING:
+- `xvfb`
+- `x11vnc`
+- `websockify`
+- `chrome`

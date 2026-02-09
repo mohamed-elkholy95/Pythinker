@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-02-08T11:37:56.293920",
+  "generated_at": "2026-02-09T18:41:57.756073",
   "version": "1.0.0",
   "environment": {
     "os": {
@@ -281,7 +281,7 @@
         },
         "jq": {
           "available": true,
-          "path": "/usr/bin/jq"
+         ""path": "/usr/bin/jq"
         }
       },
       "network": {
@@ -863,11 +863,11 @@
       "shared_memory": "2gb",
       "disk": {
         "total": "79G",
-        "used": "40G",
-        "available": "36G",
-        "use_percent": "53%"
+        "used": "42G",
+        "available": "33G",
+        "use_percent": "57%"
       }
     }
   },
-  "checksum": "a615d08aab8daa61"
+  "checksum": "1ead723efa35751a"
 }

@@ -677,7 +677,7 @@ class AgentTaskRunner(TaskRunner):
             content_type="text/markdown",
             user_id=self._user_id,
         )
-        event.attachments = existing + [report_info]
+        event.attachments = [*existing, report_info]
 
     def _get_tool_execution_agent(self):
         """Return an agent instance capable of invoking tools."""
@@ -1057,15 +1057,21 @@ class AgentTaskRunner(TaskRunner):
                                 artifact_path = data.get("path")
                                 if isinstance(artifact_path, str):
                                     event.file_path = artifact_path
+                                    if getattr(event.function_result, "success", False):
+                                        await self._sync_file_to_storage(artifact_path)
                             elif event.function_name == "code_read_artifact":
                                 content = data.get("content")
                                 if isinstance(content, str):
                                     event.tool_content = FileToolContent(content=content)
                                 else:
                                     event.tool_content = FileToolContent(content="")
-                                artifact_name = data.get("filename")
-                                if isinstance(artifact_name, str):
-                                    event.file_path = artifact_name
+                                artifact_path = data.get("path")
+                                if isinstance(artifact_path, str):
+                                    event.file_path = artifact_path
+                                else:
+                                    artifact_name = data.get("filename")
+                                    if isinstance(artifact_name, str):
+                                        event.file_path = artifact_name
                             else:
                                 # Extract stdout/stderr for console display
                                 console_output = []

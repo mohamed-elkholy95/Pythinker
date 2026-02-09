@@ -137,6 +137,7 @@ const emit = defineEmits<{
   close: []
   seek: [time: number]
   eventClick: [event: ReplayEvent]
+  error: [message: string]
 }>()
 
 // State
@@ -168,6 +169,7 @@ const events = computed(() => props.events || [])
 async function loadReplay(): Promise<void> {
   if (!props.openReplaySessionId) {
     error.value = 'No session ID provided'
+    emit('error', error.value)
     return
   }
 
@@ -186,6 +188,7 @@ async function loadReplay(): Promise<void> {
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to load replay'
     isLoading.value = false
+    emit('error', error.value)
   }
 }
 
@@ -197,6 +200,7 @@ function onIframeLoad(): void {
 function onIframeError(): void {
   error.value = 'Failed to load replay player'
   isLoading.value = false
+  emit('error', error.value)
 }
 
 function togglePlay(): void {

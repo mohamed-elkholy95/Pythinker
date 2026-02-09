@@ -42,8 +42,8 @@
 │  │  │      ║  └─────────────────────────────┘ ║      │ │ │
 │  │  │      ║  ┌─────────────────────────────┐ ║      │ │ │
 │  │  │      ║  │                             │ ║      │ │ │
-│  │  │      ║  │    VNCViewer.vue            │ ║      │ │ │
-│  │  │      ║  │    (Live Stream)            │ ║      │ │ │
+│  │  │      ║  │    LiveViewer.vue           │ ║      │ │ │
+│  │  │      ║  │    (CDP primary, VNC fallback)│ ║    │ │ │
 │  │  │      ║  │                             │ ║      │ │ │
 │  │  │      ║  └─────────────────────────────┘ ║      │ │ │
 │  │  │      ║  ┌─────────────────────────────┐ ║      │ │ │
@@ -106,15 +106,21 @@ Agent Execution
             ├─► Shows current tool icon
             ├─► Displays status: "Agent using Browser | Browsing"
             ├─► Shows address bar with URL
-            ├─► VNCViewer connects to sandbox
+            ├─► LiveViewer connects through backend (CDP screencast)
             │       │
-            │       └─► WebSocket: /sessions/{id}/vnc
+            │       ├─► Signed URL: POST /sessions/{id}/sandbox/signed-url?target=screencast&quality=...&max_fps=...
+            │       │       │
+            │       │       └─► WS /sessions/{id}/screencast?...signature=...
+            │       │               │
+            │       │               └─► Backend proxy to sandbox CDP stream
+            │       │               │
+            │       │               └─► Sandbox CDP Screencast
+            │       │                       │
+            │       │                       └─► Live canvas frames
+            │       │
+            │       └─► Fallback: WebSocket /sessions/{id}/vnc (if CDP fails)
             │               │
-            │               └─► Backend VNC tunnel
-            │                       │
-            │                       └─► Sandbox VNC Server (5901)
-            │                               │
-            │                               └─► Live desktop stream
+            │               └─► Backend VNC tunnel → Sandbox VNC Server (5901)
             │
             └─► Displays task progress
 ```
@@ -128,7 +134,7 @@ ChatPage
           ├── [Existing tool views]
           │   ├── BrowserToolView
           │   ├── TerminalContentView
-          │   └── VNCContentView
+          │   └── LiveViewer
           │
           └── AgentComputerModal (Teleport)
               └── AgentComputerView
@@ -148,9 +154,9 @@ ChatPage
                   │   └── URL Display
                   │
                   ├── Display Area
-                  │   ├── VNCViewer
-                  │   │   └── NoVNC RFB Client
-                  │   │       └── Canvas (live stream)
+                  │   ├── LiveViewer
+                  │   │   ├── SandboxViewer (CDP canvas)
+                  │   │   └── VNCViewer (fallback)
                   │   │
                   │   ├── Loading State
                   │   │   ├── Spinner
@@ -210,11 +216,35 @@ ChatPage
 └────────────────────┘        └────────────────────┘
 ```
 
-## VNC Connection Flow
+## Live View Connection Flow
+
+Primary: CDP Screencast
+
+```
+AgentComputerView
+    │
+    ├─► Props: sessionId = "abc123"
+    │
+    ▼
+LiveViewer Component
+    │
+    ├─► Select renderer (default: CDP)
+    │
+    ▼
+SandboxViewer
+    │
+    ├─► Call: getScreencastUrl(sessionId, quality, maxFps)
+    │       │
+    │       └─► API: POST /sessions/abc123/sandbox/signed-url?target=screencast&quality=70&max_fps=15
+    │               │
+    │               └─► Returns: "ws://localhost:8000/api/v1/sessions/abc123/screencast?quality=70&max_fps=15&signature=..."
+    │
+    └─► WebSocket stream (backend proxy) → JPEG frames → Canvas
+```
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                   VNC Connection Pipeline                    │
+│                VNC Connection Pipeline (Fallback)            │
 └─────────────────────────────────────────────────────────────┘
 
 AgentComputerView
@@ -266,13 +296,13 @@ WebSocket Connection
     ▼
 Sandbox VNC Server
     │
-    ├─► Port: 5901 (WebSocket)
-    ├─► Service: x11vnc
+    ├─► Port: 5900 (RFB via x11vnc)
+    ├─► Port: 5901 (WebSocket via websockify)
     ├─► Display: :1 (Xvfb)
     │
     └─► Streams desktop to frontend
             │
-            └─► NoVNC renders in canvas
+            └─► VNC viewer renders in canvas
                     │
                     └─► User sees live sandbox desktop
 ```
@@ -286,7 +316,9 @@ pythinker/
 │       ├── components/
 │       │   ├── AgentComputerView.vue       ★ NEW (Main component)
 │       │   ├── AgentComputerModal.vue      ★ NEW (Modal wrapper)
-│       │   ├── VNCViewer.vue               (Existing - reused)
+│       │   ├── LiveViewer.vue              (CDP primary, VNC fallback)
+│       │   ├── SandboxViewer.vue           (CDP canvas)
+│       │   ├── VNCViewer.vue               (Fallback)
 │       │   ├── ToolPanel.vue               (Existing)
 │       │   └── ToolPanelContent.vue        (Modified)
 │       │
@@ -296,7 +328,7 @@ pythinker/
 ├── backend/
 │   └── app/
 │       ├── interfaces/api/
-│       │   └── session_routes.py           (Existing - VNC endpoint)
+│       │   └── session_routes.py           (VNC + sandbox signed-url endpoints)
 │       │
 │       ├── infrastructure/external/
 │       │   ├── browser/
@@ -311,10 +343,9 @@ pythinker/
 │               └── event.py                (Existing - ToolContent)
 │
 └── docs/
-    ├── AGENT_COMPUTER_VIEWER_INTEGRATION.md        ★ NEW (Integration guide)
-    ├── AGENT_COMPUTER_VIEW_ARCHITECTURE.md         ★ NEW (This file)
-    ├── AGENT_COMPUTER_VIEWER_IMPLEMENTATION_SUMMARY.md  ★ NEW (Summary)
-    └── QUICKSTART_AGENT_COMPUTER_VIEW.md           ★ NEW (Quick start)
+    ├── architecture/AGENT_COMPUTER_VIEW_ARCHITECTURE.md  (This file)
+    ├── guides/QUICKSTART_AGENT_COMPUTER_VIEW.md          (Quick start)
+    └── guides/OPENREPLAY.md                              (Live/replay details)
 ```
 
 ## Network Topology
@@ -322,17 +353,17 @@ pythinker/
 ```
 ┌──────────────────────────────────────────────────────────┐
 │                     USER BROWSER                         │
-│  http://localhost:5173                                   │
+│  http://localhost:5174                                   │
 └───────────────────────┬──────────────────────────────────┘
                         │
                         │ HTTP/WS
                         │
 ┌───────────────────────▼──────────────────────────────────┐
 │                 FRONTEND (Vite Dev Server)               │
-│  Port: 5173                                              │
+│  Port: 5174                                              │
 │  • Vue 3 SPA                                             │
 │  • AgentComputerView component                           │
-│  • VNCViewer (NoVNC client)                              │
+│  • LiveViewer (CDP primary, VNC fallback)                │
 └───────────────────────┬──────────────────────────────────┘
                         │
                         │ API Calls
@@ -341,7 +372,10 @@ pythinker/
 ┌───────────────────────▼──────────────────────────────────┐
 │                 BACKEND (FastAPI)                        │
 │  Port: 8000                                              │
-│  • POST /sessions/{id}/vnc/signed-url (Get VNC URL)     │
+│  • POST /sessions/{id}/sandbox/signed-url (CDP stream)  │
+│  • WS /sessions/{id}/screencast (CDP proxy)             │
+│  • WS /sessions/{id}/input (takeover input proxy)       │
+│  • POST /sessions/{id}/vnc/signed-url (VNC fallback)    │
 │  • WS /sessions/{id}/vnc (VNC tunnel)                   │
 │  • Session management                                    │
 └───────────────────────┬──────────────────────────────────┘
@@ -351,7 +385,9 @@ pythinker/
 ┌───────────────────────▼──────────────────────────────────┐
 │                 SANDBOX CONTAINER                        │
 │  Network: pythinker_sandbox_network                      │
-│  • VNC Server (x11vnc): Port 5901 (WebSocket)           │
+│  • VNC Server (x11vnc): Port 5900 (RFB)                 │
+│  • VNC WS proxy (websockify): Port 5901                │
+│  • Screencast API: Port 8080 (/api/v1/screencast/stream)│
 │  • Chrome DevTools: Port 9222                            │
 │  • Xvfb Display: :1                                      │
 │  • Chromium browser running                              │
@@ -367,14 +403,17 @@ pythinker/
 
 1. Signed URL Generation
    ┌─────────────────────────────────────────────────────┐
-   │ POST /sessions/{id}/vnc/signed-url                  │
+   │ POST /sessions/{id}/sandbox/signed-url (CDP)        │
+   │ POST /sessions/{id}/vnc/signed-url (fallback)       │
    │ • Requires authentication (session ownership)       │
-   │ • Generates time-limited signature (15 min TTL)     │
+   │ • Generates time-limited signature (15 min TTL)      │
+   │ • CDP quality/max_fps are included in signed path    │
    │ • Returns: ws://...?signature=<token>               │
    └─────────────────────────────────────────────────────┘
 
 2. WebSocket Signature Verification
    ┌─────────────────────────────────────────────────────┐
+   │ WS /sessions/{id}/screencast?quality=...&max_fps=...&signature=<token> │
    │ WS /sessions/{id}/vnc?signature=<token>             │
    │ • Verifies signature before connecting              │
    │ • Checks expiration time                            │
@@ -411,7 +450,12 @@ Component Rendering
 ├─ Modal animation: 300ms
 └─ Teleport overhead: <10ms
 
-VNC Connection
+CDP Connection (Primary)
+├─ WebSocket handshake: 50-150ms
+├─ First frame render: 100-500ms
+└─ Frame decode: 1-3% (GPU accelerated)
+
+VNC Connection (Fallback)
 ├─ Signed URL generation: 50-100ms
 ├─ WebSocket handshake: 100-300ms
 ├─ VNC protocol negotiation: 200-500ms
@@ -442,19 +486,19 @@ CPU Usage
 └────────────────────────────────────────────────────────────┘
 
 Single User
-  • 1 session → 1 sandbox → 1 VNC connection
+  • 1 session → 1 sandbox → 1 live view connection (CDP primary)
   • Resources: ~100MB RAM, ~10% CPU
   • Bandwidth: ~1Mbps
   • Works: ✅ Perfect
 
 Multiple Sessions (Same User)
-  • 5 sessions → 5 sandboxes → 5 VNC connections
+  • 5 sessions → 5 sandboxes → 5 live view connections (CDP/VNC)
   • Resources: ~500MB RAM, ~30% CPU
   • Bandwidth: ~5Mbps
   • Works: ✅ Good (if opened sequentially)
 
 Concurrent Viewers (Same Session)
-  • 1 session → 1 sandbox → N VNC connections
+  • 1 session → 1 sandbox → N live view connections (CDP/VNC)
   • Resources: Scales with viewers (N × 25MB)
   • Bandwidth: Scales with viewers (N × 1Mbps)
   • Works: ✅ Supported (shared: true)
@@ -470,10 +514,10 @@ Load Balancing
 
 ## Summary
 
-The Agent Computer View is a **self-contained, modular system** that integrates seamlessly with Pythinker's existing VNC infrastructure while providing a polished, Claude Code-style interface for monitoring agent activities.
+The Agent Computer View is a **self-contained, modular system** that uses CDP screencast as the primary live view, with VNC as a fallback, while providing a polished, Claude Code-style interface for monitoring agent activities.
 
 **Key Architectural Decisions:**
-- ✅ Reuse existing VNC infrastructure (no duplication)
+- ✅ CDP primary with VNC fallback
 - ✅ Modal pattern for non-intrusive UX
 - ✅ Composable state management (no Vuex/Pinia)
 - ✅ View-only mode for safe monitoring
@@ -488,6 +532,6 @@ The Agent Computer View is a **self-contained, modular system** that integrates 
 
 **Performance:**
 - Lightweight components
-- Efficient VNC stream
+- Efficient CDP stream with fallback VNC
 - GPU-accelerated rendering
 - Scales to multiple viewers
