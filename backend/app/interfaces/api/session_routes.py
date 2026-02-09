@@ -66,6 +66,20 @@ SANDBOX_WS_CONNECT_KWARGS = {
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
+def _safe_exc_text(exc: BaseException) -> str:
+    """Return a stable, bounded exception message for websocket paths."""
+    try:
+        message = str(exc)
+    except Exception:
+        message = repr(exc)
+
+    if not message:
+        message = exc.__class__.__name__
+
+    # Keep WebSocket close reasons compact.
+    return message[:240]
+
+
 @router.put("", response_model=APIResponse[CreateSessionResponse])
 async def create_session(
     request: CreateSessionRequest = CreateSessionRequest(),
@@ -228,17 +242,17 @@ async def get_all_sessions(
 ) -> APIResponse[ListSessionResponse]:
     sessions = await agent_service.get_all_sessions(current_user.id)
     session_items = [
-            ListSessionItem(
-                session_id=session.id,
-                title=session.title,
-                status=session.status,
-                unread_message_count=session.unread_message_count,
-                latest_message=session.latest_message,
-                latest_message_at=int(session.latest_message_at.timestamp()) if session.latest_message_at else None,
-                is_shared=session.is_shared,
-                openreplay_session_id=session.openreplay_session_id,
-                openreplay_session_url=session.openreplay_session_url,
-            )
+        ListSessionItem(
+            session_id=session.id,
+            title=session.title,
+            status=session.status,
+            unread_message_count=session.unread_message_count,
+            latest_message=session.latest_message,
+            latest_message_at=int(session.latest_message_at.timestamp()) if session.latest_message_at else None,
+            is_shared=session.is_shared,
+            openreplay_session_id=session.openreplay_session_id,
+            openreplay_session_url=session.openreplay_session_url,
+        )
         for session in sessions
     ]
     return APIResponse.success(ListSessionResponse(sessions=session_items))
@@ -511,7 +525,7 @@ async def vnc_websocket(
                 except WebSocketDisconnect:
                     logger.info("Web -> VNC connection closed")
                 except RuntimeError as e:
-                    if 'disconnect message has been received' in str(e):
+                    if "disconnect message has been received" in str(e):
                         logger.info("Web -> VNC connection closed")
                     else:
                         logger.error(f"Error forwarding data to sandbox: {e}")
@@ -544,13 +558,15 @@ async def vnc_websocket(
             await asyncio.gather(*pending, return_exceptions=True)
 
     except ConnectionError as e:
-        logger.error(f"Unable to connect to sandbox environment: {e!s}")
+        error_text = _safe_exc_text(e)
+        logger.error(f"Unable to connect to sandbox environment: {error_text}")
         with contextlib.suppress(Exception):
-            await websocket.close(code=1011, reason=f"Unable to connect to sandbox environment: {e!s}")
+            await websocket.close(code=1011, reason=f"Unable to connect to sandbox environment: {error_text}")
     except Exception as e:
-        logger.error(f"WebSocket error: {e!s}")
+        error_text = _safe_exc_text(e)
+        logger.error(f"WebSocket error: {error_text}")
         with contextlib.suppress(Exception):
-            await websocket.close(code=1011, reason=f"WebSocket error: {e!s}")
+            await websocket.close(code=1011, reason=f"WebSocket error: {error_text}")
 
 
 @router.get("/{session_id}/files")
@@ -660,8 +676,9 @@ async def get_vnc_screenshot(
                 },
             )
     except Exception as e:
-        logger.error(f"Failed to fetch VNC screenshot: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch screenshot: {e!s}") from e
+        error_text = _safe_exc_text(e)
+        logger.error(f"Failed to fetch VNC screenshot: {error_text}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch screenshot: {error_text}") from e
 
 
 @router.post("/{session_id}/sandbox/signed-url", response_model=APIResponse[SignedUrlResponse])
@@ -743,24 +760,6 @@ async def screencast_websocket(
         async with websockets.connect(sandbox_ws_url, **SANDBOX_WS_CONNECT_KWARGS) as sandbox_ws:
             logger.info(f"Connected to screencast at {sandbox_ws_url}")
 
-            async def forward_to_sandbox():
-                try:
-                    while True:
-                        data = await websocket.receive()
-                        if "text" in data:
-                            await sandbox_ws.send(data["text"])
-                        elif "bytes" in data:
-                            await sandbox_ws.send(data["bytes"])
-                except WebSocketDisconnect:
-                    logger.info("Browser -> screencast connection closed")
-                except RuntimeError as e:
-                    if 'disconnect message has been received' in str(e):
-                        logger.info("Browser -> screencast connection closed")
-                    else:
-                        logger.error(f"Error forwarding to screencast: {e}")
-                except Exception as e:
-                    logger.error(f"Error forwarding to screencast: {e}")
-
             async def forward_from_sandbox():
                 try:
                     async for message in sandbox_ws:
@@ -768,30 +767,30 @@ async def screencast_websocket(
                             await websocket.send_bytes(message)
                         else:
                             await websocket.send_text(message)
+                except WebSocketDisconnect:
+                    logger.info("Browser -> screencast connection closed")
+                except RuntimeError as e:
+                    if "disconnect message has been received" in str(e):
+                        logger.info("Browser -> screencast connection closed")
+                    else:
+                        logger.error(f"Error forwarding from screencast: {e}")
                 except websockets.exceptions.ConnectionClosed:
                     logger.info("Screencast -> browser connection closed")
                 except Exception as e:
                     logger.error(f"Error forwarding from screencast: {e}")
 
-            task1 = asyncio.create_task(forward_to_sandbox())
-            task2 = asyncio.create_task(forward_from_sandbox())
+            await forward_from_sandbox()
 
-            _done, pending = await asyncio.wait(
-                [task1, task2], return_when=asyncio.FIRST_COMPLETED
-            )
-
-            for task in pending:
-                task.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
-
-    except ConnectionError as e:
-        logger.error(f"Unable to connect to screencast: {e!s}")
+    except (ConnectionError, websockets.exceptions.WebSocketException) as e:
+        error_text = _safe_exc_text(e)
+        logger.error(f"Unable to connect to screencast: {error_text}")
         with contextlib.suppress(Exception):
-            await websocket.close(code=1011, reason=f"Unable to connect to sandbox: {e!s}")
+            await websocket.close(code=1011, reason=f"Unable to connect to sandbox: {error_text}")
     except Exception as e:
-        logger.error(f"Screencast WebSocket error: {e!s}")
+        error_text = _safe_exc_text(e)
+        logger.error(f"Screencast WebSocket error: {error_text}")
         with contextlib.suppress(Exception):
-            await websocket.close(code=1011, reason=f"Screencast error: {e!s}")
+            await websocket.close(code=1011, reason=f"Screencast error: {error_text}")
 
 
 @router.websocket("/{session_id}/input")
@@ -823,6 +822,7 @@ async def input_websocket(
         sandbox_ws_url = f"{sandbox_ws_url}/api/v1/input/stream"
 
         async with websockets.connect(sandbox_ws_url, **SANDBOX_WS_CONNECT_KWARGS) as sandbox_ws:
+
             async def forward_to_sandbox():
                 try:
                     while True:
@@ -834,7 +834,7 @@ async def input_websocket(
                 except WebSocketDisconnect:
                     logger.info("Browser -> input connection closed")
                 except RuntimeError as e:
-                    if 'disconnect message has been received' in str(e):
+                    if "disconnect message has been received" in str(e):
                         logger.info("Browser -> input connection closed")
                     else:
                         logger.error(f"Error forwarding input to sandbox: {e}")
@@ -856,22 +856,22 @@ async def input_websocket(
             task1 = asyncio.create_task(forward_to_sandbox())
             task2 = asyncio.create_task(forward_from_sandbox())
 
-            _done, pending = await asyncio.wait(
-                [task1, task2], return_when=asyncio.FIRST_COMPLETED
-            )
+            _done, pending = await asyncio.wait([task1, task2], return_when=asyncio.FIRST_COMPLETED)
 
             for task in pending:
                 task.cancel()
             await asyncio.gather(*pending, return_exceptions=True)
 
     except ConnectionError as e:
-        logger.error(f"Unable to connect to sandbox input: {e!s}")
+        error_text = _safe_exc_text(e)
+        logger.error(f"Unable to connect to sandbox input: {error_text}")
         with contextlib.suppress(Exception):
-            await websocket.close(code=1011, reason=f"Unable to connect to sandbox: {e!s}")
+            await websocket.close(code=1011, reason=f"Unable to connect to sandbox: {error_text}")
     except Exception as e:
-        logger.error(f"Input WebSocket error: {e!s}")
+        error_text = _safe_exc_text(e)
+        logger.error(f"Input WebSocket error: {error_text}")
         with contextlib.suppress(Exception):
-            await websocket.close(code=1011, reason=f"Input error: {e!s}")
+            await websocket.close(code=1011, reason=f"Input error: {error_text}")
 
 
 # ============================================================================

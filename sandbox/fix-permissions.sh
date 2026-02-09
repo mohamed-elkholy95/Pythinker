@@ -1,24 +1,27 @@
 #!/bin/bash
-# Fix tmpfs mount permissions for ubuntu user
-# This script runs at container startup to fix ownership of tmpfs mounts
+# Prepare writable runtime/cache dirs for the unprivileged sandbox user.
 
 set -e
 
-# Fix cache directory (mounted as tmpfs with root ownership)
-if [ -d "/home/ubuntu/.cache" ]; then
-    chown -R ubuntu:ubuntu /home/ubuntu/.cache
-    chmod 755 /home/ubuntu/.cache
-fi
-
-# Fix tmp directory if needed
+# Best-effort temp dir permissions.
 if [ -d "/tmp" ]; then
-    chmod 1777 /tmp
+    chmod 1777 /tmp 2>/dev/null || true
 fi
 
-# Fix run/user directory
+# Stable runtime dir for Chromium/Openbox in restricted containers.
+mkdir -p /tmp/runtime-ubuntu
+chmod 700 /tmp/runtime-ubuntu 2>/dev/null || true
+
+# Keep /run/user/1000 usable when present.
 if [ -d "/run/user/1000" ]; then
-    chown -R ubuntu:ubuntu /run/user/1000
-    chmod 700 /run/user/1000
+    chown -R ubuntu:ubuntu /run/user/1000 2>/dev/null || true
+    chmod 700 /run/user/1000 2>/dev/null || true
 fi
 
-echo "Permissions fixed for tmpfs mounts"
+# Ensure cache/config locations exist for the ubuntu user. In hardened
+# containers root may not have DAC override, so run setup as ubuntu as well.
+chown -R ubuntu:ubuntu /home/ubuntu/.cache 2>/dev/null || true
+su -s /bin/sh ubuntu -c "mkdir -p /home/ubuntu/.cache /home/ubuntu/.cache/openbox /home/ubuntu/.config"
+su -s /bin/sh ubuntu -c "chmod 700 /home/ubuntu/.cache /home/ubuntu/.cache/openbox"
+
+echo "Permissions prepared for sandbox runtime"
