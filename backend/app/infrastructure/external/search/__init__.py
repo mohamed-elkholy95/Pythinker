@@ -6,7 +6,6 @@ Supported providers:
 - duckduckgo: DuckDuckGo search (default, privacy-focused, no API key required)
 - bing: Bing web search (no API key required)
 - google: Google Custom Search API (requires API key)
-- baidu: Baidu web search
 - brave: Brave Search API (requires API key)
 - tavily: Tavily AI Search API (requires API key)
 - serper: Serper.dev Google Search API (requires API key)

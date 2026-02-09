@@ -1,6 +1,6 @@
 # AI Manus Frontend
 
-English | [中文](README_zh.md)
+English | Chinese (README_zh.md)
 
 This is an AI chatbot application built with Vue 3 + TypeScript + Vite. This project is ported from the React version, maintaining the same functionality and interface design.
 

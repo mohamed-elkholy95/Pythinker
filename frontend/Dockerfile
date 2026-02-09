@@ -1,8 +1,22 @@
-# Use nginx as production environment image
+# Build stage: compile frontend from source so image never depends on local dist state
+FROM node:22-slim AS build-stage
+
+WORKDIR /app
+ENV NODE_OPTIONS=--max-old-space-size=4096
+
+# Install dependencies first for better layer caching
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# Copy source files and build
+COPY . .
+RUN npm run build
+
+# Production stage: serve compiled assets with nginx
 FROM nginx:stable-alpine AS production-stage
 
-# Copy pre-built files to nginx (build locally with: bun run build)
-COPY dist /usr/share/nginx/html
+# Copy build output from builder stage
+COPY --from=build-stage /app/dist /usr/share/nginx/html
 
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/nginx.conf.template
