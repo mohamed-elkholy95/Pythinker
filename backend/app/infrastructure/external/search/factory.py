@@ -1,7 +1,7 @@
 """Search Provider Factory
 
 Registry pattern for dynamically selecting search providers based on configuration.
-Supports: bing, google, baidu, duckduckgo, brave, tavily, serper
+Supports: bing, google, duckduckgo, brave, tavily, serper
 """
 
 import importlib
@@ -112,11 +112,6 @@ def get_search_engine_from_factory() -> SearchEngine | None:
         logger.debug("Bing search provider not available")
 
     try:
-        importlib.import_module("app.infrastructure.external.search.baidu_search")
-    except ImportError:
-        logger.debug("Baidu search provider not available")
-
-    try:
         importlib.import_module("app.infrastructure.external.search.google_search")
     except ImportError:
         logger.debug("Google search provider not available")
@@ -127,6 +122,10 @@ def get_search_engine_from_factory() -> SearchEngine | None:
     if not provider:
         logger.warning("No search provider configured")
         return None
+
+    if provider == "baidu":
+        logger.warning("Baidu provider has been removed; falling back to duckduckgo")
+        provider = "duckduckgo"
 
     # Build provider-specific kwargs
     kwargs = {}

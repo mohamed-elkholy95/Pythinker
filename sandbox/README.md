@@ -1,6 +1,6 @@
 # AI Manus Sandbox Service
 
-English | [中文](README_zh.md)
+English | Chinese (README_zh.md)
 
 AI Manus Sandbox is an isolated execution environment based on Docker containers, providing AI Agents with secure Shell command execution, file operations, and browser automation capabilities. The service offers API interfaces through FastAPI and supports interaction with backend services.
 

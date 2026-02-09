@@ -17,6 +17,8 @@ services:
       - pythinker-network
     environment:
       - BACKEND_URL=http://backend:8000
+    volumes:
+      - ./frontend/nginx.conf:/etc/nginx/nginx.conf.template:ro
 
   backend:
     image: ${IMAGE_REGISTRY:-pythinker}/pythinker-backend:${IMAGE_TAG:-latest}

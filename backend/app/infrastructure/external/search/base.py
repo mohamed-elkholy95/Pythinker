@@ -9,6 +9,7 @@ Provides common functionality for all search engine implementations:
 
 import asyncio
 import logging
+import re
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, ClassVar
@@ -20,6 +21,8 @@ from app.domain.models.search import SearchResultItem, SearchResults
 from app.domain.models.tool_result import ToolResult
 
 logger = logging.getLogger(__name__)
+
+CHINESE_CHAR_RE = re.compile(r"[\u4e00-\u9fff]")
 
 
 class SearchEngineType(str, Enum):
@@ -306,6 +309,19 @@ class SearchEngineBase(ABC, SearchEngine):
                 return str(value).strip()
         return ""
 
+    def _contains_chinese_text(self, result: SearchResultItem) -> bool:
+        """Return True when a result includes Chinese characters in user-visible text."""
+        searchable_text = f"{result.title} {result.snippet}"
+        return bool(CHINESE_CHAR_RE.search(searchable_text))
+
+    def _filter_english_results(self, results: list[SearchResultItem]) -> list[SearchResultItem]:
+        """Remove results containing Chinese text to keep search output English-only."""
+        filtered_results = [result for result in results if not self._contains_chinese_text(result)]
+        removed_count = len(results) - len(filtered_results)
+        if removed_count > 0:
+            logger.info(f"{self.provider_name} removed {removed_count} Chinese-language result(s)")
+        return filtered_results
+
     async def search(self, query: str, date_range: str | None = None) -> ToolResult[SearchResults]:
         """Execute search with standardized error handling and retry.
 
@@ -328,6 +344,8 @@ class SearchEngineBase(ABC, SearchEngine):
                 response.raise_for_status()
 
                 results, total_results = self._parse_response(response)
+                results = self._filter_english_results(results)
+                total_results = len(results)
                 return self._create_success_result(query, date_range, results, total_results)
 
             except httpx.HTTPStatusError as e:

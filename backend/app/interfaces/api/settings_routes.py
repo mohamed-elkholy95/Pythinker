@@ -51,7 +51,6 @@ SEARCH_PROVIDERS = [
     {"id": "google", "name": "Google Search", "requires_api_key": True},
     {"id": "duckduckgo", "name": "DuckDuckGo", "requires_api_key": False},
     {"id": "brave", "name": "Brave Search", "requires_api_key": True},
-    {"id": "baidu", "name": "Baidu Search", "requires_api_key": False},
     {"id": "tavily", "name": "Tavily", "requires_api_key": True},
     {"id": "serper", "name": "Serper (Google)", "requires_api_key": True},
 ]

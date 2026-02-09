@@ -339,7 +339,7 @@ class TestWorkspaceOrganizer:
             description="Unicode workspace",
             folders={
                 "données": "French data folder",
-                "文档": "Chinese documents folder",
+                "documents_cn": "Chinese documents folder",
             },
             readme_content="# Unicode\n",
             trigger_keywords=["unicode"],
@@ -349,7 +349,7 @@ class TestWorkspaceOrganizer:
 
         assert len(result) == 2
         assert "données" in result
-        assert "文档" in result
+        assert "documents_cn" in result
 
     # Return value validation
     @pytest.mark.asyncio
