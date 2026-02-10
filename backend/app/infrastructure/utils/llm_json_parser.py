@@ -34,6 +34,8 @@ class LLMJsonParser(JsonParser):
         if llm is None:
             raise RuntimeError("Failed to initialize LLM from factory. Check LLM_PROVIDER configuration.")
         self.llm = llm
+        self._warning_cache: set[str] = set()
+        self._warning_cache_limit = 128
         self.strategies = [
             self._try_direct_parse,
             self._try_channel_markers_parse,
@@ -42,6 +44,16 @@ class LLMJsonParser(JsonParser):
             self._try_cleanup_and_parse,
             self._try_llm_extract_and_fix,
         ]
+
+    def _warn_once(self, key: str, message: str) -> None:
+        """Emit a warning once per key; repeated failures are downgraded to debug."""
+        if key in self._warning_cache:
+            logger.debug(message)
+            return
+        if len(self._warning_cache) >= self._warning_cache_limit:
+            self._warning_cache.clear()
+        self._warning_cache.add(key)
+        logger.warning(message)
 
     async def parse(self, text: str, default_value: Any | None = None) -> dict | list | Any:
         """
@@ -76,12 +88,14 @@ class LLMJsonParser(JsonParser):
                     logger.debug(f"Successfully parsed using strategy: {strategy.__name__}")
                     return result
             except Exception as e:
-                logger.warning(f"Strategy {strategy.__name__} failed: {e!s}")
+                key = f"strategy:{strategy.__name__}:{type(e).__name__}:{str(e)[:120]}"
+                self._warn_once(key, f"Strategy {strategy.__name__} failed: {e!s}")
                 continue
 
         # If all strategies fail
         if default_value is not None:
-            logger.warning("All parsing strategies failed, returning default value")
+            failed_key = f"all_failed:{cleaned_output[:120]}"
+            self._warn_once(failed_key, "All parsing strategies failed, returning default value")
             # Record JSON parse failure in Prometheus metrics
             record_error("json_parse", "llm_json_parser")
             return default_value
@@ -213,7 +227,8 @@ class LLMJsonParser(JsonParser):
             # Run async LLM call in event loop
             return await self._llm_extract_and_fix_async(text)
         except Exception as e:
-            logger.warning(f"LLM extract and fix failed: {e!s}")
+            key = f"llm_extract_and_fix:{type(e).__name__}:{str(e)[:120]}"
+            self._warn_once(key, f"LLM extract and fix failed: {e!s}")
             return None
 
     async def _llm_extract_and_fix_async(self, text: str) -> Any | None:
@@ -243,7 +258,8 @@ JSON:"""
             return None
 
         except Exception as e:
-            logger.warning(f"LLM JSON extraction failed: {e!s}")
+            key = f"llm_json_extract:{type(e).__name__}:{str(e)[:120]}"
+            self._warn_once(key, f"LLM JSON extraction failed: {e!s}")
             return None
 
     def _fix_json_formatting(self, text: str) -> str:
