@@ -58,7 +58,4 @@ def test_validate_and_fix_messages_drops_unknown_tool_response_while_pending():
 
     fixed = llm._validate_and_fix_messages(messages)
 
-    assert not any(
-        msg.get("role") == "tool" and msg.get("tool_call_id") == "call_unknown"
-        for msg in fixed
-    )
+    assert not any(msg.get("role") == "tool" and msg.get("tool_call_id") == "call_unknown" for msg in fixed)
