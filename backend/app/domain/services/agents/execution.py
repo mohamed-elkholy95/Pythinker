@@ -83,9 +83,15 @@ class ExecutionAgent(BaseAgent):
         memory_service: Optional["MemoryService"] = None,
         user_id: str | None = None,
         attention_injector: AttentionInjector | None = None,
+        circuit_breaker=None,
     ):
         super().__init__(
-            agent_id=agent_id, agent_repository=agent_repository, llm=llm, json_parser=json_parser, tools=tools
+            agent_id=agent_id,
+            agent_repository=agent_repository,
+            llm=llm,
+            json_parser=json_parser,
+            tools=tools,
+            circuit_breaker=circuit_breaker,
         )
         # Initialize prompt adapter for dynamic context injection
         self._prompt_adapter = PromptAdapter()

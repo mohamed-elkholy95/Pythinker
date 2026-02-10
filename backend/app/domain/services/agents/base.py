@@ -2,7 +2,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import AsyncGenerator
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from app.core.config import get_feature_flags
 from app.domain.external.llm import LLM
@@ -28,6 +28,9 @@ from app.domain.services.agents.error_handler import ErrorHandler, ErrorType, To
 from app.domain.services.agents.hallucination_detector import ToolHallucinationDetector
 from app.domain.services.agents.security_assessor import ActionSecurityRisk, SecurityAssessor
 from app.domain.services.agents.stuck_detector import StuckDetector
+
+if TYPE_CHECKING:
+    from app.domain.external.circuit_breaker import CircuitBreakerPort
 from app.domain.services.agents.token_manager import TokenManager
 from app.domain.services.context_manager import SandboxContextManager
 from app.domain.services.tools.base import BaseTool
@@ -135,6 +138,7 @@ class BaseAgent:
         json_parser: JsonParser,
         tools: list[BaseTool] | None = None,
         state_manifest: StateManifest | None = None,
+        circuit_breaker: "CircuitBreakerPort | None" = None,
     ):
         if tools is None:
             tools = []
@@ -146,6 +150,7 @@ class BaseAgent:
         self.memory = None
         self._background_tasks: set[asyncio.Task] = set()
         self._active_phase: str | None = None  # Phase-based tool filtering (set by orchestrator)
+        self._circuit_breaker = circuit_breaker
 
         # Structured agent logger
         self._log = get_agent_logger(agent_id)
@@ -533,6 +538,13 @@ class BaseAgent:
             if security_assessment.risk_level == ActionSecurityRisk.HIGH:
                 self._log.security_event("high_risk", function_name, security_assessment.reason)
 
+        # Circuit breaker: reject calls to tools that are failing repeatedly
+        if self._circuit_breaker and not self._circuit_breaker.can_execute(function_name):
+            msg = f"Tool '{function_name}' circuit is open — skipping to avoid cascading failures"
+            logger.warning(msg)
+            envelope.mark_failed(msg)
+            return ToolResult(success=False, message=msg)
+
         retries = 0
         current_interval = self.retry_interval
         last_error = ""
@@ -633,9 +645,15 @@ class BaseAgent:
             except Exception as e:
                 logger.warning(f"Post-execution tracking failed for {function_name}: {e}")
 
+            # Circuit breaker: record success
+            if self._circuit_breaker and result and result.success:
+                self._circuit_breaker.record_success(function_name)
+
             return result
 
         # Retry loop exhausted — record failure metrics
+        if self._circuit_breaker:
+            self._circuit_breaker.record_failure(function_name)
         duration_ms = (time.perf_counter() - start_time) * 1000
         profiler.record_execution(
             tool_name=function_name, duration_ms=duration_ms, success=False, error=last_error[:200]
