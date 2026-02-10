@@ -1,7 +1,7 @@
 """Superpowers skills seed data.
 
-This module imports all 14 Superpowers skills from the superpowers-main directory
-and converts them to Pythinker Skill models.
+This module imports all 14+ Superpowers skills from the bundled skills directory
+and converts them to Pythinker Skill models. Skills are self-contained in Pythinker.
 
 Superpowers is a complete software development workflow system by Jesse Vincent:
 https://github.com/obra/superpowers
@@ -28,15 +28,16 @@ from pathlib import Path
 from app.domain.models.skill import Skill
 from app.infrastructure.seeds.superpowers_importer import import_superpowers_skills
 
-# Path to superpowers-main directory (relative to project root)
-SUPERPOWERS_DIR = Path(__file__).parent.parent.parent.parent.parent / "superpowers-main"
+# Path to bundled Superpowers skills (relative to this file)
+# Changed from external superpowers-main to bundled skills directory
+SUPERPOWERS_DIR = Path(__file__).parent / "skills"
 
 
 def get_superpowers_skills() -> list[Skill]:
     """Get all Superpowers skills as Pythinker Skill models.
 
     Returns:
-        List of Skill models, or empty list if superpowers-main not found
+        List of Skill models, or empty list if bundled skills directory not found
     """
     if not SUPERPOWERS_DIR.exists():
         print(f"Warning: Superpowers directory not found at {SUPERPOWERS_DIR}")
