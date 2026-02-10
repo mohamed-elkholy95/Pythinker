@@ -300,6 +300,14 @@ class AgentTaskRunner(TaskRunner):
                 user_id=self._user_id,
                 file_sweep_callback=self._sweep_workspace_files,
             )
+            # Inject circuit breaker for tool-level failure protection
+            try:
+                from app.infrastructure.adapters.circuit_breaker_adapter import ToolCircuitBreakerAdapter
+
+                self._plan_act_flow.set_circuit_breaker(ToolCircuitBreakerAdapter())
+            except Exception as e:
+                logger.debug(f"Circuit breaker adapter unavailable: {e}")
+
             logger.debug(
                 f"Initialized PlanActFlow for agent {self._agent_id} "
                 f"(verification={settings.enable_plan_verification}, multi_agent={self._enable_multi_agent}, "
