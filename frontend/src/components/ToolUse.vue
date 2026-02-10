@@ -141,21 +141,6 @@ const handleClick = () => {
 </style>
 
 <style>
-/* Dark mode support - needs to be unscoped to work with :root selector */
-:root.dark .tool-shimmer {
-  background: var(--fill-tsp-gray-main);
-  border: 1px solid var(--border-main);
-}
-
-:root.dark .tool-shimmer::before {
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.2) 50%,
-    transparent 100%
-  );
-}
-
 .tool-chip {
   border: 1px solid var(--border-main);
   background: var(--fill-tsp-gray-main);

@@ -25,7 +25,7 @@ npm test / cargo test / pytest / go test ./...
 ```
 
 **If tests fail:**
-```
+```text
 Tests failing (<N> failures). Must fix before completing:
 
 [Show failures]
@@ -50,7 +50,7 @@ Or ask: "This branch split from main - is that correct?"
 
 Present exactly these 4 options:
 
-```
+```text
 Implementation complete. What would you like to do?
 
 1. Merge back to <base-branch> locally
@@ -103,7 +103,7 @@ EOF
 )"
 ```
 
-Then: Cleanup worktree (Step 5)
+Then: Keep worktree for follow-up PR updates.
 
 #### Option 3: Keep As-Is
 
@@ -114,7 +114,7 @@ Report: "Keeping branch <name>. Worktree preserved at <path>."
 #### Option 4: Discard
 
 **Confirm first:**
-```
+```text
 This will permanently delete:
 - Branch <name>
 - All commits: <commit-list>
@@ -135,7 +135,7 @@ Then: Cleanup worktree (Step 5)
 
 ### Step 5: Cleanup Worktree
 
-**For Options 1, 2, 4:**
+**For Options 1 and 4:**
 
 Check if in worktree:
 ```bash
@@ -147,7 +147,7 @@ If yes:
 git worktree remove <worktree-path>
 ```
 
-**For Option 3:** Keep worktree.
+**For Options 2 and 3:** Keep worktree.
 
 ## Quick Reference
 
