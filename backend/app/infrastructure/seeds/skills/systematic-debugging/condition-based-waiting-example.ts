@@ -64,6 +64,10 @@ export function waitForEventCount(
   count: number,
   timeoutMs = 5000
 ): Promise<LaceEvent[]> {
+  if (!Number.isInteger(count) || count <= 0) {
+    return Promise.reject(new RangeError(`count must be a positive integer, got: ${count}`));
+  }
+
   return new Promise((resolve, reject) => {
     const startTime = Date.now();
 

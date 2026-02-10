@@ -36,7 +36,7 @@
                     <button
                         v-if="previewFile"
                         class="action-btn"
-                        @click="downloadFile(previewFile)"
+                        @click="openFileDownload(previewFile)"
                         :title="$t('Download')"
                     >
                         <Download class="w-5 h-5" />
@@ -138,7 +138,7 @@
                                             </button>
                                             <button
                                                 class="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-md"
-                                                @click="downloadFile(file)"
+                                                @click="openFileDownload(file)"
                                             >
                                                 <Download class="size-4" />
                                                 {{ $t('Download') }}
@@ -178,7 +178,7 @@ import { ref, watch, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import type { FileInfo } from '../api/file';
-import { getFileDownloadUrl, downloadFilesAsZip, downloadFile } from '../api/file';
+import { getFileDownloadUrl, downloadFilesAsZip, downloadFile as downloadFileContent } from '../api/file';
 import { getSessionFiles, getSharedSessionFiles } from '../api/agent';
 import { useSessionFileList } from '../composables/useSessionFileList';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
@@ -388,7 +388,7 @@ const resolveReportTitles = async (fileList: FileInfo[]) => {
     );
     for (const file of reportsWithoutTitle) {
         try {
-            const blob = await downloadFile(file.file_id);
+            const blob = await downloadFileContent(file.file_id);
             const text = await blob.text();
             const title = extractTitleFromMarkdown(text);
             if (title) {
@@ -424,7 +424,7 @@ const fetchFiles = async (sessionId: string) => {
     resolveReportTitles(files.value);
 };
 
-const downloadFile = async (fileInfo: FileInfo) => {
+const openFileDownload = async (fileInfo: FileInfo) => {
     const url = await getFileDownloadUrl(fileInfo);
     window.open(url, '_blank');
 };

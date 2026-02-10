@@ -22,7 +22,7 @@ Pythinker includes a complete implementation of the Superpowers workflow system,
 
 Skills are invoked using slash commands in the chat interface:
 
-```
+```text
 /brainstorm     # Interactive design refinement
 /write-plan     # Create implementation plans
 /tdd            # Test-Driven Development
@@ -31,7 +31,7 @@ Skills are invoked using slash commands in the chat interface:
 ```
 
 **Example:**
-```
+```text
 User: /brainstorm Add user authentication to the app
 Agent: I'm using the brainstorming skill to explore this idea...
 ```
@@ -68,7 +68,7 @@ Agent: I'm using the brainstorming skill to explore this idea...
 
 **Complete workflow from idea to merge:**
 
-```
+```text
 Idea → /brainstorm → /worktree → /write-plan → /tdd or /subagent → /verify → /request-review → /finish-branch
 ```
 
@@ -118,7 +118,7 @@ Idea → /brainstorm → /worktree → /write-plan → /tdd or /subagent → /ve
 
 **Systematic debugging to prevent false fixes:**
 
-```
+```text
 User: The login button doesn't work
 Agent: /debug
 
@@ -141,7 +141,7 @@ Agent: /debug
 
 **Safe refactoring with verification:**
 
-```
+```text
 1. /tdd - Write tests for current behavior (establish baseline)
 2. Run tests to verify they pass
 3. Refactor code
@@ -157,7 +157,7 @@ Agent: /debug
 
 **Execution Flow:**
 
-```
+```text
 User sends message with /command
     ↓
 CommandRegistry resolves command → skill_id
@@ -332,7 +332,7 @@ trigger_patterns = [
 
 ### File Structure
 
-```
+```text
 backend/
 ├── app/
 │   ├── domain/
@@ -429,7 +429,7 @@ ls backend/app/infrastructure/seeds/skills/
 ```
 
 **Expected output:**
-```
+```text
 brainstorming/
 dispatching-parallel-agents/
 executing-plans/

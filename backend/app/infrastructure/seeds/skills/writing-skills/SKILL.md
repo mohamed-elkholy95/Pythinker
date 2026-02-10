@@ -279,6 +279,10 @@ wc -w skills/path/SKILL.md
 
 **When writing documentation that references other skills:**
 
+Use this convention:
+- Skill references: `superpowers:<skill-name>` (or plain `<skill-name>` when namespace is obvious)
+- File references: `@relative/path.md` only when you intentionally want to force-load that file
+
 Use skill name only, with explicit requirement markers:
 - ✅ Good: `**REQUIRED SUB-SKILL:** Use superpowers:test-driven-development`
 - ✅ Good: `**REQUIRED BACKGROUND:** You MUST understand superpowers:systematic-debugging`
@@ -637,6 +641,7 @@ Deploying untested skills = deploying untested code. It's a violation of quality
 How future Claude finds your skill:
 
 1. **Encounters problem** ("tests are flaky")
+2. **Searches by symptoms** (errors, keywords, trigger phrases)
 3. **Finds SKILL** (description matches)
 4. **Scans overview** (is this relevant?)
 5. **Reads patterns** (quick reference table)

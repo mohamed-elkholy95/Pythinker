@@ -73,7 +73,7 @@ from app.core.alert_manager import get_alert_manager
 from app.core.config import get_feature_flags, get_settings
 from app.domain.external.observability import get_metrics, get_tracer
 from app.domain.services.agents.compliance_gates import ComplianceReport, get_compliance_gates
-from app.domain.services.agents.error_handler import ErrorContext, ErrorHandler
+from app.domain.services.agents.error_handler import ErrorContext, ErrorHandler, ErrorType
 
 # Import error integration bridge for coordinated health assessment
 from app.domain.services.agents.error_integration import (
@@ -1328,6 +1328,18 @@ class PlanActFlow(BaseFlow):
 
         # Try to recover based on error type - restore previous status if recoverable
         if self._error_context.recoverable and self._previous_status:
+            # Generate recovery prompt so the agent knows what went wrong
+            recovery_prompt = self._error_handler.get_recovery_prompt(self._error_context)
+            if recovery_prompt and hasattr(self, 'executor') and self.executor:
+                try:
+                    if hasattr(self.executor, 'memory') and self.executor.memory:
+                        self.executor.memory.add_message(
+                            {"role": "system", "content": recovery_prompt}
+                        )
+                        logger.info(f"Injected recovery prompt for {self._error_context.error_type.value}")
+                except Exception as e:
+                    logger.debug(f"Could not inject recovery prompt: {e}")
+
             self._transition_to(self._previous_status, force=True, reason="error recovery")
             self._previous_status = None
             logger.info(f"Recovered to previous state: {self.status}")
@@ -1926,14 +1938,21 @@ class PlanActFlow(BaseFlow):
                             if step.success:
                                 break
 
-                            # Check if this error type is retryable
-                            is_timeout = step.error and "timeout" in step.error.lower()
-                            is_tool_error = step.error and "tool" in step.error.lower()
-                            should_retry = attempt < max_attempts - 1 and (
-                                (is_timeout and retry.retry_on_timeout)
-                                or (is_tool_error and retry.retry_on_tool_error)
-                                or (not is_timeout and not is_tool_error and retry.max_retries > 0)
-                            )
+                            # Classify error using ErrorHandler for structured retry decisions
+                            if step.error and attempt < max_attempts - 1:
+                                err_ctx = self._error_handler.classify_error(
+                                    RuntimeError(step.error)
+                                )
+                                is_timeout_err = err_ctx.error_type in (
+                                    ErrorType.TIMEOUT, ErrorType.BROWSER_TIMEOUT,
+                                )
+                                should_retry = err_ctx.recoverable and (
+                                    (is_timeout_err and retry.retry_on_timeout)
+                                    or (not is_timeout_err and retry.retry_on_tool_error)
+                                    or retry.max_retries > 0
+                                )
+                            else:
+                                should_retry = False
                             if not should_retry:
                                 break
 

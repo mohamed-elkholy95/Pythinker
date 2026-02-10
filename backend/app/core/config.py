@@ -639,6 +639,8 @@ def get_feature_flags() -> dict[str, bool]:
     except Exception:
         # Fail-open with safe defaults if settings validation fails
         return {
+            "tree_of_thoughts": False,
+            "self_consistency": False,
             "plan_validation_v2": False,
             "reflection_advanced": False,
             "context_optimization": False,
@@ -647,6 +649,11 @@ def get_feature_flags() -> dict[str, bool]:
             "failure_prediction": False,
             "circuit_breaker_adaptive": False,
             "workflow_checkpointing": False,
+            "taskgroup_enabled": False,
+            "sse_v2": False,
+            "structured_outputs": False,
+            "parallel_memory": False,
+            "enhanced_research": False,
             "phased_research": False,
             "shadow_mode": True,
             # Hallucination Prevention (Phase 1-6)
@@ -654,11 +661,14 @@ def get_feature_flags() -> dict[str, bool]:
             "claim_provenance": True,
             "enhanced_grounding": True,
             "cove_verification": True,
+            "chain_of_verification": True,
             "semantic_citation_validation": True,
             "strict_numeric_verification": True,
             "reject_ungrounded_reports": False,
         }
     return {
+        "tree_of_thoughts": settings.feature_tree_of_thoughts,
+        "self_consistency": settings.feature_self_consistency,
         "plan_validation_v2": settings.feature_plan_validation_v2,
         "reflection_advanced": settings.feature_reflection_advanced,
         "context_optimization": settings.feature_context_optimization,
@@ -667,6 +677,11 @@ def get_feature_flags() -> dict[str, bool]:
         "failure_prediction": settings.feature_failure_prediction,
         "circuit_breaker_adaptive": settings.feature_circuit_breaker_adaptive,
         "workflow_checkpointing": settings.feature_workflow_checkpointing,
+        "taskgroup_enabled": settings.feature_taskgroup_enabled,
+        "sse_v2": settings.feature_sse_v2,
+        "structured_outputs": settings.feature_structured_outputs,
+        "parallel_memory": settings.feature_parallel_memory,
+        "enhanced_research": settings.feature_enhanced_research,
         "phased_research": settings.feature_phased_research,
         "shadow_mode": settings.feature_shadow_mode,
         # Hallucination Prevention (Phase 1-6)
@@ -674,6 +689,7 @@ def get_feature_flags() -> dict[str, bool]:
         "claim_provenance": settings.feature_claim_provenance,
         "enhanced_grounding": settings.feature_enhanced_grounding,
         "cove_verification": settings.feature_cove_verification,
+        "chain_of_verification": settings.feature_cove_verification,
         "semantic_citation_validation": settings.feature_semantic_citation_validation,
         "strict_numeric_verification": settings.feature_strict_numeric_verification,
         "reject_ungrounded_reports": settings.feature_reject_ungrounded_reports,
