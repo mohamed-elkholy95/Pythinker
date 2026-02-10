@@ -219,8 +219,7 @@ class TestTokenManager:
         reduction_warnings = [
             record.message
             for record in caplog.records
-            if "Reducing preserve_recent" in record.message
-            or "Reduced preserve_recent" in record.message
+            if "Reducing preserve_recent" in record.message or "Reduced preserve_recent" in record.message
         ]
         assert len(reduction_warnings) <= 1
 
