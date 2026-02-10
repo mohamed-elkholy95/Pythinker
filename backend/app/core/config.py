@@ -5,7 +5,7 @@ from enum import Enum
 from functools import lru_cache
 from typing import ClassVar
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class FlowMode(str, Enum):
@@ -109,10 +109,10 @@ class Settings(BaseSettings):
     sandbox_http_proxy: str | None = None
     sandbox_no_proxy: str | None = None
     sandbox_seccomp_profile: str | None = None
-    sandbox_shm_size: str | None = "2g"
-    sandbox_mem_limit: str | None = "4g"
-    sandbox_cpu_limit: float | None = 2.0
-    sandbox_pids_limit: int | None = 500
+    sandbox_shm_size: str | None = "1g"  # Chrome headless needs 512MB-1GB (reduced from 2g)
+    sandbox_mem_limit: str | None = "3g"  # Right-sized for single-session sandbox (reduced from 4g)
+    sandbox_cpu_limit: float | None = 1.5  # 2 containers × 1.5 CPU = 3 cores, leaves room for services
+    sandbox_pids_limit: int | None = 300  # Sufficient for Chrome + Node + Python + supervisor
     sandbox_framework_port: int = 8082
     sandbox_framework_enabled: bool = True
     sandbox_framework_required: bool = False
@@ -126,9 +126,18 @@ class Settings(BaseSettings):
 
     # Sandbox Pool Pre-warming (Phase 3)
     sandbox_pool_enabled: bool = True  # Enable sandbox pool for instant allocation (20-32s → 2-5s cold start)
-    sandbox_pool_min_size: int = 2  # Minimum sandboxes to maintain in pool
-    sandbox_pool_max_size: int = 4  # Maximum sandboxes in pool (reduced to limit resource usage)
+    sandbox_pool_min_size: int = 1  # Pre-warm 1 sandbox, create 2nd on demand (saves ~3GB idle RAM)
+    sandbox_pool_max_size: int = 2  # Cap at 2 for 2-concurrent-task target
     sandbox_pool_warmup_interval: int = 30  # Seconds between pool maintenance checks
+
+    # Sandbox idle management (optimized for 2 concurrent tasks)
+    sandbox_pool_idle_ttl_seconds: int = 300  # Evict pooled sandbox after 5 min idle
+    sandbox_pool_pause_idle: bool = True  # Docker pause idle pooled sandboxes to reclaim CPU
+    sandbox_pool_host_memory_threshold: float = 0.80  # Stop pre-warming at 80% host RAM
+
+    # Sandbox lifecycle optimization
+    sandbox_pool_reaper_interval: int = 60  # Orphan reaper check interval (seconds)
+    sandbox_pool_reaper_grace_period: int = 120  # Don't reap containers younger than this (seconds)
 
     # Lazy initialization (Phase 5)
     mcp_lazy_init: bool = True  # Defer MCP initialization until first use
@@ -441,9 +450,11 @@ class Settings(BaseSettings):
     feature_enhanced_research: bool = False  # Enable enhanced research flow
     feature_phased_research: bool = False  # Enable phased research workflow for deep research
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     @property
     def is_production(self) -> bool:
