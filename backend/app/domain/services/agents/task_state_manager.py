@@ -8,6 +8,7 @@ Based on Manus's recitation approach for improved goal focus.
 Enhanced with ProgressMetrics integration for reflection system (Phase 2).
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -204,6 +205,8 @@ class TaskStateManager:
         self._sandbox = sandbox
         self._state: TaskState | None = None
         self._file_path = TASK_STATE_PATH
+        # Lock to serialize concurrent sandbox writes
+        self._write_lock = asyncio.Lock()
         # Progress metrics for reflection integration
         self._progress_metrics: ProgressMetrics | None = None
         # Track recent actions for reflection context
@@ -325,20 +328,24 @@ class TaskStateManager:
         """
         Save current state to sandbox file.
 
+        Uses asyncio.Lock to serialize concurrent writes and prevent
+        state corruption from parallel step execution.
+
         Returns:
             True if save successful
         """
         if not self._state or not self._sandbox:
             return False
 
-        try:
-            content = self._state.to_markdown()
-            await self._sandbox.file_write(self._file_path, content)
-            logger.debug(f"Task state saved to {self._file_path}")
-            return True
-        except Exception as e:
-            logger.warning(f"Failed to save task state: {e}")
-            return False
+        async with self._write_lock:
+            try:
+                content = self._state.to_markdown()
+                await self._sandbox.file_write(self._file_path, content)
+                logger.debug(f"Task state saved to {self._file_path}")
+                return True
+            except Exception as e:
+                logger.warning(f"Failed to save task state: {e}")
+                return False
 
     async def load_from_sandbox(self) -> bool:
         """
