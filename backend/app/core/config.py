@@ -299,6 +299,10 @@ class Settings(BaseSettings):
     # Plan Verification configuration (Performance optimization)
     enable_plan_verification: bool = True  # Verify plan feasibility before execution
 
+    # Advanced reasoning features (disabled by default, enable per-use-case)
+    feature_tree_of_thoughts: bool = False  # Use ToT exploration for complex planning
+    feature_self_consistency: bool = False  # Use self-consistency checks during verification
+
     # Skill activation policy
     skill_auto_trigger_enabled: bool = False  # Default OFF: explicit activation only (chat selection or /command)
 

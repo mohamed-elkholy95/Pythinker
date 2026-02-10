@@ -257,6 +257,20 @@ class PlanActFlow(BaseFlow):
         tools.append(canvas_tool)
         logger.debug(f"Added canvas tool for Agent {agent_id}")
 
+        # Create Tree-of-Thoughts explorer if feature enabled
+        thought_tree_explorer = None
+        settings = get_settings()
+        if settings.feature_tree_of_thoughts:
+            try:
+                from app.domain.services.agents.reasoning.thought_tree import (
+                    ThoughtTreeExplorer,
+                )
+
+                thought_tree_explorer = ThoughtTreeExplorer(llm=llm)
+                logger.debug("Tree-of-Thoughts explorer enabled for planner")
+            except Exception as e:
+                logger.warning(f"Failed to create ThoughtTreeExplorer: {e}")
+
         # Create planner and execution agents
         self.planner = PlannerAgent(
             agent_id=self._agent_id,
@@ -266,6 +280,7 @@ class PlanActFlow(BaseFlow):
             json_parser=json_parser,
             memory_service=memory_service,
             user_id=user_id,
+            thought_tree_explorer=thought_tree_explorer,
         )
         logger.debug(f"Created planner agent for Agent {self._agent_id}")
 

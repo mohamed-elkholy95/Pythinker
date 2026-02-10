@@ -169,6 +169,7 @@ class PlannerAgent(BaseAgent):
         memory_service: Optional["MemoryService"] = None,
         user_id: str | None = None,
         skill_loader: SkillLoader | None = None,
+        thought_tree_explorer=None,
     ):
         super().__init__(
             agent_id=agent_id,
@@ -186,6 +187,9 @@ class PlannerAgent(BaseAgent):
 
         # Skill loader for discovering relevant skills (Phase 3: Skills Integration)
         self._skill_loader = skill_loader
+
+        # Optional Tree-of-Thoughts explorer for complex tasks
+        self._thought_tree_explorer = thought_tree_explorer
 
     async def _stream_thinking(self, message: str) -> AsyncGenerator[BaseEvent, None]:
         """Stream thinking process before creating a plan.
@@ -296,6 +300,31 @@ class PlannerAgent(BaseAgent):
             async for event in self._stream_thinking(message.message):
                 yield event
 
+        # Tree-of-Thoughts exploration for complex tasks
+        tot_context = None
+        if self._thought_tree_explorer and not replan_context:
+            complexity = get_task_complexity(message.message)
+            if complexity == "complex":
+                try:
+                    from app.domain.services.agents.reasoning.thought_tree import ExplorationMode
+
+                    result = await self._thought_tree_explorer.explore(
+                        message.message, mode=ExplorationMode.BEAM
+                    )
+                    if result.best_path and result.best_path.get_conclusion():
+                        tot_context = (
+                            f"\n\n## Pre-Analysis (Tree-of-Thoughts)\n"
+                            f"{result.best_path.get_conclusion()}\n"
+                            f"(Explored {result.nodes_explored} reasoning paths, "
+                            f"pruned {result.nodes_pruned})"
+                        )
+                        logger.info(
+                            f"ToT exploration completed: {result.nodes_explored} nodes, "
+                            f"best path confidence={result.best_path.average_confidence:.2f}"
+                        )
+                except Exception as e:
+                    logger.warning(f"Tree-of-Thoughts exploration failed, continuing without: {e}")
+
         # Retrieve similar past tasks and outcomes (Phase 6: Qdrant integration)
         task_memory = None
         if self._memory_service and self._user_id:
@@ -324,6 +353,10 @@ class PlannerAgent(BaseAgent):
             attachments="\n".join(attachment_names) if attachment_names else "None",
             task_memory=task_memory,
         )
+
+        # Enrich prompt with ToT analysis if available
+        if tot_context:
+            base_prompt = base_prompt + tot_context
 
         # Add replan context if provided (from verification feedback)
         if replan_context:
