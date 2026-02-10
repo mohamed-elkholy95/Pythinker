@@ -24,6 +24,9 @@ jobs:
   build-and-push:
     needs: test
     runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     strategy:
       matrix:
         component: [frontend, backend, sandbox]
@@ -36,15 +39,15 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Docker Hub
-        if: github.event_name != 'pull_request' && secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != ''
+        if: github.event_name != 'pull_request' && env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
 
       - name: Skip image push (missing Docker Hub secrets)
-        if: github.event_name != 'pull_request' && (secrets.DOCKERHUB_USERNAME == '' || secrets.DOCKERHUB_TOKEN == '')
+        if: github.event_name != 'pull_request' && (env.DOCKERHUB_USERNAME == '' || env.DOCKERHUB_TOKEN == '')
         run: echo "Docker Hub credentials are missing, images will be built but not pushed."
 
       - name: Extract metadata
@@ -66,7 +69,7 @@ jobs:
           context: ./${{ matrix.component }}
           file: ./${{ matrix.component }}/Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' && secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+          push: ${{ github.event_name != 'pull_request' && env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
