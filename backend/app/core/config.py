@@ -3,6 +3,7 @@ import secrets
 import warnings
 from enum import Enum
 from functools import lru_cache
+from typing import ClassVar
 
 from pydantic_settings import BaseSettings
 
@@ -23,6 +24,9 @@ logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
+    _emitted_security_warnings: ClassVar[set[str]] = set()
+    _startup_banner_emitted: ClassVar[bool] = False
+
     # Environment configuration
     environment: str = "development"  # "development", "staging", "production"
     debug: bool = False
@@ -586,6 +590,11 @@ class Settings(BaseSettings):
 
         # === LOG WARNINGS ===
         for warning in security_warnings:
+            if warning in self._emitted_security_warnings:
+                logger.debug(f"[SECURITY] Duplicate warning suppressed: {warning}")
+                continue
+
+            self._emitted_security_warnings.add(warning)
             logger.warning(f"[SECURITY] {warning}")
             warnings.warn(warning, UserWarning, stacklevel=2)
 
@@ -594,6 +603,15 @@ class Settings(BaseSettings):
             error_msg = "Configuration validation failed:\n" + "\n".join(f"  - {e}" for e in errors)
             logger.error(error_msg)
             raise ValueError(error_msg)
+
+        if not self._startup_banner_emitted:
+            logger.info(
+                "Configuration banner: environment=%s auth_provider=%s llm_provider=%s",
+                self.environment,
+                self.auth_provider,
+                self.llm_provider,
+            )
+            type(self)._startup_banner_emitted = True
 
         logger.info(f"Configuration validated successfully (environment: {self.environment})")
 
