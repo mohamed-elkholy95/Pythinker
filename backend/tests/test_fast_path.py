@@ -9,6 +9,8 @@ from app.domain.services.flows.fast_path import (
     URL_KNOWLEDGE_BASE,
     FastPathRouter,
     QueryIntent,
+    is_suggestion_follow_up_message,
+    should_use_fast_path,
 )
 
 
@@ -149,3 +151,42 @@ class TestKnowledgeBase:
         for key, url in URL_KNOWLEDGE_BASE.items():
             assert url.startswith("https://"), f"URL for '{key}' should start with https://"
             assert "." in url, f"URL for '{key}' should contain a domain"
+
+
+class TestSuggestionFollowUpDetection:
+    """Tests for suggestion-style follow-up detection."""
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Can you explain this in more detail?",
+            "Can you explain that in more detail?",
+            "What are the best next steps?",
+            "What should I prioritize as next steps?",
+            "Can you give me a practical example?",
+            "Can you provide a practical example for this?",
+            "What should I ask next about this?",
+            "Can you summarize this in three key points?",
+        ],
+    )
+    def test_detects_suggestion_style_follow_ups(self, message: str):
+        """Known suggestion templates should be detected."""
+        assert is_suggestion_follow_up_message(message) is True
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "what is python?",
+            "search for latest rust release",
+            "open docs.python.org",
+            "create a report on market trends",
+            "Can you explain Bayesian priors mathematically?",
+        ],
+    )
+    def test_ignores_regular_messages(self, message: str):
+        """Regular prompts should not be treated as suggestion follow-ups."""
+        assert is_suggestion_follow_up_message(message) is False
+
+    def test_excluded_from_should_use_fast_path(self):
+        """Suggestion-style follow-ups should bypass fast-path entry checks."""
+        assert should_use_fast_path("Can you explain this in more detail?") is False

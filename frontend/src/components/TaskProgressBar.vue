@@ -102,7 +102,6 @@
                     <div
                       v-if="step.status === 'running'"
                       class="indicator-running"
-                      :class="`shape-${currentShape}`"
                     ></div>
                     <div v-else class="indicator-pending">
                       <span class="text-[10px] font-medium">{{ index + 1 }}</span>
@@ -179,18 +178,8 @@
         @click="toggleExpand"
       >
         <!-- Status indicator -->
-        <div class="flex-shrink-0">
-          <div v-if="isAllCompleted" class="status-complete">
-            <Check class="w-3.5 h-3.5 text-white" :stroke-width="2.5" />
-          </div>
-          <div
-            v-else-if="showStatusMorph"
-            class="status-morph"
-            :class="[
-              isIdle ? 'status-morph-idle' : 'status-morph-active',
-              `shape-${currentShape}`
-            ]"
-          ></div>
+        <div v-if="isAllCompleted" class="status-complete flex-shrink-0">
+          <Check class="w-3.5 h-3.5 text-white" :stroke-width="2.5" />
         </div>
 
         <!-- Content -->
@@ -392,13 +381,6 @@ const handleResize = () => {
   if (tooltipVisible.value) updateTooltipPosition()
 }
 
-// Morphing shape animation
-const shapes = ['circle', 'diamond', 'cube', 'square'] as const
-type Shape = typeof shapes[number]
-const currentShapeIndex = ref(0)
-const currentShape = ref<Shape>('circle')
-let shapeIntervalId: ReturnType<typeof setInterval> | null = null
-
 // Task timer
 const taskStartTime = ref<number | null>(null)
 const taskElapsedSeconds = ref(0)
@@ -407,12 +389,6 @@ let timerIntervalId: ReturnType<typeof setInterval> | null = null
 const isVisible = computed(() => {
   return props.plan && props.plan.steps.length > 0
 })
-
-// Idle state: not loading, not completed - agent is paused between steps
-const isIdle = computed(() => {
-  return !props.isLoading && !isAllCompleted.value && steps.value.length > 0
-})
-const showStatusMorph = computed(() => props.isLoading && !isAllCompleted.value)
 
 const steps = computed(() => props.plan?.steps ?? [])
 
@@ -555,23 +531,6 @@ const toggleExpand = () => {
   isExpanded.value = !isExpanded.value
 }
 
-const startShapeAnimation = () => {
-  if (shapeIntervalId) return
-  shapeIntervalId = setInterval(() => {
-    currentShapeIndex.value = (currentShapeIndex.value + 1) % shapes.length
-    currentShape.value = shapes[currentShapeIndex.value]
-  }, 1200)
-}
-
-const stopShapeAnimation = () => {
-  if (shapeIntervalId) {
-    clearInterval(shapeIntervalId)
-    shapeIntervalId = null
-  }
-  currentShapeIndex.value = 0
-  currentShape.value = 'circle'
-}
-
 const startTimer = () => {
   if (timerIntervalId) return
   taskStartTime.value = Date.now()
@@ -593,10 +552,8 @@ const stopTimer = () => {
 // Start/stop animations based on loading/thinking state
 watch(() => props.isLoading, (loading) => {
   if (loading && !isAllCompleted.value) {
-    startShapeAnimation()
     startTimer()
   } else {
-    stopShapeAnimation()
     stopTimer()
   }
 }, { immediate: true })
@@ -604,7 +561,6 @@ watch(() => props.isLoading, (loading) => {
 // Watch for completion - emit event for parent to capture final screenshot
 watch(isAllCompleted, (completed) => {
   if (completed) {
-    stopShapeAnimation()
     stopTimer()
     emit('requestRefresh')
   }
@@ -639,7 +595,6 @@ watch(
 
 onMounted(() => {
   if (props.isLoading && !isAllCompleted.value) {
-    startShapeAnimation()
     startTimer()
   }
   window.addEventListener('scroll', handleScroll, true)
@@ -647,7 +602,6 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  stopShapeAnimation()
   stopTimer()
   window.removeEventListener('scroll', handleScroll, true)
   window.removeEventListener('resize', handleResize)
@@ -700,61 +654,6 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   box-shadow: 0 2px 8px rgba(34, 197, 94, 0.35);
-}
-
-.status-morph {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
-  position: relative;
-}
-
-.status-morph-active {
-  background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 100%);
-  box-shadow:
-    0 0 0 1.5px rgba(59, 130, 246, 0.15),
-    0 1px 6px rgba(59, 130, 246, 0.3);
-  animation: morph-pulse 2s ease-in-out infinite;
-}
-
-.status-morph-idle {
-  border: 2px solid var(--bolt-elements-borderColor);
-  background: transparent;
-}
-
-/* Shape transformations */
-.status-morph.shape-circle {
-  border-radius: 50%;
-  transform: rotate(0deg) scale(1);
-}
-
-.status-morph.shape-square {
-  border-radius: 3px;
-  transform: rotate(0deg) scale(0.9);
-}
-
-.status-morph.shape-diamond {
-  border-radius: 3px;
-  transform: rotate(45deg) scale(0.75);
-}
-
-.status-morph.shape-cube {
-  border-radius: 4px;
-  transform: rotate(90deg) scale(0.85);
-}
-
-@keyframes morph-pulse {
-  0%, 100% {
-    box-shadow:
-      0 0 0 1.5px rgba(59, 130, 246, 0.15),
-      0 1px 6px rgba(59, 130, 246, 0.3);
-  }
-  50% {
-    box-shadow:
-      0 0 0 3px rgba(59, 130, 246, 0.1),
-      0 3px 12px rgba(59, 130, 246, 0.25);
-  }
 }
 
 /* ===== PROGRESS PILL ===== */
@@ -1043,44 +942,116 @@ onUnmounted(() => {
 }
 
 .indicator-running {
+  --spinner-outer-start: rgba(15, 23, 42, 0.9);
+  --spinner-outer-fade: rgba(15, 23, 42, 0.08);
+  --spinner-outer-mid: rgba(71, 85, 105, 0.34);
+  --spinner-inner-start: rgba(30, 41, 59, 0.82);
+  --spinner-inner-fade: rgba(30, 41, 59, 0.1);
+  --spinner-inner-mid: rgba(100, 116, 139, 0.4);
+  --spinner-core-top: rgba(255, 255, 255, 0.95);
+  --spinner-core-mid: rgba(203, 213, 225, 0.92);
+  --spinner-core-bottom: rgba(148, 163, 184, 0.9);
+  --spinner-edge-highlight: rgba(255, 255, 255, 0.5);
+  --spinner-edge-outline: rgba(15, 23, 42, 0.25);
+  --spinner-shadow: rgba(15, 23, 42, 0.22);
+
+  position: relative;
   width: 22px;
   height: 22px;
-  background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 100%);
-  transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
-  box-shadow:
-    0 0 0 3px rgba(59, 130, 246, 0.12),
-    0 2px 8px rgba(59, 130, 246, 0.3);
-  animation: indicator-pulse 2s ease-in-out infinite;
-}
-
-.indicator-running.shape-circle {
   border-radius: 50%;
+  flex-shrink: 0;
+  background: conic-gradient(
+    from 0deg,
+    var(--spinner-outer-start) 0deg,
+    var(--spinner-outer-fade) 80deg,
+    var(--spinner-outer-mid) 220deg,
+    var(--spinner-outer-start) 360deg
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 0);
+  box-shadow:
+    0 0 0 1px var(--spinner-edge-highlight),
+    0 0 0 2px var(--spinner-edge-outline),
+    0 2px 10px var(--spinner-shadow);
+  animation: indicator-spin-cw 0.9s linear infinite;
 }
 
-.indicator-running.shape-square {
-  border-radius: 5px;
+.indicator-running::before {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 280deg,
+    var(--spinner-inner-start) 0deg,
+    var(--spinner-inner-fade) 120deg,
+    var(--spinner-inner-mid) 260deg,
+    var(--spinner-inner-start) 360deg
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
+  animation: indicator-spin-ccw 0.65s linear infinite;
 }
 
-.indicator-running.shape-diamond {
-  border-radius: 5px;
-  transform: rotate(45deg) scale(0.85);
+.indicator-running::after {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 35% 35%,
+    var(--spinner-core-top) 0%,
+    var(--spinner-core-mid) 55%,
+    var(--spinner-core-bottom) 100%
+  );
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.3),
+    0 0 8px rgba(255, 255, 255, 0.35);
+  animation: indicator-core-pulse 1.2s ease-in-out infinite;
 }
 
-.indicator-running.shape-cube {
-  border-radius: 6px;
-  transform: rotate(90deg) scale(0.9);
+:global(.dark) .indicator-running {
+  --spinner-outer-start: rgba(248, 250, 252, 0.96);
+  --spinner-outer-fade: rgba(248, 250, 252, 0.12);
+  --spinner-outer-mid: rgba(148, 163, 184, 0.42);
+  --spinner-inner-start: rgba(241, 245, 249, 0.9);
+  --spinner-inner-fade: rgba(241, 245, 249, 0.14);
+  --spinner-inner-mid: rgba(203, 213, 225, 0.58);
+  --spinner-core-top: rgba(255, 255, 255, 0.98);
+  --spinner-core-mid: rgba(226, 232, 240, 0.92);
+  --spinner-core-bottom: rgba(148, 163, 184, 0.88);
+  --spinner-edge-highlight: rgba(255, 255, 255, 0.3);
+  --spinner-edge-outline: rgba(2, 6, 23, 0.68);
+  --spinner-shadow: rgba(0, 0, 0, 0.46);
 }
 
-@keyframes indicator-pulse {
-  0%, 100% {
-    box-shadow:
-      0 0 0 3px rgba(59, 130, 246, 0.12),
-      0 2px 8px rgba(59, 130, 246, 0.3);
+@keyframes indicator-spin-cw {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes indicator-spin-ccw {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes indicator-core-pulse {
+  0%,
+  100% {
+    transform: scale(0.92);
+    opacity: 0.85;
   }
   50% {
-    box-shadow:
-      0 0 0 5px rgba(59, 130, 246, 0.08),
-      0 4px 12px rgba(59, 130, 246, 0.25);
+    transform: scale(1);
+    opacity: 1;
   }
 }
 
