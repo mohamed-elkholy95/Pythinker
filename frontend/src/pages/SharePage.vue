@@ -38,7 +38,8 @@
 
         <div class="sticky bottom-0 max-w-[800px] mx-auto w-full pb-3 flex flex-col gap-2 px-3 pt-2.5 sm:pt-0">
           <button @click="handleFollow" v-if="!follow"
-            class="flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[var(--background-white-main)] hover:bg-[var(--background-gray-main)] clickable border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)] absolute -top-20 left-1/2 -translate-x-1/2">
+            style="top: calc(-34px + 1.5in - 1cm - 2mm);"
+            class="flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[var(--background-white-main)] hover:bg-[var(--background-gray-main)] clickable border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)] absolute right-3 sm:right-4 z-30">
             <ArrowDown class="text-[var(--icon-primary)]" :size="20" />
           </button>
           <PlanPanel v-if="plan && plan.steps.length > 0" :plan="plan" />
@@ -528,7 +529,7 @@ const jumpToRealTime = () => {
 
 const handleFollow = () => {
   follow.value = true;
-  simpleBarRef.value?.scrollToBottom();
+  simpleBarRef.value?.scrollToBottom('smooth');
 }
 
 const handleScroll = (_: Event) => {

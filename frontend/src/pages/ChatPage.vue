@@ -98,7 +98,7 @@
         <div class="flex-1"></div>
       </div>
       <div class="mx-auto w-full max-w-full sm:max-w-[768px] sm:min-w-[400px] flex flex-col flex-1 min-h-[calc(100vh-60px)]">
-        <div class="flex flex-col w-full gap-[12px] pb-[80px] pt-[24px] flex-1">
+        <div class="flex flex-col w-full gap-[6px] pb-[80px] pt-[20px] flex-1">
           <ChatMessage v-for="(message, index) in messages" :key="message.id" :message="message"
             :activeThinkingStepId="activeThinkingStepId"
             :showStepConnector="shouldShowStepConnector(index)"
@@ -156,7 +156,8 @@
 
         <div class="chat-bottom-dock flex flex-col sticky bottom-0">
           <button @click="handleFollow" v-if="!follow"
-            class="flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[var(--background-white-main)] hover:bg-[var(--background-gray-main)] clickable border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)] absolute -top-20 left-1/2 -translate-x-1/2">
+            style="top: calc(-34px + 1.5in - 1cm - 2mm);"
+            class="flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[var(--background-white-main)] hover:bg-[var(--background-gray-main)] clickable border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)] absolute right-3 sm:right-4 z-30">
             <ArrowDown class="text-[var(--icon-primary)]" :size="20" />
           </button>
           <!-- Planning Progress Indicator - shows instant feedback before plan is ready -->
@@ -2051,7 +2052,7 @@ const jumpToRealTime = () => {
 
 const handleFollow = () => {
   follow.value = true;
-  simpleBarRef.value?.scrollToBottom();
+  simpleBarRef.value?.scrollToBottom('smooth');
 }
 
 const handleScroll = (_: Event) => {
@@ -2204,6 +2205,7 @@ const handleCopyLink = async () => {
     var(--background-gray-main) 45%
   );
   padding-top: 8px;
+  z-index: 20;
 }
 
 :global(.dark) .chat-header {
