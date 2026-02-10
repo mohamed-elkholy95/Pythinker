@@ -45,15 +45,15 @@ from app.domain.services.agents.base import BaseAgent
 from app.domain.services.agents.complexity_assessor import ComplexityAssessor
 from app.domain.services.agents.execution import ExecutionAgent
 from app.domain.services.agents.planner import PlannerAgent
+
+# Import research task detection for acknowledgment messages
+from app.domain.services.flows.acknowledgment import AcknowledgmentGenerator
 from app.domain.services.flows.base import BaseFlow, FlowStatus
 from app.domain.services.flows.fast_path import (
     FastPathRouter,
     QueryIntent,
     is_suggestion_follow_up_message,
 )
-
-# Import research task detection for acknowledgment messages
-from app.domain.services.prompts.research import is_research_task
 from app.domain.services.tools.browser import BrowserTool
 from app.domain.services.tools.code_executor import CodeExecutorTool
 from app.domain.services.tools.file import FileTool
@@ -351,6 +351,9 @@ class PlanActFlow(BaseFlow):
 
         if enable_multi_agent:
             self._init_multi_agent_dispatch()
+
+        # Acknowledgment generator (extracted from PlanActFlow)
+        self._ack_generator = AcknowledgmentGenerator()
 
         # Workflow loop safety limits
         self._max_workflow_transitions = 100
@@ -830,245 +833,12 @@ class PlanActFlow(BaseFlow):
             self.executor._active_phase = None  # All tools for summarization
 
     def _generate_acknowledgment(self, user_message: str) -> str:
-        """Generate an acknowledgment message before starting to plan.
-
-        Args:
-            user_message: The user's original message
-
-        Returns:
-            A brief acknowledgment message describing what will be done
-        """
-        message_lower = user_message.lower()
-        request_focus = self._extract_request_focus(user_message)
-        is_large_prompt = self._is_large_prompt_for_acknowledgment(user_message, request_focus)
-
-        # Skill creation acknowledgment
-        if "/skill-creator" in message_lower:
-            if message_lower.strip().startswith("/skill-creator"):
-                command_match = re.match(r"^\s*/skill-creator(?:\s+(.*))?$", user_message, flags=re.IGNORECASE)
-                if command_match:
-                    skill_name = (command_match.group(1) or "").strip().strip('"')
-                    if skill_name:
-                        return f'I\'ll help you create the "{skill_name}" skill. Let me first review the skill creation guidelines.'
-            # Try to extract a quoted skill name for a more natural response
-            match = re.search(r'"([^"]+)"', user_message)
-            if match and match.group(1).strip():
-                return f'I\'ll help you create the "{match.group(1).strip()}" skill. Let me first review the skill creation guidelines.'
-            return "I'll help you create that skill. Let me first review the skill creation guidelines."
-
-        # Check for research-type tasks — use generic message to avoid echoing typos
-        if is_research_task(user_message):
-            if is_large_prompt:
-                topic = self._compact_ack_subject(self._extract_research_topic(user_message))
-                if topic:
-                    return (
-                        f"I've received your request for {topic}. "
-                        "I will begin by researching the latest tools and data to provide a detailed analysis."
-                    )
-                return (
-                    "I've received your request for a comprehensive research report. "
-                    "I will begin by researching the latest tools and data to provide a detailed analysis."
-                )
-
-            if request_focus and request_focus != "this task":
-                compact_focus = self._compact_ack_subject(request_focus)
-                if compact_focus:
-                    return (
-                        f"I've received your request for {compact_focus}. "
-                        "I will begin by researching the latest tools and data to provide a detailed analysis."
-                    )
-            return (
-                "I've received your request for research on this topic. "
-                "I will begin by researching the latest tools and data to provide a detailed analysis."
-            )
-
-        # Check for specific task types and generate appropriate acknowledgments
-        if any(word in message_lower for word in ["create", "build", "make", "generate", "write"]):
-            if is_large_prompt:
-                return (
-                    "I've received your request. I'll prepare a clear plan and start working through it step by step."
-                )
-            if request_focus and request_focus != "this task":
-                return f"I'll help you with {request_focus}. Let me create a plan and get started."
-            return "I'll help you with that. Let me create a plan and get started."
-
-        if any(word in message_lower for word in ["fix", "debug", "solve", "resolve"]):
-            if is_large_prompt:
-                return "I've received your debugging request. I'll diagnose the issue and work toward a reliable fix."
-            return "I'll analyze the issue and work on a solution."
-
-        if any(word in message_lower for word in ["find", "search", "look for", "locate"]):
-            if is_large_prompt:
-                return (
-                    "I've received your request. I'll gather the relevant information and return a structured summary."
-                )
-            return "I'll search for that information."
-
-        if any(word in message_lower for word in ["explain", "how does", "what is", "why"]):
-            return "Let me look into that for you."
-
-        if any(word in message_lower for word in ["update", "modify", "change", "edit"]):
-            return "I'll work on making those changes."
-
-        if any(word in message_lower for word in ["install", "setup", "configure"]):
-            return "I'll help you set that up."
-
-        if any(word in message_lower for word in ["test", "check", "verify", "validate"]):
-            return "I'll run some checks on that."
-
-        # Default acknowledgment
-        if is_large_prompt:
-            return "I've received your request. I'll analyze it and proceed with a structured response."
-        return "I'll help you with that. Let me work on it."
-
-    def _is_large_prompt_for_acknowledgment(self, user_message: str, request_focus: str) -> bool:
-        """Detect prompts that should use compact acknowledgments to avoid echoing long text."""
-        if len(user_message) >= 280:
-            return True
-        if len(request_focus) >= 140:
-            return True
-        if "\n" in user_message:
-            return True
-        return len(re.findall(r"\b\d+\.", user_message)) >= 2
-
-    def _compact_ack_subject(self, subject: str | None) -> str | None:
-        """Compact a subject phrase for acknowledgment text."""
-        if not subject:
-            return None
-
-        normalized = re.sub(r"\s+", " ", subject).strip().rstrip(".!?")
-        if not normalized:
-            return None
-
-        # Keep only the leading clause to avoid copying long requirement lists.
-        normalized = re.split(r"[;\n]", normalized, maxsplit=1)[0].strip()
-        normalized = re.split(r"\.\s+", normalized, maxsplit=1)[0].strip()
-        normalized = re.sub(r"\s+the report should include.*$", "", normalized, flags=re.IGNORECASE).strip()
-
-        max_words = 14
-        max_chars = 110
-        words = normalized.split()
-        if len(words) > max_words:
-            normalized = " ".join(words[:max_words]).rstrip(",:;")
-        if len(normalized) > max_chars:
-            normalized = normalized[:max_chars].rstrip(" ,:;")
-
-        return normalized or None
-
-    def _extract_request_focus(self, user_message: str) -> str:
-        """Extract the actionable focus from the user's request.
-
-        Removes common polite prefixes and leading action verbs while preserving
-        the original wording/casing for natural acknowledgments.
-        """
-        focus = (user_message or "").strip()
-        if not focus:
-            return "this task"
-
-        # Remove conversational lead-ins like "Please can you ..."
-        focus = re.sub(
-            r"^\s*(?:please\s+)?(?:(?:can|could|would)\s+you|you\s+can)\s+",
-            "",
-            focus,
-            flags=re.IGNORECASE,
-        )
-        focus = re.sub(r"^\s*please\s+", "", focus, flags=re.IGNORECASE)
-
-        # Remove leading action verbs to get the object of the request.
-        action_prefix = (
-            r"^\s*(?:to\s+)?(?:"
-            r"create|build|make|generate|write|develop|implement|design|"
-            r"fix|debug|solve|resolve|troubleshoot|"
-            r"analy[sz]e|research|investigate|"
-            r"find|search(?:\s+for)?|look\s+for|locate|"
-            r"explain|describe|summari[sz]e|"
-            r"update|modify|change|edit|"
-            r"install|setup|set\s+up|configure|"
-            r"test|check|verify|validate"
-            r")\s+"
-        )
-        focus = re.sub(action_prefix, "", focus, flags=re.IGNORECASE)
-
-        focus = focus.strip().rstrip(".!?")
-        return focus or "this task"
+        """Generate an acknowledgment message before starting to plan."""
+        return self._ack_generator.generate(user_message)
 
     def _extract_research_topic(self, user_message: str) -> str | None:
-        """Extract the research topic from the user's message.
-
-        Args:
-            user_message: The user's original message
-
-        Returns:
-            The extracted topic or None if not found
-        """
-        message_lower = user_message.lower()
-
-        # Patterns to extract topic after common research request phrases
-        # Order matters - more specific patterns first
-        topic_patterns = [
-            # "research report on: X" or "research report about X"
-            r"research\s+report\s+(?:on|about)[:\s]+(.+?)(?:\.|$)",
-            # "research report analyzing X"
-            r"research\s+report\s+analy(?:zing|sing)[:\s]+(.+?)(?:\.|$)",
-            # "comprehensive research on X"
-            r"comprehensive\s+research\s+(?:on|about)[:\s]+(.+?)(?:\.|$)",
-            # "research on: X" or "research about X"
-            r"research\s+(?:on|about)[:\s]+(.+?)(?:\.|$)",
-            # "research X" (without on/about)
-            r"(?:^|\s)research[:\s]+(.+?)(?:\.|$)",
-            # "investigate X"
-            r"investigate[:\s]+(.+?)(?:\.|$)",
-            # "find information on/about X"
-            r"find\s+(?:information|info|details)\s+(?:on|about)[:\s]+(.+?)(?:\.|$)",
-            # "look into X"
-            r"look\s+into[:\s]+(.+?)(?:\.|$)",
-            # "analyze X"
-            r"analyze[:\s]+(.+?)(?:\.|$)",
-            # "study X"
-            r"study[:\s]+(.+?)(?:\.|$)",
-        ]
-
-        for pattern in topic_patterns:
-            match = re.search(pattern, message_lower, re.IGNORECASE)
-            if match:
-                topic = match.group(1).strip()
-                # Clean up the topic
-                topic = re.sub(r"\s+", " ", topic)  # Normalize whitespace
-                # Strip leading conjunctions from compound verbs (e.g. "research and compare X" → "X")
-                topic = re.sub(
-                    r"^(?:and|or)\s+(?:compare|analyze|evaluate|assess|examine|study|review|summarize|investigate)\s+",
-                    "",
-                    topic,
-                    flags=re.IGNORECASE,
-                )
-                # Remove trailing phrases like "and provide", "then create", etc.
-                topic = re.sub(
-                    r"\s+(?:and\s+(?:provide|create|give|send)|then\s+\w+).*$", "", topic, flags=re.IGNORECASE
-                )
-                if topic and len(topic) > 3:  # Avoid very short/empty topics
-                    return topic
-
-        # Fallback: Try to extract after "Create a ... report on:"
-        report_match = re.search(
-            r"create\s+(?:a\s+)?(?:\w+\s+)*report\s+(?:on|about)[:\s]+(.+?)(?:\.|$)", message_lower
-        )
-        if report_match:
-            topic = report_match.group(1).strip()
-            topic = re.sub(r"\s+", " ", topic)
-            if topic and len(topic) > 3:
-                return topic
-
-        # Last fallback: If message starts with a research indicator, take the rest as topic
-        if message_lower.startswith(("research ", "investigate ", "analyze ")):
-            parts = user_message.split(" ", 1)
-            if len(parts) > 1:
-                topic = parts[1].strip()
-                # Remove leading "on:" or "about:" if present
-                topic = re.sub(r"^(?:on|about)[:\s]+", "", topic, flags=re.IGNORECASE)
-                if topic and len(topic) > 3:
-                    return topic[:150]  # Limit length
-
-        return None
+        """Extract the research topic from the user's message."""
+        return self._ack_generator._extract_research_topic(user_message)
 
     async def _execute_deep_research(
         self, topic: str, original_message: str, trace_ctx
