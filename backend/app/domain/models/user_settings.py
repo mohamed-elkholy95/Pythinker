@@ -26,6 +26,7 @@ class UserSettings(BaseModel):
     response_verbosity_preference: str = "adaptive"  # adaptive, concise, detailed
     clarification_policy: str = "auto"  # auto, always, never
     quality_floor_enforced: bool = True
+    skill_auto_trigger_enabled: bool = False
 
     # Skills configuration
     enabled_skills: list[str] = Field(

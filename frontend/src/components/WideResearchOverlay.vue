@@ -21,6 +21,11 @@
           </div>
           <h2 class="research-topic">{{ topic }}</h2>
           <p class="research-subtitle">Wide Research • {{ searchTypesLabel }}</p>
+          <ResearchPhaseIndicator
+            :phase="phaseForIndicator"
+            compact
+            class="phase-indicator"
+          />
         </div>
 
         <!-- Progress ring visualization -->
@@ -169,6 +174,7 @@
 import { computed } from 'vue'
 import type { Component } from 'vue'
 import { Search, Globe, BookOpen, Newspaper, Database, Wrench } from 'lucide-vue-next'
+import ResearchPhaseIndicator from '@/components/research/ResearchPhaseIndicator.vue'
 import type { WideResearchState } from '@/types/message'
 
 interface SearchStream {
@@ -183,9 +189,11 @@ interface SearchStream {
 
 const props = withDefaults(defineProps<{
   state: WideResearchState | null
+  phase?: string | null
   alwaysShow?: boolean  // When true, always show overlay even without active state
 }>(), {
   state: null,
+  phase: null,
   alwaysShow: false
 })
 
@@ -232,6 +240,22 @@ const statusLabel = computed(() => {
 })
 
 const statusClass = computed(() => props.state?.status || 'pending')
+const phaseForIndicator = computed(() => {
+  if (props.phase) return props.phase
+  if (props.state?.phase) return props.state.phase
+  switch (props.state?.status) {
+    case 'pending':
+      return 'planning'
+    case 'searching':
+      return 'executing'
+    case 'aggregating':
+      return 'summarizing'
+    case 'completed':
+      return 'completed'
+    default:
+      return 'planning'
+  }
+})
 
 const searchTypesLabel = computed(() => {
   const types = props.state?.search_types || []
@@ -498,6 +522,11 @@ function getParticleStyle(index: number) {
   color: rgba(255, 255, 255, 0.5);
   margin: 0;
   letter-spacing: 0.5px;
+}
+
+.phase-indicator {
+  margin-top: var(--space-3);
+  min-width: 280px;
 }
 
 /* ===== Progress Section ===== */

@@ -241,8 +241,8 @@ backend/app/domain/services/flows/
 ├── plan_act_graph.py   - PlanActGraphFlow (Enhanced, actively used)
 └── ...
 
-backend/app/domain/services/langgraph/
-└── graph.py            - LangGraph flow (exists but may not be primary)
+backend/app/domain/services/legacy-flow/
+└── graph.py            - Legacy Flow flow (exists but may not be primary)
 ```
 
 **Observation:**
@@ -297,7 +297,7 @@ MODEL_NAME=nvidia/nemotron-3-nano-30b-a3b
 # Feature Flags (Mostly Disabled)
 ENABLE_MULTI_AGENT=false
 ENABLE_COORDINATOR=false
-USE_LANGGRAPH_FLOW=false
+FLOW_MODE=plan_act
 FEATURE_FAILURE_PREDICTION=false
 
 # Browser
@@ -311,7 +311,7 @@ BROWSER_AGENT_MAX_STEPS=25
 |---------|---------|----------|----------------|
 | Multi-Agent | false | `core/config.py` | Test before enabling |
 | Coordinator | false | `core/config.py` | Test before enabling |
-| LangGraph Flow | false | `core/config.py` | Evaluate migration |
+| Legacy Flow Flow | false | `core/config.py` | Evaluate migration |
 | Failure Prediction | false | `core/config.py` | Consider enabling |
 | Context Optimization | - | Feature flags | Check if available |
 

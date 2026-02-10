@@ -48,6 +48,8 @@ const emit = defineEmits<{
   text-align: center;
   width: 100%;
   height: 100%;
+  background: var(--background-surface);
+  gap: var(--space-2);
 }
 
 .error-icon {

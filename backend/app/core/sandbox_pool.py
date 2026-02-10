@@ -37,6 +37,8 @@ class SandboxPool:
         await pool.stop()
     """
 
+    BROWSER_PREWARM_TIMEOUT_SECONDS = 12.0
+
     def __init__(
         self,
         sandbox_cls: type["Sandbox"],
@@ -248,53 +250,69 @@ class SandboxPool:
         but DO NOT close the browser context - it stays ready for later use.
         """
         browser = None
+        had_error = False
+        release_browser = callable(getattr(sandbox, "release_pooled_browser", None))
         try:
-            # Get sandbox IP for CDP connection
-            # DockerSandbox uses `ip`, not `ip_address`
-            sandbox_ip = getattr(sandbox, "ip_address", None) or getattr(sandbox, "ip", None)
-            if not sandbox_ip:
-                logger.debug(f"Sandbox {sandbox.id} has no IP address, skipping browser pre-warm")
-                return
+            # Use sandbox's browser acquisition path so warm-up and normal usage
+            # share the same pool and lifecycle rules.
+            try:
+                browser = await asyncio.wait_for(
+                    sandbox.get_browser(clear_session=False, verify_connection=False, use_pool=True),
+                    timeout=self.BROWSER_PREWARM_TIMEOUT_SECONDS,
+                )
+            except TypeError:
+                # Fallback for sandbox implementations with a narrower signature.
+                browser = await asyncio.wait_for(
+                    sandbox.get_browser(clear_session=False),
+                    timeout=self.BROWSER_PREWARM_TIMEOUT_SECONDS,
+                )
 
-            # Import here to avoid circular dependency
-            from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
-
-            # Create browser instance with CDP URL
-            cdp_url = f"http://{sandbox_ip}:9222"
-            browser = PlaywrightBrowser(cdp_url=cdp_url)
-
-            # Initialize browser (this connects to Chrome via CDP)
-            if not await browser.initialize():
-                logger.warning(f"Browser pre-warm initialization failed for sandbox {sandbox.id}")
+            if not browser:
+                logger.warning(f"Browser pre-warm could not acquire browser for sandbox {sandbox.id}")
                 return
 
             # Navigate to blank page to fully initialize rendering pipeline
-            result = await browser.navigate("about:blank", timeout=10000, auto_extract=False)
+            result = await asyncio.wait_for(
+                browser.navigate("about:blank", timeout=10000, auto_extract=False),
+                timeout=self.BROWSER_PREWARM_TIMEOUT_SECONDS,
+            )
 
             if result.success:
                 logger.info(f"Browser pre-warmed for pooled sandbox {sandbox.id}")
             else:
                 logger.warning(f"Browser pre-warm navigation failed for sandbox {sandbox.id}: {result.message}")
 
+        except TimeoutError:
+            had_error = True
+            logger.warning(
+                "Browser pre-warm timed out after %.1fs for sandbox %s",
+                self.BROWSER_PREWARM_TIMEOUT_SECONDS,
+                sandbox.id,
+            )
         except Exception as e:
+            had_error = True
             # Non-fatal - browser will be initialized on first use
             logger.warning(f"Browser pre-warm failed (non-fatal) for sandbox {sandbox.id}: {e}")
         finally:
-            # Disconnect playwright without closing the browser context/browser
-            # The browser stays running in the sandbox; we only release our local
-            # Playwright connection. The agent will create its own connection later.
+            # Release pooled browser when applicable; otherwise ensure non-pooled
+            # browser instances are fully cleaned up.
             if browser:
+                released_to_pool = False
                 try:
-                    # Disconnect (don't close) — browser.browser.close() would
-                    # terminate Chrome in the sandbox, defeating the pre-warm.
-                    if browser.playwright:
-                        await browser.playwright.stop()
+                    if release_browser:
+                        released_to_pool = bool(await sandbox.release_pooled_browser(browser, had_error=had_error))
+                    if not released_to_pool:
+                        if callable(getattr(browser, "cleanup", None)):
+                            await browser.cleanup()
+                        else:
+                            if getattr(browser, "playwright", None):
+                                await browser.playwright.stop()
+                            browser.page = None
+                            browser.context = None
+                            browser.browser = None
+                            browser.playwright = None
                 except Exception as pw_err:
                     logger.debug(f"Playwright disconnect error (non-fatal): {pw_err}")
-                browser.page = None
-                browser.context = None
-                browser.browser = None
-                browser.playwright = None
 
     async def _replenish_one(self) -> None:
         """Add one sandbox to pool if below minimum."""

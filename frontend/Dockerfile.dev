@@ -8,11 +8,11 @@ RUN npm install -g npm@11.8.0
 # Set working directory
 WORKDIR /app
 
-# Copy package files first for better caching
-COPY package.json bun.lock* ./
+# Copy lockfile for deterministic dependency installs
+COPY package.json package-lock.json ./
 
-# Install dependencies
-RUN npm install
+# Install exact dependency tree from lockfile
+RUN npm ci
 
 # The source code will be mounted as a volume
 # node_modules from the image will be used

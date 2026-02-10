@@ -2,7 +2,9 @@
 
 ## Professional Skill System Design & Enhancement Pipeline
 
-This document outlines the comprehensive skill system architecture for Pythinker, incorporating industry best practices from LangGraph, LangChain, and Swarms frameworks.
+This document outlines the comprehensive skill system architecture for Pythinker, incorporating industry best practices from Legacy Flow, LangChain, and Swarms frameworks.
+
+> Update (February 10, 2026): Legacy Flow runtime flow has been removed; `flow_mode` now supports `plan_act` and `coordinator`. Legacy Flow references below are historical design context.
 
 ---
 
@@ -102,14 +104,14 @@ backend/app/
 
 ## 2. Industry Best Practices
 
-### 2.1 LangGraph Dynamic Tool Selection
+### 2.1 Legacy Flow Dynamic Tool Selection
 
-LangGraph provides runtime context-based tool binding via `configure_model`:
+Legacy Flow provides runtime context-based tool binding via `configure_model`:
 
 ```python
-# LangGraph Pattern: Dynamic Tool Binding
-from langgraph.prebuilt import create_react_agent
-from langgraph.runtime import Runtime
+# Legacy Flow Pattern: Dynamic Tool Binding
+from legacy-flow.prebuilt import create_react_agent
+from legacy-flow.runtime import Runtime
 
 @dataclass
 class SkillContext:
@@ -150,13 +152,13 @@ def search_database(query: str, limit: int = 10) -> str:
 
 **Pythinker Application**: Allow skills to define inline tool implementations for skill-specific operations.
 
-### 2.3 LangGraph Swarm Handoff Pattern
+### 2.3 Legacy Flow Swarm Handoff Pattern
 
 Multi-agent handoff with task context propagation:
 
 ```python
-# LangGraph Swarm Pattern: Agent Handoff
-from langgraph_swarm import create_handoff_tool
+# Legacy Flow Swarm Pattern: Agent Handoff
+from legacy-flow_swarm import create_handoff_tool
 
 def create_custom_handoff_tool(agent_name: str, description: str):
     @tool(name, description=description)
@@ -302,7 +304,7 @@ class EnhancedSkill:
     conflicts_with: list[str]  # Skills that cannot be used together
     extends: str | None  # Parent skill ID for inheritance
 
-    # Agent Handoff (NEW - from LangGraph Swarm)
+    # Agent Handoff (NEW - from Legacy Flow Swarm)
     handoff_targets: list[HandoffTarget] | None
 
     # Versioning (NEW)
@@ -329,7 +331,7 @@ class ToolOverride:
 
 @dataclass
 class HandoffTarget:
-    """Agent handoff configuration (LangGraph Swarm pattern)."""
+    """Agent handoff configuration (Legacy Flow Swarm pattern)."""
     agent_type: str  # e.g., "research", "coding", "data-analysis"
     description: str  # When to handoff
     context_fields: list[str]  # State fields to pass
@@ -619,7 +621,7 @@ class SkillMatch:
 
 ## 5. Agent Workflow Integration
 
-### 5.1 Dynamic Tool Binding (LangGraph Pattern)
+### 5.1 Dynamic Tool Binding (Legacy Flow Pattern)
 
 ```python
 # Enhanced Agent Creation with Dynamic Tool Binding
@@ -642,7 +644,7 @@ class SkillAwareAgentFactory:
     ) -> Agent:
         """Create an agent with skill-aware tool binding.
 
-        Implements LangGraph's dynamic tool selection pattern.
+        Implements Legacy Flow's dynamic tool selection pattern.
         """
         # Get skill context
         context = await self._skill_registry.build_context(skill_ids)
@@ -805,7 +807,7 @@ class ExecutionAgent:
 |------|-------------|--------|
 | 2.1 Skill Dependencies | Topological resolution of skill deps | 2 days |
 | 2.2 Conflict Detection | Prevent incompatible skill combinations | 1 day |
-| 2.3 Agent Handoffs | Implement LangGraph Swarm handoff pattern | 3 days |
+| 2.3 Agent Handoffs | Implement Legacy Flow Swarm handoff pattern | 3 days |
 | 2.4 Skill Versioning | Version history and rollback | 2 days |
 
 ### Phase 3: Community & Scale (Priority: Low)

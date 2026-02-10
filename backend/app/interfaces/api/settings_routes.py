@@ -2,11 +2,9 @@ import logging
 
 from fastapi import APIRouter, Depends
 
-from app.core.config import get_settings
-from app.core.config import get_settings as get_app_settings
+from app.application.services.settings_service import SettingsService
 from app.domain.models.user import User
-from app.infrastructure.storage.mongodb import get_mongodb
-from app.interfaces.dependencies import get_current_user
+from app.interfaces.dependencies import get_current_user, get_settings_service
 from app.interfaces.schemas.base import APIResponse
 from app.interfaces.schemas.settings import (
     ProvidersResponse,
@@ -56,104 +54,26 @@ SEARCH_PROVIDERS = [
 ]
 
 
-def get_default_settings() -> dict:
-    """Get default settings from environment config"""
-    config = get_settings()
-    return {
-        "llm_provider": config.llm_provider,
-        "model_name": config.model_name,
-        "temperature": config.temperature,
-        "max_tokens": config.max_tokens,
-        "search_provider": config.search_provider or "bing",
-        "browser_agent_max_steps": config.browser_agent_max_steps,
-        "browser_agent_timeout": config.browser_agent_timeout,
-        "browser_agent_use_vision": config.browser_agent_use_vision,
-        "deep_research_auto_run": False,
-        "response_verbosity_preference": "adaptive",
-        "clarification_policy": "auto",
-        "quality_floor_enforced": True,
-    }
-
-
 @router.get("", response_model=APIResponse[UserSettingsResponse])
-async def get_user_settings(current_user: User = Depends(get_current_user)) -> APIResponse[UserSettingsResponse]:
+async def get_user_settings(
+    current_user: User = Depends(get_current_user),
+    settings_service: SettingsService = Depends(get_settings_service),
+) -> APIResponse[UserSettingsResponse]:
     """Get current user's settings"""
-    app_settings = get_app_settings()
-    mongodb = get_mongodb()
-    db = mongodb.client[app_settings.mongodb_database]
-
-    # Try to get user settings from database
-    settings_collection = db.get_collection("user_settings")
-    settings_doc = await settings_collection.find_one({"user_id": str(current_user.id)})
-
-    if settings_doc:
-        # Return saved settings
-        return APIResponse.success(
-            UserSettingsResponse(
-                llm_provider=settings_doc.get("llm_provider", "openai"),
-                model_name=settings_doc.get("model_name", "gpt-4"),
-                temperature=settings_doc.get("temperature", 0.7),
-                max_tokens=settings_doc.get("max_tokens", 8000),
-                search_provider=settings_doc.get("search_provider", "bing"),
-                browser_agent_max_steps=settings_doc.get("browser_agent_max_steps", 25),
-                browser_agent_timeout=settings_doc.get("browser_agent_timeout", 300),
-                browser_agent_use_vision=settings_doc.get("browser_agent_use_vision", True),
-                deep_research_auto_run=settings_doc.get("deep_research_auto_run", False),
-                response_verbosity_preference=settings_doc.get("response_verbosity_preference", "adaptive"),
-                clarification_policy=settings_doc.get("clarification_policy", "auto"),
-                quality_floor_enforced=settings_doc.get("quality_floor_enforced", True),
-            )
-        )
-
-    # Return default settings from environment
-    defaults = get_default_settings()
-    return APIResponse.success(UserSettingsResponse(**defaults))
+    settings_doc = await settings_service.get_user_settings(str(current_user.id))
+    return APIResponse.success(UserSettingsResponse(**settings_doc))
 
 
 @router.put("", response_model=APIResponse[UserSettingsResponse])
 async def update_user_settings(
-    request: UpdateUserSettingsRequest, current_user: User = Depends(get_current_user)
+    request: UpdateUserSettingsRequest,
+    current_user: User = Depends(get_current_user),
+    settings_service: SettingsService = Depends(get_settings_service),
 ) -> APIResponse[UserSettingsResponse]:
     """Update current user's settings"""
-    app_settings = get_app_settings()
-    mongodb = get_mongodb()
-    db = mongodb.client[app_settings.mongodb_database]
-    settings_collection = db.get_collection("user_settings")
-
-    # Get existing settings or defaults
-    settings_doc = await settings_collection.find_one({"user_id": str(current_user.id)})
-
-    if not settings_doc:
-        # Create new settings with defaults
-        settings_doc = {
-            "user_id": str(current_user.id),
-            **get_default_settings(),
-        }
-
-    # Update only provided fields
     update_data = request.model_dump(exclude_unset=True, exclude_none=True)
-    for key, value in update_data.items():
-        settings_doc[key] = value
-
-    # Save to database
-    await settings_collection.update_one({"user_id": str(current_user.id)}, {"$set": settings_doc}, upsert=True)
-
-    return APIResponse.success(
-        UserSettingsResponse(
-            llm_provider=settings_doc.get("llm_provider", "openai"),
-            model_name=settings_doc.get("model_name", "gpt-4"),
-            temperature=settings_doc.get("temperature", 0.7),
-            max_tokens=settings_doc.get("max_tokens", 8000),
-            search_provider=settings_doc.get("search_provider", "bing"),
-            browser_agent_max_steps=settings_doc.get("browser_agent_max_steps", 25),
-            browser_agent_timeout=settings_doc.get("browser_agent_timeout", 300),
-            browser_agent_use_vision=settings_doc.get("browser_agent_use_vision", True),
-            deep_research_auto_run=settings_doc.get("deep_research_auto_run", False),
-            response_verbosity_preference=settings_doc.get("response_verbosity_preference", "adaptive"),
-            clarification_policy=settings_doc.get("clarification_policy", "auto"),
-            quality_floor_enforced=settings_doc.get("quality_floor_enforced", True),
-        )
-    )
+    settings_doc = await settings_service.update_user_settings(str(current_user.id), update_data)
+    return APIResponse.success(UserSettingsResponse(**settings_doc))
 
 
 @router.get("/providers", response_model=APIResponse[ProvidersResponse])

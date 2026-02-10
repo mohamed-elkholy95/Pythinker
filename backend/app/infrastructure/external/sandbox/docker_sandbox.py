@@ -862,6 +862,15 @@ class DockerSandbox(Sandbox):
     async def destroy(self) -> bool:
         """Destroy Docker sandbox and release all browser pool connections."""
         try:
+            settings = get_settings()
+            uses_static_sandboxes = bool(
+                getattr(
+                    settings,
+                    "uses_static_sandbox_addresses",
+                    bool(getattr(settings, "sandbox_address", None)),
+                )
+            )
+
             # Force-release browser pool connections for this sandbox's CDP URL
             # to prevent connection pool exhaustion on subsequent sessions
             try:
@@ -882,7 +891,11 @@ class DockerSandbox(Sandbox):
             if self._client and not self._client.is_closed:
                 await self._client.aclose()
             self._client = None
-            if self._container_name:
+            is_static_sandbox_id = bool(
+                uses_static_sandboxes and self._container_name and self._container_name.startswith("dev-sandbox-")
+            )
+
+            if self._container_name and not is_static_sandbox_id:
 
                 def _remove_container(name: str) -> None:
                     dc = docker.from_env()
@@ -894,6 +907,11 @@ class DockerSandbox(Sandbox):
                         logger.info(f"Docker sandbox container already removed: {name}")
 
                 await asyncio.to_thread(_remove_container, self._container_name)
+            elif is_static_sandbox_id:
+                logger.debug(
+                    "Skipping container removal for static sandbox mode (sandbox=%s)",
+                    self._container_name,
+                )
             return True
         except Exception as e:
             logger.error(f"Failed to destroy Docker sandbox: {e!s}")
@@ -944,16 +962,27 @@ class DockerSandbox(Sandbox):
         Raises:
             Exception: If verify_connection is True and connection cannot be established
         """
-        if verify_connection:
+        settings = get_settings()
+        uses_static_sandboxes = bool(
+            getattr(
+                settings,
+                "uses_static_sandbox_addresses",
+                bool(getattr(settings, "sandbox_address", None)),
+            )
+        )
+        browser_pool_enabled = bool(getattr(settings, "browser_pool_enabled", True))
+        effective_use_pool = use_pool and browser_pool_enabled and not uses_static_sandboxes
+
+        if verify_connection and not await self._verify_cdp_with_backoff():
             # Verify CDP is accessible before creating browser instance
             # Uses exponential backoff for faster initial checks
-            settings = get_settings()
-            if not await self._verify_cdp_with_backoff():
-                raise Exception(f"Failed to verify CDP connection after {settings.sandbox_cdp_retries} attempts")
+            raise Exception(f"Failed to verify CDP connection after {settings.sandbox_cdp_retries} attempts")
 
-        if use_pool:
+        if effective_use_pool:
             # Use connection pool for efficient browser reuse
             return await self._get_pooled_browser(block_resources, clear_session)
+        if use_pool and not effective_use_pool and uses_static_sandboxes:
+            logger.debug("Browser pool bypassed for static SANDBOX_ADDRESS mode on %s", self.id)
 
         # Legacy: Create new browser instance without pooling
         browser = PlaywrightBrowser(cdp_url=self.cdp_url, block_resources=block_resources)
@@ -1060,7 +1089,7 @@ class DockerSandbox(Sandbox):
             logger.error(f"Unexpected error getting pooled browser: {e}")
             raise
 
-    async def release_pooled_browser(self, browser: Browser, had_error: bool = False) -> None:
+    async def release_pooled_browser(self, browser: Browser, had_error: bool = False) -> bool:
         """Release a pooled browser back to the pool.
 
         Should be called when done with a pooled browser to allow reuse.
@@ -1070,6 +1099,8 @@ class DockerSandbox(Sandbox):
         Args:
             browser: The browser instance to release
             had_error: Whether an error occurred during use of this browser
+        Returns:
+            True if the browser was found and released from the pool, False otherwise.
         """
         pool = BrowserConnectionPool.get_instance()
 
@@ -1079,9 +1110,10 @@ class DockerSandbox(Sandbox):
                 if conn.browser is browser:
                     await pool._release_connection(cdp_url, conn, had_error=had_error)
                     logger.debug(f"Released pooled browser for {cdp_url}" + (" (with error)" if had_error else ""))
-                    return
+                    return True
 
         logger.warning("Could not find browser in pool to release")
+        return False
 
     # Round-robin counter for multi-sandbox dev mode
     _sandbox_rr_index: int = 0
@@ -1098,7 +1130,15 @@ class DockerSandbox(Sandbox):
         """
         settings = get_settings()
 
-        if settings.sandbox_address:
+        uses_static_sandboxes = bool(
+            getattr(
+                settings,
+                "uses_static_sandbox_addresses",
+                bool(getattr(settings, "sandbox_address", None)),
+            )
+        )
+
+        if uses_static_sandboxes and settings.sandbox_address:
             addresses = [a.strip() for a in settings.sandbox_address.split(",") if a.strip()]
             # Round-robin across available addresses
             address = addresses[cls._sandbox_rr_index % len(addresses)]
@@ -1122,7 +1162,14 @@ class DockerSandbox(Sandbox):
             Sandbox instance
         """
         settings = get_settings()
-        if settings.sandbox_address:
+        uses_static_sandboxes = bool(
+            getattr(
+                settings,
+                "uses_static_sandbox_addresses",
+                bool(getattr(settings, "sandbox_address", None)),
+            )
+        )
+        if uses_static_sandboxes and settings.sandbox_address:
             # For multi-sandbox dev mode, extract hostname from container_name
             # Container names are "dev-sandbox-{hostname}" when using round-robin
             addresses = [a.strip() for a in settings.sandbox_address.split(",") if a.strip()]

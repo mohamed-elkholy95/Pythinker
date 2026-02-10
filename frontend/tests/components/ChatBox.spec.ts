@@ -133,6 +133,17 @@ describe('ChatBox', () => {
     expect(textarea.attributes('placeholder')).toBe('Give Pythinker a task to work on...')
   })
 
+  it('should apply dynamic textarea style controls', () => {
+    const wrapper = mount(ChatBox, {
+      props: defaultProps,
+    })
+
+    const textarea = wrapper.find('textarea')
+    const style = textarea.attributes('style') || ''
+    expect(style).toContain('overflow-y')
+    expect(style).not.toBe('height: 46px;')
+  })
+
   it('should emit update:modelValue on input', async () => {
     const wrapper = mount(ChatBox, {
       props: defaultProps,
@@ -327,5 +338,61 @@ describe('ChatBox', () => {
 
     const chatBoxFiles = wrapper.findComponent({ name: 'ChatBoxFiles' })
     expect(chatBoxFiles.props('attachments')).toEqual(attachments)
+  })
+
+  it('should not auto-convert long pasted text into file behavior', async () => {
+    const wrapper = mount(ChatBox, {
+      props: {
+        ...defaultProps,
+        modelValue: '',
+      },
+    })
+
+    const textarea = wrapper.find('textarea')
+    const longText = 'line\n'.repeat(120)
+    const pasteEvent = new Event('paste') as ClipboardEvent
+
+    Object.defineProperty(pasteEvent, 'clipboardData', {
+      value: {
+        files: [],
+        getData: (type: string) => (type === 'text/plain' ? longText : ''),
+      },
+    })
+
+    textarea.element.dispatchEvent(pasteEvent)
+    await wrapper.vm.$nextTick()
+
+    const updates = wrapper.emitted('update:modelValue') || []
+    expect(updates.some((args) => args[0] === 'Process this file')).toBe(false)
+  })
+
+  it('should grow textarea until max height, then enable internal scroll', async () => {
+    const wrapper = mount(ChatBox, {
+      props: defaultProps,
+      attachTo: document.body,
+    })
+
+    const textarea = wrapper.find('textarea')
+    const textareaEl = textarea.element as HTMLTextAreaElement
+    await textarea.setValue('line\n'.repeat(80))
+    await wrapper.vm.$nextTick()
+
+    expect(textareaEl.style.height).toBe('220px')
+    expect(textareaEl.style.overflowY).toBe('auto')
+  })
+
+  it('should support direction classes for page-specific growth behavior', () => {
+    const downWrapper = mount(ChatBox, {
+      props: {
+        ...defaultProps,
+        expandDirection: 'down',
+      },
+    })
+    expect(downWrapper.find('.chatbox-wrapper').classes()).toContain('expand-down')
+
+    const upWrapper = mount(ChatBox, {
+      props: defaultProps,
+    })
+    expect(upWrapper.find('.chatbox-wrapper').classes()).toContain('expand-up')
   })
 })

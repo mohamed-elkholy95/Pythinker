@@ -286,7 +286,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--background-gray-main, #1a1a1a);
+  background: var(--background-gray-main);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -296,8 +296,8 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  background: var(--background-gray-secondary, #222);
-  border-bottom: 1px solid var(--border-color, #333);
+  background: var(--background-gray-secondary);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .session-info {
@@ -310,12 +310,12 @@ onMounted(() => {
   margin: 0;
   font-size: 14px;
   font-weight: 500;
-  color: var(--text-primary, #fff);
+  color: var(--text-primary);
 }
 
 .session-id {
   font-size: 12px;
-  color: var(--text-muted, #888);
+  color: var(--text-muted);
   font-family: monospace;
 }
 
@@ -331,17 +331,17 @@ onMounted(() => {
   gap: 6px;
   padding: 6px 12px;
   background: transparent;
-  border: 1px solid var(--border-color, #444);
+  border: 1px solid var(--border-color);
   border-radius: 4px;
-  color: var(--text-secondary, #aaa);
+  color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .btn-external:hover {
-  background: var(--background-hover, #333);
-  color: var(--text-primary, #fff);
+  background: var(--background-hover);
+  color: var(--text-primary);
 }
 
 .btn-close {
@@ -351,15 +351,15 @@ onMounted(() => {
   padding: 6px;
   background: transparent;
   border: none;
-  color: var(--text-muted, #888);
+  color: var(--text-muted);
   cursor: pointer;
   border-radius: 4px;
   transition: all 0.2s;
 }
 
 .btn-close:hover {
-  background: var(--background-hover, #333);
-  color: var(--text-primary, #fff);
+  background: var(--background-hover);
+  color: var(--text-primary);
 }
 
 .player-container {
@@ -381,49 +381,49 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  color: var(--text-muted, #888);
+  color: var(--text-muted);
 }
 
 .loading-spinner {
   width: 24px;
   height: 24px;
-  border: 2px solid #444;
-  border-top-color: #10b981;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--function-success);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
 
 .player-error {
-  color: #ef4444;
+  color: var(--function-error);
 }
 
 .btn-retry {
   padding: 8px 16px;
-  background: var(--background-secondary, #333);
-  border: 1px solid var(--border-color, #444);
+  background: var(--background-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 4px;
-  color: var(--text-primary, #fff);
+  color: var(--text-primary);
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .btn-retry:hover {
-  background: var(--background-hover, #444);
+  background: var(--background-hover);
 }
 
 .player-iframe {
   width: 100%;
   height: 100%;
-  background: #000;
+  background: var(--background-main);
 }
 
 .icon-muted {
-  color: var(--text-muted, #666);
+  color: var(--text-muted);
 }
 
 .text-muted {
   font-size: 12px;
-  color: var(--text-muted, #666);
+  color: var(--text-muted);
   margin: 0;
 }
 
@@ -432,8 +432,8 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  background: var(--background-gray-secondary, #222);
-  border-top: 1px solid var(--border-color, #333);
+  background: var(--background-gray-secondary);
+  border-top: 1px solid var(--border-color);
 }
 
 .controls-left,
@@ -457,16 +457,16 @@ onMounted(() => {
   height: 36px;
   padding: 0;
   background: transparent;
-  border: 1px solid var(--border-color, #444);
+  border: 1px solid var(--border-color);
   border-radius: 4px;
-  color: var(--text-secondary, #aaa);
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .btn-control:hover:not(:disabled) {
-  background: var(--background-hover, #333);
-  color: var(--text-primary, #fff);
+  background: var(--background-hover);
+  color: var(--text-primary);
 }
 
 .btn-control:disabled {
@@ -477,15 +477,15 @@ onMounted(() => {
 .time-display {
   font-size: 13px;
   font-family: monospace;
-  color: var(--text-secondary, #aaa);
+  color: var(--text-secondary);
 }
 
 .speed-select {
   padding: 6px 8px;
-  background: var(--background-secondary, #333);
-  border: 1px solid var(--border-color, #444);
+  background: var(--background-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 4px;
-  color: var(--text-primary, #fff);
+  color: var(--text-primary);
   font-size: 12px;
   cursor: pointer;
 }

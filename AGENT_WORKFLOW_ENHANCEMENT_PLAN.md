@@ -9,7 +9,7 @@ This comprehensive plan addresses critical gaps in agent monitoring, workflow lo
 ### Agent Workflow Structure
 The system implements multiple workflow patterns:
 - **Single Agent**: Basic Plan-Act cycles with reflection
-- **LangGraph Flow**: State-based workflow with checkpointing
+- **Legacy Flow Flow**: State-based workflow with checkpointing
 - **Multi-Agent**: Hierarchical coordination with specialist agents
 - **Discussion Flow**: Collaborative problem-solving approach
 

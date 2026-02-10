@@ -23,7 +23,7 @@ The Python ecosystem offers a rich set of libraries and frameworks for building 
 
 ### Development Frameworks
 
-*   **LangGraph:** A specialized framework within the LangChain ecosystem, focusing on building controllable, stateful agents with streaming support. It offers fine-grained control over agent behavior, human-in-the-loop moderation, and persistent memory [1].
+*   **Legacy Flow:** A specialized framework within the LangChain ecosystem, focusing on building controllable, stateful agents with streaming support. It offers fine-grained control over agent behavior, human-in-the-loop moderation, and persistent memory [1].
 *   **AutoGen:** Microsoft's modular framework for building single and multi-agent AI systems. It provides layered abstractions, from UI prototyping to multi-agent orchestration, and supports asynchronous execution and integration with models like GPT-4 [1].
 *   **CrewAI:** An open-source framework designed to simplify the creation and coordination of high-performing multi-agent systems. It emphasizes role-based agent design, task assignment engines, and scalable multi-agent support [1].
 *   **LlamaIndex:** A framework for building agentic AI workflows that extract, synthesize, and act on complex document-based knowledge. It includes tools for document ingestion, parsing, indexing, and retrieval, enabling context-augmented agents [1].
@@ -48,7 +48,7 @@ Designing robust and scalable AI agent systems involves careful consideration of
 *   **Data Infrastructure:** AI agents heavily rely on robust data infrastructure for real-time data ingestion, processing, and storage. Technologies like Apache Kafka for streaming, Apache Cassandra or PostgreSQL for persistent storage, and OpenSearch for vector search are critical [2].
 *   **Observability and Monitoring:** Implementing comprehensive logging, tracing, and monitoring mechanisms is crucial for understanding agent behavior, debugging issues, and ensuring compliance. This allows for tracking decisions, tool choices, and memory updates [1].
 *   **Security and Access Control:** Given the potential for agents to interact with sensitive data and systems, the architecture must incorporate strong security measures, including granular access control, secure API integrations, and policy enforcement.
-*   **Human-in-the-Loop (HITL):** For critical applications, incorporating human oversight and intervention points within the agent's workflow can improve reliability, safety, and alignment with human intentions. Frameworks like LangGraph support HITL moderation [1].
+*   **Human-in-the-Loop (HITL):** For critical applications, incorporating human oversight and intervention points within the agent's workflow can improve reliability, safety, and alignment with human intentions. Frameworks like Legacy Flow support HITL moderation [1].
 *   **Tool Management:** A well-designed architecture should include a robust system for managing and integrating external tools and APIs, allowing agents to expand their capabilities dynamically. This often involves defining clear preconditions and postconditions for tool usage [1].
 *   **Memory and Context Management:** Effective management of both short-term conversational memory and long-term knowledge bases is vital. This can involve using vector databases for semantic search and relational databases for structured data [1].
 *   **Orchestration:** For multi-agent systems, an orchestration layer is necessary to manage communication, coordination, task assignment, and conflict resolution among different agents.

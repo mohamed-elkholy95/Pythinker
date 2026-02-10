@@ -70,12 +70,12 @@ const iconComponent = computed(() => {
 .empty-state.overlay {
   position: absolute;
   inset: 0;
-  background: var(--background-white-main);
+  background: var(--background-surface);
   pointer-events: none;
 }
 
 :global(.dark) .empty-state.overlay {
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--background-mask);
 }
 
 .empty-icon {

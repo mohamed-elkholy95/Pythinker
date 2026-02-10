@@ -300,7 +300,7 @@
 - **No frontend tests exist** despite Vitest being configured
 - **Coverage threshold at 24%** with extensive omit list
 - **`test_browser_positioning.py`** is a standalone script, not a proper pytest test
-- **8 tests in `test_langgraph_checkpointing.py`** test Python boolean logic, not application code
+- **8 tests in `test_legacy-flow_checkpointing.py`** test Python boolean logic, not application code
 
 ### 7.2 Fixture Duplication
 - `mock_llm` defined independently in **20 files**
@@ -309,7 +309,7 @@
 
 ### 7.3 Test Infrastructure
 - `sys.setrecursionlimit(10000)` workaround for import issues
-- `_preload_langgraph()` hack for module shadowing (local `langgraph` shadows PyPI package)
+- `_preload_legacy-flow()` hack for module shadowing (local `legacy-flow` shadows PyPI package)
 - Placeholder test with `pass` body in `test_token_pressure_compaction.py`
 - 6 empty test directories with only `__init__.py`
 
@@ -342,7 +342,7 @@
 
 ### Priority 4: Architecture Fixes (Next Sprint)
 1. Fix application layer → interface/infrastructure imports
-2. Rename `app/domain/services/langgraph` to avoid shadowing
+2. Rename `app/domain/services/legacy-flow` to avoid shadowing
 3. Resolve duplicate `CriticAgent`, `SkillListTool`, `PressureLevel` classes
 4. Extract shared LLM adapter base class
 5. Consolidate `is_research_task()` implementations

@@ -140,6 +140,39 @@ describe('ChatMessage', () => {
 
       expect(wrapper.text()).toContain('just now')
     })
+
+    it('should show expand control for long user messages', async () => {
+      const longUserMessage = {
+        ...mockUserMessage,
+        id: 'long-user-message',
+        content: {
+          ...mockUserMessage.content,
+          content: 'A'.repeat(1200),
+        },
+      }
+
+      const wrapper = mount(ChatMessage, {
+        props: {
+          message: longUserMessage,
+        },
+        global: {
+          stubs: {
+            Bot: true,
+            CheckIcon: true,
+          },
+        },
+      })
+
+      const expandButton = wrapper.find('.message-expand-btn')
+      expect(expandButton.exists()).toBe(true)
+      expect(expandButton.text()).toContain('Expand')
+
+      const content = wrapper.find('.message-markdown')
+      expect(content.classes()).toContain('message-markdown-collapsed')
+
+      await expandButton.trigger('click')
+      expect(content.classes()).not.toContain('message-markdown-collapsed')
+    })
   })
 
   describe('Assistant messages', () => {
@@ -178,6 +211,50 @@ describe('ChatMessage', () => {
       const _hasIcon = wrapper.find('svg').exists() || wrapper.findComponent({ name: 'Bot' }).exists()
       // Just verify the message renders correctly
       expect(wrapper.text()).toContain('doing well')
+    })
+
+    it('should show expand control for long assistant messages', () => {
+      const longAssistantMessage = {
+        ...mockAssistantMessage,
+        id: 'long-assistant-message',
+        content: {
+          ...mockAssistantMessage.content,
+          content: 'B'.repeat(1400),
+        },
+      }
+
+      const wrapper = mount(ChatMessage, {
+        props: {
+          message: longAssistantMessage,
+        },
+        global: {
+          stubs: {
+            Bot: true,
+            PythinkerTextIcon: true,
+          },
+        },
+      })
+
+      const expandButton = wrapper.find('.message-expand-btn')
+      expect(expandButton.exists()).toBe(true)
+      expect(expandButton.text()).toContain('Expand')
+      expect(wrapper.find('.message-markdown').classes()).toContain('message-markdown-collapsed')
+    })
+
+    it('should not show expand control for short assistant messages', () => {
+      const wrapper = mount(ChatMessage, {
+        props: {
+          message: mockAssistantMessage,
+        },
+        global: {
+          stubs: {
+            Bot: true,
+            PythinkerTextIcon: true,
+          },
+        },
+      })
+
+      expect(wrapper.find('.message-expand-btn').exists()).toBe(false)
     })
   })
 

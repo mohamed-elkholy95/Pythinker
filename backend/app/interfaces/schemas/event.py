@@ -272,6 +272,7 @@ class ModeChangeSSEEvent(BaseSSEEvent):
 class StreamEventData(BaseEventData):
     content: str
     is_final: bool = False
+    phase: str | None = None
 
 
 class StreamSSEEvent(BaseSSEEvent):
@@ -459,6 +460,9 @@ class SkillActivationEventData(BaseEventData):
     skill_names: list[str] = []
     tool_restrictions: list[str] | None = None
     prompt_chars: int = 0
+    activation_sources: dict[str, list[str]] = {}
+    command_skill_id: str | None = None
+    auto_trigger_enabled: bool = False
 
 
 class SkillActivationSSEEvent(BaseSSEEvent):
@@ -474,6 +478,9 @@ class SkillActivationSSEEvent(BaseSSEEvent):
                 skill_names=event.skill_names,
                 tool_restrictions=event.tool_restrictions,
                 prompt_chars=event.prompt_chars,
+                activation_sources=event.activation_sources,
+                command_skill_id=event.command_skill_id,
+                auto_trigger_enabled=event.auto_trigger_enabled,
             )
         )
 

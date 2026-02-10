@@ -34,7 +34,7 @@ Pythinker is an AI Agent system that runs tools (browser, terminal, files, searc
 
 For comprehensive coding standards, see:
 - **[Engineering Instructions](instructions.md)** - Core behaviors, leverage patterns, output standards (MUST READ)
-- **[Python Standards](docs/guides/PYTHON_STANDARDS.md)** - Pydantic v2, FastAPI, LangGraph, async patterns
+- **[Python Standards](docs/guides/PYTHON_STANDARDS.md)** - Pydantic v2, FastAPI, Legacy Flow, async patterns
 - **[Vue Standards](docs/guides/VUE_STANDARDS.md)** - Composition API, Pinia, TypeScript
 - **[Superpowers Workflow](docs/guides/SUPERPOWERS.md)** - `/brainstorm`, `/tdd`, `/debug` commands
 - **[OpenReplay & Sandbox](docs/guides/OPENREPLAY.md)** - Session replay, CDP screencast
@@ -88,7 +88,7 @@ bun run test:run     # Single test run
 ### Key Patterns
 - **Event Sourcing**: Session events in MongoDB
 - **SSE Streaming**: Real-time events to frontend
-- **LangGraph Workflows**: Planning → Execution → Reflection → Verification
+- **Legacy Flow Workflows**: Planning → Execution → Reflection → Verification
 - **Sandbox Isolation**: Docker containers with CDP screencast
 
 ---

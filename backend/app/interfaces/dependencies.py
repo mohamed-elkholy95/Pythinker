@@ -12,6 +12,16 @@ from app.application.services.agent_service import AgentService
 from app.application.services.auth_service import AuthService
 from app.application.services.email_service import EmailService
 from app.application.services.file_service import FileService
+from app.application.services.rating_service import RatingService
+from app.application.services.rating_service import get_rating_service as _get_rating_service
+from app.application.services.screenshot_service import (
+    ScreenshotQueryService,
+)
+from app.application.services.screenshot_service import (
+    get_screenshot_query_service as _get_screenshot_query_service,
+)
+from app.application.services.settings_service import SettingsService
+from app.application.services.settings_service import get_settings_service as _get_settings_service
 from app.application.services.token_service import TokenService
 from app.core.config import get_settings
 from app.domain.models.user import User, UserRole
@@ -180,6 +190,24 @@ def get_email_service() -> EmailService:
 def get_sandbox_cls():
     """Get sandbox class for dependency injection"""
     return DockerSandbox
+
+
+@lru_cache
+def get_settings_service() -> SettingsService:
+    """Get settings service instance."""
+    return _get_settings_service()
+
+
+@lru_cache
+def get_rating_service() -> RatingService:
+    """Get rating service instance."""
+    return _get_rating_service()
+
+
+@lru_cache
+def get_screenshot_query_service() -> ScreenshotQueryService:
+    """Get screenshot query service instance."""
+    return _get_screenshot_query_service()
 
 
 async def get_current_user(

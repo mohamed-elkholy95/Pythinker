@@ -3,7 +3,21 @@
     <div class="flex max-w-[90%] flex-col gap-1 items-end">
       <div
         class="relative flex items-center rounded-[12px] overflow-hidden bg-[var(--bolt-elements-bg-depth-2)] p-3 ltr:rounded-br-none rtl:rounded-bl-none border border-[var(--bolt-elements-borderColor)]"
-        v-html="renderMarkdown(messageContent.content)">
+      >
+        <div
+          class="message-markdown markdown-content w-full"
+          :class="{ 'message-markdown-collapsed': shouldCollapseMessageContent }"
+          v-html="renderMarkdown(messageContent.content)"
+        />
+        <div v-if="showMessageExpandControl" class="message-collapse-overlay">
+          <button class="message-expand-btn" @click="toggleMessageExpand">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m6 9 6 6 6-6"></path>
+            </svg>
+            <span>Expand</span>
+          </button>
+        </div>
       </div>
       <div class="flex items-center justify-end gap-[2px] invisible group-hover:visible">
         <button
@@ -39,8 +53,23 @@
       </div>
     </div>
     <div
-      class="max-w-none p-0 m-0 prose prose-sm sm:prose-base dark:prose-invert [&_pre:not(.shiki)]:!bg-[var(--bolt-elements-messages-code-background)] [&_pre:not(.shiki)]:text-[var(--bolt-elements-messages-inlineCode-text)] text-base text-[var(--text-primary)]"
-      v-html="renderMarkdown(messageContent.content)"></div>
+      class="relative max-w-none p-0 m-0 prose prose-sm sm:prose-base dark:prose-invert [&_pre:not(.shiki)]:!bg-[var(--bolt-elements-messages-code-background)] [&_pre:not(.shiki)]:text-[var(--bolt-elements-messages-inlineCode-text)] text-base text-[var(--text-primary)]"
+    >
+      <div
+        class="message-markdown markdown-content"
+        :class="{ 'message-markdown-collapsed': shouldCollapseMessageContent }"
+        v-html="renderMarkdown(messageContent.content)"
+      />
+      <div v-if="showMessageExpandControl" class="message-collapse-overlay">
+        <button class="message-expand-btn" @click="toggleMessageExpand">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m6 9 6 6 6-6"></path>
+          </svg>
+          <span>Expand</span>
+        </button>
+      </div>
+    </div>
   </div>
   <ToolUse v-else-if="message.type === 'tool'" :tool="toolContent" :is-active="true" @click="handleToolClick(toolContent)" />
   <div v-else-if="message.type === 'step'" class="flex flex-col mt-2">
@@ -67,7 +96,7 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
               class="transition-transform duration-200 text-[var(--text-tertiary)]"
-              :class="{ 'rotate-180': !isExpanded }">
+              :class="{ 'rotate-180': !isStepExpanded }">
               <path d="m6 9 6 6 6-6"></path>
             </svg>
           </span>
@@ -81,7 +110,7 @@
       </div>
     </div>
     <!-- Tools list with timeline -->
-    <div class="flex" v-show="isExpanded">
+    <div class="flex" v-show="isStepExpanded">
       <div class="w-[28px] relative flex-shrink-0">
         <div class="border-l border-dashed border-[var(--border-dark)] absolute start-[8px] top-0 bottom-0"></div>
       </div>
@@ -240,9 +269,28 @@ const reportData = computed<ReportData>(() => {
   };
 });
 
-// Control content expand/collapse state
-const isExpanded = ref(true);
-const userToggled = ref(false);
+// Control step expand/collapse state
+const isStepExpanded = ref(true);
+const stepUserToggled = ref(false);
+
+// Control long-message expand/collapse state
+const LONG_MESSAGE_CHAR_THRESHOLD = 700;
+const LONG_MESSAGE_LINE_THRESHOLD = 10;
+const isMessageExpanded = ref(true);
+const messageText = computed(() => {
+  if (props.message.type !== 'user' && props.message.type !== 'assistant') {
+    return '';
+  }
+  return messageContent.value?.content ?? '';
+});
+const isLongMessage = computed(() => {
+  const text = messageText.value.trim();
+  if (!text) return false;
+  const lineCount = text.split(/\r?\n/).length;
+  return text.length > LONG_MESSAGE_CHAR_THRESHOLD || lineCount > LONG_MESSAGE_LINE_THRESHOLD;
+});
+const shouldCollapseMessageContent = computed(() => isLongMessage.value && !isMessageExpanded.value);
+const showMessageExpandControl = computed(() => shouldCollapseMessageContent.value);
 
 const { relativeTime } = useRelativeTime();
 
@@ -326,18 +374,34 @@ const createMarkedRenderer = () => {
 };
 
 const handleStepToggle = () => {
-  userToggled.value = true;
-  isExpanded.value = !isExpanded.value;
+  stepUserToggled.value = true;
+  isStepExpanded.value = !isStepExpanded.value;
 };
+
+const toggleMessageExpand = () => {
+  isMessageExpanded.value = !isMessageExpanded.value;
+};
+
+const initializeMessageExpansion = () => {
+  isMessageExpanded.value = !isLongMessage.value;
+};
+
+watch(
+  () => props.message.id,
+  () => {
+    initializeMessageExpansion();
+  },
+  { immediate: true }
+);
 
 watch(
   () => [stepContent.value?.status, props.activeThinkingStepId] as const,
   ([status, thinkingId]) => {
-    if (status === 'completed' && !userToggled.value) {
-      isExpanded.value = false;
+    if (status === 'completed' && !stepUserToggled.value) {
+      isStepExpanded.value = false;
     }
-    if (thinkingId === stepContent.value?.id && !userToggled.value) {
-      isExpanded.value = true;
+    if (thinkingId === stepContent.value?.id && !stepUserToggled.value) {
+      isStepExpanded.value = true;
     }
   },
   { immediate: true }
@@ -452,5 +516,53 @@ const renderMarkdown = (text: string): string => {
 :global(.dark) .shiki-pending {
   background: #1a1a2e;
   border-color: #30363d;
+}
+
+.message-markdown {
+  position: relative;
+  width: 100%;
+}
+
+.message-markdown-collapsed {
+  max-height: 300px;
+  overflow: hidden;
+}
+
+.message-collapse-overlay {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  padding: 28px 12px 10px;
+  background: linear-gradient(to top, var(--background-white-main) 35%, transparent);
+}
+
+.message-expand-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-main);
+  border-radius: 9999px;
+  padding: 6px 12px;
+  background: var(--background-white-main);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.message-expand-btn:hover {
+  background: var(--fill-tsp-gray-main);
+}
+
+:global(.dark) .message-collapse-overlay {
+  background: linear-gradient(to top, rgba(24, 24, 27, 0.95) 35%, transparent);
+}
+
+:global(.dark) .message-expand-btn {
+  background: rgba(39, 39, 42, 0.95);
 }
 </style>

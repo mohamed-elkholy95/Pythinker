@@ -1,5 +1,5 @@
 <template>
-    <div class="chatbox-wrapper">
+    <div class="chatbox-wrapper" :class="`expand-${props.expandDirection}`">
         <div class="chatbox-container">
             <ConnectorBanner v-if="showConnectorBanner" />
             <ChatBoxFiles ref="chatBoxFileListRef" :attachments="attachments" @fileClick="$emit('fileClick', $event)" />
@@ -22,12 +22,11 @@
                     ref="textareaRef"
                     class="chatbox-textarea"
                     :rows="rows" :value="modelValue"
-                    @input="$emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
+                    @input="handleInput"
                     @compositionstart="isComposing = true" @compositionend="isComposing = false"
                     @keydown.enter.exact="handleEnterKeydown"
-                    @paste="handlePaste"
                     :placeholder="t('Give Pythinker a task to work on...')"
-                    :style="{ height: '46px' }"></textarea>
+                    :style="textareaStyle"></textarea>
             </div>
             <footer class="chatbox-footer">
                 <div class="chatbox-actions-left">
@@ -54,7 +53,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, onMounted, nextTick } from 'vue';
 import SendIcon from './icons/SendIcon.vue';
 import { useI18n } from 'vue-i18n';
 import ChatBoxFiles from './ChatBoxFiles.vue';
@@ -95,19 +94,45 @@ const COMMAND_SKILL_MAP: Record<string, string> = {
   'verify': 'verification-before-completion',
 };
 
-// Threshold for converting pasted text to file attachment
-const LONG_TEXT_CHAR_THRESHOLD = 500;  // Characters
-const LONG_TEXT_LINE_THRESHOLD = 15;   // Lines
-
-
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     modelValue: string;
     rows: number;
     isRunning: boolean;
     attachments: FileInfo[];
     showConnectorBanner?: boolean;
     isBlocked?: boolean;
-}>();
+    expandDirection?: 'up' | 'down';
+}>(), {
+  expandDirection: 'up',
+});
+
+const MIN_TEXTAREA_HEIGHT = 46;
+const MAX_TEXTAREA_HEIGHT = 220;
+const ESTIMATED_LINE_HEIGHT = 24;
+const ESTIMATED_VERTICAL_PADDING = 20;
+
+const textareaStyle = ref({
+  height: `${MIN_TEXTAREA_HEIGHT}px`,
+  overflowY: 'hidden',
+});
+
+const resizeTextarea = (inputValue?: string) => {
+  const textarea = textareaRef.value;
+  if (!textarea) return;
+
+  textarea.style.height = `${MIN_TEXTAREA_HEIGHT}px`;
+  const measuredHeight = textarea.scrollHeight;
+  const value = typeof inputValue === 'string' ? inputValue : textarea.value;
+  const lineCount = Math.max((value || '').split('\n').length, 1);
+  const estimatedHeight = lineCount * ESTIMATED_LINE_HEIGHT + ESTIMATED_VERTICAL_PADDING;
+  const contentHeight = measuredHeight > MIN_TEXTAREA_HEIGHT ? measuredHeight : estimatedHeight;
+  const nextHeight = Math.min(Math.max(contentHeight, MIN_TEXTAREA_HEIGHT), MAX_TEXTAREA_HEIGHT);
+
+  textareaStyle.value = {
+    height: `${nextHeight}px`,
+    overflowY: contentHeight > MAX_TEXTAREA_HEIGHT ? 'auto' : 'hidden',
+  };
+};
 
 const sendEnabled = computed(() => {
     return !props.isBlocked && chatBoxFileListRef.value?.isAllUploaded && hasTextInput.value;
@@ -119,93 +144,6 @@ const emit = defineEmits<{
     (e: 'stop'): void;
     (e: 'fileClick', file: FileInfo): void;
 }>();
-
-/**
- * Generate a filename for the pasted content
- * Uses format: pasted_text_1.txt, pasted_text_2.txt, etc.
- * Counts existing pasted_text files in attachments to determine next number
- */
-const generatePastedFilename = (): string => {
-    // Find the highest number among existing pasted_text_*.txt files
-    const pattern = /^pasted_text_(\d+)\.txt$/;
-    let maxNumber = 0;
-
-    for (const attachment of props.attachments) {
-        const match = attachment.name.match(pattern);
-        if (match) {
-            const num = parseInt(match[1], 10);
-            if (num > maxNumber) {
-                maxNumber = num;
-            }
-        }
-    }
-
-    return `pasted_text_${maxNumber + 1}.txt`;
-};
-
-/**
- * Check if text should be converted to a file attachment
- */
-const shouldConvertToFile = (text: string): boolean => {
-    const charCount = text.length;
-    const lineCount = text.split('\n').length;
-
-    return charCount >= LONG_TEXT_CHAR_THRESHOLD || lineCount >= LONG_TEXT_LINE_THRESHOLD;
-};
-
-/**
- * Convert text to a File object
- */
-const textToFile = (text: string, filename: string): File => {
-    const blob = new Blob([text], { type: 'text/plain' });
-    return new File([blob], filename, { type: 'text/plain' });
-};
-
-/**
- * Handle paste event - convert long text to file attachment
- */
-const handlePaste = async (event: ClipboardEvent) => {
-    const clipboardData = event.clipboardData;
-    if (!clipboardData) return;
-
-    // Check if there are files being pasted (e.g., images)
-    if (clipboardData.files.length > 0) {
-        // Let default behavior handle file paste, or handle explicitly
-        return;
-    }
-
-    const pastedText = clipboardData.getData('text/plain');
-    if (!pastedText) return;
-
-    // Check if the pasted text is long enough to convert
-    if (shouldConvertToFile(pastedText)) {
-        // Prevent default paste behavior
-        event.preventDefault();
-
-        // Generate numbered filename (pasted_text_1.txt, pasted_text_2.txt, etc.)
-        const filename = generatePastedFilename();
-
-        // Convert to File and upload
-        const file = textToFile(pastedText, filename);
-
-        // Upload via ChatBoxFiles component
-        if (chatBoxFileListRef.value) {
-            await chatBoxFileListRef.value.uploadFileFromBlob(file);
-        }
-
-        // Get line count for toast message
-        const lineCount = pastedText.split('\n').length;
-
-        // Show toast notification
-        showInfoToast(t('Long text converted to file attachment ({lines} lines)', { lines: lineCount }));
-
-        // If textarea is empty, add a vague prompt so user can decide what to do
-        if (!props.modelValue.trim()) {
-            emit('update:modelValue', t('Process this file'));
-        }
-    }
-    // Otherwise, let normal paste happen
-};
 
 const handleEnterKeydown = (event: KeyboardEvent) => {
     if (isComposing.value) {
@@ -227,6 +165,12 @@ const handleSubmit = () => {
 
 const handleStop = () => {
     emit('stop');
+};
+
+const handleInput = (event: Event) => {
+  const target = event.target as HTMLTextAreaElement;
+  emit('update:modelValue', target.value);
+  resizeTextarea(target.value);
 };
 
 const uploadFile = () => {
@@ -251,12 +195,27 @@ watch(() => props.modelValue, (value) => {
       }
     }
 });
+
+watch(() => props.modelValue, async () => {
+  await nextTick();
+  resizeTextarea(props.modelValue);
+});
+
+onMounted(() => {
+  resizeTextarea();
+});
 </script>
 
 <style scoped>
 .chatbox-wrapper {
     padding-bottom: 12px;
     position: relative;
+}
+
+.chatbox-wrapper.expand-up {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
 }
 
 .chatbox-container {

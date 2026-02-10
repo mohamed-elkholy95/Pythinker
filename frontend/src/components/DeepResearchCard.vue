@@ -45,6 +45,14 @@
       />
     </div>
 
+    <div class="workflow-meta">
+      <ResearchPhaseIndicator :phase="phaseForIndicator" compact />
+      <div v-if="content.latest_reflection" class="reflection-note">
+        <span class="reflection-label">Learned:</span>
+        <span class="reflection-text">{{ content.latest_reflection.learned }}</span>
+      </div>
+    </div>
+
     <!-- Expandable Query List -->
     <Transition name="expand">
       <div v-if="isExpanded" class="query-list">
@@ -67,6 +75,7 @@ import { ref, computed } from 'vue'
 import { Search, Loader2, CheckCircle2, XCircle, ChevronDown } from 'lucide-vue-next'
 import RunButtonDropdown from './RunButtonDropdown.vue'
 import DeepResearchQueryItem from './DeepResearchQueryItem.vue'
+import ResearchPhaseIndicator from '@/components/research/ResearchPhaseIndicator.vue'
 import type { DeepResearchContent } from '@/types/message'
 
 interface Props {
@@ -86,9 +95,22 @@ const isExpanded = ref(false)
 // Status computed properties
 const isPending = computed(() => props.content.status === 'pending')
 const isAwaitingApproval = computed(() => props.content.status === 'awaiting_approval')
-const isSearching = computed(() => props.content.status === 'started')
+const isSearching = computed(() =>
+  props.content.status === 'started' ||
+  props.content.status === 'query_started' ||
+  props.content.status === 'query_completed' ||
+  props.content.status === 'query_skipped'
+)
 const isCompleted = computed(() => props.content.status === 'completed')
 const isCancelled = computed(() => props.content.status === 'cancelled')
+
+const phaseForIndicator = computed(() => {
+  if (props.content.phase) return props.content.phase
+  if (isPending.value || isAwaitingApproval.value) return 'planning'
+  if (isSearching.value) return 'executing'
+  if (isCompleted.value) return 'completed'
+  return 'summarizing'
+})
 
 // Status text
 const statusText = computed(() => {
@@ -98,6 +120,9 @@ const statusText = computed(() => {
     case 'awaiting_approval':
       return 'Waiting for approval'
     case 'started':
+    case 'query_started':
+    case 'query_completed':
+    case 'query_skipped':
       return `Searching... (${props.content.completed_count}/${props.content.total_count})`
     case 'completed':
       return 'Research completed'
@@ -252,6 +277,30 @@ const handleToggleAutoRun = () => {
   border-top: 1px solid var(--bolt-elements-borderColor);
   margin-top: -1px;
   padding-top: 14px;
+}
+
+.workflow-meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) var(--space-3);
+}
+
+.reflection-note {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.reflection-label {
+  color: var(--text-tertiary);
+  font-weight: var(--font-medium);
+}
+
+.reflection-text {
+  color: var(--text-secondary);
 }
 
 /* Expand transition */

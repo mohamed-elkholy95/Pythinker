@@ -2,8 +2,9 @@
 FROM node:22-slim AS build-stage
 
 WORKDIR /app
-# Constrain Vite/Node heap to avoid OOM kills in constrained Docker environments.
-ENV NODE_OPTIONS=--max-old-space-size=2048
+# Vite build for this bundle can exceed 2 GB old-space in CI; keep headroom configurable.
+ARG NODE_MAX_OLD_SPACE_SIZE=3072
+ENV NODE_OPTIONS=--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE}
 
 # Install dependencies first for better layer caching
 COPY package.json package-lock.json ./

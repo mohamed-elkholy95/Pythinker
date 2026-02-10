@@ -154,7 +154,9 @@ import { saveAs } from 'file-saver';
 import {
   FileText,
   MoreHorizontal,
-  MessageSquare,
+  MessageCircle,
+  Puzzle,
+  Briefcase,
   ArrowRight,
   MousePointer2,
   Share2,
@@ -184,7 +186,7 @@ const showMenu = ref(false);
 const showDownloadMenu = ref(false);
 
 const getSuggestionIcon = (index: number) => {
-  const icons = [MessageSquare, MessageSquare, FileText];
+  const icons = [Puzzle, MessageCircle, MessageCircle, Briefcase];
   return icons[index % icons.length];
 };
 
@@ -422,15 +424,17 @@ const _handleSaveToOneDriveWork = () => {
 
 /* ===== SUGGESTIONS ===== */
 .suggestions-section {
-  border-top: 1px solid var(--border-main);
-  padding: 0 6px 6px;
+  border-top: 1px solid #d8dbe0;
+  margin-top: 14px;
+  padding: 0;
 }
 
 .suggestions-header {
-  padding: 12px 10px 4px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-tertiary);
+  padding: 16px 0 8px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #7b8088;
 }
 
 .suggestions-list {
@@ -441,53 +445,79 @@ const _handleSaveToOneDriveWork = () => {
 .suggestion-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 10px;
+  gap: 14px;
+  padding: 16px 2px;
   cursor: pointer;
-  border-radius: 10px;
-  transition: background 0.15s ease;
+  border-bottom: 1px solid #d8dbe0;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .suggestion-item:hover {
-  background: var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.04));
+  background: rgba(15, 23, 42, 0.03);
 }
 
 .suggestion-icon-wrap {
   flex-shrink: 0;
-  width: 28px;
-  height: 28px;
+  width: 38px;
+  height: 38px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  background: var(--fill-tsp-gray-main, rgba(0, 0, 0, 0.04));
-  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  background: transparent;
+  border: none;
 }
 
 .suggestion-icon {
-  width: 14px;
-  height: 14px;
-  color: var(--icon-tertiary);
+  width: 30px;
+  height: 30px;
+  color: #888b90;
+  stroke-width: 1.7;
 }
 
 .suggestion-text {
   flex: 1;
   min-width: 0;
-  font-size: 13px;
-  font-weight: 400;
-  color: var(--text-primary);
-  line-height: 1.45;
+  margin: 0;
+  font-size: 22px;
+  font-weight: 500;
+  color: #595c60;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
 }
 
 .suggestion-arrow {
   flex-shrink: 0;
-  color: var(--icon-tertiary);
-  opacity: 0.5;
-  transition: opacity 0.15s ease;
+  width: 34px;
+  height: 34px;
+  color: #a3a6ab;
+  opacity: 1;
+  transition: color 0.15s ease;
+  stroke-width: 1.7;
 }
 
 .suggestion-item:hover .suggestion-arrow {
-  opacity: 1;
+  color: #8d9198;
+}
+
+@media (max-width: 900px) {
+  .suggestions-header {
+    font-size: 16px;
+  }
+
+  .suggestion-icon {
+    width: 22px;
+    height: 22px;
+  }
+
+  .suggestion-text {
+    font-size: 18px;
+  }
+
+  .suggestion-arrow {
+    width: 24px;
+    height: 24px;
+  }
 }
 
 /* ===== MENU POPOVER ===== */

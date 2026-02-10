@@ -420,8 +420,16 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Qdrant initialization failed (graceful degradation): {e}")
             _health_state["qdrant"] = False
 
-        # Initialize Sandbox Pool (Phase 3: Pre-warming) if enabled
-        if settings.sandbox_pool_enabled:
+        # Initialize Sandbox Pool (Phase 3: Pre-warming) if enabled.
+        # In static dev sandbox mode (SANDBOX_ADDRESS configured), pooling can
+        # create contention against shared CDP endpoints across sessions.
+        logger.info("Sandbox lifecycle mode: %s", settings.sandbox_lifecycle_mode)
+        sandbox_pool_enabled = (
+            settings.sandbox_pool_enabled
+            and not settings.uses_static_sandbox_addresses
+            and settings.sandbox_lifecycle_mode != "ephemeral"
+        )
+        if sandbox_pool_enabled:
             try:
                 from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
 
@@ -432,7 +440,12 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"Sandbox pool initialization failed (graceful degradation): {e}")
                 _health_state["sandbox_pool"] = False
         else:
-            logger.info("Sandbox pool disabled by configuration")
+            if settings.sandbox_pool_enabled and settings.uses_static_sandbox_addresses:
+                logger.info("Sandbox pool disabled: static SANDBOX_ADDRESS mode uses direct sandbox allocation")
+            elif settings.sandbox_pool_enabled and settings.sandbox_lifecycle_mode == "ephemeral":
+                logger.info("Sandbox pool disabled: ephemeral sandbox lifecycle requires per-session containers")
+            else:
+                logger.info("Sandbox pool disabled by configuration")
 
         # Initialize enhanced system components
         await system_integrator.initialize()
@@ -477,7 +490,12 @@ async def lifespan(app: FastAPI):
                     await memory_cleanup_task
 
             # Shutdown sandbox pool first (Phase 3)
-            if settings.sandbox_pool_enabled:
+            sandbox_pool_enabled = (
+                settings.sandbox_pool_enabled
+                and not settings.uses_static_sandbox_addresses
+                and settings.sandbox_lifecycle_mode != "ephemeral"
+            )
+            if sandbox_pool_enabled:
                 try:
                     await asyncio.wait_for(stop_sandbox_pool(), timeout=30.0)
                     _health_state["sandbox_pool"] = False

@@ -24,7 +24,7 @@
                         <ArrowLeft class="w-5 h-5" />
                     </button>
                     <div v-if="previewFile" class="header-icon">
-                        <component :is="getFileIconComponent(previewFile.filename)" class="w-5 h-5 text-white" />
+                        <component :is="getFileIconComponent(previewFile.filename)" class="w-5 h-5 text-[var(--text-white)]" />
                     </div>
                     <div class="header-info">
                         <h2 class="header-title">
@@ -75,8 +75,8 @@
                         :class="[
                             'px-4 py-2 rounded-full text-sm font-medium transition-colors',
                             activeFilter === tab.id
-                                ? 'bg-[var(--Button-primary-black)] text-white'
-                                : 'bg-[var(--fill-tsp-white-main)] text-[var(--text-secondary)] hover:bg-[var(--fill-tsp-white-dark)] dark:hover:text-white border border-[var(--border-main)]'
+                                ? 'bg-[var(--Button-primary-black)] text-[var(--text-onblack)]'
+                                : 'bg-[var(--fill-tsp-white-main)] text-[var(--text-secondary)] hover:bg-[var(--fill-tsp-white-dark)] hover:text-[var(--text-primary)] border border-[var(--border-main)]'
                         ]"
                     >
                         {{ tab.label }}
@@ -104,7 +104,7 @@
                                     class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center"
                                     :class="getFileIconBgClass(file.filename)"
                                 >
-                                    <component :is="getFileIconComponent(file.filename)" class="w-5 h-5 text-white" />
+                                    <component :is="getFileIconComponent(file.filename)" class="w-5 h-5 text-[var(--text-white)]" />
                                 </div>
 
                                 <!-- File Info -->
@@ -305,34 +305,34 @@ const getFileIconBgClass = (filename: string): string => {
 
     // Code files - blue
     if (fileCategories.code.includes(ext)) {
-        return 'bg-[#4285f4]';
+        return 'bg-[var(--text-brand)]';
     }
     // Documents - blue
     if (['md', 'txt', 'pdf', 'doc', 'docx', 'rtf', 'odt'].includes(ext)) {
-        return 'bg-[#4285f4]';
+        return 'bg-[var(--text-brand)]';
     }
     // Spreadsheets - green
     if (['xls', 'xlsx', 'csv'].includes(ext)) {
-        return 'bg-[#34A853]';
+        return 'bg-[var(--function-success)]';
     }
     // Presentations - orange
     if (['ppt', 'pptx'].includes(ext)) {
-        return 'bg-[#EA4335]';
+        return 'bg-[var(--function-warning)]';
     }
     // Images - green
     if (fileCategories.images.includes(ext)) {
-        return 'bg-[#10B981]';
+        return 'bg-[var(--function-success)]';
     }
     // Archives - red
     if (['zip', 'tar', 'gz', 'rar', '7z', 'bz2'].includes(ext)) {
-        return 'bg-[#EA4335]';
+        return 'bg-[var(--function-error)]';
     }
     // Links - purple
     if (fileCategories.links.includes(ext)) {
-        return 'bg-[#9333EA]';
+        return 'bg-[var(--icon-secondary)]';
     }
 
-    return 'bg-[#6B7280]';
+    return 'bg-[var(--text-secondary)]';
 };
 
 // Format file date
@@ -453,7 +453,7 @@ watch(visible, (newVisible) => {
     width: 36px;
     height: 36px;
     border-radius: 8px;
-    background: linear-gradient(135deg, #4285f4 0%, #1a73e8 100%);
+    background: linear-gradient(135deg, var(--text-brand) 0%, var(--button-primary-hover) 100%);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -518,13 +518,13 @@ watch(visible, (newVisible) => {
 :deep(.overflow-auto)::-webkit-scrollbar-thumb,
 :deep(.overflow-y-auto)::-webkit-scrollbar-thumb,
 :deep(.overflow-y-scroll)::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--fill-tsp-gray-dark);
     border-radius: 3px;
 }
 
 :deep(.overflow-auto)::-webkit-scrollbar-thumb:hover,
 :deep(.overflow-y-auto)::-webkit-scrollbar-thumb:hover,
 :deep(.overflow-y-scroll)::-webkit-scrollbar-thumb:hover {
-    background: rgba(0, 0, 0, 0.3);
+    background: var(--border-dark);
 }
 </style>

@@ -88,14 +88,10 @@ const animationComponent = computed(() => {
   height: 100%;
   background: linear-gradient(
     to bottom,
-    var(--background-gray-main),
-    var(--fill-white)
+    var(--background-secondary),
+    var(--background-surface)
   );
   padding: var(--space-12);
-}
-
-:global(.dark) .loading-state {
-  background: linear-gradient(to bottom, #1a1a2e, #16213e);
 }
 
 .loading-animation {
@@ -106,7 +102,7 @@ const animationComponent = computed(() => {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  color: var(--text-secondary);
+  color: var(--text-primary);
 }
 
 .loading-label {
@@ -119,7 +115,7 @@ const animationComponent = computed(() => {
   margin-top: var(--space-2);
   padding: 0 var(--space-4);
   font-size: var(--text-xs);
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   text-align: center;
   overflow: hidden;
   text-overflow: ellipsis;

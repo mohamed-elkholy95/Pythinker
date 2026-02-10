@@ -71,8 +71,13 @@ const innerClasses = computed(() => {
 .content-container {
   width: 100%;
   height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  position: relative;
+  --scrollbar-thumb: var(--fill-tsp-white-dark);
+  --scrollbar-thumb-hover: var(--fill-tsp-gray-dark);
+  --scrollbar-thumb-active: var(--border-dark);
 }
 
 .content-container.scrollable {
@@ -87,6 +92,8 @@ const innerClasses = computed(() => {
 .content-inner {
   flex: 1;
   width: 100%;
+  min-height: 0;
+  box-sizing: border-box;
 }
 
 /* Width constraints */
@@ -126,7 +133,7 @@ const innerClasses = computed(() => {
 }
 
 .content-container.scrollable:hover {
-  scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 .content-container.scrollable::-webkit-scrollbar {
@@ -148,16 +155,16 @@ const innerClasses = computed(() => {
 }
 
 .content-container.scrollable:hover::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.12);
+  background-color: var(--scrollbar-thumb);
 }
 
 .content-container.scrollable::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(0, 0, 0, 0.22);
+  background-color: var(--scrollbar-thumb-hover);
   border-width: 1px;
 }
 
 .content-container.scrollable::-webkit-scrollbar-thumb:active {
-  background-color: rgba(0, 0, 0, 0.32);
+  background-color: var(--scrollbar-thumb-active);
 }
 
 /* Corner piece */
@@ -166,19 +173,9 @@ const innerClasses = computed(() => {
 }
 
 /* Dark theme */
-:global(.dark) .content-container.scrollable:hover {
-  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
-}
-
-:global(.dark) .content-container.scrollable:hover::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.12);
-}
-
-:global(.dark) .content-container.scrollable::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.22);
-}
-
-:global(.dark) .content-container.scrollable::-webkit-scrollbar-thumb:active {
-  background-color: rgba(255, 255, 255, 0.35);
+:global(.dark) .content-container {
+  --scrollbar-thumb: var(--fill-tsp-white-main);
+  --scrollbar-thumb-hover: var(--fill-tsp-white-dark);
+  --scrollbar-thumb-active: var(--border-dark);
 }
 </style>

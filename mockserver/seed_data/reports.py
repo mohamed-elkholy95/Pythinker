@@ -6,8 +6,8 @@ The landscape of AI agent architectures has evolved significantly in 2025, with 
 
 ## Key Frameworks
 
-### 1. LangGraph
-LangGraph provides a graph-based approach to building stateful, multi-agent systems. Key features include:
+### 1. Legacy Flow
+Legacy Flow provides a graph-based approach to building stateful, multi-agent systems. Key features include:
 - **Cyclic graph execution** for complex workflows
 - **Built-in persistence** with checkpoint system
 - **Human-in-the-loop** support for critical decisions
@@ -38,14 +38,14 @@ Interleaving reasoning with actions for more reliable task completion.
 ## Recommendations
 
 For production systems, we recommend:
-- Use **LangGraph** for complex, stateful workflows
+- Use **Legacy Flow** for complex, stateful workflows
 - Use **CrewAI** for team-based task delegation
 - Implement **circuit breakers** for tool execution
 - Add **human oversight** for high-stakes decisions
 
 ## Sources
 
-1. LangGraph Documentation (2025)
+1. Legacy Flow Documentation (2025)
 2. CrewAI Framework Guide (2025)
 3. AutoGen Research Paper (Microsoft, 2025)
 """

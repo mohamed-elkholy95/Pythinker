@@ -155,13 +155,13 @@ function startDrag(e: MouseEvent): void {
 <style scoped>
 .replay-timeline {
   padding: 8px 16px 12px;
-  background: var(--background-gray-secondary, #222);
+  background: var(--background-gray-secondary);
 }
 
 .timeline-bar {
   position: relative;
   height: 24px;
-  background: var(--background-tertiary, #2a2a2a);
+  background: var(--background-tertiary);
   border-radius: 4px;
   cursor: pointer;
   overflow: visible;
@@ -172,7 +172,7 @@ function startDrag(e: MouseEvent): void {
   top: 0;
   left: 0;
   height: 100%;
-  background: linear-gradient(90deg, #10b981, #059669);
+  background: linear-gradient(90deg, var(--function-success), var(--text-brand));
   border-radius: 4px 0 0 4px;
   pointer-events: none;
 }
@@ -182,11 +182,11 @@ function startDrag(e: MouseEvent): void {
   top: -2px;
   width: 4px;
   height: 28px;
-  background: #10b981;
+  background: var(--function-success);
   border-radius: 2px;
   transform: translateX(-50%);
   pointer-events: none;
-  box-shadow: 0 0 4px rgba(16, 185, 129, 0.5);
+  box-shadow: 0 0 4px var(--function-success-tsp);
 }
 
 .event-marker {
@@ -202,7 +202,7 @@ function startDrag(e: MouseEvent): void {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #888;
+  background: var(--text-muted);
   transition: all 0.2s;
 }
 
@@ -212,19 +212,19 @@ function startDrag(e: MouseEvent): void {
 }
 
 .event-marker.tool .marker-dot {
-  background: #3b82f6;
+  background: var(--text-brand);
 }
 
 .event-marker.step .marker-dot {
-  background: #8b5cf6;
+  background: var(--icon-secondary);
 }
 
 .event-marker.error .marker-dot {
-  background: #ef4444;
+  background: var(--function-error);
 }
 
 .event-marker.message .marker-dot {
-  background: #10b981;
+  background: var(--function-success);
 }
 
 .timeline-legend {
@@ -233,7 +233,7 @@ function startDrag(e: MouseEvent): void {
   gap: 16px;
   margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px solid var(--border-color, #333);
+  border-top: 1px solid var(--border-color);
 }
 
 .legend-item {
@@ -241,7 +241,7 @@ function startDrag(e: MouseEvent): void {
   align-items: center;
   gap: 6px;
   font-size: 11px;
-  color: var(--text-muted, #888);
+  color: var(--text-muted);
 }
 
 .legend-dot {
@@ -251,18 +251,18 @@ function startDrag(e: MouseEvent): void {
 }
 
 .legend-dot.tool {
-  background: #3b82f6;
+  background: var(--text-brand);
 }
 
 .legend-dot.step {
-  background: #8b5cf6;
+  background: var(--icon-secondary);
 }
 
 .legend-dot.error {
-  background: #ef4444;
+  background: var(--function-error);
 }
 
 .legend-dot.message {
-  background: #10b981;
+  background: var(--function-success);
 }
 </style>

@@ -51,7 +51,7 @@
         <!-- Content Header: Centered operation label + View mode tabs -->
         <div
           v-if="contentConfig"
-          class="h-[36px] flex items-center justify-center px-3 w-full bg-[var(--background-white-main)] border-b border-[var(--border-light)] rounded-t-[14px] shadow-[inset_0px_1px_0px_0px_#FFFFFF] dark:shadow-[inset_0px_1px_0px_0px_#FFFFFF30] relative">
+          class="panel-content-header h-[36px] flex items-center justify-center px-3 w-full bg-[var(--background-white-main)] border-b border-[var(--border-light)] rounded-t-[14px] relative">
 
           <!-- Left: Activity indicator (absolute positioned) -->
           <div v-if="isWriting" class="absolute left-3 flex items-center gap-2">
@@ -1005,6 +1005,10 @@ const handleBrowseUrl = async (url: string) => {
 </script>
 
 <style scoped>
+.panel-content-header {
+  box-shadow: inset 0 1px 0 0 var(--border-white);
+}
+
 .vnc-url-bar {
   position: absolute;
   top: 8px;

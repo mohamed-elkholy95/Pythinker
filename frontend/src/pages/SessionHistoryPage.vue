@@ -255,7 +255,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: var(--background-main, #0a0a0a);
+  background: var(--background-main);
 }
 
 .page-header {
@@ -263,8 +263,8 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 16px 24px;
-  background: var(--background-secondary, #111);
-  border-bottom: 1px solid var(--border-color, #222);
+  background: var(--background-secondary);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .header-left {
@@ -281,23 +281,23 @@ onMounted(() => {
   height: 36px;
   padding: 0;
   background: transparent;
-  border: 1px solid var(--border-color, #333);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
-  color: var(--text-secondary, #888);
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .btn-back:hover {
-  background: var(--background-hover, #222);
-  color: var(--text-primary, #fff);
+  background: var(--background-hover);
+  color: var(--text-primary);
 }
 
 .page-header h1 {
   margin: 0;
   font-size: 20px;
   font-weight: 600;
-  color: var(--text-primary, #fff);
+  color: var(--text-primary);
 }
 
 .header-right {
@@ -311,31 +311,31 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: var(--background-tertiary, #1a1a1a);
-  border: 1px solid var(--border-color, #333);
+  background: var(--background-tertiary);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
-  color: var(--text-muted, #666);
+  color: var(--text-muted);
 }
 
 .search-input {
   background: transparent;
   border: none;
   outline: none;
-  color: var(--text-primary, #fff);
+  color: var(--text-primary);
   font-size: 14px;
   width: 200px;
 }
 
 .search-input::placeholder {
-  color: var(--text-muted, #666);
+  color: var(--text-muted);
 }
 
 .filter-select {
   padding: 8px 12px;
-  background: var(--background-tertiary, #1a1a1a);
-  border: 1px solid var(--border-color, #333);
+  background: var(--background-tertiary);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
-  color: var(--text-primary, #fff);
+  color: var(--text-primary);
   font-size: 14px;
   cursor: pointer;
 }
@@ -354,14 +354,14 @@ onMounted(() => {
   justify-content: center;
   gap: 12px;
   padding: 48px;
-  color: var(--text-muted, #666);
+  color: var(--text-muted);
 }
 
 .loading-spinner {
   width: 24px;
   height: 24px;
-  border: 2px solid #333;
-  border-top-color: #10b981;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--function-success);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -369,7 +369,7 @@ onMounted(() => {
 .empty-state h3 {
   margin: 0;
   font-size: 16px;
-  color: var(--text-secondary, #888);
+  color: var(--text-secondary);
 }
 
 .empty-state p {
@@ -378,7 +378,7 @@ onMounted(() => {
 }
 
 .icon-muted {
-  color: var(--text-muted, #444);
+  color: var(--text-muted);
 }
 
 .session-card {
@@ -386,8 +386,8 @@ onMounted(() => {
   align-items: flex-start;
   gap: 16px;
   padding: 16px;
-  background: var(--background-secondary, #111);
-  border: 1px solid var(--border-color, #222);
+  background: var(--background-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   margin-bottom: 12px;
   cursor: pointer;
@@ -395,8 +395,8 @@ onMounted(() => {
 }
 
 .session-card:hover {
-  background: var(--background-hover, #1a1a1a);
-  border-color: var(--border-hover, #333);
+  background: var(--background-hover);
+  border-color: var(--border-hover);
 }
 
 .session-icon {
@@ -405,9 +405,9 @@ onMounted(() => {
   justify-content: center;
   width: 40px;
   height: 40px;
-  background: var(--background-tertiary, #1a1a1a);
+  background: var(--background-tertiary);
   border-radius: 8px;
-  color: var(--text-muted, #666);
+  color: var(--text-muted);
 }
 
 .session-content {
@@ -426,7 +426,7 @@ onMounted(() => {
   margin: 0;
   font-size: 14px;
   font-weight: 500;
-  color: var(--text-primary, #fff);
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -441,29 +441,29 @@ onMounted(() => {
 }
 
 .session-status.completed {
-  background: rgba(16, 185, 129, 0.2);
-  color: #10b981;
+  background: var(--function-success-tsp);
+  color: var(--function-success);
 }
 
 .session-status.running {
-  background: rgba(59, 130, 246, 0.2);
-  color: #3b82f6;
+  background: var(--fill-blue);
+  color: var(--text-brand);
 }
 
 .session-status.failed {
-  background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
+  background: var(--function-error-tsp);
+  color: var(--function-error);
 }
 
 .session-status.pending {
-  background: rgba(245, 158, 11, 0.2);
-  color: #f59e0b;
+  background: var(--function-warning-tsp);
+  color: var(--function-warning);
 }
 
 .session-preview {
   margin: 4px 0 8px;
   font-size: 13px;
-  color: var(--text-muted, #888);
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -481,11 +481,11 @@ onMounted(() => {
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  color: var(--text-muted, #666);
+  color: var(--text-muted);
 }
 
 .session-replay-badge {
-  color: #10b981;
+  color: var(--function-success);
 }
 
 .session-actions {
@@ -502,20 +502,20 @@ onMounted(() => {
   height: 32px;
   padding: 0;
   background: transparent;
-  border: 1px solid var(--border-color, #333);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
-  color: var(--text-muted, #666);
+  color: var(--text-muted);
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .btn-action:hover {
-  background: var(--background-hover, #222);
-  color: var(--text-primary, #fff);
+  background: var(--background-hover);
+  color: var(--text-primary);
 }
 
 .btn-action.shared {
-  color: #10b981;
+  color: var(--function-success);
 }
 
 .replay-modal-overlay {
@@ -524,7 +524,7 @@ onMounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: var(--background-mask);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -535,7 +535,7 @@ onMounted(() => {
   width: 90%;
   max-width: 1200px;
   height: 80vh;
-  background: var(--background-main, #0a0a0a);
+  background: var(--background-main);
   border-radius: 12px;
   overflow: hidden;
 }

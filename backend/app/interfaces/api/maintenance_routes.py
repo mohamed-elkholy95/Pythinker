@@ -14,10 +14,8 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from app.application.services.maintenance_service import MaintenanceService
-from app.core.config import get_settings
+from app.application.services.maintenance_service import MaintenanceService, get_maintenance_service
 from app.domain.models.user import User
-from app.infrastructure.storage.mongodb import get_mongodb
 from app.interfaces.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -69,6 +67,7 @@ class SessionHealthResponse(BaseModel):
 async def get_session_health(
     session_id: str,
     current_user: User = Depends(get_current_user),
+    service: MaintenanceService = Depends(get_maintenance_service),
 ):
     """
     Check the data health of a specific session.
@@ -79,9 +78,6 @@ async def get_session_health(
     - Specific issues found (null file_id, missing filename, etc.)
     """
     try:
-        settings = get_settings()
-        db = get_mongodb().client[settings.mongodb_database]
-        service = MaintenanceService(db)
         result = await service.get_session_health(session_id)
         return SessionHealthResponse(**result)
     except Exception as e:
@@ -94,6 +90,7 @@ async def cleanup_invalid_attachments(
     session_id: str | None = Query(None, description="Specific session to clean up"),
     dry_run: bool = Query(True, description="If true, only reports what would be cleaned"),
     current_user: User = Depends(get_current_user),
+    service: MaintenanceService = Depends(get_maintenance_service),
 ):
     """
     Clean up events with invalid attachments (null file_id or filename).
@@ -112,9 +109,6 @@ async def cleanup_invalid_attachments(
         Statistics about the cleanup operation including affected sessions and attachments.
     """
     try:
-        settings = get_settings()
-        db = get_mongodb().client[settings.mongodb_database]
-        service = MaintenanceService(db)
         result = await service.cleanup_invalid_attachments(session_id=session_id, dry_run=dry_run)
         return CleanupResponse(**result)
     except Exception as e:
@@ -126,6 +120,7 @@ async def cleanup_invalid_attachments(
 async def preview_attachment_cleanup(
     session_id: str | None = Query(None, description="Specific session to check"),
     current_user: User = Depends(get_current_user),
+    service: MaintenanceService = Depends(get_maintenance_service),
 ):
     """
     Preview what would be cleaned without making any changes.
@@ -133,9 +128,6 @@ async def preview_attachment_cleanup(
     This is equivalent to calling POST /cleanup/attachments with dry_run=true.
     """
     try:
-        settings = get_settings()
-        db = get_mongodb().client[settings.mongodb_database]
-        service = MaintenanceService(db)
         result = await service.cleanup_invalid_attachments(session_id=session_id, dry_run=True)
         return CleanupResponse(**result)
     except Exception as e:
@@ -148,6 +140,7 @@ async def cleanup_stale_running_sessions(
     stale_threshold_minutes: int = Query(30, description="Sessions running longer than this are considered stale"),
     dry_run: bool = Query(True, description="If true, only reports what would be cleaned"),
     current_user: User = Depends(get_current_user),
+    service: MaintenanceService = Depends(get_maintenance_service),
 ):
     """
     Clean up sessions stuck in "running" or "initializing" status.
@@ -166,9 +159,6 @@ async def cleanup_stale_running_sessions(
         Statistics about the cleanup operation including affected sessions.
     """
     try:
-        settings = get_settings()
-        db = get_mongodb().client[settings.mongodb_database]
-        service = MaintenanceService(db)
         result = await service.cleanup_stale_running_sessions(
             stale_threshold_minutes=stale_threshold_minutes,
             dry_run=dry_run,
@@ -183,14 +173,12 @@ async def cleanup_stale_running_sessions(
 async def preview_stale_session_cleanup(
     stale_threshold_minutes: int = Query(30, description="Sessions running longer than this are considered stale"),
     current_user: User = Depends(get_current_user),
+    service: MaintenanceService = Depends(get_maintenance_service),
 ):
     """
     Preview stale sessions that would be cleaned without making changes.
     """
     try:
-        settings = get_settings()
-        db = get_mongodb().client[settings.mongodb_database]
-        service = MaintenanceService(db)
         result = await service.cleanup_stale_running_sessions(
             stale_threshold_minutes=stale_threshold_minutes,
             dry_run=True,

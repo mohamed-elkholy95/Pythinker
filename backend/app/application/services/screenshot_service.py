@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import logging
+from functools import lru_cache
 from uuid import uuid4
 
 from app.core.config import get_settings
@@ -145,3 +146,38 @@ class ScreenshotCaptureService:
                 "Stopped periodic screenshot capture for session %s",
                 self._session_id,
             )
+
+
+class ScreenshotQueryService:
+    """Read/query screenshot metadata and bytes for replay endpoints."""
+
+    def __init__(self) -> None:
+        self._repository = MongoScreenshotRepository()
+        self._mongodb = get_mongodb()
+
+    async def delete_by_session(self, session_id: str) -> int:
+        """Delete all screenshots for a session."""
+        return await self._repository.delete_by_session(session_id)
+
+    async def list_by_session(self, session_id: str, limit: int, offset: int) -> tuple[list[SessionScreenshot], int]:
+        """Fetch paginated screenshot metadata plus total count."""
+        screenshots = await self._repository.find_by_session(session_id, limit=limit, offset=offset)
+        total = await self._repository.count_by_session(session_id)
+        return screenshots, total
+
+    async def get_image_bytes(self, session_id: str, screenshot_id: str, thumbnail: bool) -> bytes | None:
+        """Fetch screenshot image bytes, or None when not found/mismatched."""
+        screenshot = await self._repository.find_by_id(screenshot_id)
+        if not screenshot or screenshot.session_id != session_id:
+            return None
+
+        file_id = (
+            screenshot.thumbnail_file_id if thumbnail and screenshot.thumbnail_file_id else screenshot.gridfs_file_id
+        )
+        return await self._mongodb.get_screenshot(file_id)
+
+
+@lru_cache
+def get_screenshot_query_service() -> ScreenshotQueryService:
+    """Singleton screenshot query service for API dependencies."""
+    return ScreenshotQueryService()

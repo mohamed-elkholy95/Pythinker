@@ -4,35 +4,29 @@
     {{ tool.args.text }}
   </p>
   <!-- Standard tool display (rendered as interactive chip - Manus-style) -->
-  <div v-else-if="toolInfo" class="flex items-center group gap-2">
-    <div class="flex-1 min-w-0">
-      <div @click="handleClick"
-        class="tool-chip rounded-[20px] items-center gap-[8px] px-[12px] py-[6px] inline-flex max-w-full clickable"
-        :class="props.isActive && tool.status === 'calling' ? 'tool-shimmer' : 'tool-idle'">
-        <!-- Icon: favicon for URL-based tools, or tool icon -->
-        <div class="tool-icon-container">
-          <img
-            v-if="toolInfo.faviconUrl && !faviconError"
-            :src="toolInfo.faviconUrl"
-            alt=""
-            class="tool-favicon"
-            @error="faviconError = true"
-          />
-          <component v-else :is="toolInfo.icon" :size="13" class="text-[var(--text-secondary)]" />
-        </div>
-        <!-- Human-readable description -->
-        <div class="flex-1 h-full min-w-0">
-          <div class="text-[13px] text-[var(--text-primary)] max-w-[100%] text-ellipsis overflow-hidden whitespace-nowrap"
-            :title="toolInfo.description">
-            {{ toolInfo.description }}
-          </div>
-        </div>
-        <!-- Status indicator: spinner when running, check when done -->
-        <Loader2 v-if="isRunning" :size="13" class="tool-spinner" />
-        <Check v-else :size="13" class="tool-check" />
+  <div v-else-if="toolInfo" class="flex items-center group gap-2 max-w-full">
+    <div
+      @click="handleClick"
+      class="tool-chip rounded-full items-center gap-[7px] px-[10px] py-[4px] inline-flex max-w-full clickable"
+      :class="shouldShimmer ? 'tool-shimmer' : 'tool-idle'"
+    >
+      <div class="tool-icon-container">
+        <img
+          v-if="toolInfo.faviconUrl && !faviconError"
+          :src="toolInfo.faviconUrl"
+          alt=""
+          class="tool-favicon"
+          @error="faviconError = true"
+        />
+        <component v-else :is="toolInfo.icon" :size="11" class="text-[var(--text-secondary)]" />
       </div>
+      <div class="text-[12px] font-medium text-[var(--text-secondary)] max-w-[100%] text-ellipsis overflow-hidden whitespace-nowrap"
+        :title="toolInfo.description">
+        {{ toolInfo.description }}
+      </div>
+      <Loader2 v-if="isRunning" :size="10" class="tool-spinner" />
     </div>
-    <div class="transition text-[12px] text-[var(--text-tertiary)] invisible group-hover:visible">
+    <div class="transition text-[11px] text-[var(--text-tertiary)] invisible group-hover:visible">
       {{ relativeTime(tool.timestamp) }}
     </div>
   </div>
@@ -40,7 +34,7 @@
 
 <script setup lang="ts">
 import { computed, toRef, ref, watch } from "vue";
-import { Loader2, Check } from "lucide-vue-next";
+import { Loader2 } from "lucide-vue-next";
 import { ToolContent } from "../types/message";
 import { useToolInfo } from "../composables/useTool";
 import { useRelativeTime } from "../composables/useTime";
@@ -60,6 +54,8 @@ const props = defineProps<{
   tool: ToolContent;
   /** Whether this tool is the actively running tool (shows shimmer effect) */
   isActive?: boolean;
+  /** Keep shimmer on the last task while parent step is still running */
+  isTaskRunning?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -72,6 +68,9 @@ const { toolInfo } = useToolInfo(toRef(() => props.tool));
 const faviconError = ref(false);
 
 const isRunning = computed(() => props.tool.status === 'calling');
+const shouldShimmer = computed(
+  () => !!props.isActive && (isRunning.value || !!props.isTaskRunning)
+);
 
 // Reset favicon error when tool changes
 watch(() => props.tool.tool_call_id, () => {
@@ -92,8 +91,8 @@ const handleClick = () => {
 .tool-shimmer {
   position: relative;
   overflow: hidden;
-  background: rgba(59, 130, 246, 0.12);
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: #e7ebf1;
+  border: 1px solid #cfd6e0;
 }
 
 .tool-shimmer::before {
@@ -122,15 +121,9 @@ const handleClick = () => {
 }
 
 .tool-spinner {
-  color: var(--text-brand);
+  color: #7a8698;
   flex-shrink: 0;
   animation: spin 1s linear infinite;
-}
-
-.tool-check {
-  color: var(--text-tertiary);
-  flex-shrink: 0;
-  opacity: 0.5;
 }
 
 @keyframes spin {
@@ -142,8 +135,8 @@ const handleClick = () => {
 <style>
 /* Dark mode support - needs to be unscoped to work with :root selector */
 :root.dark .tool-shimmer {
-  background: rgba(59, 130, 246, 0.18);
-  border: 1px solid rgba(59, 130, 246, 0.45);
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.24);
 }
 
 :root.dark .tool-shimmer::before {
@@ -156,36 +149,36 @@ const handleClick = () => {
 }
 
 .tool-chip {
-  border: 1px solid var(--border-light);
-  background: var(--background-white-main);
+  border: 1px solid #d7dde6;
+  background: #eceff3;
   transition: all 0.15s ease;
 }
 
 .tool-chip:hover {
-  border-color: var(--border-main);
-  background: var(--fill-tsp-gray-main);
+  border-color: #c8d0db;
+  background: #e5e9ef;
 }
 
 .tool-idle {
-  background: var(--background-white-main);
+  background: #eceff3;
 }
 
 .tool-icon-container {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
-  background: var(--fill-tsp-gray-main);
+  background: #e2e6ed;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  border: 1px solid var(--border-light);
+  border: 1px solid #d1d8e2;
   overflow: hidden;
 }
 
 .tool-favicon {
-  width: 14px;
-  height: 14px;
+  width: 11px;
+  height: 11px;
   object-fit: contain;
 }
 </style>

@@ -105,8 +105,29 @@ export interface ReportContent extends BaseContent {
 }
 
 // Deep Research types
-export type DeepResearchStatus = 'pending' | 'awaiting_approval' | 'started' | 'completed' | 'cancelled';
+export type DeepResearchStatus =
+  | 'pending'
+  | 'awaiting_approval'
+  | 'started'
+  | 'query_started'
+  | 'query_completed'
+  | 'query_skipped'
+  | 'completed'
+  | 'cancelled';
 export type DeepResearchQueryStatus = 'pending' | 'searching' | 'completed' | 'skipped' | 'failed';
+
+export interface ResearchCheckpointSummary {
+  phase: string;
+  notes_preview?: string;
+  source_count?: number;
+  timestamp: number;
+}
+
+export interface ResearchReflectionSummary {
+  learned: string;
+  next_step?: string;
+  timestamp: number;
+}
 
 export interface DeepResearchQuery {
   id: string;
@@ -124,6 +145,10 @@ export interface DeepResearchContent extends BaseContent {
   completed_count: number;
   total_count: number;
   auto_run: boolean;
+  phase?: string;
+  phase_label?: string;
+  latest_reflection?: ResearchReflectionSummary | null;
+  checkpoints?: ResearchCheckpointSummary[];
 }
 
 // Skill Package types for skill delivery
@@ -169,6 +194,8 @@ export interface WideResearchState {
   current_query?: string;
   aggregation_strategy?: string;
   errors?: string[];
+  phase?: string;
+  phase_label?: string;
 }
 
 export interface WideResearchMiniState {

@@ -12,11 +12,10 @@ class FlowMode(str, Enum):
     """Unified flow engine selection.
 
     Controls which execution flow is used for agent tasks.
-    Replaces the legacy enable_coordinator / use_langgraph_flow booleans.
+    Replaces the legacy enable_coordinator boolean.
     """
 
     PLAN_ACT = "plan_act"  # Default: custom PlanActFlow
-    LANGGRAPH = "langgraph"  # LangGraph-based PlanActFlow
     COORDINATOR = "coordinator"  # Swarm coordinator mode
 
 
@@ -99,6 +98,7 @@ class Settings(BaseSettings):
     qdrant_tool_logs_collection: str = "tool_logs"
 
     # Sandbox configuration
+    sandbox_lifecycle_mode: str = "static"  # "static" | "ephemeral"
     sandbox_address: str | None = None
     sandbox_image: str | None = None
     sandbox_name_prefix: str | None = None
@@ -299,25 +299,30 @@ class Settings(BaseSettings):
     # Plan Verification configuration (Performance optimization)
     enable_plan_verification: bool = False  # Skip verification phase for faster execution
 
-    # LangGraph Flow configuration
-    use_langgraph_flow: bool = False  # Deprecated: use flow_mode instead
+    # Skill activation policy
+    skill_auto_trigger_enabled: bool = False  # Default OFF: explicit activation only (chat selection or /command)
 
-    # Unified flow engine selection (replaces enable_coordinator + use_langgraph_flow)
+    # Unified flow engine selection (replaces legacy booleans)
     flow_mode: FlowMode = FlowMode.PLAN_ACT
 
     @property
     def resolved_flow_mode(self) -> FlowMode:
         """Resolve flow mode from new field or legacy booleans.
 
-        Priority: flow_mode (if explicitly set) > enable_coordinator > use_langgraph_flow > PLAN_ACT.
+        Priority: flow_mode (if explicitly set) > enable_coordinator > PLAN_ACT.
         """
         if self.flow_mode != FlowMode.PLAN_ACT:
             return self.flow_mode
         if self.enable_coordinator:
             return FlowMode.COORDINATOR
-        if self.use_langgraph_flow:
-            return FlowMode.LANGGRAPH
         return FlowMode.PLAN_ACT
+
+    @property
+    def uses_static_sandbox_addresses(self) -> bool:
+        """Whether sandboxes are configured as pre-existing static addresses."""
+        if self.sandbox_lifecycle_mode == "ephemeral":
+            return False
+        return bool(self.sandbox_address and self.sandbox_address.strip())
 
     # Agent Enhancement Feature Flags (Phase 0+)
     feature_plan_validation_v2: bool = False
@@ -352,13 +357,11 @@ class Settings(BaseSettings):
     # Agent Enhancement Feature Flags (Phases 1-5)
     # Phase 1: Python 3.11+ TaskGroup Migration
     feature_taskgroup_enabled: bool = False  # Use TaskGroup instead of asyncio.gather
-    # Phase 2: LangGraph + Browser-use Node Integration
-    feature_browser_node: bool = False  # Browser-use as first-class LangGraph node
-    # Phase 3: SSE Streaming v2
-    feature_sse_v2: bool = False  # LangGraph astream_events v2 API
-    # Phase 4: Zero-Hallucination Defense
+    # Phase 2: SSE Streaming v2
+    feature_sse_v2: bool = False  # Enhanced streaming API with structured events
+    # Phase 3: Zero-Hallucination Defense
     feature_structured_outputs: bool = False  # Pydantic structured LLM outputs with validation
-    # Phase 5: Parallel Memory Architecture
+    # Phase 4: Parallel Memory Architecture
     feature_parallel_memory: bool = False  # Parallel MongoDB/Qdrant memory writes
 
     # Safety Limits
@@ -432,6 +435,7 @@ class Settings(BaseSettings):
 
     # Feature flag
     feature_enhanced_research: bool = False  # Enable enhanced research flow
+    feature_phased_research: bool = False  # Enable phased research workflow for deep research
 
     class Config:
         env_file = ".env"
@@ -639,6 +643,7 @@ def get_feature_flags() -> dict[str, bool]:
             "failure_prediction": False,
             "circuit_breaker_adaptive": False,
             "workflow_checkpointing": False,
+            "phased_research": False,
             "shadow_mode": True,
             # Hallucination Prevention (Phase 1-6)
             "url_verification": True,
@@ -658,6 +663,7 @@ def get_feature_flags() -> dict[str, bool]:
         "failure_prediction": settings.feature_failure_prediction,
         "circuit_breaker_adaptive": settings.feature_circuit_breaker_adaptive,
         "workflow_checkpointing": settings.feature_workflow_checkpointing,
+        "phased_research": settings.feature_phased_research,
         "shadow_mode": settings.feature_shadow_mode,
         # Hallucination Prevention (Phase 1-6)
         "url_verification": settings.feature_url_verification,

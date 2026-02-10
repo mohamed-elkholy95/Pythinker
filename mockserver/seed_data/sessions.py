@@ -27,9 +27,9 @@ def seed_sessions() -> None:
             {"id": "step_2", "description": "Analyze architecture patterns", "status": "completed", "event_id": _eid(), "timestamp": _ts(30)},
             {"id": "step_3", "description": "Compile research report", "status": "completed", "event_id": _eid(), "timestamp": _ts(30)},
         ]}},
-        {"event": "tool", "data": {"event_id": _eid(), "timestamp": _ts(60), "tool_call_id": "tc_1", "name": "info_search_web", "status": "called", "function": "info_search_web", "args": {"query": "AI agent architectures 2025"}, "content": {"results": [{"title": "LangGraph: Multi-Agent Orchestration", "link": "https://example.com/langgraph", "snippet": "LangGraph provides a framework for building stateful multi-agent systems..."}], "query": "AI agent architectures 2025"}}},
-        {"event": "message", "data": {"event_id": _eid(), "timestamp": _ts(3600), "content": "Here's a comprehensive report on AI agent architectures covering LangGraph, CrewAI, AutoGen, and emerging patterns in 2025.", "role": "assistant", "attachments": []}},
-        {"event": "suggestion", "data": {"event_id": _eid(), "timestamp": _ts(3610), "suggestions": ["Compare LangGraph vs CrewAI in detail", "Research agent memory systems", "Create a diagram of agent architectures"]}},
+        {"event": "tool", "data": {"event_id": _eid(), "timestamp": _ts(60), "tool_call_id": "tc_1", "name": "info_search_web", "status": "called", "function": "info_search_web", "args": {"query": "AI agent architectures 2025"}, "content": {"results": [{"title": "Legacy Flow: Multi-Agent Orchestration", "link": "https://example.com/legacy-flow", "snippet": "Legacy Flow provides a framework for building stateful multi-agent systems..."}], "query": "AI agent architectures 2025"}}},
+        {"event": "message", "data": {"event_id": _eid(), "timestamp": _ts(3600), "content": "Here's a comprehensive report on AI agent architectures covering Legacy Flow, CrewAI, AutoGen, and emerging patterns in 2025.", "role": "assistant", "attachments": []}},
+        {"event": "suggestion", "data": {"event_id": _eid(), "timestamp": _ts(3610), "suggestions": ["Compare Legacy Flow vs CrewAI in detail", "Research agent memory systems", "Create a diagram of agent architectures"]}},
         {"event": "done", "data": {"event_id": _eid(), "timestamp": _ts(3620)}},
     ]
 

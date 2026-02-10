@@ -79,6 +79,23 @@ describe('ToolUse', () => {
     expect(wrapper.html()).toBeDefined()
   })
 
+  it('keeps silver shimmer on last task while parent step is still running', () => {
+    const calledTool = {
+      ...mockToolContent,
+      status: 'called',
+    }
+
+    const wrapper = mount(ToolUse, {
+      props: {
+        tool: calledTool,
+        isActive: true,
+        isTaskRunning: true,
+      },
+    })
+
+    expect(wrapper.find('.tool-shimmer').exists()).toBe(true)
+  })
+
   it('should emit click event when clicked', async () => {
     const wrapper = mount(ToolUse, {
       props: {

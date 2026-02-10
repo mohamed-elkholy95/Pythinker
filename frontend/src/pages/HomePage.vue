@@ -1,7 +1,7 @@
 <template>
   <SimpleBar>
     <div
-      class="flex flex-col h-full flex-1 min-w-0 mx-auto w-full sm:min-w-[390px] px-5 justify-center items-start gap-2 relative max-w-full sm:max-w-full">
+      class="flex flex-col h-full flex-1 min-w-0 mx-auto w-full sm:min-w-[390px] px-5 justify-start items-start gap-2 relative max-w-full sm:max-w-full">
       <!-- Minimal header - logo and user avatar, blended into background -->
       <div class="w-full pt-4 pb-4 px-5 sticky top-0 z-10">
         <div class="flex justify-between items-center w-full">
@@ -40,7 +40,14 @@
 
         <!-- Chat Input -->
         <div class="chat-input-wrapper">
-          <ChatBox :rows="1" v-model="message" @submit="handleSubmit" :isRunning="false" :attachments="attachments" />
+          <ChatBox
+            :rows="1"
+            v-model="message"
+            @submit="handleSubmit"
+            :isRunning="false"
+            :attachments="attachments"
+            expand-direction="down"
+          />
         </div>
 
         <!-- Feature Buttons -->
@@ -97,10 +104,8 @@
 import SimpleBar from '../components/SimpleBar.vue';
 import { ref, onMounted, computed, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { useI18n } from 'vue-i18n';
 import ChatBox from '../components/ChatBox.vue';
-import { createSession, type AgentMode } from '../api/agent';
-import { showErrorToast } from '../utils/toast';
+import type { AgentMode } from '../api/agent';
 import {
   Search, Palette, Bot,
   Calendar, Table2, BarChart3, Video, AudioLines, MessageSquare, BookOpen
@@ -122,7 +127,6 @@ interface Feature {
   prompt?: string;
 }
 
-const { t } = useI18n();
 const router = useRouter();
 const message = ref('');
 const isSubmitting = ref(false);
@@ -298,27 +302,22 @@ const createSessionWithMode = async (mode: AgentMode, initialMessage?: string) =
   if (isSubmitting.value) return;
   isSubmitting.value = true;
 
-  try {
-    const session = await createSession(mode);
-    const sessionId = session.session_id;
-
-    router.push({
-      path: `/chat/${sessionId}`,
-      state: initialMessage ? {
-        message: initialMessage,
-        files: attachments.value.map((file: FileInfo) => ({
-          file_id: file.file_id,
-          filename: file.filename,
-          content_type: file.content_type,
-          size: file.size,
-          upload_date: file.upload_date
-        }))
-      } : undefined
-    });
-  } catch {
-    showErrorToast(t('Failed to create session, please try again later'));
-    isSubmitting.value = false;
-  }
+  router.push({
+    path: '/chat/new',
+    state: {
+      pendingSessionCreate: true,
+      mode,
+      message: initialMessage ?? '',
+      skills: [],
+      files: attachments.value.map((file: FileInfo) => ({
+        file_id: file.file_id,
+        filename: file.filename,
+        content_type: file.content_type,
+        size: file.size,
+        upload_date: file.upload_date
+      }))
+    }
+  });
 };
 
 const handleSubmit = async (skillIds: string[] = []) => {
@@ -331,42 +330,33 @@ const handleSubmit = async (skillIds: string[] = []) => {
   const trimmedMessage = message.value.trim();
   if ((trimmedMessage || skillIds.includes('skill-creator')) && !isSubmitting.value) {
     isSubmitting.value = true;
-
-    try {
-      // Create new Agent with default agent mode
-      const session = await createSession('agent');
-      const sessionId = session.session_id;
-
-      let submitMessage = message.value;
-      if (skillIds.includes('skill-creator')) {
-        const trimmed = submitMessage.trim();
-        const hasCommand = trimmed.toLowerCase().includes('/skill-creator');
-        if (!trimmed) {
-          submitMessage = 'Help me create a skill together using /skill-creator. First ask me what the skill should do.';
-        } else if (!hasCommand) {
-          submitMessage = `/skill-creator ${trimmed}`;
-        }
+    let submitMessage = message.value;
+    if (skillIds.includes('skill-creator')) {
+      const trimmed = submitMessage.trim();
+      const hasCommand = trimmed.toLowerCase().includes('/skill-creator');
+      if (!trimmed) {
+        submitMessage = 'Help me create a skill together using /skill-creator. First ask me what the skill should do.';
+      } else if (!hasCommand) {
+        submitMessage = `/skill-creator ${trimmed}`;
       }
-
-      // Navigate to new route with session_id, passing initial message via state
-      router.push({
-        path: `/chat/${sessionId}`,
-        state: {
-          message: submitMessage,
-          skills: skillIds,
-          files: attachments.value.map((file: FileInfo) => ({
-            file_id: file.file_id,
-            filename: file.filename,
-            content_type: file.content_type,
-            size: file.size,
-            upload_date: file.upload_date
-          }))
-        }
-      });
-    } catch {
-      showErrorToast(t('Failed to create session, please try again later'));
-      isSubmitting.value = false;
     }
+
+    router.push({
+      path: '/chat/new',
+      state: {
+        pendingSessionCreate: true,
+        mode: 'agent',
+        message: submitMessage,
+        skills: skillIds,
+        files: attachments.value.map((file: FileInfo) => ({
+          file_id: file.file_id,
+          filename: file.filename,
+          content_type: file.content_type,
+          size: file.size,
+          upload_date: file.upload_date
+        }))
+      }
+    });
   }
 };
 </script>

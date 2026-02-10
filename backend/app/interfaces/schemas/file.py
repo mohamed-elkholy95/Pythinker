@@ -4,21 +4,17 @@ from typing import Any, Optional
 
 from pydantic import BaseModel
 
+from app.application.schemas.file import FileViewResponse as ApplicationFileViewResponse
 from app.domain.models.file import FileInfo
 
 logger = logging.getLogger(__name__)
+
+FileViewResponse = ApplicationFileViewResponse
 
 
 class FileViewRequest(BaseModel):
     """File view request schema"""
 
-    file: str
-
-
-class FileViewResponse(BaseModel):
-    """File view response schema"""
-
-    content: str
     file: str
 
 

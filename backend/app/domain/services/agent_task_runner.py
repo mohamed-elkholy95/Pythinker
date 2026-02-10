@@ -47,7 +47,6 @@ from app.domain.services.agents.usage_context import UsageContextManager
 from app.domain.services.flows.base import BaseFlow
 from app.domain.services.flows.discuss import DiscussFlow
 from app.domain.services.flows.plan_act import PlanActFlow
-from app.domain.services.langgraph import LangGraphPlanActFlow
 from app.domain.services.orchestration.coordinator_flow import (
     CoordinatorFlow,
     CoordinatorMode,
@@ -175,9 +174,8 @@ class AgentTaskRunner(TaskRunner):
         enable_multi_agent: bool = True,
         enable_coordinator: bool = False,
         memory_service: Optional["MemoryService"] = None,
-        use_langgraph_flow: bool = False,
         flow_mode: FlowMode = FlowMode.PLAN_ACT,
-        mongodb_db: Any | None = None,  # MongoDB database for LangGraph checkpointing
+        mongodb_db: Any | None = None,  # MongoDB database for workflow checkpointing
         agent_factory: Optional["ManusAgentFactory"] = None,
         usage_recorder: Callable[..., Coroutine[Any, Any, None]] | None = None,
         extra_mcp_configs: dict[str, Any] | None = None,
@@ -203,23 +201,22 @@ class AgentTaskRunner(TaskRunner):
         self._enable_multi_agent = enable_multi_agent
 
         # Unified flow mode (resolves legacy booleans)
-        if flow_mode != FlowMode.PLAN_ACT:
-            self._flow_mode = flow_mode
+        self._flow_selection_reason: str | None = None
+        if flow_mode == FlowMode.COORDINATOR:
+            self._flow_mode = FlowMode.COORDINATOR
         elif enable_coordinator:
             self._flow_mode = FlowMode.COORDINATOR
-        elif use_langgraph_flow:
-            self._flow_mode = FlowMode.LANGGRAPH
+            self._flow_selection_reason = "legacy_enable_coordinator"
         else:
             self._flow_mode = FlowMode.PLAN_ACT
 
         # Legacy compat
         self._enable_coordinator = self._flow_mode == FlowMode.COORDINATOR
-        self._use_langgraph_flow = self._flow_mode == FlowMode.LANGGRAPH
 
         # Memory service for long-term context (Phase 6: Qdrant integration)
         self._memory_service = memory_service
 
-        # MongoDB database for LangGraph checkpointing
+        # MongoDB database for workflow checkpointing
         self._mongodb_db = mongodb_db
 
         # Manus-style agent factory and components
@@ -246,25 +243,23 @@ class AgentTaskRunner(TaskRunner):
 
         # Initialize flows based on mode
         self._plan_act_flow: PlanActFlow | None = None
-        self._langgraph_flow: LangGraphPlanActFlow | None = None
         self._discuss_flow: DiscussFlow | None = None
         self._coordinator_flow: CoordinatorFlow | None = None
 
         if mode == AgentMode.AGENT:
             if self._flow_mode == FlowMode.COORDINATOR:
                 self._init_coordinator_flow()
-            elif self._flow_mode == FlowMode.LANGGRAPH:
-                self._init_langgraph_flow()
             else:
                 self._init_plan_act_flow()
         else:
             self._init_discuss_flow()
 
         logger.info(
-            "Flow selected: mode=%s, flow=%s, session=%s",
+            "Flow selected: mode=%s, flow=%s, session=%s, reason=%s",
             mode.value,
             self._flow_mode.value,
             session_id,
+            self._flow_selection_reason,
         )
 
     def _fire_and_forget(self, coro: object) -> None:
@@ -309,39 +304,6 @@ class AgentTaskRunner(TaskRunner):
                 f"Initialized PlanActFlow for agent {self._agent_id} "
                 f"(verification={settings.enable_plan_verification}, multi_agent={self._enable_multi_agent}, "
                 f"parallel={settings.enable_parallel_execution}, memory_service={'enabled' if self._memory_service else 'disabled'})"
-            )
-
-    def _init_langgraph_flow(self) -> None:
-        """Initialize LangGraphPlanActFlow for Agent mode with LangGraph"""
-        if self._langgraph_flow is None:
-            settings = get_settings()
-
-            # Enable checkpointing if configured and MongoDB is available
-            enable_checkpointing = settings.feature_workflow_checkpointing and self._mongodb_db is not None
-
-            self._langgraph_flow = LangGraphPlanActFlow(
-                agent_id=self._agent_id,
-                agent_repository=self._repository,
-                session_id=self._session_id,
-                session_repository=self._session_repository,
-                llm=self._llm,
-                sandbox=self._sandbox,
-                browser=self._browser,
-                json_parser=self._json_parser,
-                mcp_tool=self._mcp_tool,
-                search_engine=self._search_engine,
-                cdp_url=self._sandbox.cdp_url,
-                enable_verification=settings.enable_plan_verification,
-                enable_reflection=True,
-                enable_checkpointing=enable_checkpointing,
-                mongodb_db=self._mongodb_db,
-                memory_service=self._memory_service,
-                user_id=self._user_id,
-            )
-            logger.info(
-                f"Initialized LangGraphPlanActFlow for agent {self._agent_id} "
-                f"(checkpointing={'enabled' if enable_checkpointing else 'disabled'}, "
-                f"memory_service={'enabled' if self._memory_service else 'disabled'})"
             )
 
     def _init_coordinator_flow(self) -> None:
@@ -424,8 +386,6 @@ class AgentTaskRunner(TaskRunner):
         # Initialize appropriate flow based on configuration
         if self._flow_mode == FlowMode.COORDINATOR:
             self._init_coordinator_flow()
-        elif self._flow_mode == FlowMode.LANGGRAPH:
-            self._init_langgraph_flow()
         else:
             self._init_plan_act_flow()
 
@@ -437,8 +397,6 @@ class AgentTaskRunner(TaskRunner):
         if self._mode == AgentMode.AGENT:
             if self._flow_mode == FlowMode.COORDINATOR and self._coordinator_flow:
                 return self._coordinator_flow
-            if self._flow_mode == FlowMode.LANGGRAPH and self._langgraph_flow:
-                return self._langgraph_flow
             return self._plan_act_flow
         return self._discuss_flow
 
@@ -1293,6 +1251,7 @@ class AgentTaskRunner(TaskRunner):
                 flow_mode=self._flow_mode.value,
                 model=getattr(self._llm, "model", None),
                 session_id=self._session_id,
+                reason=self._flow_selection_reason,
             )
             await self._put_and_add_event(task, flow_event)
 

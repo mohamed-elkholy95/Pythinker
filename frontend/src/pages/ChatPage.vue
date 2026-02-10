@@ -96,18 +96,6 @@
       </div>
       <div class="mx-auto w-full max-w-full sm:max-w-[768px] sm:min-w-[390px] flex flex-col flex-1 min-h-[calc(100vh-60px)]">
         <div class="flex flex-col w-full gap-[12px] pb-[80px] pt-[12px] flex-1">
-          <div v-if="isSandboxInitializing" class="flex items-center gap-3 px-4 py-2 bg-[var(--fill-tsp-white-main)] border border-[var(--border-main)] rounded-xl">
-            <div class="w-2 h-2 bg-[var(--text-secondary)] rounded-full animate-pulse"></div>
-            <span v-if="!sessionInitTimedOut" class="text-sm text-[var(--text-secondary)]">Initializing my PC...</span>
-            <span v-else class="text-sm text-[var(--text-secondary)]">{{ $t('Sandbox is taking longer than usual.') }}</span>
-            <button
-              v-if="sessionInitTimedOut"
-              @click="handleRetryInitialize"
-              class="ml-auto px-2.5 py-1 text-xs font-medium rounded-md border border-[var(--border-main)] hover:bg-[var(--fill-tsp-white-main)]"
-            >
-              {{ $t('Retry') }}
-            </button>
-          </div>
           <ChatMessage v-for="message in messages" :key="message.id" :message="message"
             :activeThinkingStepId="activeThinkingStepId"
             @toolClick="handleToolClick"
@@ -119,12 +107,17 @@
             @deepResearchRun="handleDeepResearchRun"
             @deepResearchSkip="handleDeepResearchSkip"
             @toggleAutoRun="handleToggleAutoRun" />
+          <SessionWarmupMessage
+            v-if="showSessionWarmupMessage"
+            :state="warmupState"
+            @retry="handleRetryInitialize"
+          />
 
           <!-- Loading/Thinking indicators - fallback for discuss mode (no active step) -->
-          <div v-if="isLoading && (isThinkingStreaming || isThinking) && !activeThinkingStepId && lastTool?.status !== 'calling'" class="flex items-center gap-2 pl-1">
+          <div v-if="!showSessionWarmupMessage && isLoading && (isThinkingStreaming || isThinking) && !activeThinkingStepId && lastTool?.status !== 'calling'" class="flex items-center gap-2 pl-1">
             <ThinkingIndicator :showText="true" />
           </div>
-          <LoadingIndicator v-else-if="isLoading && !activeThinkingStepId" :text="$t('Loading')" />
+          <LoadingIndicator v-else-if="!showSessionWarmupMessage && isLoading && !activeThinkingStepId" :text="$t('Loading')" />
 
           <!-- Waiting for user reply indicator -->
           <WaitingForReply v-if="isWaitingForReply" />
@@ -163,7 +156,7 @@
           </button>
           <!-- Planning Progress Indicator - shows instant feedback before plan is ready -->
           <div
-            v-if="!isToolPanelOpen && planningProgress && (!plan || plan.steps.length === 0)"
+            v-if="!showSessionWarmupMessage && !isToolPanelOpen && planningProgress && (!plan || plan.steps.length === 0)"
             class="planning-progress-indicator mb-2 bg-white dark:bg-[#2a2a2a] rounded-lg border border-gray-200 dark:border-[#3a3a3a] px-4 py-2.5 shadow-sm"
           >
             <!-- Content row -->
@@ -181,7 +174,7 @@
 
           <!-- Task Progress Bar - shown above ChatBox when ToolPanel is closed -->
           <TaskProgressBar
-            v-if="!isToolPanelOpen && (plan?.steps?.length > 0 || lastNoMessageTool || isInitializing || isSandboxInitializing)"
+            v-if="!showSessionWarmupMessage && !isToolPanelOpen && (plan?.steps?.length > 0 || lastNoMessageTool || isInitializing || isSandboxInitializing)"
             :plan="plan"
             :isLoading="isLoading"
             :isThinking="isThinking"
@@ -195,12 +188,25 @@
             @requestRefresh="handleThumbnailRefresh"
             class="mb-2"
           />
-          <ChatBox v-model="inputMessage" :rows="1" @submit="handleSubmit" :isRunning="isLoading" :isBlocked="isSandboxInitializing" @stop="handleStop"
-            :attachments="attachments" @fileClick="handleAttachmentFileClick" :showConnectorBanner="!sessionId" />
+          <ChatBox
+            v-model="inputMessage"
+            :rows="1"
+            @submit="handleSubmit"
+            :isRunning="isLoading"
+            :isBlocked="isSandboxInitializing"
+            @stop="handleStop"
+            :attachments="attachments"
+            @fileClick="handleAttachmentFileClick"
+            :showConnectorBanner="!sessionId"
+            expand-direction="up"
+          />
         </div>
       </div>
       <!-- Wide Research Overlay -->
-      <WideResearchOverlay :state="wideResearch.overlayState.value" />
+      <WideResearchOverlay
+        :state="researchWorkflow.wideOverlayState.value"
+        :phase="researchWorkflow.activePhase.value"
+      />
     </div>
     <ToolPanel ref="toolPanel" :size="toolPanelSize" :sessionId="sessionId" :realTime="realTime"
       :isShare="false"
@@ -260,8 +266,6 @@ import { useI18n } from 'vue-i18n';
 import ChatBox from '../components/ChatBox.vue';
 import ChatMessage from '../components/ChatMessage.vue';
 import * as agentApi from '../api/agent';
-import { BASE_URL } from '../api/client';
-import { getStoredToken } from '@/api/auth';
 import { Message, MessageContent, ToolContent, StepContent, AttachmentsContent, ReportContent, SkillDeliveryContent } from '../types/message';
 import { waitForSessionReady } from '@/utils/sessionReady';
 import {
@@ -279,6 +283,8 @@ import {
   ProgressEventData,
   DeepResearchEventData,
   WideResearchEventData,
+  PhaseTransitionEventData,
+  CheckpointSavedEventData,
   SkillDeliveryEventData,
   SkillActivationEventData,
   CanvasUpdateEventData,
@@ -298,6 +304,7 @@ import { SessionStatus } from '../types/response';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import LoadingIndicator from '@/components/ui/LoadingIndicator.vue';
 import TaskProgressBar from '@/components/TaskProgressBar.vue';
+import SessionWarmupMessage from '@/components/SessionWarmupMessage.vue';
 import { ReportModal } from '@/components/report';
 import FilePanelContent from '@/components/FilePanelContent.vue';
 import type { ReportData } from '@/components/report';
@@ -310,7 +317,7 @@ import { useSessionStatus } from '@/composables/useSessionStatus';
 import { getToolDisplay } from '@/utils/toolDisplay';
 import { useSkills } from '@/composables/useSkills';
 import { useDeepResearch } from '@/composables/useDeepResearch';
-import { useWideResearchGlobal } from '@/composables/useWideResearch';
+import { useResearchWorkflow } from '@/composables/useResearchWorkflow';
 import ConnectorsDialog from '@/components/connectors/ConnectorsDialog.vue';
 import { useConnectorDialog } from '@/composables/useConnectorDialog';
 import { useScreenshotReplay } from '@/composables/useScreenshotReplay';
@@ -326,7 +333,7 @@ const { isReportModalOpen, currentReport, openReport, closeReport } = useReport(
 const { emitStatusChange } = useSessionStatus()
 const { getEffectiveSkillIds, clearSelectedSkills, lockSkillsForSession, clearSessionSkills, selectSkill } = useSkills()
 const { toggleAutoRun } = useDeepResearch()
-const wideResearch = useWideResearchGlobal()
+const researchWorkflow = useResearchWorkflow()
 // ConnectorDialog composable — dialog manages its own visibility
 useConnectorDialog()
 
@@ -503,6 +510,52 @@ const isSandboxInitializing = computed(() => sessionStatus.value === SessionStat
 const isWaitingForSessionReady = ref(false);
 const pendingInitialMessage = ref<{ message: string; files: FileInfo[] } | null>(null);
 const sessionInitTimedOut = ref(false);
+const skipNextRouteReset = ref(false);
+
+interface PendingSessionCreateState {
+  pendingSessionCreate: boolean;
+  mode?: 'agent' | 'discuss';
+  message?: string;
+  skills?: string[];
+  files?: FileInfo[];
+}
+
+const hasUserMessages = computed(() =>
+  messages.value.some((message) => message.type === 'user')
+);
+
+const hasAgentStartedResponding = computed(() =>
+  messages.value.some((message) =>
+    message.type === 'assistant' ||
+    message.type === 'tool' ||
+    message.type === 'step' ||
+    message.type === 'report' ||
+    message.type === 'deep_research' ||
+    message.type === 'skill_delivery'
+  )
+);
+
+const showSessionWarmupMessage = computed(() => {
+  const hasPrompt = hasUserMessages.value || !!pendingInitialMessage.value?.message?.trim();
+  if (!hasPrompt) return false;
+  if (hasAgentStartedResponding.value) return false;
+  if (sessionInitTimedOut.value) return true;
+
+  return (
+    isLoading.value ||
+    isSandboxInitializing.value ||
+    isWaitingForSessionReady.value ||
+    isInitializing.value
+  );
+});
+
+const warmupState = computed<'initializing' | 'thinking' | 'timed_out'>(() => {
+  if (sessionInitTimedOut.value) return 'timed_out';
+  if (isSandboxInitializing.value || isWaitingForSessionReady.value || isInitializing.value) {
+    return 'initializing';
+  }
+  return 'thinking';
+});
 
 watch([sessionId, sessionStatus], ([activeSessionId, status]) => {
   if (!activeSessionId) return
@@ -540,6 +593,62 @@ const maybeSendPendingInitialMessage = () => {
     pendingInitialMessage.value = null;
     chat(pending.message, pending.files);
   }
+};
+
+const getPendingSessionCreateState = (): PendingSessionCreateState | null => {
+  const state = history.state as PendingSessionCreateState | null;
+  if (!state?.pendingSessionCreate) return null;
+  return state;
+};
+
+const initializePendingSession = async () => {
+  const routeSessionId = router.currentRoute.value.params.sessionId;
+  if (routeSessionId !== 'new') return false;
+
+  const pendingState = getPendingSessionCreateState();
+  if (!pendingState) return false;
+
+  const pendingMessage = (pendingState.message || '').trim();
+  const pendingFiles = Array.isArray(pendingState.files) ? pendingState.files : [];
+  const pendingSkills = Array.isArray(pendingState.skills) ? pendingState.skills : [];
+  const mode = pendingState.mode === 'discuss' ? 'discuss' : 'agent';
+
+  // Show immediate chat view feedback while backend session is being created.
+  if (pendingMessage || pendingFiles.length > 0) {
+    addOptimisticUserMessage(pendingMessage, pendingFiles);
+    isInitializing.value = true;
+    isLoading.value = true;
+    isResponseSettled.value = false;
+  }
+
+  try {
+    const session = await agentApi.createSession(mode);
+    sessionId.value = session.session_id;
+
+    skipNextRouteReset.value = true;
+    await router.replace({ path: `/chat/${session.session_id}` });
+
+    if (pendingMessage || pendingFiles.length > 0) {
+      // Apply selected skills right before sending the first message.
+      for (const skillId of pendingSkills) {
+        selectSkill(skillId);
+      }
+      pendingInitialMessage.value = { message: pendingMessage, files: pendingFiles };
+      await refreshSessionStatus(session.session_id);
+      await waitForSessionIfInitializing();
+      maybeSendPendingInitialMessage();
+    } else {
+      await refreshSessionStatus(session.session_id);
+      await restoreSession();
+    }
+  } catch {
+    isLoading.value = false;
+    isInitializing.value = false;
+    pendingInitialMessage.value = null;
+    showErrorToast(t('Failed to create session, please try again later'));
+  }
+
+  return true;
 };
 
 const waitForSessionIfInitializing = async () => {
@@ -594,6 +703,8 @@ const resetState = () => {
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value();
   }
+
+  researchWorkflow.reset();
 
   // Reset reactive state to initial values
   Object.assign(state, createInitialState());
@@ -695,6 +806,49 @@ onUnmounted(() => {
 const getLastStep = (): StepContent | undefined => {
   return messages.value.filter(message => message.type === 'step').pop()?.content as StepContent;
 }
+
+const addOptimisticUserMessage = (message: string, files: FileInfo[] = []) => {
+  const normalizedMessage = message.trim();
+  if (!normalizedMessage && files.length === 0) return;
+  const nowInSeconds = Math.floor(Date.now() / 1000);
+
+  if (normalizedMessage && messages.value.length > 0) {
+    for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+      if (messages.value[i].type !== 'user') continue;
+      const lastUserContent = messages.value[i].content as MessageContent;
+      if (
+        lastUserContent.content === normalizedMessage &&
+        nowInSeconds - lastUserContent.timestamp <= 10
+      ) {
+        return;
+      }
+      break;
+    }
+  }
+
+  if (normalizedMessage) {
+    messages.value.push({
+      id: generateMessageId(),
+      type: 'user',
+      content: {
+        content: normalizedMessage,
+        timestamp: nowInSeconds,
+      } as MessageContent,
+    });
+  }
+
+  if (files.length > 0) {
+    messages.value.push({
+      id: generateMessageId(),
+      type: 'attachments',
+      content: {
+        role: 'user',
+        attachments: files,
+        timestamp: nowInSeconds,
+      } as AttachmentsContent,
+    });
+  }
+};
 
 // Identify the active step that should show the thinking indicator inside it
 const activeThinkingStepId = computed<string | undefined>(() => {
@@ -994,6 +1148,10 @@ const handlePlanEvent = (planData: PlanEventData) => {
 
 // Handle stream event (thinking text streaming or summary streaming)
 const handleStreamEvent = (streamData: StreamEventData) => {
+  researchWorkflow.handleStreamEvent(streamData);
+  if (streamData.phase === 'reflection') {
+    syncDeepResearchMessageMetadata();
+  }
   const phase = streamData.phase || 'thinking';
 
   if (phase === 'summarizing') {
@@ -1155,6 +1313,8 @@ const handleReportEvent = (reportData: ReportEventData) => {
 
 // Handle deep research event
 const handleDeepResearchEvent = (data: DeepResearchEventData) => {
+  const workflowState = researchWorkflow.handleDeepResearchEvent(data);
+
   // Find existing deep research message
   const idx = messages.value.findIndex(
     m => m.type === 'deep_research' &&
@@ -1166,11 +1326,15 @@ const handleDeepResearchEvent = (data: DeepResearchEventData) => {
     const existingContent = messages.value[idx].content as DeepResearchContent;
     messages.value[idx].content = {
       ...existingContent,
-      status: data.status,
+      status: workflowState.status,
       queries: data.queries,
       completed_count: data.completed_queries,
       total_count: data.total_queries,
-      auto_run: data.auto_run
+      auto_run: data.auto_run,
+      phase: workflowState.phase ?? undefined,
+      phase_label: workflowState.phase_label ?? undefined,
+      latest_reflection: workflowState.latest_reflection,
+      checkpoints: workflowState.checkpoints,
     } as DeepResearchContent;
   } else {
     // Create new message
@@ -1179,15 +1343,59 @@ const handleDeepResearchEvent = (data: DeepResearchEventData) => {
       type: 'deep_research',
       content: {
         research_id: data.research_id,
-        status: data.status,
+        status: workflowState.status,
         queries: data.queries || [],
         completed_count: data.completed_queries,
         total_count: data.total_queries,
         auto_run: data.auto_run,
+        phase: workflowState.phase ?? undefined,
+        phase_label: workflowState.phase_label ?? undefined,
+        latest_reflection: workflowState.latest_reflection,
+        checkpoints: workflowState.checkpoints,
         timestamp: data.timestamp
       } as DeepResearchContent
     });
   }
+};
+
+const syncDeepResearchMessageMetadata = (researchId?: string) => {
+  const findTargetIndex = (): number => {
+    if (researchId) {
+      return messages.value.findIndex(
+        (message) =>
+          message.type === 'deep_research' &&
+          (message.content as DeepResearchContent).research_id === researchId,
+      );
+    }
+
+    for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+      if (messages.value[i].type === 'deep_research') return i;
+    }
+    return -1;
+  };
+
+  const idx = findTargetIndex();
+  if (idx < 0) return;
+
+  const current = messages.value[idx].content as DeepResearchContent;
+  const workflowState = researchWorkflow.getDeepResearchState(current.research_id, current.status);
+  messages.value[idx].content = {
+    ...current,
+    phase: workflowState.phase ?? undefined,
+    phase_label: workflowState.phase_label ?? undefined,
+    latest_reflection: workflowState.latest_reflection,
+    checkpoints: workflowState.checkpoints,
+  } as DeepResearchContent;
+};
+
+const handlePhaseTransitionEvent = (data: PhaseTransitionEventData) => {
+  researchWorkflow.handlePhaseTransitionEvent(data);
+  syncDeepResearchMessageMetadata(data.research_id);
+};
+
+const handleCheckpointSavedEvent = (data: CheckpointSavedEventData) => {
+  researchWorkflow.handleCheckpointSavedEvent(data);
+  syncDeepResearchMessageMetadata(data.research_id);
 };
 
 // Handle deep research run (approve)
@@ -1217,30 +1425,7 @@ const handleToggleAutoRun = () => {
 
 // Handle wide research SSE events
 const handleWideResearchEvent = (data: WideResearchEventData) => {
-  if (data.status === 'pending') {
-    wideResearch.startResearch({
-      research_id: data.research_id,
-      topic: data.topic,
-      search_types: data.search_types,
-      aggregation_strategy: data.aggregation_strategy,
-    });
-  } else if (data.status === 'searching' || data.status === 'aggregating') {
-    wideResearch.updateProgress({
-      research_id: data.research_id,
-      total_queries: data.total_queries,
-      completed_queries: data.completed_queries,
-      sources_found: data.sources_found,
-      current_query: data.current_query,
-    });
-  } else if (data.status === 'completed') {
-    wideResearch.completeResearch({
-      research_id: data.research_id,
-      sources_count: data.sources_found,
-      errors: data.errors,
-    });
-  } else if (data.status === 'failed') {
-    wideResearch.failResearch(data.research_id, data.errors?.[0] || 'Research failed');
-  }
+  researchWorkflow.handleWideResearchEvent(data);
 };
 
 // Handle skill delivery events
@@ -1438,6 +1623,10 @@ const processEvent = (event: AgentSSEEvent) => {
     handleDeepResearchEvent(event.data as DeepResearchEventData);
   } else if (event.event === 'wide_research') {
     handleWideResearchEvent(event.data as WideResearchEventData);
+  } else if (event.event === 'phase_transition') {
+    handlePhaseTransitionEvent(event.data as PhaseTransitionEventData);
+  } else if (event.event === 'checkpoint_saved') {
+    handleCheckpointSavedEvent(event.data as CheckpointSavedEventData);
   } else if (event.event === 'skill_delivery') {
     handleSkillDeliveryEvent(event.data as SkillDeliveryEventData);
   } else if (event.event === 'skill_activation') {
@@ -1463,15 +1652,16 @@ let lastSentTime = 0;
 
 const chat = async (message: string = '', files: FileInfo[] = []) => {
   if (!sessionId.value) return;
+  const normalizedMessage = message.trim();
 
   // Prevent duplicate message submission within 2 seconds
   const now = Date.now();
-  if (message && message === lastSentMessage && now - lastSentTime < 2000) {
+  if (normalizedMessage && normalizedMessage === lastSentMessage && now - lastSentTime < 2000) {
     console.debug('Preventing duplicate message submission');
     return;
   }
-  if (message) {
-    lastSentMessage = message;
+  if (normalizedMessage) {
+    lastSentMessage = normalizedMessage;
     lastSentTime = now;
   }
 
@@ -1484,6 +1674,10 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
   // Automatically enable follow mode when sending message
   follow.value = true;
 
+  if (normalizedMessage || files.length > 0) {
+    addOptimisticUserMessage(normalizedMessage, files);
+  }
+
   // Clear input field and per-message skill picks (session skills persist)
   inputMessage.value = '';
   clearSelectedSkills();
@@ -1494,7 +1688,7 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
 
   // Set initialization state when starting a new chat
   // (when there are no messages or only 1 message which is the user's first message)
-  if (message && (messages.value.length === 0 || (messages.value.length === 1 && messages.value[0].type === 'user'))) {
+  if (normalizedMessage && !hasAgentStartedResponding.value) {
     isInitializing.value = true;
   }
 
@@ -1502,7 +1696,7 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
     // Use the split event handler function and store the cancel function
     cancelCurrentChat.value = await agentApi.chatWithSession(
       sessionId.value,
-      message,
+      normalizedMessage,
       lastEventId.value,
       files.map((file: FileInfo) => ({
         file_id: file.file_id,
@@ -1601,6 +1795,15 @@ const restoreSession = async () => {
 
 
 onBeforeRouteUpdate(async (to, from, next) => {
+  if (skipNextRouteReset.value) {
+    skipNextRouteReset.value = false;
+    if (to.params.sessionId) {
+      sessionId.value = String(to.params.sessionId);
+    }
+    next();
+    return;
+  }
+
   if (openReplay.isRecording.value) {
     openReplay.stopSession();
   }
@@ -1642,15 +1845,25 @@ onMounted(async () => {
   // Listen for message insert event from settings dialog
   window.addEventListener('pythinker:insert-chat-message', handleInsertMessage);
 
+  if (await initializePendingSession()) {
+    return;
+  }
+
   const routeParams = router.currentRoute.value.params;
   if (routeParams.sessionId) {
+    if (routeParams.sessionId === 'new') {
+      await router.replace('/chat');
+      return;
+    }
     // If sessionId is included in URL, use it directly
     sessionId.value = String(routeParams.sessionId) as string;
     // Get initial message from history.state
     const message = history.state?.message;
-    const files: FileInfo[] = history.state?.files;
+    const files: FileInfo[] = history.state?.files || [];
     history.replaceState({}, document.title);
     if (message) {
+      addOptimisticUserMessage(message, files);
+      isInitializing.value = true;
       pendingInitialMessage.value = { message, files };
       await refreshSessionStatus(sessionId.value);
       await waitForSessionIfInitializing();
@@ -1661,47 +1874,16 @@ onMounted(async () => {
   }
 });
 
-// Stop running session when navigating away from chat entirely (e.g., to home page)
-onBeforeRouteLeave(async (_to, from, next) => {
+// Keep session runtime alive when navigating away from chat.
+// Sandbox teardown is handled by explicit stop/delete/new-task flows.
+onBeforeRouteLeave(async (_to, _from, next) => {
   if (openReplay.isRecording.value) {
     openReplay.stopSession();
-  }
-  const leavingSessionId = from.params.sessionId as string | undefined;
-  if (leavingSessionId && shouldStopSessionOnExit(sessionStatus.value)) {
-    try {
-      await agentApi.stopSession(leavingSessionId);
-      emitStatusChange(leavingSessionId, SessionStatus.COMPLETED);
-    } catch {
-      // Non-critical — backend safety net will clean up
-    }
   }
   next();
 });
 
-// Stop active session on browser tab close / page refresh via keepalive fetch
-const handleBeforeUnload = () => {
-  if (sessionId.value && shouldStopSessionOnExit(sessionStatus.value)) {
-    const token = getStoredToken();
-    const url = `${BASE_URL}/sessions/${sessionId.value}/stop`;
-    // fetch with keepalive survives page unload (unlike XHR/axios)
-    fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: '{}',
-      keepalive: true,
-    }).catch(() => { /* fire-and-forget */ });
-  }
-};
-
-onMounted(() => {
-  window.addEventListener('beforeunload', handleBeforeUnload);
-});
-
 onUnmounted(() => {
-  window.removeEventListener('beforeunload', handleBeforeUnload);
   window.removeEventListener('pythinker:insert-chat-message', handleInsertMessage);
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value();

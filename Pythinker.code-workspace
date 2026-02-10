@@ -189,7 +189,7 @@
 						"services/agents": ["Critic", "Planner", "Executor"],
 						"services/flows": ["PlanActFlow", "TreeOfThoughtsFlow", "DiscussFlow", "DeepResearchFlow"],
 						"services/tools": "30+ tool definitions",
-						"services/langgraph": "LangGraph state management",
+						"services/legacy-flow": "Legacy Flow state management",
 						"repositories": "Abstract data access interfaces (ABCs)"
 					}
 				},

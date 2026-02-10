@@ -1,7 +1,16 @@
 from pydantic import BaseModel
 
+from app.application.schemas.session import (
+    ConsoleRecord as ApplicationConsoleRecord,
+)
+from app.application.schemas.session import (
+    ShellViewResponse as ApplicationShellViewResponse,
+)
 from app.domain.models.session import AgentMode, SessionStatus
 from app.interfaces.schemas.event import AgentSSEEvent
+
+ConsoleRecord = ApplicationConsoleRecord
+ShellViewResponse = ApplicationShellViewResponse
 
 
 class CreateSessionRequest(BaseModel):
@@ -90,22 +99,6 @@ class ListSessionResponse(BaseModel):
     """List session response schema"""
 
     sessions: list[ListSessionItem]
-
-
-class ConsoleRecord(BaseModel):
-    """Console record schema"""
-
-    ps1: str
-    command: str
-    output: str
-
-
-class ShellViewResponse(BaseModel):
-    """Shell view response schema"""
-
-    output: str
-    session_id: str
-    console: list[ConsoleRecord] | None = None
 
 
 class ShareSessionResponse(BaseModel):

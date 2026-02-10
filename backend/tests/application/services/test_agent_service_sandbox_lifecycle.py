@@ -156,3 +156,114 @@ async def test_warm_sandbox_saves_sandbox_id_when_binding_succeeds(monkeypatch):
     created_sandbox.ensure_sandbox.assert_awaited_once()
     prewarm_browser.assert_awaited_once_with(created_sandbox, session.id)
     assert session_repository.status_updates[-1] == (session.id, SessionStatus.PENDING)
+
+
+@pytest.mark.asyncio
+async def test_warm_sandbox_skips_redundant_prewarm_for_pooled_sandbox(monkeypatch):
+    session = Session(
+        id="session-pooled-skip-prewarm",
+        user_id="user-1",
+        agent_id="agent-1",
+    )
+    session_repository = FakeSessionRepository([session])
+
+    pooled_sandbox = _build_sandbox("pooled-sandbox")
+    sandbox_cls = MagicMock()
+    sandbox_cls.create = AsyncMock()  # Should not be used when pool acquire succeeds
+
+    service = _build_service(session_repository, sandbox_cls)
+    prewarm_browser = AsyncMock()
+    monkeypatch.setattr(service, "_prewarm_browser", prewarm_browser)
+
+    fake_pool = SimpleNamespace(
+        is_started=True,
+        size=1,
+        acquire=AsyncMock(return_value=pooled_sandbox),
+    )
+
+    monkeypatch.setattr(
+        "app.application.services.agent_service.get_settings",
+        lambda: SimpleNamespace(sandbox_pool_enabled=True),
+    )
+    monkeypatch.setattr(
+        "app.application.services.agent_service.get_sandbox_pool",
+        AsyncMock(return_value=fake_pool),
+    )
+
+    await service._warm_sandbox_for_session(session.id)
+
+    fake_pool.acquire.assert_awaited_once()
+    sandbox_cls.create.assert_not_awaited()
+    pooled_sandbox.ensure_sandbox.assert_awaited_once()
+    prewarm_browser.assert_not_awaited()
+    assert session_repository.status_updates[-1] == (session.id, SessionStatus.PENDING)
+
+
+@pytest.mark.asyncio
+async def test_warm_sandbox_bypasses_pool_for_static_sandbox_addresses(monkeypatch):
+    session = Session(
+        id="session-static-addresses",
+        user_id="user-1",
+        agent_id="agent-1",
+    )
+    session_repository = FakeSessionRepository([session])
+
+    created_sandbox = _build_sandbox("static-sandbox")
+    sandbox_cls = MagicMock()
+    sandbox_cls.create = AsyncMock(return_value=created_sandbox)
+
+    service = _build_service(session_repository, sandbox_cls)
+    prewarm_browser = AsyncMock()
+    monkeypatch.setattr(service, "_prewarm_browser", prewarm_browser)
+
+    monkeypatch.setattr(
+        "app.application.services.agent_service.get_settings",
+        lambda: SimpleNamespace(sandbox_pool_enabled=True, sandbox_address="sandbox,sandbox2"),
+    )
+    get_pool_mock = AsyncMock(side_effect=AssertionError("pool should be bypassed in static sandbox mode"))
+    monkeypatch.setattr(
+        "app.application.services.agent_service.get_sandbox_pool",
+        get_pool_mock,
+    )
+
+    await service._warm_sandbox_for_session(session.id)
+
+    get_pool_mock.assert_not_awaited()
+    sandbox_cls.create.assert_awaited_once()
+    created_sandbox.ensure_sandbox.assert_awaited_once()
+    prewarm_browser.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_warm_sandbox_bypasses_pool_for_ephemeral_lifecycle_mode(monkeypatch):
+    session = Session(
+        id="session-ephemeral-lifecycle",
+        user_id="user-1",
+        agent_id="agent-1",
+    )
+    session_repository = FakeSessionRepository([session])
+
+    created_sandbox = _build_sandbox("ephemeral-sandbox")
+    sandbox_cls = MagicMock()
+    sandbox_cls.create = AsyncMock(return_value=created_sandbox)
+
+    service = _build_service(session_repository, sandbox_cls)
+    prewarm_browser = AsyncMock()
+    monkeypatch.setattr(service, "_prewarm_browser", prewarm_browser)
+
+    monkeypatch.setattr(
+        "app.application.services.agent_service.get_settings",
+        lambda: SimpleNamespace(sandbox_pool_enabled=True, sandbox_lifecycle_mode="ephemeral", sandbox_address=None),
+    )
+    get_pool_mock = AsyncMock(side_effect=AssertionError("pool should be bypassed for ephemeral lifecycle mode"))
+    monkeypatch.setattr(
+        "app.application.services.agent_service.get_sandbox_pool",
+        get_pool_mock,
+    )
+
+    await service._warm_sandbox_for_session(session.id)
+
+    get_pool_mock.assert_not_awaited()
+    sandbox_cls.create.assert_awaited_once()
+    created_sandbox.ensure_sandbox.assert_awaited_once()
+    prewarm_browser.assert_awaited_once_with(created_sandbox, session.id)

@@ -1,6 +1,6 @@
 """Graph-based workflow engine for declarative agent orchestration.
 
-This module provides a LangGraph-inspired but lightweight workflow abstraction
+This module provides a lightweight workflow abstraction
 that enables declarative definition of agent workflows as directed graphs.
 
 Key features:

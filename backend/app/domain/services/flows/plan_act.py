@@ -33,8 +33,6 @@ from app.domain.models.event import (
     VerificationEvent,
     VerificationStatus,
     WaitEvent,
-    WideResearchEvent,
-    WideResearchStatus,
 )
 from app.domain.models.file import FileInfo
 from app.domain.models.message import Message
@@ -977,191 +975,86 @@ class PlanActFlow(BaseFlow):
     async def _execute_deep_research(
         self, topic: str, original_message: str, trace_ctx
     ) -> AsyncGenerator[BaseEvent, None]:
-        """Execute deep research using the wide_research tool.
+        """Execute deep research through the DeepResearchFlow manager path."""
+        del original_message, trace_ctx  # Reserved for future tracing hooks
 
-        This method is called when the user enables Deep Research mode.
-        It calls the wide_research tool for parallel multi-source search.
-
-        Args:
-            topic: The research topic extracted from the user's message
-            original_message: The original user message for context
-            trace_ctx: The trace context for observability
-
-        Yields:
-            BaseEvent: Events from the wide_research tool execution
-        """
-        from uuid import uuid4
+        settings = get_settings()
+        from app.core.deep_research_manager import get_deep_research_manager
+        from app.domain.models.deep_research import DeepResearchConfig
+        from app.domain.models.event import DeepResearchStatus
+        from app.domain.services.flows.deep_research import DeepResearchFlow
+        from app.domain.services.flows.phased_research import PhasedResearchFlow
 
         logger.info(f"Executing deep research on topic: {topic}")
 
-        # Generate queries from the topic
+        if self._search_engine is None:
+            yield MessageEvent(message="Search capabilities are not available for deep research.")
+            yield DoneEvent()
+            return
+
+        if settings.feature_phased_research:
+            phased_flow = PhasedResearchFlow(
+                search_engine=self._search_engine,
+                session_id=self._session_id,
+            )
+
+            try:
+                async for event in phased_flow.run(topic):
+                    yield event
+                yield DoneEvent()
+            except Exception as e:
+                logger.error(f"Phased deep research failed: {e}")
+                yield ErrorEvent(error=f"Deep research failed: {e}")
+                yield DoneEvent()
+            return
+
         queries = self._generate_research_queries(topic)
-        search_types = ["info", "news"]
-        research_id = str(uuid4())[:12]
+        if not queries:
+            yield MessageEvent(message="I couldn't generate valid research queries for that topic.")
+            yield DoneEvent()
+            return
 
-        # Emit PENDING WideResearchEvent at start
-        yield WideResearchEvent(
-            research_id=research_id,
-            topic=topic,
-            status=WideResearchStatus.PENDING,
-            total_queries=len(queries) * len(search_types),
-            completed_queries=0,
-            sources_found=0,
-            search_types=search_types,
-        )
-
-        # Emit tool calling event for wide_research
-        tool_call_id = str(uuid4())
-        function_args = {
-            "topic": topic,
-            "queries": queries,
-            "search_types": search_types,
-        }
-
-        # Emit calling event
-        yield ToolEvent(
-            tool_call_id=tool_call_id,
-            tool_name="wide_research",
-            function_name="wide_research",
-            function_args=function_args,
-            status=ToolStatus.CALLING,
-        )
-
-        # Emit SEARCHING WideResearchEvent
-        yield WideResearchEvent(
-            research_id=research_id,
-            topic=topic,
-            status=WideResearchStatus.SEARCHING,
-            total_queries=len(queries) * len(search_types),
-            completed_queries=0,
-            sources_found=0,
-            search_types=search_types,
-            current_query=queries[0] if queries else None,
-        )
+        flow = DeepResearchFlow(search_engine=self._search_engine, session_id=self._session_id)
+        manager = get_deep_research_manager()
+        registered = False
 
         try:
-            # Execute wide_research through the search tool
-            if self._search_tool:
-                result = await self._search_tool.wide_research(
-                    topic=topic,
-                    queries=queries,
-                    search_types=search_types,
+            await manager.register(self._session_id, flow)
+            registered = True
+
+            config = DeepResearchConfig(
+                queries=queries,
+                auto_run=True,  # Preserve current immediate-run behavior
+                max_concurrent=min(5, max(1, len(queries))),
+            )
+
+            async for event in flow.run(config):
+                # Keep frontend status text stable while per-query updates stream through query payloads.
+                if event.status in {
+                    DeepResearchStatus.QUERY_STARTED,
+                    DeepResearchStatus.QUERY_COMPLETED,
+                    DeepResearchStatus.QUERY_SKIPPED,
+                }:
+                    event = event.model_copy(update={"status": DeepResearchStatus.STARTED})
+                yield event
+
+            summary = flow.generate_research_summary()
+            if summary:
+                yield ReportEvent(
+                    id=str(uuid4()),
+                    title=f"Research: {topic}",
+                    content=summary,
+                    attachments=[],
                 )
 
-                # Emit AGGREGATING WideResearchEvent
-                # result.data is a SearchResults Pydantic model, not a dict
-                if result and result.data:
-                    sources_found = getattr(result.data, "total_results", 0)
-                    result_dict = result.data.model_dump() if hasattr(result.data, "model_dump") else {}
-                else:
-                    sources_found = 0
-                    result_dict = {}
-                yield WideResearchEvent(
-                    research_id=research_id,
-                    topic=topic,
-                    status=WideResearchStatus.AGGREGATING,
-                    total_queries=len(queries) * len(search_types),
-                    completed_queries=len(queries) * len(search_types),
-                    sources_found=sources_found,
-                    search_types=search_types,
-                )
-
-                # Emit called event with results
-                yield ToolEvent(
-                    tool_call_id=tool_call_id,
-                    tool_name="wide_research",
-                    function_name="wide_research",
-                    function_args=function_args,
-                    function_result=result_dict,
-                    status=ToolStatus.CALLED,
-                )
-
-                # Emit report event with synthesized content
-                if result and result.success and result.data:
-                    # result.message contains the formatted research summary
-                    content = result.message or ""
-
-                    # Create a report from the research
-                    report_id = str(uuid4())
-                    yield ReportEvent(
-                        id=report_id,
-                        title=f"Research: {topic}",
-                        content=content,
-                        attachments=[],
-                    )
-
-                    # Emit COMPLETED WideResearchEvent
-                    yield WideResearchEvent(
-                        research_id=research_id,
-                        topic=topic,
-                        status=WideResearchStatus.COMPLETED,
-                        total_queries=len(queries) * len(search_types),
-                        completed_queries=len(queries) * len(search_types),
-                        sources_found=sources_found,
-                        search_types=search_types,
-                    )
-
-                    # Emit done event
-                    yield DoneEvent()
-                else:
-                    # Research failed or no results
-                    error_msg = result.message if result else "No search tool available"
-
-                    # Emit FAILED WideResearchEvent
-                    yield WideResearchEvent(
-                        research_id=research_id,
-                        topic=topic,
-                        status=WideResearchStatus.FAILED,
-                        total_queries=len(queries) * len(search_types),
-                        completed_queries=len(queries) * len(search_types),
-                        sources_found=0,
-                        search_types=search_types,
-                        errors=[error_msg],
-                    )
-
-                    yield MessageEvent(message=f"I was unable to complete the deep research: {error_msg}")
-                    yield DoneEvent()
-            else:
-                # Emit FAILED WideResearchEvent for missing search tool
-                yield WideResearchEvent(
-                    research_id=research_id,
-                    topic=topic,
-                    status=WideResearchStatus.FAILED,
-                    total_queries=len(queries) * len(search_types),
-                    completed_queries=0,
-                    sources_found=0,
-                    search_types=search_types,
-                    errors=["Search capabilities are not available"],
-                )
-
-                yield MessageEvent(message="Search capabilities are not available for deep research.")
-                yield DoneEvent()
-
+            yield DoneEvent()
         except Exception as e:
             logger.error(f"Deep research failed: {e}")
-
-            # Emit FAILED WideResearchEvent on exception
-            yield WideResearchEvent(
-                research_id=research_id,
-                topic=topic,
-                status=WideResearchStatus.FAILED,
-                total_queries=len(queries) * len(search_types),
-                completed_queries=0,
-                sources_found=0,
-                search_types=search_types,
-                errors=[str(e)],
-            )
-
-            yield ToolEvent(
-                tool_call_id=tool_call_id,
-                tool_name="wide_research",
-                function_name="wide_research",
-                function_args=function_args,
-                function_result={"error": str(e)},
-                status=ToolStatus.CALLED,
-            )
             yield ErrorEvent(error=f"Deep research failed: {e}")
             yield DoneEvent()
+        finally:
+            if registered:
+                await manager.unregister(self._session_id)
 
     def _generate_research_queries(self, topic: str) -> list[str]:
         """Generate search queries from a research topic.

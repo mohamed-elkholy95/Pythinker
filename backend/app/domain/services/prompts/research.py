@@ -117,7 +117,10 @@ Domain-aware approach:
 RESEARCH_EXECUTION_PROMPT = """
 <research_execution>
 FIRST: Send an acknowledgment message (1-2 sentences) stating what research you will conduct.
-Example: "I will conduct comprehensive research on [topics] to provide you with a detailed report."
+Example: "Understood. I will research this and provide a structured report with citations."
+Keep it concise (max ~25 words).
+Do NOT paste or restate the user's full prompt.
+Do NOT copy the user's numbered requirement list into the acknowledgment.
 
 THEN: Execute the research following this MANDATORY workflow:
 
