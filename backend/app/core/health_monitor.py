@@ -72,7 +72,7 @@ class HealthMonitor:
         logger.info("Starting health monitoring")
 
         # Start monitoring tasks for each component
-        components = ["error_manager", "sandbox_manager", "workflow_manager", "database", "redis", "qdrant"]
+        components = ["error_manager", "sandbox_manager", "database", "redis", "qdrant"]
 
         for component in components:
             task = asyncio.create_task(self._monitor_component(component))
@@ -111,8 +111,6 @@ class HealthMonitor:
                 await self._check_error_manager_health(health)
             elif component == "sandbox_manager":
                 await self._check_sandbox_manager_health(health)
-            elif component == "workflow_manager":
-                await self._check_workflow_manager_health(health)
             elif component == "database":
                 await self._check_database_health(health)
             elif component == "redis":
@@ -178,13 +176,6 @@ class HealthMonitor:
                 metadata=stats,
             )
         )
-
-    async def _check_workflow_manager_health(self, health: ComponentHealth):
-        """Check workflow manager health"""
-        # For now, assume healthy if no exceptions
-        health.status = ComponentStatus.HEALTHY
-
-        health.add_metric(HealthMetric(name="status", value=1.0, status=health.status, timestamp=datetime.now()))
 
     async def _check_database_health(self, health: ComponentHealth):
         """Check database connectivity"""
