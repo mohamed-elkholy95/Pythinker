@@ -132,6 +132,38 @@ function formatResource(argKey: string, args?: Record<string, unknown>): string 
   return truncate(value, 70);
 }
 
+function isNumericOnly(value: string): boolean {
+  return /^\d+$/.test(value.trim());
+}
+
+function normalizeToolDescription(
+  actionLabel: string,
+  resourceLabel: string,
+  rawDescription?: string
+): string {
+  const trimmedRaw = rawDescription?.trim();
+
+  // Browser click events often provide only an element index (e.g., "Clicking 16").
+  // Keep the label user-friendly in chat chips by hiding bare indices.
+  if (trimmedRaw && /^clicking\s+\d+$/i.test(trimmedRaw)) {
+    return actionLabel;
+  }
+
+  if (actionLabel.toLowerCase() === 'clicking' && isNumericOnly(resourceLabel)) {
+    return actionLabel;
+  }
+
+  if (trimmedRaw) {
+    return truncate(trimmedRaw, 90);
+  }
+
+  if (resourceLabel) {
+    return `${actionLabel} ${resourceLabel}`;
+  }
+
+  return actionLabel;
+}
+
 function inferToolKeyFromFunction(functionName: string): string {
   if (!functionName) return '';
   const func = functionName.toLowerCase();
@@ -207,12 +239,8 @@ export function getToolDisplay(input: ToolDisplayInput): ToolDisplayInfo {
   const argKey = TOOL_FUNCTION_ARG_MAP[functionName] || '';
   const resourceLabel = formatResource(argKey, input.args);
 
-  const rawDescription = input.display_command?.trim();
-  const description = rawDescription
-    ? truncate(rawDescription, 90)
-    : resourceLabel
-      ? `${actionLabel} ${resourceLabel}`
-      : actionLabel;
+  const rawDescription = input.display_command;
+  const description = normalizeToolDescription(actionLabel, resourceLabel, rawDescription);
 
   const icon = TOOL_ICON_MAP[toolKey] || TOOL_ICON_MAP[input.name || ''] || TOOL_ICON_MAP['idle'] || null;
 
