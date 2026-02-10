@@ -275,6 +275,23 @@ class TestBrowserConnectionPool:
                 conn = pool._pools[cdp_url][0]
                 assert conn.consecutive_failures >= 1
 
+    @pytest.mark.asyncio
+    async def test_force_release_logs_once_per_failure_window(self, pool, caplog):
+        """Rapid repeated force_release_all calls should not emit repeated warning logs."""
+        cdp_url = "ws://localhost:9222"
+        pool._force_release_cooldown_seconds = 60.0
+        pool._in_use[cdp_url] = {1, 2}
+
+        with caplog.at_level("WARNING"):
+            first_released = await pool.force_release_all(cdp_url)
+            pool._in_use[cdp_url] = {3}
+            second_released = await pool.force_release_all(cdp_url)
+
+        assert first_released == 2
+        assert second_released == 0
+        warning_messages = [record.message for record in caplog.records if "Force released" in record.message]
+        assert warning_messages == [f"Force released 2 connections for {cdp_url}"]
+
 
 class TestPooledConnectionContext:
     """Tests for PooledConnectionContext class."""

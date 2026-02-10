@@ -87,6 +87,7 @@ BLOCKED_URL_PATTERNS = [
 # the browser/renderer has crashed and needs recovery, not retry.
 BROWSER_CRASH_SIGNATURES: list[str] = [
     "Target closed",
+    "Target crashed",
     "Target page, context or browser has been closed",
     "Browser has been closed",
     "Browser closed",

@@ -110,6 +110,8 @@ class BrowserConnectionPool:
         self._health_interval = health_check_interval or settings.browser_pool_health_interval
         self._cleanup_task: asyncio.Task[Any] | None = None
         self._shutdown = False
+        self._force_release_last_at: dict[str, float] = {}
+        self._force_release_cooldown_seconds = 30.0
 
         # Statistics tracking
         self._stats: dict[str, dict[str, Any]] = {}
@@ -566,12 +568,27 @@ class BrowserConnectionPool:
             Number of connections released
         """
         lock = self._get_pool_lock(cdp_url)
+        now = time.time()
 
         async with lock:
+            last_release_at = self._force_release_last_at.get(cdp_url, 0.0)
+            if now - last_release_at < self._force_release_cooldown_seconds:
+                logger.debug(
+                    "Skipping force release for %s; cooldown active (%.1fs remaining)",
+                    cdp_url,
+                    self._force_release_cooldown_seconds - (now - last_release_at),
+                )
+                return 0
+
             in_use = self._in_use.get(cdp_url, set())
             released = len(in_use)
             in_use.clear()
-            logger.warning(f"Force released {released} connections for {cdp_url}")
+            self._force_release_last_at[cdp_url] = now
+
+            if released > 0:
+                logger.warning(f"Force released {released} connections for {cdp_url}")
+            else:
+                logger.debug(f"Force release requested with no in-use connections for {cdp_url}")
 
         return released
 
@@ -612,6 +629,7 @@ class BrowserConnectionPool:
         self._in_use.clear()
         self._pool_locks.clear()
         self._stats.clear()
+        self._force_release_last_at.clear()
 
         logger.info("Browser connection pool closed")
 
