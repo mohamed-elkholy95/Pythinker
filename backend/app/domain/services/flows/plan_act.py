@@ -856,7 +856,9 @@ class PlanActFlow(BaseFlow):
         # Check for specific task types and generate appropriate acknowledgments
         if any(word in message_lower for word in ["create", "build", "make", "generate", "write"]):
             if is_large_prompt:
-                return "I've received your request. I'll prepare a clear plan and start working through it step by step."
+                return (
+                    "I've received your request. I'll prepare a clear plan and start working through it step by step."
+                )
             if request_focus and request_focus != "this task":
                 return f"I'll help you with {request_focus}. Let me create a plan and get started."
             return "I'll help you with that. Let me create a plan and get started."
@@ -868,7 +870,9 @@ class PlanActFlow(BaseFlow):
 
         if any(word in message_lower for word in ["find", "search", "look for", "locate"]):
             if is_large_prompt:
-                return "I've received your request. I'll gather the relevant information and return a structured summary."
+                return (
+                    "I've received your request. I'll gather the relevant information and return a structured summary."
+                )
             return "I'll search for that information."
 
         if any(word in message_lower for word in ["explain", "how does", "what is", "why"]):
