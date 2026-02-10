@@ -358,7 +358,7 @@ describe('TaskProgressBar', () => {
     expect(chevronUp.exists()).toBe(true)
   })
 
-  it('should have status morph animation element', () => {
+  it('should not render status morph animation element in collapsed view', () => {
     const plan = createMockPlan([
       { id: '1', description: 'Step 1', status: 'running' },
     ])
@@ -371,9 +371,8 @@ describe('TaskProgressBar', () => {
       },
     })
 
-    // Component uses .status-morph class for the animation
     const statusMorph = wrapper.find('.status-morph')
-    expect(statusMorph.exists()).toBe(true)
+    expect(statusMorph.exists()).toBe(false)
   })
 
   it('should show step numbers when expanded', async () => {

@@ -48,7 +48,11 @@ from app.domain.services.agents.complexity_assessor import ComplexityAssessor
 from app.domain.services.agents.execution import ExecutionAgent
 from app.domain.services.agents.planner import PlannerAgent
 from app.domain.services.flows.base import BaseFlow, FlowStatus
-from app.domain.services.flows.fast_path import FastPathRouter, QueryIntent
+from app.domain.services.flows.fast_path import (
+    FastPathRouter,
+    QueryIntent,
+    is_suggestion_follow_up_message,
+)
 
 # Import research task detection for acknowledgment messages
 from app.domain.services.prompts.research import is_research_task
@@ -808,6 +812,7 @@ class PlanActFlow(BaseFlow):
             A brief acknowledgment message describing what will be done
         """
         message_lower = user_message.lower()
+        request_focus = self._extract_request_focus(user_message)
 
         # Skill creation acknowledgment
         if "/skill-creator" in message_lower:
@@ -825,10 +830,14 @@ class PlanActFlow(BaseFlow):
 
         # Check for research-type tasks — use generic message to avoid echoing typos
         if is_research_task(user_message):
+            if request_focus and request_focus != "this task":
+                return f"I'll quickly analyze {request_focus} and provide you with a detailed report."
             return "I'll conduct comprehensive research on this topic and provide you with a detailed report."
 
         # Check for specific task types and generate appropriate acknowledgments
         if any(word in message_lower for word in ["create", "build", "make", "generate", "write"]):
+            if request_focus and request_focus != "this task":
+                return f"I'll help you with {request_focus}. Let me create a plan and get started."
             return "I'll help you with that. Let me create a plan and get started."
 
         if any(word in message_lower for word in ["fix", "debug", "solve", "resolve"]):
@@ -851,6 +860,43 @@ class PlanActFlow(BaseFlow):
 
         # Default acknowledgment
         return "I'll help you with that. Let me work on it."
+
+    def _extract_request_focus(self, user_message: str) -> str:
+        """Extract the actionable focus from the user's request.
+
+        Removes common polite prefixes and leading action verbs while preserving
+        the original wording/casing for natural acknowledgments.
+        """
+        focus = (user_message or "").strip()
+        if not focus:
+            return "this task"
+
+        # Remove conversational lead-ins like "Please can you ..."
+        focus = re.sub(
+            r"^\s*(?:please\s+)?(?:(?:can|could|would)\s+you|you\s+can)\s+",
+            "",
+            focus,
+            flags=re.IGNORECASE,
+        )
+        focus = re.sub(r"^\s*please\s+", "", focus, flags=re.IGNORECASE)
+
+        # Remove leading action verbs to get the object of the request.
+        action_prefix = (
+            r"^\s*(?:to\s+)?(?:"
+            r"create|build|make|generate|write|develop|implement|design|"
+            r"fix|debug|solve|resolve|troubleshoot|"
+            r"analy[sz]e|research|investigate|"
+            r"find|search(?:\s+for)?|look\s+for|locate|"
+            r"explain|describe|summari[sz]e|"
+            r"update|modify|change|edit|"
+            r"install|setup|set\s+up|configure|"
+            r"test|check|verify|validate"
+            r")\s+"
+        )
+        focus = re.sub(action_prefix, "", focus, flags=re.IGNORECASE)
+
+        focus = focus.strip().rstrip(".!?")
+        return focus or "this task"
 
     def _extract_research_topic(self, user_message: str) -> str | None:
         """Extract the research topic from the user's message.
@@ -1668,8 +1714,15 @@ class PlanActFlow(BaseFlow):
             # Determine if fast path can be used based on intent
             use_fast_path = False
             skip_reason = ""
+            has_recent_assistant_reply = any(
+                isinstance(event, MessageEvent) and event.role == "assistant" and bool((event.message or "").strip())
+                for event in reversed(session.events or [])
+            )
+            is_suggestion_follow_up = has_recent_assistant_reply and is_suggestion_follow_up_message(message.message)
 
-            if intent == QueryIntent.GREETING:
+            if is_suggestion_follow_up:
+                skip_reason = "suggestion follow-up requires contextual session history"
+            elif intent == QueryIntent.GREETING:
                 # Greetings don't need browser or tools - always use fast path, even during init
                 use_fast_path = True
             elif intent == QueryIntent.KNOWLEDGE:

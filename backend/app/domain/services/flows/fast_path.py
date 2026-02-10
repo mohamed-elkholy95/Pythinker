@@ -189,6 +189,16 @@ TASK_PATTERNS = [
     r"(?:about|for|on)\s+all\s+(?:the\s+)?(?:issues?|problems?|bugs?|errors?)",
 ]
 
+# Suggestion-style follow-up prompts that should use full contextual flow
+SUGGESTION_FOLLOW_UP_PATTERNS = [
+    r"^can you explain (?:this|that|it|your (?:previous|last) (?:answer|response)) in more detail\??$",
+    r"^what are (?:the )?best next steps\??$",
+    r"^what should i prioritize as next steps\??$",
+    r"^what should i ask next about (?:this|that|it)\??$",
+    r"^can you (?:give me|give|provide) (?:a )?practical example(?: for (?:this|that|it))?\??$",
+    r"^can you summarize (?:this|that|it|your (?:previous|last) (?:answer|response)) (?:in|into) (?:three|3) key points\??$",
+]
+
 
 class FastPathRouter:
     """Routes simple queries to fast execution paths, bypassing full planning.
@@ -780,10 +790,21 @@ class FastPathRouter:
 _classify_router: FastPathRouter | None = None
 
 
+def is_suggestion_follow_up_message(message: str) -> bool:
+    """Return True when a message matches known follow-up suggestion phrasing."""
+    if not message or not message.strip():
+        return False
+
+    normalized = re.sub(r"\s+", " ", message.strip().lower())
+    return any(re.match(pattern, normalized) for pattern in SUGGESTION_FOLLOW_UP_PATTERNS)
+
+
 def should_use_fast_path(message: str) -> bool:
     """Return True when a message should be handled by the fast path."""
     global _classify_router
     if not message or not message.strip():
+        return False
+    if is_suggestion_follow_up_message(message):
         return False
 
     if _classify_router is None:
