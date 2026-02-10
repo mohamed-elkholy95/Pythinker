@@ -54,6 +54,7 @@ from app.domain.services.flows.fast_path import (
     QueryIntent,
     is_suggestion_follow_up_message,
 )
+from app.domain.services.flows.step_failure import StepFailureHandler
 from app.domain.services.tools.browser import BrowserTool
 from app.domain.services.tools.code_executor import CodeExecutorTool
 from app.domain.services.tools.file import FileTool
@@ -352,8 +353,9 @@ class PlanActFlow(BaseFlow):
         if enable_multi_agent:
             self._init_multi_agent_dispatch()
 
-        # Acknowledgment generator (extracted from PlanActFlow)
+        # Extracted sub-coordinators
         self._ack_generator = AcknowledgmentGenerator()
+        self._step_failure_handler = StepFailureHandler()
 
         # Workflow loop safety limits
         self._max_workflow_transitions = 100
@@ -1061,91 +1063,22 @@ class PlanActFlow(BaseFlow):
         task.add_done_callback(self._background_tasks.discard)
 
     def _handle_step_failure(self, failed_step: Step) -> list[str]:
-        """Handle step failure by marking dependent steps as blocked.
-
-        Args:
-            failed_step: The step that failed
-
-        Returns:
-            List of step IDs that were marked as blocked
-        """
+        """Handle step failure by marking dependent steps as blocked."""
         if not self.plan:
             return []
-
-        # Get the failure reason
-        reason = failed_step.error or failed_step.result or "Step execution failed"
-
-        # Mark dependent steps as blocked using cascade
-        return self.plan.mark_blocked_cascade(
-            blocked_step_id=failed_step.id,
-            reason=reason[:200],  # Limit reason length
-        )
+        return self._step_failure_handler.handle_failure(self.plan, failed_step)
 
     def _should_skip_step(self, step: Step) -> tuple[bool, str]:
-        """Check if a step should be skipped.
-
-        Steps can be skipped if:
-        - They're marked as optional and a dependency failed
-        - The plan already achieved the step's goal through another path
-        - The step is redundant based on previous results
-
-        Args:
-            step: The step to evaluate
-
-        Returns:
-            Tuple of (should_skip, reason)
-        """
+        """Check if a step should be skipped."""
         if not self.plan:
             return False, ""
-
-        # Check if any dependency is blocked (not failed, but blocked by another failure)
-        for dep_id in step.dependencies:
-            dep_step = next((s for s in self.plan.steps if s.id == dep_id), None)
-            if dep_step and dep_step.status == ExecutionStatus.BLOCKED:
-                # This step should also be blocked, not skipped
-                return False, ""
-            if dep_step and dep_step.status == ExecutionStatus.SKIPPED:
-                # If dependency was skipped, this step might be skippable too
-                # depending on whether it's truly dependent
-                pass
-
-        # Check for optional steps (indicated by description patterns)
-        optional_patterns = ["optional", "if needed", "if required", "alternatively"]
-        description_lower = step.description.lower()
-        is_optional = any(pattern in description_lower for pattern in optional_patterns)
-
-        if is_optional:
-            # Check if any dependency failed — optional steps with failed deps can be skipped
-            has_failed_dep = any(
-                dep_step.status == ExecutionStatus.FAILED
-                for dep_id in step.dependencies
-                for dep_step in self.plan.steps
-                if dep_step.id == dep_id
-            )
-            if has_failed_dep:
-                return True, "Optional step skipped: dependency failed"
-
-        return False, ""
+        return self._step_failure_handler.should_skip_step(self.plan, step)
 
     def _check_and_skip_steps(self) -> list[str]:
-        """Check all pending steps and skip those that should be skipped.
-
-        Returns:
-            List of step IDs that were skipped
-        """
+        """Check all pending steps and skip those that should be skipped."""
         if not self.plan:
             return []
-
-        skipped_ids = []
-        for step in self.plan.steps:
-            if step.status == ExecutionStatus.PENDING:
-                should_skip, reason = self._should_skip_step(step)
-                if should_skip:
-                    step.mark_skipped(reason)
-                    skipped_ids.append(step.id)
-                    logger.info(f"Skipped step {step.id}: {reason}")
-
-        return skipped_ids
+        return self._step_failure_handler.check_and_skip_steps(self.plan)
 
     def _is_read_only_step(self, step: Step) -> bool:
         """Check if a step is likely read-only (doesn't modify state).
