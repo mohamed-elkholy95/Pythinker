@@ -115,6 +115,9 @@ const hovered = ref(false)
   align-items: center;
   gap: 8px;
   cursor: default;
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
 }
 
 .thinking-lamp {
@@ -126,6 +129,9 @@ const hovered = ref(false)
   justify-content: center;
   flex-shrink: 0;
   transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform-origin: center center;
+  overflow: hidden;
+  contain: paint;
 }
 
 .thinking-lamp.lamp-with-text {
@@ -196,7 +202,7 @@ const hovered = ref(false)
   height: 100%;
   position: relative;
   z-index: 1;
-  overflow: visible;
+  overflow: hidden;
 }
 
 /* Hex frame — faint geometric border */

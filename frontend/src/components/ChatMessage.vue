@@ -7,15 +7,15 @@
         </div>
       </div>
     </div>
-    <div class="flex max-w-[90%] relative flex-col gap-2 items-end">
+    <div class="flex max-w-[90%] flex-col gap-1 items-end">
       <div
         class="relative flex items-center rounded-[12px] overflow-hidden bg-[var(--bolt-elements-bg-depth-2)] p-3 ltr:rounded-br-none rtl:rounded-bl-none border border-[var(--bolt-elements-borderColor)]"
         v-html="renderMarkdown(messageContent.content)">
       </div>
-      <!-- Copy button - appears on hover in bottom right corner -->
+      <!-- Copy button - appears below the bubble on hover -->
       <button
         @click="handleCopyUserMessage"
-        class="absolute bottom-2 right-2 p-1.5 rounded-md bg-[var(--background-white-main)] border border-[var(--border-main)] shadow-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-[var(--fill-tsp-gray-main)]"
+        class="self-end p-1.5 rounded-md bg-[var(--background-white-main)] border border-[var(--border-main)] shadow-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-[var(--fill-tsp-gray-main)]"
         :title="copied ? 'Copied!' : 'Copy message'"
       >
         <Check v-if="copied" :size="14" class="text-green-500" />

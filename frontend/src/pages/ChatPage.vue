@@ -1098,6 +1098,42 @@ const handleSuggestionEvent = (suggestionData: SuggestionEventData) => {
   suggestions.value = suggestionData.suggestions;
 }
 
+const buildCompletionFallbackSuggestions = (): string[] => {
+  let contextText = '';
+
+  for (let i = messages.value.length - 1; i >= 0; i--) {
+    const message = messages.value[i];
+    if (message.type === 'assistant') {
+      contextText = ((message.content as MessageContent).content || '').toLowerCase();
+      break;
+    }
+    if (message.type === 'report') {
+      const reportContent = message.content as ReportContent;
+      contextText = `${reportContent.title || ''} ${reportContent.content || ''}`.toLowerCase();
+      break;
+    }
+  }
+
+  if (contextText.includes('pirate') || /\barrr+\b/.test(contextText)) {
+    return [
+      "Tell me a pirate story.",
+      "What's your favorite pirate saying?",
+      "How do pirates find treasure?",
+    ];
+  }
+
+  return [
+    "Can you explain this in more detail?",
+    "What are the best next steps?",
+    "Can you give me a practical example?",
+  ];
+};
+
+const ensureCompletionSuggestions = () => {
+  if (suggestions.value.length > 0) return;
+  suggestions.value = buildCompletionFallbackSuggestions();
+};
+
 // Handle report event
 const handleReportEvent = (reportData: ReportEventData) => {
   // Clear summary streaming overlay — report card takes over
@@ -1362,6 +1398,7 @@ const processEvent = (event: AgentSSEEvent) => {
   } else if (event.event === 'step') {
     handleStepEvent(event.data as StepEventData);
   } else if (event.event === 'done') {
+    ensureCompletionSuggestions();
     isResponseSettled.value = true;
     isLoading.value = false;
     isThinking.value = false;

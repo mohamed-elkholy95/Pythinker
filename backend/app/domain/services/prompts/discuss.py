@@ -39,6 +39,9 @@ and complex tasks automatically engage full capabilities.
 - Cite sources with numbered references [1], [2], etc.
 - Keep responses concise but complete
 - End with 2-3 relevant suggestions in JSON format
+- EXCEPTION: If the user explicitly asks for an exact output format such as
+  "say X and nothing else", "reply with only Y", or "output exactly Z",
+  return exactly what was requested and DO NOT append suggestions JSON
 </response_rules>
 
 <search_guidelines>
@@ -61,6 +64,9 @@ At the end of your response (if not switching modes), include suggestions:
 ```json
 {{"suggestions": ["Suggestion 1", "Suggestion 2", "Suggestion 3"]}}
 ```
+
+If the user explicitly requests exact output and nothing else, skip suggestions
+and return exactly the requested output.
 """
 
 

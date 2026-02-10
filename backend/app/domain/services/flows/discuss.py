@@ -167,6 +167,54 @@ class DiscussFlow(BaseFlow):
         cleaned = re.sub(json_pattern, "", response, flags=re.DOTALL | re.IGNORECASE)
         return cleaned.strip()
 
+    async def _generate_follow_up_suggestions(self, user_message: str, assistant_message: str) -> list[str]:
+        """Generate follow-up suggestions when the model omits suggestions JSON."""
+        try:
+            suggestion_response = await self._llm.ask(
+                [
+                    {
+                        "role": "user",
+                        "content": (
+                            "Generate exactly 3 short follow-up questions (5-12 words each) that the user "
+                            "might ask next based on this exchange.\n"
+                            f'User message: "{user_message}"\n'
+                            f'Assistant reply: "{assistant_message}"\n'
+                            "Return ONLY valid JSON as an array of 3 strings."
+                        ),
+                    }
+                ],
+                tools=None,
+                response_format={"type": "json_object"},
+                tool_choice=None,
+            )
+
+            raw = suggestion_response.get("content", "[]")
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+            suggestions = parsed if isinstance(parsed, list) else parsed.get("suggestions", [])
+            normalized = [str(s).strip() for s in suggestions if str(s).strip()]
+            if normalized:
+                return normalized[:3]
+        except Exception as e:
+            logger.debug(f"Discuss suggestion generation failed, using fallback suggestions: {e}")
+
+        return self._default_follow_up_suggestions(user_message, assistant_message)
+
+    def _default_follow_up_suggestions(self, user_message: str, assistant_message: str) -> list[str]:
+        """Provide deterministic fallback suggestions when generation fails."""
+        combined = f"{user_message} {assistant_message}".lower()
+        if "pirate" in combined or "arrr" in combined:
+            return [
+                "Tell me a pirate story.",
+                "What's your favorite pirate saying?",
+                "How do pirates find treasure?",
+            ]
+
+        return [
+            "Can you explain that in more detail?",
+            "Can you give me a practical example?",
+            "What should I ask next about this?",
+        ]
+
     async def run(self, message: Message) -> AsyncGenerator[BaseEvent, None]:
         """
         Run the discuss flow for a single message.
@@ -218,7 +266,12 @@ class DiscussFlow(BaseFlow):
                     # Yield cleaned message
                     yield MessageEvent(message=clean_message, role="assistant", attachments=event.attachments)
 
-                    # Yield suggestions if found
+                    # If model omitted suggestions JSON (e.g., exact-output requests),
+                    # generate them separately so the UI can still render follow-ups.
+                    if not suggestions:
+                        suggestions = await self._generate_follow_up_suggestions(message.message, clean_message)
+
+                    # Yield suggestions if available
                     if suggestions:
                         yield SuggestionEvent(suggestions=suggestions)
 
