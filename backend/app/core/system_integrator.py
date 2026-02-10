@@ -7,11 +7,9 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from app.core.enhanced_agent_runner import EnhancedAgentTaskRunner
 from app.core.error_manager import ErrorCategory, get_error_manager
 from app.core.health_monitor import get_health_monitor
 from app.core.sandbox_manager import get_sandbox_manager
-from app.core.workflow_manager import get_workflow_manager
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +19,6 @@ class SystemIntegrator:
 
     def __init__(self):
         self.error_manager = get_error_manager()
-        self.workflow_manager = get_workflow_manager()
         self.sandbox_manager = get_sandbox_manager()
         self.health_monitor = get_health_monitor()
         self._initialized = False
@@ -136,8 +133,3 @@ async def enhanced_lifespan():
     finally:
         # Shutdown enhanced components
         await integrator.shutdown()
-
-
-def create_enhanced_agent_runner(*args, **kwargs) -> EnhancedAgentTaskRunner:
-    """Factory function to create enhanced agent runner"""
-    return EnhancedAgentTaskRunner(*args, **kwargs)
