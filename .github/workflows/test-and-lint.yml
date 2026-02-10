@@ -88,7 +88,14 @@ jobs:
           PASSWORD_SALT: test-salt-for-ci
           AUTH_PROVIDER: none
           ENVIRONMENT: testing
-        run: pytest tests/ -v --tb=short
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "Push event: skipping integration tests for faster feedback"
+            pytest tests/ -v --tb=short --ignore=tests/integration
+          else
+            echo "Pull request event: running full backend test suite"
+            pytest tests/ -v --tb=short
+          fi
 
   backend-security:
     name: Backend Security (pip-audit)
