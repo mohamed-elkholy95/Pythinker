@@ -1330,12 +1330,10 @@ class PlanActFlow(BaseFlow):
         if self._error_context.recoverable and self._previous_status:
             # Generate recovery prompt so the agent knows what went wrong
             recovery_prompt = self._error_handler.get_recovery_prompt(self._error_context)
-            if recovery_prompt and hasattr(self, 'executor') and self.executor:
+            if recovery_prompt and hasattr(self, "executor") and self.executor:
                 try:
-                    if hasattr(self.executor, 'memory') and self.executor.memory:
-                        self.executor.memory.add_message(
-                            {"role": "system", "content": recovery_prompt}
-                        )
+                    if hasattr(self.executor, "memory") and self.executor.memory:
+                        self.executor.memory.add_message({"role": "system", "content": recovery_prompt})
                         logger.info(f"Injected recovery prompt for {self._error_context.error_type.value}")
                 except Exception as e:
                     logger.debug(f"Could not inject recovery prompt: {e}")
@@ -1940,11 +1938,10 @@ class PlanActFlow(BaseFlow):
 
                             # Classify error using ErrorHandler for structured retry decisions
                             if step.error and attempt < max_attempts - 1:
-                                err_ctx = self._error_handler.classify_error(
-                                    RuntimeError(step.error)
-                                )
+                                err_ctx = self._error_handler.classify_error(RuntimeError(step.error))
                                 is_timeout_err = err_ctx.error_type in (
-                                    ErrorType.TIMEOUT, ErrorType.BROWSER_TIMEOUT,
+                                    ErrorType.TIMEOUT,
+                                    ErrorType.BROWSER_TIMEOUT,
                                 )
                                 should_retry = err_ctx.recoverable and (
                                     (is_timeout_err and retry.retry_on_timeout)
