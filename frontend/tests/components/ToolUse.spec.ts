@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { ref } from 'vue'
+import { markRaw, ref } from 'vue'
 import ToolUse from '@/components/ToolUse.vue'
 import { mockToolContent } from '../mocks/api'
 
@@ -13,11 +13,13 @@ import { mockToolContent } from '../mocks/api'
 vi.mock('@/composables/useTool', () => ({
   useToolInfo: (_toolRef: any) => ({
     toolInfo: ref({
-      icon: 'FileIcon',
+      icon: markRaw({ template: '<svg data-testid="tool-icon"></svg>' }),
       name: 'File',
+      description: 'Read File test.txt',
       function: 'Read File',
       functionArg: 'test.txt',
-      view: 'FileToolView',
+      url: null,
+      faviconUrl: null,
     }),
   }),
 }))
@@ -38,15 +40,10 @@ describe('ToolUse', () => {
       props: {
         tool: mockToolContent,
       },
-      global: {
-        stubs: {
-          component: true,
-        },
-      },
     })
 
-    expect(wrapper.text()).toContain('Read File')
-    expect(wrapper.text()).toContain('test.txt')
+    expect(wrapper.text()).toContain('Read File test.txt')
+    expect(wrapper.find('[title="Read File test.txt"]').exists()).toBe(true)
   })
 
   it('should render message tool differently', () => {
@@ -75,11 +72,6 @@ describe('ToolUse', () => {
       props: {
         tool: callingTool,
       },
-      global: {
-        stubs: {
-          component: true,
-        },
-      },
     })
 
     const _toolElement = wrapper.find('.tool-shimmer, [class*="shimmer"]')
@@ -91,11 +83,6 @@ describe('ToolUse', () => {
     const wrapper = mount(ToolUse, {
       props: {
         tool: mockToolContent,
-      },
-      global: {
-        stubs: {
-          component: true,
-        },
       },
     })
 
@@ -111,11 +98,6 @@ describe('ToolUse', () => {
       props: {
         tool: mockToolContent,
       },
-      global: {
-        stubs: {
-          component: true,
-        },
-      },
     })
 
     expect(wrapper.text()).toContain('just now')
@@ -130,11 +112,6 @@ describe('ToolUse', () => {
     const wrapper = mount(ToolUse, {
       props: {
         tool: toolWithNoArgs,
-      },
-      global: {
-        stubs: {
-          component: true,
-        },
       },
     })
 

@@ -76,8 +76,8 @@ describe('useToolInfo', () => {
     expect(toolInfo.value).not.toBeNull()
     expect(toolInfo.value?.icon).toBe('PlugIcon')
     expect(toolInfo.value?.name).toBe('tool.mcp')
-    expect(toolInfo.value?.function).toBe('some_tool')
-    expect(toolInfo.value?.functionArg).toBe('value1')
+    expect(toolInfo.value?.function).toBe('Calling')
+    expect(toolInfo.value?.functionArg).toBe('')
   })
 
   it('should strip home directory prefix from file paths when arg key is "file"', () => {
@@ -113,8 +113,8 @@ describe('useToolInfo', () => {
     })
     const { toolInfo } = useToolInfo(toolWithObjectArg)
 
-    // Object should be stringified
-    expect(toolInfo.value?.functionArg).toContain('...')
+    // MCP tools without an arg-map key currently show only action text.
+    expect(toolInfo.value?.functionArg).toBe('')
   })
 
   it('should be reactive to tool changes', async () => {

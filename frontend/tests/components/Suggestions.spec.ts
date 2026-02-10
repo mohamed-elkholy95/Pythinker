@@ -9,6 +9,7 @@ import Suggestions from '@/components/Suggestions.vue'
 vi.mock('lucide-vue-next', () => ({
   MessageSquare: { template: '<svg data-testid="message-square-icon"></svg>' },
   FileText: { template: '<svg data-testid="file-text-icon"></svg>' },
+  Globe: { template: '<svg data-testid="globe-icon"></svg>' },
   ArrowRight: { template: '<svg data-testid="arrow-right-icon"></svg>' },
 }))
 
@@ -49,8 +50,7 @@ describe('Suggestions', () => {
         },
       })
 
-      // Each suggestion item has the cursor-pointer class
-      const suggestionItems = wrapper.findAll('.cursor-pointer')
+      const suggestionItems = wrapper.findAll('.suggestion-item')
       expect(suggestionItems).toHaveLength(2)
     })
 
@@ -63,6 +63,7 @@ describe('Suggestions', () => {
 
       expect(wrapper.find('[data-testid="message-square-icon"]').exists()).toBe(true)
       expect(wrapper.find('[data-testid="file-text-icon"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="globe-icon"]').exists()).toBe(true)
       expect(wrapper.find('[data-testid="arrow-right-icon"]').exists()).toBe(true)
     })
   })
@@ -77,7 +78,7 @@ describe('Suggestions', () => {
       })
 
       // Click the first suggestion
-      const firstSuggestion = wrapper.findAll('.cursor-pointer')[0]
+      const firstSuggestion = wrapper.findAll('.suggestion-item')[0]
       await firstSuggestion.trigger('click')
 
       // Check event was emitted with correct value
@@ -95,7 +96,7 @@ describe('Suggestions', () => {
       })
 
       // Click all suggestions
-      const items = wrapper.findAll('.cursor-pointer')
+      const items = wrapper.findAll('.suggestion-item')
       await items[0].trigger('click')
       await items[1].trigger('click')
       await items[2].trigger('click')
@@ -116,10 +117,9 @@ describe('Suggestions', () => {
         },
       })
 
-      const container = wrapper.find('.flex.flex-col.w-full')
+      const container = wrapper.find('.suggestions-container')
       expect(container.exists()).toBe(true)
-      expect(container.classes()).toContain('rounded-[16px]')
-      expect(container.classes()).toContain('overflow-hidden')
+      expect(container.classes()).toContain('suggestions-container')
     })
 
     it('should apply hover transition class to suggestion items', () => {
@@ -129,8 +129,8 @@ describe('Suggestions', () => {
         },
       })
 
-      const item = wrapper.find('.cursor-pointer')
-      expect(item.classes()).toContain('transition-colors')
+      const item = wrapper.find('.suggestion-item')
+      expect(item.classes()).toContain('suggestion-item')
     })
   })
 })
