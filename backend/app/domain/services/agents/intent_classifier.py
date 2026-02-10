@@ -159,6 +159,13 @@ class IntentClassifier:
         "show me",
     ]
 
+    # Direct output patterns (simple response instructions that don't need tools/planning)
+    DIRECT_RESPONSE_PATTERNS: ClassVar[list[str]] = [
+        r"\b(?:say|reply|respond)\b.+\b(?:nothing else|only|exactly)\b",
+        r"\boutput\b.+\b(?:nothing else|only)\b",
+        r"\b(?:say|reply|respond)\b\s+['\"`].+['\"`]\s+\b(?:only|exactly)\b",
+    ]
+
     # Question indicators
     QUESTION_WORDS: ClassVar[list[str]] = [
         "what",
@@ -196,8 +203,14 @@ class IntentClassifier:
                 logger.info(f"Classified as acknowledgment: {message[:50]}")
                 return ("acknowledgment", AgentMode.DISCUSS, 0.95)
 
+        # Check for direct-response instructions (no tools/planning required)
+        for pattern in self.DIRECT_RESPONSE_PATTERNS:
+            if re.search(pattern, normalized, re.IGNORECASE):
+                logger.info(f"Classified as direct response request: {message[:50]}")
+                return ("direct_response_request", AgentMode.DISCUSS, 0.85)
+
         # Check for task indicators
-        has_task_indicator = any(indicator in normalized for indicator in self.TASK_INDICATORS)
+        has_task_indicator = self._has_task_indicator(normalized)
 
         if has_task_indicator:
             logger.info(f"Classified as task request: {message[:50]}")
@@ -236,6 +249,24 @@ class IntentClassifier:
         # Default to AGENT mode for longer, ambiguous messages
         logger.info(f"Classified as complex query (default): {message[:50]}")
         return ("complex_query", AgentMode.AGENT, 0.60)
+
+    def _has_task_indicator(self, normalized_message: str) -> bool:
+        """Return True when a task indicator is present with token-aware matching.
+
+        Single-word indicators use word boundaries to avoid false positives
+        (e.g., matching "test" inside "testing"). Multi-word indicators are
+        matched as plain substrings.
+        """
+        for indicator in self.TASK_INDICATORS:
+            if " " in indicator:
+                if indicator in normalized_message:
+                    return True
+                continue
+
+            if re.search(rf"\b{re.escape(indicator)}\b", normalized_message):
+                return True
+
+        return False
 
     def classify_with_context(self, message: str, context: ClassificationContext | None = None) -> ClassificationResult:
         """Classify user intent with additional context signals.
