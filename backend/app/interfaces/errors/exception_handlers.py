@@ -103,7 +103,10 @@ def register_exception_handlers(app: FastAPI) -> None:
         # Record error metric for monitoring
         record_error("app_error", "api")
 
-        logger.warning(f"APIException: {exc.msg}")
+        if exc.status_code == 404:
+            logger.info(f"NotFound: {exc.msg}")
+        else:
+            logger.warning(f"APIException: {exc.msg}")
         return JSONResponse(
             status_code=exc.status_code,
             content=APIResponse(code=exc.code, msg=exc.msg, data=None).model_dump(),

@@ -2,12 +2,19 @@
 Tests for the error handler module.
 """
 
+import logging
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from app.application.errors.exceptions import BadRequestError, NotFoundError
 from app.domain.services.agents.error_handler import (
     ErrorContext,
     ErrorHandler,
     ErrorType,
     TokenLimitExceededError,
 )
+from app.interfaces.errors.exception_handlers import register_exception_handlers
 
 
 class TestErrorType:
@@ -162,3 +169,51 @@ class TestTokenLimitExceededError:
         exc = TokenLimitExceededError("Context too long", current_tokens=10000, max_tokens=8192)
         assert exc.current_tokens == 10000
         assert exc.max_tokens == 8192
+
+
+class TestApiExceptionHandlers:
+    """Tests for HTTP exception handler registration behavior."""
+
+    def _build_app(self) -> FastAPI:
+        app = FastAPI()
+        register_exception_handlers(app)
+
+        @app.get("/not-found")
+        async def _not_found():
+            raise NotFoundError("Session not found")
+
+        @app.get("/bad-request")
+        async def _bad_request():
+            raise BadRequestError("Bad input")
+
+        return app
+
+    def test_not_found_is_mapped_to_404_without_warning_pollution(self, caplog):
+        app = self._build_app()
+        client = TestClient(app)
+
+        with caplog.at_level(logging.INFO):
+            response = client.get("/not-found")
+
+        assert response.status_code == 404
+        body = response.json()
+        assert body["code"] == 404
+        assert body["msg"] == "Session not found"
+
+        warning_or_error_logs = [
+            record
+            for record in caplog.records
+            if record.levelno >= logging.WARNING and "Session not found" in record.message
+        ]
+        assert warning_or_error_logs == []
+
+    def test_non_404_app_error_keeps_warning_level(self, caplog):
+        app = self._build_app()
+        client = TestClient(app)
+
+        with caplog.at_level(logging.INFO):
+            response = client.get("/bad-request")
+
+        assert response.status_code == 400
+        warning_logs = [record for record in caplog.records if record.levelno == logging.WARNING]
+        assert warning_logs, "Expected warning logs for non-404 AppError paths"
