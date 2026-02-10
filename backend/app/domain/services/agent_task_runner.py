@@ -292,7 +292,7 @@ class AgentTaskRunner(TaskRunner):
                 self._mcp_tool,
                 self._search_engine,
                 cdp_url=self._sandbox.cdp_url,
-                enable_verification=settings.enable_plan_verification,  # Disabled by default for speed
+                enable_verification=settings.enable_plan_verification,
                 enable_multi_agent=self._enable_multi_agent,
                 enable_parallel_execution=settings.enable_parallel_execution,
                 parallel_max_concurrency=settings.parallel_max_concurrency,
