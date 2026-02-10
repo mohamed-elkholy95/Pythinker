@@ -7,7 +7,14 @@
     <div class="report-header-bar">
       <div class="header-left">
         <div class="report-icon-small">
-          <FileText class="w-4 h-4 text-white" />
+          <svg class="report-doc-icon" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M3.55566 26.8889C3.55566 28.6071 4.94856 30 6.66678 30H25.3334C27.0517 30 28.4446 28.6071 28.4446 26.8889V9.77778L20.6668 2H6.66678C4.94856 2 3.55566 3.39289 3.55566 5.11111V26.8889Z" fill="#4D81E8"></path>
+            <path d="M20.6685 6.66647C20.6685 8.38469 22.0613 9.77759 23.7796 9.77759H28.4462L20.6685 1.99981V6.66647Z" fill="#9CC3F4"></path>
+            <path opacity="0.9" d="M10.1685 18.2363H21.8351" stroke="white" stroke-width="1.75" stroke-linecap="square" stroke-linejoin="round"></path>
+            <path opacity="0.9" d="M10.1685 14.3472H12.1129" stroke="white" stroke-width="1.75" stroke-linecap="square" stroke-linejoin="round"></path>
+            <path opacity="0.9" d="M15.0293 14.3472H16.9737" stroke="white" stroke-width="1.75" stroke-linecap="square" stroke-linejoin="round"></path>
+            <path opacity="0.9" d="M10.1685 21.8333H21.8351" stroke="white" stroke-width="1.75" stroke-linecap="square" stroke-linejoin="round"></path>
+          </svg>
         </div>
         <span class="header-title">{{ report.title }}</span>
       </div>
@@ -95,28 +102,33 @@
 
     <!-- Document Content Area with Left Border Accent -->
     <div class="document-content">
-      <div class="content-inner">
-        <!-- Metadata: Author and Date stacked -->
+      <!-- Metadata -->
+      <div class="document-meta-block">
+        <div class="document-meta-rail"></div>
         <div class="document-meta">
-          <div class="meta-item">
-            <span class="meta-label">Author:</span>
-            <span class="meta-value">{{ report.author || 'Pythinker AI' }}</span>
-          </div>
           <div class="meta-item">
             <span class="meta-label">Date:</span>
             <span class="meta-value">{{ formatDateLong(report.lastModified) }}</span>
           </div>
+          <div class="meta-item">
+            <span class="meta-label">Author:</span>
+            <span class="meta-value">{{ report.author || 'Manus AI' }}</span>
+          </div>
         </div>
+      </div>
 
-        <!-- Content Preview using Tiptap -->
-        <div class="content-preview-container">
+      <!-- Content Preview -->
+      <div class="content-preview-shell">
+        <div class="content-preview-scale">
           <TiptapReportEditor
             v-if="report.content"
+            class="report-markdown-preview"
             :content="processedContent"
             :compact="true"
+            :hideMainTitleInCompact="false"
           />
-          <div class="content-fade"></div>
         </div>
+        <div class="content-fade"></div>
       </div>
     </div>
 
@@ -152,7 +164,6 @@
 import { ref, computed } from 'vue';
 import { saveAs } from 'file-saver';
 import {
-  FileText,
   MoreHorizontal,
   MessageCircle,
   Puzzle,
@@ -190,23 +201,34 @@ const getSuggestionIcon = (index: number) => {
   return icons[index % icons.length];
 };
 
-// Process content for preview - limit to first ~1500 chars for compact card
+// Process content for preview - keep card rendering lightweight
 const processedContent = computed(() => {
   if (!props.report.content) return '';
 
   const lines = props.report.content.split('\n');
-  let preview = '';
-  let charCount = 0;
+  const cleaned: string[] = [];
+  let index = 0;
+  let scanned = 0;
 
-  for (const line of lines) {
-    // Skip the title (h1) - shown in header
-    if (line.startsWith('# ')) continue;
-    preview += line + '\n';
-    charCount += line.length;
-    if (charCount > 1500) break;
+  while (index < lines.length && lines[index].trim() === '') index += 1;
+
+  for (; index < lines.length; index += 1) {
+    const raw = lines[index];
+    const line = raw.trim();
+    const isMetaLine = /^(?:[-*]\s*)?(?:\*\*)?(date|author)(?:\*\*)?\s*:/i.test(line);
+
+    // Strip top metadata lines (Date/Author) in any order.
+    if (scanned < 8 && isMetaLine) {
+      scanned += 1;
+      continue;
+    }
+
+    cleaned.push(raw);
+    scanned += 1;
   }
 
-  return preview;
+  const normalized = cleaned.join('\n').replace(/^\n+/, '').trim();
+  return normalized.slice(0, 1900);
 });
 
 const formatDateLong = (timestamp: number) => {
@@ -297,17 +319,16 @@ const _handleSaveToOneDriveWork = () => {
   width: 100%;
   max-width: 520px;
   min-width: 0;
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
   cursor: pointer;
-  background: var(--background-white-main);
-  border: 1px solid var(--border-main);
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  background: var(--background-menu-white);
+  border: 0.5px solid var(--border-dark);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .report-card:hover {
-  border-color: var(--bolt-elements-borderColorActive);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 7px 16px 0 var(--shadow-S);
 }
 
 /* ===== HEADER BAR ===== */
@@ -315,34 +336,39 @@ const _handleSaveToOneDriveWork = () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border-light);
-  background: var(--fill-tsp-gray-main);
+  gap: 8px;
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--border-main);
+  background: var(--background-menu-white);
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
   flex: 1;
 }
 
 .report-icon-small {
   flex-shrink: 0;
-  width: 26px;
-  height: 26px;
-  border-radius: 5px;
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
+.report-doc-icon {
+  width: 24px;
+  height: 24px;
+}
+
 .header-title {
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 20px;
   font-weight: 500;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -356,70 +382,124 @@ const _handleSaveToOneDriveWork = () => {
   align-items: center;
   justify-content: center;
   border-radius: 6px;
-  color: var(--icon-tertiary);
+  color: var(--icon-secondary);
   transition: all 0.15s ease;
-  opacity: 0;
-}
-
-.report-card:hover .report-menu-btn {
-  opacity: 1;
 }
 
 .report-menu-btn:hover {
-  background: var(--bolt-elements-item-backgroundActive);
-  color: var(--icon-secondary);
+  background: var(--fill-tsp-gray-main);
+  color: var(--text-primary);
 }
 
 /* ===== DOCUMENT CONTENT ===== */
 .document-content {
-  padding: 14px 16px;
+  padding: 16px;
   position: relative;
 }
 
-.content-inner {
-  padding-left: 14px;
-  border-left: 3px solid #3b82f6;
+.document-meta-block {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.document-meta-rail {
+  width: 4px;
+  border-radius: 4px;
+  background: var(--icon-disable);
+  opacity: 0.85;
+  flex-shrink: 0;
 }
 
 .document-meta {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  margin-bottom: 12px;
+  gap: 2px;
+  padding: 4px 0;
 }
 
 .meta-item {
   display: flex;
   align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  line-height: 1.5;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 .meta-label {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.meta-value {
+  font-weight: 700;
   color: var(--text-secondary);
 }
 
+.meta-value {
+  color: var(--text-tertiary);
+}
+
 /* ===== CONTENT PREVIEW ===== */
-.content-preview-container {
+.content-preview-shell {
   position: relative;
-  max-height: 180px;
+  width: 100%;
+  height: clamp(170px, 22vw, 260px);
+  padding: 2px 0 0;
+  pointer-events: none;
   overflow: hidden;
 }
 
+.content-preview-scale {
+  transform: scale(0.72);
+  transform-origin: top left;
+  width: 138.889%;
+  height: 138.889%;
+}
+
+.report-markdown-preview {
+  width: 100%;
+  height: 100%;
+}
+
+.report-markdown-preview :deep(.prose-compact) {
+  color: var(--text-primary);
+}
+
+.report-markdown-preview :deep(.prose-compact h1) {
+  display: block;
+  font-size: 1.72em;
+  line-height: 1.3;
+  font-weight: 600;
+  margin-top: 0.75em;
+  margin-bottom: 0.25em;
+}
+
+.report-markdown-preview :deep(.prose-compact p) {
+  font-size: 0.98em;
+  line-height: 1.52;
+  color: var(--text-secondary);
+  margin-top: 0.3em;
+  margin-bottom: 0.3em;
+}
+
+.report-markdown-preview :deep(.prose-compact h2) {
+  font-size: 1.22em;
+  line-height: 1.3;
+  margin-top: 1.15em;
+  margin-bottom: 0.1em;
+}
+
+.report-markdown-preview :deep(.prose-compact blockquote) {
+  border-left: none;
+  margin-left: 0;
+  padding-left: 0;
+}
+
 .content-fade {
+  pointer-events: none;
   position: absolute;
-  bottom: 0;
   left: 0;
   right: 0;
-  height: 60px;
-  background: linear-gradient(to top, var(--background-white-main) 0%, transparent 100%);
-  pointer-events: none;
+  bottom: 0;
+  height: 96px;
+  background: linear-gradient(rgba(255, 255, 255, 0) 0%, var(--background-white-main) 100%);
 }
 
 /* ===== SUGGESTIONS ===== */

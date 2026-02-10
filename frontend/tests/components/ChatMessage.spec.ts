@@ -108,7 +108,7 @@ describe('ChatMessage', () => {
       expect(wrapper.text()).toContain('Hello')
     })
 
-    it('should align user messages to the right', () => {
+    it('should align user messages to the right side', () => {
       const wrapper = mount(ChatMessage, {
         props: {
           message: mockUserMessage,
@@ -121,8 +121,8 @@ describe('ChatMessage', () => {
         },
       })
 
-      const container = wrapper.find('.items-end')
-      expect(container.exists()).toBe(true)
+      const container = wrapper.find('.user-message-row')
+      expect(container.classes()).toContain('items-end')
     })
 
     it('should show timestamp on hover for user messages', () => {
@@ -339,6 +339,62 @@ describe('ChatMessage', () => {
 
       const runningIndicator = wrapper.find('.step-running')
       expect(runningIndicator.exists()).toBe(true)
+    })
+
+    it('should render completed steps collapsed by default', () => {
+      const completedStep = {
+        ...mockStepMessage,
+        content: {
+          ...mockStepMessage.content,
+          id: 'step-completed-1',
+          status: 'completed',
+          tools: [mockToolMessage.content],
+        },
+      }
+
+      const wrapper = mount(ChatMessage, {
+        props: {
+          message: completedStep,
+        },
+        global: {
+          stubs: {
+            ToolUse: true,
+            Bot: true,
+            CheckIcon: true,
+          },
+        },
+      })
+
+      const toolsList = wrapper.find('.step-tools-list')
+      expect(toolsList.classes()).toContain('max-h-0')
+    })
+
+    it('should auto-expand running steps', () => {
+      const runningStep = {
+        ...mockStepMessage,
+        content: {
+          ...mockStepMessage.content,
+          id: 'step-running-1',
+          status: 'running',
+          tools: [mockToolMessage.content],
+        },
+      }
+
+      const wrapper = mount(ChatMessage, {
+        props: {
+          message: runningStep,
+        },
+        global: {
+          stubs: {
+            ToolUse: true,
+            Bot: true,
+            CheckIcon: true,
+          },
+        },
+      })
+
+      const toolsList = wrapper.find('.step-tools-list')
+      expect(toolsList.classes()).not.toContain('max-h-0')
     })
 
     it('passes isTaskRunning to last tool while step is running', () => {

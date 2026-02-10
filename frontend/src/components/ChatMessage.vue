@@ -1,8 +1,8 @@
 <template>
-  <div v-if="message.type === 'user'" class="flex w-full flex-col items-end justify-end gap-1 group mt-3">
-    <div class="flex max-w-[90%] flex-col gap-1 items-end">
+  <div v-if="message.type === 'user'" class="user-message-row flex w-full flex-col items-end justify-end gap-1 group mt-3">
+    <div class="user-message-inner flex max-w-[85%] flex-col gap-1 items-end">
       <div
-        class="relative flex items-center rounded-[12px] overflow-hidden bg-[var(--bolt-elements-bg-depth-2)] p-3 ltr:rounded-br-none rtl:rounded-bl-none border border-[var(--bolt-elements-borderColor)]"
+        class="user-message-bubble relative flex items-center rounded-[20px] overflow-hidden bg-[var(--background-white-main)] px-5 py-3.5 border border-[var(--border-main)]"
       >
         <div
           class="message-markdown markdown-content w-full"
@@ -19,17 +19,17 @@
           </button>
         </div>
       </div>
-      <div class="flex items-center justify-end gap-[2px] invisible group-hover:visible">
+      <div class="user-message-actions flex items-center justify-end gap-1 invisible group-hover:visible">
         <button
           @click="handleCopyUserMessage"
-          class="p-1 rounded-md text-[var(--icon-secondary)] hover:bg-[var(--fill-tsp-gray-main)]"
+          class="p-1 rounded-md text-[var(--icon-tertiary)] hover:bg-[var(--fill-tsp-gray-main)] hover:text-[var(--icon-secondary)]"
           :title="copied ? 'Copied!' : 'Copy message'"
         >
-          <Check v-if="copied" :size="14" class="text-green-500" />
-          <Copy v-else :size="14" class="text-[var(--icon-secondary)]" />
+          <Check v-if="copied" :size="13" class="text-green-500" />
+          <Copy v-else :size="13" />
         </button>
         <div
-          class="float-right transition text-[12px] text-[var(--text-tertiary)] invisible group-hover:visible"
+          class="transition text-[11px] text-[var(--text-tertiary)]"
           :title="formatTimestampTooltip(message.content.timestamp)"
         >
           {{ relativeTime(message.content.timestamp) }}
@@ -46,12 +46,12 @@
   >
     <div v-if="props.showAssistantHeader !== false" class="assistant-header-row flex items-center justify-between group">
       <div class="assistant-brand flex items-center">
-        <Bot :size="17" class="assistant-brand-icon text-[var(--text-primary)]" :stroke-width="2.35" />
-        <PythinkerTextIcon :width="86" :height="20" />
+        <Bot :size="20" class="assistant-brand-icon text-[var(--text-primary)]" :stroke-width="1.8" />
+        <PythinkerTextIcon :width="94" :height="24" />
       </div>
       <div class="flex items-center gap-[2px]">
         <div
-          class="assistant-time transition text-[12px] text-[var(--text-tertiary)]"
+          class="assistant-time transition text-[11px] text-[var(--text-tertiary)]"
           :title="formatTimestampTooltip(message.content.timestamp)"
         >
           {{ relativeTime(message.content.timestamp) }}
@@ -59,7 +59,7 @@
       </div>
     </div>
     <div
-      class="assistant-message-content relative max-w-none p-0 m-0 text-[16px] leading-[1.5] text-[var(--text-primary)] [&_pre:not(.shiki)]:!bg-[var(--fill-tsp-white-light)] [&_pre:not(.shiki)]:text-[var(--text-primary)]"
+      class="assistant-message-content relative w-full max-w-full md:max-w-[560px] p-0 m-0 text-[15.5px] leading-[1.6] text-[var(--text-primary)] [&_pre:not(.shiki)]:!bg-[var(--fill-tsp-white-light)] [&_pre:not(.shiki)]:text-[var(--text-primary)]"
     >
       <div class="my-[1px]">
         <div
@@ -82,30 +82,30 @@
   <ToolUse v-else-if="message.type === 'tool'" :tool="toolContent" :is-active="true" @click="handleToolClick(toolContent)" />
   <div
     v-else-if="message.type === 'step'"
-    class="step-message flex flex-col mt-2"
+    class="step-message flex flex-col mt-0.5"
     :class="{ 'step-message--with-next': props.showStepConnector }"
   >
     <!-- Step Header -->
-    <div class="step-header text-sm w-full clickable flex gap-2 justify-between group/header truncate text-[var(--text-primary)]" @click="handleStepToggle">
-      <div class="step-header-left flex flex-row gap-2 justify-center items-center truncate">
+    <div class="step-header w-full clickable flex gap-2 justify-between group/header" @click="handleStepToggle">
+      <div class="step-header-left flex flex-row gap-2.5 items-center min-w-0">
         <!-- Status indicator -->
         <div class="step-status-column flex-shrink-0">
           <div v-if="stepContent.status === 'completed'"
-            class="step-status-indicator step-icon-badge step-icon-completed w-4 h-4 flex-shrink-0 flex items-center justify-center border-[var(--border-dark)] rounded-[15px] bg-[var(--text-disable)] dark:bg-[var(--fill-tsp-white-dark)] border-0">
-            <CheckIcon class="step-completed-check text-[var(--icon-white)] dark:text-[var(--icon-white-tsp)]" :size="10" :stroke-width="2.5" />
+            class="step-status-indicator step-icon-badge step-icon-completed w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-full">
+            <CheckIcon class="step-completed-check" :size="12" :stroke-width="2.8" />
           </div>
           <div v-else-if="stepContent.status === 'running'"
-            class="step-status-indicator step-icon-badge step-icon-running w-4 h-4 flex-shrink-0 flex items-center justify-center border-[var(--border-dark)] rounded-[15px] bg-[var(--fill-tsp-gray-main)] step-running">
+            class="step-status-indicator step-icon-badge step-icon-running w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-full step-running">
             <span class="step-running-dot" aria-hidden="true"></span>
           </div>
           <div v-else
-            class="step-status-indicator step-icon-badge step-icon-pending w-4 h-4 flex-shrink-0 flex items-center justify-center border-[var(--border-main)] rounded-[15px] bg-[var(--fill-tsp-gray-main)]">
+            class="step-status-indicator step-icon-badge step-icon-pending w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-full">
           </div>
         </div>
         <!-- Step title and chevron -->
-        <div class="step-title-wrap flex-1 min-w-0 flex items-center gap-1 truncate">
+        <div class="step-title-wrap flex-1 min-w-0 flex items-center gap-1.5">
           <div
-            class="step-title truncate font-medium"
+            class="step-title truncate"
             :title="stepContent.description"
             :aria-description="stepContent.description"
           >
@@ -114,7 +114,7 @@
           <span class="flex-shrink-0 flex">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-              class="transition-transform duration-300 w-4 h-4 text-[var(--text-tertiary)]"
+              class="step-chevron transition-transform duration-300"
               :class="{ 'rotate-180': isStepExpanded }">
               <path d="m6 9 6 6 6-6"></path>
             </svg>
@@ -122,7 +122,7 @@
         </div>
       </div>
       <div
-        class="float-right transition text-[12px] text-[var(--text-tertiary)] invisible group-hover/header:visible"
+        class="float-right transition text-[11px] text-[var(--text-tertiary)] invisible group-hover/header:visible flex-shrink-0"
         :title="formatTimestampTooltip(message.content.timestamp)"
       >
         {{ relativeTime(message.content.timestamp) }}
@@ -133,16 +133,16 @@
       class="step-body flex"
       :class="{ 'step-body--connector-only': !isStepExpanded && props.showStepConnector }"
     >
-      <div class="step-body-rail w-[24px] relative flex-shrink-0">
+      <div class="step-body-rail w-[30px] relative flex-shrink-0">
         <div
           v-if="isStepExpanded || props.showStepConnector"
-          class="step-timeline-line border-l border-dashed border-[var(--border-dark)] absolute start-[8px] top-0 bottom-0"
+          class="step-timeline-line absolute start-[10px] top-0 bottom-0"
           style="height: calc(100% + 14px);"
         ></div>
       </div>
       <div
-        class="step-tools-list flex flex-col gap-2 flex-1 min-w-0 overflow-hidden transition-[max-height,opacity,padding] duration-150 ease-in-out"
-        :class="isStepExpanded ? 'pt-2 max-h-[100000px] opacity-100' : 'pt-0 max-h-0 opacity-0 pointer-events-none'"
+        class="step-tools-list flex flex-col gap-2.5 flex-1 min-w-0 overflow-hidden transition-[max-height,opacity,padding] duration-200 ease-in-out"
+        :class="isStepExpanded ? 'pt-2.5 max-h-[100000px] opacity-100' : 'pt-0 max-h-0 opacity-0 pointer-events-none'"
       >
         <ToolUse
           v-for="(tool, index) in stepContent.tools"
@@ -160,7 +160,7 @@
     </div>
   </div>
   <AttachmentsMessage v-else-if="message.type === 'attachments'" :content="attachmentsContent" @fileClick="handleReportFileOpen"/>
-  <div v-else-if="message.type === 'report'" class="flex flex-col w-full mt-3">
+  <div v-else-if="message.type === 'report'" class="report-message-layout flex flex-col w-full mt-3">
     <!-- Main Report Card -->
     <ReportCard
       :report="reportData"
@@ -187,7 +187,7 @@
     @toggle-auto-run="handleToggleAutoRun"
   />
   <!-- Skill Delivery Card -->
-  <div v-else-if="message.type === 'skill_delivery'" class="flex flex-col w-full mt-3">
+  <div v-else-if="message.type === 'skill_delivery'" class="report-message-layout flex flex-col w-full mt-3">
     <SkillDeliveryCard :skill="skillDeliveryContent" />
     <TaskCompletedFooter @rate="handleReportRate" />
   </div>
@@ -302,7 +302,7 @@ const reportData = computed<ReportData>(() => {
 });
 
 // Control step expand/collapse state
-const isStepExpanded = ref(true);
+const isStepExpanded = ref(false);
 const stepUserToggled = ref(false);
 
 // Control long-message expand/collapse state
@@ -427,11 +427,11 @@ watch(
 );
 
 watch(
-  () => [stepContent.value?.status, props.activeThinkingStepId] as const,
-  ([, thinkingId]) => {
-    if (thinkingId === stepContent.value?.id && !stepUserToggled.value) {
-      isStepExpanded.value = true;
-    }
+  () => [stepContent.value?.id, stepContent.value?.status, props.activeThinkingStepId] as const,
+  ([stepId, status, thinkingId]) => {
+    if (stepUserToggled.value) return;
+    const isActiveStep = Boolean(stepId) && thinkingId === stepId;
+    isStepExpanded.value = isActiveStep || status === 'running';
   },
   { immediate: true }
 );
@@ -478,92 +478,118 @@ const renderMarkdown = (text: string): string => {
 </script>
 
 <style>
-.duration-300 {
-  animation-duration: .3s;
+/* ══════════════════════════════════════════════════
+   User Message
+   ══════════════════════════════════════════════════ */
+.user-message-bubble {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: box-shadow 0.15s ease;
 }
 
-.duration-300 {
-  transition-duration: .3s;
-}
-
-.step-header {
-  color: #373737;
-  padding-top: 3px;
-}
-
+/* ══════════════════════════════════════════════════
+   Assistant Header
+   ══════════════════════════════════════════════════ */
 .assistant-header-row {
-  min-height: 28px;
+  min-height: 32px;
 }
 
 .assistant-brand {
-  gap: 8px;
+  gap: 7px;
 }
 
 .assistant-brand-icon {
-  width: 17px;
-  height: 17px;
+  width: 20px;
+  height: 20px;
 }
 
 .assistant-time {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.assistant-header-row:hover .assistant-time {
   opacity: 0.85;
 }
 
 .assistant-message-text {
-  font-size: 14px;
-  line-height: 1.42;
-  color: #3b3f45;
+  font-size: 15.5px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  font-weight: 400;
 }
 
+/* ══════════════════════════════════════════════════
+   Report Layout
+   ══════════════════════════════════════════════════ */
+.report-message-layout {
+  max-width: 100%;
+}
+
+/* ══════════════════════════════════════════════════
+   Step Messages
+   ══════════════════════════════════════════════════ */
 .step-message {
   position: relative;
-  padding-bottom: 3px;
+  padding-bottom: 0;
+}
+
+.step-header {
+  color: var(--text-primary);
+  padding: 3px 0 1px;
 }
 
 .step-title {
-  font-size: 14px;
-  line-height: 1.36;
+  font-size: 15px;
+  line-height: 1.4;
   font-weight: 600;
-  color: #3b3b3b;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
 }
 
 .step-title :deep(p) {
   margin: 0;
 }
 
+.step-chevron {
+  width: 16px;
+  height: 16px;
+  color: var(--text-tertiary);
+}
+
 .step-status-column {
   position: relative;
   z-index: 1;
-  width: 16px;
-  min-width: 16px;
+  width: 20px;
+  min-width: 20px;
   display: flex;
   justify-content: center;
-  padding-top: 1px;
+  padding-top: 0;
 }
 
+/* ── Step Indicators ── */
 .step-status-indicator {
-  border: 1px solid #cdcdcd;
-  background: #e3e3e3;
-  color: #6f6f6f;
-}
-
-.step-status-indicator.step-running {
-  border-color: #b4b4b4;
-  background: #f3f3f3;
-  position: relative;
+  transition: all 0.2s ease;
 }
 
 .step-icon-completed {
-  background: #cfcfcf;
-  border-color: #b7b7b7;
-}
-
-.step-icon-pending {
-  background: #f2f2f2;
-  border-color: #cfcfcf;
+  background: #d4d4d4;
+  border: 1px solid #bfbfbf;
 }
 
 .step-completed-check {
   color: #ffffff;
+}
+
+.step-icon-running {
+  background: #f3f3f3;
+  border: 1.5px solid #d0d0d0;
+  position: relative;
+  overflow: hidden;
+}
+
+.step-icon-pending {
+  background: transparent;
+  border: 1.5px solid #d5d5d5;
 }
 
 .step-running-dot {
@@ -571,7 +597,7 @@ const renderMarkdown = (text: string): string => {
   width: 6px;
   height: 6px;
   border-radius: 9999px;
-  background: #7f7f7f;
+  background: #8c8c8c;
   animation: step-dot-pulse 1.2s ease-in-out infinite;
 }
 
@@ -580,15 +606,16 @@ const renderMarkdown = (text: string): string => {
   position: absolute;
   inset: -2px;
   border-radius: 9999px;
-  border: 1.5px solid rgba(127, 127, 127, 0.45);
+  border: 1.5px solid rgba(140, 140, 140, 0.4);
   animation: step-dot-ripple 1.2s ease-out infinite;
 }
 
+/* ── Step Timeline ── */
 .step-timeline-line {
-  left: 8px;
+  left: 10px;
   top: 0;
   bottom: 0;
-  border-color: var(--border-dark);
+  border-left: 1px dashed var(--border-dark);
 }
 
 .step-body {
@@ -596,11 +623,18 @@ const renderMarkdown = (text: string): string => {
 }
 
 .step-body--connector-only {
-  min-height: 18px;
+  min-height: 8px;
 }
 
 .step-body-rail {
-  width: 24px;
+  width: 30px;
+}
+
+/* ══════════════════════════════════════════════════
+   Dark Mode Overrides
+   ══════════════════════════════════════════════════ */
+:global(.dark) .user-message-bubble {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
 :global(.dark) .step-title {
@@ -611,14 +645,19 @@ const renderMarkdown = (text: string): string => {
   color: #d5dbe4;
 }
 
-:global(.dark) .step-status-indicator {
-  border-color: rgba(255, 255, 255, 0.22);
-  background: rgba(255, 255, 255, 0.18);
+:global(.dark) .step-icon-completed {
+  background: rgba(255, 255, 255, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
-:global(.dark) .step-status-indicator.step-running {
-  border-color: rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.24);
+:global(.dark) .step-icon-running {
+  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+:global(.dark) .step-icon-pending {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 :global(.dark) .step-running-dot {
@@ -629,7 +668,13 @@ const renderMarkdown = (text: string): string => {
   border-color: rgba(255, 255, 255, 0.5);
 }
 
-/* Pulse animation for running step indicator */
+:global(.dark) .step-timeline-line {
+  border-left-color: var(--border-dark);
+}
+
+/* ══════════════════════════════════════════════════
+   Step Animations
+   ══════════════════════════════════════════════════ */
 .step-running {
   animation: step-pulse 1.5s ease-in-out infinite;
 }
@@ -639,7 +684,7 @@ const renderMarkdown = (text: string): string => {
     box-shadow: 0 0 0 0 rgba(140, 140, 140, 0);
   }
   50% {
-    box-shadow: 0 0 0 3px rgba(140, 140, 140, 0.2);
+    box-shadow: 0 0 0 3px rgba(140, 140, 140, 0.15);
   }
 }
 

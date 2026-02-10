@@ -4,28 +4,30 @@
     {{ tool.args.text }}
   </p>
   <!-- Standard tool display (rendered as interactive chip - Manus-style) -->
-  <div v-else-if="toolInfo" class="flex items-start group gap-1.5 max-w-full">
-    <div
-      @click="handleClick"
-      class="tool-chip rounded-full items-center gap-[8px] px-[12px] py-[6px] inline-flex max-w-full clickable"
-      :class="shouldShimmer ? 'tool-shimmer' : 'tool-idle'"
-    >
-      <span class="tool-icon-shell">
-        <img
-          v-if="toolInfo.faviconUrl && !faviconError"
-          :src="toolInfo.faviconUrl"
-          alt=""
-          class="tool-favicon"
-          @error="faviconError = true"
-        />
-        <component v-else :is="toolInfo.icon" :size="13" class="tool-icon-glyph" />
-      </span>
-      <div class="tool-chip-text max-w-[100%] min-w-0 break-words whitespace-normal">
-        {{ toolInfo.description }}
+  <div v-else-if="toolInfo" class="flex w-full items-start group gap-1.5 max-w-full">
+    <div class="flex-1 min-w-0">
+      <div
+        @click="handleClick"
+        class="tool-chip rounded-full items-center gap-[6px] px-[10px] py-[5px] inline-flex max-w-full clickable"
+        :class="shouldShimmer ? 'tool-shimmer' : 'tool-idle'"
+      >
+        <span class="tool-icon-shell">
+          <img
+            v-if="toolInfo.faviconUrl && !faviconError"
+            :src="toolInfo.faviconUrl"
+            alt=""
+            class="tool-favicon"
+            @error="faviconError = true"
+          />
+          <component v-else :is="toolInfo.icon" :size="13" class="tool-icon-glyph" />
+        </span>
+        <div class="tool-chip-text max-w-[100%] min-w-0 break-words whitespace-normal">
+          {{ toolInfo.description }}
+        </div>
+        <Loader2 v-if="isRunning" :size="9" class="tool-spinner" />
       </div>
-      <Loader2 v-if="isRunning" :size="9" class="tool-spinner" />
     </div>
-    <div class="transition text-[11px] text-[var(--text-tertiary)] invisible group-hover:visible">
+    <div class="ml-auto pl-2 text-right whitespace-nowrap flex-shrink-0 transition text-[11px] text-[var(--text-tertiary)] invisible group-hover:visible">
       {{ relativeTime(tool.timestamp) }}
     </div>
   </div>
@@ -88,17 +90,17 @@ const handleClick = () => {
 
 <style scoped>
 .inline-message-text {
-  color: #56606c;
-  font-size: 14px;
-  line-height: 1.46;
-  font-weight: 500;
+  color: var(--text-secondary);
+  font-size: 14.5px;
+  line-height: 1.55;
+  font-weight: 400;
 }
 
 .tool-shimmer {
   position: relative;
   overflow: hidden;
-  background: #efefef;
-  border: 1px solid #dfdfdf;
+  background: var(--fill-tsp-gray-main);
+  border: 1px solid var(--border-main);
 }
 
 .tool-shimmer::before {
@@ -127,7 +129,7 @@ const handleClick = () => {
 }
 
 .tool-spinner {
-  color: #8c8c8c;
+  color: var(--icon-tertiary);
   flex-shrink: 0;
   animation: spin 1s linear infinite;
 }
@@ -141,8 +143,8 @@ const handleClick = () => {
 <style>
 /* Dark mode support - needs to be unscoped to work with :root selector */
 :root.dark .tool-shimmer {
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: var(--fill-tsp-gray-main);
+  border: 1px solid var(--border-main);
 }
 
 :root.dark .tool-shimmer::before {
@@ -155,23 +157,25 @@ const handleClick = () => {
 }
 
 .tool-chip {
-  border: 1px solid #dddddd;
-  background: #efefef;
+  border: 1px solid var(--border-main);
+  background: var(--fill-tsp-gray-main);
+  padding: 6px 12px;
+  gap: 7px;
   transition: all 0.15s ease;
 }
 
 .tool-chip:hover {
-  border-color: #d4d4d4;
-  background: #ebebeb;
+  border-color: var(--border-dark);
+  background: var(--fill-tsp-white-dark);
 }
 
 .tool-idle {
-  background: #efefef;
+  background: var(--fill-tsp-gray-main);
 }
 
 .tool-favicon {
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
   object-fit: contain;
   flex-shrink: 0;
   display: block;
@@ -181,8 +185,8 @@ const handleClick = () => {
   width: 22px;
   height: 22px;
   border-radius: 999px;
-  border: 1px solid #d0d0d0;
-  background: #f4f4f4;
+  border: 1px solid var(--border-main);
+  background: var(--background-white-main);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -190,16 +194,16 @@ const handleClick = () => {
 }
 
 .tool-icon-glyph {
-  color: #757575;
+  color: var(--icon-secondary);
   flex-shrink: 0;
   display: block;
 }
 
 .tool-chip-text {
-  font-size: 13px;
-  line-height: 1.32;
-  color: #666c74;
-  font-weight: 500;
+  font-size: 13.5px;
+  line-height: 1.38;
+  color: var(--text-secondary);
+  font-weight: 450;
   overflow-wrap: anywhere;
   word-break: break-word;
 }

@@ -30,10 +30,12 @@ const handleScroll = (event: Event) => {
     emit('scroll', event);
 };
 
-const scrollToBottom = () => {
-    if (contentWrapperRef.value) {
-        contentWrapperRef.value.scrollTop = contentWrapperRef.value.scrollHeight;
-    }
+const scrollToBottom = (behavior: ScrollBehavior = 'auto') => {
+    if (!contentWrapperRef.value) return;
+    contentWrapperRef.value.scrollTo({
+        top: contentWrapperRef.value.scrollHeight,
+        behavior,
+    });
 };
 
 const scrollToTop = () => {

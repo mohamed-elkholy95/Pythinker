@@ -6,7 +6,7 @@
         <span class="status-text">{{ $t('Task completed') }}</span>
       </div>
 
-      <div class="rating-pill">
+      <div class="rating-panel">
         <span class="rating-title">{{ $t('How was this result?') }}</span>
         <div class="rating-stars">
           <button
@@ -50,105 +50,121 @@ const handleStarClick = (value: number) => {
 <style scoped>
 .task-completed-footer {
   width: 100%;
-  margin-top: 8px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid #d8dbe0;
+  max-width: 100%;
+  margin-top: 4px;
+  overflow-x: visible;
 }
 
 .footer-row {
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
-  width: 100%;
+  gap: 8px;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
 .status-wrap {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-shrink: 0;
+  border-radius: 9999px;
+  color: var(--function-success);
 }
 
 .status-icon {
-  width: 19px;
-  height: 19px;
-  color: #43a849;
-  stroke-width: 2.4;
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.5;
+  flex-shrink: 0;
 }
 
 .status-text {
-  color: #43a849;
-  font-size: 17px;
+  color: var(--function-success);
+  font-size: 14px;
+  line-height: 20px;
   font-weight: 500;
-  letter-spacing: -0.01em;
 }
 
-.rating-pill {
+.rating-panel {
   display: inline-flex;
+  justify-content: center;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border-radius: 16px;
-  background: #ebedf0;
-  min-height: 44px;
+  gap: 8px;
+  padding: 6px 12px 6px 16px;
+  border-radius: 8px;
+  background: var(--fill-tsp-gray-main);
+  min-height: 36px;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .rating-title {
-  font-size: 15px;
-  font-weight: 500;
-  color: #575d66;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 
 .rating-stars {
   display: inline-flex;
   align-items: center;
-  gap: 1px;
+  gap: 0;
 }
 
 .star-btn {
-  width: 30px;
-  height: 30px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   background: none;
   border: none;
+  border-radius: 0;
   cursor: pointer;
-  padding: 0;
+  padding: 2px;
+  line-height: 0;
+  transition: opacity 0.16s ease;
+}
+
+.star-btn:hover {
+  opacity: 0.85;
+}
+
+.star-btn:focus-visible {
+  outline: 2px solid var(--border-input-active);
+  outline-offset: 1px;
 }
 
 .star-icon {
   width: 16px;
   height: 16px;
-  transition: color 0.16s ease, fill 0.16s ease;
+  stroke: none;
+  fill: currentColor;
+  transition: color 0.16s ease;
 }
 
 .star-inactive {
-  color: #c4c8cf;
-  fill: #c4c8cf;
+  color: var(--border-dark);
 }
 
 .star-active {
-  color: #f4b73f;
-  fill: #f4b73f;
+  color: #f5c36b;
 }
 
 .star-btn:hover .star-inactive {
-  color: #a9afb9;
-  fill: #a9afb9;
+  color: #a8adb6;
 }
 
 @media (max-width: 900px) {
   .footer-row {
-    flex-direction: column;
+    flex-wrap: wrap;
     align-items: flex-start;
   }
 
-  .rating-pill {
-    width: 100%;
-    justify-content: space-between;
+  .rating-panel {
+    margin-left: auto;
   }
 }
 </style>
