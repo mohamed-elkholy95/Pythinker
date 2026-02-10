@@ -69,6 +69,23 @@ pythinker_errors_total{type="<error_type>", component="<component>"}
 # - unhandled_exception: Uncaught exceptions
 ```
 
+### Runtime Stability Signatures (Log-Based)
+
+Track these signatures with log aggregation (Loki/ELK/Datadog) even when not emitted as Prometheus metrics:
+
+- `vnc_ws_rejected_no_sandbox`:
+  - Signature: `VNC WebSocket rejected: Session has no sandbox environment`
+  - Alert: sustained increase over 5m may indicate session lifecycle regression.
+- `asgi_incomplete_response`:
+  - Signature: `ASGI callable returned without completing response`
+  - Alert: any non-zero count during smoke or >0.1/min in normal traffic.
+- `redis_xread_invalid_id`:
+  - Signature: `Invalid stream ID specified as stream command argument`
+  - Alert: >3 occurrences in 10m suggests cursor corruption upstream.
+- `browser_cdp_init_retry_exhausted`:
+  - Signature: `Initialization failed after 5 attempts` (CDP connect path)
+  - Alert: any occurrence in 10m should page on-call for browser availability.
+
 ### Session Metrics
 
 ```promql

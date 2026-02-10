@@ -201,9 +201,24 @@ services:
 
   redis:
     image: redis:7.0
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --loglevel
+      - warning
+      - --timeout
+      - "0"
     restart: unless-stopped
     networks:
       - pythinker-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   qdrant:
     image: qdrant/qdrant:latest
