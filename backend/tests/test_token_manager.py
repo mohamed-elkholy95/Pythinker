@@ -2,6 +2,8 @@
 Tests for the token manager module.
 """
 
+import logging
+
 from app.domain.services.agents.token_manager import TokenCount, TokenManager
 
 
@@ -198,3 +200,59 @@ class TestTokenManager:
         assert trimmed[0]["role"] == "system"
         # Should have removed the user message
         assert tokens_removed > 0
+
+    def test_trim_messages_limits_warning_churn_on_repeated_overflow(self, caplog):
+        """Compaction should emit bounded warnings even when preserve_recent is reduced repeatedly."""
+        manager = TokenManager(max_context_tokens=120, safety_margin=20)  # effective = 100
+        messages = [
+            {"role": "system", "content": "System prompt"},
+            {"role": "user", "content": "Old context " * 60},
+            {"role": "assistant", "content": "Old response " * 60},
+            {"role": "user", "content": "Recent context A " * 60},
+            {"role": "assistant", "content": "Recent context B " * 60},
+            {"role": "user", "content": "Recent context C " * 60},
+        ]
+
+        with caplog.at_level(logging.WARNING):
+            _trimmed, _removed = manager.trim_messages(messages, preserve_system=True, preserve_recent=5)
+
+        reduction_warnings = [
+            record.message
+            for record in caplog.records
+            if "Reducing preserve_recent" in record.message
+            or "Reduced preserve_recent" in record.message
+        ]
+        assert len(reduction_warnings) <= 1
+
+    def test_trim_messages_preserves_recent_tool_pairs_when_compacting(self):
+        """If a tool response is retained, its assistant tool_call should remain in context."""
+        manager = TokenManager(max_context_tokens=220, safety_margin=40)  # effective = 180
+        messages = [
+            {"role": "system", "content": "System"},
+            {"role": "user", "content": "Old context " * 80},
+            {"role": "assistant", "content": "Old answer " * 80},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_recent",
+                        "type": "function",
+                        "function": {"name": "info_search_web", "arguments": '{"query":"recent"}'},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_recent", "name": "info_search_web", "content": '{"ok":true}'},
+            {"role": "assistant", "content": "Final response"},
+        ]
+
+        trimmed, _removed = manager.trim_messages(messages, preserve_system=True, preserve_recent=2)
+
+        retained_tool_ids = {msg.get("tool_call_id") for msg in trimmed if msg.get("role") == "tool"}
+        assistant_tool_ids = {
+            tc.get("id")
+            for msg in trimmed
+            if msg.get("role") == "assistant" and msg.get("tool_calls")
+            for tc in msg.get("tool_calls", [])
+        }
+        assert retained_tool_ids.issubset(assistant_tool_ids)

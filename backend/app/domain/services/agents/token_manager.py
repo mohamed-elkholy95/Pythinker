@@ -382,6 +382,8 @@ class TokenManager:
         recent_groups: list[list[tuple[int, dict[str, Any]]]] = []
         trimmable_groups: list[list[tuple[int, dict[str, Any]]]] = []
         available_tokens = 0
+        preserve_reduction_steps = 0
+        recent_tokens = 0
 
         while actual_preserve_recent >= 0:
             # Preserve recent groups (count by original message count)
@@ -392,6 +394,13 @@ class TokenManager:
                 if recent_msg_count + group_msg_count <= actual_preserve_recent:
                     recent_groups.insert(0, group)
                     recent_msg_count += group_msg_count
+                elif recent_msg_count > 0 and self._group_contains_tool_sequence(group):
+                    # Pair-aware guard: if we are at the preserve boundary and the next
+                    # group is a tool sequence, include it atomically to avoid cutting
+                    # assistant/tool context apart.
+                    recent_groups.insert(0, group)
+                    recent_msg_count += group_msg_count
+                    break
                 else:
                     break
 
@@ -408,12 +417,17 @@ class TokenManager:
                 break
 
             # Recent messages alone exceed available space - reduce preserve_recent
-            if actual_preserve_recent > 0:
-                logger.warning(
-                    f"Recent messages ({recent_tokens} tokens) exceed available space ({available_for_others} tokens). "
-                    f"Reducing preserve_recent from {actual_preserve_recent} to {actual_preserve_recent - 1}"
-                )
+            preserve_reduction_steps += 1
             actual_preserve_recent -= 1
+
+        if preserve_reduction_steps > 0:
+            logger.warning(
+                "Reduced preserve_recent from %d to %d during compaction (recent=%d tokens, available=%d tokens)",
+                preserve_recent,
+                max(actual_preserve_recent, 0),
+                recent_tokens,
+                available_for_others,
+            )
 
         # If we had to reduce preserve_recent below 0, something is very wrong
         if actual_preserve_recent < 0:
@@ -505,6 +519,16 @@ class TokenManager:
             logger.warning(f"Removed {orphan_count} orphaned tool messages during trimming")
 
         return cleaned
+
+    @staticmethod
+    def _group_contains_tool_sequence(group: list[tuple[int, dict[str, Any]]]) -> bool:
+        """Return True when a message group contains tool-call sequencing."""
+        for _, msg in group:
+            if msg.get("role") == "tool":
+                return True
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                return True
+        return False
 
     def _group_tool_messages(self, messages: list[dict[str, Any]]) -> list[list[tuple[int, dict[str, Any]]]]:
         """
