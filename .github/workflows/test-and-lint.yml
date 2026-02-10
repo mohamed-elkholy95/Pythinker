@@ -1,6 +1,7 @@
 name: Test and Lint
 
 on:
+  workflow_call:
   push:
     branches:
       - main
@@ -84,6 +85,7 @@ jobs:
           MONGODB_URI: mongodb://localhost:27017
           REDIS_HOST: localhost
           REDIS_PORT: 6379
+          API_KEY: test-api-key-for-ci
           JWT_SECRET_KEY: test-secret-key-for-ci
           PASSWORD_SALT: test-salt-for-ci
           AUTH_PROVIDER: none
