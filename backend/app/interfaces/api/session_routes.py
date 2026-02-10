@@ -80,6 +80,12 @@ def _safe_exc_text(exc: BaseException) -> str:
     return message[:240]
 
 
+async def _safe_ws_close(websocket: WebSocket, code: int, reason: str) -> None:
+    """Best-effort websocket close to avoid raising on already-closed channels."""
+    with contextlib.suppress(Exception):
+        await websocket.close(code=code, reason=reason[:240])
+
+
 @router.put("", response_model=APIResponse[CreateSessionResponse])
 async def create_session(
     request: CreateSessionRequest = CreateSessionRequest(),
@@ -560,23 +566,19 @@ async def vnc_websocket(
     except ConnectionError as e:
         error_text = _safe_exc_text(e)
         logger.error(f"Unable to connect to sandbox environment: {error_text}")
-        with contextlib.suppress(Exception):
-            await websocket.close(code=1011, reason=f"Unable to connect to sandbox environment: {error_text}")
+        await _safe_ws_close(websocket, code=1011, reason=f"Unable to connect to sandbox environment: {error_text}")
     except NotFoundError as e:
         error_text = _safe_exc_text(e)
         logger.info(f"VNC WebSocket rejected: {error_text}")
-        with contextlib.suppress(Exception):
-            await websocket.close(code=1008, reason=error_text)
+        await _safe_ws_close(websocket, code=1008, reason=error_text)
     except Exception as e:
         error_text = _safe_exc_text(e)
         if "Session has no sandbox environment" in error_text:
             logger.info(f"VNC WebSocket rejected: {error_text}")
-            close_code = 1008
+            await _safe_ws_close(websocket, code=1008, reason=error_text)
         else:
             logger.error(f"WebSocket error: {error_text}")
-            close_code = 1011
-        with contextlib.suppress(Exception):
-            await websocket.close(code=close_code, reason=f"WebSocket error: {error_text}")
+            await _safe_ws_close(websocket, code=1011, reason=f"WebSocket error: {error_text}")
 
 
 @router.get("/{session_id}/files")
