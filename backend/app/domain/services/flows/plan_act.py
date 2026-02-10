@@ -298,6 +298,19 @@ class PlanActFlow(BaseFlow):
         # Create verifier agent (Phase 1: Plan-Verify-Execute)
         self.verifier: VerifierAgent | None = None
         if enable_verification:
+            # Create self-consistency checker if feature enabled
+            consistency_checker = None
+            if settings.feature_self_consistency:
+                try:
+                    from app.domain.services.agents.reasoning.self_consistency import (
+                        SelfConsistencyChecker,
+                    )
+
+                    consistency_checker = SelfConsistencyChecker(llm=llm, default_n_paths=3)
+                    logger.debug("Self-consistency checker enabled for verifier")
+                except Exception as e:
+                    logger.warning(f"Failed to create SelfConsistencyChecker: {e}")
+
             self.verifier = VerifierAgent(
                 llm=llm,
                 json_parser=json_parser,
@@ -308,6 +321,7 @@ class PlanActFlow(BaseFlow):
                     simple_plan_max_steps=3,  # Increased from 2 to skip verification for more plans
                     max_revision_loops=1,  # Reduced from 2 for faster response
                 ),
+                self_consistency_checker=consistency_checker,
             )
             logger.info(f"VerifierAgent enabled for Agent {agent_id}")
 

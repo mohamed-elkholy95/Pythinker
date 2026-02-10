@@ -124,7 +124,14 @@ class VerifierAgent:
     - Fail-open: On error, proceed with execution (better than blocking)
     """
 
-    def __init__(self, llm: LLM, json_parser: JsonParser, tools: list[BaseTool], config: VerifierConfig | None = None):
+    def __init__(
+        self,
+        llm: LLM,
+        json_parser: JsonParser,
+        tools: list[BaseTool],
+        config: VerifierConfig | None = None,
+        self_consistency_checker=None,
+    ):
         """Initialize the VerifierAgent.
 
         Args:
@@ -132,11 +139,13 @@ class VerifierAgent:
             json_parser: Parser for structured responses
             tools: List of available tools for feasibility checking
             config: Optional configuration
+            self_consistency_checker: Optional SelfConsistencyChecker for enhanced verification
         """
         self.llm = llm
         self.json_parser = json_parser
         self.tools = tools
         self.config = config or VerifierConfig()
+        self._self_consistency_checker = self_consistency_checker
 
         # Extract tool names for prompts
         self._tool_names = self._get_tool_names()
@@ -395,6 +404,40 @@ class VerifierAgent:
         try:
             # Perform verification
             result = await self._do_verification(plan, user_request, task_context)
+
+            # Optional self-consistency check for PASS verdicts
+            if result.verdict == VerificationVerdict.PASS and self._self_consistency_checker:
+                try:
+                    consistency_problem = (
+                        f"Verify this plan is feasible:\n"
+                        f"User request: {user_request}\n"
+                        f"Plan: {plan.title} ({len(plan.steps)} steps)\n"
+                        f"Steps: {'; '.join(s.description for s in plan.steps)}"
+                    )
+                    consensus, passed = await self._self_consistency_checker.check_consistency(
+                        consistency_problem, min_agreement=0.6
+                    )
+                    if not passed:
+                        logger.warning(
+                            f"Self-consistency check failed (agreement={consensus.agreement_score:.2f}), "
+                            f"escalating to REVISE"
+                        )
+                        _record_plan_verification("revise")
+                        feedback = (
+                            f"Self-consistency check failed ({consensus.agreement_score:.1%} agreement). "
+                            f"{consensus.get_summary()}"
+                        )
+                        yield VerificationEvent(
+                            status=VerificationStatus.REVISION_NEEDED,
+                            verdict="revise",
+                            confidence=consensus.agreement_score,
+                            summary="Plan failed self-consistency validation",
+                            revision_feedback=feedback,
+                        )
+                        return
+                    logger.info(f"Self-consistency check passed (agreement={consensus.agreement_score:.2f})")
+                except Exception as e:
+                    logger.warning(f"Self-consistency check failed, proceeding: {e}")
 
             # Emit appropriate event based on verdict
             if result.verdict == VerificationVerdict.PASS:
