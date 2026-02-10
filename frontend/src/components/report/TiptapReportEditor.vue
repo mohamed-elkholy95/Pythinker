@@ -11,7 +11,9 @@
       :editor="editor"
       :class="[
         'prose prose-gray',
-        compact ? 'prose-compact' : 'max-w-4xl mx-auto'
+        compact
+          ? ['prose-compact', hideMainTitleInCompact ?? true ? 'hide-main-title' : '']
+          : 'max-w-4xl mx-auto'
       ]"
     />
   </div>
@@ -38,6 +40,7 @@ const props = defineProps<{
   content: string;
   editable?: boolean;
   compact?: boolean;
+  hideMainTitleInCompact?: boolean;
 }>();
 
 const _emit = defineEmits<{
@@ -62,6 +65,8 @@ const editor = useEditor({
   extensions: [
     StarterKit.configure({
       codeBlock: false, // We use CodeBlockLowlight instead
+      link: false, // Configured separately below
+      underline: false, // Configured separately below
     }),
     Link.configure({
       openOnClick: true,
@@ -294,7 +299,7 @@ defineExpose({
   --tw-prose-td-borders: var(--border-light);
 }
 
-:deep(.prose-compact h1) {
+:deep(.prose-compact.hide-main-title h1) {
   display: none; /* Hide h1 in compact mode - shown separately */
 }
 

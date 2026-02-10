@@ -21,13 +21,13 @@
           />
           <component v-else :is="toolInfo.icon" :size="13" class="tool-icon-glyph" />
         </span>
-        <div class="tool-chip-text max-w-[100%] min-w-0 break-words whitespace-normal">
+        <div class="tool-chip-text max-w-[100%] min-w-0">
           {{ toolInfo.description }}
         </div>
         <Loader2 v-if="isRunning" :size="9" class="tool-spinner" />
       </div>
     </div>
-    <div class="ml-auto pl-2 text-right whitespace-nowrap flex-shrink-0 transition text-[11px] text-[var(--text-tertiary)] invisible group-hover:visible">
+    <div class="hidden sm:block ml-auto pl-2 text-right whitespace-nowrap flex-shrink-0 transition text-[11px] text-[var(--text-tertiary)] sm:invisible sm:group-hover:visible">
       {{ relativeTime(tool.timestamp) }}
     </div>
   </div>
@@ -204,7 +204,9 @@ const handleClick = () => {
   line-height: 1.38;
   color: var(--text-secondary);
   font-weight: 450;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+
 </style>

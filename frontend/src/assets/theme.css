@@ -72,10 +72,10 @@
   --text-white-tsp: #ffffff99;
   --theme-text-primary: var(--bolt-elements-textPrimary);
   --logo-color: var(--bolt-elements-textPrimary);
-  --background-gray-main: var(--bolt-elements-bg-depth-2);
+  --background-gray-main: #fafafa;
   --background-gray-secondary: var(--bolt-elements-bg-depth-3);
   --background-white-main: var(--bolt-elements-bg-depth-1);
-  --background-main: var(--bolt-elements-bg-depth-2);
+  --background-main: #fafafa;
   --background-secondary: var(--bolt-elements-bg-depth-2);
   --background-tertiary: var(--bolt-elements-bg-depth-3);
   --background-hover: var(--fill-tsp-white-main);

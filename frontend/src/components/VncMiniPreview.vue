@@ -168,6 +168,7 @@ import LiveViewer from '@/components/LiveViewer.vue';
 import WideResearchMiniPreview from '@/components/WideResearchMiniPreview.vue';
 import { useContentConfig } from '@/composables/useContentConfig';
 import { useWideResearchGlobal } from '@/composables/useWideResearch';
+import { getFaviconUrl } from '@/utils/toolDisplay';
 import type { ToolContent } from '@/types/message';
 
 const props = withDefaults(defineProps<{
@@ -255,21 +256,13 @@ const truncate = (text: string, maxLength: number): string => {
   return text.length > maxLength ? text.slice(0, maxLength - 3) + '...' : text;
 };
 
-// Get favicon URL for a given link using Google's favicon service
-const getFavicon = (link: string): string => {
-  if (!link) return '';
-  try {
-    const url = new URL(link);
-    return `https://www.google.com/s2/favicons?domain=${url.hostname}&sz=32`;
-  } catch {
-    return '';
-  }
-};
+// Get favicon URL for a given link using shared utility
+const getFavicon = (link: string): string => getFaviconUrl(link) ?? '';
 
 // Handle favicon load error by hiding the image
 const handleFaviconError = (event: Event) => {
   const img = event.target as HTMLImageElement;
-  img.style.visibility = 'hidden';
+  img.style.display = 'none';
 };
 
 // Extract filename from path
@@ -399,10 +392,12 @@ const sizeClass = computed(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  z-index: 2;
 }
 
 .file-preview {
   background: var(--bolt-elements-bg-depth-1);
+  z-index: 3;
 }
 
 /* Decorated file window */

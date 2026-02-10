@@ -6,10 +6,10 @@
             dominant-baseline="middle"
             text-anchor="start"
             fill="var(--text-primary)"
-            font-family="var(--font-sans)"
-            font-weight="500"
+            font-family="var(--font-display)"
+            font-weight="600"
             :font-size="fontSize"
-            letter-spacing="-0.02em"
+            letter-spacing="-0.01em"
         >pythinker</text>
     </svg>
 </template>
