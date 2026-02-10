@@ -26,8 +26,6 @@ async def test_llm_json_parser_fallback_returns_structured_default_without_warni
     assert result1 == {"ok": False}
     assert result2 == {"ok": False}
     direct_parse_warning_count = sum(
-        1
-        for record in caplog.records
-        if "Strategy _try_direct_parse failed" in record.message
+        1 for record in caplog.records if "Strategy _try_direct_parse failed" in record.message
     )
     assert direct_parse_warning_count == 1
