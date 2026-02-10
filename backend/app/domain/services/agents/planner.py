@@ -308,9 +308,7 @@ class PlannerAgent(BaseAgent):
                 try:
                     from app.domain.services.agents.reasoning.thought_tree import ExplorationMode
 
-                    result = await self._thought_tree_explorer.explore(
-                        message.message, mode=ExplorationMode.BEAM
-                    )
+                    result = await self._thought_tree_explorer.explore(message.message, mode=ExplorationMode.BEAM)
                     if result.best_path and result.best_path.get_conclusion():
                         tot_context = (
                             f"\n\n## Pre-Analysis (Tree-of-Thoughts)\n"
