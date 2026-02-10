@@ -575,12 +575,12 @@ class AgentService:
             raise NotFoundError("Session not found")
 
         if not session.sandbox_id:
-            raise RuntimeError("Session has no sandbox environment")
+            raise NotFoundError("Session has no sandbox environment")
 
         # Get sandbox and return VNC URL
         sandbox = await self._sandbox_cls.get(session.sandbox_id)
         if not sandbox:
-            raise RuntimeError("Sandbox environment not found")
+            raise NotFoundError("Sandbox environment not found")
 
         return sandbox.vnc_url
 
