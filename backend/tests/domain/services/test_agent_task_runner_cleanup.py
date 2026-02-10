@@ -1,5 +1,7 @@
 """Tests for AgentTaskRunner cleanup behavior."""
 
+import asyncio
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -46,3 +48,18 @@ async def test_destroy_releases_pooled_browser(runner, mock_sandbox, mock_browse
     await runner.destroy()
 
     mock_sandbox.release_pooled_browser.assert_awaited_once_with(mock_browser, had_error=False)
+
+
+@pytest.mark.asyncio
+async def test_fire_and_forget_consumes_task_exception(runner, caplog: pytest.LogCaptureFixture):
+    async def _failing_background_task() -> None:
+        raise RuntimeError("background boom")
+
+    with caplog.at_level(logging.WARNING):
+        runner._fire_and_forget(_failing_background_task())
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+    assert runner._background_tasks == set()
+    warning_messages = [record.message for record in caplog.records if "Background task failed" in record.message]
+    assert warning_messages == ["Background task failed for Agent test-agent: background boom"]

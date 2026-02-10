@@ -2,7 +2,7 @@ import asyncio
 import logging
 import time
 from collections.abc import AsyncGenerator, Callable, Coroutine
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import TYPE_CHECKING, Any, Optional
 
 from pydantic import TypeAdapter
@@ -271,7 +271,15 @@ class AgentTaskRunner(TaskRunner):
         """Create a fire-and-forget task with proper reference tracking."""
         task = asyncio.create_task(coro)  # type: ignore[arg-type]
         self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+        task.add_done_callback(self._on_background_task_done)
+
+    def _on_background_task_done(self, task: asyncio.Task[object]) -> None:
+        """Consume background task outcomes to avoid unretrieved-exception noise."""
+        self._background_tasks.discard(task)
+        with suppress(asyncio.CancelledError):
+            error = task.exception()
+            if error is not None:
+                logger.warning("Background task failed for Agent %s: %s", self._agent_id, error)
 
     def _init_plan_act_flow(self) -> None:
         """Initialize PlanActFlow for Agent mode"""
