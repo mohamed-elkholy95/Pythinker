@@ -8,8 +8,7 @@ from uuid import uuid4
 
 from app.core.config import get_settings
 from app.domain.models.screenshot import ScreenshotTrigger, SessionScreenshot
-from app.infrastructure.repositories.mongo_screenshot_repository import MongoScreenshotRepository
-from app.infrastructure.storage.mongodb import get_mongodb
+from app.domain.repositories.screenshot_repository import ScreenshotRepository
 
 logger = logging.getLogger(__name__)
 
@@ -17,14 +16,25 @@ logger = logging.getLogger(__name__)
 class ScreenshotCaptureService:
     """Captures screenshots during session execution for later replay."""
 
-    def __init__(self, sandbox, session_id: str):
+    def __init__(
+        self,
+        sandbox,
+        session_id: str,
+        repository: ScreenshotRepository | None = None,
+    ):
         self._sandbox = sandbox
         self._session_id = session_id
         self._sequence = 0
         self._lock = asyncio.Lock()
         self._periodic_task: asyncio.Task | None = None
-        self._repository = MongoScreenshotRepository()
-        self._mongodb = get_mongodb()
+        if repository is None:
+            from app.infrastructure.repositories.mongo_screenshot_repository import MongoScreenshotRepository
+
+            repository = MongoScreenshotRepository()
+        self._repository = repository
+        from app.infrastructure.storage.mongodb import get_mongodb
+
+        self._mongodb = get_mongodb()  # GridFS binary storage (no domain abstraction yet)
         self._settings = get_settings()
 
     async def capture(
@@ -151,9 +161,15 @@ class ScreenshotCaptureService:
 class ScreenshotQueryService:
     """Read/query screenshot metadata and bytes for replay endpoints."""
 
-    def __init__(self) -> None:
-        self._repository = MongoScreenshotRepository()
-        self._mongodb = get_mongodb()
+    def __init__(self, repository: ScreenshotRepository | None = None) -> None:
+        if repository is None:
+            from app.infrastructure.repositories.mongo_screenshot_repository import MongoScreenshotRepository
+
+            repository = MongoScreenshotRepository()
+        self._repository = repository
+        from app.infrastructure.storage.mongodb import get_mongodb
+
+        self._mongodb = get_mongodb()  # GridFS binary storage (no domain abstraction yet)
 
     async def delete_by_session(self, session_id: str) -> int:
         """Delete all screenshots for a session."""

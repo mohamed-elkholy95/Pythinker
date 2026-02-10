@@ -13,9 +13,9 @@ from app.domain.models.connector import (
     UserConnector,
 )
 from app.domain.models.mcp_config import MCPServerConfig, MCPTransport
-from app.infrastructure.repositories.mongo_connector_repository import (
-    MongoConnectorRepository,
-    MongoUserConnectorRepository,
+from app.domain.repositories.connector_repository import (
+    ConnectorRepository,
+    UserConnectorRepository,
 )
 
 logger = logging.getLogger(__name__)
@@ -26,11 +26,19 @@ class ConnectorService:
 
     def __init__(
         self,
-        connector_repo: MongoConnectorRepository | None = None,
-        user_connector_repo: MongoUserConnectorRepository | None = None,
+        connector_repo: ConnectorRepository | None = None,
+        user_connector_repo: UserConnectorRepository | None = None,
     ) -> None:
-        self._connector_repo = connector_repo or MongoConnectorRepository()
-        self._user_connector_repo = user_connector_repo or MongoUserConnectorRepository()
+        if connector_repo is None or user_connector_repo is None:
+            from app.infrastructure.repositories.mongo_connector_repository import (
+                MongoConnectorRepository,
+                MongoUserConnectorRepository,
+            )
+
+            connector_repo = connector_repo or MongoConnectorRepository()
+            user_connector_repo = user_connector_repo or MongoUserConnectorRepository()
+        self._connector_repo = connector_repo
+        self._user_connector_repo = user_connector_repo
 
     # --- Catalog ---
 
