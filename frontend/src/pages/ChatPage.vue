@@ -13,9 +13,6 @@
             <span class="chat-title-text">
               {{ title }}
             </span>
-            <span class="chat-mode-pill">
-              {{ agentModeLabel }}
-            </span>
           </div>
           <!-- Right: Buttons -->
           <div class="flex items-center gap-1 flex-shrink-0">
@@ -465,8 +462,6 @@ const {
   planningProgress,
   isWaitingForReply,
 } = toRefs(state);
-
-const agentModeLabel = computed(() => (agentMode.value === 'agent' ? t('Agent') : t('Discuss')));
 
 // Message ID counter for generating unique keys (avoids crypto overhead)
 let messageIdCounter = 0;
@@ -1902,22 +1897,6 @@ const handleCopyLink = async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   letter-spacing: -0.01em;
-}
-
-.chat-mode-pill {
-  display: inline-flex;
-  align-items: center;
-  height: 22px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid var(--border-light);
-  background: var(--background-tsp-menu-white);
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  flex-shrink: 0;
 }
 
 /* 120-degree diagonal shimmer text effect */
