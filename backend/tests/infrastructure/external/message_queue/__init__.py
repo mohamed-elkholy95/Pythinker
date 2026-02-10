@@ -1,0 +1,1 @@
+"""Message queue infrastructure tests."""

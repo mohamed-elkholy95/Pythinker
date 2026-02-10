@@ -18,6 +18,7 @@ class RedisStreamQueue(MessageQueue):
         self._stream_name = stream_name
         self._redis = get_redis()
         self._lock_expire_seconds = 10  # Lock expiration time
+        self._invalid_stream_id_warning_emitted = False
 
     async def _ensure_initialized(self) -> None:
         """Ensure Redis client is initialized before use."""
@@ -98,6 +99,26 @@ class RedisStreamQueue(MessageQueue):
     # Maximum block time to stay below Redis socket timeout (30s default)
     MAX_BLOCK_MS = 25000  # 25 seconds - safe margin below socket timeout
 
+    @staticmethod
+    def _normalize_start_id(start_id: str | None) -> str:
+        """Normalize stream cursor to Redis-compatible IDs.
+
+        Redis stream IDs must include `-` (e.g. `0-0`) unless using special `$`.
+        """
+        if start_id is None:
+            return "0-0"
+
+        normalized = start_id.strip()
+        if not normalized:
+            return "0-0"
+        if normalized == "$":
+            return "$"
+        if normalized == "0":
+            return "0-0"
+        if "-" in normalized:
+            return normalized
+        return "0-0"
+
     async def get(self, start_id: str = "0", block_ms: int | None = None) -> tuple[str, Any]:
         """Get a message from the stream with bounded blocking.
 
@@ -110,10 +131,8 @@ class RedisStreamQueue(MessageQueue):
             Tuple[str, Any]: (Message ID, Message content), returns (None, None) if no message
         """
         await self._ensure_initialized()
-        logger.debug(f"Getting message from stream ({self._stream_name}): {start_id}")
-        # Handle None start_id by using "0" (read from beginning)
-        if start_id is None:
-            start_id = "0"
+        normalized_start_id = self._normalize_start_id(start_id)
+        logger.debug(f"Getting message from stream ({self._stream_name}): {normalized_start_id}")
 
         # Cap block_ms to stay well below socket timeout (30s)
         # This prevents "Timeout reading from redis" errors
@@ -124,12 +143,25 @@ class RedisStreamQueue(MessageQueue):
 
         # Read new messages
         try:
-            messages = await self._redis.client.xread({self._stream_name: start_id}, count=1, block=effective_block_ms)
+            messages = await self._redis.client.xread(
+                {self._stream_name: normalized_start_id},
+                count=1,
+                block=effective_block_ms,
+            )
         except TimeoutError:
             logger.debug(f"xread timed out for stream {self._stream_name}")
             return None, None
         except Exception as e:
-            logger.warning(f"xread error for stream {self._stream_name}: {e}")
+            error_text = str(e)
+            if "Invalid stream ID specified as stream command argument" in error_text:
+                if not self._invalid_stream_id_warning_emitted:
+                    logger.warning(f"xread error for stream {self._stream_name}: {error_text}")
+                    self._invalid_stream_id_warning_emitted = True
+                else:
+                    logger.debug(f"xread invalid stream id repeated for stream {self._stream_name}: {error_text}")
+                return None, None
+
+            logger.warning(f"xread error for stream {self._stream_name}: {error_text}")
             return None, None
 
         if not messages:
