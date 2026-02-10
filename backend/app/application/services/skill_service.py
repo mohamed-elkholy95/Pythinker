@@ -9,7 +9,7 @@ This service handles:
 import logging
 
 from app.domain.models.skill import Skill, SkillCategory, UserSkillConfig
-from app.infrastructure.repositories.mongo_skill_repository import MongoSkillRepository
+from app.domain.repositories.skill_repository import SkillRepository
 
 logger = logging.getLogger(__name__)
 
@@ -17,13 +17,17 @@ logger = logging.getLogger(__name__)
 class SkillService:
     """Service for managing agent skills."""
 
-    def __init__(self, skill_repo: MongoSkillRepository | None = None):
+    def __init__(self, skill_repo: SkillRepository | None = None):
         """Initialize the skill service.
 
         Args:
             skill_repo: Optional skill repository (creates default if not provided)
         """
-        self._skill_repo = skill_repo or MongoSkillRepository()
+        if skill_repo is None:
+            from app.infrastructure.repositories.mongo_skill_repository import MongoSkillRepository
+
+            skill_repo = MongoSkillRepository()
+        self._skill_repo = skill_repo
 
     async def get_available_skills(self) -> list[Skill]:
         """Get all available skills.

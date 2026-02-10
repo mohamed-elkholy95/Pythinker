@@ -16,9 +16,7 @@ from app.domain.models.canvas import (
     CanvasVersion,
     ElementType,
 )
-from app.infrastructure.external.image_generation import get_image_generation_service
-from app.infrastructure.external.llm import get_llm
-from app.infrastructure.repositories.mongo_canvas_repository import MongoCanvasRepository
+from app.domain.repositories.canvas_repository import CanvasRepository
 
 logger = logging.getLogger(__name__)
 
@@ -80,9 +78,15 @@ class CanvasService:
 
     def __init__(
         self,
-        canvas_repo: MongoCanvasRepository | None = None,
+        canvas_repo: CanvasRepository | None = None,
     ) -> None:
-        self._repo = canvas_repo or MongoCanvasRepository()
+        if canvas_repo is None:
+            from app.infrastructure.repositories.mongo_canvas_repository import MongoCanvasRepository
+
+            canvas_repo = MongoCanvasRepository()
+        self._repo = canvas_repo
+        from app.infrastructure.external.llm import get_llm
+
         self._llm = get_llm()
 
     # --- Project CRUD ---
@@ -247,6 +251,8 @@ class CanvasService:
         height: int = 1024,
     ) -> list[str]:
         """Generate image via fal.ai FLUX. Returns image URLs."""
+        from app.infrastructure.external.image_generation import get_image_generation_service
+
         service = get_image_generation_service()
         if not service.is_configured:
             raise ValueError("Image generation not configured (FAL_API_KEY missing)")
@@ -254,6 +260,8 @@ class CanvasService:
 
     async def edit_image(self, image_url: str, instruction: str) -> list[str]:
         """Edit image via NL instruction. Returns processed image URLs."""
+        from app.infrastructure.external.image_generation import get_image_generation_service
+
         service = get_image_generation_service()
         if not service.is_configured:
             raise ValueError("Image generation not configured (FAL_API_KEY missing)")
@@ -261,6 +269,8 @@ class CanvasService:
 
     async def remove_background(self, image_url: str) -> list[str]:
         """Remove image background. Returns processed image URLs."""
+        from app.infrastructure.external.image_generation import get_image_generation_service
+
         service = get_image_generation_service()
         if not service.is_configured:
             raise ValueError("Image generation not configured (FAL_API_KEY missing)")
@@ -279,6 +289,8 @@ class CanvasService:
         project = await self._repo.find_by_id(project_id)
         if not project:
             return None
+
+        from app.infrastructure.external.llm import get_llm
 
         llm = self._llm or get_llm()
         if not llm:
