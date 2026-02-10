@@ -1,18 +1,9 @@
 <template>
   <div v-if="suggestions.length > 0" class="suggestions-container">
-    <!-- Top divider -->
-    <div class="suggestions-divider"></div>
-
-    <!-- Header -->
-    <div class="suggestions-header">
-      <span>Suggested follow-ups</span>
-    </div>
-
-    <!-- Suggestion Items -->
     <div
       v-for="(suggestion, index) in suggestions"
       :key="index"
-      class="suggestion-item"
+      class="suggestion-item suggestion-silver-shimmer"
       @click="$emit('select', suggestion)"
     >
       <div class="suggestion-icon-wrap">
@@ -22,13 +13,12 @@
         />
       </div>
       <span class="suggestion-text">{{ suggestion }}</span>
-      <ArrowRight class="suggestion-arrow" :size="16" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { MessageSquare, FileText, Globe, ArrowRight } from 'lucide-vue-next';
+import { Search, Compass } from 'lucide-vue-next';
 
 defineProps<{
   suggestions: string[];
@@ -39,7 +29,7 @@ defineEmits<{
 }>();
 
 const getSuggestionIcon = (index: number) => {
-  const icons = [Globe, MessageSquare, FileText];
+  const icons = [Search, Compass];
   return icons[index % icons.length];
 };
 </script>
@@ -48,83 +38,83 @@ const getSuggestionIcon = (index: number) => {
 .suggestions-container {
   display: flex;
   flex-direction: column;
+  gap: 10px;
   width: 100%;
-  padding: 0 2px;
-}
-
-.suggestions-divider {
-  height: 1px;
-  background: var(--border-light);
-  margin: 0 10px;
-}
-
-.suggestions-header {
-  padding: 14px 12px 8px;
-}
-
-.suggestions-header span {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+  padding: 4px 0;
 }
 
 .suggestion-item {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 12px 12px;
+  gap: 12px;
+  min-height: 56px;
+  padding: 10px 16px;
   cursor: pointer;
-  border-radius: 12px;
-  border: 1px solid var(--border-main);
-  background: var(--background-white-main);
-  transition: all 0.15s ease;
-  margin-bottom: 8px;
+  border-radius: 9999px;
+  border: 1px solid #d4d9e1;
+  background: linear-gradient(180deg, #f3f5f7 0%, #eceff3 100%);
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.suggestion-silver-shimmer::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  left: -120%;
+  width: 120%;
+  background: linear-gradient(
+    110deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.45) 48%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  animation: suggestion-shimmer 2.7s ease-in-out infinite;
+  pointer-events: none;
 }
 
 .suggestion-item:hover {
-  background: #f6f7f9;
-  border-color: var(--border-dark);
+  border-color: #bfc6d1;
   transform: translateY(-1px);
 }
 
 .suggestion-icon-wrap {
   flex-shrink: 0;
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 9px;
-  background: #eef1f5;
-  border: 1px solid #dde3eb;
+  border-radius: 9999px;
+  background: #f6f8fb;
+  border: 1px solid #c9d0dc;
 }
 
 .suggestion-icon {
-  width: 15px;
-  height: 15px;
-  color: #606a78;
+  width: 18px;
+  height: 18px;
+  color: #6a7381;
 }
 
 .suggestion-text {
   flex: 1;
-  font-size: 14px;
-  line-height: 1.45;
-  color: #2f333b;
-  font-weight: 500;
+  min-width: 0;
+  font-size: 16px;
+  line-height: 1.35;
+  color: #4e545e;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.suggestion-arrow {
-  flex-shrink: 0;
-  color: #9099a8;
-  opacity: 0.7;
-  transition: all 0.15s ease;
-}
-
-.suggestion-item:hover .suggestion-arrow {
-  opacity: 1;
-  color: #697386;
-  transform: translateX(1px);
+@keyframes suggestion-shimmer {
+  0% {
+    left: -120%;
+  }
+  100% {
+    left: 110%;
+  }
 }
 </style>

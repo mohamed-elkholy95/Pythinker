@@ -72,24 +72,24 @@
     </div>
   </div>
   <ToolUse v-else-if="message.type === 'tool'" :tool="toolContent" :is-active="true" @click="handleToolClick(toolContent)" />
-  <div v-else-if="message.type === 'step'" class="flex flex-col mt-2">
+  <div v-else-if="message.type === 'step'" class="step-message flex flex-col mt-2">
     <!-- Step Header -->
-    <div class="w-full flex gap-2 justify-between group/header text-[var(--text-primary)]">
+    <div class="step-header w-full flex gap-2 justify-between group/header text-[var(--text-primary)]">
       <div class="flex flex-row gap-[10px] items-start flex-1 min-w-0 cursor-pointer" @click="handleStepToggle">
         <!-- Status indicator -->
         <div v-if="stepContent.status === 'completed'"
-          class="w-[18px] h-[18px] flex-shrink-0 flex items-center justify-center rounded-full bg-[var(--text-tertiary)] mt-[2px]">
-          <CheckIcon class="text-white" :size="12" :stroke-width="3" />
+          class="step-status-indicator step-icon-badge step-icon-completed w-[18px] h-[18px] flex-shrink-0 flex items-center justify-center rounded-[6px] mt-[1px]">
+          <CheckIcon class="text-white" :size="11" :stroke-width="3" />
         </div>
         <div v-else-if="stepContent.status === 'running'"
-          class="w-[18px] h-[18px] flex-shrink-0 flex items-center justify-center rounded-full border-2 border-[var(--text-tertiary)] mt-[2px] step-running">
+          class="step-status-indicator step-icon-badge step-icon-running w-[18px] h-[18px] flex-shrink-0 flex items-center justify-center rounded-[6px] mt-[1px] step-running">
         </div>
         <div v-else
-          class="w-[18px] h-[18px] flex-shrink-0 flex items-center justify-center rounded-full border border-[var(--border-dark)] mt-[2px]">
+          class="step-status-indicator step-icon-badge step-icon-pending w-[18px] h-[18px] flex-shrink-0 flex items-center justify-center rounded-[6px] mt-[1px]">
         </div>
         <!-- Step title and chevron -->
-        <div class="flex-1 min-w-0 flex items-start gap-1">
-          <div class="flex-1 min-w-0 text-[15px] font-medium leading-snug markdown-content"
+        <div class="step-title-wrap flex-1 min-w-0 flex items-start gap-1">
+          <div class="step-title flex-1 min-w-0 markdown-content"
             v-html="stepContent.description ? renderMarkdown(stepContent.description) : ''">
           </div>
           <span class="flex-shrink-0 flex mt-[2px]">
@@ -111,15 +111,16 @@
     </div>
     <!-- Tools list with timeline -->
     <div class="flex" v-show="isStepExpanded">
-      <div class="w-[28px] relative flex-shrink-0">
-        <div class="border-l border-dashed border-[var(--border-dark)] absolute start-[8px] top-0 bottom-0"></div>
+      <div class="w-[26px] relative flex-shrink-0">
+        <div class="step-timeline-line border-l border-dashed absolute start-[7px] top-0 bottom-0"></div>
       </div>
-      <div class="flex flex-col gap-[10px] flex-1 min-w-0 overflow-hidden pt-3 pb-1">
+      <div class="flex flex-col gap-[8px] flex-1 min-w-0 overflow-hidden pt-3 pb-1">
         <ToolUse
           v-for="(tool, index) in stepContent.tools"
           :key="tool.tool_call_id"
           :tool="tool"
           :is-active="index === stepContent.tools.length - 1"
+          :is-task-running="index === stepContent.tools.length - 1 && stepContent.status === 'running'"
           @click="handleToolClick(tool)"
         />
         <!-- Thinking indicator inside step (Manus-style) -->
@@ -457,6 +458,49 @@ const renderMarkdown = (text: string): string => {
   transition-duration: .3s;
 }
 
+.step-header {
+  color: #3a3a3a;
+}
+
+.step-title {
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 600;
+  color: #3f3f3f;
+}
+
+.step-status-indicator {
+  border-color: #bfbfbf;
+  background: #d1d1d1;
+}
+
+.step-status-indicator.step-running {
+  background: transparent;
+  border-color: #9a9a9a;
+}
+
+.step-timeline-line {
+  border-color: #d8d8d8;
+}
+
+:global(.dark) .step-title {
+  color: #d8dde5;
+}
+
+:global(.dark) .step-status-indicator {
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.18);
+}
+
+:global(.dark) .step-status-indicator.step-running {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.44);
+}
+
+:global(.dark) .step-timeline-line {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
 /* Pulse animation for running step indicator */
 .step-running {
   animation: step-pulse 1.5s ease-in-out infinite;
@@ -464,11 +508,11 @@ const renderMarkdown = (text: string): string => {
 
 @keyframes step-pulse {
   0%, 100% {
-    border-color: var(--text-tertiary);
+    border-color: #9a9a9a;
     opacity: 0.6;
   }
   50% {
-    border-color: var(--text-primary);
+    border-color: #767676;
     opacity: 1;
   }
 }

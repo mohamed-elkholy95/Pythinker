@@ -7,10 +7,8 @@ import Suggestions from '@/components/Suggestions.vue'
 
 // Mock lucide-vue-next icons
 vi.mock('lucide-vue-next', () => ({
-  MessageSquare: { template: '<svg data-testid="message-square-icon"></svg>' },
-  FileText: { template: '<svg data-testid="file-text-icon"></svg>' },
-  Globe: { template: '<svg data-testid="globe-icon"></svg>' },
-  ArrowRight: { template: '<svg data-testid="arrow-right-icon"></svg>' },
+  Search: { template: '<svg data-testid="search-icon"></svg>' },
+  Compass: { template: '<svg data-testid="compass-icon"></svg>' },
 }))
 
 describe('Suggestions', () => {
@@ -25,16 +23,13 @@ describe('Suggestions', () => {
       expect(wrapper.find('div').exists()).toBe(false)
     })
 
-    it('should render header and suggestions when array has items', () => {
+    it('should render suggestions when array has items', () => {
       const suggestions = ['Suggestion 1', 'Suggestion 2', 'Suggestion 3']
       const wrapper = mount(Suggestions, {
         props: {
           suggestions,
         },
       })
-
-      // Check header is rendered
-      expect(wrapper.text()).toContain('Suggested follow-ups')
 
       // Check all suggestions are rendered
       suggestions.forEach((suggestion) => {
@@ -57,14 +52,12 @@ describe('Suggestions', () => {
     it('should render icons for each suggestion', () => {
       const wrapper = mount(Suggestions, {
         props: {
-          suggestions: ['First', 'Second', 'Third'],
+          suggestions: ['First', 'Second'],
         },
       })
 
-      expect(wrapper.find('[data-testid="message-square-icon"]').exists()).toBe(true)
-      expect(wrapper.find('[data-testid="file-text-icon"]').exists()).toBe(true)
-      expect(wrapper.find('[data-testid="globe-icon"]').exists()).toBe(true)
-      expect(wrapper.find('[data-testid="arrow-right-icon"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="search-icon"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="compass-icon"]').exists()).toBe(true)
     })
   })
 

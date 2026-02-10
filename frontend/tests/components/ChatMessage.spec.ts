@@ -340,5 +340,41 @@ describe('ChatMessage', () => {
       const runningIndicator = wrapper.find('.step-running')
       expect(runningIndicator.exists()).toBe(true)
     })
+
+    it('passes isTaskRunning to last tool while step is running', () => {
+      const runningStep = {
+        ...mockStepMessage,
+        content: {
+          ...mockStepMessage.content,
+          status: 'running',
+          tools: [
+            { ...mockToolMessage.content, tool_call_id: 'tool-1', status: 'called' as const },
+            { ...mockToolMessage.content, tool_call_id: 'tool-2', status: 'called' as const },
+          ],
+        },
+      }
+
+      const wrapper = mount(ChatMessage, {
+        props: {
+          message: runningStep,
+        },
+        global: {
+          stubs: {
+            ToolUse: {
+              name: 'ToolUse',
+              props: ['isTaskRunning'],
+              template: '<div class="tool-use-stub" :data-running="isTaskRunning"></div>',
+            },
+            Bot: true,
+            CheckIcon: true,
+          },
+        },
+      })
+
+      const tools = wrapper.findAll('.tool-use-stub')
+      expect(tools).toHaveLength(2)
+      expect(tools[0].attributes('data-running')).toBe('false')
+      expect(tools[1].attributes('data-running')).toBe('true')
+    })
   })
 })
