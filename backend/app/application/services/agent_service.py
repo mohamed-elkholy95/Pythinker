@@ -3,6 +3,7 @@ import contextlib
 import logging
 import posixpath
 import shlex
+import time
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from pathlib import PurePosixPath
@@ -18,7 +19,7 @@ from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
 from app.domain.external.task import Task
 from app.domain.models.agent import Agent
-from app.domain.models.event import AgentEvent
+from app.domain.models.event import AgentEvent, ErrorEvent
 from app.domain.models.file import FileInfo
 from app.domain.models.session import AgentMode, Session, SessionStatus
 from app.domain.repositories.agent_repository import AgentRepository
@@ -43,6 +44,9 @@ logger = logging.getLogger(__name__)
 
 
 class AgentService:
+    MAX_CREATE_SESSION_WAIT_SECONDS = 5.0
+    CHAT_EVENT_TIMEOUT_SECONDS = 60.0
+
     def __init__(
         self,
         llm: LLM,
@@ -81,6 +85,18 @@ class AgentService:
         self._background_tasks: set[asyncio.Task] = set()
         self._sandbox_warm_locks: dict[str, asyncio.Lock] = {}
 
+    def _clamp_create_session_wait_seconds(self, requested_seconds: float) -> float:
+        """Clamp user-provided warm-up wait to a bounded latency budget."""
+        wait_seconds = max(0.0, requested_seconds)
+        bounded_seconds = min(wait_seconds, self.MAX_CREATE_SESSION_WAIT_SECONDS)
+        if bounded_seconds != wait_seconds:
+            logger.info(
+                "Clamped sandbox wait budget from %.2fs to %.2fs",
+                wait_seconds,
+                bounded_seconds,
+            )
+        return bounded_seconds
+
     async def _record_usage(self, user_id: str, session_id: str) -> None:
         """Record tool call usage via the application usage service."""
         usage_service = get_usage_service()
@@ -94,6 +110,7 @@ class AgentService:
         require_fresh_sandbox: bool = True,
         sandbox_wait_seconds: float = 3.0,
     ) -> Session:
+        started_at = time.perf_counter()
         logger.info(f"Creating new session for user: {user_id} with mode: {mode}")
 
         # Auto-stop any stale running sessions to release sandbox/browser resources
@@ -145,14 +162,26 @@ class AgentService:
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
             logger.info(f"Started background sandbox warm-up for session {session.id}")
+            wait_budget_seconds = self._clamp_create_session_wait_seconds(sandbox_wait_seconds)
             try:
-                await asyncio.wait_for(asyncio.shield(task), timeout=sandbox_wait_seconds)
+                if wait_budget_seconds > 0:
+                    await asyncio.wait_for(asyncio.shield(task), timeout=wait_budget_seconds)
             except TimeoutError:
                 logger.info(f"Sandbox warm-up still in progress for session {session.id}")
             except Exception as e:
                 logger.warning(f"Sandbox warm-up failed for session {session.id}: {e}")
             updated = await self._session_repository.find_by_id(session.id)
-            return updated or session
+            session_result = updated or session
+            elapsed_ms = (time.perf_counter() - started_at) * 1000
+            logger.info(
+                "create_session completed in %.2fms (session=%s status=%s require_fresh=%s wait_budget=%.2fs)",
+                elapsed_ms,
+                session_result.id,
+                session_result.status,
+                require_fresh_sandbox,
+                wait_budget_seconds,
+            )
+            return session_result
 
         if settings.sandbox_eager_init:
             task = asyncio.create_task(self._warm_sandbox_for_session(session.id))
@@ -160,6 +189,14 @@ class AgentService:
             task.add_done_callback(self._background_tasks.discard)
             logger.info(f"Started background sandbox warm-up for session {session.id}")
 
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
+        logger.info(
+            "create_session completed in %.2fms (session=%s status=%s require_fresh=%s)",
+            elapsed_ms,
+            session.id,
+            session.status,
+            require_fresh_sandbox,
+        )
         return session
 
     async def _cleanup_stale_sessions(self, user_id: str) -> None:
@@ -358,6 +395,8 @@ class AgentService:
         skills: list[str] | None = None,
         deep_research: bool | None = None,
     ) -> AsyncGenerator[AgentEvent, None]:
+        started_at = time.perf_counter()
+        emitted_events = 0
         logger.info(f"Starting chat with session {session_id}: {(message or '')[:50]}...")
 
         # Set correlation IDs for structured logging throughout the call chain
@@ -381,8 +420,9 @@ class AgentService:
         except Exception as e:
             logger.warning(f"Failed to load user MCP connectors for {user_id}: {e}")
 
-        # Directly use the domain service's chat method, which will check if the session exists
-        async for event in self._agent_domain_service.chat(
+        # Guard long stalls waiting for the next domain event so API calls do not hang indefinitely.
+        event_timeout_seconds = max(0.0, self.CHAT_EVENT_TIMEOUT_SECONDS)
+        event_stream = self._agent_domain_service.chat(
             session_id,
             user_id,
             message,
@@ -392,10 +432,47 @@ class AgentService:
             skills,
             deep_research,
             extra_mcp_configs=extra_mcp_configs,
-        ):
-            logger.debug(f"Received event: {event}")
-            yield event
-        logger.info(f"Chat with session {session_id} completed")
+        )
+        stream_iter = event_stream.__aiter__()
+
+        try:
+            while True:
+                try:
+                    if event_timeout_seconds > 0:
+                        async with asyncio.timeout(event_timeout_seconds):
+                            event = await stream_iter.__anext__()
+                    else:
+                        event = await stream_iter.__anext__()
+                except StopAsyncIteration:
+                    break
+                except TimeoutError:
+                    logger.warning(
+                        "Chat stream timed out for session %s after %.2fs without events",
+                        session_id,
+                        event_timeout_seconds,
+                    )
+                    yield ErrorEvent(
+                        error=f"Chat stream timed out after {event_timeout_seconds:.1f}s without progress",
+                        error_type="timeout",
+                        recoverable=True,
+                        retry_hint="Try again, or simplify the request.",
+                    )
+                    return
+
+                logger.debug(f"Received event: {event}")
+                emitted_events += 1
+                yield event
+        finally:
+            with contextlib.suppress(Exception):
+                await stream_iter.aclose()
+
+            elapsed_ms = (time.perf_counter() - started_at) * 1000
+            logger.info(
+                "Chat with session %s completed in %.2fms (events=%d)",
+                session_id,
+                elapsed_ms,
+                emitted_events,
+            )
 
     async def get_session(self, session_id: str, user_id: str | None = None) -> Session | None:
         """Get a session by ID, ensuring it belongs to the user"""

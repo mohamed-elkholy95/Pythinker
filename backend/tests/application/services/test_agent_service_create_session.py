@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -110,3 +111,26 @@ async def test_create_session_returns_pending_when_warm_completes(monkeypatch):
     )
 
     assert session.status == SessionStatus.PENDING
+
+
+@pytest.mark.asyncio
+async def test_create_session_respects_max_wait_budget_when_request_timeout_is_too_large(monkeypatch):
+    service = _build_service()
+    service.MAX_CREATE_SESSION_WAIT_SECONDS = 0.05
+
+    async def very_slow_warm(_session_id: str) -> None:
+        await asyncio.sleep(0.4)
+        await service._session_repository.update_status(_session_id, SessionStatus.PENDING)
+
+    monkeypatch.setattr(service, "_warm_sandbox_for_session", very_slow_warm)
+
+    started_at = time.perf_counter()
+    session = await service.create_session(
+        user_id="user-1",
+        require_fresh_sandbox=True,
+        sandbox_wait_seconds=10.0,
+    )
+    elapsed = time.perf_counter() - started_at
+
+    assert session.status == SessionStatus.INITIALIZING
+    assert elapsed < 0.2
