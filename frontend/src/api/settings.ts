@@ -13,6 +13,7 @@ export interface UserSettings {
   response_verbosity_preference: 'adaptive' | 'concise' | 'detailed'
   clarification_policy: 'auto' | 'always' | 'never'
   quality_floor_enforced: boolean
+  skill_auto_trigger_enabled: boolean
 }
 
 export interface LLMProviderInfo {
@@ -46,6 +47,7 @@ export interface UpdateSettingsRequest {
   response_verbosity_preference?: 'adaptive' | 'concise' | 'detailed'
   clarification_policy?: 'auto' | 'always' | 'never'
   quality_floor_enforced?: boolean
+  skill_auto_trigger_enabled?: boolean
 }
 
 /**

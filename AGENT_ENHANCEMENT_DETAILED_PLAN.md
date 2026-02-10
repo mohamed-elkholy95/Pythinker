@@ -44,7 +44,7 @@ The pythinker agent system has a strong foundation with existing monitoring and 
 **As of:** February 3, 2026  
 **Scope:** Code-level integration and test validation
 
-- **Phases 1-5 integration present in code paths** (PlanAct, PlanActGraph, LangGraph)
+- **Phases 1-5 integration present in code paths** (PlanAct, PlanActGraph, Legacy Flow)
 - **Feature flags wired** via `get_feature_flags()` with safe defaults
 - **Core tests passing** (`pytest tests/`) after integration changes
 - **Smoke workflow executed** with failure prediction enabled to confirm alerts/metrics flow
@@ -61,7 +61,7 @@ The pythinker agent system has a strong foundation with existing monitoring and 
 Validated against current repo structure on February 2, 2026. Key corrections and constraints:
 
 - Existing components to extend: `backend/app/domain/models/plan.py` (Plan.validate_plan), `backend/app/domain/services/agents/reflection.py`, `backend/app/domain/services/agents/task_state_manager.py`, `backend/app/domain/services/agents/memory_manager.py`, `backend/app/domain/services/agents/token_manager.py`, `backend/app/domain/services/agents/error_integration.py`, `backend/app/domain/services/tools/tool_profiler.py`, `backend/app/domain/services/tools/schemas.py`, `backend/app/domain/services/flows/workflow_graph.py`, `backend/app/core/workflow_manager.py`, `backend/app/core/circuit_breaker_registry.py`, `backend/app/infrastructure/observability/prometheus_metrics.py`.
-- Multiple workflow engines exist and must be updated or explicitly excluded: PlanActGraphFlow (`backend/app/domain/services/flows/plan_act_graph.py`), LangGraph flow (`backend/app/domain/services/langgraph/graph.py` + nodes), and legacy PlanAct (`backend/app/domain/services/flows/plan_act.py`).
+- Multiple workflow engines exist and must be updated or explicitly excluded: PlanActGraphFlow (`backend/app/domain/services/flows/plan_act_graph.py`), Legacy Flow flow (`backend/app/domain/services/legacy-flow/graph.py` + nodes), and legacy PlanAct (`backend/app/domain/services/flows/plan_act.py`).
 - Tool capability validation already exists in `backend/app/domain/services/tools/schemas.py`; new validators must follow Pydantic v2 rules (any `@field_validator` must be a `@classmethod`).
 - Circuit breakers live in `backend/app/core/circuit_breaker_registry.py` (not `backend/app/infrastructure/circuit_breaker/`); `backend/app/core/error_manager.py` also defines a simpler CircuitBreaker used in a few call sites. Phase 4 should standardize on the registry implementation.
 - Tool execution metrics already exist in `backend/app/domain/services/tools/tool_profiler.py`; avoid duplicating profiler logic and extend it where needed.
@@ -127,7 +127,7 @@ class ComprehensivePlanValidator:
   - `backend/app/domain/services/agents/planner.py`
   - `backend/app/domain/services/flows/plan_act.py`
   - `backend/app/domain/services/flows/plan_act_graph.py`
-  - `backend/app/domain/services/langgraph/nodes/verification.py`
+  - `backend/app/domain/services/legacy-flow/nodes/verification.py`
   - `backend/app/domain/services/tools/schemas.py`
   - `backend/app/domain/services/tools/dynamic_toolset.py`
 
@@ -200,7 +200,7 @@ class AdvancedReflectionTriggers:
   - `backend/app/domain/services/agents/task_state_manager.py`
   - `backend/app/domain/services/flows/plan_act.py`
   - `backend/app/domain/services/flows/plan_act_graph.py`
-  - `backend/app/domain/services/langgraph/nodes/reflection.py`
+  - `backend/app/domain/services/legacy-flow/nodes/reflection.py`
 
 **Success Metrics:**
 - 50% reduction in unnecessary reflections
@@ -217,7 +217,7 @@ class AdvancedReflectionTriggers:
 Token tracking exists but compaction is reactive. System waits until token pressure becomes critical before compressing context, leading to quality degradation and potential context overflow.
 
 **Repo Alignment:**
-Memory compaction already exists in `backend/app/domain/services/agents/memory_manager.py` with proactive triggers and extraction. Token pressure monitoring lives in `backend/app/domain/services/agents/token_manager.py`. Enhancements should extend these components and wire them into both PlanAct flows and LangGraph nodes.
+Memory compaction already exists in `backend/app/domain/services/agents/memory_manager.py` with proactive triggers and extraction. Token pressure monitoring lives in `backend/app/domain/services/agents/token_manager.py`. Enhancements should extend these components and wire them into both PlanAct flows and Legacy Flow nodes.
 
 **Recommended Solution:**
 
@@ -269,8 +269,8 @@ class IntelligentContextOptimizer:
   - `backend/app/domain/services/agents/error_integration.py`
   - `backend/app/domain/services/flows/plan_act.py`
   - `backend/app/domain/services/flows/plan_act_graph.py`
-  - `backend/app/domain/services/langgraph/nodes/execution.py`
-  - `backend/app/domain/services/langgraph/nodes/summarize.py`
+  - `backend/app/domain/services/legacy-flow/nodes/execution.py`
+  - `backend/app/domain/services/legacy-flow/nodes/summarize.py`
 
 **Success Metrics:**
 - 40-50% reduction in context window usage
@@ -288,7 +288,7 @@ class IntelligentContextOptimizer:
 State transitions are tracked but not validated against valid state machine rules. No checkpointing mechanism for state recovery on failures.
 
 **Repo Alignment:**
-State is already tracked in multiple layers: `WorkflowGraph` (`backend/app/domain/services/flows/workflow_graph.py`), `WorkflowManager` (`backend/app/core/workflow_manager.py`), and `TaskStateManager`. LangGraph also has a checkpointer (`backend/app/domain/services/langgraph/checkpointer.py`). The enhancement should unify and validate transitions across these layers rather than introduce a separate state system.
+State is already tracked in multiple layers: `WorkflowGraph` (`backend/app/domain/services/flows/workflow_graph.py`), `WorkflowManager` (`backend/app/core/workflow_manager.py`), and `TaskStateManager`. Legacy Flow also has a checkpointer (`backend/app/domain/services/legacy-flow/checkpointer.py`). The enhancement should unify and validate transitions across these layers rather than introduce a separate state system.
 
 **Recommended Solution:**
 
@@ -336,8 +336,8 @@ class RobustStateManager:
 - **Files to Modify:**
   - `backend/app/domain/services/flows/workflow_graph.py`
   - `backend/app/domain/services/flows/plan_act_graph.py`
-  - `backend/app/domain/services/langgraph/graph.py`
-  - `backend/app/domain/services/langgraph/checkpointer.py`
+  - `backend/app/domain/services/legacy-flow/graph.py`
+  - `backend/app/domain/services/legacy-flow/checkpointer.py`
   - `backend/app/domain/services/agents/task_state_manager.py`
   - `backend/app/core/workflow_manager.py`
 
@@ -418,7 +418,7 @@ class RobustRewardFunction:
   - `backend/app/domain/services/agents/benchmarks.py`
   - `backend/app/domain/services/agents/metrics.py`
   - `backend/app/domain/services/tools/tool_profiler.py`
-  - `backend/app/domain/services/langgraph/nodes/summarize.py`
+  - `backend/app/domain/services/legacy-flow/nodes/summarize.py`
   - `backend/app/domain/services/flows/plan_act_graph.py`
 
 **Success Metrics:**
@@ -641,7 +641,7 @@ class FailurePredictor:
   - `backend/app/domain/services/agents/metrics.py`
   - `backend/app/domain/services/flows/plan_act.py`
   - `backend/app/domain/services/flows/plan_act_graph.py`
-  - `backend/app/domain/services/langgraph/nodes/reflection.py`
+  - `backend/app/domain/services/legacy-flow/nodes/reflection.py`
   - `backend/app/core/alert_manager.py`
   - `backend/app/infrastructure/observability/prometheus_metrics.py`
 
@@ -686,7 +686,7 @@ Note: phases can overlap if parallel teams are available. For fully sequential e
 
 **Deliverables:**
 - Baseline dashboards and weekly reporting
-- Feature flags wired into both PlanActGraphFlow and LangGraph flow
+- Feature flags wired into both PlanActGraphFlow and Legacy Flow flow
 - Logging schema and redaction rules documented
 
 **Success Criteria:**
@@ -704,11 +704,11 @@ Note: phases can overlap if parallel teams are available. For fully sequential e
 1. Extend `Plan.validate_plan` with dependency, tool availability, and feasibility checks
 2. Implement plan validator service that composes dependency/resource/tool checks
 3. Add transition validation hooks to `WorkflowGraph` (per-flow allowed transitions)
-4. Wire checkpoint hooks into WorkflowGraph and LangGraph checkpointer
+4. Wire checkpoint hooks into WorkflowGraph and Legacy Flow checkpointer
 5. Create validation and state transition test suites
 
 **Week 2 Tasks:**
-1. Integrate validators into VerifierAgent and all three flows (PlanAct, PlanActGraph, LangGraph)
+1. Integrate validators into VerifierAgent and all three flows (PlanAct, PlanActGraph, Legacy Flow)
 2. Add resource checks based on sandbox health (warn-only when metrics are unavailable)
 3. Deploy validation metrics to Prometheus and dashboards
 4. Tune validation thresholds based on baseline data
@@ -861,7 +861,7 @@ Note: phases can overlap if parallel teams are available. For fully sequential e
 
 ### Rollout Gates
 - Shadow mode for new validators and predictors until false positives are below target and P95 latency stays within budget.
-- Feature flags allow per-flow rollout (PlanAct, PlanActGraph, LangGraph) with immediate rollback.
+- Feature flags allow per-flow rollout (PlanAct, PlanActGraph, Legacy Flow) with immediate rollback.
 
 ### Technical KPIs
 
@@ -975,7 +975,7 @@ Note: phases can overlap if parallel teams are available. For fully sequential e
 
 ### Architecture Overview
 
-Applies to both PlanActGraphFlow and LangGraph flow; legacy PlanAct should reuse the same validation, reflection, and compaction services to avoid divergence.
+Applies to both PlanActGraphFlow and Legacy Flow flow; legacy PlanAct should reuse the same validation, reflection, and compaction services to avoid divergence.
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -1067,18 +1067,18 @@ Output/Completion
 
 **Phase 1 Integration:**
 - Extend `Plan.validate_plan()` and wire into `VerifierAgent`
-- Integrate validation into PlanAct, PlanActGraph, and LangGraph verification nodes
-- Add transition validation/checkpoint hooks in `WorkflowGraph` and LangGraph checkpointer
+- Integrate validation into PlanAct, PlanActGraph, and Legacy Flow verification nodes
+- Add transition validation/checkpoint hooks in `WorkflowGraph` and Legacy Flow checkpointer
 
 **Phase 2 Integration:**
 - Enhance `ReflectionAgent.should_reflect()` using ErrorIntegrationBridge signals
 - Update `TaskStateManager` to collect multi-signal data (stuck, error patterns, token pressure)
-- Modify routing in PlanActGraph and LangGraph reflection nodes based on advanced triggers
+- Modify routing in PlanActGraph and Legacy Flow reflection nodes based on advanced triggers
 
 **Phase 3 Integration:**
 - Extend `MemoryManager` and `TokenManager` with proactive compaction strategies
 - Update message handling to track context size and retention metrics
-- Modify PlanAct, PlanActGraph, and LangGraph execution/summarize nodes to trigger optimization
+- Modify PlanAct, PlanActGraph, and Legacy Flow execution/summarize nodes to trigger optimization
 
 **Phase 4 Integration:**
 - Integrate reward scoring into `VerifierAgent` and `CriticAgent` (shadow mode)
@@ -1137,7 +1137,7 @@ Output/Completion
 
 ## Open Questions
 
-1. Which workflow engine is the primary rollout target (PlanActGraphFlow vs LangGraph), or should both be updated in lockstep?
+1. Which workflow engine is the primary rollout target (PlanActGraphFlow vs Legacy Flow), or should both be updated in lockstep?
 2. What is the current baseline for plan revisions, reflection rate, and token usage (last 30 days)?
 3. What level of tool output logging is acceptable given privacy constraints?
 4. Where should long-term metrics storage live (Prometheus only vs additional warehouse)?

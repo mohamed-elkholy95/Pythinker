@@ -2,7 +2,7 @@
 
 ## Overview
 
-This plan enhances the Pythinker agent system with four key capabilities based on latest LangChain/LangGraph best practices:
+This plan enhances the Pythinker agent system with four key capabilities based on latest LangChain/Legacy Flow best practices:
 
 1. **Structured Reporting** - Type-safe, validated report outputs
 2. **Source Filtering** - Relevance scoring and quality filtering

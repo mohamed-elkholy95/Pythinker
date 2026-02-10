@@ -37,6 +37,10 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          buildkitd-config-inline: |
+            [worker.oci]
+              max-parallelism = 1
 
       - name: Log in to Docker Hub
         if: github.event_name != 'pull_request' && env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''

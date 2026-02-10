@@ -57,10 +57,6 @@ cryptography>=43.0.0
 # Token counting
 tiktoken>=0.8.0
 
-# Workflow orchestration
-langgraph>=0.2.74
-langgraph-checkpoint>=2.0.0
-
 # TOTP authentication
 pyotp>=2.9.0
 

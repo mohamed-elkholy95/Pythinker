@@ -46,7 +46,6 @@ markers = [
     "execution: marks tests for execution agent",
     "reflection: marks tests for reflection agent",
     "verification: marks tests for verification agent",
-    "langgraph: marks tests for LangGraph workflows",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",

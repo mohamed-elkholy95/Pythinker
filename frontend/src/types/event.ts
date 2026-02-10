@@ -3,8 +3,51 @@ import type { SourceCitation, DeepResearchQuery, DeepResearchStatus, SkillPackag
 import type { ToolContentPayload } from './toolContent';
 
 export type AgentSSEEvent = {
-  event: 'tool' | 'step' | 'message' | 'error' | 'done' | 'title' | 'wait' | 'plan' | 'attachments' | 'mode_change' | 'suggestion' | 'report' | 'stream' | 'progress' | 'deep_research' | 'wide_research' | 'skill_delivery' | 'skill_activation' | 'thought' | 'canvas_update';
-  data: ToolEventData | StepEventData | MessageEventData | ErrorEventData | DoneEventData | TitleEventData | WaitEventData | PlanEventData | ModeChangeEventData | SuggestionEventData | ReportEventData | StreamEventData | ProgressEventData | DeepResearchEventData | WideResearchEventData | SkillDeliveryEventData | SkillActivationEventData | ThoughtEventData | CanvasUpdateEventData;
+  event:
+    | 'tool'
+    | 'step'
+    | 'message'
+    | 'error'
+    | 'done'
+    | 'title'
+    | 'wait'
+    | 'plan'
+    | 'attachments'
+    | 'mode_change'
+    | 'suggestion'
+    | 'report'
+    | 'stream'
+    | 'progress'
+    | 'deep_research'
+    | 'wide_research'
+    | 'phase_transition'
+    | 'checkpoint_saved'
+    | 'skill_delivery'
+    | 'skill_activation'
+    | 'thought'
+    | 'canvas_update';
+  data:
+    | ToolEventData
+    | StepEventData
+    | MessageEventData
+    | ErrorEventData
+    | DoneEventData
+    | TitleEventData
+    | WaitEventData
+    | PlanEventData
+    | ModeChangeEventData
+    | SuggestionEventData
+    | ReportEventData
+    | StreamEventData
+    | ProgressEventData
+    | DeepResearchEventData
+    | WideResearchEventData
+    | PhaseTransitionEventData
+    | CheckpointSavedEventData
+    | SkillDeliveryEventData
+    | SkillActivationEventData
+    | ThoughtEventData
+    | CanvasUpdateEventData;
 }
 
 export interface BaseEventData {
@@ -87,7 +130,8 @@ export interface ReportEventData extends BaseEventData {
 export interface StreamEventData extends BaseEventData {
   content: string;
   is_final: boolean;
-  phase?: 'thinking' | 'summarizing';
+  phase?: string;
+  phase_metadata?: Record<string, unknown>;
 }
 
 export type PlanningPhase = 'received' | 'analyzing' | 'planning' | 'finalizing';
@@ -122,6 +166,31 @@ export interface WideResearchEventData extends BaseEventData {
   current_query?: string;
   aggregation_strategy?: string;
   errors?: string[];
+}
+
+export type ResearchWorkflowPhase =
+  | 'planning'
+  | 'phase_1'
+  | 'phase_2'
+  | 'phase_3'
+  | 'executing'
+  | 'summarizing'
+  | 'compilation'
+  | 'completed'
+  | string;
+
+export interface PhaseTransitionEventData extends BaseEventData {
+  phase: ResearchWorkflowPhase;
+  label?: string;
+  research_id?: string;
+  source?: 'deep_research' | 'wide_research' | 'session';
+}
+
+export interface CheckpointSavedEventData extends BaseEventData {
+  phase: ResearchWorkflowPhase;
+  research_id?: string;
+  notes_preview?: string;
+  source_count?: number;
 }
 
 export interface SkillDeliveryEventData extends BaseEventData {

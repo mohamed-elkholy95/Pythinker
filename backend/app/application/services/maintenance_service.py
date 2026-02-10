@@ -13,7 +13,9 @@ from typing import Any
 
 from beanie import PydanticObjectId
 
+from app.core.config import get_settings
 from app.domain.models.session import SessionStatus
+from app.infrastructure.storage.mongodb import get_mongodb
 
 logger = logging.getLogger(__name__)
 
@@ -321,7 +323,15 @@ class MaintenanceService:
 
             cursor = sessions_collection.find(
                 query,
-                {"_id": 1, "status": 1, "updated_at": 1, "title": 1, "sandbox_id": 1},
+                {
+                    "_id": 1,
+                    "status": 1,
+                    "updated_at": 1,
+                    "title": 1,
+                    "sandbox_id": 1,
+                    "sandbox_owned": 1,
+                    "sandbox_lifecycle_mode": 1,
+                },
             )
 
             async for session in cursor:
@@ -329,12 +339,19 @@ class MaintenanceService:
                 old_status = session.get("status")
                 updated_at = session.get("updated_at")
                 sandbox_id = session.get("sandbox_id")
+                sandbox_owned = bool(session.get("sandbox_owned", False))
+                sandbox_lifecycle_mode = session.get("sandbox_lifecycle_mode")
+                configured_lifecycle_mode = getattr(get_settings(), "sandbox_lifecycle_mode", "static")
+                sandbox_is_owned = sandbox_owned or sandbox_lifecycle_mode == "ephemeral"
+                if sandbox_lifecycle_mode is None and configured_lifecycle_mode == "ephemeral":
+                    sandbox_is_owned = True
 
                 session_info = {
                     "session_id": session_id_str,
                     "old_status": old_status,
                     "title": session.get("title"),
                     "sandbox_id": sandbox_id,
+                    "sandbox_owned": sandbox_is_owned,
                     "last_updated": updated_at.isoformat() if updated_at else None,
                 }
                 stats["sessions_marked_failed"].append(session_info)
@@ -342,7 +359,7 @@ class MaintenanceService:
 
                 if not dry_run:
                     # Destroy orphaned sandbox container
-                    if sandbox_id:
+                    if sandbox_id and sandbox_is_owned:
                         try:
                             from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
 
@@ -351,7 +368,7 @@ class MaintenanceService:
                                 await asyncio.wait_for(sandbox.destroy(), timeout=15.0)
                                 stats["sandboxes_destroyed"] += 1
                                 logger.info(
-                                    f"Destroyed orphaned sandbox {sandbox_id} for stale session {session_id_str}"
+                                    f"Destroyed orphaned owned sandbox {sandbox_id} for stale session {session_id_str}"
                                 )
                         except TimeoutError:
                             logger.warning(f"Sandbox {sandbox_id} destroy timed out during stale cleanup")
@@ -365,6 +382,10 @@ class MaintenanceService:
                                 "$set": {
                                     "status": SessionStatus.FAILED.value,
                                     "updated_at": datetime.now(UTC),
+                                    "task_id": None,
+                                    "sandbox_id": None,
+                                    "sandbox_owned": False,
+                                    "sandbox_created_at": None,
                                 }
                             },
                         )
@@ -395,6 +416,12 @@ class MaintenanceService:
 
 
 # Factory function for dependency injection
-def get_maintenance_service(db) -> MaintenanceService:
-    """Get a MaintenanceService instance."""
+def get_maintenance_service(db=None) -> MaintenanceService:
+    """Get a MaintenanceService instance.
+
+    When db is omitted, resolve it from configured MongoDB settings.
+    """
+    if db is None:
+        settings = get_settings()
+        db = get_mongodb().client[settings.mongodb_database]
     return MaintenanceService(db)

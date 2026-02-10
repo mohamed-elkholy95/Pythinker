@@ -174,6 +174,7 @@ const localSettings = ref<UserSettings>({
   response_verbosity_preference: 'adaptive',
   clarification_policy: 'auto',
   quality_floor_enforced: true,
+  skill_auto_trigger_enabled: false,
 })
 
 // Providers info

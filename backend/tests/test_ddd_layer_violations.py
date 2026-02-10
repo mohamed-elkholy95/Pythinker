@@ -95,20 +95,10 @@ def _get_application_python_files():
     return files
 
 
-# Pre-existing application->interfaces violations tracked for future cleanup.
-# agent_service.py imports response schemas from interfaces layer.
-KNOWN_APP_EXCEPTIONS = {
-    "agent_service.py",
-}
-
-
 def test_application_layer_does_not_import_interfaces():
     """Application layer must not import from interfaces layer."""
     violations = []
     for filepath in _get_application_python_files():
-        filename = os.path.basename(filepath)
-        if filename in KNOWN_APP_EXCEPTIONS:
-            continue
         violations.extend(_check_imports(filepath, ["app.interfaces."]))
 
     if violations:
@@ -134,10 +124,6 @@ KNOWN_IFACE_EXCEPTIONS = {
     "dependencies.py",
     "exception_handlers.py",
     "skills_routes.py",
-    "session_routes.py",
-    "settings_routes.py",
-    "rating_routes.py",
-    "maintenance_routes.py",
     "metrics_routes.py",
 }
 

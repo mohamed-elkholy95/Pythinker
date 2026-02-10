@@ -43,7 +43,7 @@ def _is_backend_available() -> bool:
     try:
         r = requests.get(f"{BASE_URL}/health", timeout=5)
         return r.status_code == 200
-    except requests.ConnectionError:
+    except requests.RequestException:
         return False
 
 

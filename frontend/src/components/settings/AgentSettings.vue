@@ -155,6 +155,24 @@
           <span class="toggle-thumb"></span>
         </button>
       </div>
+
+      <div class="vision-toggle-card" :class="{ 'vision-enabled': localSettings.skill_auto_trigger_enabled }">
+        <div class="vision-content">
+          <div class="vision-info">
+            <h5 class="vision-title">Skill Auto-Trigger</h5>
+            <p class="vision-desc">
+              Automatically activate matching skills from message text. Keep off for explicit-only activation.
+            </p>
+          </div>
+        </div>
+        <button
+          @click="toggleSkillAutoTrigger"
+          class="toggle-switch"
+          :class="{ 'toggle-active': localSettings.skill_auto_trigger_enabled }"
+        >
+          <span class="toggle-thumb"></span>
+        </button>
+      </div>
     </div>
 
     <!-- Vision Section -->
@@ -241,6 +259,7 @@ const localSettings = ref<UserSettings>({
   response_verbosity_preference: 'adaptive',
   clarification_policy: 'auto',
   quality_floor_enforced: true,
+  skill_auto_trigger_enabled: false,
 })
 
 // Timeout presets
@@ -278,6 +297,11 @@ const toggleQualityFloor = async () => {
   await saveSettings()
 }
 
+const toggleSkillAutoTrigger = async () => {
+  localSettings.value.skill_auto_trigger_enabled = !localSettings.value.skill_auto_trigger_enabled
+  await saveSettings()
+}
+
 // Save settings
 const saveSettings = async () => {
   try {
@@ -288,6 +312,7 @@ const saveSettings = async () => {
       response_verbosity_preference: localSettings.value.response_verbosity_preference,
       clarification_policy: localSettings.value.clarification_policy,
       quality_floor_enforced: localSettings.value.quality_floor_enforced,
+      skill_auto_trigger_enabled: localSettings.value.skill_auto_trigger_enabled,
     })
   } catch {
     showErrorToast(t('Failed to save settings'))

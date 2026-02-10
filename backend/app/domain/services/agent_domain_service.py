@@ -47,7 +47,7 @@ class AgentDomainService:
         mcp_repository: MCPRepository,
         search_engine: SearchEngine | None = None,
         memory_service: Optional["MemoryService"] = None,
-        mongodb_db: Any | None = None,  # MongoDB database for LangGraph checkpointing
+        mongodb_db: Any | None = None,  # MongoDB database for workflow checkpointing
         usage_recorder: Callable[..., Coroutine[Any, Any, None]] | None = None,
     ):
         self._repository = agent_repository
@@ -61,7 +61,7 @@ class AgentDomainService:
         self._mcp_repository = mcp_repository
         self._memory_service = memory_service
         self._usage_recorder = usage_recorder
-        self._mongodb_db = mongodb_db  # For LangGraph checkpointing
+        self._mongodb_db = mongodb_db  # For workflow checkpointing
         # Session-level locks to prevent concurrent task creation for the same session
         # This prevents race conditions when fast prompts arrive in quick succession
         self._task_creation_locks: dict[str, asyncio.Lock] = {}
@@ -99,9 +99,30 @@ class AgentDomainService:
         if sandbox_id:
             sandbox = await self._sandbox_cls.get(sandbox_id)
         settings = get_settings()
+        sandbox_lifecycle_mode = getattr(settings, "sandbox_lifecycle_mode", "static")
+        ephemeral_lifecycle = sandbox_lifecycle_mode == "ephemeral"
+        uses_static_sandboxes = bool(
+            getattr(
+                settings,
+                "uses_static_sandbox_addresses",
+                bool(getattr(settings, "sandbox_address", None)),
+            )
+        )
+        sandbox_pool_enabled = (
+            bool(getattr(settings, "sandbox_pool_enabled", False))
+            and not uses_static_sandboxes
+            and not ephemeral_lifecycle
+        )
+        owns_session_sandbox = sandbox_lifecycle_mode == "ephemeral"
+
+        def bind_sandbox_metadata(target_sandbox: Sandbox) -> None:
+            session.sandbox_id = target_sandbox.id
+            session.sandbox_owned = owns_session_sandbox
+            session.sandbox_lifecycle_mode = sandbox_lifecycle_mode
+            session.sandbox_created_at = datetime.now(UTC) if owns_session_sandbox else None
 
         async def acquire_sandbox_from_pool() -> Sandbox:
-            if settings.sandbox_pool_enabled:
+            if sandbox_pool_enabled:
                 try:
                     from app.core.sandbox_pool import get_sandbox_pool
 
@@ -111,6 +132,11 @@ class AgentDomainService:
                     return acquired
                 except Exception as e:
                     logger.warning(f"Failed to acquire from pool, creating on-demand: {e}")
+            elif uses_static_sandboxes and bool(getattr(settings, "sandbox_pool_enabled", False)):
+                logger.debug(
+                    "Skipping sandbox pool for session %s because SANDBOX_ADDRESS is configured",
+                    session.id,
+                )
             return await self._sandbox_cls.create()
 
         async def recycle_sandbox(current_sandbox: Sandbox, reason: str) -> Sandbox:
@@ -122,7 +148,7 @@ class AgentDomainService:
                     logger.debug(f"Sandbox destroy failed during recycle (non-critical): {e}")
 
             replacement = await acquire_sandbox_from_pool()
-            session.sandbox_id = replacement.id
+            bind_sandbox_metadata(replacement)
             await self._session_repository.save(session)
             return replacement
 
@@ -181,10 +207,26 @@ class AgentDomainService:
 
         if not sandbox:
             sandbox = await acquire_sandbox_from_pool()
-            session.sandbox_id = sandbox.id
+            bind_sandbox_metadata(sandbox)
             sandbox_id = sandbox.id
             is_new_sandbox = True
             await self._session_repository.save(session)
+        else:
+            metadata_changed = False
+            if session.sandbox_owned != owns_session_sandbox:
+                session.sandbox_owned = owns_session_sandbox
+                metadata_changed = True
+            if session.sandbox_lifecycle_mode != sandbox_lifecycle_mode:
+                session.sandbox_lifecycle_mode = sandbox_lifecycle_mode
+                metadata_changed = True
+            if owns_session_sandbox and session.sandbox_created_at is None:
+                session.sandbox_created_at = datetime.now(UTC)
+                metadata_changed = True
+            elif not owns_session_sandbox and session.sandbox_created_at is not None:
+                session.sandbox_created_at = None
+                metadata_changed = True
+            if metadata_changed:
+                await self._session_repository.save(session)
 
         try:
             await run_parallel_init(sandbox)
@@ -203,12 +245,19 @@ class AgentDomainService:
         # - Preserve ongoing browser work and navigation
         # - Allow smooth handling of fast/consecutive prompts
         should_clear_browser = is_new_sandbox
+        browser_init_timeout = min(settings.browser_init_timeout, 20.0)
+        if browser_init_timeout != settings.browser_init_timeout:
+            logger.info(
+                "Clamped browser init timeout from %.1fs to %.1fs to avoid first-event stalls",
+                settings.browser_init_timeout,
+                browser_init_timeout,
+            )
 
         # Browser connection is faster after parallel health check
         try:
             browser = await asyncio.wait_for(
                 sandbox.get_browser(clear_session=should_clear_browser, verify_connection=False),
-                timeout=settings.browser_init_timeout,
+                timeout=browser_init_timeout,
             )
         except TimeoutError:
             logger.error(f"Browser init timed out for sandbox {sandbox.id}; recycling sandbox for session {session.id}")
@@ -219,7 +268,23 @@ class AgentDomainService:
             await run_parallel_init(sandbox)
             browser = await asyncio.wait_for(
                 sandbox.get_browser(clear_session=should_clear_browser, verify_connection=False),
-                timeout=settings.browser_init_timeout,
+                timeout=browser_init_timeout,
+            )
+        except Exception as e:
+            logger.error(
+                "Browser init failed for sandbox %s; recycling sandbox for session %s: %s",
+                sandbox.id,
+                session.id,
+                e,
+            )
+            sandbox = await recycle_sandbox(sandbox, f"browser initialization error: {e}")
+            sandbox_id = sandbox.id
+            is_new_sandbox = True
+            should_clear_browser = True
+            await run_parallel_init(sandbox)
+            browser = await asyncio.wait_for(
+                sandbox.get_browser(clear_session=should_clear_browser, verify_connection=False),
+                timeout=browser_init_timeout,
             )
         if not browser:
             logger.error(f"Failed to get browser for Sandbox {sandbox_id}")
@@ -250,7 +315,7 @@ class AgentDomainService:
             flow_mode=settings.resolved_flow_mode,
             # Long-term memory service (Phase 6: Qdrant integration)
             memory_service=self._memory_service,
-            # MongoDB database for LangGraph checkpointing
+            # MongoDB database for workflow checkpointing
             mongodb_db=self._mongodb_db,
             usage_recorder=self._usage_recorder,
             extra_mcp_configs=extra_mcp_configs,
@@ -261,76 +326,6 @@ class AgentDomainService:
         await self._session_repository.save(session)
 
         return task
-
-    def _parse_command(self, message: str) -> tuple[str | None, str]:
-        """Parse /command syntax from user message.
-
-        Args:
-            message: User message that may start with /command
-
-        Returns:
-            Tuple of (skill_id, remaining_message)
-        """
-        try:
-            from app.domain.services.command_registry import get_command_registry
-
-            registry = get_command_registry()
-            skill_id, remaining = registry.parse_command(message)
-
-            if skill_id:
-                logger.info(f"Command invoked: {message.split()[0]} → skill '{skill_id}'")
-
-            return skill_id, remaining
-
-        except Exception as e:
-            logger.warning(f"Failed to parse command: {e}")
-            return None, message
-
-    async def _apply_skill_triggers(self, message: str, user_skills: list[str] | None) -> tuple[list[str], list[str]]:
-        """Apply skill trigger patterns to auto-activate skills.
-
-        Matches the user message against skill trigger patterns and merges
-        auto-triggered skills with user-provided skills.
-
-        Args:
-            message: User message to match against trigger patterns
-            user_skills: Skills explicitly selected by the user
-
-        Returns:
-            Tuple of (combined_skills, newly_activated_skills)
-            - combined_skills: All skills (user + auto-triggered)
-            - newly_activated_skills: Only the skills that were auto-triggered
-        """
-        try:
-            from app.domain.services.skill_trigger_matcher import get_skill_trigger_matcher
-
-            matcher = await get_skill_trigger_matcher()
-            matches = await matcher.find_matching_skills(message, max_matches=3, min_confidence=0.3)
-
-            if not matches:
-                return user_skills or [], []
-
-            # Get auto-triggered skill IDs
-            auto_triggered_ids = [m.skill_id for m in matches]
-            logger.info(
-                f"Auto-triggered {len(auto_triggered_ids)} skill(s) from message: {', '.join(auto_triggered_ids)}"
-            )
-
-            # Merge with user-provided skills (deduplicate)
-            user_skill_set = set(user_skills or [])
-            all_skills = list(user_skill_set | set(auto_triggered_ids))
-
-            # Log which skills were newly activated
-            newly_activated = [sid for sid in auto_triggered_ids if sid not in user_skill_set]
-            if newly_activated:
-                logger.info(f"Newly activated skills: {', '.join(newly_activated)}")
-
-            return all_skills, newly_activated
-
-        except Exception as e:
-            logger.warning(f"Failed to apply skill triggers: {e}")
-            # Return original skills on error
-            return user_skills or [], []
 
     async def _classify_intent_with_context(
         self,
@@ -474,6 +469,59 @@ class AgentDomainService:
 
         return self._task_cls.get(task_id)
 
+    async def _teardown_session_runtime(
+        self,
+        session_id: str,
+        session: Session | None = None,
+        *,
+        status: SessionStatus | None = None,
+        destroy_sandbox: bool = True,
+    ) -> None:
+        """Release runtime resources for a session in an idempotent way."""
+        target_session = session or await self._session_repository.find_by_id(session_id)
+        if not target_session:
+            return
+
+        task = await self._get_task(target_session)
+        if task:
+            task.cancel()
+
+        if destroy_sandbox and target_session.sandbox_id:
+            owns_sandbox = target_session.sandbox_owned or target_session.sandbox_lifecycle_mode == "ephemeral"
+            if target_session.sandbox_lifecycle_mode is None and not target_session.sandbox_owned:
+                configured_lifecycle_mode = getattr(get_settings(), "sandbox_lifecycle_mode", "static")
+                if configured_lifecycle_mode == "ephemeral":
+                    owns_sandbox = True
+
+            if owns_sandbox:
+                try:
+                    sandbox = await self._sandbox_cls.get(target_session.sandbox_id)
+                    if sandbox:
+                        await asyncio.wait_for(sandbox.destroy(), timeout=15.0)
+                        logger.info(f"Destroyed owned sandbox {target_session.sandbox_id} for session {session_id}")
+                except TimeoutError:
+                    logger.warning(f"Sandbox {target_session.sandbox_id} destroy timed out during teardown")
+                except Exception as e:
+                    logger.warning(f"Failed to destroy sandbox {target_session.sandbox_id} during teardown: {e}")
+            else:
+                logger.info(
+                    "Skipping sandbox destroy for session %s (sandbox %s not owned by session)",
+                    session_id,
+                    target_session.sandbox_id,
+                )
+
+        target_session.task_id = None
+        if destroy_sandbox:
+            target_session.sandbox_id = None
+            target_session.sandbox_owned = False
+            target_session.sandbox_created_at = None
+        if status is not None:
+            target_session.status = status
+        await self._session_repository.save(target_session)
+
+        # Clean up session lock to prevent unbounded growth
+        self._task_creation_locks.pop(session_id, None)
+
     async def stop_session(self, session_id: str) -> None:
         """Stop a session and destroy its sandbox.
 
@@ -484,29 +532,12 @@ class AgentDomainService:
         if not session:
             logger.error(f"Attempted to stop non-existent Session {session_id}")
             raise RuntimeError("Session not found")
-        task = await self._get_task(session)
-        if task:
-            task.cancel()
-
-        # Destroy sandbox to prevent orphaned containers
-        if session.sandbox_id:
-            try:
-                sandbox = await self._sandbox_cls.get(session.sandbox_id)
-                if sandbox:
-                    await asyncio.wait_for(sandbox.destroy(), timeout=15.0)
-                    logger.info(f"Destroyed sandbox {session.sandbox_id} for session {session_id}")
-            except TimeoutError:
-                logger.warning(f"Sandbox {session.sandbox_id} destroy timed out during session stop")
-            except Exception as e:
-                logger.warning(f"Failed to destroy sandbox {session.sandbox_id} during stop: {e}")
-
-        session.task_id = None
-        session.sandbox_id = None
-        session.status = SessionStatus.COMPLETED
-        await self._session_repository.save(session)
-
-        # Clean up session lock to prevent unbounded growth
-        self._task_creation_locks.pop(session_id, None)
+        await self._teardown_session_runtime(
+            session_id,
+            session=session,
+            status=SessionStatus.COMPLETED,
+            destroy_sandbox=True,
+        )
 
     async def pause_session(self, session_id: str) -> bool:
         """Pause a session (for user takeover)
@@ -624,6 +655,7 @@ NOTE: The browser state may have changed. When you next use the browser:
         skills: list[str] | None = None,
         deep_research: bool | None = None,
         extra_mcp_configs: dict[str, Any] | None = None,
+        auto_trigger_enabled: bool | None = None,
     ) -> AsyncGenerator[BaseEvent, None]:
         """
         Chat with an agent
@@ -794,19 +826,22 @@ NOTE: The browser state may have changed. When you next use the browser:
                         session_id, message, timestamp or datetime.now()
                     )
 
-                    # Parse /command syntax (Superpowers command system)
-                    command_skill_id, _message_without_command = self._parse_command(message)
-                    if command_skill_id:
-                        # Add command-invoked skill to skills list
-                        skills = list(set((skills or []) + [command_skill_id]))
-                    elif "/skill-creator" in message.lower():
-                        # Fallback: detect embedded /skill-creator (e.g., from "Build with Pythinker" button)
-                        skills = list(set((skills or []) + ["skill-creator"]))
+                    # Resolve skill activation through a single framework.
+                    # Policy: auto-trigger is OFF by default; skills activate only via:
+                    # 1) explicit chat-box selection
+                    # 2) slash command (e.g. /brainstorm)
+                    from app.domain.services.skill_activation_framework import get_skill_activation_framework
 
-                    # Skills are only active when explicitly selected by the user
-                    # (from chatbox skill picker or settings). Auto-triggering is disabled
-                    # to avoid unexpected skill activation.
-                    skills_to_use = skills or []
+                    if auto_trigger_enabled is None:
+                        auto_trigger_enabled = get_settings().skill_auto_trigger_enabled
+
+                    activation_framework = get_skill_activation_framework()
+                    activation_result = await activation_framework.resolve(
+                        message=message,
+                        selected_skills=skills,
+                        auto_trigger_enabled=auto_trigger_enabled,
+                    )
+                    skills_to_use = activation_result.skill_ids
 
                     resolved_attachments = await self._resolve_user_attachments(attachments, user_id)
                     message_event = MessageEvent(
@@ -856,6 +891,9 @@ NOTE: The browser state may have changed. When you next use the browser:
                                 skill_names=skill_names,
                                 prompt_chars=prompt_chars,
                                 tool_restrictions=tool_restrictions,
+                                activation_sources=activation_result.activation_sources,
+                                command_skill_id=activation_result.command_skill_id,
+                                auto_trigger_enabled=activation_result.auto_trigger_enabled,
                             )
                             yield activation_event
 
@@ -872,6 +910,7 @@ NOTE: The browser state may have changed. When you next use the browser:
             logger.debug(f"Session {session_id} task: {task}")
 
             received_events = False
+            terminal_status: SessionStatus | None = None
             while task and not task.done:
                 event_id, event_str = await task.output_stream.get(start_id=latest_event_id, block_ms=0)
                 if event_str is None:
@@ -884,7 +923,13 @@ NOTE: The browser state may have changed. When you next use the browser:
                 logger.debug(f"Got event from Session {session_id}'s event queue: {type(event).__name__}")
                 await self._session_repository.update_unread_message_count(session_id, 0)
                 yield event
-                if isinstance(event, (DoneEvent, ErrorEvent, WaitEvent)):
+                if isinstance(event, DoneEvent):
+                    terminal_status = SessionStatus.COMPLETED
+                    break
+                if isinstance(event, ErrorEvent):
+                    terminal_status = SessionStatus.FAILED
+                    break
+                if isinstance(event, WaitEvent):
                     break
 
             # If the task completed without producing any events, emit a DoneEvent
@@ -894,6 +939,10 @@ NOTE: The browser state may have changed. When you next use the browser:
                 session = await self._session_repository.find_by_id(session_id)
                 title = session.title if session else "Task completed"
                 yield DoneEvent(title=title, summary="Session completed.")
+                terminal_status = SessionStatus.COMPLETED
+
+            if terminal_status is not None:
+                await self._teardown_session_runtime(session_id, status=terminal_status, destroy_sandbox=False)
 
             logger.info(f"Session {session_id} completed")
 
@@ -901,11 +950,7 @@ NOTE: The browser state may have changed. When you next use the browser:
             logger.exception(f"Error in Session {session_id}")
             event = ErrorEvent(error=str(e))
             await self._session_repository.add_event(session_id, event)
-            # Mark session as failed so it doesn't stay stuck in RUNNING
-            try:
-                await self._session_repository.update_status(session_id, SessionStatus.FAILED)
-            except Exception:
-                logger.warning(f"Failed to update session {session_id} status to FAILED")
+            await self._teardown_session_runtime(session_id, status=SessionStatus.FAILED, destroy_sandbox=False)
             yield event
         finally:
             await self._session_repository.update_unread_message_count(session_id, 0)

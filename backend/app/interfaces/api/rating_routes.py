@@ -9,9 +9,9 @@ from fastapi import APIRouter, BackgroundTasks, Depends
 from pydantic import BaseModel, Field
 
 from app.application.services.email_service import EmailService
+from app.application.services.rating_service import RatingService
 from app.domain.models.user import User
-from app.infrastructure.models.documents import RatingDocument
-from app.interfaces.dependencies import get_current_user, get_email_service
+from app.interfaces.dependencies import get_current_user, get_email_service, get_rating_service
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +40,7 @@ async def submit_rating(
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     email_service: EmailService = Depends(get_email_service),
+    rating_service: RatingService = Depends(get_rating_service),
 ) -> RatingResponse:
     """Submit a rating for a report. Saves to DB and sends email notification."""
     user_name = current_user.fullname or current_user.email
@@ -51,8 +52,7 @@ async def submit_rating(
         request.session_id,
     )
 
-    # Persist rating to MongoDB
-    doc = RatingDocument(
+    await rating_service.submit_rating(
         session_id=request.session_id,
         report_id=request.report_id,
         user_id=current_user.id,
@@ -61,7 +61,6 @@ async def submit_rating(
         rating=request.rating,
         feedback=request.feedback,
     )
-    await doc.insert()
 
     # Send email notification in background
     background_tasks.add_task(

@@ -1,7 +1,7 @@
 """Parallel Tool Executor
 
 Enables parallel execution of independent tool calls to reduce latency.
-Research shows this can reduce execution time by 54% (LangGraph studies).
+Research shows this can reduce execution time by 54% in agent workflows.
 
 Key features:
 - Batch independent tool calls with asyncio.gather

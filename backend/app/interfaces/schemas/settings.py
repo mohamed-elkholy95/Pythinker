@@ -18,6 +18,7 @@ class UserSettingsResponse(BaseModel):
     response_verbosity_preference: Literal["adaptive", "concise", "detailed"] = "adaptive"
     clarification_policy: Literal["auto", "always", "never"] = "auto"
     quality_floor_enforced: bool = True
+    skill_auto_trigger_enabled: bool = False
 
 
 class UpdateUserSettingsRequest(BaseModel):
@@ -35,6 +36,7 @@ class UpdateUserSettingsRequest(BaseModel):
     response_verbosity_preference: Literal["adaptive", "concise", "detailed"] | None = None
     clarification_policy: Literal["auto", "always", "never"] | None = None
     quality_floor_enforced: bool | None = None
+    skill_auto_trigger_enabled: bool | None = None
 
 
 class ProvidersResponse(BaseModel):

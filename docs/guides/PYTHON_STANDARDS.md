@@ -1,6 +1,6 @@
 # Python Backend Coding Standards
 
-This document defines mandatory coding standards for all Python backend code based on Pydantic v2, FastAPI, LangGraph, and Python 3.11+ async patterns.
+This document defines mandatory coding standards for all Python backend code based on Pydantic v2, FastAPI, Legacy Flow, and Python 3.11+ async patterns.
 
 ## Pydantic v2 Best Practices
 
@@ -198,14 +198,14 @@ async def get_session(
     return await db.get(session_id)
 ```
 
-## LangGraph Patterns
+## Legacy Flow Patterns
 
 ### StateGraph with TypedDict and Checkpointing
 
 ```python
-from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.types import Command
+from legacy-flow.graph import StateGraph, START, END
+from legacy-flow.checkpoint.memory import InMemorySaver
+from legacy-flow.types import Command
 from typing import TypedDict, Annotated, Literal
 from operator import add
 
@@ -228,7 +228,7 @@ def research_node(state: AgentState) -> dict:
     findings = search_web(state["user_query"])
     return {"research_findings": findings}
 
-# Command for combined state update + routing (LangGraph best practice)
+# Command for combined state update + routing (Legacy Flow best practice)
 def routing_node(state: AgentState) -> Command[Literal["research", "generate"]]:
     """Use Command to update state AND route in one step"""
     if needs_research(state):
@@ -375,7 +375,7 @@ Before committing Python backend code:
 - [ ] All `@field_validator` methods are `@classmethod`
 - [ ] `asyncio.TaskGroup` used instead of `asyncio.gather` for concurrent operations
 - [ ] FastAPI yield dependencies re-raise exceptions (0.110.0+ requirement)
-- [ ] LangGraph state uses `TypedDict` with `Annotated[list, add]` for accumulation
+- [ ] Legacy Flow state uses `TypedDict` with `Annotated[list, add]` for accumulation
 - [ ] structlog configured with JSON output and context variables
 - [ ] Tenacity retry wraps LLM calls with Pydantic validation
 - [ ] No raw LLM output sent to users without verification

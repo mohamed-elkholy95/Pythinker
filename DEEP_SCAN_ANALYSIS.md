@@ -48,8 +48,8 @@ The system implements **three primary execution flows**:
    - Supports multi-agent dispatch and parallel execution
    - Most mature and feature-complete
 
-2. **LangGraphPlanActFlow** (`backend/app/domain/services/langgraph/flow.py`)
-   - LangGraph StateGraph-based workflow
+2. **Legacy FlowPlanActFlow** (`backend/app/domain/services/legacy-flow/flow.py`)
+   - Legacy Flow StateGraph-based workflow
    - Checkpointing support for resume capability
    - Still maturing, some features missing
 
@@ -300,9 +300,9 @@ The system implements **three primary execution flows**:
 
 ---
 
-## 4. LangGraph Flow Specific Gaps
+## 4. Legacy Flow Flow Specific Gaps
 
-The LangGraph flow (`langgraph/flow.py`) has additional gaps:
+The Legacy Flow flow (`legacy-flow/flow.py`) has additional gaps:
 
 | Gap ID | Description | Impact |
 |--------|-------------|--------|
@@ -443,7 +443,7 @@ The Pythinker agent system has a solid architectural foundation with DDD princip
 4. **Memory** needs persistent cross-session learning
 5. **Tool Integration** needs health monitoring and semantic selection
 
-Addressing the High Priority recommendations will significantly improve reliability and user experience. The LangGraph flow shows promise but needs feature parity with PlanActFlow before production use.
+Addressing the High Priority recommendations will significantly improve reliability and user experience. The Legacy Flow flow shows promise but needs feature parity with PlanActFlow before production use.
 
 ---
 

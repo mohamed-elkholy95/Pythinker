@@ -10,9 +10,7 @@ Provides comprehensive fixtures for:
 """
 
 import asyncio
-import importlib.util
 import json
-import site
 import sys
 import tempfile
 from pathlib import Path
@@ -26,40 +24,6 @@ import requests
 # Increase recursion limit for test collection with many test files
 # The default 1000 can be exceeded during deep import chains when running full suite
 sys.setrecursionlimit(10000)
-
-
-# Fix langgraph import shadowing issue BEFORE any app imports
-# The local app/domain/services/langgraph module shadows the installed langgraph package
-def _preload_langgraph():
-    """Preload the langgraph package from site-packages to prevent shadowing."""
-    # Get site-packages directories
-    site_packages = site.getsitepackages()
-    if hasattr(site, "getusersitepackages"):
-        user_site = site.getusersitepackages()
-        if user_site:
-            site_packages.append(user_site)
-
-    for sp in site_packages:
-        pkg_path = Path(sp) / "langgraph"
-        if pkg_path.exists():
-            # Load the checkpoint module directly from site-packages
-            checkpoint_init = pkg_path / "checkpoint" / "base" / "__init__.py"
-            if checkpoint_init.exists():
-                spec = importlib.util.spec_from_file_location(
-                    "langgraph.checkpoint.base",
-                    checkpoint_init,
-                    submodule_search_locations=[str(pkg_path / "checkpoint" / "base")],
-                )
-                if spec and spec.loader:
-                    module = importlib.util.module_from_spec(spec)
-                    sys.modules["langgraph.checkpoint.base"] = module
-                    spec.loader.exec_module(module)
-                    return True
-    return False
-
-
-# Preload langgraph before any app imports
-_preload_langgraph()
 
 # Add the parent directory to Python path so we can import app modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -603,56 +567,6 @@ def mock_llm_reflection_response():
         }
 
     return _create
-
-
-# =============================================================================
-# LangGraph State Fixtures
-# =============================================================================
-
-
-@pytest.fixture
-def initial_plan_act_state():
-    """Base state for LangGraph workflow tests.
-
-    Provides a minimal valid state for starting Plan-Act workflows.
-    """
-    return {
-        "user_message": "test message",
-        "plan": None,
-        "current_step": 0,
-        "iteration_count": 0,
-        "verification_loops": 0,
-        "error_count": 0,
-        "pending_events": [],
-        "recent_tools": [],
-        "plan_created": False,
-        "all_steps_done": False,
-        "max_iterations": 400,
-        "error": None,
-        "recovery_attempts": 0,
-    }
-
-
-@pytest.fixture
-def state_with_plan(initial_plan_act_state, mock_llm_plan_response):
-    """State with an existing plan for mid-workflow tests."""
-    from app.domain.models.plan import Plan, Step
-
-    state = initial_plan_act_state.copy()
-
-    # Create a proper Plan object
-    plan = Plan(
-        title="Test Plan",
-        goal="Test goal",
-        steps=[
-            Step(id="1", description="Search for info"),
-            Step(id="2", description="Analyze results"),
-        ],
-    )
-
-    state["plan"] = plan
-    state["plan_created"] = True
-    return state
 
 
 # =============================================================================

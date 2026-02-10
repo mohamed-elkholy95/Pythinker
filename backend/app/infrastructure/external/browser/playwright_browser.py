@@ -913,8 +913,9 @@ class PlaywrightBrowser:
         Returns:
             bool: True if initialization succeeded, False otherwise
         """
-        max_retries = 5
-        retry_delay = 1  # Initial wait 1 second
+        max_retries = 2
+        retry_delay = 0.5  # Initial wait 500ms
+        cdp_connect_timeout_ms = 8000
 
         for attempt in range(max_retries):
             try:
@@ -923,12 +924,12 @@ class PlaywrightBrowser:
                 # Connect to existing Chrome instance via CDP
                 self.browser = await self.playwright.chromium.connect_over_cdp(
                     self.cdp_url,
-                    timeout=30000,  # 30 second connection timeout
+                    timeout=cdp_connect_timeout_ms,
                 )
 
                 # Clear existing pages for fresh session
                 if clear_existing:
-                    await self.clear_session()
+                    await asyncio.wait_for(self.clear_session(), timeout=5.0)
 
                 # Get existing contexts or prepare to create new one
                 contexts = self.browser.contexts
@@ -1060,7 +1061,7 @@ class PlaywrightBrowser:
                     return False
 
                 # Exponential backoff with cap
-                retry_delay = min(retry_delay * 2, 10)
+                retry_delay = min(retry_delay * 2, 4)
                 logger.warning(f"Initialization failed (attempt {attempt + 1}), retrying in {retry_delay}s: {e}")
                 await asyncio.sleep(retry_delay)
 

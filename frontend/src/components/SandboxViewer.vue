@@ -516,7 +516,7 @@ defineExpose({
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--background-gray-main, #1a1a1a);
+  background: var(--background-gray-main);
   overflow: hidden;
 }
 
@@ -555,21 +555,21 @@ defineExpose({
   align-items: center;
   justify-content: center;
   gap: 10px;
-  background: var(--background-gray-main, #1a1a1a);
+  background: var(--background-gray-main);
   z-index: 10;
 }
 
 .sandbox-loading-spinner {
   width: 16px;
   height: 16px;
-  border: 2px solid #444;
-  border-top-color: #10b981;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--function-success);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
 
 .sandbox-loading-text {
-  color: #888;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 
@@ -584,7 +584,7 @@ defineExpose({
   align-items: center;
   justify-content: center;
   gap: 12px;
-  background: var(--background-gray-main, #1a1a1a);
+  background: var(--background-gray-main);
   z-index: 10;
 }
 
@@ -594,15 +594,15 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #ef4444;
-  color: white;
+  background: var(--function-error);
+  color: var(--text-white);
   border-radius: 50%;
   font-weight: bold;
   font-size: 18px;
 }
 
 .sandbox-error-text {
-  color: #ef4444;
+  color: var(--function-error);
   font-size: 13px;
   max-width: 300px;
   text-align: center;
@@ -610,9 +610,9 @@ defineExpose({
 
 .sandbox-retry-btn {
   padding: 6px 16px;
-  background: #333;
-  color: #ddd;
-  border: 1px solid #444;
+  background: var(--background-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
   border-radius: 4px;
   cursor: pointer;
   font-size: 12px;
@@ -620,8 +620,8 @@ defineExpose({
 }
 
 .sandbox-retry-btn:hover {
-  background: #444;
-  border-color: #555;
+  background: var(--background-hover);
+  border-color: var(--border-hover);
 }
 
 .sandbox-stats {
@@ -631,10 +631,10 @@ defineExpose({
   display: flex;
   gap: 12px;
   padding: 4px 8px;
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--background-mask);
   border-radius: 4px;
   font-size: 11px;
-  color: #10b981;
+  color: var(--function-success);
   font-family: monospace;
 }
 
@@ -646,17 +646,17 @@ defineExpose({
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
-  background: rgba(16, 185, 129, 0.2);
-  border: 1px solid rgba(16, 185, 129, 0.4);
+  background: var(--function-success-tsp);
+  border: 1px solid var(--function-success-border);
   border-radius: 4px;
   font-size: 11px;
-  color: #10b981;
+  color: var(--function-success);
 }
 
 .indicator-dot {
   width: 6px;
   height: 6px;
-  background: #10b981;
+  background: var(--function-success);
   border-radius: 50%;
   animation: pulse 1.5s ease-in-out infinite;
 }

@@ -77,7 +77,7 @@ backend/tests/
 │       └── test_tool_error_handling.py
 ├── integration/                   # NEW: Integration tests
 │   ├── test_plan_execute_flow.py
-│   ├── test_langgraph_workflow.py
+│   ├── test_legacy-flow_workflow.py
 │   ├── test_multi_agent_handoff.py
 │   ├── test_error_recovery.py
 │   └── test_memory_integration.py
@@ -143,10 +143,10 @@ def mock_llm_reflection_response():
         }
     return _create
 
-# === LangGraph State Fixtures ===
+# === Legacy Flow State Fixtures ===
 @pytest.fixture
 def initial_plan_act_state():
-    """Base state for LangGraph workflow tests."""
+    """Base state for Legacy Flow workflow tests."""
     return {
         "user_message": "test message",
         "plan": None,
@@ -174,8 +174,8 @@ def state_with_plan(initial_plan_act_state, mock_llm_plan_response):
 # === Workflow Graph Fixtures ===
 @pytest.fixture
 def compiled_test_graph(mock_llm):
-    """Pre-compiled LangGraph for testing."""
-    from app.domain.services.langgraph.graph import create_plan_act_graph
+    """Pre-compiled Legacy Flow for testing."""
+    from app.domain.services.legacy-flow.graph import create_plan_act_graph
     return create_plan_act_graph(llm=mock_llm)
 
 # === Tool Mock Factories ===
@@ -670,9 +670,9 @@ class TestPlanExecuteFlowIntegration:
         assert result.success is True
 ```
 
-### 2.2 LangGraph Workflow Integration
+### 2.2 Legacy Flow Workflow Integration
 
-**File:** `tests/integration/test_langgraph_workflow.py`
+**File:** `tests/integration/test_legacy-flow_workflow.py`
 
 | Test Case | Description | Expected Outcome |
 |-----------|-------------|------------------|
@@ -685,14 +685,14 @@ class TestPlanExecuteFlowIntegration:
 | `test_checkpoint_recovery` | Workflow resumes from checkpoint | State restored |
 
 ```python
-# tests/integration/test_langgraph_workflow.py
+# tests/integration/test_legacy-flow_workflow.py
 import pytest
-from langgraph.checkpoint.memory import MemorySaver
-from app.domain.services.langgraph.graph import create_plan_act_graph
-from app.domain.services.langgraph.state import PlanActState
+from legacy-flow.checkpoint.memory import MemorySaver
+from app.domain.services.legacy-flow.graph import create_plan_act_graph
+from app.domain.services.legacy-flow.state import PlanActState
 
-class TestLangGraphWorkflowIntegration:
-    """Integration tests for LangGraph workflow."""
+class TestLegacy FlowWorkflowIntegration:
+    """Integration tests for Legacy Flow workflow."""
 
     @pytest.fixture
     def graph(self, mock_llm, mock_sandbox):
@@ -1295,7 +1295,7 @@ repos:
 | Day | Task | Deliverable |
 |-----|------|-------------|
 | 1 | Plan-Execute flow integration tests | `test_plan_execute_flow.py` |
-| 2 | LangGraph workflow integration tests | `test_langgraph_workflow.py` |
+| 2 | Legacy Flow workflow integration tests | `test_legacy-flow_workflow.py` |
 | 3 | Error recovery integration tests | `test_error_recovery.py` |
 | 4 | Memory integration tests | `test_memory_integration.py` |
 | 5 | Multi-agent handoff tests | `test_multi_agent_handoff.py` |
@@ -1347,7 +1347,7 @@ repos:
 ## References
 
 - [Anthropic: Demystifying Evals for AI Agents](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents)
-- [LangGraph Testing Documentation](https://docs.langchain.com/oss/python/langgraph/test)
+- [Legacy Flow Testing Documentation](https://docs.langchain.com/oss/python/legacy-flow/test)
 - [DeepEval: LLM Testing Framework](https://github.com/confident-ai/deepeval)
 - [Confident AI: LLM Testing Best Practices 2026](https://www.confident-ai.com/blog/llm-testing-in-2024-top-methods-and-strategies)
 - [Future AGI: LLM Evaluation Guide 2026](https://futureagi.substack.com/p/llm-evaluation-frameworks-metrics)

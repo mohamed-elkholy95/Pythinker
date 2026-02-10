@@ -6,7 +6,7 @@ Provides a singleton registry for skill management with:
 - Tool restriction computation
 - Trigger pattern compilation
 
-Based on LangGraph's dynamic tool selection patterns.
+Based on dynamic tool selection patterns used in modern agent systems.
 """
 
 import asyncio

@@ -1,6 +1,6 @@
 """Tests for SSE Streaming v2
 
-Phase 3 Enhancement: Tests for LangGraph astream_events v2 API with disconnect handling.
+Phase 3 Enhancement: Tests for graph-style event streaming with disconnect handling.
 """
 
 import asyncio
@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.domain.models.event import StreamEvent, ToolEvent, ToolStatus
+from app.interfaces.schemas.event import EventMapper
 
 
 def create_tool_event(
@@ -74,7 +75,7 @@ class TestSSEStreamingV2:
 
     @pytest.fixture
     def mock_graph(self):
-        """Create mock LangGraph."""
+        """Create mock graph runtime."""
         return MagicMock()
 
     @pytest.fixture
@@ -85,7 +86,7 @@ class TestSSEStreamingV2:
     @pytest.mark.asyncio
     async def test_chat_model_stream_event(self, mock_event_queue):
         """Test handling on_chat_model_stream events."""
-        # Simulate LangGraph astream_events v2 output
+        # Simulate v2 graph event output
         chunk = MagicMock()
         chunk.content = "Hello"
 
@@ -419,6 +420,16 @@ class TestEventSerialization:
         assert parsed["content"] == "Hello world"
         assert parsed["is_final"] is True
         assert parsed["type"] == "stream"
+
+    @pytest.mark.asyncio
+    async def test_stream_event_phase_passthrough_to_sse(self):
+        """Test StreamEvent phase is preserved in SSE payload."""
+        event = StreamEvent(content="summary chunk", is_final=False, phase="summarizing")
+
+        sse_event = await EventMapper.event_to_sse_event(event)
+
+        assert sse_event.event == "stream"
+        assert getattr(sse_event.data, "phase", None) == "summarizing"
 
     def test_tool_event_json_serialization(self):
         """Test ToolEvent JSON serialization."""

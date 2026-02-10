@@ -6,6 +6,10 @@
       :detail="toolDisplayLabel"
       animation="spinner"
     />
+    <ErrorState
+      v-else-if="errorMessage"
+      :error="errorMessage"
+    />
 
     <div v-else class="generic-body">
       <CanvasMiniPreview
@@ -56,6 +60,7 @@ import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import ContentContainer from '@/components/toolViews/shared/ContentContainer.vue';
 import EmptyState from '@/components/toolViews/shared/EmptyState.vue';
+import ErrorState from '@/components/toolViews/shared/ErrorState.vue';
 import LoadingDots from '@/components/toolViews/shared/LoadingDots.vue';
 import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
 import CanvasMiniPreview from '@/components/canvas/CanvasMiniPreview.vue';
@@ -66,9 +71,10 @@ import type { CanvasToolContent } from '@/types/toolContent';
 const props = defineProps<{
   toolName?: string;
   functionName?: string;
-  args?: Record<string, any>;
-  result?: any;
-  content?: any;
+  args?: Record<string, unknown>;
+  result?: unknown;
+  content?: unknown;
+  error?: string;
   isExecuting?: boolean;
 }>();
 
@@ -189,8 +195,25 @@ const canvasElementCount = computed(() => {
 
 const hasResult = computed(() => props.result !== undefined && props.result !== null);
 const hasContent = computed(() => props.content !== undefined && props.content !== null);
+const errorMessage = computed(() => {
+  if (props.error) return props.error;
+  const candidate = props.result ?? props.content;
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    return '';
+  }
+  const withError = candidate as { error?: unknown; message?: unknown };
+  if (typeof withError.error === 'string' && withError.error.trim().length > 0) {
+    return withError.error;
+  }
+  if (typeof withError.message === 'string' && withError.message.trim().length > 0) {
+    return withError.message;
+  }
+  return '';
+});
 const isLoading = computed(() => !!props.isExecuting && !toolDisplayLabel.value && !hasContent.value && !hasResult.value);
-const showEmpty = computed(() => !isLoading.value && !toolDisplayLabel.value && !hasContent.value && !hasResult.value);
+const showEmpty = computed(() =>
+  !isLoading.value && !errorMessage.value && !toolDisplayLabel.value && !hasContent.value && !hasResult.value
+);
 const statusMessage = computed(() =>
   props.isExecuting ? t('Tool is executing...') : t('Waiting for result...')
 );

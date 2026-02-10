@@ -12,6 +12,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.application.errors.exceptions import NotFoundError, UnauthorizedError
 from app.application.services.agent_service import AgentService
+from app.application.services.screenshot_service import ScreenshotQueryService
 from app.application.services.token_service import TokenService
 from app.core.config import get_settings
 from app.core.deep_research_manager import get_deep_research_manager
@@ -19,14 +20,13 @@ from app.domain.external.sandbox import Sandbox
 from app.domain.models.event import PlanningPhase, ProgressEvent
 from app.domain.models.file import FileInfo
 from app.domain.models.user import User
-from app.infrastructure.repositories.mongo_screenshot_repository import MongoScreenshotRepository
-from app.infrastructure.storage.mongodb import get_mongodb
 from app.interfaces.dependencies import (
     get_agent_service,
     get_current_user,
     get_file_service,
     get_optional_current_user,
     get_sandbox_cls,
+    get_screenshot_query_service,
     get_token_service,
     verify_signature_websocket,
 )
@@ -143,11 +143,12 @@ async def delete_session(
     session_id: str,
     current_user: User = Depends(get_current_user),
     agent_service: AgentService = Depends(get_agent_service),
+    screenshot_query_service: ScreenshotQueryService = Depends(get_screenshot_query_service),
 ) -> APIResponse[None]:
     await agent_service.delete_session(session_id, current_user.id)
     # Clean up screenshots for the deleted session (fire-and-forget)
     try:
-        deleted = await _screenshot_repo.delete_by_session(session_id)
+        deleted = await screenshot_query_service.delete_by_session(session_id)
         if deleted:
             logger.info("Deleted %d screenshots for session %s", deleted, session_id)
     except Exception as e:
@@ -381,11 +382,6 @@ async def chat(
         except asyncio.CancelledError:
             # Client disconnected - log and gracefully terminate
             logger.warning(f"Chat stream cancelled for session {session_id} (client disconnected)")
-            # Allow agent to cleanup gracefully
-            try:
-                await agent_service.stop_session(session_id, current_user.id)
-            except Exception as e:
-                logger.debug(f"Error stopping session on disconnect: {e}")
             raise
         except Exception as e:
             logger.error(f"Error in chat stream for session {session_id}: {e}")
@@ -890,8 +886,6 @@ async def input_websocket(
 # Screenshot Replay Endpoints
 # ============================================================================
 
-_screenshot_repo = MongoScreenshotRepository()
-
 
 @router.get("/{session_id}/screenshots", response_model=APIResponse[ScreenshotListResponse])
 async def list_screenshots(
@@ -900,14 +894,14 @@ async def list_screenshots(
     offset: int = Query(default=0, ge=0),
     current_user: User = Depends(get_current_user),
     agent_service: AgentService = Depends(get_agent_service),
+    screenshot_query_service: ScreenshotQueryService = Depends(get_screenshot_query_service),
 ) -> APIResponse[ScreenshotListResponse]:
     """List screenshot metadata for a session."""
     session = await agent_service.get_session(session_id, current_user.id)
     if not session:
         raise NotFoundError("Session not found")
 
-    screenshots = await _screenshot_repo.find_by_session(session_id, limit=limit, offset=offset)
-    total = await _screenshot_repo.count_by_session(session_id)
+    screenshots, total = await screenshot_query_service.list_by_session(session_id, limit=limit, offset=offset)
 
     items = [
         ScreenshotMetadataResponse(
@@ -936,6 +930,7 @@ async def get_screenshot_image(
     thumbnail: bool = Query(default=False),
     current_user: User = Depends(get_current_user),
     agent_service: AgentService = Depends(get_agent_service),
+    screenshot_query_service: ScreenshotQueryService = Depends(get_screenshot_query_service),
 ):
     """Get screenshot image (JPEG bytes)."""
     from fastapi.responses import Response
@@ -944,13 +939,13 @@ async def get_screenshot_image(
     if not session:
         raise NotFoundError("Session not found")
 
-    screenshot = await _screenshot_repo.find_by_id(screenshot_id)
-    if not screenshot or screenshot.session_id != session_id:
+    image_data = await screenshot_query_service.get_image_bytes(
+        session_id=session_id,
+        screenshot_id=screenshot_id,
+        thumbnail=thumbnail,
+    )
+    if image_data is None:
         raise NotFoundError("Screenshot not found")
-
-    file_id = screenshot.thumbnail_file_id if thumbnail and screenshot.thumbnail_file_id else screenshot.gridfs_file_id
-    mongodb = get_mongodb()
-    image_data = await mongodb.get_screenshot(file_id)
 
     return Response(
         content=image_data,
@@ -967,14 +962,14 @@ async def list_shared_screenshots(
     limit: int = Query(default=500, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
     agent_service: AgentService = Depends(get_agent_service),
+    screenshot_query_service: ScreenshotQueryService = Depends(get_screenshot_query_service),
 ) -> APIResponse[ScreenshotListResponse]:
     """List screenshot metadata for a shared session."""
     session = await agent_service.get_shared_session(session_id)
     if not session:
         raise NotFoundError("Shared session not found")
 
-    screenshots = await _screenshot_repo.find_by_session(session_id, limit=limit, offset=offset)
-    total = await _screenshot_repo.count_by_session(session_id)
+    screenshots, total = await screenshot_query_service.list_by_session(session_id, limit=limit, offset=offset)
 
     items = [
         ScreenshotMetadataResponse(
@@ -1002,6 +997,7 @@ async def get_shared_screenshot_image(
     screenshot_id: str,
     thumbnail: bool = Query(default=False),
     agent_service: AgentService = Depends(get_agent_service),
+    screenshot_query_service: ScreenshotQueryService = Depends(get_screenshot_query_service),
 ):
     """Get screenshot image for a shared session (JPEG bytes)."""
     from fastapi.responses import Response
@@ -1010,13 +1006,13 @@ async def get_shared_screenshot_image(
     if not session:
         raise NotFoundError("Shared session not found")
 
-    screenshot = await _screenshot_repo.find_by_id(screenshot_id)
-    if not screenshot or screenshot.session_id != session_id:
+    image_data = await screenshot_query_service.get_image_bytes(
+        session_id=session_id,
+        screenshot_id=screenshot_id,
+        thumbnail=thumbnail,
+    )
+    if image_data is None:
         raise NotFoundError("Screenshot not found")
-
-    file_id = screenshot.thumbnail_file_id if thumbnail and screenshot.thumbnail_file_id else screenshot.gridfs_file_id
-    mongodb = get_mongodb()
-    image_data = await mongodb.get_screenshot(file_id)
 
     return Response(
         content=image_data,

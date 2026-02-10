@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.application.services.agent_service import AgentService
-from app.domain.models.session import SessionStatus
+from app.domain.models.session import Session, SessionStatus
 
 
 class DummyLLM:
@@ -58,6 +58,26 @@ def _build_service() -> AgentService:
         memory_service=None,
         mongodb_db=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_create_session_auto_stops_prior_session_with_bound_sandbox(monkeypatch):
+    service = _build_service()
+    stop_session_mock = AsyncMock()
+    monkeypatch.setattr(service._agent_domain_service, "stop_session", stop_session_mock)
+
+    stale_session = Session(
+        id="stale-session",
+        user_id="user-1",
+        agent_id="agent-1",
+        status=SessionStatus.COMPLETED,
+        sandbox_id="sandbox-stale",
+    )
+    await service._session_repository.save(stale_session)
+
+    await service.create_session(user_id="user-1", require_fresh_sandbox=False)
+
+    stop_session_mock.assert_awaited_once_with("stale-session")
 
 
 @pytest.mark.asyncio

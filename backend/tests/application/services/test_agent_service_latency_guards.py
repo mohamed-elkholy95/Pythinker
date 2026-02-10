@@ -1,4 +1,5 @@
 import asyncio
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -86,3 +87,86 @@ async def test_chat_timeout_path_emits_controlled_status_not_hang(monkeypatch):
     assert len(events) == 1
     assert isinstance(events[0], ErrorEvent)
     assert events[0].error_type == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_chat_waits_for_active_sandbox_warmup_lock(monkeypatch):
+    service = _build_service()
+    service.CHAT_WARMUP_WAIT_SECONDS = 0.2
+
+    call_times: list[float] = []
+
+    async def _chat_impl(*_args, **_kwargs):
+        call_times.append(time.perf_counter())
+        yield ErrorEvent(error="ok", error_type="test")
+
+    service._agent_domain_service = SimpleNamespace(chat=_chat_impl)
+
+    fake_connector_service = SimpleNamespace(get_user_mcp_configs=AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "app.application.services.connector_service.get_connector_service",
+        lambda: fake_connector_service,
+    )
+
+    lock = asyncio.Lock()
+    await lock.acquire()
+    service._sandbox_warm_locks["session-1"] = lock
+
+    start = time.perf_counter()
+
+    async def _release_lock() -> None:
+        await asyncio.sleep(0.05)
+        lock.release()
+
+    releaser = asyncio.create_task(_release_lock())
+    try:
+        events = await asyncio.wait_for(
+            _collect_events(
+                service.chat(
+                    session_id="session-1",
+                    user_id="user-1",
+                    message="hello",
+                )
+            ),
+            timeout=1.0,
+        )
+    finally:
+        await releaser
+
+    assert len(events) == 1
+    assert call_times, "domain chat was not called"
+    assert call_times[0] - start >= 0.045
+
+
+@pytest.mark.asyncio
+async def test_chat_forwards_user_skill_auto_trigger_policy(monkeypatch):
+    service = _build_service()
+    captured_kwargs: dict[str, object] = {}
+
+    async def _chat_impl(*_args, **kwargs):
+        captured_kwargs.update(kwargs)
+        yield ErrorEvent(error="ok", error_type="test")
+
+    service._agent_domain_service = SimpleNamespace(chat=_chat_impl)
+    service._settings_service = SimpleNamespace(get_skill_auto_trigger_enabled=AsyncMock(return_value=True))
+
+    fake_connector_service = SimpleNamespace(get_user_mcp_configs=AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "app.application.services.connector_service.get_connector_service",
+        lambda: fake_connector_service,
+    )
+    monkeypatch.setattr(
+        "app.application.services.agent_service.get_settings",
+        lambda: SimpleNamespace(skill_auto_trigger_enabled=False),
+    )
+
+    events = await _collect_events(
+        service.chat(
+            session_id="session-1",
+            user_id="user-1",
+            message="hello",
+        )
+    )
+
+    assert len(events) == 1
+    assert captured_kwargs["auto_trigger_enabled"] is True

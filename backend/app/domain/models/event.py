@@ -544,6 +544,9 @@ class SkillActivationEvent(BaseEvent):
     skill_names: list[str] = Field(default_factory=list)  # Human-readable names
     tool_restrictions: list[str] | None = None  # Restricted tool list (if any)
     prompt_chars: int = 0  # Size of injected skill context
+    activation_sources: dict[str, list[str]] = Field(default_factory=dict)  # skill_id -> activation sources
+    command_skill_id: str | None = None  # Skill activated via slash command, when present
+    auto_trigger_enabled: bool = False  # Whether auto-trigger policy was enabled for this message
 
 
 class StreamEvent(BaseEvent):
@@ -654,6 +657,26 @@ class DeepResearchStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class PhaseTransitionEvent(BaseEvent):
+    """Phased research progress transition event."""
+
+    type: Literal["phase_transition"] = "phase_transition"
+    phase: str
+    label: str | None = None
+    research_id: str | None = None
+    source: str | None = None  # deep_research | wide_research | session
+
+
+class CheckpointSavedEvent(BaseEvent):
+    """Event emitted when a phased research checkpoint is persisted."""
+
+    type: Literal["checkpoint_saved"] = "checkpoint_saved"
+    phase: str
+    research_id: str | None = None
+    notes_preview: str | None = None
+    source_count: int | None = None
+
+
 class DeepResearchQueryStatus(str, Enum):
     """Individual query status enum"""
 
@@ -754,9 +777,10 @@ class FlowSelectionEvent(BaseEvent):
     """
 
     type: Literal["flow_selection"] = "flow_selection"
-    flow_mode: str  # FlowMode value: plan_act, langgraph, coordinator
+    flow_mode: str  # FlowMode value: plan_act, coordinator
     model: str | None = None  # LLM model identifier
     session_id: str | None = None
+    reason: str | None = None
 
 
 class CanvasUpdateEvent(BaseEvent):
@@ -815,6 +839,8 @@ AgentEvent = Annotated[
         ProgressEvent,
         ComprehensionEvent,
         TaskRecreationEvent,
+        PhaseTransitionEvent,
+        CheckpointSavedEvent,
         DeepResearchEvent,
         WideResearchEvent,
         ThoughtEvent,

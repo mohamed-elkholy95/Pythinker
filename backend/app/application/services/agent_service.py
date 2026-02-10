@@ -5,11 +5,20 @@ import posixpath
 import shlex
 import time
 from collections.abc import AsyncGenerator
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Optional
 
 from app.application.errors.exceptions import NotFoundError
+from app.application.schemas.file import FileViewResponse
+from app.application.schemas.session import ShellViewResponse
+from app.application.schemas.workspace import (
+    GitRemoteSpec,
+    WorkspaceManifest,
+    WorkspaceManifestResponse,
+    WorkspaceWriteError,
+)
+from app.application.services.settings_service import get_settings_service
 from app.application.services.usage_service import get_usage_service
 from app.core.config import get_settings
 from app.core.sandbox_pool import get_sandbox_pool
@@ -27,14 +36,6 @@ from app.domain.repositories.mcp_repository import MCPRepository
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.agent_domain_service import AgentDomainService
 from app.domain.utils.json_parser import JsonParser
-from app.interfaces.schemas.file import FileViewResponse
-from app.interfaces.schemas.session import ShellViewResponse
-from app.interfaces.schemas.workspace import (
-    GitRemoteSpec,
-    WorkspaceManifest,
-    WorkspaceManifestResponse,
-    WorkspaceWriteError,
-)
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
@@ -46,6 +47,8 @@ logger = logging.getLogger(__name__)
 class AgentService:
     MAX_CREATE_SESSION_WAIT_SECONDS = 5.0
     CHAT_EVENT_TIMEOUT_SECONDS = 60.0
+    CHAT_WARMUP_WAIT_SECONDS = 10.0
+    BROWSER_PREWARM_TIMEOUT_SECONDS = 12.0
 
     def __init__(
         self,
@@ -82,6 +85,7 @@ class AgentService:
         self._llm = llm
         self._search_engine = search_engine
         self._sandbox_cls = sandbox_cls
+        self._settings_service = get_settings_service()
         self._background_tasks: set[asyncio.Task] = set()
         self._sandbox_warm_locks: dict[str, asyncio.Lock] = {}
 
@@ -150,13 +154,14 @@ class AgentService:
 
         agent = await self._create_agent()
         session = Session(agent_id=agent.id, user_id=user_id, mode=mode)
+        settings = get_settings()
+        session.sandbox_lifecycle_mode = getattr(settings, "sandbox_lifecycle_mode", "static")
         if require_fresh_sandbox:
             session.status = SessionStatus.INITIALIZING
         logger.info(f"Created new Session with ID: {session.id} for user: {user_id} with mode: {mode}")
         await self._session_repository.save(session)
 
         # Phase 2: Start sandbox creation in background for faster first chat
-        settings = get_settings()
         if require_fresh_sandbox:
             task = asyncio.create_task(self._warm_sandbox_for_session(session.id))
             self._background_tasks.add(task)
@@ -200,7 +205,7 @@ class AgentService:
         return session
 
     async def _cleanup_stale_sessions(self, user_id: str) -> None:
-        """Stop any stale running/initializing sessions for this user.
+        """Stop any stale sessions with active runtime state for this user.
 
         When a user starts a new task, any previously running sessions should be
         stopped to release sandbox and browser resources, preventing connection
@@ -209,7 +214,7 @@ class AgentService:
         active_statuses = {SessionStatus.RUNNING, SessionStatus.INITIALIZING}
         try:
             sessions = await self._session_repository.find_by_user_id(user_id)
-            stale = [s for s in sessions if s.status in active_statuses]
+            stale = [s for s in sessions if s.status in active_statuses or s.sandbox_id]
             for session in stale:
                 try:
                     logger.info(
@@ -233,7 +238,21 @@ class AgentService:
         Phase 1 enhancement: Pre-warms browser context for immediate use.
         """
         settings = get_settings()
+        sandbox_lifecycle_mode = getattr(settings, "sandbox_lifecycle_mode", "static")
+        ephemeral_lifecycle = sandbox_lifecycle_mode == "ephemeral"
         lock = self._sandbox_warm_locks.setdefault(session_id, asyncio.Lock())
+        uses_static_sandboxes = bool(
+            getattr(
+                settings,
+                "uses_static_sandbox_addresses",
+                bool(getattr(settings, "sandbox_address", None)),
+            )
+        )
+        pool_enabled = (
+            bool(getattr(settings, "sandbox_pool_enabled", False))
+            and not uses_static_sandboxes
+            and not ephemeral_lifecycle
+        )
 
         async with lock:
             try:
@@ -242,14 +261,21 @@ class AgentService:
 
                 # Try to acquire from pool first (Phase 0: instant allocation)
                 sandbox = None
-                if settings.sandbox_pool_enabled:
+                acquired_from_pool = False
+                if pool_enabled:
                     try:
                         pool = await get_sandbox_pool(self._sandbox_cls)
                         if pool.is_started and pool.size > 0:
                             sandbox = await pool.acquire(timeout=5.0)
+                            acquired_from_pool = True
                             logger.info(f"Acquired sandbox {sandbox.id} from pool for session {session_id}")
                     except Exception as e:
                         logger.warning(f"Pool acquisition failed, creating on-demand: {e}")
+                elif uses_static_sandboxes and bool(getattr(settings, "sandbox_pool_enabled", False)):
+                    logger.debug(
+                        "Skipping sandbox pool for session %s because SANDBOX_ADDRESS is configured",
+                        session_id,
+                    )
 
                 # Fall back to on-demand creation
                 if not sandbox:
@@ -271,16 +297,52 @@ class AgentService:
                         reason=f"session already bound to sandbox {session.sandbox_id}",
                     )
                 else:
+                    owns_sandbox = sandbox_lifecycle_mode == "ephemeral"
+                    metadata_changed = False
+
                     if session.sandbox_id != sandbox.id:
                         session.sandbox_id = sandbox.id
+                        metadata_changed = True
+
+                    if session.sandbox_owned != owns_sandbox:
+                        session.sandbox_owned = owns_sandbox
+                        metadata_changed = True
+
+                    if session.sandbox_lifecycle_mode != sandbox_lifecycle_mode:
+                        session.sandbox_lifecycle_mode = sandbox_lifecycle_mode
+                        metadata_changed = True
+
+                    if owns_sandbox and session.sandbox_created_at is None:
+                        session.sandbox_created_at = datetime.now(UTC)
+                        metadata_changed = True
+                    elif not owns_sandbox and session.sandbox_created_at is not None:
+                        session.sandbox_created_at = None
+                        metadata_changed = True
+
+                    if metadata_changed:
                         await self._session_repository.save(session)
 
                     # Run ensure_sandbox for full health check (includes browser verification)
                     if hasattr(sandbox, "ensure_sandbox"):
                         await sandbox.ensure_sandbox()
 
-                    # Phase 1: Pre-warm browser context for immediate use
-                    await self._prewarm_browser(sandbox, session_id)
+                    # Pool sandboxes are already browser-prewarmed by the pool manager.
+                    # Re-running prewarm here can race with first chat on the same CDP endpoint.
+                    if acquired_from_pool:
+                        logger.info(
+                            f"Skipping redundant browser pre-warm for pooled sandbox {sandbox.id} "
+                            f"(session {session_id})"
+                        )
+                    elif uses_static_sandboxes:
+                        # Static SANDBOX_ADDRESS mode shares long-lived Chrome instances.
+                        # Background pre-warm can contend with first-chat browser init.
+                        logger.info(
+                            "Skipping browser pre-warm for static sandbox mode "
+                            f"(session {session_id}, sandbox {sandbox.id})"
+                        )
+                    else:
+                        # Phase 1: Pre-warm browser context for immediate use.
+                        await self._prewarm_browser(sandbox, session_id)
 
                     logger.info(f"Sandbox {sandbox.id} fully ready with browser for session {session_id}")
 
@@ -323,48 +385,89 @@ class AgentService:
         but DO NOT close the browser context - it stays ready for later use.
         """
         browser = None
+        had_error = False
+        release_browser = callable(getattr(sandbox, "release_pooled_browser", None))
         try:
-            # Get sandbox IP for CDP connection
-            if not hasattr(sandbox, "ip_address") or not sandbox.ip_address:
-                logger.debug("Sandbox has no IP address, skipping browser pre-warm")
-                return
+            # Use sandbox's pooled browser path so pre-warm shares one lifecycle with normal chat usage.
+            try:
+                browser = await asyncio.wait_for(
+                    sandbox.get_browser(clear_session=False, verify_connection=False, use_pool=True),
+                    timeout=self.BROWSER_PREWARM_TIMEOUT_SECONDS,
+                )
+            except TypeError:
+                # Fallback for alternate sandbox implementations that only accept clear_session.
+                browser = await asyncio.wait_for(
+                    sandbox.get_browser(clear_session=False),
+                    timeout=self.BROWSER_PREWARM_TIMEOUT_SECONDS,
+                )
 
-            # Import here to avoid circular dependency
-            from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
-
-            # Create browser instance with CDP URL
-            cdp_url = f"ws://{sandbox.ip_address}:9222"
-            browser = PlaywrightBrowser(cdp_url=cdp_url)
-
-            # Initialize browser (this connects to Chrome via CDP)
-            if not await browser.initialize():
-                logger.warning(f"Browser pre-warm initialization failed for session {session_id}")
+            if not browser:
+                logger.warning(f"Browser pre-warm could not acquire browser for session {session_id}")
                 return
 
             # Navigate to blank page to fully initialize rendering pipeline
-            result = await browser.navigate("about:blank", timeout=10000, auto_extract=False)
+            result = await asyncio.wait_for(
+                browser.navigate("about:blank", timeout=10000, auto_extract=False),
+                timeout=self.BROWSER_PREWARM_TIMEOUT_SECONDS,
+            )
             if result.success:
                 logger.info(f"Browser pre-warmed successfully for session {session_id}")
             else:
                 logger.warning(f"Browser pre-warm navigation failed: {result.message}")
 
+        except TimeoutError:
+            had_error = True
+            logger.warning(
+                f"Browser pre-warm timed out after {self.BROWSER_PREWARM_TIMEOUT_SECONDS:.0f}s (session {session_id})"
+            )
         except Exception as e:
+            had_error = True
             # Non-fatal - browser will be initialized on first use
             logger.warning(f"Browser pre-warm failed (non-fatal) for session {session_id}: {e}")
         finally:
-            # Disconnect Playwright but DO NOT close the browser context
-            # The context needs to stay open for later use by the agent
+            # Release pooled browser when applicable; otherwise ensure the
+            # non-pooled browser instance is fully cleaned up.
             if browser:
+                released_to_pool = False
                 try:
-                    # Only disconnect, don't close context/pages
-                    if browser.playwright:
-                        await browser.playwright.stop()
-                    browser.page = None
-                    browser.context = None
-                    browser.browser = None
-                    browser.playwright = None
+                    if release_browser:
+                        released_to_pool = bool(await sandbox.release_pooled_browser(browser, had_error=had_error))
+                    if not released_to_pool:
+                        if callable(getattr(browser, "cleanup", None)):
+                            await browser.cleanup()
+                        else:
+                            if getattr(browser, "playwright", None):
+                                await browser.playwright.stop()
+                            browser.page = None
+                            browser.context = None
+                            browser.browser = None
+                            browser.playwright = None
                 except Exception as cleanup_error:
                     logger.debug(f"Browser pre-warm disconnect error (non-fatal): {cleanup_error}")
+
+    async def _wait_for_sandbox_warmup_if_needed(self, session_id: str) -> None:
+        """Wait briefly for background warm-up to finish to avoid CDP init races."""
+        warm_lock = self._sandbox_warm_locks.get(session_id)
+        if not warm_lock or not warm_lock.locked():
+            return
+
+        try:
+            logger.info(
+                "Waiting up to %.1fs for sandbox warm-up lock before chat (session %s)",
+                self.CHAT_WARMUP_WAIT_SECONDS,
+                session_id,
+            )
+            async with asyncio.timeout(self.CHAT_WARMUP_WAIT_SECONDS):
+                async with warm_lock:
+                    pass
+            logger.info("Sandbox warm-up completed before chat (session %s)", session_id)
+        except TimeoutError:
+            # Do not fail chat; proceed and let downstream retries handle startup.
+            logger.warning(
+                "Sandbox warm-up still in progress after %.1fs; proceeding with chat (session %s)",
+                self.CHAT_WARMUP_WAIT_SECONDS,
+                session_id,
+            )
 
     async def _create_agent(self) -> Agent:
         logger.info("Creating new agent")
@@ -408,6 +511,9 @@ class AgentService:
         except ImportError:
             pass  # Structured logging not available
 
+        # Prevent first-chat overlap with active background warm-up for this session.
+        await self._wait_for_sandbox_warmup_if_needed(session_id)
+
         # Load user's connected MCP server configs from connectors
         extra_mcp_configs: dict | None = None
         try:
@@ -419,6 +525,18 @@ class AgentService:
                 extra_mcp_configs = dict(user_mcp_list)
         except Exception as e:
             logger.warning(f"Failed to load user MCP connectors for {user_id}: {e}")
+
+        # Resolve skill auto-trigger policy from persisted user settings, with env default fallback.
+        auto_trigger_enabled = get_settings().skill_auto_trigger_enabled
+        try:
+            async with asyncio.timeout(0.25):
+                auto_trigger_enabled = await self._settings_service.get_skill_auto_trigger_enabled(user_id)
+        except Exception as e:
+            logger.debug(
+                "Falling back to environment skill auto-trigger policy for user %s: %s",
+                user_id,
+                e,
+            )
 
         # Guard long stalls waiting for the next domain event so API calls do not hang indefinitely.
         event_timeout_seconds = max(0.0, self.CHAT_EVENT_TIMEOUT_SECONDS)
@@ -432,6 +550,7 @@ class AgentService:
             skills,
             deep_research,
             extra_mcp_configs=extra_mcp_configs,
+            auto_trigger_enabled=auto_trigger_enabled,
         )
         stream_iter = event_stream.__aiter__()
 
@@ -508,18 +627,6 @@ class AgentService:
             await self._agent_domain_service.stop_session(session_id)
         except Exception as e:
             logger.warning(f"Failed to stop session {session_id} before deletion: {e}")
-
-        # Destroy associated sandbox to prevent orphaned containers
-        if session.sandbox_id:
-            try:
-                sandbox = await self._agent_domain_service._sandbox_cls.get(session.sandbox_id)
-                if sandbox:
-                    await asyncio.wait_for(sandbox.destroy(), timeout=15.0)
-                    logger.info(f"Destroyed sandbox {session.sandbox_id} for session {session_id}")
-            except TimeoutError:
-                logger.warning(f"Sandbox {session.sandbox_id} destroy timed out during session deletion")
-            except Exception as e:
-                logger.warning(f"Failed to destroy sandbox {session.sandbox_id}: {e}")
 
         await self._session_repository.delete(session_id)
         logger.info(f"Session {session_id} deleted successfully")

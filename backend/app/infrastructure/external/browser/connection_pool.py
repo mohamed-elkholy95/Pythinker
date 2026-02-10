@@ -398,11 +398,12 @@ class BrowserConnectionPool:
         block_resources: bool,
         randomize_fingerprint: bool,
         error_context: BrowserErrorContext,
-        max_retries: int = 3,
+        max_retries: int = 1,
     ) -> PooledConnection:
         """Create a new browser connection with retry logic.
 
-        Implements exponential backoff for transient failures.
+        Note: PlaywrightBrowser.initialize() already implements internal retries.
+        Keep this outer retry loop minimal to avoid compounded startup latency.
         """
         last_error: Exception | None = None
 

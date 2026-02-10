@@ -1309,7 +1309,7 @@ F821 Undefined name `PathScorer`
     |
 
 SIM102 Use a single `if` statement instead of nested `if` statements
-   --> app/domain/services/langgraph/nodes/execution.py:154:17
+   --> app/domain/services/legacy-flow/nodes/execution.py:154:17
     |
 153 |                   # Periodically check for stuck patterns
 154 | /                 if step_tool_calls % STUCK_CHECK_INTERVAL == 0:

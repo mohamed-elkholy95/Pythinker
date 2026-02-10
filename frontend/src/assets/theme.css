@@ -2,6 +2,29 @@
 :root[data-theme='light'] {
   --font-sans: "Instrument Sans", "SF Pro Text", "Segoe UI", sans-serif;
   --font-display: "Instrument Serif", "Iowan Old Style", "Times New Roman", serif;
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 22px;
+  --radius-full: 9999px;
   --bolt-elements-borderColor: rgba(15, 23, 42, 0.12);
   --bolt-elements-borderColorActive: #111827;
   --bolt-elements-bg-depth-1: #ffffff;
@@ -41,6 +64,7 @@
   --text-primary: var(--bolt-elements-textPrimary);
   --text-secondary: var(--bolt-elements-textSecondary);
   --text-tertiary: var(--bolt-elements-textTertiary);
+  --text-muted: var(--bolt-elements-textTertiary);
   --text-disable: #a3a3a3;
   --text-brand: var(--bolt-elements-item-contentAccent);
   --text-onblack: #ffffff;
@@ -49,8 +73,12 @@
   --theme-text-primary: var(--bolt-elements-textPrimary);
   --logo-color: var(--bolt-elements-textPrimary);
   --background-gray-main: var(--bolt-elements-bg-depth-2);
+  --background-gray-secondary: var(--bolt-elements-bg-depth-3);
   --background-white-main: var(--bolt-elements-bg-depth-1);
   --background-main: var(--bolt-elements-bg-depth-2);
+  --background-secondary: var(--bolt-elements-bg-depth-2);
+  --background-tertiary: var(--bolt-elements-bg-depth-3);
+  --background-hover: var(--fill-tsp-white-main);
   --background-surface: var(--bolt-elements-bg-depth-1);
   --background-menu-white: var(--bolt-elements-bg-depth-1);
   --background-tsp-menu-white: rgba(17, 24, 39, 0.04);
@@ -59,6 +87,8 @@
   --background-card: var(--bolt-elements-bg-depth-1);
   --background-mask: rgba(0, 0, 0, 0.6);
   --border-main: var(--bolt-elements-borderColor);
+  --border-color: var(--bolt-elements-borderColor);
+  --border-hover: var(--border-dark);
   --border-white: rgba(255, 255, 255, 0.1);
   --border-btn-main: var(--bolt-elements-borderColor);
   --border-btn-primary: var(--bolt-elements-item-contentAccent);
@@ -76,6 +106,8 @@
   --function-error: #ef4444;
   --function-success: #22c55e;
   --function-warning: #f79009;
+  --function-success-tsp: rgba(34, 197, 94, 0.15);
+  --function-success-border: rgba(34, 197, 94, 0.4);
   --function-error-tsp: rgba(239, 68, 68, 0.1);
   --function-warning-tsp: rgba(247, 144, 9, 0.15);
   --fill-blue: rgba(59, 130, 246, 0.1);
@@ -152,6 +184,7 @@
   --text-primary: var(--bolt-elements-textPrimary);
   --text-secondary: var(--bolt-elements-textSecondary);
   --text-tertiary: var(--bolt-elements-textTertiary);
+  --text-muted: var(--bolt-elements-textTertiary);
   --text-disable: rgba(255, 255, 255, 0.4);
   --text-brand: var(--bolt-elements-item-contentAccent);
   --text-onblack: rgba(0, 0, 0, 0.85);
@@ -160,8 +193,12 @@
   --theme-text-primary: var(--bolt-elements-textPrimary);
   --logo-color: var(--bolt-elements-textPrimary);
   --background-gray-main: var(--bolt-elements-bg-depth-2);
+  --background-gray-secondary: var(--bolt-elements-bg-depth-3);
   --background-white-main: var(--bolt-elements-bg-depth-1);
   --background-main: var(--bolt-elements-bg-depth-2);
+  --background-secondary: var(--bolt-elements-bg-depth-2);
+  --background-tertiary: var(--bolt-elements-bg-depth-3);
+  --background-hover: var(--fill-tsp-white-main);
   --background-surface: var(--bolt-elements-bg-depth-3);
   --background-menu-white: var(--bolt-elements-bg-depth-1);
   --background-tsp-menu-white: rgba(255, 255, 255, 0.06);
@@ -170,6 +207,8 @@
   --background-card: var(--bolt-elements-bg-depth-1);
   --background-mask: rgba(0, 0, 0, 0.6);
   --border-main: var(--bolt-elements-borderColor);
+  --border-color: var(--bolt-elements-borderColor);
+  --border-hover: var(--border-dark);
   --border-white: rgba(255, 255, 255, 0.08);
   --border-btn-main: var(--bolt-elements-borderColor);
   --border-btn-primary: var(--bolt-elements-item-contentAccent);
@@ -187,6 +226,8 @@
   --function-error: #ef4444;
   --function-success: #22c55e;
   --function-warning: #f79009;
+  --function-success-tsp: rgba(34, 197, 94, 0.24);
+  --function-success-border: rgba(34, 197, 94, 0.5);
   --function-error-tsp: rgba(239, 68, 68, 0.12);
   --function-warning-tsp: rgba(247, 144, 9, 0.2);
   --fill-blue: rgba(59, 130, 246, 0.2);
