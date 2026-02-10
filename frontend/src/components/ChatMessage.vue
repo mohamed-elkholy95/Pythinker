@@ -37,15 +37,21 @@
       </div>
     </div>
   </div>
-  <div v-else-if="message.type === 'assistant'" class="flex flex-col gap-2 w-full group mt-3">
-    <div class="flex items-center justify-between h-7 group">
-      <div class="flex items-center gap-[6px]">
-        <Bot :size="20" class="w-5 h-5 text-[var(--text-primary)]" :stroke-width="2.5" />
-        <PythinkerTextIcon :width="80" :height="20" />
+  <div
+    v-else-if="message.type === 'assistant'"
+    :class="[
+      'flex flex-col gap-1 w-full group',
+      props.showAssistantHeader === false ? 'mt-1' : 'mt-2'
+    ]"
+  >
+    <div v-if="props.showAssistantHeader !== false" class="assistant-header-row flex items-center justify-between group">
+      <div class="assistant-brand flex items-center">
+        <Bot :size="17" class="assistant-brand-icon text-[var(--text-primary)]" :stroke-width="2.35" />
+        <PythinkerTextIcon :width="86" :height="20" />
       </div>
-      <div class="flex items-center gap-[2px] invisible group-hover:visible">
+      <div class="flex items-center gap-[2px]">
         <div
-          class="transition text-[12px] text-[var(--text-tertiary)] invisible group-hover:visible"
+          class="assistant-time transition text-[12px] text-[var(--text-tertiary)]"
           :title="formatTimestampTooltip(message.content.timestamp)"
         >
           {{ relativeTime(message.content.timestamp) }}
@@ -53,13 +59,15 @@
       </div>
     </div>
     <div
-      class="relative max-w-none p-0 m-0 prose prose-sm sm:prose-base dark:prose-invert [&_pre:not(.shiki)]:!bg-[var(--bolt-elements-messages-code-background)] [&_pre:not(.shiki)]:text-[var(--bolt-elements-messages-inlineCode-text)] text-base text-[var(--text-primary)]"
+      class="assistant-message-content relative max-w-none p-0 m-0 text-[16px] leading-[1.5] text-[var(--text-primary)] [&_pre:not(.shiki)]:!bg-[var(--fill-tsp-white-light)] [&_pre:not(.shiki)]:text-[var(--text-primary)]"
     >
-      <div
-        class="message-markdown markdown-content"
-        :class="{ 'message-markdown-collapsed': shouldCollapseMessageContent }"
-        v-html="renderMarkdown(messageContent.content)"
-      />
+      <div class="my-[1px]">
+        <div
+          class="message-markdown markdown-content assistant-message-text py-[3px] whitespace-pre-wrap break-words"
+          :class="{ 'message-markdown-collapsed': shouldCollapseMessageContent }"
+          v-html="renderMarkdown(messageContent.content)"
+        />
+      </div>
       <div v-if="showMessageExpandControl" class="message-collapse-overlay">
         <button class="message-expand-btn" @click="toggleMessageExpand">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
@@ -72,49 +80,70 @@
     </div>
   </div>
   <ToolUse v-else-if="message.type === 'tool'" :tool="toolContent" :is-active="true" @click="handleToolClick(toolContent)" />
-  <div v-else-if="message.type === 'step'" class="step-message flex flex-col mt-2">
+  <div
+    v-else-if="message.type === 'step'"
+    class="step-message flex flex-col mt-2"
+    :class="{ 'step-message--with-next': props.showStepConnector }"
+  >
     <!-- Step Header -->
-    <div class="step-header w-full flex gap-2 justify-between group/header text-[var(--text-primary)]">
-      <div class="flex flex-row gap-[10px] items-start flex-1 min-w-0 cursor-pointer" @click="handleStepToggle">
+    <div class="step-header text-sm w-full clickable flex gap-2 justify-between group/header truncate text-[var(--text-primary)]" @click="handleStepToggle">
+      <div class="step-header-left flex flex-row gap-2 justify-center items-center truncate">
         <!-- Status indicator -->
-        <div v-if="stepContent.status === 'completed'"
-          class="step-status-indicator step-icon-badge step-icon-completed w-[18px] h-[18px] flex-shrink-0 flex items-center justify-center rounded-[6px] mt-[1px]">
-          <CheckIcon class="text-white" :size="11" :stroke-width="3" />
-        </div>
-        <div v-else-if="stepContent.status === 'running'"
-          class="step-status-indicator step-icon-badge step-icon-running w-[18px] h-[18px] flex-shrink-0 flex items-center justify-center rounded-[6px] mt-[1px] step-running">
-        </div>
-        <div v-else
-          class="step-status-indicator step-icon-badge step-icon-pending w-[18px] h-[18px] flex-shrink-0 flex items-center justify-center rounded-[6px] mt-[1px]">
+        <div class="step-status-column flex-shrink-0">
+          <div v-if="stepContent.status === 'completed'"
+            class="step-status-indicator step-icon-badge step-icon-completed w-4 h-4 flex-shrink-0 flex items-center justify-center border-[var(--border-dark)] rounded-[15px] bg-[var(--text-disable)] dark:bg-[var(--fill-tsp-white-dark)] border-0">
+            <CheckIcon class="step-completed-check text-[var(--icon-white)] dark:text-[var(--icon-white-tsp)]" :size="10" :stroke-width="2.5" />
+          </div>
+          <div v-else-if="stepContent.status === 'running'"
+            class="step-status-indicator step-icon-badge step-icon-running w-4 h-4 flex-shrink-0 flex items-center justify-center border-[var(--border-dark)] rounded-[15px] bg-[var(--fill-tsp-gray-main)] step-running">
+            <span class="step-running-dot" aria-hidden="true"></span>
+          </div>
+          <div v-else
+            class="step-status-indicator step-icon-badge step-icon-pending w-4 h-4 flex-shrink-0 flex items-center justify-center border-[var(--border-main)] rounded-[15px] bg-[var(--fill-tsp-gray-main)]">
+          </div>
         </div>
         <!-- Step title and chevron -->
-        <div class="step-title-wrap flex-1 min-w-0 flex items-start gap-1">
-          <div class="step-title flex-1 min-w-0 markdown-content"
-            v-html="stepContent.description ? renderMarkdown(stepContent.description) : ''">
+        <div class="step-title-wrap flex-1 min-w-0 flex items-center gap-1 truncate">
+          <div
+            class="step-title truncate font-medium"
+            :title="stepContent.description"
+            :aria-description="stepContent.description"
+          >
+            {{ stepContent.description }}
           </div>
-          <span class="flex-shrink-0 flex mt-[2px]">
+          <span class="flex-shrink-0 flex">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-              class="transition-transform duration-200 text-[var(--text-tertiary)]"
-              :class="{ 'rotate-180': !isStepExpanded }">
+              class="transition-transform duration-300 w-4 h-4 text-[var(--text-tertiary)]"
+              :class="{ 'rotate-180': isStepExpanded }">
               <path d="m6 9 6 6 6-6"></path>
             </svg>
           </span>
         </div>
       </div>
       <div
-        class="flex-shrink-0 transition text-[12px] text-[var(--text-tertiary)] invisible group-hover/header:visible"
+        class="float-right transition text-[12px] text-[var(--text-tertiary)] invisible group-hover/header:visible"
         :title="formatTimestampTooltip(message.content.timestamp)"
       >
         {{ relativeTime(message.content.timestamp) }}
       </div>
     </div>
     <!-- Tools list with timeline -->
-    <div class="flex" v-show="isStepExpanded">
-      <div class="w-[26px] relative flex-shrink-0">
-        <div class="step-timeline-line border-l border-dashed absolute start-[7px] top-0 bottom-0"></div>
+    <div
+      class="step-body flex"
+      :class="{ 'step-body--connector-only': !isStepExpanded && props.showStepConnector }"
+    >
+      <div class="step-body-rail w-[24px] relative flex-shrink-0">
+        <div
+          v-if="isStepExpanded || props.showStepConnector"
+          class="step-timeline-line border-l border-dashed border-[var(--border-dark)] absolute start-[8px] top-0 bottom-0"
+          style="height: calc(100% + 14px);"
+        ></div>
       </div>
-      <div class="flex flex-col gap-[8px] flex-1 min-w-0 overflow-hidden pt-3 pb-1">
+      <div
+        class="step-tools-list flex flex-col gap-2 flex-1 min-w-0 overflow-hidden transition-[max-height,opacity,padding] duration-150 ease-in-out"
+        :class="isStepExpanded ? 'pt-2 max-h-[100000px] opacity-100' : 'pt-0 max-h-0 opacity-0 pointer-events-none'"
+      >
         <ToolUse
           v-for="(tool, index) in stepContent.tools"
           :key="tool.tool_call_id"
@@ -191,6 +220,8 @@ const props = defineProps<{
   sessionId?: string;
   suggestions?: string[];
   activeThinkingStepId?: string;
+  showStepConnector?: boolean;
+  showAssistantHeader?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -397,10 +428,7 @@ watch(
 
 watch(
   () => [stepContent.value?.status, props.activeThinkingStepId] as const,
-  ([status, thinkingId]) => {
-    if (status === 'completed' && !stepUserToggled.value) {
-      isStepExpanded.value = false;
-    }
+  ([, thinkingId]) => {
     if (thinkingId === stepContent.value?.id && !stepUserToggled.value) {
       isStepExpanded.value = true;
     }
@@ -459,46 +487,146 @@ const renderMarkdown = (text: string): string => {
 }
 
 .step-header {
-  color: #3a3a3a;
+  color: #373737;
+  padding-top: 3px;
+}
+
+.assistant-header-row {
+  min-height: 28px;
+}
+
+.assistant-brand {
+  gap: 8px;
+}
+
+.assistant-brand-icon {
+  width: 17px;
+  height: 17px;
+}
+
+.assistant-time {
+  opacity: 0.85;
+}
+
+.assistant-message-text {
+  font-size: 14px;
+  line-height: 1.42;
+  color: #3b3f45;
+}
+
+.step-message {
+  position: relative;
+  padding-bottom: 3px;
 }
 
 .step-title {
   font-size: 14px;
-  line-height: 1.35;
+  line-height: 1.36;
   font-weight: 600;
-  color: #3f3f3f;
+  color: #3b3b3b;
+}
+
+.step-title :deep(p) {
+  margin: 0;
+}
+
+.step-status-column {
+  position: relative;
+  z-index: 1;
+  width: 16px;
+  min-width: 16px;
+  display: flex;
+  justify-content: center;
+  padding-top: 1px;
 }
 
 .step-status-indicator {
-  border-color: #bfbfbf;
-  background: #d1d1d1;
+  border: 1px solid #cdcdcd;
+  background: #e3e3e3;
+  color: #6f6f6f;
 }
 
 .step-status-indicator.step-running {
-  background: transparent;
-  border-color: #9a9a9a;
+  border-color: #b4b4b4;
+  background: #f3f3f3;
+  position: relative;
+}
+
+.step-icon-completed {
+  background: #cfcfcf;
+  border-color: #b7b7b7;
+}
+
+.step-icon-pending {
+  background: #f2f2f2;
+  border-color: #cfcfcf;
+}
+
+.step-completed-check {
+  color: #ffffff;
+}
+
+.step-running-dot {
+  position: relative;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: #7f7f7f;
+  animation: step-dot-pulse 1.2s ease-in-out infinite;
+}
+
+.step-running-dot::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 9999px;
+  border: 1.5px solid rgba(127, 127, 127, 0.45);
+  animation: step-dot-ripple 1.2s ease-out infinite;
 }
 
 .step-timeline-line {
-  border-color: #d8d8d8;
+  left: 8px;
+  top: 0;
+  bottom: 0;
+  border-color: var(--border-dark);
+}
+
+.step-body {
+  margin-top: 0;
+}
+
+.step-body--connector-only {
+  min-height: 18px;
+}
+
+.step-body-rail {
+  width: 24px;
 }
 
 :global(.dark) .step-title {
-  color: #d8dde5;
+  color: #d5dae2;
+}
+
+:global(.dark) .assistant-message-text {
+  color: #d5dbe4;
 }
 
 :global(.dark) .step-status-indicator {
-  border-color: rgba(255, 255, 255, 0.24);
+  border-color: rgba(255, 255, 255, 0.22);
   background: rgba(255, 255, 255, 0.18);
 }
 
 :global(.dark) .step-status-indicator.step-running {
-  background: transparent;
-  border-color: rgba(255, 255, 255, 0.44);
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.24);
 }
 
-:global(.dark) .step-timeline-line {
-  border-color: rgba(255, 255, 255, 0.18);
+:global(.dark) .step-running-dot {
+  background: rgba(255, 255, 255, 0.82);
+}
+
+:global(.dark) .step-running-dot::after {
+  border-color: rgba(255, 255, 255, 0.5);
 }
 
 /* Pulse animation for running step indicator */
@@ -508,12 +636,33 @@ const renderMarkdown = (text: string): string => {
 
 @keyframes step-pulse {
   0%, 100% {
-    border-color: #9a9a9a;
-    opacity: 0.6;
+    box-shadow: 0 0 0 0 rgba(140, 140, 140, 0);
   }
   50% {
-    border-color: #767676;
+    box-shadow: 0 0 0 3px rgba(140, 140, 140, 0.2);
+  }
+}
+
+@keyframes step-dot-pulse {
+  0%,
+  100% {
+    transform: scale(0.78);
+    opacity: 0.72;
+  }
+  50% {
+    transform: scale(1.03);
     opacity: 1;
+  }
+}
+
+@keyframes step-dot-ripple {
+  0% {
+    transform: scale(0.45);
+    opacity: 0.75;
+  }
+  100% {
+    transform: scale(1.7);
+    opacity: 0;
   }
 }
 

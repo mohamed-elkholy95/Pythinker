@@ -102,7 +102,9 @@
                     <div
                       v-if="step.status === 'running'"
                       class="indicator-running"
-                    ></div>
+                    >
+                      <span class="indicator-running-dot" aria-hidden="true"></span>
+                    </div>
                     <div v-else class="indicator-pending">
                       <span class="text-[10px] font-medium">{{ index + 1 }}</span>
                     </div>
@@ -942,111 +944,54 @@ onUnmounted(() => {
 }
 
 .indicator-running {
-  --spinner-outer-start: rgba(15, 23, 42, 0.9);
-  --spinner-outer-fade: rgba(15, 23, 42, 0.08);
-  --spinner-outer-mid: rgba(71, 85, 105, 0.34);
-  --spinner-inner-start: rgba(30, 41, 59, 0.82);
-  --spinner-inner-fade: rgba(30, 41, 59, 0.1);
-  --spinner-inner-mid: rgba(100, 116, 139, 0.4);
-  --spinner-core-top: rgba(255, 255, 255, 0.95);
-  --spinner-core-mid: rgba(203, 213, 225, 0.92);
-  --spinner-core-bottom: rgba(148, 163, 184, 0.9);
-  --spinner-edge-highlight: rgba(255, 255, 255, 0.5);
-  --spinner-edge-outline: rgba(15, 23, 42, 0.25);
-  --spinner-shadow: rgba(15, 23, 42, 0.22);
-
   position: relative;
   width: 22px;
   height: 22px;
   border-radius: 50%;
+  border: 1px solid var(--bolt-elements-borderColor);
+  background: var(--bolt-elements-bg-depth-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  background: conic-gradient(
-    from 0deg,
-    var(--spinner-outer-start) 0deg,
-    var(--spinner-outer-fade) 80deg,
-    var(--spinner-outer-mid) 220deg,
-    var(--spinner-outer-start) 360deg
-  );
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 0);
-  mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 0);
-  box-shadow:
-    0 0 0 1px var(--spinner-edge-highlight),
-    0 0 0 2px var(--spinner-edge-outline),
-    0 2px 10px var(--spinner-shadow);
-  animation: indicator-spin-cw 0.9s linear infinite;
+  overflow: hidden;
 }
 
 .indicator-running::before {
-  content: '';
+  content: "";
   position: absolute;
-  inset: 5px;
-  border-radius: 50%;
-  background: conic-gradient(
-    from 280deg,
-    var(--spinner-inner-start) 0deg,
-    var(--spinner-inner-fade) 120deg,
-    var(--spinner-inner-mid) 260deg,
-    var(--spinner-inner-start) 360deg
-  );
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
-  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
-  animation: indicator-spin-ccw 0.65s linear infinite;
+  inset: 2px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--bolt-elements-textSecondary) 20%, transparent);
+  transform: scale(0.52);
+  opacity: 0.16;
+  animation: task-running-inner-pulse 1.5s ease-in-out infinite;
 }
 
-.indicator-running::after {
-  content: '';
-  position: absolute;
-  inset: 8px;
-  border-radius: 50%;
-  background: radial-gradient(
-    circle at 35% 35%,
-    var(--spinner-core-top) 0%,
-    var(--spinner-core-mid) 55%,
-    var(--spinner-core-bottom) 100%
-  );
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.3),
-    0 0 8px rgba(255, 255, 255, 0.35);
-  animation: indicator-core-pulse 1.2s ease-in-out infinite;
+.indicator-running-dot {
+  position: relative;
+  z-index: 1;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--bolt-elements-textSecondary);
+  animation: task-running-dot-pulse 1.2s ease-in-out infinite;
 }
 
-:global(.dark) .indicator-running {
-  --spinner-outer-start: rgba(248, 250, 252, 0.96);
-  --spinner-outer-fade: rgba(248, 250, 252, 0.12);
-  --spinner-outer-mid: rgba(148, 163, 184, 0.42);
-  --spinner-inner-start: rgba(241, 245, 249, 0.9);
-  --spinner-inner-fade: rgba(241, 245, 249, 0.14);
-  --spinner-inner-mid: rgba(203, 213, 225, 0.58);
-  --spinner-core-top: rgba(255, 255, 255, 0.98);
-  --spinner-core-mid: rgba(226, 232, 240, 0.92);
-  --spinner-core-bottom: rgba(148, 163, 184, 0.88);
-  --spinner-edge-highlight: rgba(255, 255, 255, 0.3);
-  --spinner-edge-outline: rgba(2, 6, 23, 0.68);
-  --spinner-shadow: rgba(0, 0, 0, 0.46);
-}
-
-@keyframes indicator-spin-cw {
-  from {
-    transform: rotate(0deg);
+@keyframes task-running-inner-pulse {
+  0%, 100% {
+    transform: scale(0.52);
+    opacity: 0.16;
   }
-  to {
-    transform: rotate(360deg);
+  50% {
+    transform: scale(0.96);
+    opacity: 0.3;
   }
 }
 
-@keyframes indicator-spin-ccw {
-  from {
-    transform: rotate(360deg);
-  }
-  to {
-    transform: rotate(0deg);
-  }
-}
-
-@keyframes indicator-core-pulse {
-  0%,
-  100% {
-    transform: scale(0.92);
+@keyframes task-running-dot-pulse {
+  0%, 100% {
+    transform: scale(0.9);
     opacity: 0.85;
   }
   50% {

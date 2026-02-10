@@ -1,18 +1,21 @@
 <template>
   <SimpleBar ref="simpleBarRef" @scroll="handleScroll">
-    <div ref="chatContainerRef" class="relative flex flex-col h-full flex-1 min-w-0 px-5 bg-[var(--background-gray-main)]">
+    <div id="manus-chat-box" ref="chatContainerRef" class="relative flex flex-col h-full flex-1 flex-shrink-0 min-w-0 px-5 bg-[var(--background-gray-main)]">
       <div ref="observerRef"
-        class="chat-header flex flex-row items-center py-3 sticky top-0 z-10 flex-shrink-0">
+        class="chat-header flex flex-row items-center pt-3 pb-1 gap-1 sticky top-0 z-10 flex-shrink-0">
         <!-- Left side - panel toggle -->
         <div class="flex items-center justify-start" style="width: calc((100% - min(768px, 100%)) / 2);">
         </div>
         <!-- Center content - matches chat content width -->
-        <div class="max-w-full sm:max-w-[768px] sm:min-w-[390px] w-full flex items-center justify-between gap-3">
+        <div class="max-w-full sm:max-w-[768px] sm:min-w-[400px] w-full flex items-center justify-between gap-3">
           <!-- Left: Title -->
           <div class="flex items-center gap-2 flex-1 min-w-0">
-            <span class="chat-title-text">
-              {{ title }}
-            </span>
+            <button class="chat-model-pill" type="button" aria-label="Current chat title">
+              <span class="chat-title-text">
+                {{ title }}
+              </span>
+              <ChevronRight class="chat-title-chevron" :size="16" />
+            </button>
           </div>
           <!-- Right: Buttons -->
           <div class="flex items-center gap-1 flex-shrink-0">
@@ -20,9 +23,9 @@
                 <Popover>
                   <PopoverTrigger>
                     <button
-                      class="h-8 px-3 rounded-lg inline-flex items-center gap-1.5 clickable border border-[var(--border-main)] hover:border-[var(--border-dark)] hover:bg-[var(--fill-tsp-white-main)] transition-all">
+                      class="h-7 min-w-[56px] px-2 rounded-[8px] inline-flex items-center gap-1.5 clickable border border-[var(--border-main)] hover:border-[var(--border-dark)] hover:bg-[var(--fill-tsp-white-main)] transition-all">
                       <ShareIcon color="var(--icon-secondary)" />
-                      <span class="text-[var(--text-secondary)] text-sm font-medium">{{ t('Share') }}</span>
+                      <span class="text-[var(--text-secondary)] text-[13px] font-medium leading-[18px]">{{ t('Share') }}</span>
                     </button>
                   </PopoverTrigger>
                   <PopoverContent>
@@ -94,10 +97,12 @@
         <!-- Right side - spacer -->
         <div class="flex-1"></div>
       </div>
-      <div class="mx-auto w-full max-w-full sm:max-w-[768px] sm:min-w-[390px] flex flex-col flex-1 min-h-[calc(100vh-60px)]">
-        <div class="flex flex-col w-full gap-[12px] pb-[80px] pt-[12px] flex-1">
-          <ChatMessage v-for="message in messages" :key="message.id" :message="message"
+      <div class="mx-auto w-full max-w-full sm:max-w-[768px] sm:min-w-[400px] flex flex-col flex-1 min-h-[calc(100vh-60px)]">
+        <div class="flex flex-col w-full gap-[12px] pb-[80px] pt-[24px] flex-1">
+          <ChatMessage v-for="(message, index) in messages" :key="message.id" :message="message"
             :activeThinkingStepId="activeThinkingStepId"
+            :showStepConnector="shouldShowStepConnector(index)"
+            :showAssistantHeader="shouldShowAssistantHeader(index)"
             @toolClick="handleToolClick"
             @reportOpen="handleReportOpen"
             @reportFileOpen="handleReportFileOpen"
@@ -114,10 +119,10 @@
           />
 
           <!-- Loading/Thinking indicators - fallback for discuss mode (no active step) -->
-          <div v-if="!showSessionWarmupMessage && isLoading && (isThinkingStreaming || isThinking) && !activeThinkingStepId && lastTool?.status !== 'calling'" class="flex items-center gap-2 pl-1">
+          <div v-if="showFloatingThinkingIndicator" class="flex items-center gap-2 pl-1">
             <ThinkingIndicator :showText="true" />
           </div>
-          <LoadingIndicator v-else-if="!showSessionWarmupMessage && isLoading && !activeThinkingStepId" :text="$t('Loading')" />
+          <LoadingIndicator v-else-if="!showSessionWarmupMessage && isLoading && !activeThinkingStepId && !hasRunningStep" :text="$t('Loading')" />
 
           <!-- Waiting for user reply indicator -->
           <WaitingForReply v-if="isWaitingForReply" />
@@ -149,7 +154,7 @@
           />
         </div>
 
-        <div class="flex flex-col sticky bottom-0">
+        <div class="chat-bottom-dock flex flex-col sticky bottom-0">
           <button @click="handleFollow" v-if="!follow"
             class="flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[var(--background-white-main)] hover:bg-[var(--background-gray-main)] clickable border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)] absolute -top-20 left-1/2 -translate-x-1/2">
             <ArrowDown class="text-[var(--icon-primary)]" :size="20" />
@@ -197,7 +202,6 @@
             @stop="handleStop"
             :attachments="attachments"
             @fileClick="handleAttachmentFileClick"
-            :showConnectorBanner="!sessionId"
             expand-direction="up"
           />
         </div>
@@ -292,7 +296,7 @@ import {
 import type { DeepResearchContent } from '../types/message';
 import Suggestions from '../components/Suggestions.vue';
 import ToolPanel from '../components/ToolPanel.vue'
-import { ArrowDown, FileSearch, Lock, Globe, Link, Check } from 'lucide-vue-next';
+import { ArrowDown, FileSearch, Lock, Globe, Link, Check, ChevronRight } from 'lucide-vue-next';
 import ShareIcon from '@/components/icons/ShareIcon.vue';
 import { showErrorToast, showSuccessToast, showInfoToast } from '../utils/toast';
 import type { FileInfo } from '../api/file';
@@ -807,6 +811,33 @@ const getLastStep = (): StepContent | undefined => {
   return messages.value.filter(message => message.type === 'step').pop()?.content as StepContent;
 }
 
+const shouldShowStepConnector = (messageIndex: number): boolean => {
+  const currentMessage = messages.value[messageIndex];
+  if (!currentMessage || currentMessage.type !== 'step') return false;
+
+  for (let i = messageIndex + 1; i < messages.value.length; i += 1) {
+    if (messages.value[i].type === 'step') {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const shouldShowAssistantHeader = (messageIndex: number): boolean => {
+  const currentMessage = messages.value[messageIndex];
+  if (!currentMessage || currentMessage.type !== 'assistant') return false;
+
+  const previousMessage = messages.value[messageIndex - 1];
+  if (!previousMessage) return true;
+
+  if (previousMessage.type === 'assistant' || previousMessage.type === 'tool' || previousMessage.type === 'step') {
+    return false;
+  }
+
+  return true;
+};
+
 const addOptimisticUserMessage = (message: string, files: FileInfo[] = []) => {
   const normalizedMessage = message.trim();
   if (!normalizedMessage && files.length === 0) return;
@@ -850,14 +881,37 @@ const addOptimisticUserMessage = (message: string, files: FileInfo[] = []) => {
   }
 };
 
-// Identify the active step that should show the thinking indicator inside it
+const currentRunningStepId = computed<string | undefined>(() => {
+  for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+    const message = messages.value[i];
+    if (message.type !== 'step') continue;
+    const step = message.content as StepContent;
+    if (step.status === 'running') return step.id;
+  }
+  return undefined;
+});
+
+const hasRunningStep = computed(() => !!currentRunningStepId.value);
+const hasThinkingSignal = computed(() => isThinkingStreaming.value || isThinking.value);
+const hasActiveToolCall = computed(() => lastTool.value?.status === 'calling');
+
+// Identify the active step that should show the thinking indicator inside it.
+// This is bound to actual runtime state: running step + thinking signal + no active tool call.
 const activeThinkingStepId = computed<string | undefined>(() => {
   if (!isLoading.value) return undefined;
-  if (!(isThinkingStreaming.value || isThinking.value)) return undefined;
-  if (lastTool.value?.status === 'calling') return undefined;
-  const lastStep = getLastStep();
-  if (lastStep?.status === 'running') return lastStep.id;
-  return undefined;
+  if (!hasThinkingSignal.value) return undefined;
+  if (hasActiveToolCall.value) return undefined;
+  return currentRunningStepId.value;
+});
+
+// Show standalone thinking indicator only when not inside an active running step.
+const showFloatingThinkingIndicator = computed(() => {
+  if (showSessionWarmupMessage.value) return false;
+  if (!isLoading.value) return false;
+  if (!hasThinkingSignal.value) return false;
+  if (hasActiveToolCall.value) return false;
+  if (hasRunningStep.value) return false;
+  return true;
 });
 
 // Handle tool panel state changes
@@ -981,6 +1035,37 @@ const upsertToolTimeline = (toolContent: ToolContent) => {
   toolTimeline.value.push(toolContent);
 };
 
+const maybeAppendAssistantMessageToStep = (messageData: MessageEventData): boolean => {
+  if (messageData.role !== 'assistant') return false;
+
+  const text = (messageData.content || '').trim();
+  if (!text) return false;
+
+  const lastMessage = messages.value[messages.value.length - 1];
+  if (!lastMessage || lastMessage.type !== 'step') return false;
+
+  const lastStep = lastMessage.content as StepContent;
+  if (!lastStep || (lastStep.status !== 'running' && lastStep.status !== 'completed')) {
+    return false;
+  }
+
+  const lastTool = lastStep.tools[lastStep.tools.length - 1];
+  if (lastTool?.name === 'message' && String(lastTool.args?.text || '') === text) {
+    return true;
+  }
+
+  lastStep.tools.push({
+    tool_call_id: `inline-message-${messageData.timestamp}-${lastStep.tools.length}`,
+    name: 'message',
+    function: 'message',
+    args: { text },
+    status: 'called',
+    timestamp: messageData.timestamp,
+  });
+
+  return true;
+};
+
 // Handle message event
 const handleMessageEvent = (messageData: MessageEventData) => {
   // Assistant message means agent finished thinking
@@ -991,6 +1076,11 @@ const handleMessageEvent = (messageData: MessageEventData) => {
   // Clear summary streaming overlay — message takes over
   summaryStreamText.value = '';
   isSummaryStreaming.value = false;
+
+  // Keep per-step narration nested inside the active step thread.
+  if (maybeAppendAssistantMessageToStep(messageData)) {
+    return;
+  }
 
   // Prevent duplicate user messages - check against LAST user message (not just last message)
   // This handles cases where tool/step events appear between duplicate user messages
@@ -2067,18 +2157,57 @@ const handleCopyLink = async () => {
   background-color: var(--background-gray-main);
   margin-left: -1.25rem;
   margin-right: -1.25rem;
-  padding-left: 1.25rem;
-  padding-right: 1.25rem;
+  padding-left: 1rem;
+  padding-right: 1.5rem;
+  border-bottom: 1px solid var(--border-light);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.chat-model-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: 32px;
+  border-radius: 8px;
+  padding: 0 8px;
+  transition: background-color 0.15s ease;
+}
+
+.chat-model-pill:hover {
+  background: var(--fill-tsp-white-main);
 }
 
 .chat-title-text {
   color: var(--text-primary);
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 16px;
+  line-height: 20px;
+  font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   letter-spacing: -0.01em;
+}
+
+.chat-title-chevron {
+  color: var(--text-tertiary);
+  transform: rotate(90deg);
+  flex-shrink: 0;
+}
+
+.chat-bottom-dock {
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    color-mix(in srgb, var(--background-gray-main) 86%, transparent) 18%,
+    var(--background-gray-main) 45%
+  );
+  padding-top: 8px;
+}
+
+:global(.dark) .chat-header {
+  border-bottom-color: var(--border-main);
 }
 
 /* 120-degree diagonal shimmer text effect */

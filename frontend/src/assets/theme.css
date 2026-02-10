@@ -28,7 +28,7 @@
   --bolt-elements-borderColor: rgba(15, 23, 42, 0.12);
   --bolt-elements-borderColorActive: #111827;
   --bolt-elements-bg-depth-1: #ffffff;
-  --bolt-elements-bg-depth-2: #f7f6f3;
+  --bolt-elements-bg-depth-2: #f0f0f0;
   --bolt-elements-bg-depth-3: #efece8;
   --bolt-elements-bg-depth-4: rgba(17, 24, 39, 0.04);
   --bolt-elements-textPrimary: #111827;
@@ -83,7 +83,7 @@
   --background-menu-white: var(--bolt-elements-bg-depth-1);
   --background-tsp-menu-white: rgba(17, 24, 39, 0.04);
   --background-tsp-card-gray: rgba(17, 24, 39, 0.03);
-  --background-nav: #f4f3f0;
+  --background-nav: #e6e6e6;
   --background-card: var(--bolt-elements-bg-depth-1);
   --background-mask: rgba(0, 0, 0, 0.6);
   --border-main: var(--bolt-elements-borderColor);
