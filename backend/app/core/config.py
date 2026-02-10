@@ -297,7 +297,7 @@ class Settings(BaseSettings):
     parallel_max_concurrency: int = 3  # Max concurrent step executions
 
     # Plan Verification configuration (Performance optimization)
-    enable_plan_verification: bool = False  # Skip verification phase for faster execution
+    enable_plan_verification: bool = True  # Verify plan feasibility before execution
 
     # Skill activation policy
     skill_auto_trigger_enabled: bool = False  # Default OFF: explicit activation only (chat selection or /command)
