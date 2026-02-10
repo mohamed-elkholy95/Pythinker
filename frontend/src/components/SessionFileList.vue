@@ -2,7 +2,7 @@
     <Dialog v-model:open="visible">
         <DialogContent
             :hide-close-button="true"
-            :title="previewFile ? previewFile.filename : $t('All files in this task')"
+            :title="previewFile ? getDisplayName(previewFile) : $t('All files in this task')"
             description="View and download session files"
             :class="cn(
                 'p-0 flex flex-col overflow-hidden transition-all duration-200',
@@ -28,7 +28,7 @@
                     </div>
                     <div class="header-info">
                         <h2 class="header-title">
-                            {{ previewFile ? previewFile.filename : $t('All files in this task') }}
+                            {{ previewFile ? getDisplayName(previewFile) : $t('All files in this task') }}
                         </h2>
                     </div>
                 </div>
@@ -110,7 +110,7 @@
                                 <!-- File Info -->
                                 <div class="flex flex-col flex-1 min-w-0">
                                     <span class="text-sm text-[var(--text-primary)] truncate font-medium">
-                                        {{ file.filename }}
+                                        {{ getDisplayName(file) }}
                                     </span>
                                     <span class="text-xs text-[var(--text-tertiary)]">
                                         {{ formatFileDate(file.upload_date) }}
@@ -178,7 +178,7 @@ import { ref, watch, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import type { FileInfo } from '../api/file';
-import { getFileDownloadUrl, downloadFilesAsZip } from '../api/file';
+import { getFileDownloadUrl, downloadFilesAsZip, downloadFile } from '../api/file';
 import { getSessionFiles, getSharedSessionFiles } from '../api/agent';
 import { useSessionFileList } from '../composables/useSessionFileList';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
@@ -196,6 +196,9 @@ const previewFile = ref<FileInfo | null>(null);
 
 const { visible, shared } = useSessionFileList();
 
+// Resolved titles for report files without metadata (fetched from content)
+const resolvedTitles = ref<Record<string, string>>({});
+
 // Filter tab definitions
 const filterTabs = computed(() => [
     { id: 'all', label: t('All') },
@@ -211,6 +214,20 @@ const fileCategories: Record<string, string[]> = {
     images: ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'tiff'],
     code: ['js', 'ts', 'jsx', 'tsx', 'vue', 'py', 'java', 'go', 'rs', 'rb', 'php', 'c', 'cpp', 'h', 'cs', 'swift', 'kt', 'scala', 'html', 'css', 'scss', 'less', 'json', 'xml', 'yaml', 'yml', 'toml', 'sh', 'bash', 'sql'],
     links: ['url', 'webloc', 'link'],
+};
+
+// Check if a file is a report file
+const isReportFile = (file: FileInfo): boolean => {
+    return file.metadata?.is_report === true || /^report-[0-9a-f-]+\.md$/i.test(file.filename);
+};
+
+// Get display name for a file (use metadata title or resolved title for reports)
+const getDisplayName = (file: FileInfo): string => {
+    if (isReportFile(file)) {
+        if (file.metadata?.title) return file.metadata.title;
+        if (resolvedTitles.value[file.file_id]) return resolvedTitles.value[file.file_id];
+    }
+    return file.filename;
 };
 
 // Get file extension
@@ -354,6 +371,35 @@ const formatFileDate = (dateStr: string | undefined): string => {
     }
 };
 
+// Extract title from markdown content (first # heading)
+const extractTitleFromMarkdown = (text: string): string | null => {
+    const lines = text.split('\n');
+    for (const line of lines) {
+        const match = line.match(/^#\s+(.+)/);
+        if (match) return match[1].trim();
+    }
+    return null;
+};
+
+// Resolve titles for report files that lack metadata.title
+const resolveReportTitles = async (fileList: FileInfo[]) => {
+    const reportsWithoutTitle = fileList.filter(
+        f => isReportFile(f) && !f.metadata?.title && !resolvedTitles.value[f.file_id]
+    );
+    for (const file of reportsWithoutTitle) {
+        try {
+            const blob = await downloadFile(file.file_id);
+            const text = await blob.text();
+            const title = extractTitleFromMarkdown(text);
+            if (title) {
+                resolvedTitles.value[file.file_id] = title;
+            }
+        } catch {
+            // Silently ignore — will fall back to filename
+        }
+    }
+};
+
 const fetchFiles = async (sessionId: string) => {
     if (!sessionId) {
         return;
@@ -364,12 +410,18 @@ const fetchFiles = async (sessionId: string) => {
     } else {
         response = await getSessionFiles(sessionId);
     }
-    // Sort by upload date, newest first
+    // Sort: report files first, then by upload date (newest first)
     files.value = response.sort((a, b) => {
+        const aIsReport = isReportFile(a) ? 1 : 0;
+        const bIsReport = isReportFile(b) ? 1 : 0;
+        if (aIsReport !== bIsReport) return bIsReport - aIsReport;
         const dateA = a.upload_date ? new Date(a.upload_date).getTime() : 0;
         const dateB = b.upload_date ? new Date(b.upload_date).getTime() : 0;
         return dateB - dateA;
     });
+
+    // Resolve titles for legacy report files without metadata
+    resolveReportTitles(files.value);
 };
 
 const downloadFile = async (fileInfo: FileInfo) => {
@@ -418,6 +470,7 @@ watch(visible, (newVisible) => {
     if (newVisible) {
         activeFilter.value = 'all'; // Reset filter when opening
         previewFile.value = null; // Reset preview when opening
+        resolvedTitles.value = {}; // Clear resolved titles
         const sessionId = route.params.sessionId as string;
         if (sessionId) {
             fetchFiles(sessionId);

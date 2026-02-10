@@ -229,6 +229,7 @@ onMounted(() => {
 .chatbox-wrapper {
     padding-bottom: 12px;
     position: relative;
+    z-index: 2;
     display: flex;
     flex-direction: column;
     width: 100%;

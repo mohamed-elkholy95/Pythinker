@@ -28,7 +28,7 @@ const config = {
   assistUrl: import.meta.env.VITE_OPENREPLAY_ASSIST_URL || 'ws://localhost:9003',
   canvasQuality: (import.meta.env.VITE_OPENREPLAY_CANVAS_QUALITY || 'medium') as 'low' | 'medium' | 'high',
   canvasFps: parseInt(import.meta.env.VITE_OPENREPLAY_CANVAS_FPS || '6', 10),
-  enabled: import.meta.env.VITE_OPENREPLAY_ENABLED !== 'false'
+  enabled: import.meta.env.VITE_OPENREPLAY_ENABLED === 'true'
 }
 
 // File extension mapping for canvas quality

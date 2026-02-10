@@ -701,6 +701,7 @@ class AgentTaskRunner(TaskRunner):
             size=report_size,
             content_type="text/markdown",
             user_id=self._user_id,
+            metadata={"is_report": True, "title": event.title},
         )
         event.attachments = [*existing, report_info]
 

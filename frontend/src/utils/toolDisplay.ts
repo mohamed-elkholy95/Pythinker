@@ -218,12 +218,14 @@ export function extractToolUrl(args?: Record<string, unknown>): string | null {
 }
 
 /**
- * Get favicon URL for a domain using Google's favicon service.
+ * Get favicon URL for a domain using DuckDuckGo's favicon service.
+ * DuckDuckGo always returns a fallback image for unknown domains,
+ * avoiding 404 console errors that Google's service produces.
  */
 export function getFaviconUrl(url: string): string | null {
   try {
     const u = new URL(url);
-    return `https://www.google.com/s2/favicons?domain=${u.hostname}&sz=32`;
+    return `https://icons.duckduckgo.com/ip3/${u.hostname}.ico`;
   } catch {
     return null;
   }

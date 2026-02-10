@@ -59,6 +59,7 @@
 
 <script setup lang="ts">
 import { BookOpen, ExternalLink } from 'lucide-vue-next';
+import { getFaviconUrl as getSharedFaviconUrl } from '@/utils/toolDisplay';
 import type { SourceCitation } from '@/types/message';
 
 interface Props {
@@ -71,14 +72,7 @@ withDefaults(defineProps<Props>(), {
   showSnippets: false
 });
 
-const getFaviconUrl = (url: string): string => {
-  try {
-    const domain = new URL(url).hostname;
-    return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
-  } catch {
-    return '';
-  }
-};
+const getFaviconUrl = (url: string): string => getSharedFaviconUrl(url) ?? '';
 
 const getDomain = (url: string): string => {
   try {

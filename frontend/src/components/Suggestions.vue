@@ -1,24 +1,28 @@
 <template>
   <div v-if="suggestions.length > 0" class="suggestions-container">
+    <div class="suggestions-title">
+      {{ $t('Suggested follow-ups') }}
+    </div>
     <div
       v-for="(suggestion, index) in suggestions"
       :key="index"
-      class="suggestion-item suggestion-silver-shimmer"
+      class="suggestion-item"
       @click="$emit('select', suggestion)"
     >
-      <div class="suggestion-icon-wrap">
+      <div class="suggestion-content">
         <component
           :is="getSuggestionIcon(index)"
           class="suggestion-icon"
         />
+        <span class="suggestion-text">{{ suggestion }}</span>
       </div>
-      <span class="suggestion-text">{{ suggestion }}</span>
+      <ArrowRight class="suggestion-arrow" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Search, Compass } from 'lucide-vue-next';
+import { Search, Compass, ArrowRight } from 'lucide-vue-next';
 
 defineProps<{
   suggestions: string[];
@@ -38,83 +42,83 @@ const getSuggestionIcon = (index: number) => {
 .suggestions-container {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 0;
   width: 100%;
-  padding: 4px 0;
+  padding: 4px 12px;
+}
+
+.suggestions-title {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  margin-bottom: 6px;
 }
 
 .suggestion-item {
   position: relative;
-  overflow: hidden;
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-height: 56px;
-  padding: 10px 16px;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 38px;
+  width: calc(100% + 24px);
+  margin: 0 -12px;
+  padding: 9px 12px;
   cursor: pointer;
-  border-radius: 9999px;
-  border: 1px solid #d4d9e1;
-  background: linear-gradient(180deg, #f3f5f7 0%, #eceff3 100%);
-  transition: border-color 0.2s ease, transform 0.2s ease;
-}
-
-.suggestion-silver-shimmer::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  left: -120%;
-  width: 120%;
-  background: linear-gradient(
-    110deg,
-    rgba(255, 255, 255, 0) 0%,
-    rgba(255, 255, 255, 0.45) 48%,
-    rgba(255, 255, 255, 0) 100%
-  );
-  animation: suggestion-shimmer 2.7s ease-in-out infinite;
-  pointer-events: none;
+  user-select: none;
+  transition: background-color 0.16s ease;
 }
 
 .suggestion-item:hover {
-  border-color: #bfc6d1;
-  transform: translateY(-1px);
+  background: var(--fill-tsp-white-main);
+  border-radius: 10px;
 }
 
-.suggestion-icon-wrap {
-  flex-shrink: 0;
-  width: 34px;
-  height: 34px;
+.suggestion-item::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 0;
+  height: 1px;
+  background: var(--border-main);
+}
+
+.suggestion-item:hover::after {
+  display: none;
+}
+
+.suggestion-content {
   display: flex;
   align-items: center;
-  justify-content: center;
-  border-radius: 9999px;
-  background: #f6f8fb;
-  border: 1px solid #c9d0dc;
+  gap: 8px;
+  min-width: 0;
 }
 
 .suggestion-icon {
-  width: 18px;
-  height: 18px;
-  color: #6a7381;
+  width: 16px;
+  height: 16px;
+  color: var(--icon-tertiary);
+  flex-shrink: 0;
 }
 
 .suggestion-text {
   flex: 1;
   min-width: 0;
-  font-size: 16px;
-  line-height: 1.35;
-  color: #4e545e;
-  font-weight: 600;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--text-secondary);
+  font-weight: 400;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-@keyframes suggestion-shimmer {
-  0% {
-    left: -120%;
-  }
-  100% {
-    left: 110%;
-  }
+.suggestion-arrow {
+  width: 16px;
+  height: 16px;
+  color: var(--icon-tertiary);
+  flex-shrink: 0;
 }
 </style>

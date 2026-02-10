@@ -181,7 +181,7 @@
       >
         <!-- Status indicator -->
         <div v-if="isAllCompleted" class="status-complete flex-shrink-0">
-          <Check class="w-3.5 h-3.5 text-white" :stroke-width="2.5" />
+          <Check class="w-4 h-4 text-[var(--function-success)]" :stroke-width="2" />
         </div>
 
         <!-- Content -->
@@ -614,6 +614,7 @@ onUnmounted(() => {
 /* ===== BASE CONTAINER ===== */
 .task-progress-bar {
   position: relative;
+  z-index: 6;
 }
 
 .task-progress-bar.is-expanded {
@@ -630,6 +631,8 @@ onUnmounted(() => {
 }
 
 .progress-bar-collapsed {
+  position: relative;
+  z-index: 7;
   background: var(--bolt-elements-bg-depth-1);
   border: 1px solid var(--bolt-elements-borderColor);
   border-radius: 14px;
@@ -648,14 +651,9 @@ onUnmounted(() => {
 
 /* ===== STATUS INDICATORS ===== */
 .status-complete {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.35);
 }
 
 /* ===== PROGRESS PILL ===== */
