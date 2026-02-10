@@ -167,7 +167,7 @@ class TestDiscussFlowSuggestions:
         mock_llm = MagicMock()
         mock_llm.ask = AsyncMock(
             return_value={
-                "content": "[\"Tell me a pirate story.\",\"What's your favorite pirate saying?\",\"How do pirates find treasure?\"]"
+                "content": '["Tell me a pirate story.","What\'s your favorite pirate saying?","How do pirates find treasure?"]'
             }
         )
         mock_json_parser = MagicMock()
