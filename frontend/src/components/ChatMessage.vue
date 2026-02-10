@@ -1,26 +1,26 @@
 <template>
   <div v-if="message.type === 'user'" class="flex w-full flex-col items-end justify-end gap-1 group mt-3">
-    <div class="flex items-end">
-      <div class="flex items-center justify-end gap-[2px] invisible group-hover:visible">
-        <div class="float-right transition text-[12px] text-[var(--text-tertiary)] invisible group-hover:visible">
-          {{ relativeTime(message.content.timestamp) }}
-        </div>
-      </div>
-    </div>
     <div class="flex max-w-[90%] flex-col gap-1 items-end">
       <div
         class="relative flex items-center rounded-[12px] overflow-hidden bg-[var(--bolt-elements-bg-depth-2)] p-3 ltr:rounded-br-none rtl:rounded-bl-none border border-[var(--bolt-elements-borderColor)]"
         v-html="renderMarkdown(messageContent.content)">
       </div>
-      <!-- Copy button - appears below the bubble on hover -->
-      <button
-        @click="handleCopyUserMessage"
-        class="self-end p-1.5 rounded-md bg-[var(--background-white-main)] border border-[var(--border-main)] shadow-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:bg-[var(--fill-tsp-gray-main)]"
-        :title="copied ? 'Copied!' : 'Copy message'"
-      >
-        <Check v-if="copied" :size="14" class="text-green-500" />
-        <Copy v-else :size="14" class="text-[var(--icon-secondary)]" />
-      </button>
+      <div class="flex items-center justify-end gap-[2px] invisible group-hover:visible">
+        <button
+          @click="handleCopyUserMessage"
+          class="p-1 rounded-md text-[var(--icon-secondary)] hover:bg-[var(--fill-tsp-gray-main)]"
+          :title="copied ? 'Copied!' : 'Copy message'"
+        >
+          <Check v-if="copied" :size="14" class="text-green-500" />
+          <Copy v-else :size="14" class="text-[var(--icon-secondary)]" />
+        </button>
+        <div
+          class="float-right transition text-[12px] text-[var(--text-tertiary)] invisible group-hover:visible"
+          :title="formatTimestampTooltip(message.content.timestamp)"
+        >
+          {{ relativeTime(message.content.timestamp) }}
+        </div>
+      </div>
     </div>
   </div>
   <div v-else-if="message.type === 'assistant'" class="flex flex-col gap-2 w-full group mt-3">
@@ -30,7 +30,10 @@
         <PythinkerTextIcon :width="80" :height="20" />
       </div>
       <div class="flex items-center gap-[2px] invisible group-hover:visible">
-        <div class="transition text-[12px] text-[var(--text-tertiary)] invisible group-hover:visible">
+        <div
+          class="transition text-[12px] text-[var(--text-tertiary)] invisible group-hover:visible"
+          :title="formatTimestampTooltip(message.content.timestamp)"
+        >
           {{ relativeTime(message.content.timestamp) }}
         </div>
       </div>
@@ -70,7 +73,10 @@
           </span>
         </div>
       </div>
-      <div class="flex-shrink-0 transition text-[12px] text-[var(--text-tertiary)] invisible group-hover/header:visible">
+      <div
+        class="flex-shrink-0 transition text-[12px] text-[var(--text-tertiary)] invisible group-hover/header:visible"
+        :title="formatTimestampTooltip(message.content.timestamp)"
+      >
         {{ relativeTime(message.content.timestamp) }}
       </div>
     </div>
@@ -239,6 +245,18 @@ const isExpanded = ref(true);
 const userToggled = ref(false);
 
 const { relativeTime } = useRelativeTime();
+
+const formatTimestampTooltip = (timestamp: number): string => {
+  const date = new Date(timestamp * 1000);
+  return date.toLocaleString('en-US', {
+    month: '2-digit',
+    day: '2-digit',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+};
 
 // Clipboard for copy functionality
 const { copy, copied } = useClipboard();
