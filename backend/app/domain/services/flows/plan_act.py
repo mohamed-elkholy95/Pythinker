@@ -285,6 +285,15 @@ class PlanActFlow(BaseFlow):
         )
         logger.debug(f"Created planner agent for Agent {self._agent_id}")
 
+        # Create circuit breaker for tool-level failure protection
+        try:
+            from app.infrastructure.adapters.circuit_breaker_adapter import ToolCircuitBreakerAdapter
+
+            tool_circuit_breaker = ToolCircuitBreakerAdapter()
+        except Exception as e:
+            logger.debug(f"Circuit breaker adapter unavailable: {e}")
+            tool_circuit_breaker = None
+
         self.executor = ExecutionAgent(
             agent_id=self._agent_id,
             agent_repository=self._repository,
@@ -293,6 +302,7 @@ class PlanActFlow(BaseFlow):
             json_parser=json_parser,
             memory_service=memory_service,
             user_id=user_id,
+            circuit_breaker=tool_circuit_breaker,
         )
         logger.debug(f"Created execution agent for Agent {self._agent_id}")
 
