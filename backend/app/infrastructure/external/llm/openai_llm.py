@@ -657,8 +657,13 @@ To extract data from a webpage:
                     # Orphaned tool response - skip it
                     logger.warning(f"Removing orphaned tool response with id: {tool_call_id}")
                 else:
-                    # Tool response for unknown id - still add it if we're expecting responses
-                    fixed_messages.append(msg)
+                    # Drop mismatched tool responses while a specific sequence is pending.
+                    # Keeping them can create orphan tool messages and break strict APIs.
+                    logger.warning(
+                        "Dropping mismatched tool response with id %s while pending ids are %s",
+                        tool_call_id,
+                        sorted(pending_tool_ids),
+                    )
 
             else:
                 # Regular message (user/system/assistant without tool_calls)
