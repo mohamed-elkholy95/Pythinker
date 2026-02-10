@@ -1,53 +1,57 @@
 <template>
     <div class="chatbox-wrapper" :class="`expand-${props.expandDirection}`">
-        <div class="chatbox-container">
-            <ConnectorBanner v-if="showConnectorBanner" />
-            <ChatBoxFiles ref="chatBoxFileListRef" :attachments="attachments" @fileClick="$emit('fileClick', $event)" />
-            <!-- Active session skills chip row -->
-            <div v-if="sessionSkillChips.length > 0" class="session-skills-row">
-              <div
-                v-for="chip in sessionSkillChips"
-                :key="chip.id"
-                class="session-skill-chip"
-              >
-                <Puzzle :size="10" />
-                <span>{{ chip.name }}</span>
-                <button class="session-skill-remove" @click="removeSessionSkill(chip.id)">
-                  <X :size="10" />
-                </button>
-              </div>
-            </div>
-            <div class="chatbox-input-area">
-                <textarea
-                    ref="textareaRef"
-                    class="chatbox-textarea"
-                    :rows="rows" :value="modelValue"
-                    @input="handleInput"
-                    @compositionstart="isComposing = true" @compositionend="isComposing = false"
-                    @keydown.enter.exact="handleEnterKeydown"
-                    :placeholder="t('Give Pythinker a task to work on...')"
-                    :style="textareaStyle"></textarea>
-            </div>
-            <footer class="chatbox-footer">
-                <div class="chatbox-actions-left">
-                    <button @click="uploadFile" class="chatbox-attach-btn">
-                        <Paperclip :size="16" />
+        <div class="chatbox-shell">
+            <div class="chatbox-container">
+                <ChatBoxFiles ref="chatBoxFileListRef" :attachments="attachments" @fileClick="$emit('fileClick', $event)" />
+                <!-- Active session skills chip row -->
+                <div v-if="sessionSkillChips.length > 0" class="session-skills-row">
+                  <div
+                    v-for="chip in sessionSkillChips"
+                    :key="chip.id"
+                    class="session-skill-chip"
+                  >
+                    <Puzzle :size="10" />
+                    <span>{{ chip.name }}</span>
+                    <button class="session-skill-remove" @click="removeSessionSkill(chip.id)">
+                      <X :size="10" />
                     </button>
-                    <ConnectorButton />
-                    <SkillPicker />
+                  </div>
                 </div>
-                <div class="chatbox-actions-right">
-                    <button v-if="!isRunning || sendEnabled"
-                        class="chatbox-send-btn"
-                        :class="{ 'disabled': !sendEnabled, 'enabled': sendEnabled }"
-                        @click="handleSubmit">
-                        <SendIcon :disabled="!sendEnabled" />
-                    </button>
-                    <button v-else @click="handleStop" class="chatbox-stop-btn">
-                        <div class="stop-icon"></div>
-                    </button>
+                <div class="chatbox-input-area">
+                    <textarea
+                        ref="textareaRef"
+                        class="chatbox-textarea"
+                        :rows="rows" :value="modelValue"
+                        @input="handleInput"
+                        @compositionstart="isComposing = true" @compositionend="isComposing = false"
+                        @keydown.enter.exact="handleEnterKeydown"
+                        :placeholder="t('Give Pythinker a task to work on...')"
+                        :style="textareaStyle"></textarea>
                 </div>
-            </footer>
+                <footer class="chatbox-footer">
+                    <div class="chatbox-actions-left">
+                        <button @click="uploadFile" class="chatbox-attach-btn">
+                            <Paperclip :size="16" />
+                        </button>
+                        <ConnectorButton />
+                        <SkillPicker />
+                    </div>
+                    <div class="chatbox-actions-right">
+                        <button v-if="!isRunning || sendEnabled"
+                            class="chatbox-send-btn"
+                            :class="{ 'disabled': !sendEnabled, 'enabled': sendEnabled }"
+                            @click="handleSubmit">
+                            <SendIcon :disabled="!sendEnabled" />
+                        </button>
+                        <button v-else @click="handleStop" class="chatbox-stop-btn">
+                            <div class="stop-icon"></div>
+                        </button>
+                    </div>
+                </footer>
+            </div>
+            <div v-if="showConnectorRow" class="chatbox-connector-row">
+                <ConnectorBanner :forceVisible="true" @close="handleConnectorBannerClose" />
+            </div>
         </div>
     </div>
 </template>
@@ -105,6 +109,8 @@ const props = withDefaults(defineProps<{
 }>(), {
   expandDirection: 'up',
 });
+const isConnectorBannerClosed = ref(false);
+const showConnectorRow = computed(() => !!props.showConnectorBanner && !isConnectorBannerClosed.value);
 
 const MIN_TEXTAREA_HEIGHT = 46;
 const MAX_TEXTAREA_HEIGHT = 220;
@@ -177,6 +183,10 @@ const uploadFile = () => {
     chatBoxFileListRef.value?.uploadFile();
 };
 
+const handleConnectorBannerClose = () => {
+  isConnectorBannerClosed.value = true;
+};
+
 // Track which commands have already been auto-detected (prevent repeated toasts)
 const detectedCommands = ref<Set<string>>(new Set());
 
@@ -201,6 +211,15 @@ watch(() => props.modelValue, async () => {
   resizeTextarea(props.modelValue);
 });
 
+watch(
+  () => props.showConnectorBanner,
+  (show) => {
+    if (!show) {
+      isConnectorBannerClosed.value = false;
+    }
+  }
+);
+
 onMounted(() => {
   resizeTextarea();
 });
@@ -210,6 +229,9 @@ onMounted(() => {
 .chatbox-wrapper {
     padding-bottom: 12px;
     position: relative;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
 }
 
 .chatbox-wrapper.expand-up {
@@ -218,28 +240,54 @@ onMounted(() => {
     justify-content: flex-end;
 }
 
+.chatbox-shell {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    position: relative;
+    background: var(--background-gray-main);
+}
+
 .chatbox-container {
     display: flex;
     flex-direction: column;
     gap: 12px;
-    border-radius: 22px;
-    transition: all 0.2s ease;
     position: relative;
-    padding: 14px 0;
+    padding: 12px 0;
+    width: 100%;
+    z-index: 2;
     max-height: 300px;
-    background: var(--background-white-main);
-    border: 1px solid var(--border-main);
-    box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
+    background: var(--fill-input-chat);
+    border-radius: 22px;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.02);
+    overflow: hidden;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.chatbox-container:hover {
+    border-color: rgba(0, 0, 0, 0.2);
 }
 
 .chatbox-container:focus-within {
-    border-color: var(--bolt-elements-borderColorActive);
+    border-color: rgba(0, 0, 0, 0.2);
+}
+
+:global([data-theme='dark']) .chatbox-container {
+    border-color: var(--border-main);
+}
+
+:global([data-theme='dark']) .chatbox-container:hover,
+:global([data-theme='dark']) .chatbox-container:focus-within {
+    border-color: var(--border-dark);
 }
 
 .chatbox-input-area {
     overflow-y: auto;
     padding-left: 16px;
     padding-right: 8px;
+    min-height: 50px;
+    max-height: 216px;
 }
 
 .chatbox-textarea {
@@ -253,7 +301,7 @@ onMounted(() => {
     border: 0;
     width: 100%;
     font-size: 15px;
-    line-height: 1.5;
+    line-height: 24px;
     color: var(--text-primary);
     box-shadow: none;
     resize: none;
@@ -363,6 +411,38 @@ onMounted(() => {
 
 .chatbox-stop-btn:hover {
     box-shadow: 0 12px 24px rgba(59, 130, 246, 0.36);
+}
+
+.chatbox-connector-row {
+    margin-top: -22px;
+    padding: 29px 20px 7px;
+    background: rgba(55, 53, 47, 0.02);
+    border-left: 1px solid var(--border-light);
+    border-right: 1px solid var(--border-light);
+    border-bottom: 1px solid var(--border-light);
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    border-bottom-left-radius: 22px;
+    border-bottom-right-radius: 22px;
+    transition: background-color 0.15s ease;
+    cursor: pointer;
+}
+
+:deep(.chatbox-connector-row .connector-banner) {
+    margin-bottom: 0;
+}
+
+.chatbox-connector-row:hover {
+    background: rgba(240, 239, 237, 1);
+}
+
+:global([data-theme='dark']) .chatbox-connector-row {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+:global([data-theme='dark']) .chatbox-connector-row:hover {
+    background: rgba(255, 255, 255, 0.02);
 }
 
 .stop-icon {

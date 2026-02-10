@@ -1,128 +1,119 @@
 <template>
   <div v-if="showBanner" class="connector-banner" @click="openConnectorDialog()">
-    <div class="connector-banner-left">
+    <div class="connector-banner-icon-wrap">
       <Cable :size="16" class="connector-banner-icon" />
-      <span class="connector-banner-text">{{ t('Connect your tools to Pythinker') }}</span>
     </div>
+    <span class="connector-banner-text">{{ t('Connect your tools to Pythinker') }}</span>
     <div class="connector-banner-right">
-      <div class="connector-banner-logos">
-        <div
-          v-for="app in previewApps"
-          :key="app.id"
-          class="connector-banner-logo"
-          :style="{ backgroundColor: app.color + '20', color: app.color }"
-        >
-          <component :is="app.icon" :size="14" />
-        </div>
-      </div>
-      <button class="connector-banner-close" @click.stop="dismissBanner">
-        <X :size="14" />
+      <img
+        alt="Connectors preview"
+        class="connector-banner-preview"
+        src="https://files.manuscdn.com/webapp/_next/static/media/connectorsLight.907a46cd.png"
+      />
+      <button class="connector-banner-close" @click.stop="handleClose">
+        <X :size="16" />
       </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, type Component } from 'vue';
+import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import {
-  Cable,
-  X,
-  Globe,
-  Mail,
-  HardDrive,
-  MessageSquare,
-  BookOpen,
-  Calendar,
-} from 'lucide-vue-next';
+import { Cable, X } from 'lucide-vue-next';
 import { useConnectorDialog } from '@/composables/useConnectorDialog';
 import { useConnectors } from '@/composables/useConnectors';
 
 const { t } = useI18n();
 const { openConnectorDialog } = useConnectorDialog();
 const { connectedCount, bannerDismissed, dismissBanner } = useConnectors();
+const props = withDefaults(
+  defineProps<{
+    forceVisible?: boolean;
+  }>(),
+  {
+    forceVisible: false,
+  }
+);
+const emit = defineEmits<{
+  (e: 'close'): void;
+}>();
 
-const showBanner = computed(() => connectedCount.value === 0 && !bannerDismissed.value);
+const manuallyHidden = ref(false);
 
-interface PreviewApp {
-  id: string;
-  icon: Component;
-  color: string;
-}
+const showBanner = computed(() => {
+  if (manuallyHidden.value) return false;
+  return props.forceVisible || (connectedCount.value === 0 && !bannerDismissed.value);
+});
 
-const previewApps: PreviewApp[] = [
-  { id: 'browser', icon: Globe, color: '#3b82f6' },
-  { id: 'gmail', icon: Mail, color: '#ea4335' },
-  { id: 'outlook', icon: Mail, color: '#0078d4' },
-  { id: 'drive', icon: HardDrive, color: '#34a853' },
-  { id: 'slack', icon: MessageSquare, color: '#4a154b' },
-  { id: 'github', icon: BookOpen, color: '#24292f' },
-  { id: 'notion', icon: Calendar, color: '#000000' },
-];
+const handleClose = () => {
+  manuallyHidden.value = true;
+  emit('close');
+  // In normal mode, persist dismissal behavior.
+  // In forceVisible mode (home hero), hide only for current view.
+  if (!props.forceVisible) {
+    dismissBanner();
+  }
+};
 </script>
 
 <style scoped>
 .connector-banner {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--border-main);
-  background: var(--background-white-main);
-  cursor: pointer;
-  transition: all 0.15s ease;
-  margin-bottom: 8px;
-}
-
-.connector-banner:hover {
-  border-color: var(--border-dark);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-}
-
-.connector-banner-left {
-  display: flex;
-  align-items: center;
   gap: 8px;
+  width: 100%;
+  min-height: 18px;
+  padding: 0;
+  border-radius: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: color 0.15s ease;
 }
 
 .connector-banner-icon {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   flex-shrink: 0;
+}
+
+.connector-banner-icon-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .connector-banner-text {
   font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  letter-spacing: -0.091px;
   color: var(--text-secondary);
+  flex: 1;
+  min-width: 0;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .connector-banner-right {
   display: flex;
   align-items: center;
-  gap: 10px;
-}
-
-.connector-banner-logos {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-}
-
-.connector-banner-logo {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
+  gap: 8px;
   flex-shrink: 0;
 }
 
+.connector-banner-preview {
+  height: 22px;
+  width: auto;
+  display: block;
+}
+
 .connector-banner-close {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
   border: none;
   background: transparent;
   display: flex;
@@ -134,7 +125,12 @@ const previewApps: PreviewApp[] = [
 }
 
 .connector-banner-close:hover {
-  background: var(--fill-tsp-gray-main);
-  color: var(--text-primary);
+  opacity: 0.7;
+}
+
+@media (max-width: 900px) {
+  .connector-banner-text {
+    font-size: 12px;
+  }
 }
 </style>

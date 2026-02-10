@@ -46,6 +46,7 @@
             @submit="handleSubmit"
             :isRunning="false"
             :attachments="attachments"
+            :showConnectorBanner="true"
             expand-direction="down"
           />
         </div>
@@ -98,6 +99,7 @@
       </div>
     </div>
   </SimpleBar>
+  <ConnectorsDialog />
 </template>
 
 <script setup lang="ts">
@@ -116,6 +118,7 @@ import { useFilePanel } from '../composables/useFilePanel';
 import { useAuth } from '../composables/useAuth';
 import { useLeftPanel } from '../composables/useLeftPanel';
 import UserMenu from '../components/UserMenu.vue';
+import ConnectorsDialog from '@/components/connectors/ConnectorsDialog.vue';
 import type { Component } from 'vue';
 
 // Feature type definition
@@ -411,22 +414,9 @@ const handleSubmit = async (skillIds: string[] = []) => {
   padding: 0 8px;
 }
 
-/* Home page chatbox styling - compact Manus-like input */
-:deep(.chat-input-wrapper .chatbox-container) {
-  background: var(--background-surface);
-  border-radius: 18px;
-  border: 1px solid var(--border-main);
-  padding: 10px 0;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
-}
-
-:global([data-theme='dark']) .chat-input-wrapper .chatbox-container {
-  background: var(--background-gray-main) !important;
-}
-
-:deep(.chat-input-wrapper .chatbox-container:focus-within) {
-  border-color: var(--bolt-elements-borderColorActive);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+/* Home page chatbox uses ChatBox component visual system directly */
+:deep(.chat-input-wrapper .chatbox-shell) {
+  background: transparent;
 }
 
 :deep(.chat-input-wrapper .chatbox-input-area) {

@@ -85,7 +85,7 @@ const showBouncingDots = computed(() => props.state !== 'timed_out');
   flex-wrap: wrap;
   align-items: flex-start;
   gap: 8px;
-  padding-left: 26px;
+  padding-left: 0;
   min-height: 24px;
 }
 

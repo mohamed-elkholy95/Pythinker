@@ -508,8 +508,8 @@ watch(() => route.path, async (newPath, oldPath) => {
   padding: 0 14px;
   height: 38px;
   border-radius: 12px;
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(59, 130, 246, 0.04) 100%);
-  border: 1px solid rgba(59, 130, 246, 0.25);
+  background: #ededed;
+  border: 1px solid #dddddd;
   cursor: pointer;
   transition: all 0.2s ease;
   color: var(--text-primary);
@@ -517,9 +517,9 @@ watch(() => route.path, async (newPath, oldPath) => {
 }
 
 .new-task-btn:hover {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.18) 0%, rgba(59, 130, 246, 0.08) 100%);
-  border-color: rgba(59, 130, 246, 0.35);
-  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.18);
+  background: #e2e2e2;
+  border-color: #d5d5d5;
+  box-shadow: none;
 }
 
 .new-task-btn:active {
