@@ -16,7 +16,7 @@ class ResponseCompressor:
         re.IGNORECASE | re.MULTILINE,
     )
 
-    def compress(self, content: str, mode: VerbosityMode, max_chars: int = 1400) -> str:
+    def compress(self, content: str, mode: VerbosityMode, max_chars: int = 4000) -> str:
         """Compress content only when concise mode is requested."""
         if mode != VerbosityMode.CONCISE:
             return content
@@ -33,8 +33,8 @@ class ResponseCompressor:
         if blocks and blocks[0].startswith("#"):
             heading = blocks.pop(0)
 
-        summary_blocks = blocks[:2]
-        artifact_lines = self._extract_lines(text, self._ARTIFACT_PATTERN, limit=3)
+        summary_blocks = blocks[:4]  # Increased from 2 to 4 blocks
+        artifact_lines = self._extract_lines(text, self._ARTIFACT_PATTERN, limit=8)  # Increased from 3 to 8
         caveat_line = self._extract_first_matching_line(text, self._CAVEAT_PATTERN)
         next_step_line = self._extract_first_matching_line(text, self._ACTION_PATTERN)
 

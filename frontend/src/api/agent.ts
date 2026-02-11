@@ -77,11 +77,6 @@ export interface ResumeSessionOptions {
   persist_login_state?: boolean;
 }
 
-export interface OpenReplayLinkRequest {
-  openreplay_session_id: string;
-  openreplay_session_url?: string;
-}
-
 /**
  * Resume a paused session after user takeover
  * This resumes agent execution after the user finishes their takeover session
@@ -90,17 +85,6 @@ export interface OpenReplayLinkRequest {
  */
 export async function resumeSession(sessionId: string, options?: ResumeSessionOptions): Promise<void> {
   await apiClient.post<ApiResponse<void>>(`/sessions/${sessionId}/resume`, options || {});
-}
-
-/**
- * Link an OpenReplay session to a Pythinker session
- * Stores the OpenReplay session ID and URL for replay access.
- */
-export async function linkOpenReplaySession(
-  sessionId: string,
-  payload: OpenReplayLinkRequest
-): Promise<void> {
-  await apiClient.post<ApiResponse<void>>(`/sessions/${sessionId}/openreplay`, payload);
 }
 
 export async function renameSession(sessionId: string, title: string): Promise<void> {

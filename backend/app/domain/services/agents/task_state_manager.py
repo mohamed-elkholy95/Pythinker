@@ -56,6 +56,9 @@ class TaskState:
     key_findings: list[str] = field(default_factory=list)
     current_step_index: int = 0
     last_updated: datetime = field(default_factory=datetime.now)
+    # Track visited URLs and search queries to survive token trimming
+    visited_urls: set[str] = field(default_factory=set)
+    searched_queries: set[str] = field(default_factory=set)
 
     def add_step(self, description: str, status: str = "pending", step_id: str | None = None) -> None:
         """Add a step to the task"""
@@ -102,6 +105,55 @@ class TaskState:
                 break
         self.last_updated = datetime.now()
         return found
+
+    def record_url(self, url: str) -> bool:
+        """Record a visited URL. Returns True if this is a new URL."""
+        if not url:
+            return False
+        # Normalize URL for dedup (strip trailing slash, fragment)
+        normalized = url.split("#")[0].rstrip("/")
+        is_new = normalized not in self.visited_urls
+        self.visited_urls.add(normalized)
+        return is_new
+
+    def record_query(self, query: str) -> bool:
+        """Record a search query. Returns True if this is a new query."""
+        if not query:
+            return False
+        normalized = query.strip().lower()
+        is_new = normalized not in self.searched_queries
+        self.searched_queries.add(normalized)
+        return is_new
+
+    def get_visited_summary(self) -> str:
+        """Return a compact summary of visited URLs and search queries for context injection.
+
+        This summary survives token trimming because it's regenerated from TaskState
+        (which persists outside of message history) and injected fresh each time.
+        """
+        lines: list[str] = []
+        if self.searched_queries:
+            queries = sorted(self.searched_queries)
+            # Show up to 20, truncate if more
+            shown = queries[:20]
+            lines.append(f"SEARCHES ALREADY PERFORMED ({len(self.searched_queries)} total):")
+            for q in shown:
+                lines.append(f"  - {q}")
+            if len(queries) > 20:
+                lines.append(f"  ... and {len(queries) - 20} more")
+
+        if self.visited_urls:
+            urls = sorted(self.visited_urls)
+            shown = urls[:20]
+            lines.append(f"URLS ALREADY VISITED ({len(self.visited_urls)} total):")
+            for u in shown:
+                lines.append(f"  - {u}")
+            if len(urls) > 20:
+                lines.append(f"  ... and {len(urls) - 20} more")
+
+        if lines:
+            lines.insert(0, "DO NOT re-search or re-visit these. Use different queries/URLs or proceed with findings.")
+        return "\n".join(lines)
 
     def add_finding(self, finding: str) -> None:
         """Add a key finding"""
@@ -181,6 +233,12 @@ class TaskState:
 
         if self.key_findings:
             lines.append(f"FINDINGS: {len(self.key_findings)} key results captured")
+
+        # Include visited URL/query summary so agent doesn't re-search after token trimming
+        visited_summary = self.get_visited_summary()
+        if visited_summary:
+            lines.append("")
+            lines.append(visited_summary)
 
         return "\n".join(lines)
 
@@ -316,6 +374,30 @@ class TaskStateManager:
         if self._state:
             async with self._write_lock:
                 self._state.add_finding(finding)
+
+    def record_url(self, url: str) -> bool:
+        """Record a visited URL (thread-safe, no async needed since sets are append-only)."""
+        if self._state:
+            return self._state.record_url(url)
+        return False
+
+    def record_query(self, query: str) -> bool:
+        """Record a search query (thread-safe, no async needed since sets are append-only)."""
+        if self._state:
+            return self._state.record_query(query)
+        return False
+
+    def get_visited_urls(self) -> set[str]:
+        """Get the set of visited URLs."""
+        if self._state:
+            return self._state.visited_urls
+        return set()
+
+    def get_searched_queries(self) -> set[str]:
+        """Get the set of searched queries."""
+        if self._state:
+            return self._state.searched_queries
+        return set()
 
     def get_context_signal(self) -> str | None:
         """Get compact context signal for prompt injection"""

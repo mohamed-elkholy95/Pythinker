@@ -41,6 +41,9 @@ qdrant-client>=1.12.0
 # Caching
 async-lru>=2.0.0
 
+# Search & Retrieval
+rank-bm25>=0.2.2
+
 # Web scraping
 beautifulsoup4>=4.12.0
 

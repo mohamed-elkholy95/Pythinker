@@ -155,15 +155,28 @@ class MemoryService:
         # Extract keywords
         keywords = self._extract_keywords(content)
 
-        # Generate embedding if enabled and LLM available
+        # Phase 1: Generate both dense and sparse vectors
         embedding = None
+        sparse_vector = None
+        embedding_model = None
+        embedding_provider = None
+        embedding_quality = 1.0
+
         if generate_embedding and self._llm:
             try:
+                # Dense embedding (OpenAI API)
                 embedding = await self._generate_embedding(content)
+                embedding_model = self._embedding_model
+                embedding_provider = "openai" if self._embedding_client else "fallback"
+                embedding_quality = 1.0 if self._embedding_client else 0.5
+
+                # Sparse vector (self-hosted BM25)
+                sparse_vector = self._generate_sparse_vector(content)
+
             except Exception as e:
                 logger.warning(f"Failed to generate embedding: {e}")
 
-        # Create memory entry
+        # Create memory entry with Phase 1 metadata
         memory = MemoryEntry(
             id="",  # Will be generated
             user_id=user_id,
@@ -177,6 +190,10 @@ class MemoryService:
             entities=entities or [],
             tags=tags or [],
             metadata=metadata or {},
+            # Phase 1: Embedding metadata
+            embedding_model=embedding_model,
+            embedding_provider=embedding_provider,
+            embedding_quality=embedding_quality,
         )
 
         # Phase 5: Check if parallel memory writes are enabled
@@ -188,6 +205,7 @@ class MemoryService:
             created_memory = await self._store_memory_parallel(
                 memory=memory,
                 embedding=embedding,
+                sparse_vector=sparse_vector,
                 memory_type=memory_type,
                 importance=importance,
                 tags=tags,
@@ -196,7 +214,7 @@ class MemoryService:
             # Sequential writes (original behavior)
             created_memory = await self._repository.create(memory)
 
-            # Sync to vector store if embedding exists
+            # Phase 1: Sync to vector store with sparse vectors
             if embedding:
                 vector_repo = _get_vector_repo()
                 if vector_repo:
@@ -208,9 +226,27 @@ class MemoryService:
                             memory_type=memory_type.value,
                             importance=importance.value,
                             tags=tags,
+                            sparse_vector=sparse_vector,
+                            session_id=session_id,
+                            created_at=created_memory.created_at,
+                        )
+                        # Phase 1: Mark as synced
+                        await self._repository.update(
+                            created_memory.id,
+                            MemoryUpdate(sync_state="synced"),
                         )
                     except Exception as e:
                         logger.warning(f"Failed to sync memory to vector store: {e}")
+                        # Phase 1: Mark as failed
+                        await self._repository.update(
+                            created_memory.id,
+                            MemoryUpdate(
+                                sync_state="failed",
+                                sync_attempts=1,
+                                last_sync_attempt=datetime.utcnow(),
+                                sync_error=str(e)[:500],
+                            ),
+                        )
 
         return created_memory
 
@@ -218,6 +254,7 @@ class MemoryService:
         self,
         memory: MemoryEntry,
         embedding: list[float],
+        sparse_vector: dict[int, float] | None,
         memory_type: MemoryType,
         importance: MemoryImportance,
         tags: list[str] | None,
@@ -230,7 +267,8 @@ class MemoryService:
 
         Args:
             memory: Memory entry to store
-            embedding: Embedding vector
+            embedding: Dense embedding vector
+            sparse_vector: BM25 sparse vector (Phase 1)
             memory_type: Type of memory
             importance: Importance level
             tags: Optional tags
@@ -245,7 +283,7 @@ class MemoryService:
             logger.error(f"MongoDB write failed: {e}")
             raise
 
-        # Vector store write (non-blocking for caller — failure is logged but not raised)
+        # Phase 1: Vector store write with sparse vectors and sync tracking
         vector_repo = _get_vector_repo()
         if vector_repo:
             try:
@@ -256,9 +294,27 @@ class MemoryService:
                     memory_type=memory_type.value,
                     importance=importance.value,
                     tags=tags,
+                    sparse_vector=sparse_vector,
+                    session_id=memory.session_id,
+                    created_at=mongo_result.created_at,
+                )
+                # Mark as synced
+                await self._repository.update(
+                    mongo_result.id,
+                    MemoryUpdate(sync_state="synced"),
                 )
             except Exception as e:
                 logger.warning(f"Memory created in MongoDB but vector store sync failed: {e}")
+                # Mark as failed
+                await self._repository.update(
+                    mongo_result.id,
+                    MemoryUpdate(
+                        sync_state="failed",
+                        sync_attempts=1,
+                        last_sync_attempt=datetime.utcnow(),
+                        sync_error=str(e)[:500],
+                    ),
+                )
 
         return mongo_result
 
@@ -1001,7 +1057,7 @@ class MemoryService:
         return list(dict.fromkeys(keywords))[:20]
 
     async def _generate_embedding(self, text: str) -> list[float]:
-        """Generate embedding vector for text.
+        """Generate dense embedding vector for text.
 
         Uses dedicated embedding client (OpenAI-compatible) if available.
         Falls back to simple TF-IDF-like vectors for basic functionality.
@@ -1034,6 +1090,29 @@ class MemoryService:
         # Fallback: Simple hash-based embedding
         # Note: Uses 1536 dimensions to match vector store collection config
         return self._compute_simple_embedding(text, dim=1536)
+
+    def _generate_sparse_vector(self, text: str) -> dict[int, float]:
+        """Generate BM25 sparse vector for text.
+
+        Phase 1: Uses self-hosted BM25 encoder for keyword search.
+
+        Args:
+            text: Text to generate sparse vector for
+
+        Returns:
+            Sparse vector as {index: score} dict
+        """
+        from app.domain.services.embeddings.bm25_encoder import get_bm25_encoder
+
+        encoder = get_bm25_encoder()
+
+        # If encoder not fitted, return empty sparse vector
+        # (will be fitted when first memories are stored)
+        if encoder.bm25 is None:
+            logger.debug("BM25 encoder not fitted yet, skipping sparse vector generation")
+            return {}
+
+        return encoder.encode(text)
 
     def _compute_simple_embedding(self, text: str, dim: int = 256) -> list[float]:
         """Compute a simple hash-based embedding for fallback.

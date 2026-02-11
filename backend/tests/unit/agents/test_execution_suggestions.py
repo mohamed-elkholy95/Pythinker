@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.domain.models.event import ReportEvent, SuggestionEvent
+from app.domain.models.event import ErrorEvent, ReportEvent, SuggestionEvent
 from app.domain.services.agents.execution import ExecutionAgent
 
 
@@ -192,3 +192,81 @@ class TestExecutionAgentSuggestionAnchorExcerpt:
         assert excerpt is not None
         assert len(excerpt) <= 500  # Should be bounded to prevent bloat
         assert "test completion" in excerpt.lower()
+
+
+class TestExecutionAgentDeliveryIntegrityGate:
+    """Test Delivery Integrity Gate behavior in summarize()."""
+
+    @pytest.fixture
+    def mock_agent_repository(self):
+        repo = AsyncMock()
+        repo.get_memory = AsyncMock(return_value=MagicMock(messages=[], empty=True))
+        repo.save_memory = AsyncMock()
+        return repo
+
+    @pytest.fixture
+    def executor(self, mock_llm, mock_agent_repository, mock_json_parser):
+        return ExecutionAgent(
+            agent_id="test-executor",
+            agent_repository=mock_agent_repository,
+            llm=mock_llm,
+            tools=[],
+            json_parser=mock_json_parser,
+            feature_flags={"delivery_integrity_gate": True},
+        )
+
+    @pytest.mark.asyncio
+    async def test_delivery_integrity_blocks_unresolved_stream_truncation(self, executor, mock_llm):
+        """When truncation persists, summarize should fail closed."""
+        mock_llm.ask.return_value = {"content": '["Suggestion 1"]'}
+
+        async def always_truncated_stream(*args, **kwargs):
+            mock_llm.last_stream_metadata = {
+                "finish_reason": "length",
+                "truncated": True,
+                "provider": "test",
+            }
+            yield "# Report\nPartial output"
+
+        mock_llm.ask_stream = always_truncated_stream
+
+        events = []
+        async for event in executor.summarize():
+            events.append(event)
+
+        assert any(isinstance(event, ErrorEvent) for event in events)
+        assert not any(isinstance(event, ReportEvent) for event in events)
+
+    @pytest.mark.asyncio
+    async def test_delivery_integrity_recovers_after_single_continuation(self, executor, mock_llm):
+        """If continuation succeeds, summarize should complete and emit report."""
+        call_count = {"value": 0}
+        mock_llm.ask.return_value = {"content": '["Suggestion 1"]'}
+
+        async def truncated_then_complete_stream(*args, **kwargs):
+            call_count["value"] += 1
+            if call_count["value"] == 1:
+                mock_llm.last_stream_metadata = {
+                    "finish_reason": "length",
+                    "truncated": True,
+                    "provider": "test",
+                }
+                yield "# Report\nPart 1"
+                return
+
+            mock_llm.last_stream_metadata = {
+                "finish_reason": "stop",
+                "truncated": False,
+                "provider": "test",
+            }
+            yield "\nPart 2 complete."
+
+        mock_llm.ask_stream = truncated_then_complete_stream
+
+        events = []
+        async for event in executor.summarize():
+            events.append(event)
+
+        assert call_count["value"] == 2
+        assert any(isinstance(event, ReportEvent) for event in events)
+        assert not any(isinstance(event, ErrorEvent) for event in events)

@@ -489,6 +489,14 @@ class AgentDomainService:
         if task:
             task.cancel()
 
+        # Update status BEFORE sandbox destruction so frontend sees COMPLETED immediately
+        # This prevents the race condition where page refresh sees RUNNING status
+        # while sandbox is being asynchronously torn down
+        target_session.task_id = None
+        if status is not None:
+            target_session.status = status
+        await self._session_repository.save(target_session)
+
         if destroy_sandbox and target_session.sandbox_id:
             owns_sandbox = target_session.sandbox_owned or target_session.sandbox_lifecycle_mode == "ephemeral"
             if target_session.sandbox_lifecycle_mode is None and not target_session.sandbox_owned:
@@ -515,14 +523,11 @@ class AgentDomainService:
                     target_session.sandbox_id,
                 )
 
-        target_session.task_id = None
-        if destroy_sandbox:
+            # Clear sandbox references after destruction
             target_session.sandbox_id = None
             target_session.sandbox_owned = False
             target_session.sandbox_created_at = None
-        if status is not None:
-            target_session.status = status
-        await self._session_repository.save(target_session)
+            await self._session_repository.save(target_session)
 
         # Clean up session lock to prevent unbounded growth
         self._task_creation_locks.pop(session_id, None)
@@ -1052,6 +1057,55 @@ NOTE: The browser state may have changed. When you next use the browser:
                     session_id=session_id,
                 )
                 logger.info(f"Extracted {len(extracted)} memories from session {session_id}")
+
+            # Store visited URLs and search queries as cross-session memory
+            # This allows Qdrant to surface relevant prior research in future sessions
+            try:
+                from app.domain.services.agents.task_state_manager import get_task_state_manager
+
+                tsm = get_task_state_manager()
+                visited_urls = tsm.get_visited_urls()
+                searched_queries = tsm.get_searched_queries()
+
+                if visited_urls or searched_queries:
+                    from app.domain.models.long_term_memory import (
+                        MemoryImportance,
+                        MemorySource,
+                        MemoryType,
+                    )
+
+                    research_summary_parts = []
+                    if task_description:
+                        research_summary_parts.append(f"Research task: {task_description[:200]}")
+                    if searched_queries:
+                        research_summary_parts.append(
+                            f"Search queries used: {', '.join(sorted(searched_queries)[:15])}"
+                        )
+                    if visited_urls:
+                        research_summary_parts.append(
+                            f"URLs visited ({len(visited_urls)}): {', '.join(sorted(visited_urls)[:10])}"
+                        )
+
+                    research_summary = "\n".join(research_summary_parts)
+                    await self._memory_service.store_memory(
+                        user_id=user_id,
+                        content=research_summary,
+                        memory_type=MemoryType.PROJECT_CONTEXT,
+                        importance=MemoryImportance.LOW,
+                        source=MemorySource.SYSTEM,
+                        session_id=session_id,
+                        tags=["research_history", "visited_urls"],
+                        metadata={
+                            "url_count": len(visited_urls),
+                            "query_count": len(searched_queries),
+                        },
+                    )
+                    logger.info(
+                        f"Stored research context memory for session {session_id}: "
+                        f"{len(visited_urls)} URLs, {len(searched_queries)} queries"
+                    )
+            except Exception as e:
+                logger.debug(f"Failed to store research context memory: {e}")
 
         except Exception as e:
             logger.warning(f"Memory extraction failed for session {session_id}: {e}")

@@ -35,7 +35,7 @@ class ResponsePolicy:
     force_detailed_reason: str | None = None
     min_required_sections: list[str] = field(default_factory=list)
     allow_compression: bool = False
-    max_chars: int = 1400
+    max_chars: int = 4000  # Increased from 1400 to preserve more information
 
 
 class ResponsePolicyEngine:
@@ -162,7 +162,7 @@ class ResponsePolicyEngine:
             force_detailed_reason=force_detailed_reason,
             min_required_sections=min_required_sections,
             allow_compression=allow_compression,
-            max_chars=1400 if mode == VerbosityMode.CONCISE else 12000,
+            max_chars=4000 if mode == VerbosityMode.CONCISE else 12000,  # Increased from 1400
         )
 
     def should_request_clarification(self, assessment: TaskAssessment, clarification_policy: str = "auto") -> bool:

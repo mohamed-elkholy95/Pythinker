@@ -7,7 +7,7 @@ This guide reflects the current live/replay setup.
 - Live view through `LiveViewer`
 - CDP screencast as primary renderer
 - Automatic VNC fallback when CDP fails
-- OpenReplay-first replay with screenshot fallback
+- Screenshot-based replay for completed sessions
 
 ## Prerequisites
 
@@ -39,8 +39,7 @@ Expected behavior:
 3. Open replay.
 
 Expected behavior:
-- If OpenReplay session is linked, embedded OpenReplay player is used.
-- If unavailable, screenshot replay is used.
+- Screenshot replay is shown for completed/failed sessions when screenshots exist.
 
 ## Key Config
 
@@ -48,7 +47,6 @@ Set frontend env (via compose env vars):
 
 ```bash
 VITE_LIVE_RENDERER=cdp   # cdp | vnc
-VITE_OPENREPLAY_ENABLED=true
 ```
 
 Notes:
@@ -71,10 +69,10 @@ Notes:
 docker exec pyth-main-sandbox-1 supervisorctl status
 ```
 
-### Replay not showing OpenReplay
+### Replay not showing screenshots
 
-- Confirm session has linked OpenReplay metadata in backend response.
-- Confirm OpenReplay env vars are configured in frontend.
+- Confirm session has screenshots available from backend endpoints.
+- Confirm the session is in `completed` or `failed` status.
 
 ## References
 

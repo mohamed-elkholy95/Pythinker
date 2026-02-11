@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 class AgentService:
     MAX_CREATE_SESSION_WAIT_SECONDS = 5.0
-    CHAT_EVENT_TIMEOUT_SECONDS = 60.0
+    CHAT_EVENT_TIMEOUT_SECONDS = 120.0  # Increased from 60s to accommodate CoVe + Critic post-processing
     CHAT_WARMUP_WAIT_SECONDS = 10.0
     BROWSER_PREWARM_TIMEOUT_SECONDS = 12.0
 
@@ -691,27 +691,6 @@ class AgentService:
         if result:
             logger.info(f"Session {session_id} resumed successfully")
         return result
-
-    async def link_openreplay_session(
-        self,
-        session_id: str,
-        user_id: str,
-        openreplay_session_id: str,
-        openreplay_session_url: str | None = None,
-    ) -> bool:
-        """Link OpenReplay session metadata to a Pythinker session."""
-        logger.info(f"Linking OpenReplay session for {session_id} (user {user_id})")
-        session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
-        if not session:
-            logger.error(f"Session {session_id} not found for user {user_id}")
-            return False
-
-        updates = {"openreplay_session_id": openreplay_session_id}
-        if openreplay_session_url is not None:
-            updates["openreplay_session_url"] = openreplay_session_url
-
-        await self._session_repository.update_by_id(session_id, updates)
-        return True
 
     async def rename_session(self, session_id: str, user_id: str, title: str) -> None:
         """Rename a session, ensuring it belongs to the user"""

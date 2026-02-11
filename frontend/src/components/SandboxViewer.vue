@@ -3,7 +3,6 @@
     ref="containerRef"
     class="sandbox-viewer-wrapper"
     :class="{ 'interactive': isInteractive }"
-    data-openreplay-canvas="true"
   >
     <!-- Placeholder for loading/text-only operations -->
     <LoadingState
@@ -14,7 +13,7 @@
       :animation="placeholderAnimation || 'globe'"
     />
 
-    <!-- CDP Screencast View - Canvas-based for OpenReplay capture -->
+    <!-- CDP Screencast View -->
     <div v-else-if="enabled" class="sandbox-content-inner">
       <!-- Loading overlay -->
       <div v-if="isLoading" class="sandbox-loading">
@@ -29,13 +28,11 @@
         <button @click="reconnect" class="sandbox-retry-btn">Retry</button>
       </div>
 
-      <!-- Canvas for frame rendering - optimized for OpenReplay capture -->
+      <!-- Canvas for frame rendering -->
       <canvas
         ref="canvasRef"
         class="sandbox-canvas"
         :class="{ 'view-only': viewOnly }"
-        data-openreplay-canvas="true"
-        data-openreplay-canvas-quality="medium"
         @click="handleCanvasClick"
       ></canvas>
 
@@ -77,7 +74,6 @@ import InactiveState from '@/components/toolViews/shared/InactiveState.vue'
 import WideResearchOverlay from '@/components/WideResearchOverlay.vue'
 import { useSandboxInput } from '@/composables/useSandboxInput'
 import { useWideResearchGlobal } from '@/composables/useWideResearch'
-import { markCanvasForRecording } from '@/composables/useOpenReplay'
 import { getScreencastUrl, getInputStreamUrl } from '@/api/agent'
 
 const props = withDefaults(
@@ -316,9 +312,6 @@ function setupCanvas(): void {
     alpha: false,
     desynchronized: true // Better performance
   })
-
-  // Mark canvas for OpenReplay recording
-  markCanvasForRecording(canvasRef.value)
 }
 
 // Display a frame from binary data on canvas

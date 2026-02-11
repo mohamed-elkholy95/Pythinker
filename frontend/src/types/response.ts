@@ -34,8 +34,6 @@ export interface GetSessionResponse {
     status: SessionStatus;
     events: AgentSSEEvent[];
     is_shared: boolean;
-    openreplay_session_id?: string | null;
-    openreplay_session_url?: string | null;
 }
 
 export interface ListSessionItem {
@@ -46,8 +44,6 @@ export interface ListSessionItem {
     status: SessionStatus;
     unread_message_count: number;
     is_shared: boolean;
-    openreplay_session_id?: string | null;
-    openreplay_session_url?: string | null;
 }
 
 export interface ListSessionResponse {
@@ -87,7 +83,5 @@ export interface SharedSessionResponse {
     status: SessionStatus;
     events: AgentSSEEvent[];
     is_shared: boolean;
-    openreplay_session_id?: string | null;
-    openreplay_session_url?: string | null;
 }
   

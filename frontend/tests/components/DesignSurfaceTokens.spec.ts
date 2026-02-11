@@ -5,7 +5,6 @@ import { resolve } from 'node:path';
 const SURFACE_FILES = [
   'src/pages/SessionHistoryPage.vue',
   'src/components/SandboxViewer.vue',
-  'src/components/SessionReplayPlayer.vue',
   'src/components/ReplayTimeline.vue',
   'src/components/SessionFileList.vue',
 ];

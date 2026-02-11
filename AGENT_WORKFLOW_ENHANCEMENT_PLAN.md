@@ -18,7 +18,7 @@ The system implements multiple workflow patterns:
 - **Distributed Tracing**: Span-based observability with OpenTelemetry
 - **LLM Tracing**: Cost and token usage tracking
 - **Prometheus Metrics**: Performance counters and gauges
-- **OpenReplay Integration**: Session recording and replay
+- **Screenshot Replay Integration**: Session timeline replay and debugging
 
 ## Identified Monitoring Gaps and Deficiencies
 

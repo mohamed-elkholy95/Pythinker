@@ -48,7 +48,9 @@ async def test_stop_session_destroys_sandbox_and_clears_session_references():
     assert session.sandbox_id is None
     assert session.task_id is None
     assert session.sandbox_owned is False
-    session_repo.save.assert_awaited_once_with(session)
+    # save() is called twice: once before sandbox destruction (status + task_id)
+    # and once after (clearing sandbox references)
+    assert session_repo.save.await_count == 2
 
 
 @pytest.mark.asyncio

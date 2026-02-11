@@ -82,10 +82,6 @@ class Session(BaseModel):
     # Browser takeover settings
     persist_login_state: bool | None = None  # Whether to persist browser login state across tasks
 
-    # OpenReplay session tracking
-    openreplay_session_id: str | None = None  # OpenReplay session ID for replay
-    openreplay_session_url: str | None = None  # Direct URL to OpenReplay session
-
     def get_last_plan(self) -> Plan | None:
         """Get the last plan from the events"""
         for event in reversed(self.events):

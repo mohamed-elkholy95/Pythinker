@@ -5,6 +5,7 @@ Supports Claude Opus 4, Sonnet 4, and other Claude models.
 """
 
 import asyncio
+import inspect
 import json
 import logging
 from collections.abc import AsyncGenerator
@@ -68,6 +69,7 @@ class AnthropicLLM(LLM):
         self._model_name = model_name or settings.anthropic_model_name
         self._temperature = temperature if temperature is not None else settings.temperature
         self._max_tokens = max_tokens if max_tokens is not None else settings.max_tokens
+        self._last_stream_metadata: dict[str, Any] | None = None
 
         self.client = anthropic.AsyncAnthropic(api_key=self._api_key)
 
@@ -84,6 +86,10 @@ class AnthropicLLM(LLM):
     @property
     def max_tokens(self) -> int:
         return self._max_tokens
+
+    @property
+    def last_stream_metadata(self) -> dict[str, Any] | None:
+        return self._last_stream_metadata
 
     async def _record_usage(self, response: Any) -> None:
         """Record usage from Anthropic response if usage context is set.
@@ -532,6 +538,8 @@ class AnthropicLLM(LLM):
         Yields:
             Content chunks as strings
         """
+        self._last_stream_metadata = None
+
         # Convert messages to Anthropic format
         system_prompt, anthropic_messages = self._convert_openai_messages_to_anthropic(messages)
 
@@ -571,24 +579,59 @@ class AnthropicLLM(LLM):
                         completion_parts.append(text)
                         yield text
 
+                    stop_reason = None
+                    final_message_getter = getattr(stream, "get_final_message", None)
+                    if callable(final_message_getter):
+                        final_message = final_message_getter()
+                        if inspect.isawaitable(final_message):
+                            final_message = await final_message
+                        stop_reason = getattr(final_message, "stop_reason", None)
+
                 if completion_parts:
                     await self._record_stream_usage(messages, "".join(completion_parts), tools=tools)
                 else:
                     await self._record_stream_usage(messages, "", tools=tools)
+
+                normalized_finish_reason = "length" if stop_reason == "max_tokens" else (stop_reason or "stop")
+                self._last_stream_metadata = {
+                    "finish_reason": normalized_finish_reason,
+                    "truncated": normalized_finish_reason == "length",
+                    "provider": "anthropic",
+                }
+                if normalized_finish_reason == "length":
+                    logger.warning("Anthropic streaming response truncated (stop_reason=max_tokens)")
                 return  # Success
 
             except anthropic.BadRequestError as e:
+                self._last_stream_metadata = {
+                    "finish_reason": "error",
+                    "truncated": False,
+                    "provider": "anthropic",
+                    "error": "bad_request",
+                }
                 error_msg = str(e).lower()
                 if "token" in error_msg or "context" in error_msg:
                     raise TokenLimitExceededError(str(e)) from e
                 raise
 
             except (anthropic.APIConnectionError, anthropic.InternalServerError) as e:
+                self._last_stream_metadata = {
+                    "finish_reason": "error",
+                    "truncated": False,
+                    "provider": "anthropic",
+                    "error": type(e).__name__,
+                }
                 logger.warning(f"Anthropic stream transient error on attempt {attempt + 1}: {e}")
                 if attempt == max_retries:
                     raise
 
             except anthropic.RateLimitError as e:
+                self._last_stream_metadata = {
+                    "finish_reason": "error",
+                    "truncated": False,
+                    "provider": "anthropic",
+                    "error": "rate_limit",
+                }
                 logger.warning(f"Anthropic stream rate limit on attempt {attempt + 1}: {e}")
                 if attempt == max_retries:
                     raise

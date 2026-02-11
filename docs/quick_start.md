@@ -33,5 +33,5 @@ docker compose down
 ## Notes
 
 - Live browser view is CDP-first with VNC fallback.
-- Replay is OpenReplay-first with screenshot fallback.
+- Replay uses screenshot timeline playback.
 - For full live/replay setup details, see `docs/guides/OPENREPLAY.md`.

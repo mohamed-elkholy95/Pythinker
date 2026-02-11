@@ -86,8 +86,6 @@ class GetSessionResponse(BaseModel):
     status: SessionStatus
     events: list[AgentSSEEvent] = []
     is_shared: bool = False
-    openreplay_session_id: str | None = None
-    openreplay_session_url: str | None = None
 
 
 class ListSessionItem(BaseModel):
@@ -100,8 +98,6 @@ class ListSessionItem(BaseModel):
     status: SessionStatus
     unread_message_count: int
     is_shared: bool = False
-    openreplay_session_id: str | None = None
-    openreplay_session_url: str | None = None
 
 
 class ListSessionResponse(BaseModel):
@@ -125,15 +121,6 @@ class SharedSessionResponse(BaseModel):
     status: SessionStatus
     events: list[AgentSSEEvent] = []
     is_shared: bool
-    openreplay_session_id: str | None = None
-    openreplay_session_url: str | None = None
-
-
-class OpenReplaySessionRequest(BaseModel):
-    """Link OpenReplay session metadata to a Pythinker session"""
-
-    openreplay_session_id: str
-    openreplay_session_url: str | None = None
 
 
 class DeepResearchApproveRequest(BaseModel):

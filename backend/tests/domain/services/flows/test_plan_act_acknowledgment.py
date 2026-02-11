@@ -15,8 +15,8 @@ def test_research_acknowledgment_is_specific_not_generic() -> None:
     )
     acknowledgment = gen.generate(message)
 
-    assert acknowledgment.startswith("I've received your request")
-    assert "latest tools and data" in acknowledgment
+    assert acknowledgment.split(" ", 1)[0] in {"Understood.", "Got", "Sounds", "All"}
+    assert "research plan" in acknowledgment.lower()
     assert "1." not in acknowledgment
     assert len(acknowledgment) < 220
 
@@ -37,8 +37,31 @@ def test_research_acknowledgment_for_short_prompt_mentions_topic() -> None:
     message = "Research the latest Claude Code model updates"
     acknowledgment = gen.generate(message)
 
-    assert acknowledgment.startswith("I've received your request")
-    assert "claude code model updates" in acknowledgment.lower()
+    assert "research request" in acknowledgment.lower()
+    assert "research plan" in acknowledgment.lower()
+
+
+def test_research_acknowledgment_normalizes_messy_prompt_text() -> None:
+    gen = _make_generator()
+
+    message = "Create a comprehensive research report on: compare sonnet 4.5 and opus4.6 with loweffort settings"
+    acknowledgment = gen.generate(message)
+
+    assert "working" not in acknowledgment.lower()
+    assert "i've received your request" not in acknowledgment.lower()
+    assert "compoore" not in acknowledgment.lower()
+    assert "sonet" not in acknowledgment.lower()
+    assert "research plan" in acknowledgment.lower()
+
+
+def test_research_acknowledgment_uses_search_prompt_label_when_present() -> None:
+    gen = _make_generator()
+
+    message = "Run research using this search text prompt for model comparison"
+    acknowledgment = gen.generate(message)
+
+    assert "search prompt" in acknowledgment.lower()
+    assert "research plan" in acknowledgment.lower()
 
 
 def test_extract_request_focus_trims_boilerplate() -> None:

@@ -44,8 +44,7 @@ Expected:
 2. Open session history replay.
 
 Expected:
-- OpenReplay player is used when linked.
-- Screenshot replay is used as fallback.
+- Screenshot replay is shown when screenshots are available.
 
 ## 5) Useful Logs
 

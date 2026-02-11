@@ -196,7 +196,7 @@ export function useWideResearch() {
 
   /**
    * Process a tool event to update wide research state
-   * Call this from useAgentEvents when handling tool events
+   * Call this from the SSE event handler when handling tool events
    */
   function handleToolEvent(event: {
     name: string

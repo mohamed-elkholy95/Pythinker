@@ -50,6 +50,7 @@ class OpenAILLM(LLM):
         self._max_tokens = settings.max_tokens
         self._api_base = settings.api_base
         self._supports_stream_usage = self._detect_stream_usage_support()
+        self._last_stream_metadata: dict[str, Any] | None = None
 
         # Detect if using local MLX server (doesn't support native tool calling)
         self._is_mlx_mode = self._detect_mlx_mode()
@@ -434,6 +435,10 @@ To extract data from a webpage:
     @property
     def max_tokens(self) -> int:
         return self._max_tokens
+
+    @property
+    def last_stream_metadata(self) -> dict[str, Any] | None:
+        return self._last_stream_metadata
 
     def _strip_reasoning_content(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Strip reasoning_content from assistant messages to avoid thinking API errors.
@@ -1254,6 +1259,8 @@ To extract data from a webpage:
         Yields:
             Content chunks as strings
         """
+        self._last_stream_metadata = None
+
         # Validate and fix message sequence
         messages = self._validate_and_fix_messages(messages)
 
@@ -1261,6 +1268,12 @@ To extract data from a webpage:
         if self._is_mlx_mode:
             result = await self.ask(messages, tools, response_format, tool_choice, enable_caching)
             content = result.get("content", "")
+            finish_reason = result.get("_finish_reason")
+            self._last_stream_metadata = {
+                "finish_reason": finish_reason or "stop",
+                "truncated": finish_reason == "length",
+                "provider": "openai",
+            }
             if content:
                 yield content
             return
@@ -1298,6 +1311,7 @@ To extract data from a webpage:
 
         completion_parts: list[str] = []
         usage_counts: dict[str, int] | None = None
+        finish_reason: str | None = None
 
         try:
             stream = await self.client.chat.completions.create(**params)
@@ -1316,6 +1330,8 @@ To extract data from a webpage:
                     }
                 if chunk.choices:
                     delta = chunk.choices[0].delta
+                    if chunk.choices[0].finish_reason:
+                        finish_reason = chunk.choices[0].finish_reason
                     if delta.content:
                         completion_parts.append(delta.content)
                         yield delta.content
@@ -1338,7 +1354,22 @@ To extract data from a webpage:
                     tools=tools,
                 )
 
+            normalized_finish_reason = finish_reason or "stop"
+            self._last_stream_metadata = {
+                "finish_reason": normalized_finish_reason,
+                "truncated": normalized_finish_reason == "length",
+                "provider": "openai",
+            }
+            if normalized_finish_reason == "length":
+                logger.warning("OpenAI streaming response truncated (finish_reason=length)")
+
         except RateLimitError as e:
+            self._last_stream_metadata = {
+                "finish_reason": "error",
+                "truncated": False,
+                "provider": "openai",
+                "error": "rate_limit",
+            }
             retry_after = None
             if hasattr(e, "response") and e.response is not None:
                 retry_after_header = e.response.headers.get("Retry-After") or e.response.headers.get("retry-after")
@@ -1352,6 +1383,12 @@ To extract data from a webpage:
             # Re-raise to let caller retry the entire stream
             raise
         except Exception as e:
+            self._last_stream_metadata = {
+                "finish_reason": "error",
+                "truncated": False,
+                "provider": "openai",
+                "error": type(e).__name__,
+            }
             error_msg = str(e).lower()
             if any(
                 term in error_msg

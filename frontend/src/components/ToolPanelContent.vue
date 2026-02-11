@@ -90,20 +90,12 @@
             :is-final="!isSummaryStreaming"
           />
 
-          <!-- Replay mode: OpenReplay player (preferred) or static screenshots -->
+          <!-- Replay mode: static screenshots -->
           <div
             v-else-if="currentViewType === 'vnc' && isReplayMode"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
-            <SessionReplayPlayer
-              v-if="openReplaySessionId && !openReplayFailed"
-              :session-id="sessionId"
-              :open-replay-session-id="openReplaySessionId"
-              class="w-full h-full"
-              @error="handleOpenReplayError"
-            />
             <ScreenshotReplayViewer
-              v-else
               :src="replayScreenshotUrl || ''"
               :metadata="replayMetadata || null"
             />
@@ -298,7 +290,6 @@ import GenericContentView from '@/components/toolViews/GenericContentView.vue';
 import StreamingReportView from '@/components/toolViews/StreamingReportView.vue';
 import WideResearchOverlay from '@/components/WideResearchOverlay.vue';
 import ScreenshotReplayViewer from '@/components/ScreenshotReplayViewer.vue';
-import SessionReplayPlayer from '@/components/SessionReplayPlayer.vue';
 import { useWideResearchGlobal } from '@/composables/useWideResearch';
 import { normalizeSearchResults } from '@/utils/searchResults';
 import type { SearchResultsEnvelope, SearchResultsPayload } from '@/types/search';
@@ -321,7 +312,6 @@ const props = defineProps<{
   isReplayMode?: boolean;
   replayScreenshotUrl?: string;
   replayMetadata?: ScreenshotMetadata | null;
-  openReplaySessionId?: string | null;
   summaryStreamText?: string;
   isSummaryStreaming?: boolean;
 }>();
@@ -690,14 +680,6 @@ onUnmounted(() => {
 const fileContent = ref('');
 const originalContent = ref('');
 const vncDisconnected = ref(false);
-const openReplayFailed = ref(false);
-
-watch(
-  () => [props.openReplaySessionId, props.sessionId] as const,
-  () => {
-    openReplayFailed.value = false;
-  }
-);
 
 const getToolContentText = () => {
   const content = props.toolContent?.content;
@@ -958,10 +940,6 @@ const onVNCConnected = () => {
 };
 const onVNCDisconnected = () => {
   vncDisconnected.value = true;
-};
-
-const handleOpenReplayError = () => {
-  openReplayFailed.value = true;
 };
 
 const onNewTerminalContent = () => {

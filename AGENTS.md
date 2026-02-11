@@ -8,6 +8,7 @@ Concise instructions for automated agents working in this repo.
 - **Read first**: read `instructions.md` before making changes.
 - **Reuse before creating**: search the codebase for existing components/utilities/services and extend them instead of duplicating.
 - **Simplicity first**: prefer straightforward, robust solutions; avoid unnecessary complexity.
+- **Integration policy**: when integrating solutions/services, prioritize self-hosted, zero-cost, open-source options; avoid external dependencies and keep integrations fully self-contained.
 - **Full-stack design**: consider front-end and back-end impact together.
 - **Dependency rule**: Domain → Application → Infrastructure → Interfaces (inward only).
 - **SOLID**: single responsibility; depend on abstractions; inject dependencies.
@@ -17,6 +18,7 @@ Concise instructions for automated agents working in this repo.
 - **Pydantic v2**: `@field_validator` must be `@classmethod` (guarded by `backend/tests/test_pydantic_validators.py`).
 - **Plan execution**: complete all phases; priorities indicate order, not optional steps.
 - **Backend env**: always use `conda activate pythinker`.
+- **Development-only environment**: this repo is development-only with no production users. Prioritize flexibility and experimentation; unrestricted iteration and breaking changes are allowed, and no decisions need to optimize for production stability, data retention, or user impact.
 
 ## Checks (before committing)
 

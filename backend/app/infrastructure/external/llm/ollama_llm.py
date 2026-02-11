@@ -58,6 +58,7 @@ class OllamaLLM(LLM):
 
         self._temperature = temperature if temperature is not None else settings.temperature
         self._max_tokens = max_tokens if max_tokens is not None else settings.max_tokens
+        self._last_stream_metadata: dict[str, Any] | None = None
 
         self._api_url = f"{self._base_url}/api"
 
@@ -74,6 +75,10 @@ class OllamaLLM(LLM):
     @property
     def max_tokens(self) -> int:
         return self._max_tokens
+
+    @property
+    def last_stream_metadata(self) -> dict[str, Any] | None:
+        return self._last_stream_metadata
 
     def _tools_to_text(self, tools: list[dict[str, Any]]) -> str:
         """Convert OpenAI tools format to text description.
@@ -417,6 +422,8 @@ Respond ONLY with the JSON object, no other text.""",
         Yields:
             Content chunks as strings
         """
+        self._last_stream_metadata = None
+
         # Convert messages for Ollama
         ollama_messages = self._convert_messages_for_ollama(messages)
 
@@ -425,6 +432,7 @@ Respond ONLY with the JSON object, no other text.""",
 
         completion_parts: list[str] = []
         usage_counts: dict[str, int] | None = None
+        finish_reason: str | None = None
 
         try:
             async with (
@@ -449,6 +457,8 @@ Respond ONLY with the JSON object, no other text.""",
                     if line:
                         try:
                             data = json.loads(line)
+                            if data.get("done") is True:
+                                finish_reason = data.get("done_reason") or finish_reason
                             # Ollama may include usage counts on final chunks
                             prompt_eval = data.get("prompt_eval_count")
                             eval_count = data.get("eval_count")
@@ -473,7 +483,24 @@ Respond ONLY with the JSON object, no other text.""",
             else:
                 await self._record_stream_usage(messages, "".join(completion_parts), tools=tools)
 
+            normalized_finish_reason = finish_reason or "stop"
+            if normalized_finish_reason in {"max_tokens", "length"}:
+                normalized_finish_reason = "length"
+            self._last_stream_metadata = {
+                "finish_reason": normalized_finish_reason,
+                "truncated": normalized_finish_reason == "length",
+                "provider": "ollama",
+            }
+            if normalized_finish_reason == "length":
+                logger.warning("Ollama streaming response truncated (done_reason indicates length)")
+
         except httpx.HTTPStatusError as e:
+            self._last_stream_metadata = {
+                "finish_reason": "error",
+                "truncated": False,
+                "provider": "ollama",
+                "error": "http_error",
+            }
             error_msg = str(e).lower()
             if "context" in error_msg or "token" in error_msg:
                 raise TokenLimitExceededError(str(e)) from e

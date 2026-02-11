@@ -7,7 +7,7 @@ This document defines how tool execution is visualized in the current UI.
 - Live computer view uses `LiveViewer`.
 - `LiveViewer` is CDP-first (`SandboxViewer`) with VNC fallback (`VNCViewer`).
 - Mini previews favor stable, lightweight rendering and may force VNC to avoid CDP contention.
-- Replay is OpenReplay-first, screenshots as fallback.
+- Replay uses screenshot timeline playback.
 
 ## Primary Surfaces
 
@@ -16,7 +16,7 @@ This document defines how tool execution is visualized in the current UI.
 - CDP renderer: `frontend/src/components/SandboxViewer.vue`
 - VNC fallback: `frontend/src/components/VNCViewer.vue`
 - Mini preview: `frontend/src/components/VncMiniPreview.vue`
-- Replay player: `frontend/src/components/SessionReplayPlayer.vue`
+- Replay player: `frontend/src/components/ScreenshotReplayViewer.vue`
 
 ## Tool Category Mapping
 
@@ -34,7 +34,7 @@ This document defines how tool execution is visualized in the current UI.
 2. Frontend updates ToolPanel timeline and active content view.
 3. When live browser context is needed, `LiveViewer` mounts.
 4. `LiveViewer` chooses CDP or fallback VNC.
-5. Replay surfaces use OpenReplay metadata when available.
+5. Replay surfaces use screenshot metadata and image frames.
 
 ## Signed URL Endpoints
 
@@ -52,5 +52,5 @@ This document defines how tool execution is visualized in the current UI.
 - Browser tool starts in CDP by default.
 - CDP disconnect triggers VNC fallback without manual action.
 - Mini preview remains responsive while main view is live.
-- Replay opens OpenReplay when linked; otherwise screenshot replay appears.
+- Replay opens screenshot timeline playback when screenshots are available.
 - No signature mismatch errors for screencast URLs.

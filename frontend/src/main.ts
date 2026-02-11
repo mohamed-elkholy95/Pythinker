@@ -7,7 +7,6 @@ import './assets/theme.css'
 import './utils/toast'
 import i18n from './composables/useI18n'
 import { getStoredToken, getCachedAuthProvider } from './api/auth'
-import { initializeTracker } from './composables/useOpenReplay'
 
 // Configure Monaco Editor Web Workers
 // This prevents UI freezes by offloading syntax highlighting to web workers
@@ -123,10 +122,6 @@ router.beforeEach(async (to, _, next) => {
 })
 
 const app = createApp(App)
-
-// Initialize OpenReplay tracker before mounting
-// This ensures recording starts as early as possible
-initializeTracker()
 
 app.use(router)
 app.use(i18n)
