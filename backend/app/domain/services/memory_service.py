@@ -28,8 +28,10 @@ from app.domain.models.long_term_memory import (
     MemoryType,
     MemoryUpdate,
 )
+from app.domain.models.sync_outbox import OutboxCreate, OutboxOperation
 from app.domain.repositories.memory_repository import MemoryRepository
 from app.domain.repositories.vector_memory_repository import get_vector_memory_repository
+from app.infrastructure.repositories.sync_outbox_repository import SyncOutboxRepository
 
 if TYPE_CHECKING:
     from app.domain.models.memory import Memory
@@ -76,6 +78,9 @@ class MemoryService:
         """
         self._repository = repository
         self._llm = llm
+
+        # Phase 2: Initialize outbox repository for reliable sync
+        self._outbox_repo = SyncOutboxRepository()
 
         # Initialize embedding client (separate from chat model)
         # This allows using OpenAI embeddings while using any chat provider
@@ -214,39 +219,43 @@ class MemoryService:
             # Sequential writes (original behavior)
             created_memory = await self._repository.create(memory)
 
-            # Phase 1: Sync to vector store with sparse vectors
+            # Phase 2: Write to outbox instead of direct Qdrant sync
             if embedding:
-                vector_repo = _get_vector_repo()
-                if vector_repo:
-                    try:
-                        await vector_repo.upsert_memory(
-                            memory_id=created_memory.id,
-                            user_id=created_memory.user_id,
-                            embedding=embedding,
-                            memory_type=memory_type.value,
-                            importance=importance.value,
-                            tags=tags,
-                            sparse_vector=sparse_vector,
-                            session_id=session_id,
-                            created_at=created_memory.created_at,
+                try:
+                    await self._outbox_repo.create(
+                        OutboxCreate(
+                            operation=OutboxOperation.UPSERT,
+                            collection_name="user_knowledge",
+                            payload={
+                                "memory_id": created_memory.id,
+                                "user_id": created_memory.user_id,
+                                "embedding": embedding,
+                                "memory_type": memory_type.value,
+                                "importance": importance.value,
+                                "tags": tags or [],
+                                "sparse_vector": sparse_vector,
+                                "session_id": session_id,
+                                "created_at": created_memory.created_at.isoformat(),
+                            },
                         )
-                        # Phase 1: Mark as synced
-                        await self._repository.update(
-                            created_memory.id,
-                            MemoryUpdate(sync_state="synced"),
-                        )
-                    except Exception as e:
-                        logger.warning(f"Failed to sync memory to vector store: {e}")
-                        # Phase 1: Mark as failed
-                        await self._repository.update(
-                            created_memory.id,
-                            MemoryUpdate(
-                                sync_state="failed",
-                                sync_attempts=1,
-                                last_sync_attempt=datetime.utcnow(),
-                                sync_error=str(e)[:500],
-                            ),
-                        )
+                    )
+                    # Mark as pending sync
+                    await self._repository.update(
+                        created_memory.id,
+                        MemoryUpdate(sync_state="pending"),
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to create outbox entry for memory {created_memory.id}: {e}")
+                    # Mark as failed
+                    await self._repository.update(
+                        created_memory.id,
+                        MemoryUpdate(
+                            sync_state="failed",
+                            sync_attempts=1,
+                            last_sync_attempt=datetime.utcnow(),
+                            sync_error=str(e)[:500],
+                        ),
+                    )
 
         return created_memory
 
@@ -283,38 +292,42 @@ class MemoryService:
             logger.error(f"MongoDB write failed: {e}")
             raise
 
-        # Phase 1: Vector store write with sparse vectors and sync tracking
-        vector_repo = _get_vector_repo()
-        if vector_repo:
-            try:
-                await vector_repo.upsert_memory(
-                    memory_id=mongo_result.id,
-                    user_id=mongo_result.user_id,
-                    embedding=embedding,
-                    memory_type=memory_type.value,
-                    importance=importance.value,
-                    tags=tags,
-                    sparse_vector=sparse_vector,
-                    session_id=memory.session_id,
-                    created_at=mongo_result.created_at,
+        # Phase 2: Write to outbox for async sync
+        try:
+            await self._outbox_repo.create(
+                OutboxCreate(
+                    operation=OutboxOperation.UPSERT,
+                    collection_name="user_knowledge",
+                    payload={
+                        "memory_id": mongo_result.id,
+                        "user_id": mongo_result.user_id,
+                        "embedding": embedding,
+                        "memory_type": memory_type.value,
+                        "importance": importance.value,
+                        "tags": tags or [],
+                        "sparse_vector": sparse_vector,
+                        "session_id": memory.session_id,
+                        "created_at": mongo_result.created_at.isoformat(),
+                    },
                 )
-                # Mark as synced
-                await self._repository.update(
-                    mongo_result.id,
-                    MemoryUpdate(sync_state="synced"),
-                )
-            except Exception as e:
-                logger.warning(f"Memory created in MongoDB but vector store sync failed: {e}")
-                # Mark as failed
-                await self._repository.update(
-                    mongo_result.id,
-                    MemoryUpdate(
-                        sync_state="failed",
-                        sync_attempts=1,
-                        last_sync_attempt=datetime.utcnow(),
-                        sync_error=str(e)[:500],
-                    ),
-                )
+            )
+            # Mark as pending sync
+            await self._repository.update(
+                mongo_result.id,
+                MemoryUpdate(sync_state="pending"),
+            )
+        except Exception as e:
+            logger.error(f"Memory created in MongoDB but outbox write failed: {e}")
+            # Mark as failed
+            await self._repository.update(
+                mongo_result.id,
+                MemoryUpdate(
+                    sync_state="failed",
+                    sync_attempts=1,
+                    last_sync_attempt=datetime.utcnow(),
+                    sync_error=str(e)[:500],
+                ),
+            )
 
         return mongo_result
 
@@ -804,13 +817,17 @@ class MemoryService:
         Returns:
             True if deleted successfully
         """
-        # Delete from vector store first
-        vector_repo = _get_vector_repo()
-        if vector_repo:
-            try:
-                await vector_repo.delete_memory(memory_id)
-            except Exception as e:
-                logger.warning(f"Failed to delete memory from vector store: {e}")
+        # Phase 2: Write delete to outbox instead of direct Qdrant call
+        try:
+            await self._outbox_repo.create(
+                OutboxCreate(
+                    operation=OutboxOperation.DELETE,
+                    collection_name="user_knowledge",
+                    payload={"memory_id": memory_id},
+                )
+            )
+        except Exception as e:
+            logger.warning(f"Failed to create outbox delete entry for memory {memory_id}: {e}")
 
         # Delete from MongoDB
         return await self._repository.delete(memory_id)
@@ -824,13 +841,25 @@ class MemoryService:
         Returns:
             Number of memories deleted from MongoDB
         """
-        # Delete from vector store first
-        vector_repo = _get_vector_repo()
-        if vector_repo:
+        # Get all memory IDs for this user first
+        from app.domain.models.long_term_memory import MemoryQuery
+
+        query = MemoryQuery(user_id=user_id, limit=10000)
+        results = await self._repository.search(query)
+        memory_ids = [r.memory.id for r in results]
+
+        # Phase 2: Write batch delete to outbox
+        if memory_ids:
             try:
-                await vector_repo.delete_user_memories(user_id)
+                await self._outbox_repo.create(
+                    OutboxCreate(
+                        operation=OutboxOperation.BATCH_DELETE,
+                        collection_name="user_knowledge",
+                        payload={"memory_ids": memory_ids},
+                    )
+                )
             except Exception as e:
-                logger.warning(f"Failed to delete user memories from vector store: {e}")
+                logger.warning(f"Failed to create outbox batch delete entry for user {user_id}: {e}")
 
         # Delete from MongoDB
         return await self._repository.delete_by_user(user_id)
@@ -1109,7 +1138,7 @@ class MemoryService:
         # If encoder not fitted, return empty sparse vector
         # (will be fitted when first memories are stored)
         if encoder.bm25 is None:
-            logger.debug("BM25 encoder not fitted yet, skipping sparse vector generation")
+            logger.info("BM25 encoder not fitted yet, using dense-only search for now")
             return {}
 
         return encoder.encode(text)

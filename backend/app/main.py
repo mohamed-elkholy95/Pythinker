@@ -289,6 +289,11 @@ def _initialize_observability() -> None:
             export_to_otel=settings.otel_enabled,
         )
 
+        # Wire domain metrics port to Prometheus-backed counters/histograms
+        from app.infrastructure.observability.metrics_port_adapter import configure_domain_metrics_adapter
+
+        configure_domain_metrics_adapter()
+
         logger.info("Observability components initialized")
     except Exception as e:
         logger.warning(f"Failed to initialize observability: {e}")
@@ -455,6 +460,41 @@ async def lifespan(app: FastAPI):
         _health_state["ready"] = True
         logger.info("Application startup complete - all services initialized")
 
+        # Phase 2: Start sync worker for MongoDB → Qdrant outbox processing
+        sync_worker_task = None
+        if _health_state["qdrant"]:
+            try:
+                from app.domain.services.sync_worker import start_sync_worker
+
+                await start_sync_worker()
+                logger.info("Sync worker started for MongoDB → Qdrant synchronization")
+            except Exception as e:
+                logger.warning(f"Sync worker startup failed (non-critical): {e}")
+
+        # Phase 2: Start reconciliation job background task
+        reconciliation_task = None
+        if _health_state["qdrant"]:
+
+            async def _reconciliation_loop():
+                """Periodic reconciliation -- runs every 5 minutes."""
+                # Wait 1 minute before first run to let system stabilize
+                await asyncio.sleep(60)
+                while True:
+                    try:
+                        from app.domain.services.reconciliation_job import run_reconciliation
+
+                        stats = await run_reconciliation()
+                        if stats.get("failed_retried", 0) > 0 or stats.get("missing_vectors_found", 0) > 0:
+                            logger.info(f"Reconciliation completed: {stats}")
+                        else:
+                            logger.debug(f"Reconciliation completed: {stats}")
+                    except Exception as e:
+                        logger.debug(f"Reconciliation failed (non-critical): {e}")
+                    await asyncio.sleep(300)  # Every 5 minutes
+
+            reconciliation_task = asyncio.create_task(_reconciliation_loop())
+            logger.info("Reconciliation background task started")
+
         # Start background memory cleanup task (Phase 7)
         memory_cleanup_task = None
         if _health_state["qdrant"]:
@@ -482,6 +522,22 @@ async def lifespan(app: FastAPI):
             # Code executed on shutdown
             logger.info("Application shutdown - Pythinker AI Agent terminating")
             _health_state["ready"] = False
+
+            # Phase 2: Stop sync worker
+            if _health_state["qdrant"]:
+                try:
+                    from app.domain.services.sync_worker import stop_sync_worker
+
+                    await stop_sync_worker()
+                    logger.info("Sync worker stopped")
+                except Exception as e:
+                    logger.debug(f"Sync worker shutdown error: {e}")
+
+            # Cancel reconciliation task
+            if reconciliation_task is not None:
+                reconciliation_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await reconciliation_task
 
             # Cancel memory cleanup task
             if memory_cleanup_task is not None:

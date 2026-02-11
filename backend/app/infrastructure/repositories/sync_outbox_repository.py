@@ -1,0 +1,203 @@
+"""MongoDB repository for sync outbox pattern."""
+
+import logging
+from datetime import datetime
+from typing import Any
+
+from motor.motor_asyncio import AsyncIOMotorCollection
+
+from app.domain.models.sync_outbox import (
+    DeadLetterEntry,
+    OutboxCreate,
+    OutboxEntry,
+    OutboxStatus,
+    OutboxUpdate,
+)
+from app.infrastructure.storage.mongodb import get_mongodb
+
+logger = logging.getLogger(__name__)
+
+
+class SyncOutboxRepository:
+    """Repository for managing sync outbox entries."""
+
+    def __init__(self):
+        self._db = get_mongodb().database
+        self._collection: AsyncIOMotorCollection = self._db.sync_outbox
+        self._dlq_collection: AsyncIOMotorCollection = self._db.dead_letter_queue
+
+    async def create(self, entry: OutboxCreate) -> OutboxEntry:
+        """Create a new outbox entry."""
+        outbox_entry = OutboxEntry(
+            operation=entry.operation,
+            collection_name=entry.collection_name,
+            payload=entry.payload,
+            max_retries=entry.max_retries,
+        )
+
+        doc = outbox_entry.model_dump(exclude={"id"})
+        result = await self._collection.insert_one(doc)
+
+        outbox_entry.id = str(result.inserted_id)
+        logger.debug(f"Created outbox entry {outbox_entry.id} for {entry.operation}")
+        return outbox_entry
+
+    async def get_pending_entries(self, limit: int = 100) -> list[OutboxEntry]:
+        """Get pending outbox entries ready for processing.
+
+        Returns entries that are:
+        - Status PENDING
+        - Either no next_retry_at or next_retry_at <= now
+        - Ordered by created_at (FIFO)
+        """
+        now = datetime.utcnow()
+        cursor = self._collection.find(
+            {
+                "status": OutboxStatus.PENDING.value,
+                "$or": [
+                    {"next_retry_at": None},
+                    {"next_retry_at": {"$lte": now}},
+                ],
+            }
+        ).sort("created_at", 1).limit(limit)
+
+        entries = []
+        async for doc in cursor:
+            doc["id"] = str(doc.pop("_id"))
+            entries.append(OutboxEntry(**doc))
+
+        return entries
+
+    async def update(self, entry_id: str, update: OutboxUpdate) -> bool:
+        """Update an outbox entry."""
+        update_data = {
+            k: v for k, v in update.model_dump(exclude_none=True).items()
+        }
+        update_data["updated_at"] = datetime.utcnow()
+
+        result = await self._collection.update_one(
+            {"_id": self._to_object_id(entry_id)},
+            {"$set": update_data}
+        )
+
+        return result.modified_count > 0
+
+    async def mark_processing(self, entry_id: str) -> bool:
+        """Mark entry as currently being processed."""
+        return await self.update(
+            entry_id,
+            OutboxUpdate(status=OutboxStatus.PROCESSING)
+        )
+
+    async def mark_completed(self, entry_id: str) -> bool:
+        """Mark entry as successfully completed."""
+        return await self.update(
+            entry_id,
+            OutboxUpdate(
+                status=OutboxStatus.COMPLETED,
+                completed_at=datetime.utcnow(),
+            )
+        )
+
+    async def mark_failed(self, entry_id: str, error: str, retry_count: int, next_retry_at: datetime | None) -> bool:
+        """Mark entry as failed with retry information."""
+        return await self.update(
+            entry_id,
+            OutboxUpdate(
+                status=OutboxStatus.PENDING if next_retry_at else OutboxStatus.FAILED,
+                error_message=error,
+                last_error_at=datetime.utcnow(),
+                retry_count=retry_count,
+                next_retry_at=next_retry_at,
+            )
+        )
+
+    async def move_to_dead_letter_queue(self, entry: OutboxEntry) -> DeadLetterEntry:
+        """Move failed entry to dead-letter queue."""
+        dlq_entry = DeadLetterEntry(
+            original_outbox_id=entry.id or "",
+            operation=entry.operation,
+            collection_name=entry.collection_name,
+            payload=entry.payload,
+            retry_count=entry.retry_count,
+            final_error=entry.error_message or "Unknown error",
+            error_history=[
+                {
+                    "error": entry.error_message,
+                    "timestamp": entry.last_error_at,
+                    "retry_count": entry.retry_count,
+                }
+            ],
+            original_created_at=entry.created_at,
+        )
+
+        doc = dlq_entry.model_dump(exclude={"id"})
+        result = await self._dlq_collection.insert_one(doc)
+        dlq_entry.id = str(result.inserted_id)
+
+        # Mark original entry as FAILED
+        await self.update(
+            entry.id or "",
+            OutboxUpdate(status=OutboxStatus.FAILED)
+        )
+
+        logger.warning(
+            f"Moved outbox entry {entry.id} to DLQ after {entry.retry_count} retries. "
+            f"Error: {entry.error_message}"
+        )
+
+        return dlq_entry
+
+    async def get_stats(self) -> dict[str, Any]:
+        """Get outbox statistics."""
+        pipeline = [
+            {"$group": {
+                "_id": "$status",
+                "count": {"$sum": 1}
+            }}
+        ]
+
+        stats = {
+            "pending": 0,
+            "processing": 0,
+            "completed": 0,
+            "failed": 0,
+        }
+
+        async for doc in self._collection.aggregate(pipeline):
+            status = doc["_id"]
+            count = doc["count"]
+            stats[status] = count
+
+        # DLQ stats
+        dlq_count = await self._dlq_collection.count_documents({})
+        stats["dead_letter_queue"] = dlq_count
+
+        return stats
+
+    async def cleanup_old_completed(self, days: int = 7) -> int:
+        """Delete completed entries older than specified days.
+
+        Args:
+            days: Delete completed entries older than this many days
+
+        Returns:
+            Number of deleted entries
+        """
+        from datetime import timedelta
+
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        result = await self._collection.delete_many({
+            "status": OutboxStatus.COMPLETED.value,
+            "completed_at": {"$lt": cutoff}
+        })
+
+        if result.deleted_count > 0:
+            logger.info(f"Cleaned up {result.deleted_count} completed outbox entries older than {days} days")
+
+        return result.deleted_count
+
+    def _to_object_id(self, id_str: str):
+        """Convert string ID to MongoDB ObjectId."""
+        from bson import ObjectId
+        return ObjectId(id_str)
