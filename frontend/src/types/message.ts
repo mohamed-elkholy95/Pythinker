@@ -39,6 +39,7 @@ export interface Message {
 
 export interface BaseContent {
   timestamp: number;
+  event_id?: string;  // Event ID from SSE events (for follow-up context anchoring)
 }
 
 export interface MessageContent extends BaseContent {
