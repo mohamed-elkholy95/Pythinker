@@ -2,6 +2,15 @@ import type { FileInfo } from '../api/file';
 import type { SourceCitation, DeepResearchQuery, DeepResearchStatus, SkillPackageFile, SkillPackageFileTree } from './message';
 import type { ToolContentPayload } from './toolContent';
 
+/**
+ * Follow-up context from suggestion clicks
+ */
+export interface FollowUp {
+  selected_suggestion: string;  // The suggestion text that was clicked
+  anchor_event_id: string;      // Event ID to anchor context to
+  source: string;               // Source of follow-up (e.g., "suggestion_click")
+}
+
 export type AgentSSEEvent = {
   event:
     | 'tool'
@@ -90,6 +99,10 @@ export interface MessageEventData extends BaseEventData {
   content: string;
   role: "user" | "assistant";
   attachments: FileInfo[];
+  // Follow-up context from suggestion clicks
+  follow_up_selected_suggestion?: string;
+  follow_up_anchor_event_id?: string;
+  follow_up_source?: string;
 }
 
 export interface ErrorEventData extends BaseEventData {

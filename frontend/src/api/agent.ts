@@ -1,6 +1,6 @@
 // Backend API service
 import { apiClient, API_CONFIG, ApiResponse, createSSEConnection, SSECallbacks } from './client';
-import { AgentSSEEvent } from '../types/event';
+import { AgentSSEEvent, FollowUp } from '../types/event';
 import { CreateSessionResponse, GetSessionResponse, ShellViewResponse, FileViewResponse, ListSessionResponse, SignedUrlResponse, ShareSessionResponse, SharedSessionResponse } from '../types/response';
 import type { FileInfo } from './file';
 
@@ -192,6 +192,7 @@ export interface ChatOptions {
  * @param skills Optional skill IDs to enable for this message
  * @param options Optional chat options (deep_research, etc.)
  * @param callbacks SSE callbacks for events
+ * @param followUp Optional follow-up context from suggestion clicks
  * @returns A function to cancel the SSE connection
  */
 export const chatWithSession = async (
@@ -201,20 +202,28 @@ export const chatWithSession = async (
   attachments?: ChatAttachment[],
   skills?: string[],
   options?: ChatOptions,
-  callbacks?: SSECallbacks<AgentSSEEvent['data']>
+  callbacks?: SSECallbacks<AgentSSEEvent['data']>,
+  followUp?: FollowUp | null
 ): Promise<() => void> => {
+  const body: Record<string, unknown> = {
+    message,
+    timestamp: Math.floor(Date.now() / 1000),
+    event_id: eventId,
+    attachments,
+    skills,
+    deep_research: options?.deep_research
+  };
+
+  // Only include follow_up if it's provided and not null
+  if (followUp) {
+    body.follow_up = followUp;
+  }
+
   return createSSEConnection<AgentSSEEvent['data']>(
     `/sessions/${sessionId}/chat`,
     {
       method: 'POST',
-      body: {
-        message,
-        timestamp: Math.floor(Date.now() / 1000),
-        event_id: eventId,
-        attachments,
-        skills,
-        deep_research: options?.deep_research
-      }
+      body
     },
     callbacks
   );
