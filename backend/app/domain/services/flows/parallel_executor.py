@@ -614,15 +614,7 @@ class ParallelExecutor:
 
         if strategy == "merge":
             # Merge all successful results
-            merged_data = []
-            for r in successful:
-                if r.result:
-                    merged_data.append(
-                        {
-                            "step_id": r.step_id,
-                            "result": r.result,
-                        }
-                    )
+            merged_data = [{"step_id": r.step_id, "result": r.result} for r in successful if r.result]
 
             return {
                 "success": len(failed) == 0,

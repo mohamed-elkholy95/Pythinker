@@ -37,8 +37,7 @@ class PressureStatus:
 
         if self.recommendations:
             signal_parts.append("Consider:")
-            for rec in self.recommendations:
-                signal_parts.append(f"- {rec}")
+            signal_parts.extend(f"- {rec}" for rec in self.recommendations)
 
         return "\n".join(signal_parts)
 
@@ -206,7 +205,7 @@ class TokenManager:
         """Generate a hash for content to use as cache key."""
         import hashlib
 
-        return hashlib.md5(text.encode()).hexdigest()  # Full 128-bit hash to avoid collisions
+        return hashlib.md5(text.encode()).hexdigest()  # noqa: S324 - MD5 used for non-security cache key, not cryptographic
 
     def count_tokens(self, text: str) -> int:
         """

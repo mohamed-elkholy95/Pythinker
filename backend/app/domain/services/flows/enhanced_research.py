@@ -293,16 +293,13 @@ class EnhancedResearchFlow:
             parts.append(report.executive_summary)
 
         if hasattr(report, "sections"):
-            for section in report.sections:
-                parts.append(section.content)
+            parts.extend(section.content for section in report.sections)
 
         if hasattr(report, "key_findings"):
-            for finding in report.key_findings:
-                parts.append(finding.finding)
+            parts.extend(finding.finding for finding in report.key_findings)
 
         if hasattr(report, "findings"):
-            for finding in report.findings:
-                parts.append(finding.finding)
+            parts.extend(finding.finding for finding in report.findings)
 
         if hasattr(report, "recommendation") and report.recommendation:
             parts.append(report.recommendation)

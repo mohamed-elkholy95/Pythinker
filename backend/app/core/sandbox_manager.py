@@ -334,7 +334,7 @@ class ManagedSandbox:
 
         return ip_address
 
-    async def _wait_for_services(self, timeout: int = 60):
+    async def _wait_for_services(self, timeout: int = 60):  # noqa: ASYNC109
         """Wait for sandbox services to become available"""
         start_time = time.time()
 

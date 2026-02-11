@@ -17,12 +17,10 @@ class TestTokenPressureCompaction:
         chars_per_message = 100
         num_messages = target_tokens // 25  # ~25 tokens per message
 
-        messages = []
-        for i in range(num_messages):
-            messages.append(
-                {"role": "user" if i % 2 == 0 else "assistant", "content": f"Message {i}: " + ("x" * chars_per_message)}
-            )
-        return messages
+        return [
+            {"role": "user" if i % 2 == 0 else "assistant", "content": f"Message {i}: " + ("x" * chars_per_message)}
+            for i in range(num_messages)
+        ]
 
     def test_compaction_not_mid_execution(self):
         """Test that compaction does not occur during execution."""

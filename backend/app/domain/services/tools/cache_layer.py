@@ -443,11 +443,9 @@ def cacheable_tool(ttl: int | None = None, use_l1: bool = True):
                         else None,
                     }
 
-                    # Store in L1 (fast)
                     if use_l1:
                         _l1_cache.set(cache_key, cache_value, ttl=actual_ttl)
 
-                    # Store in L2 (persistent)
                     await cache.set(cache_key, cache_value, ttl=actual_ttl)
                     logger.debug(f"Cached {tool_name} result in L1+L2 for {actual_ttl}s: {cache_key}")
 

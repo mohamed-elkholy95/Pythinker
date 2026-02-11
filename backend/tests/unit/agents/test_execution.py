@@ -117,9 +117,7 @@ class TestExecutionAgent:
         )
         executor.json_parser.parse = AsyncMock(return_value={"final_answer": "Here are some Python tutorials..."})
 
-        events = []
-        async for event in executor.execute_step(simple_plan, mock_step, message):
-            events.append(event)
+        events = [event async for event in executor.execute_step(simple_plan, mock_step, message)]
 
         # Should have yielded at least one StepEvent
         step_events = [e for e in events if isinstance(e, StepEvent)]
@@ -169,9 +167,7 @@ class TestExecutionAgent:
                 )
             )
 
-        events = []
-        async for event in executor.execute_step(simple_plan, mock_step, message):
-            events.append(event)
+        [event async for event in executor.execute_step(simple_plan, mock_step, message)]
 
         # Tool events may be present depending on LLM response
 
@@ -210,9 +206,7 @@ class TestExecutionAgent:
         )
         executor.json_parser.parse = AsyncMock(return_value={"final_answer": "Analyzed files"})
 
-        events = []
-        async for event in executor.execute_step(simple_plan, mock_step, message):
-            events.append(event)
+        events = [event async for event in executor.execute_step(simple_plan, mock_step, message)]
 
         # Should complete without error
         error_events = [e for e in events if isinstance(e, ErrorEvent)]
@@ -477,8 +471,6 @@ class TestSkillIntegration:
                 mock_match.get_suggested_skills = AsyncMock(return_value=[])
                 mock_matcher.return_value = mock_match
 
-                events = []
-                async for event in executor.execute_step(plan, step, message):
-                    events.append(event)
+                [event async for event in executor.execute_step(plan, step, message)]
 
                 # Skill loading errors are warnings, not failures

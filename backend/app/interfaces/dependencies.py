@@ -216,8 +216,8 @@ def get_session_repository() -> MongoSessionRepository:
 
 
 async def get_current_user(
-    bearer_credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),  # noqa: B008
-    auth_service: AuthService = Depends(get_auth_service),  # noqa: B008
+    bearer_credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),
+    auth_service: AuthService = Depends(get_auth_service),
 ) -> User:
     """
     Get current authenticated user (required)
@@ -255,8 +255,8 @@ async def get_current_user(
 
 
 async def get_optional_current_user(
-    bearer_credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),  # noqa: B008
-    auth_service: AuthService = Depends(get_auth_service),  # noqa: B008
+    bearer_credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),
+    auth_service: AuthService = Depends(get_auth_service),
 ) -> User | None:
     """
     Get current authenticated user (optional)
@@ -294,7 +294,7 @@ async def get_optional_current_user(
 async def verify_signature(
     request: Request,
     signature: str | None = Query(None),
-    token_service: TokenService = Depends(get_token_service),  # noqa: B008
+    token_service: TokenService = Depends(get_token_service),
 ) -> str:
     return await _verify_signature(request, signature, token_service)
 
@@ -302,7 +302,7 @@ async def verify_signature(
 async def verify_signature_websocket(
     request: WebSocket,
     signature: str | None = Query(None),
-    token_service: TokenService = Depends(get_token_service),  # noqa: B008
+    token_service: TokenService = Depends(get_token_service),
 ) -> str:
     return await _verify_signature(request, signature, token_service)
 
@@ -310,7 +310,7 @@ async def verify_signature_websocket(
 async def _verify_signature(
     request: Request | WebSocket,
     signature: str | None = Query(None),
-    token_service: TokenService = Depends(get_token_service),  # noqa: B008
+    token_service: TokenService = Depends(get_token_service),
 ) -> str:
     """
     Verify signature for signed URL access

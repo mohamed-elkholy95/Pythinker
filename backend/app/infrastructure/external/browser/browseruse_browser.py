@@ -143,7 +143,7 @@ def is_video_url(url: str) -> bool:
                 return True
 
     except Exception:
-        pass
+        logger.debug("Failed to check if URL is video URL", exc_info=True)
 
     return False
 

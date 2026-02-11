@@ -72,7 +72,7 @@ class TestQdrantPerformanceTuning:
         from app.infrastructure.storage.qdrant import COLLECTIONS
 
         # Check HNSW config in COLLECTIONS constant
-        for _collection_name, vector_params in COLLECTIONS.items():
+        for vector_params in COLLECTIONS.values():
             assert hasattr(vector_params, "hnsw_config")
             hnsw = vector_params.hnsw_config
 

@@ -112,7 +112,7 @@ class URLVerificationService:
             if any(hostname.endswith(tld) for tld in self.SUSPICIOUS_TLDS):
                 return True
         except Exception:
-            pass
+            logger.debug("Failed to parse URL for suspicious TLD check", exc_info=True)
 
         return False
 

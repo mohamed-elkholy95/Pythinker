@@ -5,6 +5,7 @@ Supports all Ollama-compatible models including Llama, Mistral, Phi, etc.
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 from collections.abc import AsyncGenerator
@@ -568,11 +569,7 @@ if __name__ == "__main__":
     async def test():
         llm = OllamaLLM()
 
-        try:
-            response = await llm.ask([{"role": "user", "content": "What is 2 + 2? Answer briefly."}])
-            print(f"Response: {response}")
-        except Exception as e:
-            print(f"Error: {e}")
-            print("Make sure Ollama is running: ollama serve")
+        with contextlib.suppress(Exception):
+            await llm.ask([{"role": "user", "content": "What is 2 + 2? Answer briefly."}])
 
     asyncio.run(test())

@@ -157,9 +157,7 @@ class TestDeepResearchFlow:
             max_concurrent=2,
         )
 
-        events = []
-        async for event in flow.run(config):
-            events.append(event)
+        events = [event async for event in flow.run(config)]
 
         # Should have events: STARTED, QUERY_STARTED x2, QUERY_COMPLETED x2, COMPLETED
         assert len(events) >= 2

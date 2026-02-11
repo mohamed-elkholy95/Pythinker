@@ -103,7 +103,10 @@
       >
         <div
           class="flex flex-col w-full pb-[80px] pt-[24px] flex-1"
-          :class="{ 'chat-messages-with-pinned-dock': shouldPinComposerToBottom }"
+          :class="{
+            'chat-messages-with-pinned-dock': shouldPinComposerToBottom,
+            'chat-messages-with-thumbnail-dock': shouldPinComposerToBottom && showThumbnailDockSpacer,
+          }"
         >
           <ChatMessage v-for="(message, index) in messages" :key="message.id" :message="message"
             :activeThinkingStepId="activeThinkingStepId"
@@ -194,7 +197,7 @@
 
           <!-- Task Progress Bar - shown above ChatBox when ToolPanel is closed -->
           <TaskProgressBar
-            v-if="!showSessionWarmupMessage && !isToolPanelOpen && (plan?.steps?.length > 0 || lastNoMessageTool || isInitializing || isSandboxInitializing)"
+            v-if="showTaskProgressBar"
             :plan="plan"
             :isLoading="isLoading"
             :isThinking="isThinking"
@@ -956,6 +959,15 @@ const showFloatingThinkingIndicator = computed(() => {
   if (hasRunningStep.value) return false;
   return true;
 });
+
+const showTaskProgressBar = computed(() =>
+  !showSessionWarmupMessage.value &&
+  !isToolPanelOpen.value &&
+  (!!plan.value?.steps?.length || !!lastNoMessageTool.value || isInitializing.value || isSandboxInitializing.value)
+);
+
+// Add extra bottom scroll room when mini VNC thumbnail is rendered with the task progress bar.
+const showThumbnailDockSpacer = computed(() => showTaskProgressBar.value && shouldShowThumbnail.value);
 
 // Handle tool panel state changes
 const handlePanelStateChange = (isOpen: boolean) => {
@@ -2322,6 +2334,10 @@ const handleCopyLink = async () => {
   padding-bottom: calc(196px + env(safe-area-inset-bottom));
 }
 
+.chat-messages-with-thumbnail-dock {
+  padding-bottom: calc(296px + env(safe-area-inset-bottom));
+}
+
 .chat-bottom-dock-fixed {
   position: fixed;
   bottom: 0;
@@ -2330,9 +2346,20 @@ const handleCopyLink = async () => {
   padding-bottom: calc(12px + env(safe-area-inset-bottom));
 }
 
+:deep(.dark) .chat-bottom-dock,
+.dark .chat-bottom-dock,
+:deep(.dark) .chat-bottom-dock-fixed,
+.dark .chat-bottom-dock-fixed {
+  background: transparent;
+}
+
 @media (max-width: 640px) {
   .chat-messages-with-pinned-dock {
     padding-bottom: calc(212px + env(safe-area-inset-bottom));
+  }
+
+  .chat-messages-with-thumbnail-dock {
+    padding-bottom: calc(312px + env(safe-area-inset-bottom));
   }
 }
 

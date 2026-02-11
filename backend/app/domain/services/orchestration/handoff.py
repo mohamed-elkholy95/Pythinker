@@ -149,18 +149,15 @@ class HandoffContext:
 
         if self.relevant_files:
             sections.append("\n**Relevant Files:**\n")
-            for f in self.relevant_files:
-                sections.append(f"- {f}\n")
+            sections.extend(f"- {f}\n" for f in self.relevant_files)
 
         if self.key_findings:
             sections.append("\n**Key Findings:**\n")
-            for finding in self.key_findings:
-                sections.append(f"- {finding}\n")
+            sections.extend(f"- {finding}\n" for finding in self.key_findings)
 
         if self.decisions_made:
             sections.append("\n**Decisions Made:**\n")
-            for decision in self.decisions_made:
-                sections.append(f"- {decision}\n")
+            sections.extend(f"- {decision}\n" for decision in self.decisions_made)
 
         # Previous step results
         if self.step_results:
@@ -172,8 +169,7 @@ class HandoffContext:
         # Shared resources
         if self.shared_resources:
             sections.append("\n**Available Shared Resources:**\n")
-            for name in self.shared_resources:
-                sections.append(f"- {name}\n")
+            sections.extend(f"- {name}\n" for name in self.shared_resources)
 
         if self.memory_summary:
             sections.append(f"\n**Summary of Previous Work:**\n{self.memory_summary}\n")

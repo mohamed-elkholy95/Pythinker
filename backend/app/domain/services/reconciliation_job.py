@@ -85,8 +85,6 @@ class ReconciliationJob:
 
             # Step 3: Find orphaned Qdrant vectors (optional, expensive)
             # Disabled by default as it requires scanning all Qdrant vectors
-            # orphaned_count = await self._find_orphaned_vectors()
-            # stats["orphaned_vectors_found"] = orphaned_count
 
         except Exception as e:
             logger.error(f"Reconciliation job failed: {e}", exc_info=True)

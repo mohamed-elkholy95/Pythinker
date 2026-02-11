@@ -153,8 +153,10 @@ class ThoughtChain(BaseModel):
 
         for step in self.steps:
             lines.append(f"\n{step.name}:")
-            for thought in step.thoughts[:3]:  # Limit to 3 thoughts per step
-                lines.append(f"  - [{thought.type.value}] {thought.content[:80]}...")
+            lines.extend(
+                f"  - [{thought.type.value}] {thought.content[:80]}..."
+                for thought in step.thoughts[:3]  # Limit to 3 thoughts per step
+            )
 
             if step.conclusion:
                 lines.append(f"  Conclusion: {step.conclusion[:100]}")

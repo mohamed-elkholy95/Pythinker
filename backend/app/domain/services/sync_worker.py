@@ -140,7 +140,7 @@ class SyncWorker:
         # Parse created_at if it's a string (ISO format)
         created_at = payload.get("created_at")
         if isinstance(created_at, str):
-            created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+            created_at = datetime.fromisoformat(created_at)
 
         await self.qdrant_repo.upsert_memory(
             memory_id=payload["memory_id"],

@@ -299,9 +299,7 @@ class ThoughtChainBuilder:
         inferences = chain.get_thoughts_by_type(ThoughtType.INFERENCE)
         evaluations = chain.get_thoughts_by_type(ThoughtType.EVALUATION)
 
-        rationale_parts = []
-        for thought in (inferences + evaluations)[:3]:
-            rationale_parts.append(thought.content)
+        rationale_parts = [thought.content for thought in (inferences + evaluations)[:3]]
 
         rationale = " ".join(rationale_parts) if rationale_parts else "Based on analysis"
 

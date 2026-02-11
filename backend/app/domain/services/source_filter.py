@@ -282,7 +282,7 @@ class SourceFilterService:
                     date_str = str(source[field])
                     # Handle ISO format
                     if "T" in date_str or "Z" in date_str:
-                        return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                        return datetime.fromisoformat(date_str)
                     # Try common date formats
                     for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%B %d, %Y", "%Y"]:
                         try:

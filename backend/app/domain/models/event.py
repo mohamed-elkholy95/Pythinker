@@ -75,6 +75,7 @@ class PlanEvent(BaseEvent):
     plan: Plan
     status: PlanStatus
     step: Step | None = None
+    phases: list[dict[str, Any]] | None = None  # Phase summaries for frontend
 
 
 class BrowserToolContent(BaseModel):
@@ -362,12 +363,37 @@ class TitleEvent(BaseEvent):
     title: str
 
 
+class PhaseStatus(str, Enum):
+    """Phase lifecycle status enum"""
+
+    STARTED = "started"
+    COMPLETED = "completed"
+    SKIPPED = "skipped"
+
+
+class PhaseEvent(BaseEvent):
+    """Phase lifecycle event for structured agent flow."""
+
+    type: Literal["phase"] = "phase"
+    phase_id: str
+    phase_type: str  # PhaseType value
+    label: str
+    status: PhaseStatus
+    order: int = 0
+    icon: str = ""
+    color: str = ""
+    total_phases: int = 0
+    skip_reason: str | None = None
+
+
 class StepEvent(BaseEvent):
     """Step related events"""
 
     type: Literal["step"] = "step"
     step: Step
     status: StepStatus
+    phase_id: str | None = None  # Parent phase ID
+    step_type: str | None = None  # StepType value
 
 
 class MessageEvent(BaseEvent):
@@ -855,6 +881,7 @@ AgentEvent = Annotated[
         CanvasUpdateEvent,
         FlowSelectionEvent,
         FlowTransitionEvent,
+        PhaseEvent,
     ],
     Discriminator("type"),
 ]

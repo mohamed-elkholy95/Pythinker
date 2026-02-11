@@ -686,7 +686,7 @@ app = FastAPI(
 )
 
 # Add security headers middleware (Context7 best practice - OWASP compliant)
-from app.infrastructure.middleware.security_headers import add_security_headers_middleware
+from app.infrastructure.middleware.security_headers import add_security_headers_middleware  # noqa: E402
 
 add_security_headers_middleware(app)
 

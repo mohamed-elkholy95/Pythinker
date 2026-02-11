@@ -151,8 +151,7 @@ class KnowledgeAssessment(BaseModel):
 
         if self.gaps:
             lines.append("\nKey Gaps:")
-            for gap in self.gaps[:3]:
-                lines.append(f"  - [{gap.severity.value}] {gap.description[:60]}...")
+            lines.extend(f"  - [{gap.severity.value}] {gap.description[:60]}..." for gap in self.gaps[:3])
 
         if self.information_requests:
             lines.append(f"\nInformation Requests: {len(self.information_requests)}")

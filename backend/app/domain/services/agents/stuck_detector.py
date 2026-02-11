@@ -1086,7 +1086,7 @@ class StuckDetector:
                     affected_tools=[],
                 )
         except Exception:
-            pass
+            logger.debug("Failed to analyze stuck state metrics", exc_info=True)
 
         return None
 

@@ -285,7 +285,6 @@ class PromptCompressor:
                         kept_older.insert(0, msg)
                         remaining_tokens -= result.compressed_tokens
 
-        # Combine: system + kept_older + recent
         return system_msgs + kept_older + recent
 
     def compress_context(

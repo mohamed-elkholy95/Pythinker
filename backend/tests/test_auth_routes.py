@@ -6,6 +6,7 @@ They are skipped if the API is not accessible or if registration is not allowed.
 """
 
 import logging
+from contextlib import suppress
 
 import pytest
 import requests
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 # Check if backend API is available and get auth configuration
 def _get_auth_config():
     """Get auth configuration from the API."""
-    try:
+    with suppress(Exception):
         response = requests.get(f"{BASE_URL}/auth/status", timeout=2.0)
         if response.status_code == 200:
             data = response.json().get("data", {})
@@ -27,8 +28,6 @@ def _get_auth_config():
                 "auth_provider": data.get("auth_provider", "unknown"),
                 "registration_allowed": data.get("registration_allowed", None),
             }
-    except Exception:
-        pass
     return {"api_available": False, "auth_provider": None, "registration_allowed": None}
 
 
@@ -297,8 +296,6 @@ class TestAuthRoutes:
         assert data["code"] == 0
         # auth_provider is always present
         assert "auth_provider" in data["data"]
-        # 'authenticated' field is optional depending on provider
-        # assert "authenticated" in data["data"]
 
     @pytest.mark.skipif(not _registration_supported(), reason="Registration not supported by current auth provider")
     def test_get_current_user_info(self, client, authenticated_user):

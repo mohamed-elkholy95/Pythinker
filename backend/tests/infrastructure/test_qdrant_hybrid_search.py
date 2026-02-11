@@ -32,8 +32,7 @@ async def qdrant_repo():
         return await original_upsert(*args, **kwargs)
 
     async def tracked_batch_upsert(memories, *args, **kwargs):
-        for mem in memories:
-            inserted_ids.append(mem["memory_id"])
+        inserted_ids.extend(mem["memory_id"] for mem in memories)
         return await original_batch_upsert(memories, *args, **kwargs)
 
     repo.upsert_memory = tracked_upsert

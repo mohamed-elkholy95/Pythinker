@@ -363,9 +363,11 @@ class ErrorPatternAnalyzer:
                 warnings.append(f"CAUTION ({pattern.pattern_type.value}): {pattern.suggestion}")
 
         # Also check for general patterns that apply to all tools
-        for pattern in patterns:
-            if not pattern.affected_tools and pattern.confidence >= 0.5:  # Patterns like rate limits
-                warnings.append(f"WARNING: {pattern.suggestion}")
+        warnings.extend(
+            f"WARNING: {pattern.suggestion}"
+            for pattern in patterns
+            if not pattern.affected_tools and pattern.confidence >= 0.5  # Patterns like rate limits
+        )
 
         # Include historical warnings from cross-session learning
         for tool in likely_tools:

@@ -70,11 +70,9 @@ class OutputCoverageValidator:
         """Validate whether output covers required content."""
         text = output or ""
         requirements = required_sections or ["final result"]
-        missing: list[str] = []
-
-        for requirement in requirements:
-            if not self._contains_requirement(text, requirement):
-                missing.append(requirement)
+        missing: list[str] = [
+            requirement for requirement in requirements if not self._contains_requirement(text, requirement)
+        ]
 
         addresses_user_request = self._addresses_user_request(text, user_request)
         has_artifact_references = bool(self._ARTIFACT_PATTERN.search(text))

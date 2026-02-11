@@ -164,7 +164,7 @@ async def init_mongodb():
             await db["screenshots.files"].drop_indexes()
             await db["screenshots.chunks"].drop_indexes()
         except Exception:
-            pass
+            logger.debug("Failed to drop screenshots indexes (may not exist)", exc_info=True)
 
         await db["screenshots.files"].create_index("uploadDate")
         await db["screenshots.files"].create_index("metadata.session_id")
@@ -176,7 +176,7 @@ async def init_mongodb():
             await db["artifacts.files"].drop_indexes()
             await db["artifacts.chunks"].drop_indexes()
         except Exception:
-            pass
+            logger.debug("Failed to drop artifacts indexes (may not exist)", exc_info=True)
 
         await db["artifacts.files"].create_index("uploadDate")
         await db["artifacts.files"].create_index("metadata.session_id")

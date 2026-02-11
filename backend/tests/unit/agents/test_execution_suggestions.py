@@ -114,9 +114,7 @@ class TestExecutionAgentSuggestionGeneration:
         mock_llm.ask.return_value = {"content": '["Add examples", "Include diagrams"]'}
 
         # Collect events from summarize
-        events = []
-        async for event in executor.summarize():
-            events.append(event)
+        events = [event async for event in executor.summarize()]
 
         # Find SuggestionEvent
         suggestion_events = [e for e in events if isinstance(e, SuggestionEvent)]
@@ -182,9 +180,7 @@ class TestExecutionAgentSuggestionAnchorExcerpt:
         mock_llm.ask_stream = mock_stream
         mock_llm.ask.return_value = {"content": '["Suggestion 1", "Suggestion 2"]'}
 
-        events = []
-        async for event in executor.summarize():
-            events.append(event)
+        events = [event async for event in executor.summarize()]
 
         suggestion_events = [e for e in events if isinstance(e, SuggestionEvent)]
         assert len(suggestion_events) == 1
@@ -239,9 +235,7 @@ class TestExecutionAgentDeliveryIntegrityGate:
 
         mock_llm.ask_stream = always_truncated_stream
 
-        events = []
-        async for event in executor.summarize():
-            events.append(event)
+        events = [event async for event in executor.summarize()]
 
         assert any(isinstance(event, ErrorEvent) for event in events)
         assert not any(isinstance(event, ReportEvent) for event in events)
@@ -284,9 +278,7 @@ class TestExecutionAgentDeliveryIntegrityGate:
 
         mock_llm.ask_stream = truncated_then_complete_stream
 
-        events = []
-        async for event in executor.summarize():
-            events.append(event)
+        events = [event async for event in executor.summarize()]
 
         assert call_count["value"] == 2
         assert any(isinstance(event, ReportEvent) for event in events)
@@ -322,9 +314,7 @@ class TestExecutionAgentDeliveryIntegrityGate:
 
         mock_llm.ask_stream = empty_truncated_stream
 
-        events = []
-        async for event in executor.summarize():
-            events.append(event)
+        events = [event async for event in executor.summarize()]
 
         assert any(isinstance(event, ErrorEvent) for event in events)
         assert self._has_counter_call(
@@ -358,9 +348,7 @@ class TestExecutionAgentDeliveryIntegrityGate:
         executor._output_coverage_validator.validate = MagicMock(side_effect=[invalid, valid])
         executor._is_integrity_strict_mode = MagicMock(return_value=True)
 
-        events = []
-        async for event in executor.summarize():
-            events.append(event)
+        events = [event async for event in executor.summarize()]
 
         assert any(isinstance(event, ReportEvent) for event in events)
         assert not any(isinstance(event, ErrorEvent) for event in events)
@@ -391,9 +379,7 @@ class TestExecutionAgentDeliveryIntegrityGate:
         executor._output_coverage_validator.validate = MagicMock(side_effect=[invalid, valid])
         executor._is_integrity_strict_mode = MagicMock(return_value=True)
 
-        events = []
-        async for event in executor.summarize():
-            events.append(event)
+        events = [event async for event in executor.summarize()]
 
         assert any(isinstance(event, ReportEvent) for event in events)
         assert not any(isinstance(event, ErrorEvent) for event in events)

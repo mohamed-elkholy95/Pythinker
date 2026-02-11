@@ -724,7 +724,7 @@ You can delegate multiple tasks in parallel when they are independent.
             logger.info(f"Waiting for {len(self._active_tasks)} active tasks to complete...")
             try:
                 async with asyncio.timeout(30):
-                    while self._active_tasks:
+                    while self._active_tasks:  # noqa: ASYNC110
                         await asyncio.sleep(0.5)
             except TimeoutError:
                 logger.warning("Shutdown timeout, some tasks may be incomplete")

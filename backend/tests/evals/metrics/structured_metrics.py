@@ -111,9 +111,7 @@ class JsonSchemaMetric(BaseMetric):
 
         # Check required fields
         required = schema.get("required", [])
-        for field in required:
-            if field not in data:
-                errors.append(f"Missing required field: {field}")
+        errors.extend(f"Missing required field: {field}" for field in required if field not in data)
 
         # Check property types
         properties = schema.get("properties", {})

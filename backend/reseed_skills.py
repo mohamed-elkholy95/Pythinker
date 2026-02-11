@@ -16,20 +16,16 @@ async def main():
     settings = get_settings()
 
     # Initialize MongoDB connection
-    print("Connecting to MongoDB...")
     await get_mongodb().initialize()
 
     # Initialize Beanie with SkillDocument
-    print("Initializing Beanie...")
     await init_beanie(
         database=get_mongodb().client[settings.mongodb_database],
         document_models=[SkillDocument],
     )
 
     # Seed official skills
-    print("Seeding official skills...")
-    count = await seed_official_skills()
-    print(f"Seeded {count} official skills")
+    await seed_official_skills()
 
 
 if __name__ == "__main__":

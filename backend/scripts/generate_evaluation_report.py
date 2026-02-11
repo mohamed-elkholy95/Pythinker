@@ -26,7 +26,6 @@ def load_metric(file_path: Path) -> float | None:
             data = json.load(f)
 
         # Extract value from Prometheus response format
-        # {"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[timestamp,value]}]}}
         if data.get("status") == "success":
             results = data.get("data", {}).get("result", [])
             if results and len(results) > 0:
@@ -34,8 +33,7 @@ def load_metric(file_path: Path) -> float | None:
                 if value is not None:
                     return float(value)
         return None
-    except Exception as e:
-        print(f"Warning: Failed to load {file_path}: {e}", file=sys.stderr)
+    except Exception:
         return None
 
 
@@ -231,10 +229,8 @@ def generate_report(baseline_dir: Path, enhanced_dir: Path, output_file: Path) -
     """Generate evaluation comparison report."""
 
     # Load metrics
-    print(f"Loading baseline metrics from {baseline_dir}...")
     baseline = load_all_metrics(baseline_dir)
 
-    print(f"Loading enhanced metrics from {enhanced_dir}...")
     enhanced = load_all_metrics(enhanced_dir)
 
     # Evaluate success criteria
@@ -336,10 +332,8 @@ def generate_report(baseline_dir: Path, enhanced_dir: Path, output_file: Path) -
     # Write report
     output_file.parent.mkdir(parents=True, exist_ok=True)
     output_file.write_text(report)
-    print(f"\n✅ Report generated successfully: {output_file}")
 
     if not success:
-        print("\n⚠️  Warning: Some success criteria were not met. Review the report.")
         sys.exit(1)
 
 
@@ -371,11 +365,9 @@ def main() -> None:
 
     # Validate input directories
     if not args.baseline.exists():
-        print(f"Error: Baseline directory not found: {args.baseline}", file=sys.stderr)
         sys.exit(1)
 
     if not args.enhanced.exists():
-        print(f"Error: Enhanced directory not found: {args.enhanced}", file=sys.stderr)
         sys.exit(1)
 
     # Generate report

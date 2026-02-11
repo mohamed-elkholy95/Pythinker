@@ -115,8 +115,7 @@ class GroundingResult:
             return ""
 
         guidance = ["The following claims could not be verified against the source context:"]
-        for claim in self.ungrounded_claims[:5]:  # Limit to 5
-            guidance.append(f"- {claim}")
+        guidance.extend(f"- {claim}" for claim in self.ungrounded_claims[:5])  # Limit to 5
 
         guidance.append("\nPlease either:")
         guidance.append("1. Remove or qualify these claims (e.g., 'It appears that...')")
@@ -185,11 +184,8 @@ class EnhancedGroundingResult:
 
     def get_fabrication_warnings(self) -> list[str]:
         """Get specific warnings about fabricated data."""
-        warnings = []
-        for claim in self.fabricated_numeric_claims:
-            warnings.append(f"FABRICATED METRIC: {claim}")
-        for claim in self.fabricated_entity_claims:
-            warnings.append(f"UNVERIFIED ENTITY CLAIM: {claim}")
+        warnings = [f"FABRICATED METRIC: {claim}" for claim in self.fabricated_numeric_claims]
+        warnings.extend(f"UNVERIFIED ENTITY CLAIM: {claim}" for claim in self.fabricated_entity_claims)
         return warnings
 
 

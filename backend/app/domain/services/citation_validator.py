@@ -333,10 +333,9 @@ class CitationValidator:
         citation_ids = list(set(citation_ids))  # Dedupe
 
         # Get supporting excerpts
-        excerpts: list[str] = []
-        for cid in citation_ids:
-            if cid in citations and citations[cid].get("excerpt"):
-                excerpts.append(str(citations[cid]["excerpt"]))
+        excerpts: list[str] = [
+            str(citations[cid]["excerpt"]) for cid in citation_ids if cid in citations and citations[cid].get("excerpt")
+        ]
 
         # Determine verification status
         is_verified = bool(citation_ids) and claim_type != ClaimType.INFERENCE

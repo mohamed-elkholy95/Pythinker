@@ -495,12 +495,12 @@ def list_all_templates() -> list[TaskTemplate]:
 def search_templates(query: str) -> list[TaskTemplate]:
     """Search templates by name, description, or tags."""
     query_lower = query.lower()
-    results = []
-    for template in TASK_TEMPLATES.values():
+    return [
+        template
+        for template in TASK_TEMPLATES.values()
         if (
             query_lower in template.name.lower()
             or query_lower in template.description.lower()
             or any(query_lower in tag for tag in template.tags)
-        ):
-            results.append(template)
-    return results
+        )
+    ]

@@ -285,7 +285,7 @@ class SandboxPool:
         self._started = False
         logger.info(f"Sandbox pool stopped, cleaned up {cleanup_count} sandboxes")
 
-    async def acquire(self, timeout: float = 30.0) -> "Sandbox":
+    async def acquire(self, timeout: float = 30.0) -> "Sandbox":  # noqa: ASYNC109
         """Get a pre-warmed sandbox from the pool.
 
         If the pool has available sandboxes, returns immediately (unpausing if needed).
@@ -644,7 +644,7 @@ class SandboxPool:
                     try:
                         from datetime import datetime
 
-                        created_dt = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+                        created_dt = datetime.fromisoformat(created_str)
                         created_epoch = created_dt.timestamp()
                     except Exception:
                         created_epoch = now  # Assume recent if can't parse

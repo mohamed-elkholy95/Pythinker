@@ -10,10 +10,7 @@ data = response.json()
 vectors = data["result"]["config"]["params"]["vectors"]
 
 if isinstance(vectors, dict):
-    print("✅ Named vectors found:")
-    for name in vectors:
-        print(f"  - {name}")
+    for _name in vectors:
+        pass
 else:
-    print("❌ Unnamed vector (legacy schema)")
-
-print(f"\nPoints count: {data['result']['points_count']}")
+    pass

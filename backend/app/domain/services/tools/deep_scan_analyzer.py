@@ -134,10 +134,10 @@ class DeepScanAnalyzerTool(BaseTool):
                 message_parts.append(f"- High: {sec['high_count']}")
                 if results["security"]["vulnerabilities"]:
                     message_parts.append("\n**Vulnerabilities Found:**")
-                    for v in results["security"]["vulnerabilities"][:5]:
-                        message_parts.append(
-                            f"  - [{v['severity'].upper()}] {v['type']}: {v['description']} (line {v['line_number']})"
-                        )
+                    message_parts.extend(
+                        f"  - [{v['severity'].upper()}] {v['type']}: {v['description']} (line {v['line_number']})"
+                        for v in results["security"]["vulnerabilities"][:5]
+                    )
                     if len(results["security"]["vulnerabilities"]) > 5:
                         message_parts.append(f"  ... and {len(results['security']['vulnerabilities']) - 5} more")
                 message_parts.append("")
@@ -305,12 +305,12 @@ class DeepScanAnalyzerTool(BaseTool):
 
             if metrics.functions:
                 message_parts.append("### Function Metrics")
-                for f in metrics.functions[:10]:
-                    message_parts.append(
-                        f"- `{f.name}`: complexity={f.cyclomatic_complexity}, "
-                        f"lines={f.lines_of_code}, params={f.parameters}, "
-                        f"nesting={f.nesting_depth}"
-                    )
+                message_parts.extend(
+                    f"- `{f.name}`: complexity={f.cyclomatic_complexity}, "
+                    f"lines={f.lines_of_code}, params={f.parameters}, "
+                    f"nesting={f.nesting_depth}"
+                    for f in metrics.functions[:10]
+                )
                 if len(metrics.functions) > 10:
                     message_parts.append(f"... and {len(metrics.functions) - 10} more")
                 message_parts.append("")
@@ -422,8 +422,9 @@ class DeepScanAnalyzerTool(BaseTool):
             unpinned_issues = [i for i in issues if i.issue_type == "unpinned"]
             if unpinned_issues:
                 message_parts.append("### ⚠️ Unpinned Dependencies")
-                for issue in unpinned_issues:
-                    message_parts.append(f"- `{issue.dependency.name}`: {issue.recommendation}")
+                message_parts.extend(
+                    f"- `{issue.dependency.name}`: {issue.recommendation}" for issue in unpinned_issues
+                )
                 message_parts.append("")
 
             if not issues:

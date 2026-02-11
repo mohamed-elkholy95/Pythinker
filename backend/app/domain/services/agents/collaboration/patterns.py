@@ -513,7 +513,7 @@ class MentorStudentPattern(CollaborationPattern):
         """Mentor synthesizes advice into final output."""
         # In real implementation, use LLM to synthesize
         advice_summary = []
-        for _student, topics in advice.items():
+        for topics in advice.values():
             for topic, content in topics.items():
                 advice_summary.append(f"- {topic}: {content}")
 

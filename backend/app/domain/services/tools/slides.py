@@ -688,20 +688,20 @@ class SlidesTool(BaseTool):
         )
 
         # Content slides
-        for slide in presentation.slides:
-            descriptions.append(
-                {
-                    "slide_index": slide.index + 1,
-                    "type": slide.layout,
-                    "title": slide.title,
-                    "content_summary": slide.content[:200] if len(slide.content) > 200 else slide.content,
-                    "description": (
-                        f"Create a {slide.layout} slide titled '{slide.title}'. "
-                        f"Theme: {presentation.theme.value}. "
-                        f"Key content: {slide.content[:100]}..."
-                    ),
-                }
-            )
+        descriptions.extend(
+            {
+                "slide_index": slide.index + 1,
+                "type": slide.layout,
+                "title": slide.title,
+                "content_summary": slide.content[:200] if len(slide.content) > 200 else slide.content,
+                "description": (
+                    f"Create a {slide.layout} slide titled '{slide.title}'. "
+                    f"Theme: {presentation.theme.value}. "
+                    f"Key content: {slide.content[:100]}..."
+                ),
+            }
+            for slide in presentation.slides
+        )
 
         return descriptions
 
@@ -765,7 +765,7 @@ class SlidesTool(BaseTool):
         try:
             if export_format == "html":
                 html_content = self._generate_revealjs_html(presentation)
-                with open(output_path, "w", encoding="utf-8") as f:
+                with open(output_path, "w", encoding="utf-8") as f:  # noqa: ASYNC230
                     f.write(html_content)
             else:
                 return ToolResult(

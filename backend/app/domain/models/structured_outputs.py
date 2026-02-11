@@ -126,6 +126,11 @@ class StepDescription(BaseModel):
     estimated_complexity: str | None = Field(default=None, description="Estimated complexity: low, medium, high")
     dependencies: list[str] = Field(default_factory=list, description="IDs of dependent steps")
     parallel_safe: bool = Field(default=True, description="Whether step can run in parallel")
+    phase: str | None = Field(
+        default=None,
+        description="Phase type: alignment, research_foundation, analysis_synthesis, report_generation, quality_assurance, delivery_feedback",
+    )
+    step_type: str | None = Field(default=None, description="Step type: execution, self_review, alignment, delivery")
 
     @field_validator("description")
     @classmethod
@@ -361,13 +366,11 @@ def build_validation_feedback(result: ValidationResult) -> str:
 
     if result.errors:
         parts.append("ERRORS (must fix):")
-        for err in result.errors:
-            parts.append(f"  - {err}")
+        parts.extend(f"  - {err}" for err in result.errors)
 
     if result.suggestions:
         parts.append("\nSUGGESTIONS:")
-        for sug in result.suggestions:
-            parts.append(f"  - {sug}")
+        parts.extend(f"  - {sug}" for sug in result.suggestions)
 
     return "\n".join(parts)
 

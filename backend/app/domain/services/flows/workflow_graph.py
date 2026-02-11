@@ -394,12 +394,15 @@ class WorkflowGraph:
             nodes.append({"name": name, "description": node.description})
 
         for from_node, edge_list in self._edges.items():
-            for edge in edge_list:
-                edges.append({"from": from_node, "to": edge.to_node, "condition": edge.condition, "type": "direct"})
+            edges.extend(
+                {"from": from_node, "to": edge.to_node, "condition": edge.condition, "type": "direct"}
+                for edge in edge_list
+            )
 
         for from_node, conditional in self._conditional_edges.items():
-            for target in conditional.possible_targets:
-                edges.append({"from": from_node, "to": target, "type": "conditional"})
+            edges.extend(
+                {"from": from_node, "to": target, "type": "conditional"} for target in conditional.possible_targets
+            )
 
         return {
             "name": self.name,

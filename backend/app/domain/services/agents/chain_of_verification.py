@@ -344,16 +344,14 @@ class ChainOfVerification:
             parsed = await self.json_parser.parse(content)
 
             questions_data = parsed.get("questions", [])
-            questions = []
-
-            for q in questions_data[: self.max_questions]:
-                if isinstance(q, dict) and "question" in q:
-                    questions.append(
-                        VerificationQuestion(
-                            question=q["question"],
-                            claim_being_verified=q.get("claim", ""),
-                        )
-                    )
+            questions = [
+                VerificationQuestion(
+                    question=q["question"],
+                    claim_being_verified=q.get("claim", ""),
+                )
+                for q in questions_data[: self.max_questions]
+                if isinstance(q, dict) and "question" in q
+            ]
 
             logger.debug(f"Generated {len(questions)} verification questions")
             return questions

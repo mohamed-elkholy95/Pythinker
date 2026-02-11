@@ -137,8 +137,7 @@ class TaskState:
             # Show up to 20, truncate if more
             shown = queries[:20]
             lines.append(f"SEARCHES ALREADY PERFORMED ({len(self.searched_queries)} total):")
-            for q in shown:
-                lines.append(f"  - {q}")
+            lines.extend(f"  - {q}" for q in shown)
             if len(queries) > 20:
                 lines.append(f"  ... and {len(queries) - 20} more")
 
@@ -146,8 +145,7 @@ class TaskState:
             urls = sorted(self.visited_urls)
             shown = urls[:20]
             lines.append(f"URLS ALREADY VISITED ({len(self.visited_urls)} total):")
-            for u in shown:
-                lines.append(f"  - {u}")
+            lines.extend(f"  - {u}" for u in shown)
             if len(urls) > 20:
                 lines.append(f"  ... and {len(urls) - 20} more")
 

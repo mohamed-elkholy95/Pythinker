@@ -606,7 +606,6 @@ class AgentBenchmarks:
         detector = ToolHallucinationDetector(available_tools)
 
         test_cases = [
-            # (tool_name, should_detect_hallucination)
             ("file_read", False),
             ("file_write", False),
             ("fiel_read", True),  # Typo

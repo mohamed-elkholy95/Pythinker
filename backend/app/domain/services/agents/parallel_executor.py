@@ -228,8 +228,7 @@ class ParallelToolExecutor:
             if not ready:
                 # Circular dependency or bug - fall back to sequential (one at a time)
                 logger.warning("Circular dependency detected, executing remaining calls one-by-one")
-                for call in remaining:
-                    batches.append([call])
+                batches.extend([call] for call in remaining)
                 remaining.clear()
                 break
 

@@ -1838,12 +1838,9 @@ class ContextEngineeringService:
 
         relevant_indices = parsed.get("relevant", [])
 
-        relevant_chunks = []
-        for idx in relevant_indices[:max_chunks]:
-            if 0 <= idx < len(self._context_chunks):
-                relevant_chunks.append(self._context_chunks[idx])
-
-        return relevant_chunks
+        return [
+            self._context_chunks[idx] for idx in relevant_indices[:max_chunks] if 0 <= idx < len(self._context_chunks)
+        ]
 
     def _get_recent_chunks(self, count: int) -> list[ContextChunk]:
         """Get most recent context chunks."""
@@ -1867,9 +1864,7 @@ class ContextEngineeringService:
             "code",
         ]
         summary_lower = summary.lower()
-        for kw in common:
-            if kw in summary_lower:
-                keywords.append(kw)
+        keywords = [kw for kw in common if kw in summary_lower]
         return keywords[:5]
 
     def get_stats(self) -> dict[str, Any]:

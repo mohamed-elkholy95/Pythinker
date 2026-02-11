@@ -436,6 +436,9 @@ class PlanActFlow(BaseFlow):
         # Cache complexity score for skip-update optimization
         self._cached_complexity: float | None = None
 
+        # Phase tracking for structured agent flow
+        self._current_phase_id: str | None = None
+
         # Adaptive response policy and clarification state
         self._input_guardrails = InputGuardrails()
         self._response_policy_engine = ResponsePolicyEngine()
@@ -926,7 +929,7 @@ class PlanActFlow(BaseFlow):
             if result and result.success and result.data:
                 return json.loads(str(result.data))
         except Exception:
-            pass
+            logger.debug("Failed to read agent progress file", exc_info=True)
         return None
 
     def _transition_to(self, new_status: AgentStatus, *, force: bool = False, reason: str = "") -> None:
@@ -1889,8 +1892,12 @@ class PlanActFlow(BaseFlow):
                                 # Infer smart dependencies for BLOCKED cascade and parallel execution
                                 self.plan.infer_smart_dependencies(use_sequential_fallback=True)
 
+                                # Build and assign phases based on complexity
+                                self._assign_phases_to_plan()
+
                                 plan_span.set_attribute("plan.steps", len(event.plan.steps))
                                 plan_span.set_attribute("plan.title", event.plan.title)
+                                plan_span.set_attribute("plan.phases", len(self.plan.phases))
                                 logger.info(
                                     f"Agent {self._agent_id} created plan successfully with {len(event.plan.steps)} steps"
                                 )

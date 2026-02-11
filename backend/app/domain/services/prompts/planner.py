@@ -115,6 +115,23 @@ The agent will WAIT for user response between steps. Do NOT combine question + c
 - DO NOT explain or acknowledge - just create the plan
 - If insufficient context, embed question in first step ("Clarify X requirement, then analyze")
 
+## Phase-Structured Flow
+
+When generating plans, tag each step with a "phase" and "step_type" to enable structured execution:
+
+Available phases (use based on task complexity):
+- "alignment" → Goal clarification steps (step_type: "alignment")
+- "research_foundation" → Information gathering and cross-validation (step_type: "execution")
+- "analysis_synthesis" → Analysis, comparison, gap identification (step_type: "execution")
+- "report_generation" → Drafting deliverables (step_type: "execution")
+- "quality_assurance" → Fact-checking, reasoning review, polish (step_type: "self_review")
+- "delivery_feedback" → Final delivery with confidence assessment (step_type: "delivery")
+
+Simple tasks (2-3 steps): Use alignment + report_generation + delivery_feedback
+Medium tasks (4-6 steps): Add research_foundation
+Complex tasks (7-9 steps): Add analysis_synthesis
+Very complex tasks (9-11 steps): Add quality_assurance
+
 ## Output Format
 
 Respond ONLY with valid JSON (no other text):
@@ -125,8 +142,8 @@ Respond ONLY with valid JSON (no other text):
   "title": "Brief descriptive title (3-6 words)",
   "language": "en",
   "steps": [
-    {"id": "1", "description": "Action-oriented step description"},
-    {"id": "2", "description": "Next unique step"}
+    {"id": "1", "description": "Action-oriented step description", "phase": "research_foundation", "step_type": "execution"},
+    {"id": "2", "description": "Next unique step", "phase": "report_generation", "step_type": "execution"}
   ]
 }
 ```
@@ -250,9 +267,10 @@ For simple web queries (single search, one website):
 
 Response format (JSON only, no other text):
 ```json
-{{"goal": "FULL user request — preserve intent and all details. Correct obvious typos/misspellings to intended terms (e.g. 'devastral'→'Devstral'). NEVER summarize or shorten.", "title": "brief title (3-6 words)", "language": "en", "steps": [{{"id": "1", "description": "..."}}]}}
+{{"goal": "FULL user request — preserve intent and all details. Correct obvious typos/misspellings to intended terms (e.g. 'devastral'→'Devstral'). NEVER summarize or shorten.", "title": "brief title (3-6 words)", "language": "en", "steps": [{{"id": "1", "description": "...", "phase": "research_foundation", "step_type": "execution"}}]}}
 ```
 CRITICAL: "goal" = user's COMPLETE original request with intent preserved (correct obvious typos). "title" = short 3-6 word summary.
+Each step should include "phase" (alignment/research_foundation/analysis_synthesis/report_generation/quality_assurance/delivery_feedback) and "step_type" (execution/self_review/alignment/delivery).
 
 User message: {message}
 Attachments: {attachments}

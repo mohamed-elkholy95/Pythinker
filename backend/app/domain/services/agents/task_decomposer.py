@@ -272,7 +272,7 @@ class TaskDecomposer:
 
         # Count action verbs
         action_count = 0
-        for _category, indicators in self.COMPLEXITY_INDICATORS.items():
+        for indicators in self.COMPLEXITY_INDICATORS.values():
             for indicator in indicators:
                 if indicator in task.lower():
                     action_count += 1
@@ -537,11 +537,11 @@ class TaskDecomposer:
         Returns:
             Combined results string
         """
-        results = []
-
-        for _subtask_id, subtask in self._subtasks.items():
-            if subtask.status == "completed" and subtask.result:
-                results.append(f"## {subtask.description[:100]}\n{subtask.result}")
+        results = [
+            f"## {subtask.description[:100]}\n{subtask.result}"
+            for subtask in self._subtasks.values()
+            if subtask.status == "completed" and subtask.result
+        ]
 
         return "\n\n".join(results)
 

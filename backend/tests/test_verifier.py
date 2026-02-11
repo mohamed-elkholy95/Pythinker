@@ -174,9 +174,7 @@ class TestVerifierAgent:
             llm=mock_llm, json_parser=mock_json_parser, tools=mock_tools, config=VerifierConfig(skip_simple_plans=True)
         )
 
-        events = []
-        async for event in verifier.verify_plan(simple_plan, "Search for info"):
-            events.append(event)
+        events = [event async for event in verifier.verify_plan(simple_plan, "Search for info")]
 
         assert len(events) == 1
         assert isinstance(events[0], VerificationEvent)
@@ -190,9 +188,7 @@ class TestVerifierAgent:
             llm=mock_llm, json_parser=mock_json_parser, tools=mock_tools, config=VerifierConfig(skip_simple_plans=True)
         )
 
-        events = []
-        async for event in verifier.verify_plan(complex_plan, "Build web app"):
-            events.append(event)
+        events = [event async for event in verifier.verify_plan(complex_plan, "Build web app")]
 
         assert len(events) == 2  # STARTED + result
         assert events[0].status == VerificationStatus.STARTED
@@ -219,9 +215,7 @@ class TestVerifierAgent:
             tools=mock_tools,
         )
 
-        events = []
-        async for event in verifier.verify_plan(complex_plan, "Build web app"):
-            events.append(event)
+        events = [event async for event in verifier.verify_plan(complex_plan, "Build web app")]
 
         result_event = events[-1]
         assert result_event.status == VerificationStatus.REVISION_NEEDED
@@ -248,9 +242,7 @@ class TestVerifierAgent:
             tools=mock_tools,
         )
 
-        events = []
-        async for event in verifier.verify_plan(complex_plan, "Build web app"):
-            events.append(event)
+        events = [event async for event in verifier.verify_plan(complex_plan, "Build web app")]
 
         result_event = events[-1]
         assert result_event.status == VerificationStatus.FAILED
@@ -267,9 +259,7 @@ class TestVerifierAgent:
             tools=mock_tools,
         )
 
-        events = []
-        async for event in verifier.verify_plan(complex_plan, "Build web app"):
-            events.append(event)
+        events = [event async for event in verifier.verify_plan(complex_plan, "Build web app")]
 
         result_event = events[-1]
         # Should fail open with PASSED

@@ -97,7 +97,7 @@ class Browser(Protocol):
         """
         ...
 
-    async def navigate_for_display(self, url: str, timeout: int = 10000) -> bool:
+    async def navigate_for_display(self, url: str, timeout: int = 10000) -> bool:  # noqa: ASYNC109
         """Navigate to URL purely for VNC display (best-effort, non-blocking).
 
         Used after HTTP-based content fetching so the user can see the

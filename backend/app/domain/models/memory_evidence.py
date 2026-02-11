@@ -99,8 +99,7 @@ class MemoryEvidence:
 
             if self.contradictions:
                 lines.append(f"⚠️ CONFLICT: Contradicts {len(self.contradictions)} other memories")
-                for reason in self.contradiction_reasons[:2]:  # Show top 2
-                    lines.append(f"  - {reason}")
+                lines.extend(f"  - {reason}" for reason in self.contradiction_reasons[:2])  # Show top 2
 
         return "\n".join(lines)
 

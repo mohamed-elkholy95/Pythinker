@@ -184,10 +184,7 @@ class PathExplorer:
             for path in self._paths:
 
                 async def explore_and_collect(p):
-                    events = []
-                    async for event in self.explore_path(p, message, scorer):
-                        events.append(event)
-                    return events
+                    return [event async for event in self.explore_path(p, message, scorer)]
 
                 tasks.append(explore_and_collect(path))
 

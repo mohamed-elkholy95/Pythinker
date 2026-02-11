@@ -13,11 +13,11 @@ Key patterns demonstrated:
 6. Proper serialization patterns
 """
 
+import contextlib
 from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError, computed_field, field_validator, model_validator
-
 
 # ============================================================================
 # 1. COMPUTED FIELDS (Context7 Best Practice)
@@ -57,8 +57,6 @@ class Rectangle(BaseModel):
 
 # Example usage:
 rect = Rectangle(width=10, length=5)
-print(rect.model_dump())
-# Output: {'width': 10, 'length': 5, 'area': 50.0, 'perimeter': 30.0}
 
 
 # ============================================================================
@@ -121,17 +119,14 @@ class UserRegistration(BaseModel):
 
 
 # Example usage:
-try:
+with contextlib.suppress(ValidationError):
     user = UserRegistration(
         username="john_doe",
         email="  JOHN@EXAMPLE.COM  ",  # Will be normalized
         password="SecurePass123",
         password_confirm="SecurePass123",
     )
-    print(user.model_dump())
     # Output: {'username': 'john_doe', 'email': 'john@example.com', ...}
-except ValidationError as e:
-    print(e)
 
 
 # ============================================================================
@@ -258,12 +253,10 @@ class User(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# OLD: Pydantic v1
-# user = User.parse_obj({"id": 1, "name": "John", "email": "john@example.com"})
-
-# NEW: Pydantic v2 (Context7 validated)
+# Pydantic v2 (Context7 validated)
 data_dict = {"id": 1, "name": "John", "email": "john@example.com"}
 user = User.model_validate(data_dict)
+
 
 # ORM-like object example
 class ORMObject:
@@ -276,16 +269,13 @@ class ORMObject:
 orm_obj = ORMObject(id=2, name="Jane", email="jane@example.com")
 user_from_orm = User.model_validate(orm_obj)
 
-print(user_from_orm.model_dump())
-# Output: {'id': 2, 'name': 'Jane', 'email': 'jane@example.com'}
-
 
 # ============================================================================
 # 6. ADVANCED: DYNAMIC MODEL CREATION (Context7)
 # ============================================================================
 
 
-from pydantic import create_model
+from pydantic import create_model  # noqa: E402 - Example code demonstrating dynamic model creation
 
 
 def create_dynamic_user_model(role: str):
@@ -307,7 +297,7 @@ def create_dynamic_user_model(role: str):
 
     # Add validators
     def validate_username(cls, v):
-        assert v.isalnum(), "Username must be alphanumeric"
+        assert v.isalnum(), "Username must be alphanumeric"  # noqa: S101 - Example code demonstrating validation
         return v
 
     validators = {
@@ -315,20 +305,17 @@ def create_dynamic_user_model(role: str):
     }
 
     # Create model dynamically
-    DynamicUserModel = create_model(
+    return create_model(
         f"{role.capitalize()}User",
         __base__=BaseModel,
         __validators__=validators,
         **base_fields,
     )
 
-    return DynamicUserModel
-
 
 # Example usage:
 AdminUser = create_dynamic_user_model("admin")
 admin = AdminUser(username="admin123", email="admin@example.com", admin_level=5)
-print(admin.model_dump())
 
 
 # ============================================================================
@@ -359,16 +346,15 @@ class CompleteExample(BaseModel):
     @classmethod
     def validate_tags(cls, v: list[str]) -> list[str]:
         """Ensure tags are unique and lowercase"""
-        return list(set(tag.lower() for tag in v))
+        return list({tag.lower() for tag in v})
 
     # Model validators
     @model_validator(mode="after")
     def validate_model(self) -> "CompleteExample":
         """Complex model validation"""
         # Business rule: Users under 18 must have parental consent tag
-        if self.age and self.age < 18:
-            if "parental_consent" not in self.tags:
-                raise ValueError("Users under 18 must have 'parental_consent' tag")
+        if self.age and self.age < 18 and "parental_consent" not in self.tags:
+            raise ValueError("Users under 18 must have 'parental_consent' tag")
         return self
 
     # Model config

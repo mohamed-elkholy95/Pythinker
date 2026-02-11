@@ -6,6 +6,55 @@ from typing import Any, ClassVar
 from pydantic import BaseModel, Field, field_validator
 
 
+class PhaseType(str, Enum):
+    """Phase types for the structured agent flow."""
+
+    ALIGNMENT = "alignment"
+    RESEARCH_FOUNDATION = "research_foundation"
+    ANALYSIS_SYNTHESIS = "analysis_synthesis"
+    REPORT_GENERATION = "report_generation"
+    QUALITY_ASSURANCE = "quality_assurance"
+    DELIVERY_FEEDBACK = "delivery_feedback"
+
+
+class StepType(str, Enum):
+    """Step type categorization for routing."""
+
+    EXECUTION = "execution"  # Standard tool-based execution
+    SELF_REVIEW = "self_review"  # LLM-only QA review (no tools)
+    ALIGNMENT = "alignment"  # Goal clarification
+    DELIVERY = "delivery"  # Final delivery with confidence
+
+
+class Phase(BaseModel):
+    """A phase grouping multiple steps in the agent workflow."""
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    phase_type: PhaseType
+    label: str
+    description: str = ""
+    status: "ExecutionStatus" = Field(default="pending")
+    order: int = 0
+    icon: str = ""  # Lucide icon name for frontend
+    color: str = ""  # Tailwind color class
+    step_ids: list[str] = Field(default_factory=list)
+    skipped: bool = False
+    skip_reason: str | None = None
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _coerce_status(cls, v: Any) -> "ExecutionStatus":
+        if isinstance(v, str):
+            return ExecutionStatus(v)
+        return v
+
+    def is_active(self) -> bool:
+        return self.status in (ExecutionStatus.PENDING, ExecutionStatus.RUNNING)
+
+    def is_done(self) -> bool:
+        return self.status.is_terminal() or self.skipped
+
+
 class ExecutionStatus(str, Enum):
     """Execution status for plan steps with enhanced state tracking."""
 
@@ -92,6 +141,9 @@ class Step(BaseModel):
     blocked_by: str | None = None  # ID of step that caused blocking
     # Metadata for merged steps and additional context
     metadata: dict[str, Any] | None = None  # Stores merged_steps, original_descriptions, etc.
+    # Phase integration
+    phase_id: str | None = None  # Links to parent Phase
+    step_type: StepType = StepType.EXECUTION  # Routing: execution, self_review, alignment, delivery
     # Execution control
     expected_output: str | None = None  # Description of what this step should produce
     retry_policy: RetryPolicy = Field(default_factory=RetryPolicy)  # Per-step retry config
@@ -132,6 +184,7 @@ class Plan(BaseModel):
     goal: str = ""
     language: str | None = "en"
     steps: list[Step] = []
+    phases: list[Phase] = Field(default_factory=list)
     message: str | None = None
     status: ExecutionStatus = ExecutionStatus.PENDING
     result: dict[str, Any] | None = None
@@ -404,6 +457,39 @@ class Plan(BaseModel):
                 return step
         return None
 
+    def get_phase_by_type(self, phase_type: PhaseType) -> Phase | None:
+        """Get a phase by its type."""
+        for phase in self.phases:
+            if phase.phase_type == phase_type:
+                return phase
+        return None
+
+    def get_phase_by_id(self, phase_id: str) -> Phase | None:
+        """Get a phase by its ID."""
+        for phase in self.phases:
+            if phase.id == phase_id:
+                return phase
+        return None
+
+    def get_steps_for_phase(self, phase_id: str) -> list[Step]:
+        """Get all steps belonging to a phase."""
+        return [s for s in self.steps if s.phase_id == phase_id]
+
+    def get_current_phase(self) -> Phase | None:
+        """Get the currently active phase (first non-completed, non-skipped)."""
+        for phase in sorted(self.phases, key=lambda p: p.order):
+            if not phase.skipped and phase.status in (ExecutionStatus.PENDING, ExecutionStatus.RUNNING):
+                return phase
+        return None
+
+    def advance_phase(self, phase_id: str) -> Phase | None:
+        """Mark a phase as completed and return the next phase."""
+        phase = self.get_phase_by_id(phase_id)
+        if phase:
+            phase.status = ExecutionStatus.COMPLETED
+        # Return next pending phase
+        return self.get_current_phase()
+
     def dump_json(self) -> str:
         return self.model_dump_json(include={"goal", "language", "steps"})
 
@@ -453,15 +539,19 @@ class Plan(BaseModel):
                     seen.add(step_id)
 
         # Check for empty/invalid steps
-        for step in self.steps:
-            if not step.description or not step.description.strip():
-                errors.append(f"Step {step.id} has empty description")
+        errors.extend(
+            f"Step {step.id} has empty description"
+            for step in self.steps
+            if not step.description or not step.description.strip()
+        )
 
         # Check for orphan dependencies (referencing non-existent steps)
-        for step in self.steps:
-            for dep_id in step.dependencies:
-                if dep_id not in step_ids:
-                    errors.append(f"Step {step.id} depends on non-existent step {dep_id}")
+        errors.extend(
+            f"Step {step.id} depends on non-existent step {dep_id}"
+            for step in self.steps
+            for dep_id in step.dependencies
+            if dep_id not in step_ids
+        )
 
         # Check for circular dependencies using DFS
         def has_cycle(step_id: str, visited: set, rec_stack: set) -> bool:
@@ -487,18 +577,18 @@ class Plan(BaseModel):
                 break
 
         # Check for self-dependencies
-        for step in self.steps:
-            if step.id in step.dependencies:
-                errors.append(f"Step {step.id} depends on itself")
+        errors.extend(f"Step {step.id} depends on itself" for step in self.steps if step.id in step.dependencies)
 
         # Warnings for potentially problematic plans
         if len(self.steps) > 12:
             warnings.append(f"Plan has {len(self.steps)} steps, consider simplifying")
 
         # Check for steps with too many dependencies
-        for step in self.steps:
-            if len(step.dependencies) > 5:
-                warnings.append(f"Step {step.id} has {len(step.dependencies)} dependencies, may be overly complex")
+        warnings.extend(
+            f"Step {step.id} has {len(step.dependencies)} dependencies, may be overly complex"
+            for step in self.steps
+            if len(step.dependencies) > 5
+        )
 
         return ValidationResult(passed=len(errors) == 0, errors=errors, warnings=warnings)
 

@@ -452,7 +452,7 @@ async def main():
     output = report.to_markdown() if args.format == "markdown" else report.to_json()
 
     if args.output:
-        with open(args.output, "w") as f:
+        with open(args.output, "w") as f:  # noqa: ASYNC230
             f.write(output)
     else:
         print(output)

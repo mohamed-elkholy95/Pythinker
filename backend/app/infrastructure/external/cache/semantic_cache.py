@@ -409,7 +409,7 @@ class SemanticCache:
 
                 semantic_cache_store_total.inc({"success": "true"})
             except Exception:
-                pass
+                logger.debug("Failed to record semantic cache store metrics", exc_info=True)
 
             return True
 
@@ -425,7 +425,7 @@ class SemanticCache:
 
                 semantic_cache_store_total.inc({"success": "false"})
             except Exception:
-                pass
+                logger.debug("Failed to record semantic cache store failure metrics", exc_info=True)
 
             return False
 

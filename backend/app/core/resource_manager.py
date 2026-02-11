@@ -63,7 +63,7 @@ class ManagedResource:
     last_error: str | None = None
     shutdown_duration_ms: float = 0.0
 
-    async def shutdown(self, timeout: float = 10.0) -> bool:
+    async def shutdown(self, timeout: float = 10.0) -> bool:  # noqa: ASYNC109
         """Shutdown this resource.
 
         Args:
@@ -200,7 +200,7 @@ class ResourceManager:
         """Get the ManagedResource wrapper by name."""
         return self._resources.get(name)
 
-    async def shutdown_all(self, timeout: float = 30.0) -> dict[str, bool]:
+    async def shutdown_all(self, timeout: float = 30.0) -> dict[str, bool]:  # noqa: ASYNC109
         """Shutdown all resources gracefully.
 
         Resources are shutdown in reverse registration order,

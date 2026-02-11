@@ -209,13 +209,11 @@ Requirements:
 
         if data.get("benchmarks"):
             parts.append("\nExtracted Benchmarks:")
-            for b in data["benchmarks"][:10]:
-                parts.append(f"- {b.name}: {b.value} (Source: {b.source_url})")
+            parts.extend(f"- {b.name}: {b.value} (Source: {b.source_url})" for b in data["benchmarks"][:10])
 
         if data.get("comparisons"):
             parts.append("\nComparisons:")
-            for c in data["comparisons"][:5]:
-                parts.append(f"- {c.benchmark_name}: {len(c.entries)} entries compared")
+            parts.extend(f"- {c.benchmark_name}: {len(c.entries)} entries compared" for c in data["comparisons"][:5])
 
         return "\n".join(parts)
 

@@ -2,6 +2,7 @@
 Enhanced monitoring and health check API endpoints.
 """
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -12,6 +13,8 @@ from app.core.sandbox_manager import get_sandbox_manager
 from app.core.system_integrator import get_system_integrator
 from app.domain.models.user import User
 from app.interfaces.dependencies import get_current_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/monitoring", tags=["Monitoring"])
 
@@ -56,7 +59,7 @@ async def get_sandbox_stats(current_user: User = Depends(get_current_user)) -> d
         if pool and pool.is_started:
             stats["pool"] = pool.get_pool_stats()
     except Exception:
-        pass
+        logger.debug("Failed to get sandbox pool stats", exc_info=True)
 
     return stats
 
@@ -111,7 +114,7 @@ async def get_system_pressure(current_user: User = Depends(get_current_user)) ->
                 result["can_accept_new_task"] = False
                 result["reason"] = "sandbox pool circuit breaker open"
     except Exception:
-        pass
+        logger.debug("Failed to get sandbox pool pressure metrics", exc_info=True)
 
     # Active sandboxes
     sandbox_manager = get_sandbox_manager()

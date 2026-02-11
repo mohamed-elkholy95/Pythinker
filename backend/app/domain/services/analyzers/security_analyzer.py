@@ -45,7 +45,6 @@ class ScanVulnerability:
 
 # Vulnerability patterns for Python
 PYTHON_PATTERNS: list[tuple[str, str, str, str]] = [
-    # (pattern, vulnerability_type, severity, description)
     # SQL Injection patterns - detect f-strings or % formatting with SQL keywords
     (
         r'f["\']SELECT\s+.*\{',

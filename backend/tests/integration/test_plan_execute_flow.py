@@ -351,10 +351,7 @@ class TestEventStreaming:
         )
 
         message = mock_message(message="Test task")
-        events = []
-
-        async for event in planner.create_plan(message):
-            events.append(event)
+        events = [event async for event in planner.create_plan(message)]
 
         # Should have progress events
         progress_events = [e for e in events if isinstance(e, ProgressEvent)]
@@ -391,9 +388,7 @@ class TestEventStreaming:
         step = plan.steps[0]
         message = mock_message(message="Test")
 
-        events = []
-        async for event in executor.execute_step(plan, step, message):
-            events.append(event)
+        events = [event async for event in executor.execute_step(plan, step, message)]
 
         # Should have step events
         step_events = [e for e in events if isinstance(e, StepEvent)]

@@ -1,3 +1,4 @@
+import contextlib
 import json
 import logging
 from collections.abc import AsyncGenerator
@@ -14,7 +15,7 @@ from tenacity import (
 from app.domain.external.llm import LLM
 from app.domain.models.long_term_memory import MemoryType
 from app.domain.models.message import Message
-from app.domain.models.plan import ExecutionStatus, Plan, Step
+from app.domain.models.plan import ExecutionStatus, PhaseType, Plan, Step, StepType
 from app.domain.models.skill import Skill
 from app.domain.models.structured_outputs import (
     PlanOutput as StructuredPlanOutput,
@@ -146,6 +147,22 @@ def get_step_limits(complexity: str) -> tuple:
         Tuple of (min_steps, max_steps)
     """
     return COMPLEXITY_STEP_LIMITS.get(complexity, (DEFAULT_MIN_PLAN_STEPS, DEFAULT_MAX_PLAN_STEPS))
+
+
+def _step_from_description(index: int, desc) -> Step:
+    """Create a Step from a StepDescription, preserving phase metadata."""
+    step = Step(id=str(index + 1), description=desc.description)
+    if hasattr(desc, "phase") and desc.phase:
+        try:
+            PhaseType(desc.phase)  # Validate it's a known phase
+            step.metadata = step.metadata or {}
+            step.metadata["planner_phase"] = desc.phase
+        except ValueError:
+            pass
+    if hasattr(desc, "step_type") and desc.step_type:
+        with contextlib.suppress(ValueError):
+            step.step_type = StepType(desc.step_type)
+    return step
 
 
 class PlannerAgent(BaseAgent):
@@ -454,7 +471,7 @@ class PlannerAgent(BaseAgent):
                         language=plan_response.language,
                         message=plan_response.message,
                         steps=self._normalize_plan_steps(
-                            [Step(id=str(i + 1), description=s.description) for i, s in enumerate(plan_response.steps)],
+                            [_step_from_description(i, s) for i, s in enumerate(plan_response.steps)],
                             task_message=message.message,
                         ),
                     )
@@ -542,9 +559,7 @@ class PlannerAgent(BaseAgent):
                     update_response = await self.llm.ask_structured(
                         self.memory.get_messages(), response_model=PlanUpdateResponse, tools=None, tool_choice=None
                     )
-                    new_steps = [
-                        Step(id=str(i + 1), description=s.description) for i, s in enumerate(update_response.steps)
-                    ]
+                    new_steps = [_step_from_description(i, s) for i, s in enumerate(update_response.steps)]
                     apply_plan_update(new_steps)
                     logger.debug("Updated plan using structured output")
                     await self._add_to_memory(
@@ -939,7 +954,7 @@ Respond with a JSON plan containing:
                         language=plan_response.language,
                         message=plan_response.message,
                         steps=self._normalize_plan_steps(
-                            [Step(id=str(i + 1), description=s.description) for i, s in enumerate(plan_response.steps)],
+                            [_step_from_description(i, s) for i, s in enumerate(plan_response.steps)],
                             task_message=original_message,
                         ),
                     )
@@ -1039,7 +1054,7 @@ Respond with a JSON plan containing:
                         language=parsed.language,
                         message=parsed.message,
                         steps=self._normalize_plan_steps(
-                            [Step(id=str(i + 1), description=s.description) for i, s in enumerate(parsed.steps)],
+                            [_step_from_description(i, s) for i, s in enumerate(parsed.steps)],
                             task_message=message.message,
                         ),
                     )

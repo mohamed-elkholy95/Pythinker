@@ -239,8 +239,7 @@ class TestRetryLogging:
         handler.emit = lambda record: log_messages.append(record.getMessage())
 
         # Simulated retry logging
-        for attempt in range(1, 4):
-            log_messages.append(f"Validation retry attempt {attempt}/3")
+        log_messages.extend(f"Validation retry attempt {attempt}/3" for attempt in range(1, 4))
 
         assert any("attempt 1" in msg for msg in log_messages)
         assert any("attempt 3" in msg for msg in log_messages)

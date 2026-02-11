@@ -351,7 +351,7 @@ class EvalReport:
                 self.average_score = sum(scores) / len(scores)
 
         # Calculate per-metric averages
-        for _metric_name, stats in self.metric_scores.items():
+        for stats in self.metric_scores.values():
             if stats["count"] > 0:
                 stats["average_score"] = stats["total_score"] / stats["count"]
                 stats["pass_rate"] = stats["passed"] / stats["count"]

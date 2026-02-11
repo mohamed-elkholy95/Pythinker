@@ -3,7 +3,7 @@
 End-to-end tests for duplicate query detection and suppression.
 """
 
-import time
+import asyncio
 
 import pytest
 
@@ -141,7 +141,6 @@ class TestDuplicateSuppressionE2E:
             force_retry=False,
         )
 
-        # Verify: Suppressed
         assert should_suppress is True
         assert reason == "duplicate_within_window"
 
@@ -234,7 +233,7 @@ class TestDuplicateSuppressionE2E:
         assert should_suppress_immediate is True
 
         # Wait for window to expire
-        time.sleep(1)
+        await asyncio.sleep(1)
 
         # After expiration: should NOT suppress
         should_suppress_expired, reason_expired = short_policy.should_suppress(
@@ -350,7 +349,7 @@ class TestDuplicateSuppressionE2E:
         assert len(short_policy._cache._cache) == 5
 
         # Wait for expiration
-        time.sleep(1)
+        await asyncio.sleep(1)
 
         # Cleanup
         removed = short_policy.cleanup()

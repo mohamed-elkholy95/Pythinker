@@ -189,7 +189,6 @@ class ResponseRecoveryPolicy:
         if retry_count >= self.rollback_threshold:
             return RecoveryStrategy.SIMPLIFIED_PROMPT
 
-        # Default: rollback and retry
         return RecoveryStrategy.ROLLBACK_RETRY
 
     async def execute_recovery(

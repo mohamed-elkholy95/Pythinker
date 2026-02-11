@@ -36,7 +36,6 @@ async def lifespan(app: FastAPI):
     - Recommended since FastAPI 0.93+
     """
     # === Startup Phase ===
-    print("Starting up: Loading ML models, connecting to databases...")
 
     # Simulated resource initialization
     app.state.ml_models = {"sentiment": "mock_model"}
@@ -45,7 +44,6 @@ async def lifespan(app: FastAPI):
     yield  # Application runs here
 
     # === Shutdown Phase ===
-    print("Shutting down: Cleaning up resources...")
     app.state.ml_models.clear()
     app.state.db_pool.clear()
 
@@ -135,12 +133,10 @@ def send_email_notification(email: str, message: str):
 
     Context7 Best Practice: Keep background tasks simple and stateless
     """
-    print(f"Sending email to {email}: {message}")
 
 
 def log_user_action(user_id: int, action: str):
     """Background task: Log user action"""
-    print(f"User {user_id} performed action: {action}")
 
 
 # ============================================================================
@@ -240,7 +236,7 @@ async def get_user(
 
 
 # Example: Apply security to all routes in a router
-from fastapi import APIRouter
+from fastapi import APIRouter  # noqa: E402 - Example code demonstrating router configuration
 
 secure_router = APIRouter(
     prefix="/api/v1",

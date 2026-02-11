@@ -108,7 +108,7 @@ def calculate_delay(
     # Add jitter if enabled
     if config.jitter:
         jitter_range = delay * config.jitter_factor
-        delay = delay + random.uniform(-jitter_range, jitter_range)
+        delay = delay + random.uniform(-jitter_range, jitter_range)  # noqa: S311 - Random jitter for backoff timing, not cryptographic
         delay = max(0.1, delay)  # Ensure positive delay
 
     return delay

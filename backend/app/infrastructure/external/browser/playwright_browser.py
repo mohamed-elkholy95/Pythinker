@@ -223,7 +223,7 @@ def is_video_url(url: str) -> bool:
                 return True
 
     except Exception:
-        pass
+        logger.debug("Failed to check if URL is video URL", exc_info=True)
 
     return False
 
@@ -307,9 +307,9 @@ class PlaywrightBrowser:
         Returns:
             Tuple of (user_agent, viewport, timezone)
         """
-        user_agent = random.choice(USER_AGENT_POOL)
-        viewport = random.choice(VIEWPORT_POOL)
-        timezone = random.choice(TIMEZONE_POOL)
+        user_agent = random.choice(USER_AGENT_POOL)  # noqa: S311 - Random fingerprint for stealth, not cryptographic
+        viewport = random.choice(VIEWPORT_POOL)  # noqa: S311 - Random fingerprint for stealth, not cryptographic
+        timezone = random.choice(TIMEZONE_POOL)  # noqa: S311 - Random fingerprint for stealth, not cryptographic
 
         logger.debug(
             f"Randomized fingerprint: UA={user_agent[:50]}..., "
@@ -1115,6 +1115,7 @@ class PlaywrightBrowser:
                                         logger.info("Reusing alternate existing page")
                                         break
                                 except Exception:
+                                    logger.debug("Failed to check if page is closed", exc_info=True)
                                     continue
 
                     if reuse_page:
@@ -1388,9 +1389,9 @@ class PlaywrightBrowser:
                 await asyncio.sleep(0.3)
                 await self.page.evaluate("window.scrollTo({top: 0, behavior: 'smooth'})")
             except Exception:
-                pass
+                logger.debug("Failed to perform fallback scroll", exc_info=True)
 
-    async def wait_for_page_load(self, timeout: int = 15000, wait_until: str = "domcontentloaded") -> bool:
+    async def wait_for_page_load(self, timeout: int = 15000, wait_until: str = "domcontentloaded") -> bool:  # noqa: ASYNC109
         """Wait for page to reach specified load state using Playwright's native methods
 
         Args:
@@ -1415,7 +1416,7 @@ class PlaywrightBrowser:
             logger.warning(f"Error waiting for page load: {e}")
             return False
 
-    async def wait_for_navigation(self, timeout: int = 30000, wait_until: str = "domcontentloaded") -> bool:
+    async def wait_for_navigation(self, timeout: int = 30000, wait_until: str = "domcontentloaded") -> bool:  # noqa: ASYNC109
         """Wait for navigation to complete after an action
 
         Args:
@@ -1819,7 +1820,11 @@ class PlaywrightBrowser:
         return [f"{el['index']}:<{el['tag']}>{el['text']}</{el['tag']}>" for el in interactive_elements]
 
     async def navigate(
-        self, url: str, timeout: int | None = 30000, wait_until: str = "domcontentloaded", auto_extract: bool = False
+        self,
+        url: str,
+        timeout: int | None = 30000,  # noqa: ASYNC109
+        wait_until: str = "domcontentloaded",
+        auto_extract: bool = False,
     ) -> ToolResult:
         """Navigate to the specified URL with automatic content loading and extraction
 
@@ -1845,7 +1850,7 @@ class PlaywrightBrowser:
         async with self._navigation_lock:
             return await self._navigate_impl(url, timeout, wait_until, auto_extract)
 
-    async def _navigate_impl(self, url: str, timeout: int | None, wait_until: str, auto_extract: bool) -> ToolResult:
+    async def _navigate_impl(self, url: str, timeout: int | None, wait_until: str, auto_extract: bool) -> ToolResult:  # noqa: ASYNC109
         """Internal navigate implementation (caller must hold _navigation_lock)."""
         await self._ensure_page()
 
@@ -2005,7 +2010,7 @@ class PlaywrightBrowser:
                         result_data["content"] = content
                         result_data["title"] = title
                     except Exception:
-                        pass  # Skip content if extraction fails
+                        logger.debug("Failed to extract content after partial page load", exc_info=True)
 
                 return ToolResult(
                     success=True, message="Navigation timed out but page partially loaded", data=result_data
@@ -2035,7 +2040,7 @@ class PlaywrightBrowser:
                                 partial_data["title"] = await self.page.title()
                                 partial_data["url"] = self.page.url
                             except Exception:
-                                pass
+                                logger.debug("Failed to get title/URL from page after crash", exc_info=True)
 
                         return ToolResult(
                             success=True,  # Mark as success with partial data
@@ -2061,7 +2066,7 @@ class PlaywrightBrowser:
                 )
             return ToolResult(success=False, message=f"Failed to navigate to {url}: {e!s}")
 
-    async def navigate_fast(self, url: str, timeout: int = 15000) -> ToolResult:
+    async def navigate_fast(self, url: str, timeout: int = 15000) -> ToolResult:  # noqa: ASYNC109
         """Fast navigation optimized for quick page loads without heavy extraction.
 
         This method is designed for fast-path queries where we want to get to
@@ -2175,7 +2180,7 @@ class PlaywrightBrowser:
             logger.error(f"Fast navigation failed: {e}")
             return ToolResult(success=False, message=f"Failed to navigate to {url}: {e!s}")
 
-    async def navigate_for_display(self, url: str, timeout: int = 10000) -> bool:
+    async def navigate_for_display(self, url: str, timeout: int = 10000) -> bool:  # noqa: ASYNC109
         """Navigate to URL purely for VNC display (best-effort, non-blocking).
 
         This is a lightweight navigation used after HTTP-based content fetching
@@ -2216,7 +2221,7 @@ class PlaywrightBrowser:
                     await cdp_session.send("Page.bringToFront")
                     await cdp_session.detach()
                 except Exception:
-                    pass  # CDP activation is best-effort
+                    logger.debug("Failed to bring page to front via CDP", exc_info=True)
                 logger.debug(f"navigate_for_display: showed {url} on VNC")
                 self._display_failure_count = 0
                 return True
@@ -2452,7 +2457,7 @@ class PlaywrightBrowser:
                         center_y = box["y"] + box["height"] / 2
                         await self._show_cursor_click(center_x, center_y)
                 except Exception:
-                    pass  # Continue without cursor animation
+                    logger.debug("Failed to show cursor click animation", exc_info=True)
 
                 # Click with force option as fallback for tricky elements
                 try:
@@ -2540,7 +2545,7 @@ class PlaywrightBrowser:
                         center_y = box["y"] + box["height"] / 2
                         await self._show_cursor_click(center_x, center_y)
                 except Exception:
-                    pass  # Continue without cursor animation
+                    logger.debug("Failed to show cursor click animation for input", exc_info=True)
 
                 # Try fill() first (fastest and most reliable for input fields)
                 try:

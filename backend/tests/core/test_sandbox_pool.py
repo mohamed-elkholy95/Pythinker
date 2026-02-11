@@ -111,7 +111,7 @@ class TestInitialization:
 
 
 # ---------------------------------------------------------------------------
-# start()
+# start() tests
 # ---------------------------------------------------------------------------
 
 
@@ -163,7 +163,7 @@ class TestStart:
 
 
 # ---------------------------------------------------------------------------
-# stop()
+# stop() tests
 # ---------------------------------------------------------------------------
 
 
@@ -263,7 +263,7 @@ class TestStop:
 
 
 # ---------------------------------------------------------------------------
-# acquire()
+# acquire() tests
 # ---------------------------------------------------------------------------
 
 
@@ -332,7 +332,7 @@ class TestAcquire:
 
         real_wait_for = asyncio.tasks.wait_for
 
-        async def _wait_for_with_short_destroy_timeout(awaitable: asyncio.Future, timeout: float):
+        async def _wait_for_with_short_destroy_timeout(awaitable: asyncio.Future, timeout: float):  # noqa: ASYNC109
             if timeout == 15.0:
                 return await real_wait_for(awaitable, timeout=0.01)
             return await real_wait_for(awaitable, timeout=timeout)

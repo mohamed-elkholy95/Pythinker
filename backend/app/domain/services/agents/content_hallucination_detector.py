@@ -421,8 +421,10 @@ class ContentHallucinationDetector:
 
         if medium_risk:
             lines.append(f"\nMedium Risk ({len(medium_risk)}):")
-            for issue in medium_risk[:3]:  # Limit to 3
-                lines.append(f"  - {issue.description}: '{issue.matched_text[:50]}'")
+            lines.extend(
+                f"  - {issue.description}: '{issue.matched_text[:50]}'"
+                for issue in medium_risk[:3]  # Limit to 3
+            )
 
         return "\n".join(lines)
 
@@ -452,8 +454,7 @@ class ContentHallucinationDetector:
 
         for pattern in claim_patterns:
             compiled = re.compile(pattern, re.IGNORECASE)
-            for match in compiled.finditer(text):
-                claims.append(match.group(0))
+            claims.extend(match.group(0) for match in compiled.finditer(text))
 
         return list(set(claims))  # Remove duplicates
 
@@ -875,19 +876,19 @@ class ContentHallucinationDetector:
 
         for verb, pattern in verb_patterns:
             # Check claim1 positive, claim2 negative
-            match1 = re.search(pattern, claim1.text, re.I)
+            match1 = re.search(pattern, claim1.text, re.IGNORECASE)
             if match1:
                 obj = match1.group(1)
                 neg_pattern = rf"(?:does\s+)?not\s+{verb}\s+{re.escape(obj)}"
-                if re.search(neg_pattern, claim2.text, re.I):
+                if re.search(neg_pattern, claim2.text, re.IGNORECASE):
                     return True
 
             # Check claim1 negative, claim2 positive
-            match2 = re.search(pattern, claim2.text, re.I)
+            match2 = re.search(pattern, claim2.text, re.IGNORECASE)
             if match2:
                 obj = match2.group(1)
                 neg_pattern = rf"(?:does\s+)?not\s+{verb}\s+{re.escape(obj)}"
-                if re.search(neg_pattern, claim1.text, re.I):
+                if re.search(neg_pattern, claim1.text, re.IGNORECASE):
                     return True
 
         # Format/type contradictions: "returns JSON" vs "returns XML"

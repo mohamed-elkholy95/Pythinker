@@ -336,10 +336,7 @@ class MongoMemoryRepository(MemoryRepository):
         # Fetch candidates (limit to reasonable number for local computation)
         cursor = self._collection.find(query).limit(500)
 
-        candidates = []
-        async for doc in cursor:
-            if doc.get("embedding"):
-                candidates.append(doc)
+        candidates = [doc async for doc in cursor if doc.get("embedding")]
 
         if not candidates:
             return []
@@ -377,10 +374,7 @@ class MongoMemoryRepository(MemoryRepository):
         """Find memories with matching content hash."""
         cursor = self._collection.find({"user_id": user_id, "content_hash": content_hash})
 
-        results = []
-        async for doc in cursor:
-            results.append(self._from_document(doc))
-        return results
+        return [self._from_document(doc) async for doc in cursor]
 
     async def get_by_entities(self, user_id: str, entities: list[str], limit: int = 20) -> list[MemoryEntry]:
         """Get memories mentioning specific entities."""
@@ -390,10 +384,7 @@ class MongoMemoryRepository(MemoryRepository):
             .limit(limit)
         )
 
-        results = []
-        async for doc in cursor:
-            results.append(self._from_document(doc))
-        return results
+        return [self._from_document(doc) async for doc in cursor]
 
     async def get_recent(
         self, user_id: str, limit: int = 10, memory_types: list[MemoryType] | None = None
@@ -406,10 +397,7 @@ class MongoMemoryRepository(MemoryRepository):
 
         cursor = self._collection.find(query).sort("created_at", DESCENDING).limit(limit)
 
-        results = []
-        async for doc in cursor:
-            results.append(self._from_document(doc))
-        return results
+        return [self._from_document(doc) async for doc in cursor]
 
     async def get_most_accessed(
         self, user_id: str, limit: int = 10, since: datetime | None = None
@@ -422,10 +410,7 @@ class MongoMemoryRepository(MemoryRepository):
 
         cursor = self._collection.find(query).sort("access_count", DESCENDING).limit(limit)
 
-        results = []
-        async for doc in cursor:
-            results.append(self._from_document(doc))
-        return results
+        return [self._from_document(doc) async for doc in cursor]
 
     async def get_stats(self, user_id: str) -> MemoryStats:
         """Get memory statistics for a user."""
