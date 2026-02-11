@@ -1138,6 +1138,96 @@ class MemoryService:
             logger.debug(f"Error context retrieval failed: {e}")
             return ""
 
+    async def store_session_summary(
+        self,
+        user_id: str,
+        session_id: str,
+        conversation: list[dict],
+        outcome: str,
+        success: bool,
+    ) -> MemoryEntry:
+        """Store compacted session summary as critical memory.
+
+        Phase 5: Session summaries preserve long-session context and prevent
+        context loss by capturing key decisions, outcomes, and lessons learned.
+
+        Args:
+            user_id: User who owns the session
+            session_id: Session ID
+            conversation: Full conversation history
+            outcome: Summary of what was accomplished
+            success: Whether session goals were achieved
+
+        Returns:
+            Created memory entry
+        """
+        # Generate summary using LLM
+        summary_text = await self._generate_session_summary(conversation, outcome)
+
+        # Store as CRITICAL importance
+        return await self.store_memory(
+            user_id=user_id,
+            content=f"Session {session_id[:8]} summary:\n{summary_text}",
+            memory_type=MemoryType.PROJECT_CONTEXT,
+            importance=MemoryImportance.CRITICAL,
+            source=MemorySource.SYSTEM,
+            session_id=session_id,
+            tags=["session_summary", "success" if success else "failure"],
+            metadata={
+                "outcome": outcome,
+                "success": success,
+                "message_count": len(conversation),
+                "summary_timestamp": datetime.utcnow().isoformat(),
+            },
+            generate_embedding=True,
+        )
+
+    async def _generate_session_summary(
+        self,
+        conversation: list[dict],
+        outcome: str,
+    ) -> str:
+        """Generate session summary using LLM.
+
+        Phase 5: LLM-based summarization extracts key information from
+        long sessions for future retrieval.
+
+        Args:
+            conversation: Full conversation history
+            outcome: Final outcome description
+
+        Returns:
+            Concise session summary (max 200 words)
+        """
+        if not self._llm:
+            # Fallback: simple concatenation if no LLM available
+            return f"Outcome: {outcome}\nMessages: {len(conversation)}"
+
+        # Format conversation (last 20 messages to avoid overwhelming LLM)
+        formatted = "\n".join(
+            [f"{msg.get('role', 'unknown')}: {str(msg.get('content', ''))[:200]}" for msg in conversation[-20:]]
+        )
+
+        prompt = f"""Summarize this session into 3-5 bullet points capturing:
+1. What the user requested
+2. Key decisions and actions taken
+3. Final outcome
+4. Any important context for future sessions
+
+Conversation:
+{formatted}
+
+Outcome: {outcome}
+
+Provide a concise summary (max 200 words)."""
+
+        try:
+            response = await self._llm.ask(messages=[{"role": "user", "content": prompt}])
+            return response.get("content", outcome)
+        except Exception as e:
+            logger.warning(f"Session summary generation failed: {e}")
+            return f"Outcome: {outcome}\nMessages: {len(conversation)}"
+
     # Private helper methods
 
     def _compute_hash(self, content: str) -> str:
@@ -1584,6 +1674,82 @@ class ContextEngineeringService:
             current_tokens += chunk.token_estimate
 
         return "\n\n".join(context_parts)
+
+    def get_memory_budget(self, pressure_signal: float) -> int:
+        """Compute memory token budget based on context pressure.
+
+        Phase 5: Pressure-aware budgeting scales memory injection dynamically
+        to prevent context window overflow in long sessions.
+
+        Args:
+            pressure_signal: 0.0-1.0, where 1.0 = at context limit
+
+        Returns:
+            Token budget for memory injection
+        """
+        base_budget = self.config.max_injected_tokens  # e.g., 2000
+
+        if pressure_signal < 0.5:
+            # Plenty of space: use full budget
+            return base_budget
+        elif pressure_signal < 0.7:
+            # Moderate pressure: reduce to 75%
+            return int(base_budget * 0.75)
+        elif pressure_signal < 0.85:
+            # High pressure: reduce to 50%
+            return int(base_budget * 0.50)
+        else:
+            # Critical pressure: minimal memories only
+            return int(base_budget * 0.25)
+
+    async def inject_context_adaptive(
+        self,
+        memory: "Memory",
+        step_description: str,
+        pressure_signal: float,
+    ) -> bool:
+        """Inject context with pressure-aware budgeting.
+
+        Phase 5: Adaptive injection scales memory budget based on token pressure
+        to maintain coherence while preventing context overflow.
+
+        Args:
+            memory: Memory to inject into
+            step_description: Description of the upcoming step
+            pressure_signal: 0.0-1.0 context pressure (current_tokens / max_tokens)
+
+        Returns:
+            True if context was injected
+        """
+        if not self.config.enabled:
+            return False
+
+        # Compute dynamic budget
+        budget = self.get_memory_budget(pressure_signal)
+
+        # Retrieve relevant context within budget
+        relevant_context = await self.get_relevant_context(
+            step_description,
+            max_tokens=budget,
+        )
+
+        if not relevant_context:
+            return False
+
+        # Inject into memory
+        context_message = {
+            "role": "system",
+            "content": f"Relevant context (budget: {budget} tokens, pressure: {pressure_signal:.2f}):\n\n{relevant_context}",
+        }
+
+        messages = memory.get_messages()
+        if messages and messages[0].get("role") == "system":
+            memory.messages.insert(1, context_message)
+        else:
+            memory.messages.insert(0, context_message)
+
+        logger.debug(f"Injected context with {budget} token budget (pressure: {pressure_signal:.2f})")
+        return True
 
     async def inject_context(self, memory: "Memory", step_description: str) -> bool:
         """Inject relevant context into memory for upcoming step.

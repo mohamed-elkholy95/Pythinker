@@ -599,6 +599,43 @@ evidence_contradiction_total = Counter(
     labels=["detection_type"],  # "numeric", "negation", "llm"
 )
 
+# Phase 5: Long-Context Pressure & Context Loss Metrics
+context_loss_detected = Counter(
+    name="pythinker_context_loss_detected_total",
+    help_text="Detected context loss events (repeated questions, forgotten context)",
+    labels=["loss_type"],  # "repeat_question", "forgotten_fact", "repeat_tool"
+)
+
+repeat_tool_invocation = Counter(
+    name="pythinker_repeat_tool_invocation_total",
+    help_text="Tool invocations that repeat previous identical calls",
+    labels=["tool_name"],
+)
+
+checkpoint_written_total = Counter(
+    name="pythinker_checkpoint_written_total",
+    help_text="Execution checkpoints written to memory",
+    labels=["checkpoint_type"],  # "incremental", "final"
+)
+
+session_summary_written_total = Counter(
+    name="pythinker_session_summary_written_total",
+    help_text="Session summaries written to long-term memory",
+    labels=["outcome"],  # "success", "failure"
+)
+
+memory_budget_pressure = Gauge(
+    name="pythinker_memory_budget_pressure",
+    help_text="Context pressure signal (0.0-1.0, where 1.0 = at limit)",
+    labels=["session_id"],
+)
+
+memory_budget_tokens = Gauge(
+    name="pythinker_memory_budget_tokens",
+    help_text="Dynamic memory token budget based on pressure",
+    labels=["session_id"],
+)
+
 # Register additional metrics defined after the base registry
 _metrics_registry.extend(
     [
@@ -637,6 +674,13 @@ _metrics_registry.extend(
         evidence_caveat_total,
         evidence_rejection_total,
         evidence_contradiction_total,
+        # Phase 5: Long-Context Pressure & Context Loss Metrics
+        context_loss_detected,
+        repeat_tool_invocation,
+        checkpoint_written_total,
+        session_summary_written_total,
+        memory_budget_pressure,
+        memory_budget_tokens,
     ]
 )
 
