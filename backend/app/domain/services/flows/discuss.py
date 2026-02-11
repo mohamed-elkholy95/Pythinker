@@ -10,7 +10,6 @@ import re
 from collections.abc import AsyncGenerator
 from enum import Enum
 
-from app.core.config import get_settings
 from app.domain.external.llm import LLM
 from app.domain.external.search import SearchEngine
 from app.domain.models.event import (
@@ -94,7 +93,9 @@ class DiscussFlow(BaseFlow):
         llm: LLM,
         json_parser: JsonParser,
         search_engine: SearchEngine | None = None,
+        default_language: str = "en",
     ):
+        self._default_language = default_language
         self._agent_id = agent_id
         self._repository = agent_repository
         self._session_id = session_id
@@ -229,11 +230,10 @@ class DiscussFlow(BaseFlow):
 
         try:
             # Build the discuss prompt
-            settings = get_settings()
             prompt = build_discuss_prompt(
                 message=message.message,
                 attachments="\n".join(message.attachments) if message.attachments else "",
-                language=settings.default_language,
+                language=self._default_language,
             )
 
             # Execute through the agent

@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from pydantic import TypeAdapter
 
-from app.core.config import get_settings
 from app.domain.external.file import FileStorage
 from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
@@ -98,6 +97,8 @@ class AgentDomainService:
 
         if sandbox_id:
             sandbox = await self._sandbox_cls.get(sandbox_id)
+        from app.core.config import get_settings
+
         settings = get_settings()
         sandbox_lifecycle_mode = getattr(settings, "sandbox_lifecycle_mode", "static")
         ephemeral_lifecycle = sandbox_lifecycle_mode == "ephemeral"
@@ -293,6 +294,8 @@ class AgentDomainService:
         await self._session_repository.save(session)
 
         # Get multi-agent configuration from settings
+        from app.core.config import get_settings
+
         settings = get_settings()
 
         task_runner = AgentTaskRunner(
@@ -489,7 +492,9 @@ class AgentDomainService:
         if destroy_sandbox and target_session.sandbox_id:
             owns_sandbox = target_session.sandbox_owned or target_session.sandbox_lifecycle_mode == "ephemeral"
             if target_session.sandbox_lifecycle_mode is None and not target_session.sandbox_owned:
-                configured_lifecycle_mode = getattr(get_settings(), "sandbox_lifecycle_mode", "static")
+                from app.core.config import get_settings as _get_settings
+
+                configured_lifecycle_mode = getattr(_get_settings(), "sandbox_lifecycle_mode", "static")
                 if configured_lifecycle_mode == "ephemeral":
                     owns_sandbox = True
 
@@ -833,7 +838,9 @@ NOTE: The browser state may have changed. When you next use the browser:
                     from app.domain.services.skill_activation_framework import get_skill_activation_framework
 
                     if auto_trigger_enabled is None:
-                        auto_trigger_enabled = get_settings().skill_auto_trigger_enabled
+                        from app.core.config import get_settings as _get_cfg
+
+                        auto_trigger_enabled = _get_cfg().skill_auto_trigger_enabled
 
                     activation_framework = get_skill_activation_framework()
                     activation_result = await activation_framework.resolve(

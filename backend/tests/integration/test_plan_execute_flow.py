@@ -6,7 +6,7 @@ Covers multi-step plans, tool failure recovery, verification feedback loops,
 and stuck detection.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -14,14 +14,6 @@ from app.domain.models.event import (
     StepEvent,
 )
 from app.domain.models.plan import ExecutionStatus
-
-
-@pytest.fixture
-def mock_settings_no_structured():
-    """Mock settings with feature_structured_outputs disabled."""
-    settings = MagicMock()
-    settings.feature_structured_outputs = False
-    return settings
 
 
 class TestSimpleQueryFlow:
@@ -73,6 +65,7 @@ class TestMultiStepPlanExecution:
             llm=mock_llm,
             tools=mock_tools,
             json_parser=mock_json_parser,
+            feature_flags={"structured_outputs": False},
         )
 
     @pytest.fixture
@@ -89,7 +82,7 @@ class TestMultiStepPlanExecution:
         )
 
     @pytest.mark.asyncio
-    async def test_three_step_plan_creates_correctly(self, mock_planner, mock_message, mock_settings_no_structured):
+    async def test_three_step_plan_creates_correctly(self, mock_planner, mock_message):
         """A 3-step plan should be created correctly."""
         # Setup planner to return a 3-step plan
         mock_planner.llm.ask_structured = AsyncMock(
@@ -110,11 +103,10 @@ class TestMultiStepPlanExecution:
 
         # Create the plan
         plan = None
-        with patch("app.domain.services.agents.planner.get_settings", return_value=mock_settings_no_structured):
-            async for event in mock_planner.create_plan(message):
-                if hasattr(event, "plan"):
-                    plan = event.plan
-                    break
+        async for event in mock_planner.create_plan(message):
+            if hasattr(event, "plan"):
+                plan = event.plan
+                break
 
         assert plan is not None
         assert len(plan.steps) >= 3
@@ -228,7 +220,7 @@ class TestVerificationFeedbackLoop:
 
     @pytest.mark.asyncio
     async def test_invalid_plan_gets_revised(
-        self, mock_llm, mock_agent_repository, mock_json_parser, mock_tools, mock_message, mock_settings_no_structured
+        self, mock_llm, mock_agent_repository, mock_json_parser, mock_tools, mock_message
     ):
         """Invalid plans should trigger revision."""
         from app.domain.services.agents.planner import PlannerAgent
@@ -239,6 +231,7 @@ class TestVerificationFeedbackLoop:
             llm=mock_llm,
             tools=mock_tools,
             json_parser=mock_json_parser,
+            feature_flags={"structured_outputs": False},
         )
 
         # First plan is invalid, second is valid
@@ -270,22 +263,20 @@ class TestVerificationFeedbackLoop:
 
         # Create initial plan
         plan = None
-        with patch("app.domain.services.agents.planner.get_settings", return_value=mock_settings_no_structured):
-            async for event in planner.create_plan(message):
-                if hasattr(event, "plan"):
-                    plan = event.plan
-                    break
+        async for event in planner.create_plan(message):
+            if hasattr(event, "plan"):
+                plan = event.plan
+                break
 
         assert plan is not None
 
         # Simulate verification failure and replan
         replan_context = "Previous plan used unknown tool: nonexistent_tool"
         revised_plan = None
-        with patch("app.domain.services.agents.planner.get_settings", return_value=mock_settings_no_structured):
-            async for event in planner.create_plan(message, replan_context=replan_context):
-                if hasattr(event, "plan"):
-                    revised_plan = event.plan
-                    break
+        async for event in planner.create_plan(message, replan_context=replan_context):
+            if hasattr(event, "plan"):
+                revised_plan = event.plan
+                break
 
         assert revised_plan is not None
         # Plan should be revised (LLM called twice)

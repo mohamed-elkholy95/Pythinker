@@ -25,7 +25,6 @@ from typing import (
 )
 
 from app.core.async_utils import gather_compat
-from app.core.config import get_settings
 from app.domain.models.event import BaseEvent, PlanEvent, PlanStatus
 from app.domain.models.plan import ExecutionStatus, Plan, Step
 
@@ -133,7 +132,9 @@ class ParallelExecutor:
         max_concurrency: int = 5,  # Increased default for wider research
         mode: ParallelExecutionMode = ParallelExecutionMode.PARALLEL,
         config: ParallelExecutorConfig | None = None,
+        feature_flags: dict[str, bool] | None = None,
     ):
+        self._feature_flags = feature_flags
         if config:
             self.config = config
             self.max_concurrency = config.get_effective_concurrency()
@@ -151,6 +152,14 @@ class ParallelExecutor:
         self._failed: set[str] = set()
         self._stats = ExecutionStats()
         self._resource_pressure: float = 0.0  # 0-1 scale
+
+    def _resolve_feature_flags(self) -> dict[str, bool]:
+        """Return injected feature flags, falling back to core config."""
+        if self._feature_flags is not None:
+            return self._feature_flags
+        from app.core.config import get_feature_flags
+
+        return get_feature_flags()
 
     def reset(self) -> None:
         """Reset executor state for a new plan."""
@@ -423,8 +432,8 @@ class ParallelExecutor:
 
                 # Use TaskGroup-based gather if feature flag enabled (Phase 1 enhancement)
                 # This provides better cancellation and exception handling
-                settings = get_settings()
-                use_taskgroup = settings.feature_taskgroup_enabled
+                flags = self._resolve_feature_flags()
+                use_taskgroup = flags.get("taskgroup_enabled", False)
 
                 # Wait for all tasks to complete using appropriate method
                 results = await gather_compat(*tasks, return_exceptions=True, use_taskgroup=use_taskgroup)

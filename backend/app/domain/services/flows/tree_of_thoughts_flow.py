@@ -20,7 +20,6 @@ For simple/moderate tasks, falls back to standard linear execution.
 import logging
 from collections.abc import AsyncGenerator
 
-from app.core.config import get_settings
 from app.domain.external.browser import Browser
 from app.domain.external.llm import LLM
 from app.domain.external.observability import get_tracer
@@ -86,6 +85,7 @@ class TreeOfThoughtsFlow(BaseFlow):
         search_engine: SearchEngine | None = None,
         cdp_url: str | None = None,
         config: TreeOfThoughtsConfig | None = None,
+        browser_agent_enabled: bool = False,
     ):
         self._agent_id = agent_id
         self._repository = agent_repository
@@ -102,8 +102,7 @@ class TreeOfThoughtsFlow(BaseFlow):
         if search_engine:
             tools.append(SearchTool(search_engine, browser=browser))
 
-        settings = get_settings()
-        if cdp_url and settings.browser_agent_enabled:
+        if cdp_url and browser_agent_enabled:
             from app.domain.services.tools.browser_agent import BrowserAgentTool
 
             tools.append(BrowserAgentTool(cdp_url))

@@ -7,7 +7,6 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar
 from urllib.parse import quote
 
-from app.core.config import get_settings
 from app.domain.external.search import SearchEngine
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.base import BaseTool, tool
@@ -282,6 +281,7 @@ class SearchTool(BaseTool):
         search_engine: SearchEngine,
         browser: "Browser | None" = None,
         max_observe: int | None = None,
+        search_prefer_browser: bool | None = None,
     ):
         """Initialize search tool class
 
@@ -293,6 +293,7 @@ class SearchTool(BaseTool):
         super().__init__(max_observe=max_observe)
         self.search_engine = search_engine
         self._browser = browser
+        self._search_prefer_browser = search_prefer_browser
         # Instance-level cache with O(1) LRU eviction
         self._cache: OrderedDict[str, tuple[float, Any]] = OrderedDict()
 
@@ -300,11 +301,15 @@ class SearchTool(BaseTool):
         """Check if browser-based search should be used.
 
         Returns True when:
-        1. search_prefer_browser is enabled in settings
+        1. search_prefer_browser is enabled
         2. A browser instance is available
         """
-        settings = get_settings()
-        return settings.search_prefer_browser and self._browser is not None
+        prefer_browser = self._search_prefer_browser
+        if prefer_browser is None:
+            from app.core.config import get_settings
+
+            prefer_browser = get_settings().search_prefer_browser
+        return prefer_browser and self._browser is not None
 
     async def _search_via_browser(self, query: str, date_range: str | None = None) -> ToolResult:
         """Perform search using browser navigation (visible in VNC/sandbox viewer).

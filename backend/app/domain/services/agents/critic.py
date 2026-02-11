@@ -28,7 +28,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.core.config import get_feature_flags
 from app.domain.external.llm import LLM
 from app.domain.external.observability import MetricsPort, get_null_metrics
 from app.domain.models.claim_provenance import ProvenanceStore
@@ -311,17 +310,25 @@ class CriticAgent:
     - Actionable: Provides specific, fixable feedback
     """
 
-    def __init__(self, llm: LLM, json_parser: JsonParser, config: CriticConfig | None = None):
+    def __init__(
+        self,
+        llm: LLM,
+        json_parser: JsonParser,
+        config: CriticConfig | None = None,
+        feature_flags: dict[str, bool] | None = None,
+    ):
         """Initialize the CriticAgent.
 
         Args:
             llm: Language model for review
             json_parser: Parser for structured responses
             config: Optional configuration
+            feature_flags: Optional feature flags (injected by orchestrator)
         """
         self.llm = llm
         self.json_parser = json_parser
         self.config = config or CriticConfig()
+        self._feature_flags = feature_flags
 
         # Track review history for learning
         self._review_history: list[CriticReview] = []
@@ -329,6 +336,14 @@ class CriticAgent:
 
         # Initialize hallucination detector
         self._hallucination_detector = ContentHallucinationDetector()
+
+    def _resolve_feature_flags(self) -> dict[str, bool]:
+        """Return injected feature flags, falling back to core config."""
+        if self._feature_flags is not None:
+            return self._feature_flags
+        from app.core.config import get_feature_flags
+
+        return get_feature_flags()
 
     @property
     def _config(self) -> CriticConfig:
@@ -491,7 +506,7 @@ class CriticAgent:
                 return review
 
         # Reward hacking detection (log-only)
-        flags = get_feature_flags()
+        flags = self._resolve_feature_flags()
         if flags.get("reward_hacking_detection"):
             try:
                 task_state_manager = get_task_state_manager()

@@ -9,6 +9,13 @@ from app.core.config import FlowMode
 from app.domain.models.session import AgentMode
 from app.domain.services.agent_domain_service import AgentDomainService
 
+_SAFE_FEATURE_FLAGS: dict[str, bool] = {
+    "tree_of_thoughts": False,
+    "self_consistency": False,
+    "structured_outputs": False,
+    "taskgroup_enabled": False,
+}
+
 
 @pytest.mark.asyncio
 async def test_create_task_recycles_sandbox_on_browser_timeout():
@@ -83,7 +90,8 @@ async def test_create_task_recycles_sandbox_on_browser_timeout():
     fake_wait_for.calls = 0
 
     with (
-        patch("app.domain.services.agent_domain_service.get_settings", return_value=settings),
+        patch("app.core.config.get_settings", return_value=settings),
+        patch("app.core.config.get_feature_flags", return_value=_SAFE_FEATURE_FLAGS),
         patch("app.domain.services.agent_domain_service.asyncio.wait_for", side_effect=fake_wait_for),
     ):
         result = await service._create_task(session)
@@ -157,7 +165,8 @@ async def test_create_task_recycles_sandbox_on_browser_readiness_failure():
     )
 
     with (
-        patch("app.domain.services.agent_domain_service.get_settings", return_value=settings),
+        patch("app.core.config.get_settings", return_value=settings),
+        patch("app.core.config.get_feature_flags", return_value=_SAFE_FEATURE_FLAGS),
         patch("app.domain.services.agent_domain_service.asyncio.wait_for", return_value=MagicMock()) as wait_for_mock,
     ):
         result = await service._create_task(session)
@@ -227,7 +236,8 @@ async def test_create_task_bypasses_sandbox_pool_when_static_addresses_configure
     )
 
     with (
-        patch("app.domain.services.agent_domain_service.get_settings", return_value=settings),
+        patch("app.core.config.get_settings", return_value=settings),
+        patch("app.core.config.get_feature_flags", return_value=_SAFE_FEATURE_FLAGS),
         patch(
             "app.core.sandbox_pool.get_sandbox_pool",
             new=AsyncMock(side_effect=AssertionError("sandbox pool should not be used in static mode")),

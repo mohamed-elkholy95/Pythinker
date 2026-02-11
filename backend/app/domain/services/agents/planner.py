@@ -11,7 +11,6 @@ from tenacity import (
     wait_exponential,
 )
 
-from app.core.config import get_settings
 from app.domain.external.llm import LLM
 from app.domain.models.long_term_memory import MemoryType
 from app.domain.models.message import Message
@@ -170,6 +169,7 @@ class PlannerAgent(BaseAgent):
         user_id: str | None = None,
         skill_loader: SkillLoader | None = None,
         thought_tree_explorer=None,
+        feature_flags: dict[str, bool] | None = None,
     ):
         super().__init__(
             agent_id=agent_id,
@@ -177,6 +177,7 @@ class PlannerAgent(BaseAgent):
             llm=llm,
             json_parser=json_parser,
             tools=tools,
+            feature_flags=feature_flags,
         )
         # Memory service for long-term context (Phase 6: Qdrant integration)
         self._memory_service = memory_service
@@ -368,8 +369,8 @@ class PlannerAgent(BaseAgent):
 
         # Try structured output first for type-safe response
         # Phase 4: Use Tenacity retry with validation feedback when feature enabled
-        settings = get_settings()
-        use_structured = settings.feature_structured_outputs
+        flags = self._resolve_feature_flags()
+        use_structured = flags.get("structured_outputs", False)
 
         try:
             await self._add_to_memory([{"role": "user", "content": prompt}])

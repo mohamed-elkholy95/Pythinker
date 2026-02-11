@@ -280,6 +280,9 @@ class AgentTaskRunner(TaskRunner):
         """Initialize PlanActFlow for Agent mode"""
         if self._plan_act_flow is None:
             settings = get_settings()
+            from app.core.config import get_feature_flags
+
+            feature_flags = get_feature_flags()
             self._plan_act_flow = PlanActFlow(
                 self._agent_id,
                 self._repository,
@@ -299,6 +302,8 @@ class AgentTaskRunner(TaskRunner):
                 memory_service=self._memory_service,
                 user_id=self._user_id,
                 file_sweep_callback=self._sweep_workspace_files,
+                feature_flags=feature_flags,
+                browser_agent_enabled=settings.browser_agent_enabled,
             )
             # Inject circuit breaker for tool-level failure protection
             try:
@@ -335,6 +340,7 @@ class AgentTaskRunner(TaskRunner):
     def _init_discuss_flow(self) -> None:
         """Initialize DiscussFlow for Discuss mode"""
         if self._discuss_flow is None:
+            settings = get_settings()
             self._discuss_flow = DiscussFlow(
                 self._agent_id,
                 self._repository,
@@ -343,6 +349,7 @@ class AgentTaskRunner(TaskRunner):
                 self._llm,
                 self._json_parser,
                 self._search_engine,
+                default_language=settings.default_language,
             )
             logger.debug(f"Initialized DiscussFlow for agent {self._agent_id}")
 

@@ -62,7 +62,7 @@ async def test_chat_uses_configured_auto_trigger_policy():
 
     with (
         patch(
-            "app.domain.services.agent_domain_service.get_settings",
+            "app.core.config.get_settings",
             return_value=SimpleNamespace(skill_auto_trigger_enabled=True),
         ),
         patch(
