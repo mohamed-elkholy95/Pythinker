@@ -38,7 +38,7 @@ class TestRecoveryE2E:
     async def test_malformed_json_recovery_flow(self, recovery_policy):
         """E2E: Malformed JSON triggers recovery."""
         # Malformed JSON response
-        malformed = '{\"tool\": \"search\", \"args\": {\"query\": \"test\"'  # Incomplete
+        malformed = '{"tool": "search", "args": {"query": "test"'  # Incomplete
 
         # Detect malformed
         decision = await recovery_policy.detect_malformed(malformed)
@@ -105,7 +105,7 @@ class TestRecoveryE2E:
     async def test_valid_response_no_recovery(self, recovery_policy):
         """E2E: Valid response does not trigger recovery."""
         # Valid JSON response
-        valid = '{\"tool\": \"search\", \"args\": {\"query\": \"test\"}}'
+        valid = '{"tool": "search", "args": {"query": "test"}}'
 
         # Detect
         decision = await recovery_policy.detect_malformed(valid)
@@ -117,7 +117,7 @@ class TestRecoveryE2E:
     @pytest.mark.asyncio
     async def test_recovery_budget_exhausted(self, recovery_policy):
         """E2E: Recovery budget exhaustion raises error."""
-        malformed = '{\"incomplete\":'
+        malformed = '{"incomplete":'
 
         # Exhaust budget by recovering 3 times
         for _ in range(3):
@@ -147,7 +147,7 @@ class TestRecoveryE2E:
     @pytest.mark.asyncio
     async def test_recovery_strategy_progression(self, recovery_policy):
         """E2E: Recovery strategies progress as retries increase."""
-        malformed = '{\"incomplete\":'
+        malformed = '{"incomplete":'
 
         # First attempt: ROLLBACK_RETRY
         decision1 = await recovery_policy.detect_malformed(malformed)
@@ -178,7 +178,7 @@ class TestRecoveryE2E:
     @pytest.mark.asyncio
     async def test_recovery_metrics_tracked(self, recovery_policy):
         """E2E: Recovery metrics tracked correctly."""
-        malformed = '{\"incomplete\":'
+        malformed = '{"incomplete":'
 
         # Capture initial trigger metric
         initial_triggers = agent_response_recovery_trigger.get(
@@ -206,9 +206,7 @@ class TestRecoveryE2E:
         assert success_count >= 0  # Metric exists
 
     @pytest.mark.asyncio
-    async def test_recovery_with_failure_snapshot(
-        self, recovery_policy, snapshot_service
-    ):
+    async def test_recovery_with_failure_snapshot(self, recovery_policy, snapshot_service):
         """E2E: Recovery with failure snapshot injection.
 
         Flow:
@@ -251,7 +249,7 @@ class TestRecoveryE2E:
         assert "RuntimeError" in retry_prompt
 
         # Step 4: Simulate retry with valid response (no recovery needed)
-        valid_response = '{\"status\": \"success\", \"title\": \"Example Domain\"}'
+        valid_response = '{"status": "success", "title": "Example Domain"}'
         retry_decision = await recovery_policy.detect_malformed(valid_response)
 
         # Verify retry succeeds
@@ -266,7 +264,7 @@ class TestRecoveryE2E:
         assert initial_stats["budget_remaining"] == 3
 
         # Execute recovery
-        malformed = '{\"incomplete\":'
+        malformed = '{"incomplete":'
         decision = await recovery_policy.detect_malformed(malformed)
         await recovery_policy.execute_recovery(
             response_text=malformed,
@@ -284,7 +282,7 @@ class TestRecoveryE2E:
     async def test_recovery_history_cleanup(self, recovery_policy):
         """E2E: Recovery history can be cleaned up."""
         # Execute some recoveries
-        malformed = '{\"incomplete\":'
+        malformed = '{"incomplete":'
         for _ in range(2):
             decision = await recovery_policy.detect_malformed(malformed)
             await recovery_policy.execute_recovery(
@@ -308,7 +306,7 @@ class TestRecoveryE2E:
     async def test_recovery_different_failure_types(self, recovery_policy):
         """E2E: Different failure types trigger appropriate recovery."""
         test_cases = [
-            ('{\"incomplete\":', RecoveryReason.JSON_PARSING_FAILED),
+            ('{"incomplete":', RecoveryReason.JSON_PARSING_FAILED),
             ("", RecoveryReason.EMPTY_RESPONSE),
             ("null", RecoveryReason.NULL_RESPONSE),
             ("I cannot help with that", RecoveryReason.REFUSAL_DETECTED),
@@ -340,7 +338,7 @@ class TestRecoveryE2E:
     @pytest.mark.asyncio
     async def test_recovery_failure_metric(self, recovery_policy):
         """E2E: Recovery failure metric tracked on budget exhaustion."""
-        malformed = '{\"incomplete\":'
+        malformed = '{"incomplete":'
 
         # Exhaust budget
         for _ in range(3):

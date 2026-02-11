@@ -221,10 +221,14 @@ class Settings(BaseSettings):
     browser_init_timeout: float = 60.0  # Overall timeout for browser initialization (seconds)
 
     # Browser element extraction configuration (Phase 6: fix timeouts)
-    browser_element_extraction_timeout: float = 5.0  # Timeout for interactive element extraction (seconds) - reduced from 7.0 to match JS timeout
+    browser_element_extraction_timeout: float = (
+        5.0  # Timeout for interactive element extraction (seconds) - reduced from 7.0 to match JS timeout
+    )
     browser_element_extraction_retries: int = 2  # Number of retries for element extraction
     browser_element_extraction_retry_delay: float = 1.0  # Delay between retries (seconds)
-    browser_element_extraction_cache_ttl: float = 15.0  # Cache TTL for extracted elements (seconds) - increased from 10.0
+    browser_element_extraction_cache_ttl: float = (
+        15.0  # Cache TTL for extracted elements (seconds) - increased from 10.0
+    )
 
     # Browser crash prevention (Priority 1: fix Wikipedia crashes)
     browser_graceful_degradation: bool = True  # Return partial results instead of failing on browser crash

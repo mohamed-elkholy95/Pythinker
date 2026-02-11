@@ -103,12 +103,16 @@ async def test_heavy_page_detection_increments_metric():
     await browser.start()
 
     try:
-        initial_count = browser_heavy_page_detections_total._value.get(frozenset({"detection_method": "quick_check"}.items()), 0)
+        initial_count = browser_heavy_page_detections_total._value.get(
+            frozenset({"detection_method": "quick_check"}.items()), 0
+        )
 
         # Navigate to Wikipedia (heavy page)
         await browser._navigate_impl("https://en.wikipedia.org/wiki/Python_(programming_language)")
 
-        final_count = browser_heavy_page_detections_total._value.get(frozenset({"detection_method": "quick_check"}.items()), 0)
+        final_count = browser_heavy_page_detections_total._value.get(
+            frozenset({"detection_method": "quick_check"}.items()), 0
+        )
 
         # Metric should have incremented (may be +1 or more depending on implementation)
         assert final_count >= initial_count

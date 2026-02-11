@@ -67,9 +67,7 @@ async def submit_rating(
     try:
         session = await session_repository.get_by_id(request.session_id)
         if not session:
-            logger.warning(
-                f"Rating attempt for non-existent session {request.session_id} by user {current_user.id}"
-            )
+            logger.warning(f"Rating attempt for non-existent session {request.session_id} by user {current_user.id}")
             from app.infrastructure.observability.prometheus_metrics import (
                 rating_unauthorized_attempts_total,
             )

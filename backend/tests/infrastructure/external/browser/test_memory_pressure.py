@@ -77,7 +77,7 @@ async def test_critical_memory_pressure_triggers_restart():
             if pressure and pressure["pressure_level"] == "critical":
                 # In real implementation, this would trigger restart
                 # For test, we just verify the condition works
-                    assert pressure["used_mb"] > 800
+                assert pressure["used_mb"] > 800
 
     finally:
         await browser.close()

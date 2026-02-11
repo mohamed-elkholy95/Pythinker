@@ -716,8 +716,7 @@ class SandboxPool:
                             record_sandbox_health_check(status="failure")
                             failed_sandboxes.append(sandbox)
                             logger.warning(
-                                f"Health check failed for sandbox {sandbox.container_id}: "
-                                f"container not running"
+                                f"Health check failed for sandbox {sandbox.container_id}: container not running"
                             )
                     except Exception as e:
                         record_sandbox_health_check(status="error")
@@ -734,9 +733,7 @@ class SandboxPool:
                                 await temp_queue.put(item)
                             else:
                                 record_sandbox_runtime_crash()
-                                logger.warning(
-                                    f"Removed crashed sandbox from pool: {failed_sandbox.container_id}"
-                                )
+                                logger.warning(f"Removed crashed sandbox from pool: {failed_sandbox.container_id}")
                         # Restore remaining sandboxes
                         while not temp_queue.empty():
                             await self._pool.put(await temp_queue.get())
@@ -784,9 +781,7 @@ class SandboxPool:
             if status in ("running", "paused"):
                 return True
 
-            logger.debug(
-                f"Sandbox {sandbox.container_id} unhealthy: status={status}"
-            )
+            logger.debug(f"Sandbox {sandbox.container_id} unhealthy: status={status}")
             return False
 
         except Exception as e:
@@ -840,9 +835,7 @@ class SandboxPool:
                                 sandbox = await self._pool.get()
                                 if sandbox.container_id == container_id:
                                     found = True
-                                    logger.warning(
-                                        f"Removed OOM-killed sandbox from pool: {container_id}"
-                                    )
+                                    logger.warning(f"Removed OOM-killed sandbox from pool: {container_id}")
                                 else:
                                     await temp_queue.put(sandbox)
                             # Restore remaining

@@ -107,7 +107,9 @@ def test_pressure_level_boundaries_exact():
 
     for tokens, expected_pressure in test_cases:
         pressure = manager.check_pressure(tokens)
-        assert pressure == expected_pressure, f"Failed for {tokens} tokens: expected {expected_pressure}, got {pressure}"
+        assert pressure == expected_pressure, (
+            f"Failed for {tokens} tokens: expected {expected_pressure}, got {pressure}"
+        )
 
 
 def test_token_pressure_metric_recorded():
