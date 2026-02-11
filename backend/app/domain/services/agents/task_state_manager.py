@@ -242,11 +242,14 @@ class TaskStateManager:
         logger.info(f"TaskStateManager initialized with {len(steps)} steps")
         return self._state
 
-    def update_step_status(
+    async def update_step_status(
         self, step_id: str, status: str, result: str | None = None, findings: list[str] | None = None
     ) -> None:
         """
         Update step status and add any findings.
+
+        Serialized via ``_write_lock`` to prevent mutation races with
+        concurrent step execution and sandbox I/O.
 
         Args:
             step_id: ID of the step to update
@@ -258,59 +261,61 @@ class TaskStateManager:
             logger.warning("TaskStateManager not initialized")
             return
 
-        # Normalize step_id for consistent matching
-        step_id = str(step_id)
-        found = False
+        async with self._write_lock:
+            # Normalize step_id for consistent matching
+            step_id = str(step_id)
+            found = False
 
-        if status == "completed":
-            found = self._state.mark_step_completed(step_id, result)
-        elif status == "in_progress":
-            found = self._state.mark_step_in_progress(step_id)
-        elif status == "failed":
-            # Handle failed status by marking step
-            for step in self._state.steps:
-                if str(step["id"]) == step_id:
-                    step["status"] = "failed"
-                    if result:
-                        step["result"] = result
-                    found = True
-                    break
-            self._state.last_updated = datetime.now()
-        elif status == "blocked":
-            # Handle blocked status (dependencies not satisfied or upstream failure)
-            for step in self._state.steps:
-                if str(step["id"]) == step_id:
-                    step["status"] = "blocked"
-                    if result:
-                        step["result"] = result
-                    found = True
-                    break
-            self._state.last_updated = datetime.now()
-        elif status == "skipped":
-            # Handle skipped status (iteration limit reached, etc.)
-            for step in self._state.steps:
-                if str(step["id"]) == step_id:
-                    step["status"] = "skipped"
-                    if result:
-                        step["result"] = result
-                    found = True
-                    break
-            self._state.last_updated = datetime.now()
+            if status == "completed":
+                found = self._state.mark_step_completed(step_id, result)
+            elif status == "in_progress":
+                found = self._state.mark_step_in_progress(step_id)
+            elif status == "failed":
+                # Handle failed status by marking step
+                for step in self._state.steps:
+                    if str(step["id"]) == step_id:
+                        step["status"] = "failed"
+                        if result:
+                            step["result"] = result
+                        found = True
+                        break
+                self._state.last_updated = datetime.now()
+            elif status == "blocked":
+                # Handle blocked status (dependencies not satisfied or upstream failure)
+                for step in self._state.steps:
+                    if str(step["id"]) == step_id:
+                        step["status"] = "blocked"
+                        if result:
+                            step["result"] = result
+                        found = True
+                        break
+                self._state.last_updated = datetime.now()
+            elif status == "skipped":
+                # Handle skipped status (iteration limit reached, etc.)
+                for step in self._state.steps:
+                    if str(step["id"]) == step_id:
+                        step["status"] = "skipped"
+                        if result:
+                            step["result"] = result
+                        found = True
+                        break
+                self._state.last_updated = datetime.now()
 
-        if not found:
-            available_ids = [str(s["id"]) for s in self._state.steps]
-            logger.warning(f"Step {step_id} not found in task state. Available step IDs: {available_ids}")
+            if not found:
+                available_ids = [str(s["id"]) for s in self._state.steps]
+                logger.warning(f"Step {step_id} not found in task state. Available step IDs: {available_ids}")
 
-        if findings:
-            for finding in findings:
-                self._state.add_finding(finding)
+            if findings:
+                for finding in findings:
+                    self._state.add_finding(finding)
 
-        logger.debug(f"Step {step_id} updated to {status} (found={found})")
+            logger.debug(f"Step {step_id} updated to {status} (found={found})")
 
-    def add_finding(self, finding: str) -> None:
-        """Add a key finding to the task state"""
+    async def add_finding(self, finding: str) -> None:
+        """Add a key finding to the task state."""
         if self._state:
-            self._state.add_finding(finding)
+            async with self._write_lock:
+                self._state.add_finding(finding)
 
     def get_context_signal(self) -> str | None:
         """Get compact context signal for prompt injection"""
@@ -351,32 +356,35 @@ class TaskStateManager:
         """
         Load state from sandbox file (for recovery).
 
+        Uses the same lock as save_to_sandbox to prevent read-write races.
+
         Returns:
             True if load successful
         """
         if not self._sandbox:
             return False
 
-        try:
-            result = await self._sandbox.file_read(self._file_path)
-            content = result.output if hasattr(result, "output") else str(result)
-            # Parse basic info from markdown (simplified)
-            if "## Objective" in content:
-                # Extract objective
-                obj_start = content.find("## Objective") + len("## Objective")
-                obj_end = content.find("## Progress")
-                objective = content[obj_start:obj_end].strip()
+        async with self._write_lock:
+            try:
+                result = await self._sandbox.file_read(self._file_path)
+                content = result.output if hasattr(result, "output") else str(result)
+                # Parse basic info from markdown (simplified)
+                if "## Objective" in content:
+                    # Extract objective
+                    obj_start = content.find("## Objective") + len("## Objective")
+                    obj_end = content.find("## Progress")
+                    objective = content[obj_start:obj_end].strip()
 
-                if not self._state:
-                    self._state = TaskState(objective=objective)
-                else:
-                    self._state.objective = objective
+                    if not self._state:
+                        self._state = TaskState(objective=objective)
+                    else:
+                        self._state.objective = objective
 
-                logger.debug(f"Task state loaded from {self._file_path}")
-                return True
-        except Exception as e:
-            logger.debug(f"Could not load task state: {e}")
-            return False
+                    logger.debug(f"Task state loaded from {self._file_path}")
+                    return True
+            except Exception as e:
+                logger.debug(f"Could not load task state: {e}")
+                return False
 
         return False
 
@@ -487,8 +495,12 @@ class TaskStateManager:
         """Get current progress metrics for reflection."""
         return self._progress_metrics
 
-    def record_action(self, function_name: str, success: bool, result: Any = None, error: str | None = None) -> None:
+    async def record_action(
+        self, function_name: str, success: bool, result: Any = None, error: str | None = None
+    ) -> None:
         """Record a tool action for progress tracking and reflection context.
+
+        Serialized via ``_write_lock`` to prevent mutation races.
 
         Args:
             function_name: Name of the tool function called
@@ -499,27 +511,28 @@ class TaskStateManager:
         if not self._progress_metrics:
             return
 
-        # Record in progress metrics
-        if success:
-            self._progress_metrics.record_success()
-        else:
-            self._progress_metrics.record_failure(error or "Unknown error")
+        async with self._write_lock:
+            # Record in progress metrics
+            if success:
+                self._progress_metrics.record_success()
+            else:
+                self._progress_metrics.record_failure(error or "Unknown error")
 
-        # Track recent actions for reflection context
-        action_record = {
-            "function_name": function_name,
-            "success": success,
-            "result": str(result)[:200] if result else None,
-            "error": error,
-            "timestamp": datetime.now().isoformat(),
-        }
-        self._recent_actions.append(action_record)
+            # Track recent actions for reflection context
+            action_record = {
+                "function_name": function_name,
+                "success": success,
+                "result": str(result)[:200] if result else None,
+                "error": error,
+                "timestamp": datetime.now().isoformat(),
+            }
+            self._recent_actions.append(action_record)
 
-        # Keep only recent actions
-        if len(self._recent_actions) > self._max_recent_actions:
-            self._recent_actions = self._recent_actions[-self._max_recent_actions :]
+            # Keep only recent actions
+            if len(self._recent_actions) > self._max_recent_actions:
+                self._recent_actions = self._recent_actions[-self._max_recent_actions :]
 
-    def record_step_complete(self, step_id: str, success: bool = True) -> None:
+    async def record_step_complete(self, step_id: str, success: bool = True) -> None:
         """Record step completion for progress tracking.
 
         Args:
@@ -530,7 +543,7 @@ class TaskStateManager:
             self._progress_metrics.record_step_completed()
 
         # Also update task state
-        self.update_step_status(step_id, "completed" if success else "failed")
+        await self.update_step_status(step_id, "completed" if success else "failed")
 
     def record_no_progress(self) -> None:
         """Record that an action made no meaningful progress (for stall detection)."""

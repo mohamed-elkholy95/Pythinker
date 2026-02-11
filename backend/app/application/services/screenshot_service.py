@@ -21,6 +21,7 @@ class ScreenshotCaptureService:
         sandbox,
         session_id: str,
         repository: ScreenshotRepository | None = None,
+        mongodb=None,
     ):
         self._sandbox = sandbox
         self._session_id = session_id
@@ -32,9 +33,11 @@ class ScreenshotCaptureService:
 
             repository = MongoScreenshotRepository()
         self._repository = repository
-        from app.infrastructure.storage.mongodb import get_mongodb
+        if mongodb is None:
+            from app.infrastructure.storage.mongodb import get_mongodb
 
-        self._mongodb = get_mongodb()  # GridFS binary storage (no domain abstraction yet)
+            mongodb = get_mongodb()
+        self._mongodb = mongodb
         self._settings = get_settings()
 
     async def capture(
@@ -161,15 +164,17 @@ class ScreenshotCaptureService:
 class ScreenshotQueryService:
     """Read/query screenshot metadata and bytes for replay endpoints."""
 
-    def __init__(self, repository: ScreenshotRepository | None = None) -> None:
+    def __init__(self, repository: ScreenshotRepository | None = None, mongodb=None) -> None:
         if repository is None:
             from app.infrastructure.repositories.mongo_screenshot_repository import MongoScreenshotRepository
 
             repository = MongoScreenshotRepository()
         self._repository = repository
-        from app.infrastructure.storage.mongodb import get_mongodb
+        if mongodb is None:
+            from app.infrastructure.storage.mongodb import get_mongodb
 
-        self._mongodb = get_mongodb()  # GridFS binary storage (no domain abstraction yet)
+            mongodb = get_mongodb()
+        self._mongodb = mongodb
 
     async def delete_by_session(self, session_id: str) -> int:
         """Delete all screenshots for a session."""

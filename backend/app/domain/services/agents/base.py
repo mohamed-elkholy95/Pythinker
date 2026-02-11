@@ -627,7 +627,7 @@ class BaseAgent:
                     from app.domain.services.agents.task_state_manager import get_task_state_manager
 
                     task_state_manager = getattr(self, "_task_state_manager", None) or get_task_state_manager()
-                    task_state_manager.record_action(
+                    await task_state_manager.record_action(
                         function_name=function_name,
                         success=result.success if result else False,
                         result=result.data
@@ -688,7 +688,7 @@ class BaseAgent:
             from app.domain.services.agents.task_state_manager import get_task_state_manager
 
             task_state_manager = getattr(self, "_task_state_manager", None) or get_task_state_manager()
-            task_state_manager.record_action(
+            await task_state_manager.record_action(
                 function_name=function_name,
                 success=False,
                 result=None,

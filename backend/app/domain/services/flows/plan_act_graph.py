@@ -215,7 +215,7 @@ def create_plan_act_graph() -> WorkflowGraph:
 
         # Mark step as in progress
         if state.task_state_manager:
-            state.task_state_manager.update_step_status(str(step.id), "in_progress")
+            await state.task_state_manager.update_step_status(str(step.id), "in_progress")
 
         async for event in state.executor.execute_step(state.plan, step, state.message):
             # Check for wait event
@@ -227,7 +227,7 @@ def create_plan_act_graph() -> WorkflowGraph:
 
         # Mark step as completed
         if state.task_state_manager:
-            state.task_state_manager.update_step_status(str(step.id), "completed")
+            await state.task_state_manager.update_step_status(str(step.id), "completed")
 
         # Optional context optimization (Phase 3)
         flags = state.metadata.get("feature_flags", {})

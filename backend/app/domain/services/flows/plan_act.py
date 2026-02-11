@@ -1886,14 +1886,14 @@ class PlanActFlow(BaseFlow):
                     # Check if step should be skipped (blocked by previous failures)
                     if step.status == ExecutionStatus.BLOCKED:
                         logger.info(f"Skipping blocked step {step.id}: {step.notes or 'blocked by dependency'}")
-                        self._task_state_manager.update_step_status(str(step.id), "blocked")
+                        await self._task_state_manager.update_step_status(str(step.id), "blocked")
                         continue
 
                     # Check dependencies are satisfied
                     if not self._check_step_dependencies(step):
                         logger.warning(f"Step {step.id} has unsatisfied dependencies, marking as blocked")
                         step.mark_blocked("Unsatisfied dependencies")
-                        self._task_state_manager.update_step_status(str(step.id), "blocked")
+                        await self._task_state_manager.update_step_status(str(step.id), "blocked")
                         continue
 
                     # Execute step with tracing
@@ -1926,7 +1926,7 @@ class PlanActFlow(BaseFlow):
                             # Mark step as in progress BEFORE execution starts
                             # This fixes "0/4" stall by updating progress immediately
                             step.status = ExecutionStatus.RUNNING
-                            self._task_state_manager.update_step_status(str(step.id), "in_progress")
+                            await self._task_state_manager.update_step_status(str(step.id), "in_progress")
 
                             # Emit PlanEvent so frontend sees updated progress immediately
                             yield PlanEvent(status=PlanStatus.UPDATED, plan=self.plan)
@@ -1986,9 +1986,9 @@ class PlanActFlow(BaseFlow):
 
                         # Mark step status based on actual success/failure
                         if step.success:
-                            self._task_state_manager.update_step_status(str(step.id), "completed")
+                            await self._task_state_manager.update_step_status(str(step.id), "completed")
                         else:
-                            self._task_state_manager.update_step_status(str(step.id), "failed")
+                            await self._task_state_manager.update_step_status(str(step.id), "failed")
                         step_span.set_attribute("step.success", step.success)
 
                         # Session bridging: save progress after each step
