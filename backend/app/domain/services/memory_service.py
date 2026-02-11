@@ -442,6 +442,9 @@ class MemoryService:
         limit: int = 10,
         memory_types: list[MemoryType] | None = None,
         min_relevance: float = 0.3,
+        enable_reranking: bool = False,
+        enable_mmr: bool = False,
+        mmr_lambda: float = 0.7,
     ) -> list[MemorySearchResult]:
         """Retrieve memories relevant to a context.
 
@@ -449,18 +452,30 @@ class MemoryService:
         This is a hybrid approach: vector store handles vector similarity, MongoDB stores
         full documents.
 
+        Phase 3 enhancements:
+        - Optional cross-encoder reranking for improved precision
+        - Optional MMR diversification for result diversity
+
         Args:
             user_id: User to retrieve for
             context: Current context/query
             limit: Maximum memories to return
             memory_types: Optional type filter
             min_relevance: Minimum relevance score
+            enable_reranking: Use cross-encoder reranking (Phase 3)
+            enable_mmr: Use MMR diversification (Phase 3)
+            mmr_lambda: MMR trade-off (1.0=relevance, 0.0=diversity)
 
         Returns:
             List of relevant memories with scores
         """
+        # Fetch more candidates if reranking or MMR enabled
+        fetch_limit = limit * 3 if (enable_reranking or enable_mmr) else limit
+
         # Try vector store-based semantic search first
         vector_repo = _get_vector_repo()
+        embedding = None
+        results = []
 
         if self._llm and vector_repo:
             try:
@@ -470,7 +485,7 @@ class MemoryService:
                 vector_results = await vector_repo.search_similar(
                     user_id=user_id,
                     query_vector=embedding,
-                    limit=limit,
+                    limit=fetch_limit,
                     min_score=min_relevance,
                     memory_types=memory_types,
                 )
@@ -484,7 +499,6 @@ class MemoryService:
                     memory_lookup = {m.id: m for m in memories}
 
                     # Combine scores with full documents
-                    results = []
                     for vector_result in vector_results:
                         memory = memory_lookup.get(vector_result.memory_id)
                         if memory:
@@ -493,50 +507,98 @@ class MemoryService:
                                     memory=memory, relevance_score=vector_result.relevance_score, match_type="semantic"
                                 )
                             )
-                            # Record access
-                            await self._repository.record_access(memory.id)
-
-                    if results:
-                        return results
 
             except Exception as e:
                 logger.warning(f"vector store search failed, falling back to MongoDB: {e}")
 
         # Fallback to MongoDB vector search (limited to 500 candidates)
-        if self._llm:
+        if not results and self._llm:
             try:
-                embedding = await self._generate_embedding(context)
+                if embedding is None:
+                    embedding = await self._generate_embedding(context)
+
                 results = await self._repository.vector_search(
                     user_id=user_id,
                     embedding=embedding,
-                    limit=limit,
+                    limit=fetch_limit,
                     min_score=min_relevance,
                     memory_types=memory_types,
                 )
-
-                if results:
-                    # Record access for retrieved memories
-                    for result in results:
-                        await self._repository.record_access(result.memory.id)
-                    return results
 
             except Exception as e:
                 logger.warning(f"MongoDB vector search failed, falling back to keyword: {e}")
 
         # Final fallback to keyword search
-        keywords = self._extract_keywords(context)
+        if not results:
+            keywords = self._extract_keywords(context)
 
-        query = MemoryQuery(
-            user_id=user_id,
-            keywords=keywords,
-            memory_types=memory_types or [],
-            min_relevance=min_relevance,
-            limit=limit,
-        )
+            query = MemoryQuery(
+                user_id=user_id,
+                keywords=keywords,
+                memory_types=memory_types or [],
+                min_relevance=min_relevance,
+                limit=fetch_limit,
+            )
 
-        results = await self._repository.search(query)
+            results = await self._repository.search(query)
 
-        # Record access
+        # Phase 3: Reranking with cross-encoder
+        if enable_reranking and len(results) > limit:
+            try:
+                from app.domain.services.retrieval.reranker import get_reranker
+
+                reranker = get_reranker()
+
+                if reranker.is_available():
+                    # Prepare candidates
+                    candidates = [(r.memory.content, {"memory_id": r.memory.id}) for r in results]
+
+                    # Rerank
+                    reranked = reranker.rerank(context, candidates, top_k=limit)
+
+                    # Rebuild results with rerank scores
+                    memory_lookup = {r.memory.id: r.memory for r in results}
+                    results = []
+                    for text, meta, rerank_score in reranked:
+                        mem_id = meta["memory_id"]
+                        memory = memory_lookup[mem_id]
+                        results.append(
+                            MemorySearchResult(memory=memory, relevance_score=rerank_score, match_type="hybrid_reranked")
+                        )
+
+                    logger.debug(f"Reranked {len(results)} memories")
+                else:
+                    # Reranker not available, just truncate
+                    results = results[:limit]
+
+            except Exception as e:
+                logger.debug(f"Reranking failed, using original results: {e}")
+                results = results[:limit]
+        else:
+            results = results[:limit]
+
+        # Phase 3: MMR diversification
+        if enable_mmr and len(results) > 1:
+            try:
+                from app.domain.services.retrieval.mmr import mmr_rerank
+
+                if embedding is None:
+                    embedding = await self._generate_embedding(context)
+
+                diversified = mmr_rerank(
+                    query_embedding=embedding,
+                    candidates=results,
+                    embedding_fn=lambda r: r.memory.embedding or [],
+                    lambda_param=mmr_lambda,
+                    top_k=limit,
+                )
+                results = diversified
+                logger.debug(f"Applied MMR diversification to {len(results)} memories")
+
+            except Exception as e:
+                logger.debug(f"MMR diversification failed, using original results: {e}")
+
+        # Record access for all retrieved memories
         for result in results:
             await self._repository.record_access(result.memory.id)
 

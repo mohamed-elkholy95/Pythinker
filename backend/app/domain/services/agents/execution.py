@@ -222,15 +222,60 @@ class ExecutionAgent(BaseAgent):
             pressure_signal = pressure.to_context_signal()
 
         # Retrieve relevant memories for this step (Phase 6: Qdrant integration)
+        # Phase 3: Enhanced with cross-session intelligence
         memory_context = None
         if self._memory_service and self._user_id:
             try:
+                context_parts = []
+
+                # 1. Similar tasks from past sessions (Phase 3)
+                similar_tasks = await self._memory_service.find_similar_tasks(
+                    user_id=self._user_id,
+                    task_description=step.description,
+                    limit=3,
+                )
+                if similar_tasks:
+                    task_context_lines = ["## Past Similar Tasks"]
+                    for task in similar_tasks:
+                        outcome = "✓ Success" if task.get("success") else "✗ Failed"
+                        summary = task.get("content_summary", "")[:200]
+                        task_context_lines.append(f"- {outcome}: {summary}")
+                    context_parts.append("\n".join(task_context_lines))
+                    logger.debug(f"Injected {len(similar_tasks)} similar tasks into context")
+
+                # 2. Error context for tools being used (Phase 3)
+                # Infer likely tools from step description
+                likely_tools = []
+                step_lower = step.description.lower()
+                for tool in self.tools:
+                    if tool.name.lower() in step_lower:
+                        likely_tools.append(tool.name)
+
+                if likely_tools:
+                    for tool_name in likely_tools[:2]:  # Limit to 2 tools
+                        error_context = await self._memory_service.get_error_context(
+                            user_id=self._user_id,
+                            tool_name=tool_name,
+                            context=step.description,
+                            limit=2,
+                        )
+                        if error_context:
+                            context_parts.append(error_context)
+                            logger.debug(f"Injected error context for tool: {tool_name}")
+
+                # 3. Relevant memories for this step (Phase 3: with reranking + MMR)
                 memories = await self._memory_service.retrieve_for_task(
                     user_id=self._user_id, task_description=step.description, limit=5
                 )
                 if memories:
-                    memory_context = await self._memory_service.format_memories_for_context(memories, max_tokens=500)
+                    memory_text = await self._memory_service.format_memories_for_context(memories, max_tokens=500)
+                    context_parts.append(memory_text)
                     logger.debug(f"Injected {len(memories)} memories into execution context")
+
+                # Combine all context parts
+                if context_parts:
+                    memory_context = "\n\n".join(context_parts)
+
             except Exception as e:
                 logger.warning(f"Failed to retrieve memories for step: {e}")
 
@@ -477,6 +522,8 @@ class ExecutionAgent(BaseAgent):
                 is_truncated_stream = (
                     bool(stream_metadata.get("truncated")) or stream_metadata.get("finish_reason") == "length"
                 )
+                if delivery_integrity_enabled and is_truncated_stream:
+                    self._record_stream_truncation_metric(stream_metadata=stream_metadata, outcome="detected")
                 if not (delivery_integrity_enabled and is_truncated_stream):
                     break
 
@@ -486,6 +533,7 @@ class ExecutionAgent(BaseAgent):
                         "Delivery integrity: stream remained truncated after %d continuation attempts",
                         max_stream_continuations,
                     )
+                    self._record_stream_truncation_metric(stream_metadata=stream_metadata, outcome="unresolved")
                     break
 
                 logger.warning(
@@ -498,6 +546,7 @@ class ExecutionAgent(BaseAgent):
                 if not assistant_fragment.strip():
                     truncation_exhausted = True
                     logger.warning("Delivery integrity: truncation detected with empty fragment, aborting continuation")
+                    self._record_stream_truncation_metric(stream_metadata=stream_metadata, outcome="unresolved")
                     break
 
                 stream_messages = [
@@ -505,6 +554,14 @@ class ExecutionAgent(BaseAgent):
                     {"role": "assistant", "content": assistant_fragment},
                     {"role": "user", "content": self._build_continuation_prompt()},
                 ]
+                self._record_stream_truncation_metric(stream_metadata=stream_metadata, outcome="continuation_requested")
+
+            if delivery_integrity_enabled and stream_attempt > 1 and not truncation_exhausted:
+                is_final_truncated = (
+                    bool(stream_metadata.get("truncated")) or stream_metadata.get("finish_reason") == "length"
+                )
+                if not is_final_truncated:
+                    self._record_stream_truncation_metric(stream_metadata=stream_metadata, outcome="recovered")
 
             # Signal streaming complete
             yield StreamEvent(content="", is_final=True, phase="summarizing")
@@ -725,6 +782,13 @@ class ExecutionAgent(BaseAgent):
         if warnings:
             logger.warning("Delivery integrity warnings: %s", "; ".join(warnings))
 
+        self._record_delivery_integrity_gate_metrics(
+            stream_metadata=stream_metadata,
+            strict_mode=strict_mode,
+            warnings=warnings,
+            issues=issues,
+        )
+
         if issues:
             logger.warning(
                 "Delivery integrity gate blocked output (strict_mode=%s): %s",
@@ -742,6 +806,73 @@ class ExecutionAgent(BaseAgent):
             or "artifact references" in response_policy.min_required_sections
             or self._is_report_structure(content)
         )
+
+    def _record_delivery_integrity_gate_metrics(
+        self,
+        stream_metadata: dict[str, Any],
+        strict_mode: bool,
+        warnings: list[str],
+        issues: list[str],
+    ) -> None:
+        """Record delivery-integrity gate outcomes with low-cardinality labels."""
+        provider = self._normalize_metric_label(
+            str(stream_metadata.get("provider") or getattr(self.llm, "provider", "unknown")),
+            fallback="unknown",
+        )
+        strict_label = "true" if strict_mode else "false"
+        result = "blocked" if issues else "passed"
+
+        _metrics.record_counter(
+            "delivery_integrity_gate_result_total",
+            labels={"provider": provider, "result": result, "strict_mode": strict_label},
+        )
+        for warning in warnings:
+            _metrics.record_counter(
+                "delivery_integrity_gate_warning_total",
+                labels={
+                    "provider": provider,
+                    "reason": self._normalize_integrity_reason(warning),
+                    "strict_mode": strict_label,
+                },
+            )
+        for issue in issues:
+            _metrics.record_counter(
+                "delivery_integrity_gate_block_reason_total",
+                labels={
+                    "provider": provider,
+                    "reason": self._normalize_integrity_reason(issue),
+                    "strict_mode": strict_label,
+                },
+            )
+
+    def _record_stream_truncation_metric(self, stream_metadata: dict[str, Any], outcome: str) -> None:
+        """Record stream truncation lifecycle events for tuning retries."""
+        provider = self._normalize_metric_label(
+            str(stream_metadata.get("provider") or getattr(self.llm, "provider", "unknown")),
+            fallback="unknown",
+        )
+        finish_reason = self._normalize_metric_label(str(stream_metadata.get("finish_reason") or "unknown"))
+        _metrics.record_counter(
+            "delivery_integrity_stream_truncation_total",
+            labels={"provider": provider, "finish_reason": finish_reason, "outcome": outcome},
+        )
+
+    def _normalize_integrity_reason(self, reason: str) -> str:
+        """Normalize a gate issue/warning reason for metric labels."""
+        base_reason = (reason or "").split(":", 1)[0]
+        return self._normalize_metric_label(base_reason, fallback="unknown")
+
+    def _normalize_metric_label(self, value: str, fallback: str = "unknown") -> str:
+        """Convert label values to predictable, low-cardinality token format."""
+        raw = (value or "").strip().lower()
+        if not raw:
+            return fallback
+
+        normalized_chars = [char if char.isalnum() else "_" for char in raw]
+        normalized = "".join(normalized_chars).strip("_")
+        while "__" in normalized:
+            normalized = normalized.replace("__", "_")
+        return normalized or fallback
 
     def _extract_title(self, content: str) -> str:
         """Extract a title from markdown content."""
