@@ -133,12 +133,14 @@ def should_bypass_fast_path_for_suggestion(message: Message, has_recent_assistan
         True if should bypass fast path (use full contextual flow)
         False if can proceed with fast path evaluation
     """
-    if not has_recent_assistant_reply:
-        return False
-
-    # Primary detection: Metadata from frontend
+    # Primary detection: Metadata from frontend (check BEFORE has_recent_assistant_reply guard)
+    # This ensures explicit suggestion_click metadata always bypasses fast path
     if message.follow_up_source == "suggestion_click":
         return True
+
+    # For regex/fallback detection, require recent assistant reply
+    if not has_recent_assistant_reply:
+        return False
 
     # Fallback detection: Regex pattern matching (backwards compatibility)
     return is_suggestion_follow_up_message(message.message)
