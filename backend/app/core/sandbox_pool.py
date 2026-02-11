@@ -236,7 +236,6 @@ class SandboxPool:
                 sandbox = await asyncio.wait_for(self._pool.get(), timeout=min(timeout, 5.0))
                 sandbox_id = getattr(sandbox, "id", "?")
                 self._pool_timestamps.pop(sandbox_id, None)
-                self._total_acquisitions += 1
 
                 # Unpause if sandbox was paused
                 if sandbox_id in self._paused_ids:
@@ -252,7 +251,12 @@ class SandboxPool:
                                 f"Unpaused sandbox {sandbox_id} failed health check: {e}, "
                                 f"destroying (attempt {_attempt + 1}/{max_health_retries + 1})"
                             )
-                            await sandbox.destroy()
+                            try:
+                                await asyncio.wait_for(sandbox.destroy(), timeout=15.0)
+                            except TimeoutError:
+                                logger.warning(f"Timeout destroying unhealthy sandbox {sandbox_id}")
+                            except Exception as destroy_error:
+                                logger.warning(f"Error destroying unhealthy sandbox {sandbox_id}: {destroy_error}")
                             # Trigger replenishment and retry from pool
                             if not self._stopping:
                                 task = create_task(self._replenish_one())
@@ -268,6 +272,7 @@ class SandboxPool:
                     self._background_tasks.add(task)
                     task.add_done_callback(self._background_tasks.discard)
 
+                self._total_acquisitions += 1
                 return sandbox
 
             except TimeoutError:
