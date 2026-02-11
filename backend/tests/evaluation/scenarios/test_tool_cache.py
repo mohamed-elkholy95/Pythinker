@@ -306,8 +306,6 @@ class TestToolCacheEvaluation:
         Expected metrics:
         - Cache memory usage < 10MB for 100 tool definitions
         """
-        import sys
-
         # Store multiple tool definitions
         num_tools = 50
         tools = [f"tool_{i}" for i in range(num_tools)]

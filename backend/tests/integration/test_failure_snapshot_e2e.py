@@ -9,7 +9,6 @@ from app.domain.services.agents.failure_snapshot_service import FailureSnapshotS
 from app.infrastructure.observability.agent_metrics import (
     failure_snapshot_generated,
     failure_snapshot_injected,
-    failure_snapshot_size,
 )
 
 

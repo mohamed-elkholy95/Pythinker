@@ -65,14 +65,16 @@ async def test_critical_memory_pressure_triggers_restart():
             "pressure_level": "critical",
         }
 
-        with patch.object(browser, "_check_memory_pressure", return_value=mock_pressure):
-            with patch.object(browser, "restart", new_callable=AsyncMock) as mock_restart:
-                # Trigger memory check (would be called in navigate)
-                pressure = await browser._check_memory_pressure()
+        with (
+            patch.object(browser, "_check_memory_pressure", return_value=mock_pressure),
+            patch.object(browser, "restart", new_callable=AsyncMock),
+        ):
+            # Trigger memory check (would be called in navigate)
+            pressure = await browser._check_memory_pressure()
 
-                if pressure and pressure["pressure_level"] == "critical":
-                    # In real implementation, this would trigger restart
-                    # For test, we just verify the condition works
+            if pressure and pressure["pressure_level"] == "critical":
+                # In real implementation, this would trigger restart
+                # For test, we just verify the condition works
                     assert pressure["used_mb"] > 800
 
     finally:
@@ -108,7 +110,6 @@ async def test_memory_pressure_metric_incremented():
 @pytest.mark.asyncio
 async def test_memory_restart_metric_incremented_on_restart():
     """Test that browser restart metric increments when restarting due to memory."""
-    from unittest.mock import AsyncMock, patch
 
     from app.infrastructure.observability.prometheus_metrics import browser_memory_restarts_total
 
