@@ -229,7 +229,6 @@
       :isReplayMode="isReplayMode"
       :replayScreenshotUrl="replay.currentScreenshotUrl.value"
       :replayMetadata="replay.currentScreenshot.value"
-      :openReplaySessionId="openReplaySessionIdForReplay"
       @timelineStepForward="handleTimelineStepForward"
       @timelineStepBackward="handleTimelineStepBackward"
       @timelineSeek="handleTimelineSeek"
@@ -326,7 +325,6 @@ import { useResearchWorkflow } from '@/composables/useResearchWorkflow';
 import ConnectorsDialog from '@/components/connectors/ConnectorsDialog.vue';
 import { useConnectorDialog } from '@/composables/useConnectorDialog';
 import { useScreenshotReplay } from '@/composables/useScreenshotReplay';
-import { useOpenReplay } from '@/composables/useOpenReplay';
 import { shouldStopSessionOnExit } from '@/utils/sessionLifecycle';
 
 const router = useRouter()
@@ -342,61 +340,25 @@ const researchWorkflow = useResearchWorkflow()
 // ConnectorDialog composable — dialog manages its own visibility
 useConnectorDialog()
 
-// OpenReplay session tracking (preferred replay source)
-const openReplay = useOpenReplay()
-const openReplayLinkInFlight = ref(false)
-const shouldStartOpenReplay = (status?: SessionStatus) => shouldStopSessionOnExit(status)
-
-const maybeStartOpenReplay = async (targetSessionId: string, status?: SessionStatus) => {
-  if (!openReplay.isEnabled.value) return
-  if (!shouldStartOpenReplay(status)) return
-  if (openReplaySessionId.value) return
-  if (openReplayLinkInFlight.value) return
-
-  openReplayLinkInFlight.value = true
-  try {
-    const sessionId = await openReplay.startSession({ pythinker_session_id: targetSessionId })
-    if (!sessionId) return
-
-    openReplay.linkPythinkerSession(targetSessionId)
-    const sessionUrl = openReplay.getSessionURL()
-    openReplaySessionId.value = sessionId
-
-    await agentApi.linkOpenReplaySession(targetSessionId, {
-      openreplay_session_id: sessionId,
-      openreplay_session_url: sessionUrl || undefined
-    })
-  } catch {
-    // OpenReplay linking failures shouldn't block chat
-  } finally {
-    openReplayLinkInFlight.value = false
-  }
-}
-
 // Screenshot replay for completed sessions
 const replay = useScreenshotReplay(computed(() => sessionId.value))
 
-const openReplaySessionIdForReplay = computed(() =>
-  openReplay.isEnabled.value ? openReplaySessionId.value : null
-)
-const hasOpenReplayReplay = computed(() => !!openReplaySessionIdForReplay.value)
 const hasScreenshotReplay = computed(() => replay.hasScreenshots.value)
 
 // Replay mode: session is completed/failed and has replay data
 const isReplayMode = computed(() => {
   const ended = !isLoading.value && sessionStatus.value &&
     [SessionStatus.COMPLETED, SessionStatus.FAILED].includes(sessionStatus.value)
-  return !!ended && (hasOpenReplayReplay.value || hasScreenshotReplay.value)
+  return !!ended && hasScreenshotReplay.value
 })
 
-const isScreenshotReplayMode = computed(() => isReplayMode.value && !hasOpenReplayReplay.value)
+const isScreenshotReplayMode = computed(() => isReplayMode.value)
 
 // Create initial state factory
 const createInitialState = () => ({
   inputMessage: '',
   isLoading: false,
   sessionId: undefined as string | undefined,
-  openReplaySessionId: null as string | null,
   messages: [] as Message[],
   toolPanelSize: 0,
   realTime: true,
@@ -442,7 +404,6 @@ const {
   inputMessage,
   isLoading,
   sessionId,
-  openReplaySessionId,
   messages,
   toolPanelSize,
   realTime,
@@ -566,12 +527,6 @@ const warmupState = computed<'initializing' | 'thinking' | 'timed_out'>(() => {
   return 'thinking';
 });
 
-watch([sessionId, sessionStatus], ([activeSessionId, status]) => {
-  if (!activeSessionId) return
-  if (openReplaySessionId.value) return
-  void maybeStartOpenReplay(activeSessionId, status)
-})
-
 // Track active canvas project from canvas_update SSE events
 const activeCanvasProjectId = ref<string | null>(null);
 
@@ -585,9 +540,6 @@ const refreshSessionStatus = async (targetSessionId?: string) => {
   try {
     const session = await agentApi.getSession(activeSessionId);
     sessionStatus.value = session.status as SessionStatus;
-    if (session.openreplay_session_id) {
-      openReplaySessionId.value = session.openreplay_session_id;
-    }
     if (sessionStatus.value !== SessionStatus.INITIALIZING) {
       sessionInitTimedOut.value = false;
     }
@@ -711,6 +663,11 @@ const resetState = () => {
   // Cancel any existing chat connection
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value();
+  }
+
+  // Clean up sessionStorage for old session
+  if (sessionId.value) {
+    sessionStorage.removeItem(`pythinker-last-event-${sessionId.value}`);
   }
 
   researchWorkflow.reset();
@@ -990,9 +947,6 @@ const toolTimelineCanStepForward = computed(() => {
 const toolTimelineCanStepBackward = computed(() => toolTimelineIndex.value > 0);
 
 const showTimelineControls = computed(() => {
-  if (isReplayMode.value && hasOpenReplayReplay.value) {
-    return false
-  }
   return isScreenshotReplayMode.value || toolTimelineIndex.value >= 0
 });
 
@@ -1710,9 +1664,6 @@ const processEvent = (event: AgentSSEEvent) => {
     // Load screenshots for replay mode (seamless live → replay transition)
     sessionStatus.value = SessionStatus.COMPLETED;
     replay.loadScreenshots();
-    if (openReplay.isRecording.value) {
-      openReplay.stopSession();
-    }
   } else if (event.event === 'wait') {
     isResponseSettled.value = true;
     // Agent is waiting for user input - show waiting indicator
@@ -1722,9 +1673,6 @@ const processEvent = (event: AgentSSEEvent) => {
   } else if (event.event === 'error') {
     isResponseSettled.value = true;
     handleErrorEvent(event.data as ErrorEventData);
-    if (openReplay.isRecording.value) {
-      openReplay.stopSession();
-    }
   } else if (event.event === 'title') {
     handleTitleEvent(event.data as TitleEventData);
   } else if (event.event === 'plan') {
@@ -1755,6 +1703,10 @@ const processEvent = (event: AgentSSEEvent) => {
     handleCanvasUpdateEvent(event.data as CanvasUpdateEventData);
   }
   lastEventId.value = event.data.event_id;
+  // Persist lastEventId to sessionStorage for proper event resumption on page refresh
+  if (event.data.event_id && sessionId.value) {
+    sessionStorage.setItem(`pythinker-last-event-${sessionId.value}`, event.data.event_id);
+  }
 }
 
 // Public event handler - queues events for batched processing
@@ -1903,9 +1855,18 @@ const restoreSession = async () => {
     showErrorToast(t('Session not found'));
     return;
   }
+
+  // Load lastEventId from sessionStorage for proper event resumption
+  const savedEventId = sessionStorage.getItem(`pythinker-last-event-${sessionId.value}`);
+  if (savedEventId) {
+    lastEventId.value = savedEventId;
+    console.debug('[RESTORE] Loaded lastEventId from sessionStorage:', savedEventId);
+  }
+
   const session = await agentApi.getSession(sessionId.value);
   sessionStatus.value = session.status as SessionStatus;
-  openReplaySessionId.value = session.openreplay_session_id ?? null;
+  console.log('[RESTORE] Session:', sessionId.value, 'Status:', sessionStatus.value, 'LastEventId:', lastEventId.value);
+
   // Initialize share mode based on session state
   shareMode.value = session.is_shared ? 'public' : 'private';
   realTime.value = false;
@@ -1917,7 +1878,39 @@ const restoreSession = async () => {
     await waitForSessionIfInitializing();
   }
   if (sessionStatus.value === SessionStatus.RUNNING || sessionStatus.value === SessionStatus.PENDING) {
-    await chat();
+    // Check if this session was recently manually stopped (prevents auto-resume on page refresh)
+    const stoppedKey = `pythinker-stopped-${sessionId.value}`;
+    const stoppedTimestamp = localStorage.getItem(stoppedKey);
+    if (stoppedTimestamp) {
+      const elapsed = Date.now() - Number(stoppedTimestamp);
+      // If stopped within the last 60 seconds, verify with backend before skipping resume
+      if (elapsed < 60_000) {
+        console.log('[RESTORE] Found recent stop flag, verifying with backend...');
+        localStorage.removeItem(stoppedKey);
+        // Re-fetch session status after a brief delay to get the real status
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const refreshedSession = await agentApi.getSession(sessionId.value!);
+        sessionStatus.value = refreshedSession.status as SessionStatus;
+        console.log('[RESTORE] Backend status after stop flag check:', sessionStatus.value);
+
+        // Only skip resume if backend confirms completion
+        if (sessionStatus.value === SessionStatus.COMPLETED || sessionStatus.value === SessionStatus.FAILED) {
+          replay.loadScreenshots();
+          return;  // Don't resume
+        }
+        // Backend says still running - flag was stale or backend is behind
+        console.log('[RESTORE] Backend says still running, proceeding with resume');
+        await chat();
+      } else {
+        // Stale flag (>60s old), clean up and proceed normally
+        console.log('[RESTORE] Stale stop flag (>60s), cleaning up and resuming');
+        localStorage.removeItem(stoppedKey);
+        await chat();
+      }
+    } else {
+      console.log('[RESTORE] No stop flag, auto-resuming session');
+      await chat();
+    }
   } else if (sessionStatus.value === SessionStatus.COMPLETED || sessionStatus.value === SessionStatus.FAILED) {
     // Load screenshots for replay mode
     replay.loadScreenshots()
@@ -1937,9 +1930,6 @@ onBeforeRouteUpdate(async (to, from, next) => {
     return;
   }
 
-  if (openReplay.isRecording.value) {
-    openReplay.stopSession();
-  }
   // Stop the current session if it's still running to release sandbox/browser resources
   const prevSessionId = from.params.sessionId as string | undefined;
   if (prevSessionId && shouldStopSessionOnExit(sessionStatus.value)) {
@@ -2010,9 +2000,6 @@ onMounted(async () => {
 // Keep session runtime alive when navigating away from chat.
 // Sandbox teardown is handled by explicit stop/delete/new-task flows.
 onBeforeRouteLeave(async (_to, _from, next) => {
-  if (openReplay.isRecording.value) {
-    openReplay.stopSession();
-  }
   next();
 });
 
@@ -2102,13 +2089,19 @@ const handleScroll = (_: Event) => {
 }
 
 const handleStop = () => {
+  // Cancel the SSE stream FIRST to prevent any reconnect/resume logic
+  if (cancelCurrentChat.value) {
+    cancelCurrentChat.value();
+    cancelCurrentChat.value = null;
+  }
   if (sessionId.value) {
+    // Mark this session as manually stopped to prevent auto-resume on page refresh
+    localStorage.setItem(`pythinker-stopped-${sessionId.value}`, String(Date.now()));
+    // Clear lastEventId from sessionStorage since session is stopped
+    sessionStorage.removeItem(`pythinker-last-event-${sessionId.value}`);
     agentApi.stopSession(sessionId.value);
     // Notify sidebar that session is no longer running
     emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
-  }
-  if (openReplay.isRecording.value) {
-    openReplay.stopSession();
   }
   // Reset loading states
   isResponseSettled.value = true;
