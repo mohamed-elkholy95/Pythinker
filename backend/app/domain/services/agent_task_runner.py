@@ -938,6 +938,12 @@ class AgentTaskRunner(TaskRunner):
                     "shell",
                     "code_executor",
                 ):
+                    self._screenshot_service.set_tool_context(
+                        tool_call_id=event.tool_call_id,
+                        tool_name=event.tool_name,
+                        function_name=event.function_name,
+                        action_type=event.action_type,
+                    )
                     from app.domain.models.screenshot import ScreenshotTrigger
 
                     self._fire_and_forget(
@@ -1006,6 +1012,7 @@ class AgentTaskRunner(TaskRunner):
                             function_name=event.function_name,
                         )
                     )
+                    self._screenshot_service.clear_tool_context(tool_call_id=event.tool_call_id)
 
                 # Duration measurement
                 start_time = self._tool_start_times.pop(event.tool_call_id, None)
@@ -1457,13 +1464,32 @@ class AgentTaskRunner(TaskRunner):
 
         # Stop periodic screenshot capture and take final screenshot
         if self._screenshot_service:
+            from app.domain.models.screenshot import ScreenshotTrigger
+
             try:
                 await self._screenshot_service.stop_periodic()
-                from app.domain.models.screenshot import ScreenshotTrigger
-
-                await self._screenshot_service.capture(ScreenshotTrigger.SESSION_END)
             except Exception as e:
-                logger.debug(f"Screenshot cleanup failed (non-critical): {e}")
+                logger.warning(
+                    "Failed to stop periodic screenshot capture for session %s: %s",
+                    self._session_id,
+                    e,
+                    exc_info=True,
+                )
+
+            try:
+                final_screenshot = await self._screenshot_service.capture(ScreenshotTrigger.SESSION_END)
+                if final_screenshot is None:
+                    logger.warning(
+                        "SESSION_END screenshot capture returned no image for session %s",
+                        self._session_id,
+                    )
+            except Exception as e:
+                logger.warning(
+                    "SESSION_END screenshot capture failed for session %s: %s",
+                    self._session_id,
+                    e,
+                    exc_info=True,
+                )
 
         # Cleanup background tasks on the execution agent (e.g. background memory saves)
         agent = self._get_tool_execution_agent()

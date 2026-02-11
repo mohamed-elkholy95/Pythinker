@@ -75,6 +75,7 @@ import WideResearchOverlay from '@/components/WideResearchOverlay.vue'
 import { useSandboxInput } from '@/composables/useSandboxInput'
 import { useWideResearchGlobal } from '@/composables/useWideResearch'
 import { getScreencastUrl, getInputStreamUrl } from '@/api/agent'
+import { calculateReconnectDelay } from '@/utils/reconnectBackoff'
 
 const props = withDefaults(
   defineProps<{
@@ -257,10 +258,9 @@ async function connect(): Promise<void> {
       const shouldRetry = !nonRetryableByCode && !nonRetryableByReason
 
       if (props.enabled && shouldRetry && connectionAttempts < MAX_RECONNECT_ATTEMPTS) {
-        // Auto-reconnect with exponential backoff
-        const delay = Math.min(1000 * Math.pow(2, connectionAttempts), 10000)
+        const delay = calculateReconnectDelay(connectionAttempts)
         connectionAttempts++
-        statusText.value = `Reconnecting in ${delay / 1000}s...`
+        statusText.value = `Reconnecting in ${(delay / 1000).toFixed(1)}s...`
         isLoading.value = true
 
         reconnectTimeout = window.setTimeout(() => {

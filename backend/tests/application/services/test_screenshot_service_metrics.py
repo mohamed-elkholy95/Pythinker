@@ -136,3 +136,47 @@ async def test_periodic_capture_stops_after_repeated_failures():
     await service.capture(ScreenshotTrigger.PERIODIC)
 
     assert service._periodic_task is None
+
+
+@pytest.mark.asyncio
+async def test_periodic_capture_uses_tool_context_metadata():
+    sandbox = FakeSandbox(b"image-bytes")
+    repository = SimpleNamespace(save=AsyncMock())
+    mongodb = SimpleNamespace(store_screenshot=AsyncMock(side_effect=["gridfs-1", "gridfs-thumb-1"]))
+
+    service = ScreenshotCaptureService(
+        sandbox=sandbox,
+        session_id="session-metrics-6",
+        repository=repository,
+        mongodb=mongodb,
+    )
+    service.set_tool_context(
+        tool_call_id="call-123",
+        tool_name="browser",
+        function_name="browser_navigate",
+        action_type="navigate",
+    )
+
+    await service.capture(ScreenshotTrigger.PERIODIC)
+
+    saved_screenshot = repository.save.await_args.args[0]
+    assert saved_screenshot.tool_call_id == "call-123"
+    assert saved_screenshot.tool_name == "browser"
+    assert saved_screenshot.function_name == "browser_navigate"
+    assert saved_screenshot.action_type == "navigate"
+
+
+def test_clear_tool_context_is_scoped_by_tool_call_id():
+    service = ScreenshotCaptureService(
+        sandbox=FakeSandbox(b"image-bytes"),
+        session_id="session-metrics-7",
+        repository=SimpleNamespace(save=AsyncMock()),
+        mongodb=SimpleNamespace(store_screenshot=AsyncMock()),
+    )
+    service.set_tool_context(tool_call_id="call-123", tool_name="browser")
+
+    service.clear_tool_context(tool_call_id="call-999")
+    assert service._tool_context is not None
+
+    service.clear_tool_context(tool_call_id="call-123")
+    assert service._tool_context is None

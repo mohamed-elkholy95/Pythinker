@@ -145,6 +145,25 @@
       />
     </div>
 
+    <!-- Session complete fallback (replay final frame) -->
+    <div v-else-if="shouldShowFinalScreenshot" class="final-screenshot-preview">
+      <img
+        v-if="finalScreenshotUrl && !finalScreenshotLoadError"
+        :src="finalScreenshotUrl"
+        alt="Final session state"
+        class="final-screenshot-image"
+        @error="handleFinalScreenshotError"
+      />
+      <div v-else class="final-screenshot-placeholder">
+        <Monitor class="placeholder-icon" />
+        <span class="placeholder-text">Session Complete</span>
+      </div>
+      <div class="completion-badge">
+        <Check class="badge-icon" />
+        <span class="badge-text">Complete</span>
+      </div>
+    </div>
+
     <!-- Generic tool indicator (fallback when no session or unknown tool) -->
     <div v-else class="tool-preview">
       <div class="tool-preview-content">
@@ -167,8 +186,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, toRef } from 'vue';
-import { Monitor, Terminal, FileText, Globe, Code, Wrench, Search, GitBranch, TestTube, Wand2, Download, Presentation, FolderTree, Calendar, Scan } from 'lucide-vue-next';
+import { computed, ref, toRef, watch } from 'vue';
+import { Monitor, Check, Terminal, FileText, Globe, Code, Wrench, Search, GitBranch, TestTube, Wand2, Download, Presentation, FolderTree, Calendar, Scan } from 'lucide-vue-next';
 import LiveViewer from '@/components/LiveViewer.vue';
 import WideResearchMiniPreview from '@/components/WideResearchMiniPreview.vue';
 import { useContentConfig } from '@/composables/useContentConfig';
@@ -197,6 +216,10 @@ const props = withDefaults(defineProps<{
   toolContent?: ToolContent;
   /** Whether summary is currently streaming */
   isSummaryStreaming?: boolean;
+  /** Whether session has completed and should show replay frame when idle */
+  isSessionComplete?: boolean;
+  /** Replay frame URL provided by parent composable */
+  replayScreenshotUrl?: string;
 }>(), {
   enabled: true,
   size: 'md',
@@ -209,7 +232,9 @@ const props = withDefaults(defineProps<{
   searchResults: () => [],
   searchQuery: '',
   toolContent: undefined,
-  isSummaryStreaming: false
+  isSummaryStreaming: false,
+  isSessionComplete: false,
+  replayScreenshotUrl: ''
 });
 
 const emit = defineEmits<{
@@ -244,6 +269,30 @@ const shouldShowLiveVnc = computed(() => {
 
   return props.isActive || currentViewType.value === 'vnc';
 });
+
+const finalScreenshotLoadError = ref(false);
+
+const finalScreenshotUrl = computed(() => props.replayScreenshotUrl || '');
+
+watch(finalScreenshotUrl, () => {
+  finalScreenshotLoadError.value = false;
+});
+
+const shouldShowFinalScreenshot = computed(() => {
+  if (!props.sessionId || !props.enabled || props.isInitializing) {
+    return false;
+  }
+
+  if (shouldShowLiveVnc.value) {
+    return false;
+  }
+
+  return Boolean(props.isSessionComplete && !props.isActive);
+});
+
+const handleFinalScreenshotError = () => {
+  finalScreenshotLoadError.value = true;
+};
 
 // Wide research state
 const { miniState: wideResearchState, isActive: wideResearchActive } = useWideResearchGlobal();
@@ -349,6 +398,7 @@ const toolLabel = computed(() => {
 const showInitializingDots = computed(() => (
   Boolean(props.sessionId) &&
   props.enabled &&
+  !props.isSessionComplete &&
   !props.toolName &&
   !props.toolFunction
 ));
@@ -397,6 +447,69 @@ const sizeClass = computed(() => {
   position: absolute;
   inset: 0;
   background: var(--bolt-elements-bg-depth-2);
+}
+
+.final-screenshot-preview {
+  position: absolute;
+  inset: 0;
+  background: var(--bolt-elements-bg-depth-1);
+  overflow: hidden;
+}
+
+.final-screenshot-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.final-screenshot-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--bolt-elements-textTertiary);
+  background: var(--bolt-elements-bg-depth-2);
+}
+
+.placeholder-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.placeholder-text {
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.completion-badge {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.9);
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+.badge-icon {
+  width: 9px;
+  height: 9px;
+}
+
+.badge-text {
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 /* Content Preview (File/Terminal) */

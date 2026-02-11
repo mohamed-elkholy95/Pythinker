@@ -21,6 +21,8 @@
               :search-results="searchResults"
               :search-query="searchQuery"
               :is-summary-streaming="props.isSummaryStreaming"
+              :is-session-complete="props.isSessionComplete"
+              :replay-screenshot-url="props.replayScreenshotUrl"
               size="lg"
               @click="emit('openPanel')"
             />
@@ -168,6 +170,8 @@
           :search-results="searchResults"
           :search-query="searchQuery"
           :is-summary-streaming="props.isSummaryStreaming"
+          :is-session-complete="props.isSessionComplete"
+          :replay-screenshot-url="props.replayScreenshotUrl"
           size="md"
           @click="emit('openPanel')"
         />
@@ -266,6 +270,10 @@ interface Props {
   isInitializing?: boolean
   /** Whether summary is currently streaming */
   isSummaryStreaming?: boolean
+  /** Whether session status is completed/failed */
+  isSessionComplete?: boolean
+  /** Replay screenshot URL for completed sessions */
+  replayScreenshotUrl?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -276,7 +284,9 @@ const props = withDefaults(defineProps<Props>(), {
   currentTool: null,
   hideExpandedHeader: false,
   isInitializing: false,
-  isSummaryStreaming: false
+  isSummaryStreaming: false,
+  isSessionComplete: false,
+  replayScreenshotUrl: ''
 })
 
 const emit = defineEmits<{

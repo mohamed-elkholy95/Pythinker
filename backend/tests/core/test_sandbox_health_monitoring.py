@@ -30,7 +30,7 @@ async def test_health_monitor_task_started_with_pool():
         assert pool._health_monitor_task is not None
         assert pool._docker_events_task is not None
 
-                await pool.stop()
+        await pool.stop()
 
 
 @pytest.mark.asyncio
