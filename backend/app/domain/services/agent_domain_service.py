@@ -749,7 +749,7 @@ NOTE: The browser state may have changed. When you next use the browser:
                             should_use_fast_path,
                         )
 
-                        if should_use_fast_path(message):
+                        if should_use_fast_path(message, follow_up_source=follow_up_source):
                             fast_router = FastPathRouter(llm=self._llm, search_engine=self._search_engine)
                             intent, params = fast_router.classify(message)
 
