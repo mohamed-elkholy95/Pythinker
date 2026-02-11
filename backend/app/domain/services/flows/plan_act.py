@@ -49,6 +49,7 @@ from app.domain.services.agents.planner import PlannerAgent
 # Import research task detection for acknowledgment messages
 from app.domain.services.flows.acknowledgment import AcknowledgmentGenerator
 from app.domain.services.flows.base import BaseFlow, FlowStatus
+from app.domain.services.flows.fast_ack_refiner import FastAcknowledgmentRefiner
 from app.domain.services.flows.fast_path import (
     FastPathRouter,
     QueryIntent,
@@ -389,6 +390,7 @@ class PlanActFlow(BaseFlow):
 
         # Extracted sub-coordinators
         self._ack_generator = AcknowledgmentGenerator()
+        self._ack_refiner = FastAcknowledgmentRefiner(llm=llm, fallback_generator=self._ack_generator)
         self._prompt_quick_validator = PromptQuickValidator()
         self._step_failure_handler = StepFailureHandler()
 
@@ -894,9 +896,9 @@ class PlanActFlow(BaseFlow):
         elif new_status == AgentStatus.SUMMARIZING:
             self.executor._active_phase = None  # All tools for summarization
 
-    def _generate_acknowledgment(self, user_message: str) -> str:
+    async def _generate_acknowledgment(self, user_message: str) -> str:
         """Generate an acknowledgment message before starting to plan."""
-        return self._ack_generator.generate(user_message)
+        return await self._ack_refiner.generate(user_message)
 
     def _extract_research_topic(self, user_message: str) -> str | None:
         """Extract the research topic from the user's message."""
@@ -1432,6 +1434,7 @@ class PlanActFlow(BaseFlow):
         """Internal run method with tracing."""
         original_message = message.message
         validated_message = self._prompt_quick_validator.validate(original_message)
+        effective_message = message
         if validated_message != original_message:
             logger.info(
                 "Prompt quick validation updated message for session %s: %s -> %s",
@@ -1439,7 +1442,11 @@ class PlanActFlow(BaseFlow):
                 original_message[:120],
                 validated_message[:120],
             )
-            message.message = validated_message
+            effective_message = message.model_copy(deep=True)
+            effective_message.message = validated_message
+
+        # Keep original message immutable for traceability; process with the validated copy only.
+        message = effective_message
 
         # TODO: move to task runner
         session = await self._session_repository.find_by_id(self._session_id)
@@ -1460,7 +1467,7 @@ class PlanActFlow(BaseFlow):
         # This gives users immediate feedback that their message was received
         if session.status not in (SessionStatus.WAITING, SessionStatus.RUNNING):
             # Emit text acknowledgment
-            acknowledgment = self._generate_acknowledgment(message.message)
+            acknowledgment = await self._generate_acknowledgment(message.message)
             yield MessageEvent(message=acknowledgment)
             logger.info(f"Emitted acknowledgment for session {self._session_id}")
 
@@ -1743,10 +1750,38 @@ class PlanActFlow(BaseFlow):
                         replan_context = self._verification_feedback if self._verification_verdict == "revise" else None
 
                         # Inject cross-session memory context (Phase 4: Role-Scoped Memory)
+                        # Phase 3: Enhanced with similar task context
                         if "planner" in self._scoped_memory:
                             try:
-                                memory_context = await self._scoped_memory["planner"].get_context(message.message)
-                                if memory_context:
+                                memory_context_parts = []
+
+                                # Phase 3: Add similar tasks from past sessions
+                                if self._memory_service and self._user_id:
+                                    try:
+                                        similar_tasks = await self._memory_service.find_similar_tasks(
+                                            user_id=self._user_id,
+                                            task_description=message.message,
+                                            limit=5,
+                                        )
+                                        if similar_tasks:
+                                            task_lines = ["## Past Experience"]
+                                            for task in similar_tasks:
+                                                outcome = "succeeded" if task.get("success") else "failed"
+                                                summary = task.get("content_summary", "")[:200]
+                                                task_lines.append(f"- {summary} ({outcome})")
+                                            memory_context_parts.append("\n".join(task_lines))
+                                            logger.debug(f"Injected {len(similar_tasks)} similar tasks into planning context")
+                                    except Exception as e:
+                                        logger.debug(f"Similar task retrieval failed: {e}")
+
+                                # Original role-scoped memory
+                                role_memory = await self._scoped_memory["planner"].get_context(message.message)
+                                if role_memory:
+                                    memory_context_parts.append(role_memory)
+
+                                # Combine all memory contexts
+                                if memory_context_parts:
+                                    memory_context = "\n\n".join(memory_context_parts)
                                     if replan_context:
                                         replan_context = f"{memory_context}\n\n{replan_context}"
                                     else:
