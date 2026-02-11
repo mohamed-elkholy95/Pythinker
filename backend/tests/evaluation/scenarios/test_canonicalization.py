@@ -8,7 +8,6 @@ Expected Results:
 """
 
 import pytest
-from unittest.mock import MagicMock
 
 from app.domain.services.tools.argument_canonicalizer import ArgumentCanonicalizer
 
@@ -59,7 +58,7 @@ class TestCanonicalizationEvaluation:
 
         assert len(canonicalized_fields) >= 2, f"Expected ≥2 canonicalized fields, got {len(canonicalized_fields)}"
 
-        print(f"\n=== Browser URI Alias Canonicalization ===")
+        print("\n=== Browser URI Alias Canonicalization ===")
         print(f"Original args: {args_with_alias}")
         print(f"Canonical args: {canonical_args}")
         print(f"Canonicalized fields: {canonicalized_fields}")
@@ -95,12 +94,10 @@ class TestCanonicalizationEvaluation:
             else:
                 results["already_canonical"] += 1
 
-        canonicalization_rate = results["canonicalized"] / results["total"]
-
         # Expected: 2/3 needed canonicalization (67%)
         assert results["canonicalized"] >= 2, f"Expected ≥2 canonicalizations, got {results['canonicalized']}"
 
-        print(f"\n=== File Path Alias Canonicalization ===")
+        print("\n=== File Path Alias Canonicalization ===")
         print(f"Total variations: {results['total']}")
         print(f"Canonicalized: {results['canonicalized']}")
         print(f"Already canonical: {results['already_canonical']}")
@@ -134,7 +131,7 @@ class TestCanonicalizationEvaluation:
             if orig_args.keys() != canonical_args.keys():
                 results["canonicalized"] += 1
 
-        print(f"\n=== Search Query Alias Canonicalization ===")
+        print("\n=== Search Query Alias Canonicalization ===")
         print(f"Total variations: {results['total']}")
         print(f"Canonicalized: {results['canonicalized']}")
 
@@ -171,7 +168,7 @@ class TestCanonicalizationEvaluation:
         assert "malicious_field" in unknown_fields, "Malicious field should be detected"
         assert "unknown_param" in unknown_fields, "Unknown param should be detected"
 
-        print(f"\n=== Unknown Field Rejection ===")
+        print("\n=== Unknown Field Rejection ===")
         print(f"Original args: {args_with_unknown}")
         print(f"Canonical args: {canonical_args}")
         print(f"Unknown fields detected: {unknown_fields}")
@@ -241,7 +238,7 @@ class TestCanonicalizationEvaluation:
         assert error_rate <= 0.05, f"Error rate too high: {error_rate*100:.1f}%"
         assert canonicalization_success_rate >= 0.95, f"Success rate too low: {canonicalization_success_rate*100:.1f}%"
 
-        print(f"\n=== Batch Canonicalization Results ===")
+        print("\n=== Batch Canonicalization Results ===")
         print(f"Total test cases: {results['total']}")
         print(f"Canonicalized: {results['canonicalized']}")
         print(f"Already canonical: {results['already_canonical']}")
@@ -278,6 +275,6 @@ class TestCanonicalizationEvaluation:
         assert results["canonicalized"] >= 1, "Should canonicalize lowercase aliases"
         assert results["not_canonicalized"] >= 1, "Should not canonicalize uppercase (case-sensitive)"
 
-        print(f"\n=== Case Sensitivity Test ===")
+        print("\n=== Case Sensitivity Test ===")
         print(f"Canonicalized (lowercase): {results['canonicalized']}")
         print(f"Not canonicalized (uppercase): {results['not_canonicalized']}")

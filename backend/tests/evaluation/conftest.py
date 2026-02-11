@@ -3,8 +3,9 @@
 Provides shared fixtures and configuration for Phase 0-5 evaluation tests.
 """
 
+from typing import Any
+
 import pytest
-from typing import Dict, Any
 
 
 # =============================================================================
@@ -57,7 +58,7 @@ def pytest_configure(config):
 # =============================================================================
 
 @pytest.fixture
-def evaluation_config(evaluation_mode) -> Dict[str, Any]:
+def evaluation_config(evaluation_mode) -> dict[str, Any]:
     """Provide evaluation configuration based on mode.
 
     Returns different settings for baseline vs enhanced mode.
@@ -91,8 +92,8 @@ def metrics_collector():
     """
     class MetricsCollector:
         def __init__(self):
-            self.metrics: Dict[str, float] = {}
-            self.counts: Dict[str, int] = {}
+            self.metrics: dict[str, float] = {}
+            self.counts: dict[str, int] = {}
 
         def record(self, metric_name: str, value: float):
             """Record a metric value."""
@@ -106,7 +107,7 @@ def metrics_collector():
                 self.counts[counter_name] = 0
             self.counts[counter_name] += amount
 
-        def get_results(self) -> Dict[str, Any]:
+        def get_results(self) -> dict[str, Any]:
             """Get all collected metrics and counts."""
             return {
                 "metrics": self.metrics,
