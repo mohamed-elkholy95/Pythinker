@@ -31,6 +31,7 @@ class ChatRequest(BaseModel):
     event_id: str | None = None
     skills: list[str] | None = None
     deep_research: bool | None = None  # Enable deep research mode (parallel wide_research)
+    follow_up: dict[str, str] | None = None  # Follow-up context from suggestion clicks
 
 
 class ResumeSessionRequest(BaseModel):

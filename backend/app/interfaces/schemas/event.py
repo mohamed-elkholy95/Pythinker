@@ -60,6 +60,10 @@ class MessageEventData(BaseEventData):
     role: Literal["user", "assistant"]
     content: str
     attachments: list[FileInfoResponse] | None = None
+    # Follow-up context from suggestion clicks
+    follow_up_selected_suggestion: str | None = None
+    follow_up_anchor_event_id: str | None = None
+    follow_up_source: str | None = None
 
 
 class MessageSSEEvent(BaseSSEEvent):
@@ -78,7 +82,13 @@ class MessageSSEEvent(BaseSSEEvent):
 
         return cls(
             data=MessageEventData(
-                **BaseEventData.base_event_data(event), role=event.role, content=event.message, attachments=attachments
+                **BaseEventData.base_event_data(event),
+                role=event.role,
+                content=event.message,
+                attachments=attachments,
+                follow_up_selected_suggestion=event.follow_up_selected_suggestion,
+                follow_up_anchor_event_id=event.follow_up_anchor_event_id,
+                follow_up_source=event.follow_up_source,
             )
         )
 
