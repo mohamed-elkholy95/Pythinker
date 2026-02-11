@@ -430,4 +430,92 @@ describe('TaskProgressBar', () => {
     // When all steps are completed, shows the completed task description
     expect(wrapper.text()).toContain('Completed task')
   })
+
+  it('shows composing report status while summary is streaming', () => {
+    const plan = createMockPlan([
+      { id: '1', description: 'Draft report', status: 'running' },
+    ])
+
+    const wrapper = mount(TaskProgressBar, {
+      props: {
+        plan,
+        isLoading: true,
+        isThinking: false,
+        isSummaryStreaming: true,
+        summaryStreamText: '## Partial summary',
+      },
+    })
+
+    expect(wrapper.text()).toContain('Composing report...')
+  })
+
+  it('forwards summary stream text to mini preview', () => {
+    const plan = createMockPlan([
+      { id: '1', description: 'Step 1', status: 'running' },
+    ])
+
+    const wrapper = mount(TaskProgressBar, {
+      props: {
+        plan,
+        isLoading: true,
+        isThinking: false,
+        showThumbnail: true,
+        sessionId: 'session-1',
+        isSummaryStreaming: true,
+        summaryStreamText: 'summary text',
+      },
+    })
+
+    const miniPreview = wrapper.findComponent({ name: 'VncMiniPreview' })
+    expect(miniPreview.exists()).toBe(true)
+    expect(miniPreview.props('summaryStreamText')).toBe('summary text')
+  })
+
+  it('renders collapsed dotted timeline rail with all steps connected', () => {
+    const plan = createMockPlan([
+      { id: '1', description: 'Step 1', status: 'completed' },
+      { id: '2', description: 'Step 2', status: 'running' },
+      { id: '3', description: 'Step 3', status: 'pending' },
+      { id: '4', description: 'Step 4', status: 'pending' },
+      { id: '5', description: 'Step 5', status: 'pending' },
+    ])
+
+    const wrapper = mount(TaskProgressBar, {
+      props: {
+        plan,
+        isLoading: true,
+        isThinking: false,
+      },
+    })
+
+    const nodes = wrapper.findAll('.collapsed-step-node')
+    const lines = wrapper.findAll('.collapsed-step-line')
+
+    expect(nodes).toHaveLength(5)
+    expect(lines).toHaveLength(4)
+    expect(nodes[0]?.classes()).toContain('is-completed')
+    expect(nodes[1]?.classes()).toContain('is-running')
+    expect(nodes[4]?.classes()).toContain('is-pending')
+  })
+
+  it('renders expanded dotted connectors between task nodes', async () => {
+    const plan = createMockPlan([
+      { id: '1', description: 'Step 1', status: 'completed' },
+      { id: '2', description: 'Step 2', status: 'running' },
+      { id: '3', description: 'Step 3', status: 'pending' },
+    ])
+
+    const wrapper = mount(TaskProgressBar, {
+      props: {
+        plan,
+        isLoading: true,
+        isThinking: false,
+      },
+    })
+
+    await wrapper.find('.progress-bar-collapsed').trigger('click')
+
+    const connectors = wrapper.findAll('.task-timeline-line')
+    expect(connectors).toHaveLength(2)
+  })
 })

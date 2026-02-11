@@ -122,21 +122,21 @@ const hovered = ref(false)
 
 .thinking-lamp {
   position: relative;
-  width: 22px;
-  height: 26px;
+  width: 24px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
   transform-origin: center center;
-  overflow: hidden;
-  contain: paint;
+  overflow: visible;
+  contain: none;
 }
 
 .thinking-lamp.lamp-with-text {
-  width: 20px;
-  height: 24px;
+  width: 22px;
+  height: 27px;
 }
 
 /* Hover: slight scale + faster animations */
@@ -308,16 +308,16 @@ const hovered = ref(false)
 /* === Thinking text === */
 .thinking-text {
   font-size: 0.875rem;
-  font-weight: 400;
+  font-weight: 500;
   letter-spacing: 0.03em;
   background: linear-gradient(
     120deg,
-    #262626 0%,
-    #262626 38%,
-    #b07840 48%,
-    #c49060 52%,
-    #262626 62%,
-    #262626 100%
+    #3a3a3a 0%,
+    #3a3a3a 38%,
+    #c6894b 48%,
+    #d8a26f 52%,
+    #3a3a3a 62%,
+    #3a3a3a 100%
   );
   background-size: 300% 300%;
   -webkit-background-clip: text;
@@ -331,39 +331,55 @@ const hovered = ref(false)
 .dark .thinking-text {
   background: linear-gradient(
     120deg,
-    #8a8a8a 0%,
-    #8a8a8a 38%,
-    #c49060 48%,
-    #daa878 52%,
-    #8a8a8a 62%,
-    #8a8a8a 100%
+    #fff6dd 0%,
+    #fff2cc 38%,
+    #ffd969 48%,
+    #ffe9aa 54%,
+    #fff3cf 62%,
+    #fff6dd 100%
   );
   background-size: 300% 300%;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+  filter: none;
+  animation: text-shimmer 2.2s linear infinite;
+}
+
+:deep(.dark) .thinking-lamp,
+.dark .thinking-lamp {
+  filter: none;
+  animation: none;
+}
+
+:deep(.dark) .lamp-bulb,
+.dark .lamp-bulb {
+  opacity: 0.98;
+  filter: saturate(1.3) brightness(1.18) contrast(1.04);
 }
 
 :deep(.dark) .lamp-outline,
 .dark .lamp-outline {
-  stroke: #1a1208;
+  stroke: #c58e3f;
+  opacity: 0.9;
 }
 
 :deep(.dark) .hex-frame,
 .dark .hex-frame {
-  stroke: #c49060;
-  opacity: 0.15;
+  stroke: #f2c274;
+  opacity: 0.28;
 }
 
 :deep(.dark) .lamp-filament,
 .dark .lamp-filament {
-  stroke: #0e0a05;
+  stroke: #ffd989;
+  opacity: 0.92;
 }
 
 :deep(.dark) .circuit-lines line,
 .dark .circuit-lines line {
-  stroke: #c49060;
-  opacity: 0.08;
+  stroke: #f1c173;
+  opacity: 0.14;
 }
 
 :deep(.dark) .lamp-base.seg-1,
@@ -383,32 +399,34 @@ const hovered = ref(false)
 
 :deep(.dark) .base-accent,
 .dark .base-accent {
-  stroke: #c49060;
-  opacity: 0.15;
+  stroke: #f4cb86;
+  opacity: 0.28;
 }
 
 :deep(.dark) .lamp-ray,
 .dark .lamp-ray,
 :deep(.dark) .lamp-ray-s,
 .dark .lamp-ray-s {
-  stroke: #000000;
+  stroke: #ffd67a;
 }
 
 :deep(.dark) .scan-line,
 .dark .scan-line {
-  background: linear-gradient(90deg, transparent 0%, #c49060 50%, transparent 100%);
-  opacity: 0.3;
+  background: linear-gradient(90deg, transparent 0%, #ffd57a 50%, transparent 100%);
+  opacity: 0.45;
 }
 
 :deep(.dark) .energy-ring,
 .dark .energy-ring {
-  border-top-color: rgba(196, 144, 96, 0.35);
-  border-right-color: rgba(196, 144, 96, 0.12);
+  border-top-color: rgba(255, 216, 120, 0.28);
+  border-right-color: rgba(255, 216, 120, 0.12);
+  opacity: 0.22;
 }
 
 :deep(.dark) .filament-node,
 .dark .filament-node {
-  fill: #daa878;
+  fill: #ffe9ae;
+  filter: none;
 }
 
 /* ============ KEYFRAMES ============ */
@@ -547,4 +565,5 @@ const hovered = ref(false)
     background-position: 0% 100%;
   }
 }
+
 </style>

@@ -43,7 +43,9 @@ describe('ToolUse', () => {
     })
 
     expect(wrapper.text()).toContain('Read File test.txt')
-    expect(wrapper.find('[title="Read File test.txt"]').exists()).toBe(true)
+    const chipText = wrapper.find('.tool-chip-text')
+    expect(chipText.exists()).toBe(true)
+    expect(chipText.text()).toContain('Read File test.txt')
   })
 
   it('should render message tool differently', () => {

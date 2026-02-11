@@ -34,6 +34,21 @@
       :is-active="isActive"
     />
 
+    <!-- Summary streaming preview (must take precedence over stale tool previews) -->
+    <div v-else-if="isSummaryPhase" class="content-preview streaming-preview">
+      <div class="streaming-mini-window">
+        <div class="streaming-mini-header">
+          <span class="streaming-mini-title">{{ streamingPresentation.headline.value }}</span>
+        </div>
+        <div class="streaming-mini-body">
+          <div class="streaming-mini-lines">
+            <div class="streaming-line" v-for="n in 5" :key="n" :style="{ animationDelay: `${n * 0.15}s`, width: `${60 + (n * 7)}%` }"></div>
+          </div>
+        </div>
+      </div>
+      <div v-if="isSummaryStreaming" class="activity-indicator"></div>
+    </div>
+
     <!-- Terminal view (shell, code_executor) -->
     <div v-else-if="currentViewType === 'terminal' && contentPreview" class="content-preview terminal-preview">
       <div class="terminal-window">
@@ -120,21 +135,6 @@
       <div v-if="isActive" class="activity-indicator"></div>
     </div>
 
-    <!-- Summary streaming preview -->
-    <div v-else-if="isSummaryStreaming" class="content-preview streaming-preview">
-      <div class="streaming-mini-window">
-        <div class="streaming-mini-header">
-          <span class="streaming-mini-title">Composing report</span>
-        </div>
-        <div class="streaming-mini-body">
-          <div class="streaming-mini-lines">
-            <div class="streaming-line" v-for="n in 5" :key="n" :style="{ animationDelay: `${n * 0.15}s`, width: `${60 + (n * 7)}%` }"></div>
-          </div>
-        </div>
-      </div>
-      <div class="activity-indicator"></div>
-    </div>
-
     <!-- VNC view (only with active tool context) -->
     <div v-else-if="shouldShowLiveVnc" class="vnc-container">
       <LiveViewer
@@ -191,8 +191,9 @@ import { Monitor, Check, Terminal, FileText, Globe, Code, Wrench, Search, GitBra
 import LiveViewer from '@/components/LiveViewer.vue';
 import WideResearchMiniPreview from '@/components/WideResearchMiniPreview.vue';
 import { useContentConfig } from '@/composables/useContentConfig';
+import { useStreamingPresentationState } from '@/composables/useStreamingPresentationState';
 import { useWideResearchGlobal } from '@/composables/useWideResearch';
-import { getFaviconUrl } from '@/utils/toolDisplay';
+import { getFaviconUrl, getToolDisplay } from '@/utils/toolDisplay';
 import type { ToolContent } from '@/types/message';
 
 const props = withDefaults(defineProps<{
@@ -216,6 +217,8 @@ const props = withDefaults(defineProps<{
   toolContent?: ToolContent;
   /** Whether summary is currently streaming */
   isSummaryStreaming?: boolean;
+  /** Buffered summary stream text */
+  summaryStreamText?: string;
   /** Whether session has completed and should show replay frame when idle */
   isSessionComplete?: boolean;
   /** Replay frame URL provided by parent composable */
@@ -233,6 +236,7 @@ const props = withDefaults(defineProps<{
   searchQuery: '',
   toolContent: undefined,
   isSummaryStreaming: false,
+  summaryStreamText: '',
   isSessionComplete: false,
   replayScreenshotUrl: ''
 });
@@ -254,11 +258,47 @@ const effectiveToolContent = computed<ToolContent | undefined>(() => {
   } as ToolContent;
 });
 
+const toolDisplay = computed(() => {
+  if (!effectiveToolContent.value) return null;
+  return getToolDisplay({
+    name: effectiveToolContent.value.name,
+    function: effectiveToolContent.value.function,
+    args: effectiveToolContent.value.args,
+    display_command: effectiveToolContent.value.display_command
+  });
+});
+
 // Use content config to determine view type
 const { currentViewType } = useContentConfig(toRef(() => effectiveToolContent.value));
 
+const baseViewTypeForPresentation = computed(() => {
+  if (currentViewType.value === 'terminal' || currentViewType.value === 'editor' || currentViewType.value === 'search') {
+    return currentViewType.value;
+  }
+  if (currentViewType.value === 'vnc') {
+    return 'vnc';
+  }
+  return 'generic';
+});
+
+const streamingPresentation = useStreamingPresentationState({
+  isInitializing: computed(() => !!props.isInitializing),
+  isSummaryStreaming: computed(() => !!props.isSummaryStreaming),
+  summaryStreamText: computed(() => props.summaryStreamText || ''),
+  isThinking: computed(() => false),
+  isActiveOperation: computed(() => !!props.isActive),
+  toolDisplayName: computed(() => toolDisplay.value?.displayName || props.toolName || ''),
+  toolDescription: computed(() => toolDisplay.value?.description || ''),
+  baseViewType: computed(() => baseViewTypeForPresentation.value),
+  isSessionComplete: computed(() => !!props.isSessionComplete),
+  replayScreenshotUrl: computed(() => props.replayScreenshotUrl || ''),
+  previewText: computed(() => props.contentPreview || '')
+});
+
+const isSummaryPhase = computed(() => streamingPresentation.isSummaryPhase.value);
+
 const shouldShowLiveVnc = computed(() => {
-  if (!props.sessionId || !props.enabled || props.isInitializing) {
+  if (!props.sessionId || !props.enabled || props.isInitializing || isSummaryPhase.value) {
     return false;
   }
 
@@ -280,6 +320,10 @@ watch(finalScreenshotUrl, () => {
 
 const shouldShowFinalScreenshot = computed(() => {
   if (!props.sessionId || !props.enabled || props.isInitializing) {
+    return false;
+  }
+
+  if (isSummaryPhase.value) {
     return false;
   }
 
@@ -381,24 +425,16 @@ const toolIcon = computed(() => {
 
 // Get label for fallback
 const toolLabel = computed(() => {
-  const func = props.toolFunction || '';
-
-  if (func.includes('file_write')) return 'Writing';
-  if (func.includes('file_read')) return 'Reading';
-  if (func.includes('shell') || func.includes('exec')) return 'Terminal';
-  if (func.includes('browser')) return 'Browser';
-  if (func.includes('search')) return 'Search';
-  if (func.includes('code')) return 'Code';
-
-  if (showInitializingDots.value) return 'Initializing';
-
-  return props.toolName || 'Initializing';
+  if (showInitializingDots.value) return streamingPresentation.headline.value;
+  if (toolDisplay.value?.displayName) return toolDisplay.value.displayName;
+  return props.toolName || streamingPresentation.headline.value;
 });
 
 const showInitializingDots = computed(() => (
   Boolean(props.sessionId) &&
   props.enabled &&
   !props.isSessionComplete &&
+  !isSummaryPhase.value &&
   !props.toolName &&
   !props.toolFunction
 ));

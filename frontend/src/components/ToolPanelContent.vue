@@ -30,16 +30,25 @@
         </div>
       </div>
 
-      <!-- Activity Bar: Icon + "Pythinker is using X" | Action -->
-      <div v-if="isSummaryStreaming" class="flex items-center gap-2 mt-2 text-[13px] text-[var(--text-tertiary)] overflow-hidden">
-        <Loader2 :size="18" class="flex-shrink-0 text-[var(--icon-secondary)] animate-spin" style="min-width: 18px; min-height: 18px;" />
-        <span class="flex-shrink-0 whitespace-nowrap">{{ $t('Pythinker is') }} <span class="text-[var(--text-secondary)] font-medium">{{ $t('composing a report') }}</span></span>
-      </div>
-      <div v-else-if="toolDisplay" class="flex items-center gap-2 mt-2 text-[13px] text-[var(--text-tertiary)] overflow-hidden">
-        <component :is="toolDisplay.icon" :size="18" class="flex-shrink-0 text-[var(--icon-secondary)]" style="min-width: 18px; min-height: 18px;" />
-        <span class="flex-shrink-0 whitespace-nowrap">{{ $t('Pythinker is using') }} <span class="text-[var(--text-secondary)] font-medium">{{ toolDisplay.displayName }}</span></span>
-        <span v-if="toolSubtitle" class="text-[var(--text-quaternary)] flex-shrink-0">|</span>
-        <span v-if="toolSubtitle" class="truncate min-w-0">{{ toolSubtitle }}</span>
+      <!-- Activity Bar: unified streaming presentation status -->
+      <div v-if="activityHeadline" class="flex items-center gap-2 mt-2 text-[13px] text-[var(--text-tertiary)] overflow-hidden">
+        <Loader2
+          v-if="showActivitySpinner"
+          :size="18"
+          class="flex-shrink-0 text-[var(--icon-secondary)]"
+          :class="{ 'animate-spin': isSummaryStreaming }"
+          style="min-width: 18px; min-height: 18px;"
+        />
+        <component
+          v-else-if="toolDisplay?.icon"
+          :is="toolDisplay.icon"
+          :size="18"
+          class="flex-shrink-0 text-[var(--icon-secondary)]"
+          style="min-width: 18px; min-height: 18px;"
+        />
+        <span class="flex-shrink-0 whitespace-nowrap">{{ activityHeadline }}</span>
+        <span v-if="activitySubtitle" class="text-[var(--text-quaternary)] flex-shrink-0">|</span>
+        <span v-if="activitySubtitle" class="truncate min-w-0">{{ activitySubtitle }}</span>
       </div>
 
       <!-- Confirmation banner removed -->
@@ -85,7 +94,7 @@
         <div class="flex-1 min-h-0 min-w-0 w-full overflow-hidden relative">
           <!-- Streaming Report (live summary composition — highest priority) -->
           <StreamingReportView
-            v-if="isSummaryStreaming || summaryStreamText"
+            v-if="isSummaryPhase || summaryStreamText"
             :text="summaryStreamText || ''"
             :is-final="!isSummaryStreaming"
           />
@@ -273,6 +282,7 @@ import { Minimize2, MonitorUp, X, Loader2, Check } from 'lucide-vue-next';
 import type { ToolContent } from '@/types/message';
 import type { PlanEventData } from '@/types/event';
 import { useContentConfig } from '@/composables/useContentConfig';
+import { useStreamingPresentationState } from '@/composables/useStreamingPresentationState';
 import { getToolDisplay } from '@/utils/toolDisplay';
 import { viewFile, viewShellSession, browseUrl } from '@/api/agent';
 import TimelineControls from '@/components/timeline/TimelineControls.vue';
@@ -438,6 +448,44 @@ const isSearching = computed(() => {
  * @see docs/guides/TOOL_STANDARDIZATION.md
  */
 const toolSubtitle = computed(() => toolDisplay.value?.description || '');
+
+const streamingPresentation = useStreamingPresentationState({
+  isInitializing: computed(() => false),
+  isSummaryStreaming: computed(() => !!props.isSummaryStreaming),
+  summaryStreamText: computed(() => props.summaryStreamText || ''),
+  isThinking: computed(() => !!props.isThinking),
+  isActiveOperation: computed(() => isActiveOperation.value),
+  toolDisplayName: computed(() => toolDisplay.value?.displayName || ''),
+  toolDescription: computed(() => toolSubtitle.value || ''),
+  baseViewType: computed(() => {
+    if (currentViewType.value === 'terminal' || currentViewType.value === 'editor' || currentViewType.value === 'search') {
+      return currentViewType.value;
+    }
+    if (currentViewType.value === 'vnc') {
+      return 'vnc';
+    }
+    return 'generic';
+  }),
+  isSessionComplete: computed(() => false),
+  replayScreenshotUrl: computed(() => props.replayScreenshotUrl || ''),
+  previewText: computed(() => props.summaryStreamText || '')
+});
+
+const isSummaryPhase = computed(() => streamingPresentation.isSummaryPhase.value);
+
+const activityHeadline = computed(() => {
+  if (isSummaryPhase.value) return streamingPresentation.headline.value;
+  if (toolDisplay.value?.displayName) return `Pythinker is using ${toolDisplay.value.displayName}`;
+  if (props.isThinking) return streamingPresentation.headline.value;
+  return '';
+});
+
+const activitySubtitle = computed(() => {
+  if (isSummaryPhase.value) return '';
+  return toolSubtitle.value;
+});
+
+const showActivitySpinner = computed(() => isSummaryPhase.value || (!!props.isThinking && !toolDisplay.value));
 
 // Content header label - consistent, user-friendly tool name
 const contentHeaderLabel = computed(() => {

@@ -1,5 +1,7 @@
 pytest>=7.0.0
-pytest-asyncio>=0.21.0
+pytest-asyncio>=0.24.0  # Updated for asyncio_default_fixture_loop_scope support
 pytest-cov>=4.0.0
 pytest-mock>=3.10.0
+pytest-xdist>=3.5.0  # Parallel test execution (Context7 recommended)
+pytest-timeout>=2.2.0  # Test timeout handling (Context7 recommended)
 requests>=2.28.0 

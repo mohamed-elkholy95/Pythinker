@@ -432,5 +432,46 @@ describe('ChatMessage', () => {
       expect(tools[0].attributes('data-running')).toBe('false')
       expect(tools[1].attributes('data-running')).toBe('true')
     })
+
+    it('renders bottom connector for first step and extends to next step', () => {
+      const wrapper = mount(ChatMessage, {
+        props: {
+          message: mockStepMessage,
+          showStepLeadingConnector: false,
+          showStepConnector: true,
+        },
+        global: {
+          stubs: {
+            ToolUse: true,
+            Bot: true,
+            CheckIcon: true,
+          },
+        },
+      })
+
+      expect(wrapper.find('.step-connector-top').exists()).toBe(false)
+      expect(wrapper.find('.step-connector-bottom').exists()).toBe(true)
+      expect(wrapper.find('.step-connector-bottom').classes()).toContain('step-connector-extended')
+    })
+
+    it('renders top connector only for last step', () => {
+      const wrapper = mount(ChatMessage, {
+        props: {
+          message: mockStepMessage,
+          showStepLeadingConnector: true,
+          showStepConnector: false,
+        },
+        global: {
+          stubs: {
+            ToolUse: true,
+            Bot: true,
+            CheckIcon: true,
+          },
+        },
+      })
+
+      expect(wrapper.find('.step-connector-top').exists()).toBe(true)
+      expect(wrapper.find('.step-connector-bottom').exists()).toBe(false)
+    })
   })
 })

@@ -29,7 +29,9 @@
       </header>
       <div class="mx-auto w-full max-w-full sm:max-w-[768px] sm:min-w-[390px] flex flex-col flex-1">
         <div class="flex flex-col w-full gap-[12px] pb-[80px] pt-[12px] flex-1 overflow-y-auto">
-          <ChatMessage v-for="message in messages" :key="message.id" :message="message"
+          <ChatMessage v-for="(message, index) in messages" :key="message.id" :message="message"
+            :showStepLeadingConnector="shouldShowStepLeadingConnector(index)"
+            :showStepConnector="shouldShowStepConnector(index)"
             @toolClick="handleToolClick" />
 
           <!-- Loading indicator -->
@@ -297,6 +299,32 @@ watch(
 const getLastStep = (): StepContent | undefined => {
   return messages.value.filter(message => message.type === 'step').pop()?.content as StepContent;
 }
+
+const shouldShowStepConnector = (messageIndex: number): boolean => {
+  const currentMessage = messages.value[messageIndex];
+  if (!currentMessage || currentMessage.type !== 'step') return false;
+
+  for (let i = messageIndex + 1; i < messages.value.length; i += 1) {
+    if (messages.value[i].type === 'step') {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const shouldShowStepLeadingConnector = (messageIndex: number): boolean => {
+  const currentMessage = messages.value[messageIndex];
+  if (!currentMessage || currentMessage.type !== 'step') return false;
+
+  for (let i = messageIndex - 1; i >= 0; i -= 1) {
+    if (messages.value[i].type === 'step') {
+      return true;
+    }
+  }
+
+  return false;
+};
 
 // Handle message event
 const handleMessageEvent = (messageData: MessageEventData) => {

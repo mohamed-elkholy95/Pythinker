@@ -489,7 +489,15 @@ onMounted(() => {
 }
 
 :global([data-theme='dark']) .chatbox-connector-row:hover {
-    background: rgba(255, 255, 255, 0.02);
+    background: rgba(255, 255, 255, 0.09);
+}
+
+:global(.dark) .chatbox-connector-row {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+:global(.dark) .chatbox-connector-row:hover {
+    background: rgba(255, 255, 255, 0.11);
 }
 
 .stop-icon {

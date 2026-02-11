@@ -9,6 +9,7 @@ import Suggestions from '@/components/Suggestions.vue'
 vi.mock('lucide-vue-next', () => ({
   Search: { template: '<svg data-testid="search-icon"></svg>' },
   Compass: { template: '<svg data-testid="compass-icon"></svg>' },
+  ArrowRight: { template: '<svg data-testid="arrow-right-icon"></svg>' },
 }))
 
 describe('Suggestions', () => {
