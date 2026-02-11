@@ -37,6 +37,11 @@ from typing import Any
 
 from qdrant_client import models
 
+from app.infrastructure.external.cache.circuit_breaker import (
+    CircuitState,
+    get_circuit_breaker,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -224,6 +229,13 @@ class SemanticCache:
         if not self._config.enabled:
             return None
 
+        # Phase 6: Check circuit breaker
+        circuit_breaker = get_circuit_breaker()
+        if not circuit_breaker.is_cache_allowed():
+            logger.debug(f"Cache bypassed due to circuit breaker state: {circuit_breaker.state.value}")
+            self._record_prometheus_query("bypassed")
+            return None
+
         if len(prompt) > self._config.max_prompt_length:
             logger.debug("Prompt too long for cache")
             return None
@@ -233,6 +245,8 @@ class SemanticCache:
             embedding = await self._generate_embedding(prompt)
             if embedding is None:
                 self._stats.record_miss()
+                get_circuit_breaker().record_request(hit=False)
+                self._record_prometheus_query("miss")
                 return None
 
             # Search Qdrant for similar prompts
@@ -255,6 +269,8 @@ class SemanticCache:
 
             if not search_results:
                 self._stats.record_miss()
+                get_circuit_breaker().record_request(hit=False)
+                self._record_prometheus_query("miss")
                 return None
 
             # Get the best match
@@ -269,6 +285,8 @@ class SemanticCache:
             if cached_data is None:
                 # Entry in Qdrant but not in Redis (expired)
                 self._stats.record_miss()
+                get_circuit_breaker().record_request(hit=False)
+                self._record_prometheus_query("miss")
                 # Clean up orphaned Qdrant entry
                 await self._qdrant.client.delete(
                     collection_name=self._config.collection_name,
@@ -289,6 +307,8 @@ class SemanticCache:
             # Estimate token savings (rough: 4 chars per token)
             token_savings = len(entry.response) // 4
             self._stats.record_hit(similarity, token_savings)
+            get_circuit_breaker().record_request(hit=True)
+            self._record_prometheus_query("hit")
 
             logger.debug(
                 f"Semantic cache hit (similarity={similarity:.3f})",
@@ -300,6 +320,7 @@ class SemanticCache:
         except Exception as e:
             logger.warning(f"Semantic cache get error: {e}")
             self._stats.record_error()
+            self._record_prometheus_query("error")
             return None
 
     async def set(
@@ -456,6 +477,41 @@ class SemanticCache:
     def get_stats(self) -> dict[str, Any]:
         """Get cache statistics as dictionary."""
         return self._stats.to_dict()
+
+    def _record_prometheus_query(self, result: str) -> None:
+        """Record cache query to Prometheus metrics.
+
+        Args:
+            result: Query result ("hit", "miss", "error", "bypassed")
+        """
+        try:
+            from app.infrastructure.observability.prometheus_metrics import (
+                semantic_cache_circuit_breaker_state,
+                semantic_cache_hit_rate,
+                semantic_cache_hit_total,
+                semantic_cache_miss_total,
+                semantic_cache_query_total,
+            )
+
+            # Record query result
+            semantic_cache_query_total.inc({"result": result})
+
+            if result == "hit":
+                semantic_cache_hit_total.inc({})
+            elif result == "miss":
+                semantic_cache_miss_total.inc({})
+
+            # Update circuit breaker metrics
+            circuit_breaker = get_circuit_breaker()
+            semantic_cache_circuit_breaker_state.set({}, circuit_breaker.state_numeric)
+
+            # Update hit rate gauge
+            if self.stats.hits + self.stats.misses > 0:
+                semantic_cache_hit_rate.set({}, self.stats.hit_rate)
+
+        except Exception as e:
+            # Don't fail cache operations due to metrics errors
+            logger.debug(f"Failed to record Prometheus metrics: {e}")
 
 
 # Global semantic cache instance
