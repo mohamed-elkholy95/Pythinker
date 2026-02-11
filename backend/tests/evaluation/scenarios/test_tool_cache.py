@@ -7,6 +7,10 @@ Expected Results:
 - Enhanced: 80-90% cache hit rate
 """
 
+import asyncio
+import time
+from unittest.mock import AsyncMock
+
 import pytest
 
 from app.domain.services.tools.tool_definition_cache import ToolDefinitionCache
@@ -58,8 +62,7 @@ class TestToolCacheEvaluation:
 
         results = {"hits": 0, "misses": 0, "total_time_ms": 0}
 
-        for i in range(lookups):
-            import time
+        for _ in range(lookups):
             start = time.time()
 
             # Check cache
@@ -112,7 +115,7 @@ class TestToolCacheEvaluation:
         results = {"hits": 0, "misses": 0, "total": 0}
 
         for tool_name in tools:
-            for i in range(lookups_per_tool):
+            for _ in range(lookups_per_tool):
                 results["total"] += 1
 
                 cached_def = await tool_cache.get(tool_name)
@@ -251,8 +254,6 @@ class TestToolCacheEvaluation:
         lookups_per_tool = 10
         results = {"hits": 0, "misses": 0, "total": 0, "total_time_ms": 0}
 
-        import time
-
         for tool_name in tool_names:
             for _ in range(lookups_per_tool):
                 results["total"] += 1
@@ -272,14 +273,12 @@ class TestToolCacheEvaluation:
 
         # Calculate metrics
         hit_rate = results["hits"] / results["total"]
-        avg_time_ms = results["total_time_ms"] / results["total"]
 
         # Expected: 25 tools × 10 lookups = 250 total
         # First lookup per tool = miss (25 misses)
         # Remaining lookups = hits (225 hits)
         # Hit rate = 225/250 = 90%
         expected_misses = len(tool_names)
-        expected_hits = results["total"] - expected_misses
 
         assert results["misses"] == expected_misses, f"Expected {expected_misses} misses, got {results['misses']}"
         assert hit_rate >= 0.80, f"Hit rate too low: {hit_rate*100:.1f}%"
