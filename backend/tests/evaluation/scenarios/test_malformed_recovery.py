@@ -9,7 +9,7 @@ Expected Results:
 
 import pytest
 
-from app.domain.models.recovery import RecoveryReason
+from app.domain.models.recovery import RecoveryBudgetExhaustedError, RecoveryReason
 from app.domain.services.agents.failure_snapshot_service import FailureSnapshotService
 from app.domain.services.agents.response_recovery import ResponseRecoveryPolicy
 
@@ -113,7 +113,7 @@ class TestMalformedRecoveryEvaluation:
 
                 try:
                     # Execute recovery
-                    success, message = await policy.execute_recovery(
+                    success, _ = await policy.execute_recovery(
                         response_text=malformed,
                         recovery_reason=decision.recovery_reason,
                         strategy=decision.strategy,
@@ -193,7 +193,7 @@ class TestMalformedRecoveryEvaluation:
 
                 try:
                     # Attempt recovery
-                    success, message = await policy.execute_recovery(
+                    success, _ = await policy.execute_recovery(
                         response_text=refusal,
                         recovery_reason=decision.recovery_reason,
                         strategy=decision.strategy,
@@ -270,7 +270,7 @@ class TestMalformedRecoveryEvaluation:
 
                 try:
                     # Attempt recovery
-                    success, message = await policy.execute_recovery(
+                    success, _ = await policy.execute_recovery(
                         response_text=sample,
                         recovery_reason=decision.recovery_reason,
                         strategy=decision.strategy,
@@ -314,7 +314,7 @@ class TestMalformedRecoveryEvaluation:
 
                 if decision.should_recover:
                     retry_count += 1
-                    success, message = await recovery_policy.execute_recovery(
+                    success, _ = await recovery_policy.execute_recovery(
                         response_text=consistently_malformed,
                         recovery_reason=decision.recovery_reason,
                         strategy=decision.strategy,
