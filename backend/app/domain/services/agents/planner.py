@@ -324,10 +324,18 @@ class PlannerAgent(BaseAgent):
                 except Exception as e:
                     logger.warning(f"Tree-of-Thoughts exploration failed, continuing without: {e}")
 
-        # Retrieve similar past tasks and outcomes (Phase 6: Qdrant integration)
+        # Retrieve similar past tasks and outcomes (Phase 3: Cross-session intelligence + Phase 6: Qdrant)
         task_memory = None
         if self._memory_service and self._user_id:
             try:
+                # Phase 3: Find similar tasks from past sessions
+                similar_tasks = await self._memory_service.find_similar_tasks(
+                    user_id=self._user_id,
+                    task_description=message.message,
+                    limit=5,
+                )
+
+                # Also retrieve relevant memories (error patterns, outcomes)
                 memories = await self._memory_service.retrieve_relevant(
                     user_id=self._user_id,
                     context=message.message,
@@ -335,9 +343,27 @@ class PlannerAgent(BaseAgent):
                     memory_types=[MemoryType.TASK_OUTCOME, MemoryType.ERROR_PATTERN],
                     min_relevance=0.4,
                 )
-                if memories:
-                    task_memory = self._format_task_memory(memories)
-                    logger.debug(f"Injected {len(memories)} memories into planning context")
+
+                # Combine into task memory context
+                if similar_tasks or memories:
+                    context_parts = []
+
+                    # Add similar task guidance
+                    if similar_tasks:
+                        task_lines = ["Past experience with similar tasks:"]
+                        for task in similar_tasks:
+                            outcome = "succeeded" if task.get("success") else "failed"
+                            summary = task.get("content_summary", "")[:150]
+                            task_lines.append(f"- {summary} ({outcome})")
+                        context_parts.append("\n".join(task_lines))
+
+                    # Add memory context
+                    if memories:
+                        mem_text = self._format_task_memory(memories)
+                        context_parts.append(mem_text)
+
+                    task_memory = "\n\n".join(context_parts)
+                    logger.debug(f"Injected {len(similar_tasks)} similar tasks + {len(memories)} memories into planning")
             except Exception as e:
                 logger.warning(f"Failed to retrieve task memories for planning: {e}")
 
