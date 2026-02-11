@@ -1388,13 +1388,17 @@ const ensureCompletionSuggestions = () => {
     const message = messages.value[i];
     if (message.type === 'assistant') {
       const content = message.content as MessageContent;
-      followUpAnchorEventId.value = (content as any).event_id;
-      break;
+      if (content.event_id) {
+        followUpAnchorEventId.value = content.event_id;
+        break;
+      }
     }
     if (message.type === 'report') {
       const content = message.content as ReportContent;
-      followUpAnchorEventId.value = (content as any).event_id;
-      break;
+      if (content.event_id) {
+        followUpAnchorEventId.value = content.event_id;
+        break;
+      }
     }
   }
 };
