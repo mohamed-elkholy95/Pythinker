@@ -661,6 +661,9 @@ NOTE: The browser state may have changed. When you next use the browser:
         deep_research: bool | None = None,
         extra_mcp_configs: dict[str, Any] | None = None,
         auto_trigger_enabled: bool | None = None,
+        follow_up_selected_suggestion: str | None = None,
+        follow_up_anchor_event_id: str | None = None,
+        follow_up_source: str | None = None,
     ) -> AsyncGenerator[BaseEvent, None]:
         """
         Chat with an agent
@@ -760,13 +763,26 @@ NOTE: The browser state may have changed. When you next use the browser:
                                 await self._session_repository.update_latest_message(
                                     session_id, message, timestamp or datetime.now()
                                 )
-                                message_event = MessageEvent(message=message, role="user")
+                                message_event = MessageEvent(
+                                    message=message,
+                                    role="user",
+                                    follow_up_selected_suggestion=follow_up_selected_suggestion,
+                                    follow_up_anchor_event_id=follow_up_anchor_event_id,
+                                    follow_up_source=follow_up_source,
+                                )
                                 await self._session_repository.add_event(session_id, message_event)
                                 yield message_event
 
                                 # Execute fast path directly (no sandbox needed)
                                 # Wrap in UsageContextManager so LLM token usage is recorded
-                                msg = Message(message=message, attachments=[], skills=[])
+                                msg = Message(
+                                    message=message,
+                                    attachments=[],
+                                    skills=[],
+                                    follow_up_selected_suggestion=follow_up_selected_suggestion,
+                                    follow_up_anchor_event_id=follow_up_anchor_event_id,
+                                    follow_up_source=follow_up_source,
+                                )
                                 async with UsageContextManager(user_id=user_id, session_id=session_id):
                                     async for event in fast_router.execute(intent, params, msg):
                                         await self._session_repository.add_event(session_id, event)
@@ -857,6 +873,9 @@ NOTE: The browser state may have changed. When you next use the browser:
                         attachments=resolved_attachments,
                         skills=skills_to_use,
                         deep_research=deep_research,
+                        follow_up_selected_suggestion=follow_up_selected_suggestion,
+                        follow_up_anchor_event_id=follow_up_anchor_event_id,
+                        follow_up_source=follow_up_source,
                     )
 
                     event_id = await task.input_stream.put(message_event.model_dump_json())
