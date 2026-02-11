@@ -1,14 +1,17 @@
 """Unit tests for rating endpoint security (Priority 6)."""
 
+from unittest.mock import AsyncMock, Mock
+
 import pytest
 from fastapi import HTTPException
-from unittest.mock import AsyncMock, Mock
 
 from app.application.services.email_service import EmailService
 from app.application.services.rating_service import RatingService
 from app.domain.models.session import Session, SessionStatus
 from app.domain.models.user import User
-from app.infrastructure.repositories.mongo_session_repository import MongoSessionRepository
+from app.infrastructure.repositories.mongo_session_repository import (
+    MongoSessionRepository,
+)
 from app.interfaces.api.rating_routes import RatingRequest, submit_rating
 
 

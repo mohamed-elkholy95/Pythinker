@@ -14,7 +14,7 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 
 
 def load_metric(file_path: Path) -> Optional[float]:
@@ -40,7 +40,7 @@ def load_metric(file_path: Path) -> Optional[float]:
         return None
 
 
-def calculate_improvement(baseline: Optional[float], enhanced: Optional[float]) -> Tuple[float, str]:
+def calculate_improvement(baseline: Optional[float], enhanced: Optional[float]) -> tuple[float, str]:
     """Calculate percentage improvement from baseline to enhanced."""
     if baseline is None or enhanced is None:
         return 0.0, "N/A"
@@ -79,7 +79,7 @@ def format_percentage(value: Optional[float]) -> str:
     return f"{value * 100:.1f}%"
 
 
-def load_all_metrics(metrics_dir: Path) -> Dict[str, Optional[float]]:
+def load_all_metrics(metrics_dir: Path) -> dict[str, Optional[float]]:
     """Load all metrics from a directory."""
     return {
         "step_failures": load_metric(metrics_dir / "step_failures.json"),
@@ -192,7 +192,7 @@ def generate_regression_table(baseline: Dict, enhanced: Dict) -> str:
     return "\n".join(rows)
 
 
-def evaluate_success_criteria(baseline: Dict, enhanced: Dict) -> Tuple[bool, str]:
+def evaluate_success_criteria(baseline: dict, enhanced: dict) -> tuple[bool, str]:
     """Evaluate if success criteria are met."""
     failures = []
 

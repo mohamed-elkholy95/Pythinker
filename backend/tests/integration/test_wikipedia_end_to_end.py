@@ -66,8 +66,8 @@ async def test_multiple_wikipedia_navigations_without_restart():
 
     try:
         # Navigate to 10 Wikipedia pages consecutively
-        for i in range(10):
-            url = f"https://en.wikipedia.org/wiki/List_of_programming_languages"
+        for _ in range(10):
+            url = "https://en.wikipedia.org/wiki/List_of_programming_languages"
             result = await browser.navigate(url)
 
             assert result.success is True
