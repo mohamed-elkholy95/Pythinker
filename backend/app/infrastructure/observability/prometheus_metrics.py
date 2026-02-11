@@ -709,6 +709,12 @@ memory_budget_tokens_total = Gauge(
     labels=["user_id"],
 )
 
+memory_budget_pressure = Gauge(
+    name="pythinker_memory_budget_pressure",
+    help_text="Current memory budget pressure ratio (0-1)",
+    labels=["user_id"],
+)
+
 cache_eviction_rate = Gauge(
     name="pythinker_cache_eviction_rate",
     help_text="Cache eviction rate (evictions per minute)",
@@ -726,6 +732,13 @@ qdrant_disk_usage_bytes = Gauge(
     name="pythinker_qdrant_disk_usage_bytes",
     help_text="Qdrant storage disk usage in bytes",
     labels=["collection"],
+)
+
+qdrant_query_duration_seconds = Histogram(
+    name="pythinker_qdrant_query_duration_seconds",
+    help_text="Qdrant query duration in seconds",
+    labels=["operation", "collection"],
+    buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0],
 )
 
 # Register additional metrics defined after the base registry
@@ -786,9 +799,11 @@ _metrics_registry.extend(
         qdrant_collection_growth_rate,
         memory_budget_tokens_used,
         memory_budget_tokens_total,
+        memory_budget_pressure,
         cache_eviction_rate,
         session_duration_seconds,
         qdrant_disk_usage_bytes,
+        qdrant_query_duration_seconds,
     ]
 )
 

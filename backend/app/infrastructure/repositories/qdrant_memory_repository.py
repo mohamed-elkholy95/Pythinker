@@ -47,8 +47,12 @@ class QdrantMemoryRepository(VectorMemoryRepository):
 
     def __init__(self):
         self._settings = get_settings()
-        # Use user_knowledge collection as primary (Phase 1 migration)
-        self._collection = self._settings.qdrant_user_knowledge_collection
+        # Use user_knowledge collection as primary (Phase 1 migration),
+        # but fall back to legacy qdrant_collection for compatibility in tests/older config stubs.
+        primary_collection = getattr(self._settings, "qdrant_user_knowledge_collection", None)
+        if not isinstance(primary_collection, str) or not primary_collection:
+            primary_collection = getattr(self._settings, "qdrant_collection", "agent_memories")
+        self._collection = primary_collection
 
     async def upsert_memory(
         self,
@@ -131,8 +135,8 @@ class QdrantMemoryRepository(VectorMemoryRepository):
             # Named-vector format
             vectors = {"dense": mem["embedding"]}
 
-            if "sparse_vector" in mem and mem["sparse_vector"]:
-                sparse = mem["sparse_vector"]
+            sparse = mem.get("sparse_vector")
+            if sparse:
                 vectors["sparse"] = models.SparseVector(
                     indices=list(sparse.keys()),
                     values=list(sparse.values()),
@@ -146,11 +150,13 @@ class QdrantMemoryRepository(VectorMemoryRepository):
                 "tags": mem.get("tags", []),
             }
 
-            if "session_id" in mem and mem["session_id"]:
-                payload["session_id"] = mem["session_id"]
+            session_id = mem.get("session_id")
+            if session_id:
+                payload["session_id"] = session_id
 
-            if "created_at" in mem and mem["created_at"]:
-                payload["created_at"] = int(mem["created_at"].timestamp())
+            created_at = mem.get("created_at")
+            if created_at:
+                payload["created_at"] = int(created_at.timestamp())
 
             points.append(
                 models.PointStruct(
@@ -224,14 +230,27 @@ class QdrantMemoryRepository(VectorMemoryRepository):
             )
 
         # Phase 1: Use named 'dense' vector
-        results = await get_qdrant().client.query_points(
-            collection_name=self._collection,
-            query=query_vector,
-            using="dense",  # Named vector
-            query_filter=models.Filter(must=must_conditions),
-            limit=limit,
-            score_threshold=min_score,
+        import time
+
+        from app.infrastructure.observability.prometheus_metrics import (
+            qdrant_query_duration_seconds,
         )
+
+        start_time = time.time()
+        try:
+            results = await get_qdrant().client.query_points(
+                collection_name=self._collection,
+                query=query_vector,
+                using="dense",  # Named vector
+                query_filter=models.Filter(must=must_conditions),
+                limit=limit,
+                score_threshold=min_score,
+            )
+        finally:
+            duration = time.time() - start_time
+            qdrant_query_duration_seconds.observe(
+                {"operation": "search_similar", "collection": self._collection}, duration
+            )
 
         return [
             VectorSearchResult(
@@ -310,27 +329,44 @@ class QdrantMemoryRepository(VectorMemoryRepository):
         )
 
         # Hybrid query with RRF fusion
-        results = await get_qdrant().client.query_points(
-            collection_name=self._collection,
-            prefetch=[
-                # Sparse prefetch (BM25 keyword search)
-                models.Prefetch(
-                    query=sparse_vec,
-                    using="sparse",
-                    limit=limit * 2,  # Fetch 2x for fusion
-                ),
-                # Dense prefetch (semantic search)
-                models.Prefetch(
-                    query=dense_vector,
-                    using="dense",
-                    limit=limit * 2,
-                ),
-            ],
-            query=models.FusionQuery(fusion=models.Fusion.RRF),  # Reciprocal Rank Fusion
-            query_filter=models.Filter(must=must_conditions),
-            limit=limit,
-            score_threshold=min_score,
+        import time
+
+        from app.infrastructure.observability.prometheus_metrics import (
+            qdrant_query_duration_seconds,
         )
+
+        hybrid_filter = models.Filter(must=must_conditions)
+
+        start_time = time.time()
+        try:
+            results = await get_qdrant().client.query_points(
+                collection_name=self._collection,
+                prefetch=[
+                    # Sparse prefetch (BM25 keyword search)
+                    models.Prefetch(
+                        query=sparse_vec,
+                        using="sparse",
+                        limit=limit * 2,  # Fetch 2x for fusion
+                        filter=hybrid_filter,
+                    ),
+                    # Dense prefetch (semantic search)
+                    models.Prefetch(
+                        query=dense_vector,
+                        using="dense",
+                        limit=limit * 2,
+                        filter=hybrid_filter,
+                    ),
+                ],
+                query=models.FusionQuery(fusion=models.Fusion.RRF),  # Reciprocal Rank Fusion
+                query_filter=hybrid_filter,
+                limit=limit,
+                score_threshold=min_score,
+            )
+        finally:
+            duration = time.time() - start_time
+            qdrant_query_duration_seconds.observe(
+                {"operation": "search_hybrid", "collection": self._collection}, duration
+            )
 
         logger.debug(f"Hybrid search for '{query_text[:50]}...' returned {len(results.points)} results")
 

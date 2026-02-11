@@ -84,7 +84,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "rate(pythinker_semantic_cache_hit_total[5m]) / rate(pythinker_semantic_cache_query_total[5m])",
+          "expr": "pythinker_semantic_cache_hit_rate",
           "refId": "A"
         }
       ],

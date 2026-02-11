@@ -20,6 +20,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from enum import Enum
+from threading import Lock
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,9 @@ class SemanticCacheCircuitBreaker:
         self._half_open_started_at: float | None = None
         self._consecutive_failures = 0
         self._consecutive_successes = 0
+        self._lock = Lock()  # Thread safety
+        self._last_failure_check = 0.0  # Rate limit state checks
+        self._last_recovery_check = 0.0
 
         logger.info(
             f"Circuit breaker initialized: "
@@ -105,46 +109,57 @@ class SemanticCacheCircuitBreaker:
         Args:
             hit: True if cache hit, False if cache miss
         """
-        now = time.time()
+        with self._lock:  # Thread safety for concurrent requests
+            now = time.time()
 
-        # Add or update current sample (aggregate by second)
-        if self._samples and (now - self._samples[-1].timestamp) < 1.0:
-            # Update current sample
-            sample = self._samples[-1]
-            if hit:
-                self._samples[-1] = HitRateSample(
-                    timestamp=sample.timestamp,
-                    hits=sample.hits + 1,
-                    misses=sample.misses,
-                )
+            # Add or update current sample (aggregate by second)
+            if self._samples and (now - self._samples[-1].timestamp) < 1.0:
+                # Update current sample
+                sample = self._samples[-1]
+                if hit:
+                    self._samples[-1] = HitRateSample(
+                        timestamp=sample.timestamp,
+                        hits=sample.hits + 1,
+                        misses=sample.misses,
+                    )
+                else:
+                    self._samples[-1] = HitRateSample(
+                        timestamp=sample.timestamp,
+                        hits=sample.hits,
+                        misses=sample.misses + 1,
+                    )
             else:
-                self._samples[-1] = HitRateSample(
-                    timestamp=sample.timestamp,
-                    hits=sample.hits,
-                    misses=sample.misses + 1,
+                # Create new sample
+                self._samples.append(
+                    HitRateSample(
+                        timestamp=now,
+                        hits=1 if hit else 0,
+                        misses=0 if hit else 1,
+                    )
                 )
-        else:
-            # Create new sample
-            self._samples.append(
-                HitRateSample(
-                    timestamp=now,
-                    hits=1 if hit else 0,
-                    misses=0 if hit else 1,
-                )
-            )
 
-        # Check state transitions
-        self._update_state()
+            # Check state transitions
+            self._update_state()
 
     def _update_state(self) -> None:
         """Update circuit breaker state based on recent hit rates."""
         now = time.time()
 
         if self._state == CircuitState.CLOSED:
+            # Rate limit failure checks to once per minute to avoid premature opening
+            if now - self._last_failure_check < 60:
+                return
+
+            self._last_failure_check = now
+
             # Check for failure condition
             hit_rate = self._get_hit_rate_in_window(self._config.failure_window_seconds)
             if hit_rate is not None and hit_rate < self._config.failure_threshold:
                 self._consecutive_failures += 1
+                logger.debug(
+                    f"Low hit rate detected: {hit_rate:.2%} "
+                    f"(failures: {self._consecutive_failures}/3)"
+                )
                 if self._consecutive_failures >= 3:  # 3 consecutive low samples
                     self._open_circuit()
             else:
@@ -163,16 +178,33 @@ class SemanticCacheCircuitBreaker:
 
             test_duration = now - self._half_open_started_at
 
+            # Only check recovery once the test period completes
             if test_duration >= self._config.half_open_test_seconds:
-                # Test period complete, evaluate recovery
-                hit_rate = self._get_hit_rate_in_window(self._config.recovery_window_seconds)
+                # Rate limit recovery checks
+                if now - self._last_recovery_check < 30:
+                    return
 
-                if hit_rate is not None and hit_rate >= self._config.recovery_threshold:
+                self._last_recovery_check = now
+
+                # Evaluate recovery using HALF_OPEN test period (not full recovery window)
+                # to avoid insufficient samples issue
+                hit_rate = self._get_hit_rate_in_window(self._config.half_open_test_seconds)
+
+                # Keep collecting signal until we have enough requests.
+                if hit_rate is None:
+                    return
+
+                if hit_rate >= self._config.recovery_threshold:
                     self._consecutive_successes += 1
+                    logger.debug(
+                        f"Recovery hit rate: {hit_rate:.2%} "
+                        f"(successes: {self._consecutive_successes}/2)"
+                    )
                     if self._consecutive_successes >= 2:  # 2 consecutive good samples
                         self._close_circuit()
                 else:
                     # Still not recovered, go back to OPEN
+                    logger.debug(f"Recovery failed, hit rate: {hit_rate:.2%}")
                     self._open_circuit()
 
     def _get_hit_rate_in_window(self, window_seconds: int) -> float | None:
@@ -190,11 +222,12 @@ class SemanticCacheCircuitBreaker:
         # Filter samples within window
         recent_samples = [s for s in self._samples if s.timestamp >= cutoff]
 
-        if len(recent_samples) < self._config.min_samples:
-            return None
-
         total_hits = sum(s.hits for s in recent_samples)
         total_requests = sum(s.total for s in recent_samples)
+
+        # min_samples is defined in terms of requests, not per-second buckets.
+        if total_requests < self._config.min_samples:
+            return None
 
         if total_requests == 0:
             return None
@@ -204,6 +237,8 @@ class SemanticCacheCircuitBreaker:
     def _open_circuit(self) -> None:
         """Open the circuit (bypass cache)."""
         if self._state != CircuitState.OPEN:
+            from_state = self._state.value
+
             logger.warning(
                 f"Circuit breaker OPEN: Cache hit rate below {self._config.failure_threshold:.0%}. "
                 "Bypassing semantic cache."
@@ -213,18 +248,28 @@ class SemanticCacheCircuitBreaker:
             self._consecutive_failures = 0
             self._half_open_started_at = None
 
+            # Record state transition metric
+            self._record_state_transition(from_state, "OPEN")
+
     def _half_open_circuit(self) -> None:
         """Transition to half-open state (testing recovery)."""
         if self._state != CircuitState.HALF_OPEN:
+            from_state = self._state.value
+
             logger.info("Circuit breaker HALF_OPEN: Testing cache recovery")
             self._state = CircuitState.HALF_OPEN
             self._state_changed_at = time.time()
             self._half_open_started_at = time.time()
             self._consecutive_successes = 0
 
+            # Record state transition metric
+            self._record_state_transition(from_state, "HALF_OPEN")
+
     def _close_circuit(self) -> None:
         """Close the circuit (normal operation)."""
         if self._state != CircuitState.CLOSED:
+            from_state = self._state.value
+
             logger.info(
                 f"Circuit breaker CLOSED: Cache hit rate recovered above {self._config.recovery_threshold:.0%}"
             )
@@ -232,6 +277,29 @@ class SemanticCacheCircuitBreaker:
             self._state_changed_at = time.time()
             self._consecutive_successes = 0
             self._half_open_started_at = None
+
+            # Record state transition metric
+            self._record_state_transition(from_state, "CLOSED")
+
+    def _record_state_transition(self, from_state: str, to_state: str) -> None:
+        """Record circuit breaker state transition to Prometheus.
+
+        Args:
+            from_state: Previous state
+            to_state: New state
+        """
+        try:
+            from app.infrastructure.observability.prometheus_metrics import (
+                semantic_cache_circuit_transitions_total,
+            )
+
+            semantic_cache_circuit_transitions_total.inc({
+                "from_state": from_state,
+                "to_state": to_state,
+            })
+        except Exception as e:
+            # Don't fail circuit breaker due to metrics errors
+            logger.debug(f"Failed to record state transition metric: {e}")
 
     def is_cache_allowed(self) -> bool:
         """Check if cache operations are allowed.
@@ -266,7 +334,7 @@ class SemanticCacheCircuitBreaker:
             "failure_threshold": self._config.failure_threshold,
             "recovery_threshold": self._config.recovery_threshold,
             "time_in_state_seconds": time.time() - self._state_changed_at,
-            "total_samples": len(self._samples),
+            "total_samples": sum(sample.total for sample in self._samples),
         }
 
 

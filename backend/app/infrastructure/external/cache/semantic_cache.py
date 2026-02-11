@@ -38,7 +38,6 @@ from typing import Any
 from qdrant_client import models
 
 from app.infrastructure.external.cache.circuit_breaker import (
-    CircuitState,
     get_circuit_breaker,
 )
 
@@ -401,11 +400,33 @@ class SemanticCache:
 
             self._stats.record_store()
             logger.debug(f"Stored in semantic cache: {cache_id}")
+
+            # Record Prometheus metrics for successful store
+            try:
+                from app.infrastructure.observability.prometheus_metrics import (
+                    semantic_cache_store_total,
+                )
+
+                semantic_cache_store_total.inc({"success": "true"})
+            except Exception:
+                pass
+
             return True
 
         except Exception as e:
             logger.warning(f"Semantic cache set error: {e}")
             self._stats.record_error()
+
+            # Record Prometheus metrics for failed store
+            try:
+                from app.infrastructure.observability.prometheus_metrics import (
+                    semantic_cache_store_total,
+                )
+
+                semantic_cache_store_total.inc({"success": "false"})
+            except Exception:
+                pass
+
             return False
 
     async def invalidate(self, context_hash: str) -> int:
@@ -505,9 +526,10 @@ class SemanticCache:
             circuit_breaker = get_circuit_breaker()
             semantic_cache_circuit_breaker_state.set({}, circuit_breaker.state_numeric)
 
-            # Update hit rate gauge
-            if self.stats.hits + self.stats.misses > 0:
-                semantic_cache_hit_rate.set({}, self.stats.hit_rate)
+            # Update hit rate gauge using circuit breaker as single source of truth
+            cb_metrics = circuit_breaker.get_metrics()
+            if cb_metrics["current_hit_rate"] is not None:
+                semantic_cache_hit_rate.set({}, cb_metrics["current_hit_rate"])
 
         except Exception as e:
             # Don't fail cache operations due to metrics errors

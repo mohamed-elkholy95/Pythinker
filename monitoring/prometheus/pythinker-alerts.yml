@@ -5,11 +5,7 @@ groups:
       # Cache performance alerts
       - alert: SemanticCacheHitRateLow
         expr: |
-          (
-            rate(pythinker_semantic_cache_hit_total[15m])
-            /
-            rate(pythinker_semantic_cache_query_total[15m])
-          ) < 0.5
+          pythinker_semantic_cache_hit_rate < 0.5
         for: 15m
         labels:
           severity: warning
