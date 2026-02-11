@@ -36,8 +36,8 @@ class TestFollowUpContextDetection:
         # Should bypass fast path due to regex fallback
         assert should_bypass_fast_path_for_suggestion(message, has_recent_assistant_reply) is True
 
-    def test_no_bypass_when_no_assistant_reply(self):
-        """Should not bypass if no recent assistant reply (not a follow-up context)."""
+    def test_metadata_bypasses_even_without_assistant_reply(self):
+        """Metadata-based detection should bypass fast path even without recent assistant reply."""
         message = Message(
             message="Can you explain this in more detail?",
             follow_up_source="suggestion_click",
@@ -45,7 +45,19 @@ class TestFollowUpContextDetection:
 
         has_recent_assistant_reply = False
 
-        # Should NOT bypass - no assistant reply means no follow-up context
+        # Should bypass - explicit metadata takes precedence over has_recent_assistant_reply
+        assert should_bypass_fast_path_for_suggestion(message, has_recent_assistant_reply) is True
+
+    def test_regex_requires_assistant_reply(self):
+        """Regex-based fallback detection should require recent assistant reply."""
+        message = Message(
+            message="Can you explain this in more detail?",  # Matches regex pattern
+            # No follow_up_source metadata
+        )
+
+        has_recent_assistant_reply = False
+
+        # Should NOT bypass - regex fallback requires assistant reply
         assert should_bypass_fast_path_for_suggestion(message, has_recent_assistant_reply) is False
 
     def test_no_bypass_for_regular_messages(self):
