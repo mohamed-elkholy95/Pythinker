@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.domain.models.event import ToolEvent, ToolStatus
 from app.domain.models.screenshot import ScreenshotTrigger
 from app.domain.models.session import AgentMode
 from app.domain.services.agent_task_runner import AgentTaskRunner
@@ -112,3 +113,40 @@ async def test_destroy_captures_session_end_even_if_stop_periodic_fails(
     screenshot_service.capture.assert_awaited_once_with(ScreenshotTrigger.SESSION_END)
     warning_messages = [record.message for record in caplog.records]
     assert "Failed to stop periodic screenshot capture for session test-session: stop failed" in warning_messages
+
+
+@pytest.mark.asyncio
+async def test_handle_tool_event_updates_screenshot_tool_context(runner):
+    screenshot_service = MagicMock()
+    screenshot_service.set_tool_context = MagicMock()
+    screenshot_service.clear_tool_context = MagicMock()
+    screenshot_service.capture = AsyncMock(return_value=MagicMock())
+    runner._screenshot_service = screenshot_service
+
+    calling_event = ToolEvent(
+        tool_call_id="tool-call-1",
+        tool_name="browser",
+        function_name="browser_navigate",
+        function_args={},
+        status=ToolStatus.CALLING,
+    )
+    called_event = ToolEvent(
+        tool_call_id="tool-call-1",
+        tool_name="browser",
+        function_name="browser_navigate",
+        function_args={},
+        status=ToolStatus.CALLED,
+    )
+
+    await runner._handle_tool_event(calling_event)
+    await runner._handle_tool_event(called_event)
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    screenshot_service.set_tool_context.assert_called_once_with(
+        tool_call_id="tool-call-1",
+        tool_name="browser",
+        function_name="browser_navigate",
+        action_type=calling_event.action_type,
+    )
+    screenshot_service.clear_tool_context.assert_called_once_with(tool_call_id="tool-call-1")

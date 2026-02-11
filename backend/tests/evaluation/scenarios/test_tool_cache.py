@@ -130,7 +130,7 @@ class TestToolCacheEvaluation:
         # Calculate metrics
         hit_rate = results["hits"] / results["total"]
 
-        # Expected: 5 tools × 5 lookups = 25 total
+        # Expected: 5 tools x 5 lookups = 25 total
         # First lookup per tool = miss (5 misses)
         # Remaining lookups = hits (20 hits)
         # Hit rate = 20/25 = 80%
