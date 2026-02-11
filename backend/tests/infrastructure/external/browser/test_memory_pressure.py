@@ -1,5 +1,7 @@
 """Unit tests for browser memory pressure monitoring (Priority 1)."""
 
+from unittest.mock import patch
+
 import pytest
 
 from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser

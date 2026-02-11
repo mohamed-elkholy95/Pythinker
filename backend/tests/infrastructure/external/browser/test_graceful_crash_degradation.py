@@ -83,7 +83,7 @@ async def test_config_disables_graceful_degradation():
         with (
             patch.object(get_settings(), "browser_graceful_degradation", False),
             patch.object(browser, "_extract_page_content", side_effect=Exception("Browser crashed")),
-            pytest.raises(Exception),
+            pytest.raises(Exception, match="Browser crashed"),
         ):
             await browser.navigate("https://example.com")
 

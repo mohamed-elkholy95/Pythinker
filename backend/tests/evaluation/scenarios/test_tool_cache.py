@@ -237,7 +237,7 @@ class TestToolCacheEvaluation:
 
     @pytest.mark.asyncio
     async def test_batch_cache_performance(self, tool_cache, mock_mcp_client):
-        """Comprehensive batch test: 250 tool lookups (10 per tool × 25 tools).
+        """Comprehensive batch test: 250 tool lookups (10 per tool x 25 tools).
 
         Expected metrics:
         - Baseline: 250 MCP calls (0% hit rate)
@@ -273,8 +273,9 @@ class TestToolCacheEvaluation:
 
         # Calculate metrics
         hit_rate = results["hits"] / results["total"]
+        avg_time_ms = results["total_time_ms"] / results["total"]
 
-        # Expected: 25 tools × 10 lookups = 250 total
+        # Expected: 25 tools x 10 lookups = 250 total
         # First lookup per tool = miss (25 misses)
         # Remaining lookups = hits (225 hits)
         # Hit rate = 225/250 = 90%
@@ -284,8 +285,8 @@ class TestToolCacheEvaluation:
         assert hit_rate >= 0.80, f"Hit rate too low: {hit_rate*100:.1f}%"
 
         # Performance improvement
-        # Without cache: 250 lookups × 40ms = 10,000ms
-        # With cache: 25 misses × 40ms + 225 hits × 0.5ms = 1,112.5ms
+        # Without cache: 250 lookups x 40ms = 10,000ms
+        # With cache: 25 misses x 40ms + 225 hits x 0.5ms = 1,112.5ms
         # Improvement: ~90%
         baseline_time_ms = results["total"] * 40  # All MCP calls
         time_savings_pct = ((baseline_time_ms - results["total_time_ms"]) / baseline_time_ms) * 100
@@ -319,7 +320,7 @@ class TestToolCacheEvaluation:
         cache_memory_bytes = stats['memory_bytes']
 
         # Expected: ~100-200 bytes per definition
-        # 50 tools × 150 bytes = 7,500 bytes (~7KB)
+        # 50 tools x 150 bytes = 7,500 bytes (~7KB)
         memory_kb = cache_memory_bytes / 1024
         memory_mb = memory_kb / 1024
 

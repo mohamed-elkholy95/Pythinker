@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import logging
 import time
+from dataclasses import dataclass
 from enum import Enum
 from functools import lru_cache
 from uuid import uuid4
@@ -110,6 +111,16 @@ class ScreenshotCircuitBreaker:
         return self._state
 
 
+@dataclass
+class ToolExecutionContext:
+    """Context describing the visual tool currently executing."""
+
+    tool_call_id: str | None = None
+    tool_name: str | None = None
+    function_name: str | None = None
+    action_type: str | None = None
+
+
 class ScreenshotCaptureService:
     """Captures screenshots during session execution for later replay."""
     MAX_PERIODIC_FAILURES = 3
@@ -148,6 +159,41 @@ class ScreenshotCaptureService:
             )
         else:
             self._circuit_breaker = None
+        self._tool_context: ToolExecutionContext | None = None
+
+    def set_tool_context(
+        self,
+        *,
+        tool_call_id: str | None = None,
+        tool_name: str | None = None,
+        function_name: str | None = None,
+        action_type: str | None = None,
+    ) -> None:
+        """Track active tool metadata for periodic captures."""
+        self._tool_context = ToolExecutionContext(
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            function_name=function_name,
+            action_type=action_type,
+        )
+
+    def clear_tool_context(self, tool_call_id: str | None = None) -> None:
+        """Clear tracked tool metadata.
+
+        If a tool_call_id is provided, only clears when it matches the active context.
+        This avoids clearing context from unrelated tool events.
+        """
+        if self._tool_context is None:
+            return
+
+        if (
+            tool_call_id
+            and self._tool_context.tool_call_id
+            and self._tool_context.tool_call_id != tool_call_id
+        ):
+            return
+
+        self._tool_context = None
 
     async def capture(
         self,
@@ -172,6 +218,13 @@ class ScreenshotCaptureService:
         start_time = time.perf_counter()
         status = "error"
         size_bytes = 0
+
+        # Enrich periodic screenshots with the latest visual tool context.
+        if trigger == ScreenshotTrigger.PERIODIC and self._tool_context:
+            tool_call_id = tool_call_id or self._tool_context.tool_call_id
+            tool_name = tool_name or self._tool_context.tool_name
+            function_name = function_name or self._tool_context.function_name
+            action_type = action_type or self._tool_context.action_type
 
         try:
             async with self._lock:

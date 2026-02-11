@@ -79,7 +79,7 @@ class TestFailureSnapshotE2E:
     async def test_snapshot_token_budget_enforced(self, snapshot_service):
         """E2E: Snapshot size stays within token budget."""
         # Create very large context
-        large_context = {f"field_{i}": f"Very long value " * 200 for i in range(100)}
+        large_context = {f"field_{i}": "Very long value " * 200 for i in range(100)}
 
         # Generate snapshot
         error = Exception("Test error")

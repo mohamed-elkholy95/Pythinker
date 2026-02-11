@@ -127,7 +127,6 @@ class TestDuplicateSuppressionEvaluation:
             should_suppress_bool, reason = duplicate_policy.should_suppress(
                 tool_name=call["tool"],
                 args=call["args"],
-                
             )
 
             if should_suppress_bool and reason == "duplicate_within_window":
@@ -140,7 +139,6 @@ class TestDuplicateSuppressionEvaluation:
                     success=True,
                     result_data={"success": True, "html": "<html>...</html>"},
                     quality_score=0.88,
-                    
                 )
 
         total = len(browser_calls)
@@ -186,7 +184,6 @@ class TestDuplicateSuppressionEvaluation:
             should_suppress_bool, reason = duplicate_policy.should_suppress(
                 tool_name=call["tool"],
                 args=call["args"],
-                
             )
 
             if should_suppress_bool and reason == "duplicate_within_window":
@@ -199,7 +196,6 @@ class TestDuplicateSuppressionEvaluation:
                     success=True,
                     result_data={"success": True, "content": "{...}"},
                     quality_score=0.95,
-                    
                 )
 
         total = len(file_reads)
@@ -232,9 +228,8 @@ class TestDuplicateSuppressionEvaluation:
             tool_name=tool,
             args=args,
             success=True,
-                    result_data={"success": True, "data": "limited results"},
+            result_data={"success": True, "data": "limited results"},
             quality_score=0.60,  # Below threshold (0.85)
-            
         )
 
         # Second call: should override due to low quality
@@ -271,13 +266,12 @@ class TestDuplicateSuppressionEvaluation:
             tool_name=tool,
             args=args,
             success=True,
-                    result_data={"success": True},
+            result_data={"success": True},
             quality_score=0.90,
-            
         )
 
         # Second call within window (should suppress)
-        should_suppress2, reason2 = duplicate_policy.should_suppress(tool, args)
+        should_suppress2, _ = duplicate_policy.should_suppress(tool, args)
         assert should_suppress2, "Should be duplicate within window"
 
         # Simulate window expiration (mock timestamp in future)
@@ -291,7 +285,7 @@ class TestDuplicateSuppressionEvaluation:
 
     @pytest.mark.asyncio
     async def test_batch_suppression_effectiveness(self, duplicate_policy):
-        """Comprehensive batch test: 75 total queries (25 sessions × 3 queries each).
+        """Comprehensive batch test: 75 total queries (25 sessions x 3 queries each).
 
         Expected metrics:
         - Baseline: 75/75 executed (0% suppression)
@@ -336,7 +330,6 @@ class TestDuplicateSuppressionEvaluation:
                 should_suppress, reason = duplicate_policy.should_suppress(
                     tool_name="search",
                     args={"query": query, "limit": 10},
-                    
                 )
 
                 if should_suppress:
@@ -352,9 +345,8 @@ class TestDuplicateSuppressionEvaluation:
                         tool_name="search",
                         args={"query": query, "limit": 10},
                         success=True,
-                    result_data={"success": True, "results": ["item1", "item2"]},
+                        result_data={"success": True, "results": ["item1", "item2"]},
                         quality_score=0.90,
-                        
                     )
 
         # Calculate metrics

@@ -190,6 +190,8 @@
             :toolContent="lastNoMessageTool"
             :isInitializing="isInitializing || isSandboxInitializing"
             :isSummaryStreaming="isSummaryStreaming"
+            :isSessionComplete="isSessionComplete"
+            :replayScreenshotUrl="replay.currentScreenshotUrl.value"
             @openPanel="handleOpenPanel"
             @requestRefresh="handleThumbnailRefresh"
             class="mb-2"
@@ -432,10 +434,14 @@ const replay = useScreenshotReplay(computed(() => sessionId.value))
 
 const hasScreenshotReplay = computed(() => replay.hasScreenshots.value)
 
+const isSessionComplete = computed(() => {
+  return !!sessionStatus.value &&
+    [SessionStatus.COMPLETED, SessionStatus.FAILED].includes(sessionStatus.value)
+})
+
 // Replay mode: session is completed/failed and has replay data
 const isReplayMode = computed(() => {
-  const ended = !isLoading.value && sessionStatus.value &&
-    [SessionStatus.COMPLETED, SessionStatus.FAILED].includes(sessionStatus.value)
+  const ended = !isLoading.value && isSessionComplete.value
   return !!ended && hasScreenshotReplay.value
 })
 

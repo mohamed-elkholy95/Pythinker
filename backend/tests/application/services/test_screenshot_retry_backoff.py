@@ -94,7 +94,7 @@ async def test_retry_respects_max_attempts():
 
     with (
         patch.object(service._settings, "screenshot_http_retry_attempts", 3),
-        pytest.raises(Exception),
+        pytest.raises(Exception, match="Permanent error"),
     ):
         await service._get_screenshot_with_retry(quality=80, scale=1.0)
 

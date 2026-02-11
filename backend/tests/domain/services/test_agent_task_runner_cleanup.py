@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.domain.models.screenshot import ScreenshotTrigger
 from app.domain.models.session import AgentMode
 from app.domain.services.agent_task_runner import AgentTaskRunner
 
@@ -63,3 +64,51 @@ async def test_fire_and_forget_consumes_task_exception(runner, caplog: pytest.Lo
     assert runner._background_tasks == set()
     warning_messages = [record.message for record in caplog.records if "Background task failed" in record.message]
     assert warning_messages == ["Background task failed for Agent test-agent: background boom"]
+
+
+@pytest.mark.asyncio
+async def test_destroy_attempts_session_end_screenshot(runner):
+    screenshot_service = MagicMock()
+    screenshot_service.stop_periodic = AsyncMock()
+    screenshot_service.capture = AsyncMock(return_value=MagicMock())
+    runner._screenshot_service = screenshot_service
+
+    await runner.destroy()
+
+    screenshot_service.stop_periodic.assert_awaited_once()
+    screenshot_service.capture.assert_awaited_once_with(ScreenshotTrigger.SESSION_END)
+
+
+@pytest.mark.asyncio
+async def test_destroy_logs_warning_when_session_end_capture_returns_none(
+    runner,
+    caplog: pytest.LogCaptureFixture,
+):
+    screenshot_service = MagicMock()
+    screenshot_service.stop_periodic = AsyncMock()
+    screenshot_service.capture = AsyncMock(return_value=None)
+    runner._screenshot_service = screenshot_service
+
+    with caplog.at_level(logging.WARNING):
+        await runner.destroy()
+
+    warning_messages = [record.message for record in caplog.records]
+    assert "SESSION_END screenshot capture returned no image for session test-session" in warning_messages
+
+
+@pytest.mark.asyncio
+async def test_destroy_captures_session_end_even_if_stop_periodic_fails(
+    runner,
+    caplog: pytest.LogCaptureFixture,
+):
+    screenshot_service = MagicMock()
+    screenshot_service.stop_periodic = AsyncMock(side_effect=RuntimeError("stop failed"))
+    screenshot_service.capture = AsyncMock(return_value=MagicMock())
+    runner._screenshot_service = screenshot_service
+
+    with caplog.at_level(logging.WARNING):
+        await runner.destroy()
+
+    screenshot_service.capture.assert_awaited_once_with(ScreenshotTrigger.SESSION_END)
+    warning_messages = [record.message for record in caplog.records]
+    assert "Failed to stop periodic screenshot capture for session test-session: stop failed" in warning_messages
