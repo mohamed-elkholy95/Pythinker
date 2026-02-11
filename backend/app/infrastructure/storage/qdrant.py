@@ -124,18 +124,22 @@ class QdrantStorage:
                         indexing_threshold=20000,  # Start HNSW indexing at 20k points
                         memmap_threshold=50000,  # Use disk for collections >50k
                         max_segment_size=200000,  # Balance query speed vs memory
+                        deleted_threshold=0.2,  # Rebuild segment when 20% deleted
+                        flush_interval_sec=300,  # Flush WAL every 5 minutes
                     ),
+                    on_disk_payload=True,  # Phase 6: Store payloads on disk for memory efficiency
                     # NOTE: No collection-level hnsw_config - it's specified per-vector in dense_params
                     # to avoid applying HNSW to sparse vectors (which use inverted indexes)
                 )
                 logger.info("Created Qdrant collection '%s' with named vectors: dense + sparse", name)
             else:
-                logger.debug(f"Qdrant collection '{name}' already exists")
+                logger.info(f"Qdrant collection '{name}' already exists")
 
         # Create payload indexes for filtered search
+        # Note: create_payload_index is idempotent - safe to call even if index exists
         for collection_name, fields in COLLECTION_INDEXES.items():
-            if collection_name not in existing_names:
-                # Skip indexing for collections that don't exist yet (will be created on next startup)
+            # Skip collections that aren't in our COLLECTIONS list
+            if collection_name not in COLLECTIONS:
                 continue
 
             for field in fields:

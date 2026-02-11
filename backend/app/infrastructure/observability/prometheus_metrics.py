@@ -309,18 +309,23 @@ llm_queue_waiting = Gauge(
     labels=[],
 )
 
-# Phase 6: Token Budget Metrics
-token_budget_used = Gauge(
-    name="pythinker_token_budget_used",
-    help_text="Tokens used in current session",
-    labels=["session_id"],
+# Phase 6: Token Budget Metrics (Aggregated - removed session_id to prevent high cardinality)
+token_budget_used = Counter(
+    name="pythinker_token_budget_used_total",
+    help_text="Total tokens used across all sessions",
+    labels=[],  # Removed session_id - use logs for per-session tracking
 )
 
-token_budget_remaining = Gauge(
-    name="pythinker_token_budget_remaining",
-    help_text="Tokens remaining in current session budget",
-    labels=["session_id"],
+token_budget_warnings = Counter(
+    name="pythinker_token_budget_warnings_total",
+    help_text="Token budget warning events (80% threshold)",
+    labels=[],
 )
+
+# Internal state for converting per-session absolute token usage updates into
+# aggregated counters without high-cardinality metric labels.
+_token_budget_last_used_by_session: dict[str, int] = {}
+_token_budget_warned_sessions: set[str] = set()
 
 # Phase 6: Cache Metrics
 cache_hits = Counter(
@@ -371,7 +376,7 @@ _metrics_registry = [
     llm_queue_waiting,
     # Phase 6: Token Budget
     token_budget_used,
-    token_budget_remaining,
+    token_budget_warnings,
     # Phase 6: Cache
     cache_hits,
     cache_misses,
@@ -382,7 +387,7 @@ _metrics_registry = [
 workflow_phase_duration = Histogram(
     name="pythinker_workflow_phase_duration_seconds",
     help_text="Duration of workflow phases",
-    labels=["phase", "session_id"],
+    labels=["phase"],  # Removed session_id to prevent high cardinality
     buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0],
 )
 
@@ -568,17 +573,17 @@ delivery_integrity_stream_truncation_total = Counter(
     labels=["provider", "finish_reason", "outcome"],
 )
 
-# Phase 4: Grounding Safety Metrics
-grounded_claim_ratio = Gauge(
-    name="pythinker_grounded_claim_ratio",
-    help_text="Ratio of claims supported by high-confidence evidence",
-    labels=["session_id"],
+# Phase 4: Grounding Safety Metrics (Aggregated - removed session_id to prevent high cardinality)
+grounded_claims_total = Counter(
+    name="pythinker_grounded_claims_total",
+    help_text="Total claims supported by high-confidence evidence",
+    labels=["confidence_level"],  # low, medium, high
 )
 
-hallucination_rate = Gauge(
-    name="pythinker_hallucination_rate",
-    help_text="Rate of detected hallucinations per response",
-    labels=["session_id"],
+hallucination_detected_total = Counter(
+    name="pythinker_hallucination_detected_total",
+    help_text="Total detected hallucinations",
+    labels=["detection_method"],  # evidence_contradiction, confidence_threshold, etc.
 )
 
 evidence_caveat_total = Counter(
@@ -624,16 +629,103 @@ session_summary_written_total = Counter(
     labels=["outcome"],  # "success", "failure"
 )
 
-memory_budget_pressure = Gauge(
-    name="pythinker_memory_budget_pressure",
-    help_text="Context pressure signal (0.0-1.0, where 1.0 = at limit)",
-    labels=["session_id"],
+memory_budget_pressure_high = Counter(
+    name="pythinker_memory_budget_pressure_high_total",
+    help_text="Events where context pressure exceeded 0.8",
+    labels=[],  # Removed session_id - use logs for per-session tracking
 )
 
-memory_budget_tokens = Gauge(
-    name="pythinker_memory_budget_tokens",
-    help_text="Dynamic memory token budget based on pressure",
-    labels=["session_id"],
+memory_budget_exhausted = Counter(
+    name="pythinker_memory_budget_exhausted_total",
+    help_text="Events where memory budget was exhausted",
+    labels=[],
+)
+
+# Phase 6: Semantic Cache & Circuit Breaker Metrics
+semantic_cache_query_total = Counter(
+    name="pythinker_semantic_cache_query_total",
+    help_text="Total semantic cache queries",
+    labels=["result"],  # "hit", "miss", "error", "bypassed"
+)
+
+semantic_cache_hit_total = Counter(
+    name="pythinker_semantic_cache_hit_total",
+    help_text="Total semantic cache hits",
+    labels=[],
+)
+
+semantic_cache_miss_total = Counter(
+    name="pythinker_semantic_cache_miss_total",
+    help_text="Total semantic cache misses",
+    labels=[],
+)
+
+semantic_cache_store_total = Counter(
+    name="pythinker_semantic_cache_store_total",
+    help_text="Total responses stored in semantic cache",
+    labels=["success"],  # "true", "false"
+)
+
+semantic_cache_circuit_breaker_state = Gauge(
+    name="pythinker_semantic_cache_circuit_breaker_state",
+    help_text="Circuit breaker state (0=CLOSED/healthy, 1=OPEN/bypassed, 2=HALF_OPEN/testing)",
+    labels=[],
+)
+
+semantic_cache_hit_rate = Gauge(
+    name="pythinker_semantic_cache_hit_rate",
+    help_text="Current semantic cache hit rate (0-1)",
+    labels=[],
+)
+
+semantic_cache_circuit_transitions_total = Counter(
+    name="pythinker_semantic_cache_circuit_transitions_total",
+    help_text="Circuit breaker state transitions",
+    labels=["from_state", "to_state"],  # "CLOSED", "OPEN", "HALF_OPEN"
+)
+
+# Capacity Planning Metrics
+qdrant_collection_size = Gauge(
+    name="pythinker_qdrant_collection_size",
+    help_text="Number of vectors in Qdrant collection",
+    labels=["collection"],
+)
+
+qdrant_collection_growth_rate = Gauge(
+    name="pythinker_qdrant_collection_growth_rate",
+    help_text="Vector growth rate (vectors per hour)",
+    labels=["collection"],
+)
+
+memory_budget_tokens_used = Gauge(
+    name="pythinker_memory_budget_tokens_used",
+    help_text="Current memory budget token usage",
+    labels=["user_id"],
+)
+
+memory_budget_tokens_total = Gauge(
+    name="pythinker_memory_budget_tokens_total",
+    help_text="Total memory budget tokens available",
+    labels=["user_id"],
+)
+
+cache_eviction_rate = Gauge(
+    name="pythinker_cache_eviction_rate",
+    help_text="Cache eviction rate (evictions per minute)",
+    labels=["cache_type"],  # "semantic", "redis", "prompt"
+)
+
+session_duration_seconds = Histogram(
+    name="pythinker_session_duration_seconds",
+    help_text="Session duration distribution",
+    labels=["outcome"],  # "success", "failure", "timeout"
+    buckets=[60, 300, 900, 1800, 3600, 7200, 14400],  # 1m, 5m, 15m, 30m, 1h, 2h, 4h
+)
+
+qdrant_disk_usage_bytes = Gauge(
+    name="pythinker_qdrant_disk_usage_bytes",
+    help_text="Qdrant storage disk usage in bytes",
+    labels=["collection"],
 )
 
 # Register additional metrics defined after the base registry
@@ -669,8 +761,8 @@ _metrics_registry.extend(
         delivery_integrity_gate_block_reason_total,
         delivery_integrity_stream_truncation_total,
         # Phase 4: Grounding Safety Metrics
-        grounded_claim_ratio,
-        hallucination_rate,
+        grounded_claims_total,
+        hallucination_detected_total,
         evidence_caveat_total,
         evidence_rejection_total,
         evidence_contradiction_total,
@@ -679,8 +771,24 @@ _metrics_registry.extend(
         repeat_tool_invocation,
         checkpoint_written_total,
         session_summary_written_total,
-        memory_budget_pressure,
-        memory_budget_tokens,
+        memory_budget_pressure_high,
+        memory_budget_exhausted,
+        # Phase 6: Semantic Cache & Circuit Breaker Metrics
+        semantic_cache_query_total,
+        semantic_cache_hit_total,
+        semantic_cache_miss_total,
+        semantic_cache_store_total,
+        semantic_cache_circuit_breaker_state,
+        semantic_cache_hit_rate,
+        semantic_cache_circuit_transitions_total,
+        # Capacity Planning Metrics
+        qdrant_collection_size,
+        qdrant_collection_growth_rate,
+        memory_budget_tokens_used,
+        memory_budget_tokens_total,
+        cache_eviction_rate,
+        session_duration_seconds,
+        qdrant_disk_usage_bytes,
     ]
 )
 
@@ -925,17 +1033,56 @@ def update_llm_queue_waiting(count: int) -> None:
     llm_queue_waiting.set({}, count)
 
 
-# Phase 6: Token Budget Metric Functions
-def update_token_budget(session_id: str, used: int, remaining: int) -> None:
-    """Update token budget metrics for a session.
+# Phase 6: Token Budget Metric Functions (Updated for aggregated metrics)
+def record_token_budget_usage(tokens: int, warning: bool = False) -> None:
+    """Record token budget usage.
 
     Args:
-        session_id: Session identifier
-        used: Tokens used so far
-        remaining: Tokens remaining in budget
+        tokens: Number of tokens used
+        warning: Whether this represents a budget warning event (>80%)
     """
-    token_budget_used.set({"session_id": session_id}, used)
-    token_budget_remaining.set({"session_id": session_id}, remaining)
+    token_budget_used.inc({}, tokens)
+    if warning:
+        token_budget_warnings.inc({})
+
+
+def update_token_budget(session_id: str, used: int, remaining: int) -> None:
+    """Update aggregated token budget metrics from per-session absolute values.
+
+    This preserves the legacy adapter API while emitting only low-cardinality
+    counters. `used` is treated as an absolute per-session value; this function
+    records only the positive delta since the last update for that session.
+
+    Args:
+        session_id: Session identifier used only for in-process delta tracking
+        used: Absolute number of tokens used in the session
+        remaining: Remaining token budget in the session
+    """
+    normalized_session_id = (session_id or "").strip() or "unknown"
+    safe_used = max(0, int(used))
+    safe_remaining = max(0, int(remaining))
+
+    previous_used = _token_budget_last_used_by_session.get(normalized_session_id, 0)
+    delta_used = safe_used - previous_used
+
+    # Handle resets/restarts where usage may decrease between updates.
+    if delta_used < 0:
+        delta_used = safe_used
+
+    if delta_used > 0:
+        token_budget_used.inc({}, delta_used)
+
+    total_budget = safe_used + safe_remaining
+    if total_budget > 0:
+        utilization = safe_used / total_budget
+        if utilization >= 0.8:
+            if normalized_session_id not in _token_budget_warned_sessions:
+                token_budget_warnings.inc({})
+                _token_budget_warned_sessions.add(normalized_session_id)
+        else:
+            _token_budget_warned_sessions.discard(normalized_session_id)
+
+    _token_budget_last_used_by_session[normalized_session_id] = safe_used
 
 
 # Phase 6: Cache Metric Functions
@@ -1085,3 +1232,5 @@ def reset_all_metrics() -> None:
                 metric._values.clear()
             if hasattr(metric, "_observations"):
                 metric._observations.clear()
+    _token_budget_last_used_by_session.clear()
+    _token_budget_warned_sessions.clear()
