@@ -1,7 +1,8 @@
 """Unit tests for graceful crash degradation (Priority 1)."""
 
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
 
@@ -55,7 +56,7 @@ async def test_graceful_degradation_preserves_basic_data():
 
         async def mock_extract():
             # Call original to get basic data
-            data = await original_extract()
+            await original_extract()
             # Then crash
             raise Exception("Simulated crash")
 
@@ -79,10 +80,12 @@ async def test_config_disables_graceful_degradation():
 
     try:
         # Mock config to disable graceful degradation
-        with patch.object(get_settings(), "browser_graceful_degradation", False):
-            with patch.object(browser, "_extract_page_content", side_effect=Exception("Browser crashed")):
-                with pytest.raises(Exception):
-                    await browser.navigate("https://example.com")
+        with (
+            patch.object(get_settings(), "browser_graceful_degradation", False),
+            patch.object(browser, "_extract_page_content", side_effect=Exception("Browser crashed")),
+            pytest.raises(Exception),
+        ):
+            await browser.navigate("https://example.com")
 
     finally:
         await browser.close()
