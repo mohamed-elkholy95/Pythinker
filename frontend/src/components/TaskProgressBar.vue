@@ -21,6 +21,7 @@
               :search-results="searchResults"
               :search-query="searchQuery"
               :is-summary-streaming="props.isSummaryStreaming"
+              :summary-stream-text="props.summaryStreamText"
               :is-session-complete="props.isSessionComplete"
               :replay-screenshot-url="props.replayScreenshotUrl"
               size="lg"
@@ -87,41 +88,46 @@
                 'task-pending': step.status === 'pending'
               }"
             >
-              <!-- Connector line -->
-              <div v-if="index < steps.length - 1" class="task-connector" :class="{ 'connector-active': step.status === 'completed' }"></div>
-
-              <div class="task-indicator">
-                <!-- 3D Flip Container for completion animation -->
-                <div
-                  class="indicator-flip-container"
-                  :class="{
-                    'is-flipped': step.status === 'completed',
-                    'just-completed': recentlyCompletedIds.has(step.id)
-                  }"
-                >
-                  <!-- Front face: running/pending state -->
-                  <div class="indicator-face indicator-front">
-                    <div
-                      v-if="step.status === 'running'"
-                      class="indicator-running"
-                    >
-                      <span class="indicator-running-dot" aria-hidden="true"></span>
+              <div class="task-left-rail">
+                <div class="task-indicator">
+                  <!-- 3D Flip Container for completion animation -->
+                  <div
+                    class="indicator-flip-container"
+                    :class="{
+                      'is-flipped': step.status === 'completed',
+                      'just-completed': recentlyCompletedIds.has(step.id)
+                    }"
+                  >
+                    <!-- Front face: running/pending state -->
+                    <div class="indicator-face indicator-front">
+                      <div
+                        v-if="step.status === 'running'"
+                        class="indicator-running"
+                      >
+                        <span class="indicator-running-dot" aria-hidden="true"></span>
+                      </div>
+                      <div v-else class="indicator-pending">
+                        <span class="text-[10px] font-medium">{{ index + 1 }}</span>
+                      </div>
                     </div>
-                    <div v-else class="indicator-pending">
-                      <span class="text-[10px] font-medium">{{ index + 1 }}</span>
+                    <!-- Back face: completed checkmark -->
+                    <div class="indicator-face indicator-back">
+                      <div class="indicator-complete">
+                        <Check class="w-3 h-3 text-white" :stroke-width="3" />
+                      </div>
                     </div>
                   </div>
-                  <!-- Back face: completed checkmark -->
-                  <div class="indicator-face indicator-back">
-                    <div class="indicator-complete">
-                      <Check class="w-3 h-3 text-white" :stroke-width="3" />
-                    </div>
-                  </div>
+                  <!-- Celebration ring effect -->
+                  <div
+                    v-if="recentlyCompletedIds.has(step.id)"
+                    class="celebration-ring"
+                  ></div>
                 </div>
-                <!-- Celebration ring effect -->
+
                 <div
-                  v-if="recentlyCompletedIds.has(step.id)"
-                  class="celebration-ring"
+                  v-if="index < steps.length - 1"
+                  class="task-timeline-line"
+                  :class="{ 'connector-active': step.status === 'completed' }"
                 ></div>
               </div>
 
@@ -170,6 +176,7 @@
           :search-results="searchResults"
           :search-query="searchQuery"
           :is-summary-streaming="props.isSummaryStreaming"
+          :summary-stream-text="props.summaryStreamText"
           :is-session-complete="props.isSessionComplete"
           :replay-screenshot-url="props.replayScreenshotUrl"
           size="md"
@@ -183,9 +190,22 @@
         :class="showCollapsedThumbnail && sessionId ? 'has-thumbnail' : ''"
         @click="toggleExpand"
       >
-        <!-- Status indicator -->
-        <div v-if="isAllCompleted" class="status-complete flex-shrink-0">
-          <Check class="w-4 h-4 text-[var(--function-success)]" :stroke-width="2" />
+        <!-- Collapsed step timeline rail -->
+        <div v-if="steps.length > 0" class="collapsed-step-rail flex-shrink-0">
+          <div
+            v-for="(step, index) in steps"
+            :key="`collapsed-${step.id}`"
+            class="collapsed-step-item"
+          >
+            <div class="collapsed-step-node" :class="`is-${step.status}`">
+              <Check v-if="step.status === 'completed'" class="collapsed-step-check" :stroke-width="3" />
+              <span v-else-if="step.status === 'running'" class="collapsed-step-dot" aria-hidden="true"></span>
+            </div>
+            <div
+              v-if="index < steps.length - 1"
+              class="collapsed-step-line"
+            ></div>
+          </div>
         </div>
 
         <!-- Content -->
@@ -203,11 +223,8 @@
           </div>
           <div class="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-[#808080]">
             <span v-if="taskStartTime" class="font-mono tabular-nums">{{ formattedElapsedTime }}</span>
-            <span v-if="taskStartTime && (currentToolDisplayName || props.isThinking || props.isLoading)" class="text-gray-300 dark:text-[#404040]">·</span>
-            <span v-if="isToolRunning" class="truncate">{{ currentToolActionLabel.toLowerCase() }}</span>
-            <span v-else-if="props.isThinking" class="text-blue-500 dark:text-blue-400">Thinking</span>
-            <span v-else-if="props.currentTool && currentToolDisplayName && !isAllCompleted" class="truncate">{{ currentToolActionLabel.toLowerCase() }}</span>
-            <span v-else-if="props.isLoading && !isAllCompleted">processing</span>
+            <span v-if="taskStartTime && currentActivityText" class="text-gray-300 dark:text-[#404040]">·</span>
+            <span v-if="currentActivityText" class="truncate" :class="currentActivityClass">{{ currentActivityText }}</span>
           </div>
         </div>
 
@@ -250,7 +267,8 @@ import { ChevronUp, ChevronDown, Check, MonitorPlay, Terminal, Globe, FolderOpen
 import VncMiniPreview from './VncMiniPreview.vue'
 import type { PlanEventData } from '@/types/event'
 import type { ToolContent } from '@/types/message'
-import type { ConsoleRecord } from '@/types/response'
+import { useStreamingPresentationState } from '@/composables/useStreamingPresentationState'
+import { extractToolPreview } from '@/utils/toolPreviewFormatter'
 
 interface Props {
   plan?: PlanEventData
@@ -270,6 +288,8 @@ interface Props {
   isInitializing?: boolean
   /** Whether summary is currently streaming */
   isSummaryStreaming?: boolean
+  /** Live summary stream text */
+  summaryStreamText?: string
   /** Whether session status is completed/failed */
   isSessionComplete?: boolean
   /** Replay screenshot URL for completed sessions */
@@ -285,6 +305,7 @@ const props = withDefaults(defineProps<Props>(), {
   hideExpandedHeader: false,
   isInitializing: false,
   isSummaryStreaming: false,
+  summaryStreamText: '',
   isSessionComplete: false,
   replayScreenshotUrl: ''
 })
@@ -453,90 +474,53 @@ const currentToolIcon = computed(() => {
   return Terminal
 })
 
-// Extract content preview from toolContent (for mini preview)
-const contentPreview = computed(() => {
-  if (!props.toolContent) return ''
+const formattedToolPreview = computed(() => extractToolPreview(props.toolContent, 500))
+const contentPreview = computed(() => formattedToolPreview.value.previewText)
+const filePath = computed(() => formattedToolPreview.value.filePath)
+const searchResults = computed(() => formattedToolPreview.value.searchResults)
+const searchQuery = computed(() => formattedToolPreview.value.searchQuery)
 
-  const toolName = props.toolContent?.name || ''
-  const toolFunc = props.toolContent?.function || ''
-  const isShellOrCode = toolName.includes('shell') || toolName.includes('code') ||
-                        toolFunc.includes('shell') || toolFunc.includes('code')
+const streamingPresentation = useStreamingPresentationState({
+  isInitializing: computed(() => !!props.isInitializing),
+  isSummaryStreaming: computed(() => !!props.isSummaryStreaming),
+  summaryStreamText: computed(() => props.summaryStreamText || ''),
+  isThinking: computed(() => !!props.isThinking),
+  isActiveOperation: computed(() => isToolRunning.value),
+  toolDisplayName: computed(() => currentToolDisplayName.value),
+  toolDescription: computed(() => currentToolActionLabel.value),
+  baseViewType: computed(() => 'generic'),
+  isSessionComplete: computed(() => !!props.isSessionComplete),
+  replayScreenshotUrl: computed(() => props.replayScreenshotUrl || ''),
+  previewText: computed(() => contentPreview.value)
+})
 
-  // Shell/Code output - check multiple sources
-  if (isShellOrCode) {
-    // Get command
-    const command = props.toolContent.args?.command || props.toolContent.command || ''
-
-    // Check for stdout/stderr output first
-    const stdout = props.toolContent.stdout || props.toolContent.content?.stdout || ''
-    const stderr = props.toolContent.stderr || props.toolContent.content?.stderr || ''
-
-    // Check for console output (array format)
-    const consoleOutput = props.toolContent.content?.console
-    if (consoleOutput && Array.isArray(consoleOutput)) {
-      return consoleOutput.map((e: ConsoleRecord) => {
-        const ps1 = e.ps1 ? `${e.ps1} ` : '$ '
-        return `${ps1}${e.command || ''}\n${e.output || ''}`
-      }).join('\n').slice(0, 500)
-    }
-
-    // Build output from available sources
-    let output = ''
-    if (command) output += `$ ${command}\n`
-    if (stdout) output += stdout
-    if (stderr) output += `\n[stderr]\n${stderr}`
-
-    if (output.trim()) {
-      return output.slice(0, 500)
-    }
-
-    // Show command during execution
-    if (command) {
-      return `$ ${command}`
-    }
+const currentActivityText = computed(() => {
+  if (streamingPresentation.phase.value === 'summarizing') {
+    return streamingPresentation.headline.value
   }
-
-  // File content
-  if (props.toolContent.args?.content) {
-    return String(props.toolContent.args.content).slice(0, 500)
+  if (streamingPresentation.phase.value === 'summary_final') {
+    return streamingPresentation.headline.value
   }
-  if (props.toolContent.content?.content) {
-    return String(props.toolContent.content.content).slice(0, 500)
+  if (streamingPresentation.phase.value === 'thinking') {
+    return streamingPresentation.headline.value
   }
-
-  // Generic stdout output
-  if (props.toolContent.stdout) {
-    return String(props.toolContent.stdout).slice(0, 500)
+  if (props.currentTool && currentToolDisplayName.value && !isAllCompleted.value) {
+    return currentToolActionLabel.value.toLowerCase()
   }
-  if (props.toolContent.content?.console) {
-    const console = props.toolContent.content.console
-    if (typeof console === 'string') {
-      return String(console).slice(0, 500)
-    }
+  if (props.isLoading && !isAllCompleted.value) {
+    return 'processing'
   }
-
   return ''
 })
 
-// Extract file path from toolContent
-const filePath = computed(() => {
-  if (!props.toolContent) return ''
-  return props.toolContent.args?.file ||
-    props.toolContent.file_path ||
-    props.toolContent.args?.filename ||
-    ''
-})
-
-// Extract search results from toolContent (for search/info tools)
-const searchResults = computed(() => {
-  if (!props.toolContent) return []
-  return props.toolContent.content?.results || []
-})
-
-// Extract search query from toolContent
-const searchQuery = computed(() => {
-  if (!props.toolContent) return ''
-  return props.toolContent.args?.query || ''
+const currentActivityClass = computed(() => {
+  if (streamingPresentation.phase.value === 'thinking') {
+    return 'text-blue-500 dark:text-blue-400'
+  }
+  if (streamingPresentation.phase.value === 'summarizing' || streamingPresentation.phase.value === 'summary_final') {
+    return 'text-[var(--text-secondary)]'
+  }
+  return ''
 })
 
 const toggleExpand = () => {
@@ -659,11 +643,76 @@ onUnmounted(() => {
   border-color: var(--bolt-elements-borderColorActive);
 }
 
-/* ===== STATUS INDICATORS ===== */
-.status-complete {
+/* ===== COLLAPSED STEP RAIL ===== */
+.collapsed-step-rail {
+  width: 16px;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.collapsed-step-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 0;
+  flex: 1;
+}
+
+.collapsed-step-node {
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  border: 1px solid var(--bolt-elements-borderColor);
+  background: var(--bolt-elements-bg-depth-2);
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
+}
+
+.collapsed-step-node.is-completed {
+  border-color: var(--function-success);
+  background: var(--function-success);
+}
+
+.collapsed-step-node.is-running {
+  border-color: var(--bolt-elements-borderColorActive);
+  background: var(--bolt-elements-bg-depth-1);
+}
+
+.collapsed-step-node.is-pending {
+  border-color: var(--bolt-elements-borderColor);
+  background: var(--bolt-elements-bg-depth-2);
+}
+
+.collapsed-step-check {
+  width: 7px;
+  height: 7px;
+  color: #fff;
+}
+
+.collapsed-step-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--bolt-elements-textSecondary);
+}
+
+.collapsed-step-line {
+  width: 1px;
+  min-height: 4px;
+  flex: 1;
+  margin: 2px 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--bolt-elements-borderColor) 0,
+    var(--bolt-elements-borderColor) 3px,
+    transparent 3px,
+    transparent 7px
+  );
 }
 
 /* ===== PROGRESS PILL ===== */
@@ -808,9 +857,9 @@ onUnmounted(() => {
 
 .task-item {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 10px 0;
+  align-items: stretch;
+  gap: 10px;
+  padding: 4px 0;
   position: relative;
 }
 
@@ -822,26 +871,44 @@ onUnmounted(() => {
   padding-bottom: 0;
 }
 
-/* Connector line between tasks */
-.task-connector {
-  position: absolute;
-  left: 11px;
-  top: 32px;
-  bottom: -10px;
-  width: 2px;
-  background: var(--bolt-elements-borderColor);
-  border-radius: 1px;
+/* Left rail with step node + dotted timeline */
+.task-left-rail {
+  width: 20px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
-.task-connector.connector-active {
-  background: linear-gradient(to bottom, var(--function-success), var(--bolt-elements-borderColor));
+.task-timeline-line {
+  width: 1px;
+  min-height: 8px;
+  margin-top: 2px;
+  flex: 1;
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--bolt-elements-borderColor) 0,
+    var(--bolt-elements-borderColor) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
+.task-timeline-line.connector-active {
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--function-success) 0,
+    var(--function-success) 4px,
+    transparent 4px,
+    transparent 8px
+  );
 }
 
 /* Task indicators */
 .task-indicator {
   flex-shrink: 0;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -852,8 +919,8 @@ onUnmounted(() => {
 
 /* 3D Flip Container */
 .indicator-flip-container {
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   position: relative;
   transform-style: preserve-3d;
   transition: transform 0.6s cubic-bezier(0.4, 0.0, 0.2, 1);
@@ -925,8 +992,8 @@ onUnmounted(() => {
 }
 
 .indicator-complete {
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
   display: flex;
@@ -953,8 +1020,8 @@ onUnmounted(() => {
 
 .indicator-running {
   position: relative;
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   border: 1px solid var(--bolt-elements-borderColor);
   background: var(--bolt-elements-bg-depth-2);
@@ -1009,8 +1076,8 @@ onUnmounted(() => {
 }
 
 .indicator-pending {
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   border: 2px solid var(--bolt-elements-borderColor);
   background: var(--bolt-elements-bg-depth-2);
@@ -1022,9 +1089,9 @@ onUnmounted(() => {
 
 /* Task description */
 .task-description {
-  font-size: 14px;
-  line-height: 1.5;
-  padding-top: 2px;
+  font-size: 13px;
+  line-height: 1.4;
+  padding-top: 1px;
   flex: 1;
 }
 

@@ -508,8 +508,8 @@ watch(() => route.path, async (newPath, oldPath) => {
   padding: 0 14px;
   height: 38px;
   border-radius: 12px;
-  background: #ededed;
-  border: 1px solid #dddddd;
+  background: var(--fill-tsp-gray-main);
+  border: 1px solid var(--border-light);
   cursor: pointer;
   transition: all 0.2s ease;
   color: var(--text-primary);
@@ -517,8 +517,8 @@ watch(() => route.path, async (newPath, oldPath) => {
 }
 
 .new-task-btn:hover {
-  background: #e2e2e2;
-  border-color: #d5d5d5;
+  background: var(--fill-tsp-gray-dark);
+  border-color: var(--border-main);
   box-shadow: none;
 }
 
@@ -553,6 +553,27 @@ watch(() => route.path, async (newPath, oldPath) => {
   font-size: 10px;
   font-weight: 600;
   color: var(--bolt-elements-textTertiary);
+}
+
+:global(.dark) .new-task-btn {
+  background: #2a2d34;
+  border-color: #3a3f49;
+  color: #ebf0f6;
+}
+
+:global(.dark) .new-task-btn:hover {
+  background: #333843;
+  border-color: #4b5260;
+}
+
+:global(.dark) .new-task-shortcut {
+  opacity: 0.92;
+}
+
+:global(.dark) .shortcut-key {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #d7deea;
 }
 
 /* ===== SEARCH BAR ===== */

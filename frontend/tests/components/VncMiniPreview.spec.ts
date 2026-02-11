@@ -85,4 +85,37 @@ describe('VncMiniPreview', () => {
 
     expect(wrapper.find('.init-loading-dots').exists()).toBe(false)
   })
+
+  it('prioritizes summary streaming view over terminal preview and live VNC', () => {
+    const wrapper = shallowMount(VncMiniPreview, {
+      props: {
+        sessionId: 'session-1',
+        enabled: true,
+        toolName: 'shell',
+        toolFunction: 'shell_exec',
+        isActive: true,
+        contentPreview: '$ npm test\nrunning...',
+        isSummaryStreaming: true,
+        summaryStreamText: '## Partial report',
+      },
+    })
+
+    expect(wrapper.find('.streaming-preview').exists()).toBe(true)
+    expect(wrapper.findComponent({ name: 'LiveViewer' }).exists()).toBe(false)
+    expect(wrapper.text()).toContain('Composing report...')
+  })
+
+  it('shows report-complete summary view when summary text is buffered after stream end', () => {
+    const wrapper = shallowMount(VncMiniPreview, {
+      props: {
+        sessionId: 'session-1',
+        enabled: true,
+        isSummaryStreaming: false,
+        summaryStreamText: 'Final summary text',
+      },
+    })
+
+    expect(wrapper.find('.streaming-preview').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Report complete')
+  })
 })

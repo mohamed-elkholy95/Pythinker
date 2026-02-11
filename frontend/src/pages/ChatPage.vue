@@ -1,8 +1,8 @@
 <template>
   <SimpleBar ref="simpleBarRef" @scroll="handleScroll">
-    <div id="manus-chat-box" ref="chatContainerRef" class="relative flex flex-col h-full flex-1 flex-shrink-0 min-w-0 px-5 bg-[var(--background-gray-main)]">
+    <div id="manus-chat-box" ref="chatContainerRef" class="relative flex flex-col h-full flex-1 flex-shrink-0 min-w-0 bg-[var(--background-gray-main)]">
       <div ref="observerRef"
-        class="chat-header flex flex-row items-center pt-3 pb-1 gap-1 sticky top-0 z-10 flex-shrink-0">
+        class="chat-header flex flex-row items-center pt-3 pb-1 gap-1 ps-[16px] pe-[24px] sticky top-0 z-10 flex-shrink-0 bg-[var(--background-gray-main)]">
         <!-- Left side - panel toggle -->
         <div class="flex items-center justify-start" style="width: calc((100% - min(768px, 100%)) / 2);">
         </div>
@@ -97,10 +97,17 @@
         <!-- Right side - spacer -->
         <div class="flex-1"></div>
       </div>
-      <div class="mx-auto w-full max-w-full sm:max-w-[768px] sm:min-w-[400px] flex flex-col flex-1 min-h-[calc(100vh-60px)]">
-        <div class="flex flex-col w-full gap-[6px] pb-[80px] pt-[20px] flex-1">
+      <div
+        class="mx-auto w-full max-w-full px-5 sm:max-w-[768px] sm:min-w-[400px] flex flex-col flex-1"
+        :class="{ 'chat-content-with-pinned-dock': shouldPinComposerToBottom }"
+      >
+        <div
+          class="flex flex-col w-full pb-[80px] pt-[24px] flex-1"
+          :class="{ 'chat-messages-with-pinned-dock': shouldPinComposerToBottom }"
+        >
           <ChatMessage v-for="(message, index) in messages" :key="message.id" :message="message"
             :activeThinkingStepId="activeThinkingStepId"
+            :showStepLeadingConnector="shouldShowStepLeadingConnector(index)"
             :showStepConnector="shouldShowStepConnector(index)"
             :showAssistantHeader="shouldShowAssistantHeader(index)"
             @toolClick="handleToolClick"
@@ -154,10 +161,17 @@
           />
         </div>
 
-        <div class="chat-bottom-dock flex flex-col sticky bottom-0">
-          <button @click="handleFollow" v-if="!follow"
-            style="top: calc(-34px + 1.5in - 1cm - 2mm);"
-            class="flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[var(--background-white-main)] hover:bg-[var(--background-gray-main)] clickable border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)] absolute right-3 sm:right-4 z-30">
+        <div
+          ref="chatBottomDockRef"
+          class="chat-bottom-dock flex flex-col sticky bottom-0"
+          :class="{ 'chat-bottom-dock-fixed': shouldPinComposerToBottom }"
+          :style="chatBottomDockStyle"
+        >
+          <button
+            @click="handleFollow"
+            v-if="!follow"
+            class="flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[var(--background-menu-white)] hover:bg-[var(--background-gray-main)] clickable border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)] absolute -top-[56px] end-0 z-30"
+          >
             <ArrowDown class="text-[var(--icon-primary)]" :size="20" />
           </button>
           <!-- Planning Progress Indicator - shows instant feedback before plan is ready -->
@@ -190,6 +204,7 @@
             :toolContent="lastNoMessageTool"
             :isInitializing="isInitializing || isSandboxInitializing"
             :isSummaryStreaming="isSummaryStreaming"
+            :summaryStreamText="summaryStreamText"
             :isSessionComplete="isSessionComplete"
             :replayScreenshotUrl="replay.currentScreenshotUrl.value"
             @openPanel="handleOpenPanel"
@@ -480,6 +495,9 @@ const toolPanel = ref<InstanceType<typeof ToolPanel>>()
 const simpleBarRef = ref<InstanceType<typeof SimpleBar>>();
 const observerRef = ref<HTMLDivElement>();
 const chatContainerRef = ref<HTMLDivElement>();
+const chatBottomDockRef = ref<HTMLDivElement>();
+const chatBottomDockStyle = ref<Record<string, string>>({});
+let chatContainerResizeObserver: ResizeObserver | null = null;
 
 // Track session status
 const sessionStatus = ref<SessionStatus | undefined>(undefined);
@@ -511,6 +529,32 @@ const hasAgentStartedResponding = computed(() =>
     message.type === 'skill_delivery'
   )
 );
+
+const shouldPinComposerToBottom = computed(() =>
+  isLoading.value || hasAgentStartedResponding.value
+);
+
+const updateChatBottomDockStyle = () => {
+  if (!shouldPinComposerToBottom.value) {
+    chatBottomDockStyle.value = {};
+    return;
+  }
+
+  const chatContainer = chatContainerRef.value;
+  if (!chatContainer) return;
+
+  const rect = chatContainer.getBoundingClientRect();
+  const horizontalPadding = 20;
+  const maxDockWidth = 768;
+  const availableWidth = Math.max(rect.width - horizontalPadding * 2, 280);
+  const dockWidth = Math.min(maxDockWidth, availableWidth);
+  const dockLeft = rect.left + (rect.width - dockWidth) / 2;
+
+  chatBottomDockStyle.value = {
+    left: `${Math.max(dockLeft, horizontalPadding)}px`,
+    width: `${dockWidth}px`,
+  };
+};
 
 const showSessionWarmupMessage = computed(() => {
   const hasPrompt = hasUserMessages.value || !!pendingInitialMessage.value?.message?.trim();
@@ -559,7 +603,9 @@ const maybeSendPendingInitialMessage = () => {
   const pending = pendingInitialMessage.value;
   if (pending && sessionStatus.value !== SessionStatus.INITIALIZING) {
     pendingInitialMessage.value = null;
-    chat(pending.message, pending.files);
+    // Initial prompt is already rendered optimistically while session warms up.
+    // Skip inserting a second optimistic bubble when it is actually sent.
+    chat(pending.message, pending.files, { skipOptimistic: true });
   }
 };
 
@@ -719,6 +765,15 @@ watch(thinkingText, async () => {
   }
 });
 
+watch(
+  [shouldPinComposerToBottom, toolPanelSize],
+  async () => {
+    await nextTick();
+    updateChatBottomDockStyle();
+  },
+  { immediate: true }
+);
+
 watch(filePreviewOpen, (isOpen) => {
   if (!isOpen) {
     filePreviewFile.value = null;
@@ -791,6 +846,19 @@ const shouldShowStepConnector = (messageIndex: number): boolean => {
   if (!currentMessage || currentMessage.type !== 'step') return false;
 
   for (let i = messageIndex + 1; i < messages.value.length; i += 1) {
+    if (messages.value[i].type === 'step') {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const shouldShowStepLeadingConnector = (messageIndex: number): boolean => {
+  const currentMessage = messages.value[messageIndex];
+  if (!currentMessage || currentMessage.type !== 'step') return false;
+
+  for (let i = messageIndex - 1; i >= 0; i -= 1) {
     if (messages.value[i].type === 'step') {
       return true;
     }
@@ -1059,11 +1127,12 @@ const handleMessageEvent = (messageData: MessageEventData) => {
   // Prevent duplicate user messages - check against LAST user message (not just last message)
   // This handles cases where tool/step events appear between duplicate user messages
   if (messageData.role === 'user' && messages.value.length > 0) {
+    const incomingContent = (messageData.content || '').trim();
     // Find the last user message in the array
     for (let i = messages.value.length - 1; i >= 0; i--) {
       if (messages.value[i].type === 'user') {
         const lastUserContent = messages.value[i].content as MessageContent;
-        if (lastUserContent.content === messageData.content) {
+        if ((lastUserContent.content || '').trim() === incomingContent) {
           console.debug('Skipping duplicate user message:', messageData.content?.slice(0, 50));
           return;
         }
@@ -1735,7 +1804,11 @@ const handleSubmit = () => {
 let lastSentMessage = '';
 let lastSentTime = 0;
 
-const chat = async (message: string = '', files: FileInfo[] = []) => {
+const chat = async (
+  message: string = '',
+  files: FileInfo[] = [],
+  options?: { skipOptimistic?: boolean }
+) => {
   if (!sessionId.value) return;
   const normalizedMessage = message.trim();
 
@@ -1771,7 +1844,7 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
   // Automatically enable follow mode when sending message
   follow.value = true;
 
-  if (normalizedMessage || files.length > 0) {
+  if (!options?.skipOptimistic && (normalizedMessage || files.length > 0)) {
     addOptimisticUserMessage(normalizedMessage, files);
   }
 
@@ -1961,6 +2034,16 @@ onMounted(async () => {
   hideFilePanel();
   // Listen for message insert event from settings dialog
   window.addEventListener('pythinker:insert-chat-message', handleInsertMessage);
+  window.addEventListener('resize', updateChatBottomDockStyle);
+
+  if (typeof ResizeObserver !== 'undefined' && chatContainerRef.value) {
+    chatContainerResizeObserver = new ResizeObserver(() => {
+      updateChatBottomDockStyle();
+    });
+    chatContainerResizeObserver.observe(chatContainerRef.value);
+  }
+  await nextTick();
+  updateChatBottomDockStyle();
 
   if (await initializePendingSession()) {
     return;
@@ -1999,6 +2082,11 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 
 onUnmounted(() => {
   window.removeEventListener('pythinker:insert-chat-message', handleInsertMessage);
+  window.removeEventListener('resize', updateChatBottomDockStyle);
+  if (chatContainerResizeObserver) {
+    chatContainerResizeObserver.disconnect();
+    chatContainerResizeObserver = null;
+  }
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value();
     cancelCurrentChat.value = null;
@@ -2186,13 +2274,6 @@ const handleCopyLink = async () => {
 /* ===== CHAT HEADER ===== */
 .chat-header {
   background-color: var(--background-gray-main);
-  margin-left: -1.25rem;
-  margin-right: -1.25rem;
-  padding-left: 1rem;
-  padding-right: 1.5rem;
-  border-bottom: 1px solid var(--border-light);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
 }
 
 .chat-model-pill {
@@ -2228,18 +2309,31 @@ const handleCopyLink = async () => {
 }
 
 .chat-bottom-dock {
-  background: linear-gradient(
-    180deg,
-    transparent 0%,
-    color-mix(in srgb, var(--background-gray-main) 86%, transparent) 18%,
-    var(--background-gray-main) 45%
-  );
+  background: var(--background-gray-main);
   padding-top: 8px;
   z-index: 20;
 }
 
-:global(.dark) .chat-header {
-  border-bottom-color: var(--border-main);
+.chat-content-with-pinned-dock {
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+}
+
+.chat-messages-with-pinned-dock {
+  padding-bottom: calc(196px + env(safe-area-inset-bottom));
+}
+
+.chat-bottom-dock-fixed {
+  position: fixed;
+  bottom: 0;
+  z-index: 40;
+  max-width: calc(100vw - 40px);
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+}
+
+@media (max-width: 640px) {
+  .chat-messages-with-pinned-dock {
+    padding-bottom: calc(212px + env(safe-area-inset-bottom));
+  }
 }
 
 /* 120-degree diagonal shimmer text effect */

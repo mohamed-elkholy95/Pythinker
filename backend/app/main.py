@@ -685,6 +685,11 @@ app = FastAPI(
     redoc_url="/redoc" if settings.is_development else None,
 )
 
+# Add security headers middleware (Context7 best practice - OWASP compliant)
+from app.infrastructure.middleware.security_headers import add_security_headers_middleware
+
+add_security_headers_middleware(app)
+
 # Add request logging middleware (outermost - runs first)
 app.add_middleware(RequestLoggingMiddleware)
 

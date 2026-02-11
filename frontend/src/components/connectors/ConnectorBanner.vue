@@ -69,7 +69,7 @@ const handleClose = () => {
   border: none;
   background: transparent;
   cursor: pointer;
-  transition: color 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
 .connector-banner-icon {
@@ -126,6 +126,30 @@ const handleClose = () => {
 
 .connector-banner-close:hover {
   opacity: 0.7;
+}
+
+.connector-banner:hover .connector-banner-icon,
+.connector-banner:hover .connector-banner-text {
+  color: var(--text-primary);
+}
+
+:global(.dark) .connector-banner:hover .connector-banner-icon,
+:global(.dark) .connector-banner:hover .connector-banner-text {
+  color: #edf2f9;
+}
+
+:global(.dark) .connector-banner-close {
+  color: #aeb7c5;
+}
+
+:global(.dark) .connector-banner-close:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #eef3fb;
+  opacity: 1;
+}
+
+:global(.dark) .connector-banner-preview {
+  filter: brightness(0.88) saturate(0.9);
 }
 
 @media (max-width: 900px) {

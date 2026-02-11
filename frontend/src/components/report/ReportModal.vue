@@ -805,6 +805,45 @@ watch(isOpen, (newVal) => {
   color: var(--text-primary);
 }
 
+/* Tailwind Typography color tokens for rendered markdown (`v-html`) */
+.doc-body.prose {
+  --tw-prose-body: var(--text-primary);
+  --tw-prose-headings: var(--text-primary);
+  --tw-prose-links: #3b82f6;
+  --tw-prose-bold: var(--text-primary);
+  --tw-prose-counters: var(--text-secondary);
+  --tw-prose-bullets: var(--text-tertiary);
+  --tw-prose-hr: var(--border-main);
+  --tw-prose-quotes: var(--text-secondary);
+  --tw-prose-quote-borders: var(--border-main);
+  --tw-prose-captions: var(--text-tertiary);
+  --tw-prose-code: var(--text-primary);
+  --tw-prose-pre-code: #d4d4d4;
+  --tw-prose-pre-bg: #1e1e1e;
+  --tw-prose-th-borders: var(--border-main);
+  --tw-prose-td-borders: var(--border-light);
+}
+
+:global(.dark) .doc-body.prose {
+  --tw-prose-links: #93c5fd;
+}
+
+/* `v-html` content is not scoped; use deep selectors for reliable dark-mode text colors */
+.doc-body.prose :deep(h1),
+.doc-body.prose :deep(h2),
+.doc-body.prose :deep(h3),
+.doc-body.prose :deep(h4),
+.doc-body.prose :deep(strong),
+.doc-body.prose :deep(th),
+.doc-body.prose :deep(td) {
+  color: var(--text-primary);
+}
+
+.doc-body.prose :deep(blockquote),
+.doc-body.prose :deep(blockquote p) {
+  color: var(--text-secondary);
+}
+
 /* Prose styling for document body */
 .doc-body.prose h1 {
   display: none;

@@ -5,6 +5,7 @@ from enum import Enum
 from functools import lru_cache
 from typing import ClassVar
 
+from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -372,6 +373,7 @@ class Settings(BaseSettings):
     # Unified flow engine selection (replaces legacy booleans)
     flow_mode: FlowMode = FlowMode.PLAN_ACT
 
+    @computed_field
     @property
     def resolved_flow_mode(self) -> FlowMode:
         """Resolve flow mode from new field or legacy booleans.
@@ -384,6 +386,7 @@ class Settings(BaseSettings):
             return FlowMode.COORDINATOR
         return FlowMode.PLAN_ACT
 
+    @computed_field
     @property
     def uses_static_sandbox_addresses(self) -> bool:
         """Whether sandboxes are configured as pre-existing static addresses."""
@@ -525,16 +528,19 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    @computed_field
     @property
     def is_production(self) -> bool:
         """Check if running in production environment"""
         return self.environment.lower() == "production"
 
+    @computed_field
     @property
     def is_development(self) -> bool:
         """Check if running in development environment"""
         return self.environment.lower() == "development"
 
+    @computed_field
     @property
     def should_ignore_https_errors(self) -> bool:
         """Determine if browser should ignore HTTPS errors.
@@ -547,6 +553,7 @@ class Settings(BaseSettings):
         # Auto-detect: True in development, False in production
         return self.is_development
 
+    @computed_field
     @property
     def cors_origins_list(self) -> list[str]:
         """Get CORS origins as a list"""

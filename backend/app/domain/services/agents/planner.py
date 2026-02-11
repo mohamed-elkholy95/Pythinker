@@ -55,15 +55,15 @@ from app.domain.utils.json_parser import JsonParser
 logger = logging.getLogger(__name__)
 
 # Default step constraints (can be overridden by complexity-based limits)
-DEFAULT_MIN_PLAN_STEPS = 3
-DEFAULT_MAX_PLAN_STEPS = 6
+DEFAULT_MIN_PLAN_STEPS = 2
+DEFAULT_MAX_PLAN_STEPS = 4
 MAX_MERGED_STEP_CHARS = 240
 
 # Adaptive step constraints based on task complexity
 COMPLEXITY_STEP_LIMITS = {
-    "simple": (1, 3),
-    "medium": (3, 6),
-    "complex": (5, 12),
+    "simple": (1, 2),
+    "medium": (2, 4),
+    "complex": (3, 6),
 }
 
 
@@ -569,6 +569,67 @@ class PlannerAgent(BaseAgent):
             else:
                 yield event
 
+    @staticmethod
+    def _consolidate_similar_steps(steps: list[Step]) -> list[Step]:
+        """Merge sequential steps with similar actions into single steps.
+
+        Detects patterns like search→browse→extract and consolidates them.
+        Stores original sub-steps in metadata for execution context.
+        """
+        if len(steps) <= 2:
+            return steps
+
+        # Keywords indicating web research micro-steps
+        search_keywords = {"search", "find", "look up", "query", "discover"}
+        browse_keywords = {"browse", "visit", "navigate", "open", "click", "extract", "read"}
+        deliver_keywords = {"deliver", "send", "share", "present", "hand off", "output"}
+        validate_keywords = {"validate", "verify", "review", "check", "cross-check", "confirm"}
+
+        def _desc_lower(step: Step) -> str:
+            return (step.description or "").lower()
+
+        def _matches(desc: str, keywords: set[str]) -> bool:
+            return any(kw in desc for kw in keywords)
+
+        consolidated: list[Step] = []
+        i = 0
+        while i < len(steps):
+            desc = _desc_lower(steps[i])
+
+            # Pattern: search + browse + extract → single "Research X" step
+            if _matches(desc, search_keywords) and i + 1 < len(steps):
+                next_desc = _desc_lower(steps[i + 1])
+                if _matches(next_desc, browse_keywords):
+                    # Merge search + browse (and possibly extract) into one
+                    merged_from = [steps[i].description, steps[i + 1].description]
+                    merged_step = Step(
+                        description=steps[i].description,  # Keep the search step's description
+                        metadata={"merged_from": len(merged_from), "original_descriptions": merged_from},
+                    )
+                    consolidated.append(merged_step)
+                    i += 2
+                    continue
+
+            # Pattern: deliver + validate → single step
+            if _matches(desc, deliver_keywords) and i + 1 < len(steps):
+                next_desc = _desc_lower(steps[i + 1])
+                if _matches(next_desc, validate_keywords):
+                    merged_step = Step(
+                        description="Review, validate, and deliver final output",
+                        metadata={
+                            "merged_from": 2,
+                            "original_descriptions": [steps[i].description, steps[i + 1].description],
+                        },
+                    )
+                    consolidated.append(merged_step)
+                    i += 2
+                    continue
+
+            consolidated.append(steps[i])
+            i += 1
+
+        return consolidated
+
     def _normalize_plan_steps(self, steps: list[Step], task_message: str = "") -> list[Step]:
         """Clamp plan length and merge overflow steps into the final step.
 
@@ -580,6 +641,9 @@ class PlannerAgent(BaseAgent):
         """
         if not steps:
             return steps
+
+        # Consolidate similar steps before applying limits
+        steps = self._consolidate_similar_steps(steps)
 
         # Determine complexity and get adaptive limits
         complexity = get_task_complexity(task_message) if task_message else "medium"

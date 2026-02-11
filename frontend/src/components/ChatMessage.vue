@@ -41,7 +41,7 @@
     v-else-if="message.type === 'assistant'"
     :class="[
       'flex flex-col gap-1 w-full group',
-      props.showAssistantHeader === false ? 'mt-1' : 'mt-2'
+      props.showAssistantHeader === false ? 'mt-1' : 'mt-3'
     ]"
   >
     <div v-if="props.showAssistantHeader !== false" class="assistant-header-row flex items-center justify-between group">
@@ -82,82 +82,93 @@
   <ToolUse v-else-if="message.type === 'tool'" :tool="toolContent" :is-active="true" @click="handleToolClick(toolContent)" />
   <div
     v-else-if="message.type === 'step'"
-    class="step-message flex flex-col mt-0.5"
-    :class="{ 'step-message--with-next': props.showStepConnector }"
+    class="step-message flex flex-col empty:pb-0"
   >
-    <!-- Step Header -->
-    <div class="step-header w-full clickable flex gap-2 justify-between group/header" @click="handleStepToggle">
-      <div class="step-header-left flex flex-row gap-2.5 items-center min-w-0">
-        <!-- Status indicator -->
-        <div class="step-status-column flex-shrink-0">
+    <!-- Unified step layout with left rail for timeline -->
+    <div class="step-inner flex">
+      <!-- Left rail: Status indicator + Timeline line -->
+      <div class="step-left-rail w-[24px] relative flex-shrink-0">
+        <!-- Status indicator at top -->
+        <div class="step-status-node w-4 flex items-center justify-center relative z-[1]" style="height: 26px;">
           <div v-if="stepContent.status === 'completed'"
-            class="step-status-indicator step-icon-badge step-icon-completed w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-full">
-            <CheckIcon class="step-completed-check" :size="12" :stroke-width="2.8" />
+            class="step-status-indicator step-icon-badge step-icon-completed w-4 h-4 flex items-center justify-center rounded-[15px]">
+            <CheckIcon class="step-completed-check" :size="10" :stroke-width="2" />
           </div>
           <div v-else-if="stepContent.status === 'running'"
-            class="step-status-indicator step-icon-badge step-icon-running w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-full step-running">
+            class="step-status-indicator step-icon-badge step-icon-running w-4 h-4 flex items-center justify-center rounded-[15px] step-running">
             <span class="step-running-dot" aria-hidden="true"></span>
           </div>
           <div v-else
-            class="step-status-indicator step-icon-badge step-icon-pending w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-full">
+            class="step-status-indicator step-icon-badge step-icon-pending w-4 h-4 flex items-center justify-center rounded-[15px]">
           </div>
         </div>
-        <!-- Step title and chevron -->
-        <div class="step-title-wrap flex-1 min-w-0 flex items-center gap-1.5">
-          <div
-            class="step-title truncate"
-            :title="stepContent.description"
-            :aria-description="stepContent.description"
-          >
-            {{ stepContent.description }}
-          </div>
-          <span class="flex-shrink-0 flex">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-              class="step-chevron transition-transform duration-300"
-              :class="{ 'rotate-180': isStepExpanded }">
-              <path d="m6 9 6 6 6-6"></path>
-            </svg>
-          </span>
-        </div>
-      </div>
-      <div
-        class="float-right transition text-[11px] text-[var(--text-tertiary)] invisible group-hover/header:visible flex-shrink-0"
-        :title="formatTimestampTooltip(message.content.timestamp)"
-      >
-        {{ relativeTime(message.content.timestamp) }}
-      </div>
-    </div>
-    <!-- Tools list with timeline -->
-    <div
-      class="step-body flex"
-      :class="{ 'step-body--connector-only': !isStepExpanded && props.showStepConnector }"
-    >
-      <div class="step-body-rail w-[30px] relative flex-shrink-0">
+        <!-- Timeline segments: top (to node) + bottom (from node) -->
         <div
-          v-if="isStepExpanded || props.showStepConnector"
-          class="step-timeline-line absolute start-[10px] top-0 bottom-0"
-          style="height: calc(100% + 14px);"
+          v-if="showStepTopConnector"
+          class="step-connector-segment step-connector-top"
+        ></div>
+        <div
+          v-if="showStepBottomConnector"
+          class="step-connector-segment step-connector-bottom"
+          :class="{ 'step-connector-extended': props.showStepConnector }"
         ></div>
       </div>
-      <div
-        class="step-tools-list flex flex-col gap-2.5 flex-1 min-w-0 overflow-hidden transition-[max-height,opacity,padding] duration-200 ease-in-out"
-        :class="isStepExpanded ? 'pt-2.5 max-h-[100000px] opacity-100' : 'pt-0 max-h-0 opacity-0 pointer-events-none'"
-      >
-        <ToolUse
-          v-for="(tool, index) in stepContent.tools"
-          :key="tool.tool_call_id"
-          :tool="tool"
-          :is-active="index === stepContent.tools.length - 1"
-          :is-task-running="index === stepContent.tools.length - 1 && stepContent.status === 'running'"
-          @click="handleToolClick(tool)"
-        />
-        <!-- Thinking indicator inside step (Manus-style) -->
-        <div v-if="showStepThinking" class="flex items-center gap-2 py-1">
-          <ThinkingIndicator :showText="true" />
+      
+      <!-- Right content: Header + Tools -->
+      <div class="step-right-content flex-1 min-w-0">
+        <!-- Step Header (clickable) -->
+        <div
+          class="step-header text-sm w-full clickable flex justify-between items-center truncate text-[var(--text-primary)]"
+          style="min-height: 26px;"
+          @click="handleStepToggle"
+        >
+          <div class="step-title-wrap flex-1 min-w-0 flex items-center gap-2 truncate">
+            <div
+              class="step-title truncate font-medium"
+              :title="stepContent.description"
+              :aria-description="stepContent.description"
+            >
+              {{ stepContent.description }}
+            </div>
+            <span class="flex-shrink-0 flex">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                class="step-chevron transition-transform duration-300 w-4 h-4"
+                :class="{ 'rotate-180': isStepExpanded }">
+                <path d="m6 9 6 6 6-6"></path>
+              </svg>
+            </span>
+          </div>
+          <div
+            class="step-timestamp transition text-[12px] text-[var(--text-tertiary)] invisible group-hover:visible flex-shrink-0"
+            :title="formatTimestampTooltip(message.content.timestamp)"
+          >
+            {{ relativeTime(message.content.timestamp) }}
+          </div>
+        </div>
+        
+        <!-- Tools list -->
+        <div
+          class="step-tools-list flex flex-col gap-2 overflow-hidden transition-[max-height,opacity] duration-150 ease-in-out"
+          :class="isStepExpanded ? 'max-h-[100000px] opacity-100' : 'max-h-0 opacity-0'"
+        >
+          <div class="step-tools-inner pt-2 flex flex-col gap-2">
+            <ToolUse
+              v-for="(tool, index) in stepContent.tools"
+              :key="tool.tool_call_id"
+              :tool="tool"
+              :is-active="index === stepContent.tools.length - 1"
+              :is-task-running="index === stepContent.tools.length - 1 && stepContent.status === 'running'"
+              @click="handleToolClick(tool)"
+            />
+            <div v-if="showStepThinking" class="step-thinking-nested">
+              <ThinkingIndicator :showText="true" />
+            </div>
+          </div>
         </div>
       </div>
     </div>
+    
   </div>
   <AttachmentsMessage v-else-if="message.type === 'attachments'" :content="attachmentsContent" @fileClick="handleReportFileOpen"/>
   <div v-else-if="message.type === 'report'" class="report-message-layout flex flex-col w-full mt-3">
@@ -220,6 +231,7 @@ const props = defineProps<{
   sessionId?: string;
   suggestions?: string[];
   activeThinkingStepId?: string;
+  showStepLeadingConnector?: boolean;
   showStepConnector?: boolean;
   showAssistantHeader?: boolean;
 }>();
@@ -304,6 +316,16 @@ const reportData = computed<ReportData>(() => {
 // Control step expand/collapse state
 const isStepExpanded = ref(false);
 const stepUserToggled = ref(false);
+
+const showStepTopConnector = computed(() => {
+  if (props.message.type !== 'step') return false;
+  return !!props.showStepLeadingConnector;
+});
+
+const showStepBottomConnector = computed(() => {
+  if (props.message.type !== 'step') return false;
+  return isStepExpanded.value || !!props.showStepConnector;
+});
 
 // Control long-message expand/collapse state
 const LONG_MESSAGE_CHAR_THRESHOLD = 700;
@@ -530,72 +552,73 @@ const renderMarkdown = (text: string): string => {
    ══════════════════════════════════════════════════ */
 .step-message {
   position: relative;
-  padding-bottom: 0;
+  margin-top: 12px;
 }
 
-.step-header {
-  color: var(--text-primary);
-  padding: 3px 0 1px;
+.step-message:first-child {
+  margin-top: 0;
 }
 
-.step-title {
-  font-size: 15px;
-  line-height: 1.4;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
+.step-inner {
+  display: flex;
+  align-items: stretch;
 }
 
-.step-title :deep(p) {
-  margin: 0;
+/* Left rail - contains status node and timeline */
+.step-left-rail {
+  flex-shrink: 0;
+  width: 24px;
 }
 
-.step-chevron {
+/* Status node container */
+.step-status-node {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+/* Status indicators */
+.step-status-indicator {
   width: 16px;
   height: 16px;
-  color: var(--text-tertiary);
-}
-
-.step-status-column {
-  position: relative;
-  z-index: 1;
-  width: 20px;
-  min-width: 20px;
   display: flex;
+  align-items: center;
   justify-content: center;
-  padding-top: 0;
-}
-
-/* ── Step Indicators ── */
-.step-status-indicator {
   transition: all 0.2s ease;
 }
 
 .step-icon-completed {
-  background: #d4d4d4;
-  border: 1px solid #bfbfbf;
+  background: var(--text-disable);
+  border: 0;
+  border-radius: 15px;
 }
 
 .step-completed-check {
-  color: #ffffff;
+  color: var(--icon-white);
+  width: 9px;
+  height: 9px;
 }
 
 .step-icon-running {
-  background: #f3f3f3;
-  border: 1.5px solid #d0d0d0;
+  background: var(--fill-tsp-white-dark);
+  border: 0;
+  border-radius: 15px;
   position: relative;
   overflow: hidden;
 }
 
 .step-icon-pending {
   background: transparent;
-  border: 1.5px solid #d5d5d5;
+  border: 0;
+  border-radius: 15px;
 }
 
 .step-running-dot {
   position: relative;
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
   border-radius: 9999px;
   background: #8c8c8c;
   animation: step-dot-pulse 1.2s ease-in-out infinite;
@@ -610,24 +633,81 @@ const renderMarkdown = (text: string): string => {
   animation: step-dot-ripple 1.2s ease-out infinite;
 }
 
-/* ── Step Timeline ── */
-.step-timeline-line {
-  left: 10px;
-  top: 0;
-  bottom: 0;
+/* Timeline connector segments (bottom of first node -> top of last node) */
+.step-connector-segment {
+  position: absolute;
+  left: 8px;
+  width: 0;
   border-left: 1px dashed var(--border-dark);
+  pointer-events: none;
 }
 
-.step-body {
-  margin-top: 0;
+.step-connector-top {
+  top: 0;
+  height: 5px; /* Node top at (26 - 16) / 2 */
 }
 
-.step-body--connector-only {
-  min-height: 8px;
+.step-connector-bottom {
+  top: 21px; /* Node bottom: 5 + 16 */
+  bottom: 0;
 }
 
-.step-body-rail {
-  width: 30px;
+.step-connector-extended {
+  bottom: -14px;
+}
+
+/* Right content */
+.step-right-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.step-header {
+  color: var(--text-primary);
+  padding: 0;
+  cursor: pointer;
+}
+
+.step-title {
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 500;
+  color: var(--text-primary);
+  letter-spacing: 0;
+}
+
+.step-title :deep(p) {
+  margin: 0;
+}
+
+.step-chevron {
+  width: 16px;
+  height: 16px;
+  color: var(--text-tertiary);
+}
+
+.step-timestamp {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.step-header:hover .step-timestamp {
+  opacity: 1;
+}
+
+.step-tools-list {
+  overflow: hidden;
+}
+
+.step-tools-inner {
+  padding-top: 8px;
+}
+
+.step-thinking-nested {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
 }
 
 /* ══════════════════════════════════════════════════
@@ -646,18 +726,19 @@ const renderMarkdown = (text: string): string => {
 }
 
 :global(.dark) .step-icon-completed {
-  background: rgba(255, 255, 255, 0.22);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--fill-tsp-white-dark);
+}
+
+:global(.dark) .step-completed-check {
+  color: var(--icon-white-tsp);
 }
 
 :global(.dark) .step-icon-running {
-  border-color: rgba(255, 255, 255, 0.25);
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--fill-tsp-white-dark);
 }
 
 :global(.dark) .step-icon-pending {
-  border-color: rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--fill-tsp-white-dark);
 }
 
 :global(.dark) .step-running-dot {
@@ -666,10 +747,6 @@ const renderMarkdown = (text: string): string => {
 
 :global(.dark) .step-running-dot::after {
   border-color: rgba(255, 255, 255, 0.5);
-}
-
-:global(.dark) .step-timeline-line {
-  border-left-color: var(--border-dark);
 }
 
 /* ══════════════════════════════════════════════════
