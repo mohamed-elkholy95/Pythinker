@@ -206,6 +206,45 @@ active_agents = Gauge(
     labels=[],
 )
 
+# Screenshot Replay Metrics
+screenshot_captures_total = Counter(
+    name="pythinker_screenshot_captures_total",
+    help_text="Total screenshot capture attempts",
+    labels=["trigger", "status"],  # status: success, error
+)
+
+screenshot_capture_size_bytes = Counter(
+    name="pythinker_screenshot_capture_size_bytes_total",
+    help_text="Total bytes captured for screenshot replay",
+    labels=["trigger"],
+)
+
+screenshot_capture_latency = Histogram(
+    name="pythinker_screenshot_capture_latency_seconds",
+    help_text="Screenshot capture latency in seconds",
+    labels=["trigger", "status"],
+    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0],
+)
+
+screenshot_fetch_total = Counter(
+    name="pythinker_screenshot_fetch_total",
+    help_text="Total screenshot image fetches",
+    labels=["access", "status"],  # access: full, thumbnail
+)
+
+screenshot_fetch_size_bytes = Counter(
+    name="pythinker_screenshot_fetch_size_bytes_total",
+    help_text="Total bytes served for screenshot replay",
+    labels=["access"],
+)
+
+screenshot_fetch_latency = Histogram(
+    name="pythinker_screenshot_fetch_latency_seconds",
+    help_text="Screenshot fetch latency in seconds",
+    labels=["access", "status"],
+    buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0],
+)
+
 errors_total = Counter(
     name="pythinker_errors_total",
     help_text="Total number of errors",
@@ -312,6 +351,12 @@ _metrics_registry = [
     tool_latency,
     active_sessions,
     active_agents,
+    screenshot_captures_total,
+    screenshot_capture_size_bytes,
+    screenshot_capture_latency,
+    screenshot_fetch_total,
+    screenshot_fetch_size_bytes,
+    screenshot_fetch_latency,
     errors_total,
     # Phase 6: Circuit Breaker
     circuit_breaker_state,
@@ -352,6 +397,38 @@ tool_selection_accuracy = Counter(
     name="pythinker_tool_selection_accuracy_total",
     help_text="Tool selection outcomes",
     labels=["tool_name", "outcome"],  # success, failure, hallucination
+)
+
+# HTTP Client Pool Metrics (Phase 1: Connection Pooling)
+http_pool_connections_total = Gauge(
+    name="pythinker_http_pool_connections_total",
+    help_text="Total active HTTP pool connections",
+    labels=["client_name"],
+)
+
+http_pool_requests_total = Counter(
+    name="pythinker_http_pool_requests_total",
+    help_text="Total HTTP requests via pool",
+    labels=["client_name", "status"],  # status: success, error
+)
+
+http_pool_request_latency = Histogram(
+    name="pythinker_http_pool_request_latency_seconds",
+    help_text="HTTP pool request latency in seconds",
+    labels=["client_name"],
+    buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 2.5, 5.0],
+)
+
+http_pool_errors_total = Counter(
+    name="pythinker_http_pool_errors_total",
+    help_text="Total HTTP pool errors",
+    labels=["client_name", "error_type"],
+)
+
+http_pool_pool_exhaustion_total = Counter(
+    name="pythinker_http_pool_exhaustion_total",
+    help_text="HTTP pool exhaustion events (PoolTimeout)",
+    labels=["client_name"],
 )
 
 # Plan Quality Metrics
@@ -422,9 +499,114 @@ intent_classification_total = Counter(
     labels=["detected_intent", "selected_mode"],  # greeting/simple_query/complex_task
 )
 
+# Domain MetricsPort-backed counters/histograms
+response_policy_mode_total = Counter(
+    name="pythinker_response_policy_mode_total",
+    help_text="Response policy mode selections",
+    labels=["mode"],
+)
+
+compression_rejected_total = Counter(
+    name="pythinker_compression_rejected_total",
+    help_text="Compression attempts rejected by quality checks",
+    labels=["reason"],
+)
+
+clarification_requested_total = Counter(
+    name="pythinker_clarification_requested_total",
+    help_text="Clarification requests emitted by flow guardrails",
+    labels=["reason"],
+)
+
+clarification_resolved_total = Counter(
+    name="pythinker_clarification_resolved_total",
+    help_text="Clarification requests resolved",
+    labels=["source"],
+)
+
+fast_ack_refiner_total = Counter(
+    name="pythinker_fast_ack_refiner_total",
+    help_text="Fast acknowledgment refiner outcomes",
+    labels=["status", "reason"],
+)
+
+fast_ack_refiner_latency_seconds = Histogram(
+    name="pythinker_fast_ack_refiner_latency_seconds",
+    help_text="Fast acknowledgment refiner latency in seconds",
+    labels=["status"],
+    buckets=[0.01, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0],
+)
+
+final_response_tokens = Histogram(
+    name="pythinker_final_response_tokens",
+    help_text="Estimated token count of final response content",
+    labels=["mode"],
+    buckets=[64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384],
+)
+
+delivery_integrity_gate_result_total = Counter(
+    name="pythinker_delivery_integrity_gate_result_total",
+    help_text="Delivery integrity gate outcomes",
+    labels=["provider", "result", "strict_mode"],
+)
+
+delivery_integrity_gate_warning_total = Counter(
+    name="pythinker_delivery_integrity_gate_warning_total",
+    help_text="Delivery integrity gate warning reasons",
+    labels=["provider", "reason", "strict_mode"],
+)
+
+delivery_integrity_gate_block_reason_total = Counter(
+    name="pythinker_delivery_integrity_gate_block_reason_total",
+    help_text="Delivery integrity gate blocking reasons",
+    labels=["provider", "reason", "strict_mode"],
+)
+
+delivery_integrity_stream_truncation_total = Counter(
+    name="pythinker_delivery_integrity_stream_truncation_total",
+    help_text="Stream truncation lifecycle outcomes for delivery integrity",
+    labels=["provider", "finish_reason", "outcome"],
+)
+
+# Phase 4: Grounding Safety Metrics
+grounded_claim_ratio = Gauge(
+    name="pythinker_grounded_claim_ratio",
+    help_text="Ratio of claims supported by high-confidence evidence",
+    labels=["session_id"],
+)
+
+hallucination_rate = Gauge(
+    name="pythinker_hallucination_rate",
+    help_text="Rate of detected hallucinations per response",
+    labels=["session_id"],
+)
+
+evidence_caveat_total = Counter(
+    name="pythinker_evidence_caveat_total",
+    help_text="Evidence blocks with caveats injected",
+    labels=["confidence_level"],
+)
+
+evidence_rejection_total = Counter(
+    name="pythinker_evidence_rejection_total",
+    help_text="Evidence blocks rejected due to low confidence",
+    labels=["reason"],
+)
+
+evidence_contradiction_total = Counter(
+    name="pythinker_evidence_contradiction_total",
+    help_text="Contradictions detected in evidence",
+    labels=["detection_type"],  # "numeric", "negation", "llm"
+)
+
 # Register additional metrics defined after the base registry
 _metrics_registry.extend(
     [
+        http_pool_connections_total,
+        http_pool_requests_total,
+        http_pool_request_latency,
+        http_pool_errors_total,
+        http_pool_pool_exhaustion_total,
         workflow_phase_duration,
         workflow_phase_transitions,
         tool_selection_accuracy,
@@ -438,6 +620,23 @@ _metrics_registry.extend(
         failure_prediction_total,
         failure_prediction_probability,
         intent_classification_total,
+        response_policy_mode_total,
+        compression_rejected_total,
+        clarification_requested_total,
+        clarification_resolved_total,
+        fast_ack_refiner_total,
+        fast_ack_refiner_latency_seconds,
+        final_response_tokens,
+        delivery_integrity_gate_result_total,
+        delivery_integrity_gate_warning_total,
+        delivery_integrity_gate_block_reason_total,
+        delivery_integrity_stream_truncation_total,
+        # Phase 4: Grounding Safety Metrics
+        grounded_claim_ratio,
+        hallucination_rate,
+        evidence_caveat_total,
+        evidence_rejection_total,
+        evidence_contradiction_total,
     ]
 )
 
@@ -485,6 +684,61 @@ def record_tool_call(
     """
     tool_calls_total.inc({"tool": tool, "status": status})
     tool_latency.observe({"tool": tool}, latency)
+
+
+def record_screenshot_capture(
+    trigger: str,
+    status: str,
+    latency: float,
+    size_bytes: int = 0,
+) -> None:
+    """Record screenshot capture metrics.
+
+    Args:
+        trigger: Screenshot trigger type
+        status: "success" or "error"
+        latency: Capture latency in seconds
+        size_bytes: Captured image size in bytes
+    """
+    normalized_trigger = (trigger or "").strip().lower() or "unknown"
+    normalized_status = (status or "").strip().lower()
+    if normalized_status not in {"success", "error"}:
+        normalized_status = "error"
+
+    screenshot_captures_total.inc({"trigger": normalized_trigger, "status": normalized_status})
+    screenshot_capture_latency.observe({"trigger": normalized_trigger, "status": normalized_status}, latency)
+
+    if normalized_status == "success" and size_bytes > 0:
+        screenshot_capture_size_bytes.inc({"trigger": normalized_trigger}, size_bytes)
+
+
+def record_screenshot_fetch(
+    access: str,
+    status: str,
+    latency: float,
+    size_bytes: int = 0,
+) -> None:
+    """Record screenshot fetch metrics.
+
+    Args:
+        access: "full" or "thumbnail"
+        status: "success" or "error"
+        latency: Fetch latency in seconds
+        size_bytes: Served image size in bytes
+    """
+    normalized_access = (access or "").strip().lower()
+    if normalized_access not in {"full", "thumbnail"}:
+        normalized_access = "full"
+
+    normalized_status = (status or "").strip().lower()
+    if normalized_status not in {"success", "error"}:
+        normalized_status = "error"
+
+    screenshot_fetch_total.inc({"access": normalized_access, "status": normalized_status})
+    screenshot_fetch_latency.observe({"access": normalized_access, "status": normalized_status}, latency)
+
+    if normalized_status == "success" and size_bytes > 0:
+        screenshot_fetch_size_bytes.inc({"access": normalized_access}, size_bytes)
 
 
 def record_plan_verification(result: str) -> None:
@@ -667,6 +921,46 @@ def update_cache_size(cache_type: str, size: int) -> None:
         size: Current number of entries in cache
     """
     cache_size.set({"cache_type": cache_type}, size)
+
+
+# Phase 1: HTTP Client Pool Metric Functions
+def record_http_pool_request(
+    client_name: str,
+    status: str,
+    latency: float,
+) -> None:
+    """Record an HTTP pool request.
+
+    Args:
+        client_name: Name of the HTTP client
+        status: "success" or "error"
+        latency: Request latency in seconds
+    """
+    http_pool_requests_total.inc({"client_name": client_name, "status": status})
+    http_pool_request_latency.observe({"client_name": client_name}, latency)
+
+
+def record_http_pool_error(client_name: str, error_type: str) -> None:
+    """Record an HTTP pool error.
+
+    Args:
+        client_name: Name of the HTTP client
+        error_type: Type of error (e.g., "timeout", "connection", "pool_exhaustion")
+    """
+    http_pool_errors_total.inc({"client_name": client_name, "error_type": error_type})
+
+    if error_type == "pool_exhaustion":
+        http_pool_pool_exhaustion_total.inc({"client_name": client_name})
+
+
+def update_http_pool_connections(client_name: str, count: int) -> None:
+    """Update the count of active HTTP pool connections.
+
+    Args:
+        client_name: Name of the HTTP client
+        count: Number of active connections
+    """
+    http_pool_connections_total.set({"client_name": client_name}, count)
 
 
 def collect_all_metrics() -> dict[str, Any]:
