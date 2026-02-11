@@ -536,9 +536,9 @@ class DockerSandbox(Sandbox):
         sandbox_connection_failure_total.inc({"reason": final_error_reason})
         sandbox_warmup_duration.observe({"status": "failure"}, elapsed)
 
-            error_message = f"Sandbox failed to become ready after {max_retries} attempts ({elapsed:.1f}s elapsed)"
-            logger.error(error_message)
-            raise RuntimeError(error_message)
+        error_message = f"Sandbox failed to become ready after {max_retries} attempts ({elapsed:.1f}s elapsed)"
+        logger.error(error_message)
+        raise RuntimeError(error_message)
 
     def _container_exists_and_running(self) -> bool:
         """Best-effort check to avoid retry storms for removed containers."""

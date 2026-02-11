@@ -1,9 +1,9 @@
 """End-to-end integration tests for sandbox OOM detection (Priority 3)."""
 
 import asyncio
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from unittest.mock import AsyncMock, Mock, patch
 
 from app.core.sandbox_pool import SandboxPool
 
@@ -67,8 +67,6 @@ async def test_oom_detection_removes_sandbox_from_pool():
 @pytest.mark.asyncio
 async def test_oom_detection_faster_than_health_check():
     """Test that OOM detection via events is faster than polling."""
-    import time
-
     # Event-based detection: instant
     event_detection_time = 0.0  # Immediate when event received
 
