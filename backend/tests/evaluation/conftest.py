@@ -4,7 +4,6 @@ Provides shared fixtures and configuration for Phase 0-5 evaluation tests.
 """
 
 from typing import Any
-
 import pytest
 
 
@@ -71,14 +70,15 @@ def evaluation_config(evaluation_mode) -> dict[str, Any]:
             "tool_cache_enabled": False,
             "failure_snapshots_enabled": False,
         }
-    else:  # enhanced
-        return {
-            "response_recovery_enabled": True,
-            "duplicate_suppression_enabled": True,
-            "argument_canonicalization_enabled": True,
-            "tool_cache_enabled": True,
-            "failure_snapshots_enabled": True,
-        }
+
+    # enhanced
+    return {
+        "response_recovery_enabled": True,
+        "duplicate_suppression_enabled": True,
+        "argument_canonicalization_enabled": True,
+        "tool_cache_enabled": True,
+        "failure_snapshots_enabled": True,
+    }
 
 
 @pytest.fixture
