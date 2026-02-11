@@ -3,8 +3,8 @@
 Provides shared fixtures and configuration for Phase 0-5 evaluation tests.
 """
 
-import pytest
 from typing import Any
+import pytest
 
 
 # =============================================================================

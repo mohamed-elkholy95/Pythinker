@@ -123,6 +123,7 @@ class ToolExecutionContext:
 
 class ScreenshotCaptureService:
     """Captures screenshots during session execution for later replay."""
+
     MAX_PERIODIC_FAILURES = 3
 
     def __init__(
@@ -186,11 +187,7 @@ class ScreenshotCaptureService:
         if self._tool_context is None:
             return
 
-        if (
-            tool_call_id
-            and self._tool_context.tool_call_id
-            and self._tool_context.tool_call_id != tool_call_id
-        ):
+        if tool_call_id and self._tool_context.tool_call_id and self._tool_context.tool_call_id != tool_call_id:
             return
 
         self._tool_context = None
