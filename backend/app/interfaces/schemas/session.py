@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.application.schemas.session import (
     ConsoleRecord as ApplicationConsoleRecord,
@@ -22,6 +22,14 @@ class CreateSessionRequest(BaseModel):
     sandbox_wait_seconds: float = 3.0
 
 
+class FollowUpContext(BaseModel):
+    """Follow-up context from suggestion clicks"""
+
+    selected_suggestion: str = Field(..., description="The suggestion text that was clicked")
+    anchor_event_id: str = Field(..., description="Event ID to anchor context to")
+    source: str = Field(default="suggestion_click", description="Source of follow-up")
+
+
 class ChatRequest(BaseModel):
     """Chat request schema"""
 
@@ -31,6 +39,7 @@ class ChatRequest(BaseModel):
     event_id: str | None = None
     skills: list[str] | None = None
     deep_research: bool | None = None  # Enable deep research mode (parallel wide_research)
+    follow_up: FollowUpContext | None = None  # Follow-up context from suggestion clicks
 
 
 class ResumeSessionRequest(BaseModel):

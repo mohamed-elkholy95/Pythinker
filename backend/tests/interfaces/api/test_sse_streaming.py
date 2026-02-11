@@ -422,6 +422,36 @@ class TestEventSerialization:
         assert parsed["type"] == "stream"
 
     @pytest.mark.asyncio
+    async def test_suggestion_event_sse_includes_metadata(self):
+        """Test SuggestionEvent metadata fields are preserved in SSE serialization.
+
+        E2E Verification: SSE stream must carry suggestion metadata so frontend
+        can render anchor context and backend can use it for follow-up routing.
+        """
+        from app.domain.models.event import SuggestionEvent
+        from app.interfaces.schemas.event import EventMapper
+
+        # Create SuggestionEvent with full metadata
+        event = SuggestionEvent(
+            suggestions=["Tell me more about X", "What about Y?"],
+            source="completion",
+            anchor_event_id="evt_report_123",
+            anchor_excerpt="The analysis found 3 key insights...",
+        )
+
+        # Convert to SSE event
+        sse_event = await EventMapper.event_to_sse_event(event)
+
+        # Verify SSE event structure
+        assert sse_event.event == "suggestion"
+        assert sse_event.data.suggestions == ["Tell me more about X", "What about Y?"]
+
+        # E2E Critical: Metadata must be in SSE payload
+        assert sse_event.data.source == "completion"
+        assert sse_event.data.anchor_event_id == "evt_report_123"
+        assert sse_event.data.anchor_excerpt == "The analysis found 3 key insights..."
+
+    @pytest.mark.asyncio
     async def test_stream_event_phase_passthrough_to_sse(self):
         """Test StreamEvent phase is preserved in SSE payload."""
         event = StreamEvent(content="summary chunk", is_final=False, phase="summarizing")

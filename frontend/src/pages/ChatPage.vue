@@ -430,6 +430,8 @@ const createInitialState = () => ({
   isInitializing: false, // True when starting up the sandbox environment
   planningProgress: null as { phase: string; message: string; percent: number } | null, // Planning progress
   isWaitingForReply: false, // True when agent is waiting for user input
+  followUpAnchorEventId: undefined as string | undefined, // Event ID to anchor follow-up context to
+  pendingFollowUpSuggestion: undefined as string | undefined, // Suggestion waiting to be sent
 });
 
 // Create reactive state
@@ -473,6 +475,8 @@ const {
   isInitializing,
   planningProgress,
   isWaitingForReply,
+  followUpAnchorEventId,
+  pendingFollowUpSuggestion,
 } = toRefs(state);
 
 // Message ID counter for generating unique keys (avoids crypto overhead)
@@ -1072,6 +1076,8 @@ const handleMessageEvent = (messageData: MessageEventData) => {
   // Assistant message means agent finished thinking
   if (messageData.role === 'assistant') {
     isThinking.value = false;
+    // Track anchor event ID for follow-up suggestions
+    followUpAnchorEventId.value = messageData.event_id;
   }
 
   // Clear summary streaming overlay — message takes over
@@ -1376,6 +1382,25 @@ const buildCompletionFallbackSuggestions = (): string[] => {
 const ensureCompletionSuggestions = () => {
   if (suggestions.value.length > 0) return;
   suggestions.value = buildCompletionFallbackSuggestions();
+
+  // Find anchor event ID from latest assistant or report message
+  for (let i = messages.value.length - 1; i >= 0; i--) {
+    const message = messages.value[i];
+    if (message.type === 'assistant') {
+      const content = message.content as MessageContent;
+      if (content.event_id) {
+        followUpAnchorEventId.value = content.event_id;
+        break;
+      }
+    }
+    if (message.type === 'report') {
+      const content = message.content as ReportContent;
+      if (content.event_id) {
+        followUpAnchorEventId.value = content.event_id;
+        break;
+      }
+    }
+  }
 };
 
 // Handle report event
@@ -1383,6 +1408,9 @@ const handleReportEvent = (reportData: ReportEventData) => {
   // Clear summary streaming overlay — report card takes over
   summaryStreamText.value = '';
   isSummaryStreaming.value = false;
+
+  // Track anchor event ID for follow-up suggestions
+  followUpAnchorEventId.value = reportData.event_id;
 
   const sections = extractSectionsFromMarkdown(reportData.content);
   messages.value.push({
@@ -1561,6 +1589,7 @@ const handleCanvasUpdateEvent = (data: CanvasUpdateEventData) => {
 // Handle suggestion selection (user clicks a suggestion)
 const handleSuggestionSelect = (suggestion: string) => {
   inputMessage.value = suggestion;
+  pendingFollowUpSuggestion.value = suggestion; // Track that this came from a suggestion
   suggestions.value = []; // Clear suggestions after selection
   handleSubmit();
 }
@@ -1756,6 +1785,18 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
     lastSentTime = now;
   }
 
+  // Build follow-up context if this message came from a suggestion click
+  const followUp = pendingFollowUpSuggestion.value && followUpAnchorEventId.value
+    ? {
+        selected_suggestion: pendingFollowUpSuggestion.value,
+        anchor_event_id: followUpAnchorEventId.value,
+        source: 'suggestion_click' as const,
+      }
+    : null;
+
+  // Clear pending follow-up state after building the context
+  pendingFollowUpSuggestion.value = undefined;
+
   // Cancel any existing chat connection before starting a new one
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value();
@@ -1848,7 +1889,8 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
             emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
           }
         }
-      }
+      },
+      followUp
     );
   } catch {
     isLoading.value = false;
