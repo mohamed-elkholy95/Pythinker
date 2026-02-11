@@ -497,6 +497,7 @@ class AgentService:
         attachments: list[dict] | None = None,
         skills: list[str] | None = None,
         deep_research: bool | None = None,
+        follow_up: dict | None = None,
     ) -> AsyncGenerator[AgentEvent, None]:
         started_at = time.perf_counter()
         emitted_events = 0
@@ -538,6 +539,15 @@ class AgentService:
                 e,
             )
 
+        # Extract follow_up fields for domain service
+        follow_up_selected_suggestion: str | None = None
+        follow_up_anchor_event_id: str | None = None
+        follow_up_source: str | None = None
+        if follow_up:
+            follow_up_selected_suggestion = follow_up.get("selected_suggestion")
+            follow_up_anchor_event_id = follow_up.get("anchor_event_id")
+            follow_up_source = follow_up.get("source")
+
         # Guard long stalls waiting for the next domain event so API calls do not hang indefinitely.
         event_timeout_seconds = max(0.0, self.CHAT_EVENT_TIMEOUT_SECONDS)
         event_stream = self._agent_domain_service.chat(
@@ -551,6 +561,9 @@ class AgentService:
             deep_research,
             extra_mcp_configs=extra_mcp_configs,
             auto_trigger_enabled=auto_trigger_enabled,
+            follow_up_selected_suggestion=follow_up_selected_suggestion,
+            follow_up_anchor_event_id=follow_up_anchor_event_id,
+            follow_up_source=follow_up_source,
         )
         stream_iter = event_stream.__aiter__()
 
