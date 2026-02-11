@@ -204,6 +204,10 @@ class PlanActFlow(BaseFlow):
         self._memory_service = memory_service
         self._user_id = user_id
 
+        # Phase 5: Checkpoint tracking for incremental progress saves
+        self._checkpoint_interval = 5  # Write checkpoint every 5 steps
+        self._steps_completed_count = 0
+
         # Role-scoped memory for context injection (Phase 4: Role-Scoped Memory Access)
         from app.domain.services.role_scoped_memory import RoleScopedMemory
 
@@ -823,6 +827,63 @@ class PlanActFlow(BaseFlow):
             logger.debug(f"Saved progress artifact: {len(completed_steps)}/{len(self.plan.steps)} steps")
         except Exception as e:
             logger.debug(f"Failed to save progress artifact: {e}")
+
+    async def _write_checkpoint(
+        self,
+        step_index: int,
+        is_final: bool = False,
+    ) -> None:
+        """Write execution checkpoint to memory.
+
+        Phase 5: Incremental checkpoints prevent context loss in long sessions
+        by persisting progress as high-importance memories.
+
+        Args:
+            step_index: Current step index (0-based)
+            is_final: Whether this is the final checkpoint
+        """
+        if not self._memory_service or not self._user_id or not self.plan:
+            return
+
+        try:
+            from app.domain.models.long_term_memory import MemoryImportance, MemorySource, MemoryType
+
+            # Summarize progress
+            completed_steps = []
+            for i, step in enumerate(self.plan.steps):
+                if i <= step_index and step.status == ExecutionStatus.COMPLETED:
+                    status_str = "✓ Success" if step.success else "✗ Failed"
+                    result_preview = str(step.result)[:100] if step.result else "completed"
+                    completed_steps.append(f"Step {i+1}: {status_str} - {step.description[:80]} ({result_preview})")
+
+            if not completed_steps:
+                return
+
+            summary = f"Execution checkpoint (steps 1-{step_index + 1}):\n"
+            summary += "\n".join(completed_steps[-10:])  # Last 10 steps to keep checkpoint concise
+
+            # Store as high-importance memory
+            await self._memory_service.store_memory(
+                user_id=self._user_id,
+                content=summary,
+                memory_type=MemoryType.PROJECT_CONTEXT,
+                importance=MemoryImportance.CRITICAL if is_final else MemoryImportance.HIGH,
+                source=MemorySource.SYSTEM,
+                session_id=self._session_id,
+                tags=["checkpoint", "execution", "final" if is_final else "incremental"],
+                metadata={
+                    "step_index": step_index,
+                    "total_steps": len(self.plan.steps),
+                    "is_final": is_final,
+                    "plan_title": self.plan.title or "Untitled",
+                    "checkpoint_timestamp": datetime.utcnow().isoformat(),
+                },
+                generate_embedding=True,
+            )
+
+            logger.info(f"Checkpoint written at step {step_index + 1} ({'final' if is_final else 'incremental'})")
+        except Exception as e:
+            logger.warning(f"Failed to write checkpoint: {e}")
 
     async def _load_progress_artifact(self) -> dict | None:
         """Load previously saved progress artifact from sandbox.
@@ -1965,6 +2026,14 @@ class PlanActFlow(BaseFlow):
                         logger.info(
                             f"Agent {self._agent_id} has no more steps, state changed from {AgentStatus.EXECUTING} to {AgentStatus.COMPLETED}"
                         )
+                        # Phase 5: Write final checkpoint before summarizing
+                        if self._steps_completed_count > 0:
+                            last_completed_index = next(
+                                (len(self.plan.steps) - 1 - i for i, s in enumerate(reversed(self.plan.steps)) if s.status == ExecutionStatus.COMPLETED),
+                                -1
+                            )
+                            if last_completed_index >= 0:
+                                await self._write_checkpoint(last_completed_index, is_final=True)
                         self._transition_to(AgentStatus.SUMMARIZING)
                         continue
 
@@ -2094,6 +2163,16 @@ class PlanActFlow(BaseFlow):
 
                         # Session bridging: save progress after each step
                         await self._save_progress_artifact()
+
+                        # Phase 5: Incremental checkpoints every N steps
+                        if step.success:
+                            self._steps_completed_count += 1
+                            # Write checkpoint every 5 completed steps
+                            if self._steps_completed_count % self._checkpoint_interval == 0:
+                                # Find step index in plan
+                                step_index = next((i for i, s in enumerate(self.plan.steps) if s.id == step.id), -1)
+                                if step_index >= 0:
+                                    await self._write_checkpoint(step_index, is_final=False)
 
                         # Handle step failure - cascade blocking to dependent steps
                         if not step.success and step.status == ExecutionStatus.FAILED:
