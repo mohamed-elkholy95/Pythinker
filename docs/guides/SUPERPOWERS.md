@@ -415,7 +415,7 @@ SUPERPOWERS_DIR = Path(__file__).parent.parent.parent.parent.parent / "superpowe
 #### Step 1: Copy Skills to Pythinker Repo
 
 ```bash
-cd /Users/panda/Desktop/Projects/Pythinker
+cd "$PROJECT_ROOT"  # Your Pythinker project directory
 
 # Create skills directory
 mkdir -p backend/app/infrastructure/seeds/skills
@@ -725,7 +725,7 @@ print(context.prompt_addition)
 - [x] Auto-triggering (optional)
 - [x] Database-backed storage
 - [x] REST API for CRUD
-- [ ] Self-contained (bundled skills) - **In Progress**
+- [x] Self-contained (bundled skills) - **Completed**
 
 ### Q2 2026
 

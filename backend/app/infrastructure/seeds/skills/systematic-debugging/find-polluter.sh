@@ -25,6 +25,10 @@ if command -v rg >/dev/null 2>&1; then
     TEST_FILES+=("$TEST_FILE")
   done < <(rg --files -0 -g "$TEST_PATTERN" | sort -z)
 else
+  globstar_was_enabled=0
+  if shopt -q globstar; then
+    globstar_was_enabled=1
+  fi
   shopt -s globstar
   while IFS= read -r -d '' TEST_FILE; do
     REL_PATH="${TEST_FILE#./}"
@@ -32,7 +36,9 @@ else
       TEST_FILES+=("$REL_PATH")
     fi
   done < <(find . -type f -print0 | sort -z)
-  shopt -u globstar
+  if [ "$globstar_was_enabled" -eq 0 ]; then
+    shopt -u globstar
+  fi
 fi
 
 TOTAL=${#TEST_FILES[@]}

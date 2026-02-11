@@ -57,7 +57,7 @@ Skip any step = lying, not verifying
 - Trusting agent success reports
 - Relying on partial verification
 - Thinking "just this once"
-- Tired and wanting work over
+- Tired and wanting the work to be over
 - **ANY wording implying success without having run verification**
 
 ## Rationalization Prevention

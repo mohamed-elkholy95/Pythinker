@@ -111,7 +111,7 @@ class Settings(BaseSettings):
     sandbox_seccomp_profile: str | None = None
     sandbox_shm_size: str | None = "1g"  # Chrome headless needs 512MB-1GB (reduced from 2g)
     sandbox_mem_limit: str | None = "3g"  # Right-sized for single-session sandbox (reduced from 4g)
-    sandbox_cpu_limit: float | None = 1.5  # 2 containers × 1.5 CPU = 3 cores, leaves room for services
+    sandbox_cpu_limit: float | None = 1.5  # 2 containers x 1.5 CPU = 3 cores, leaves room for services
     sandbox_pids_limit: int | None = 300  # Sufficient for Chrome + Node + Python + supervisor
     sandbox_framework_port: int = 8082
     sandbox_framework_enabled: bool = True

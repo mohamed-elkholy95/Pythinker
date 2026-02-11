@@ -230,42 +230,53 @@ class SandboxPool:
         Returns:
             A ready-to-use Sandbox instance
         """
-        try:
-            sandbox = await asyncio.wait_for(self._pool.get(), timeout=min(timeout, 5.0))
-            sandbox_id = getattr(sandbox, "id", "?")
-            self._pool_timestamps.pop(sandbox_id, None)
-            self._total_acquisitions += 1
+        max_health_retries = 2
+        for _attempt in range(max_health_retries + 1):
+            try:
+                sandbox = await asyncio.wait_for(self._pool.get(), timeout=min(timeout, 5.0))
+                sandbox_id = getattr(sandbox, "id", "?")
+                self._pool_timestamps.pop(sandbox_id, None)
+                self._total_acquisitions += 1
 
-            # Unpause if sandbox was paused
-            if sandbox_id in self._paused_ids:
-                self._paused_ids.discard(sandbox_id)
-                if hasattr(sandbox, "unpause"):
-                    await sandbox.unpause()
-                    # Quick health check after unpause (2s timeout)
-                    try:
-                        if hasattr(sandbox, "ensure_sandbox"):
-                            await asyncio.wait_for(sandbox.ensure_sandbox(), timeout=10.0)
-                    except (TimeoutError, Exception) as e:
-                        logger.warning(f"Unpaused sandbox {sandbox_id} failed health check: {e}, destroying")
-                        await sandbox.destroy()
-                        self._total_on_demand += 1
-                        return await self._sandbox_cls.create()
+                # Unpause if sandbox was paused
+                if sandbox_id in self._paused_ids:
+                    self._paused_ids.discard(sandbox_id)
+                    if hasattr(sandbox, "unpause"):
+                        await sandbox.unpause()
+                        # Quick health check after unpause
+                        try:
+                            if hasattr(sandbox, "ensure_sandbox"):
+                                await asyncio.wait_for(sandbox.ensure_sandbox(), timeout=10.0)
+                        except (TimeoutError, Exception) as e:
+                            logger.warning(
+                                f"Unpaused sandbox {sandbox_id} failed health check: {e}, "
+                                f"destroying (attempt {_attempt + 1}/{max_health_retries + 1})"
+                            )
+                            await sandbox.destroy()
+                            # Trigger replenishment and retry from pool
+                            if not self._stopping:
+                                task = create_task(self._replenish_one())
+                                self._background_tasks.add(task)
+                                task.add_done_callback(self._background_tasks.discard)
+                            continue
 
-            logger.info(f"Acquired sandbox from pool (remaining: {self._pool.qsize()})")
+                logger.info(f"Acquired sandbox from pool (remaining: {self._pool.qsize()})")
 
-            # Trigger background replenishment
-            if not self._stopping:
-                task = create_task(self._replenish_one())
-                self._background_tasks.add(task)
-                task.add_done_callback(self._background_tasks.discard)
+                # Trigger background replenishment
+                if not self._stopping:
+                    task = create_task(self._replenish_one())
+                    self._background_tasks.add(task)
+                    task.add_done_callback(self._background_tasks.discard)
 
-            return sandbox
+                return sandbox
 
-        except TimeoutError:
-            # Pool exhausted, create on-demand
-            self._total_on_demand += 1
-            logger.warning(f"Sandbox pool exhausted (size={self._pool.qsize()}), creating on-demand")
-            return await self._sandbox_cls.create()
+            except TimeoutError:
+                break
+
+        # Pool exhausted or all health check retries failed, create on-demand
+        self._total_on_demand += 1
+        logger.warning(f"Sandbox pool exhausted (size={self._pool.qsize()}), creating on-demand")
+        return await self._sandbox_cls.create()
 
     async def _warm_pool(self) -> None:
         """Fill pool to minimum size, respecting host memory pressure."""
@@ -420,10 +431,23 @@ class SandboxPool:
         sandbox_id = getattr(sandbox, "id", "?")
         try:
             await sleep(self._PAUSE_DELAY_SECONDS)
-            # Only pause if still in pool (not yet acquired)
-            if sandbox_id in self._pool_timestamps and not self._stopping and await sandbox.pause():
-                self._paused_ids.add(sandbox_id)
-                logger.info(f"Paused idle pooled sandbox {sandbox_id}")
+            if self._stopping:
+                return
+            # Atomically reserve by popping timestamp before awaiting pause
+            # to prevent TOCTOU race with concurrent acquire()
+            timestamp = self._pool_timestamps.pop(sandbox_id, None)
+            if timestamp is None:
+                return  # Already acquired or evicted
+            try:
+                if await sandbox.pause():
+                    self._paused_ids.add(sandbox_id)
+                    self._pool_timestamps[sandbox_id] = timestamp
+                    logger.info(f"Paused idle pooled sandbox {sandbox_id}")
+                else:
+                    self._pool_timestamps[sandbox_id] = timestamp
+            except Exception:
+                self._pool_timestamps[sandbox_id] = timestamp
+                raise
         except CancelledError:
             pass
         except Exception as e:

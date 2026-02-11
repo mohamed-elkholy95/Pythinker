@@ -306,9 +306,9 @@ class ManagedSandbox:
             "cap_drop": ["ALL"],
             "cap_add": ["CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE", "SYS_CHROOT"],
             "tmpfs": {
-                "/run": "size=100M,nosuid,nodev",
-                "/tmp": "size=500M,nosuid,nodev",
-                "/home/ubuntu/.cache": "size=200M,nosuid,nodev",
+                "/run": "size=50M,nosuid,nodev",
+                "/tmp": "size=300M,nosuid,nodev",
+                "/home/ubuntu/.cache": "size=150M,nosuid,nodev",
             },
             "shm_size": settings.sandbox_shm_size,
             "mem_limit": settings.sandbox_mem_limit,
