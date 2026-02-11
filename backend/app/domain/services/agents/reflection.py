@@ -32,7 +32,6 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from app.core.config import get_feature_flags
 from app.domain.external.llm import LLM
 from app.domain.external.observability import MetricsPort, get_null_metrics
 from app.domain.models.event import (
@@ -100,21 +99,37 @@ class ReflectionAgent:
     - Fail-open: On error, recommend CONTINUE to avoid blocking
     """
 
-    def __init__(self, llm: LLM, json_parser: JsonParser, config: ReflectionConfig | None = None):
+    def __init__(
+        self,
+        llm: LLM,
+        json_parser: JsonParser,
+        config: ReflectionConfig | None = None,
+        feature_flags: dict[str, bool] | None = None,
+    ):
         """Initialize the ReflectionAgent.
 
         Args:
             llm: Language model for assessment
             json_parser: Parser for structured responses
             config: Optional configuration
+            feature_flags: Optional feature flags (injected by orchestrator)
         """
         self.llm = llm
         self.json_parser = json_parser
         self.config = config or ReflectionConfig()
+        self._feature_flags = feature_flags
 
         # Track reflection history to prevent loops
         self._reflection_count = 0
         self._last_reflection_step = -1
+
+    def _resolve_feature_flags(self) -> dict[str, bool]:
+        """Return injected feature flags, falling back to core config."""
+        if self._feature_flags is not None:
+            return self._feature_flags
+        from app.core.config import get_feature_flags
+
+        return get_feature_flags()
 
     def should_reflect(
         self,
@@ -156,7 +171,7 @@ class ReflectionAgent:
                 )
 
         if not trigger:
-            flags = get_feature_flags()
+            flags = self._resolve_feature_flags()
             if flags.get("reflection_advanced") and recent_actions:
                 # Advanced signals: repeated failures or action loops
                 recent = recent_actions[-5:]

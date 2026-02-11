@@ -17,7 +17,6 @@ except ImportError:
     Browser = None
     ChatOpenAI = None
 
-from app.core.config import get_settings
 from app.domain.models.tool_result import ToolResult
 from app.domain.services.tools.base import BaseTool, tool
 
@@ -249,6 +248,9 @@ class BrowserAgentTool(BaseTool):
         super().__init__()
         self._cdp_url = cdp_url
         self._browser: Browser | None = None
+
+        from app.core.config import get_settings
+
         self._settings = get_settings()
 
     async def _get_browser(self) -> Browser:

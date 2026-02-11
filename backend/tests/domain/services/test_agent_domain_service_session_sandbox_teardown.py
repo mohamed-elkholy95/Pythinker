@@ -114,7 +114,7 @@ async def test_teardown_legacy_session_destroys_sandbox_when_global_mode_is_ephe
     service = _build_service(session_repo, sandbox_cls, task_cls)
 
     with patch(
-        "app.domain.services.agent_domain_service.get_settings",
+        "app.core.config.get_settings",
         return_value=SimpleNamespace(sandbox_lifecycle_mode="ephemeral"),
     ):
         await service._teardown_session_runtime(session.id)

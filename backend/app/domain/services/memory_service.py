@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING, Any
 from openai import AsyncOpenAI
 
 from app.core.async_utils import gather_compat
-from app.core.config import get_settings
 from app.domain.external.llm import LLM
 from app.domain.models.long_term_memory import (
     ExtractedMemory,
@@ -80,6 +79,8 @@ class MemoryService:
 
         # Initialize embedding client (separate from chat model)
         # This allows using OpenAI embeddings while using any chat provider
+        from app.core.config import get_settings
+
         settings = get_settings()
         self._embedding_model = embedding_model or settings.embedding_model
 
@@ -96,6 +97,13 @@ class MemoryService:
         self._max_memories_per_user = 10000
         self._dedup_threshold = 0.95  # Similarity threshold for deduplication
         self._consolidation_threshold = 0.85  # Threshold for merging similar memories
+
+    @staticmethod
+    def _get_settings():
+        """Lazy-load settings to avoid top-level core import."""
+        from app.core.config import get_settings
+
+        return get_settings()
 
     async def store_memory(
         self,
@@ -172,7 +180,7 @@ class MemoryService:
         )
 
         # Phase 5: Check if parallel memory writes are enabled
-        settings = get_settings()
+        settings = self._get_settings()
         use_parallel = settings.feature_parallel_memory
 
         if use_parallel and embedding:
@@ -268,7 +276,7 @@ class MemoryService:
             List of created memories
         """
         # Phase 5: Check if parallel memory writes are enabled
-        settings = get_settings()
+        settings = self._get_settings()
         use_parallel = settings.feature_parallel_memory
 
         if use_parallel and len(memories) > 1:
@@ -317,7 +325,7 @@ class MemoryService:
         Returns:
             List of created memories
         """
-        settings = get_settings()
+        settings = self._get_settings()
         use_taskgroup = settings.feature_taskgroup_enabled
 
         async def store_single(extracted: ExtractedMemory) -> MemoryEntry | None:

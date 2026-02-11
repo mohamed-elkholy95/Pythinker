@@ -5,7 +5,7 @@ Tests the planning agent in isolation with mocked LLM responses.
 Covers plan creation, complexity assessment, step normalization, and requirement tracking.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -138,6 +138,7 @@ class TestPlannerAgent:
             llm=mock_llm,
             tools=mock_tools,
             json_parser=mock_json_parser,
+            feature_flags={"structured_outputs": False},
         )
 
     @pytest.mark.asyncio
@@ -173,9 +174,7 @@ class TestPlannerAgent:
         assert len(plan.steps) <= 3
 
     @pytest.mark.asyncio
-    async def test_complex_task_generates_detailed_plan(
-        self, planner, mock_llm_plan_response, mock_message, mock_settings_no_structured
-    ):
+    async def test_complex_task_generates_detailed_plan(self, planner, mock_llm_plan_response, mock_message):
         """Research tasks should generate 5-12 steps."""
         # Setup mock to return a complex plan
         complex_steps = [MagicMock(description=f"Research step {i}") for i in range(1, 8)]
@@ -195,11 +194,10 @@ class TestPlannerAgent:
         )
         plan = None
 
-        with patch("app.domain.services.agents.planner.get_settings", return_value=mock_settings_no_structured):
-            async for event in planner.create_plan(message):
-                if hasattr(event, "plan"):
-                    plan = event.plan
-                    break
+        async for event in planner.create_plan(message):
+            if hasattr(event, "plan"):
+                plan = event.plan
+                break
 
         assert plan is not None
         # Complex task should have multiple steps
@@ -296,7 +294,7 @@ class TestPlannerAgent:
         # Plan should be created successfully with attachments
 
     @pytest.mark.asyncio
-    async def test_replan_includes_context(self, planner, mock_message, mock_settings_no_structured):
+    async def test_replan_includes_context(self, planner, mock_message):
         """Replanning should include the replan context."""
         planner.llm.ask_structured = AsyncMock(
             return_value=MagicMock(
@@ -312,11 +310,10 @@ class TestPlannerAgent:
         replan_context = "Previous plan failed due to missing tool"
 
         plan = None
-        with patch("app.domain.services.agents.planner.get_settings", return_value=mock_settings_no_structured):
-            async for event in planner.create_plan(message, replan_context=replan_context):
-                if hasattr(event, "plan"):
-                    plan = event.plan
-                    break
+        async for event in planner.create_plan(message, replan_context=replan_context):
+            if hasattr(event, "plan"):
+                plan = event.plan
+                break
 
         assert plan is not None
         # Verify the LLM was called (replan context processed)

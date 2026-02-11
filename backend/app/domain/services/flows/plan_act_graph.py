@@ -22,8 +22,6 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from typing import Optional
 
-from app.core.alert_manager import get_alert_manager
-from app.core.config import get_feature_flags, get_settings
 from app.domain.external.browser import Browser
 from app.domain.external.llm import LLM
 from app.domain.external.observability import get_metrics, get_tracer
@@ -314,6 +312,8 @@ def create_plan_act_graph() -> WorkflowGraph:
                     "predicted" if prediction.will_fail else "clear",
                     prediction.probability,
                 )
+                from app.core.alert_manager import get_alert_manager
+
                 await get_alert_manager().check_thresholds(
                     state.session_id,
                     {"failure_prediction_probability": prediction.probability},
@@ -493,7 +493,12 @@ class PlanActGraphFlow(BaseFlow):
         search_engine: SearchEngine | None = None,
         cdp_url: str | None = None,
         enable_verification: bool = True,
+        feature_flags: dict[str, bool] | None = None,
+        browser_agent_enabled: bool = False,
+        alert_port=None,
     ):
+        self._feature_flags = feature_flags
+        self._alert_port = alert_port
         self._agent_id = agent_id
         self._repository = agent_repository
         self._session_id = session_id
@@ -506,8 +511,7 @@ class PlanActGraphFlow(BaseFlow):
         if search_engine:
             tools.append(SearchTool(search_engine, browser=browser))
 
-        settings = get_settings()
-        if cdp_url and settings.browser_agent_enabled:
+        if cdp_url and browser_agent_enabled:
             tools.append(BrowserAgentTool(cdp_url))
 
         # Create agents
@@ -517,6 +521,7 @@ class PlanActGraphFlow(BaseFlow):
             llm=llm,
             tools=tools,
             json_parser=json_parser,
+            feature_flags=feature_flags,
         )
 
         self.executor = ExecutionAgent(
@@ -525,6 +530,7 @@ class PlanActGraphFlow(BaseFlow):
             llm=llm,
             tools=tools,
             json_parser=json_parser,
+            feature_flags=feature_flags,
         )
 
         # Create verifier agent (Phase 1: Plan-Verify-Execute)
@@ -563,6 +569,22 @@ class PlanActGraphFlow(BaseFlow):
         # Create workflow graph
         self._graph = create_plan_act_graph()
 
+    def _resolve_feature_flags(self) -> dict[str, bool]:
+        """Return injected feature flags, falling back to core config."""
+        if self._feature_flags is not None:
+            return self._feature_flags
+        from app.core.config import get_feature_flags
+
+        return get_feature_flags()
+
+    def _resolve_alert_port(self):
+        """Return injected alert port, falling back to core alert manager."""
+        if self._alert_port is not None:
+            return self._alert_port
+        from app.core.alert_manager import get_alert_manager
+
+        return get_alert_manager()
+
     async def run(self, message: Message) -> AsyncGenerator[BaseEvent, None]:
         """Execute the plan-act workflow.
 
@@ -593,7 +615,7 @@ class PlanActGraphFlow(BaseFlow):
             session_id=self._session_id,
             task_state_manager=self._task_state_manager,
         )
-        state.metadata["feature_flags"] = get_feature_flags()
+        state.metadata["feature_flags"] = self._resolve_feature_flags()
 
         # Run with tracing
         with tracer.trace(

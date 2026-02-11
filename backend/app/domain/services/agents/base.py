@@ -4,7 +4,6 @@ import uuid
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from app.core.config import get_feature_flags
 from app.domain.external.llm import LLM
 from app.domain.external.logging import get_agent_logger
 from app.domain.models.agent import Agent
@@ -139,6 +138,7 @@ class BaseAgent:
         tools: list[BaseTool] | None = None,
         state_manifest: StateManifest | None = None,
         circuit_breaker: "CircuitBreakerPort | None" = None,
+        feature_flags: dict[str, bool] | None = None,
     ):
         if tools is None:
             tools = []
@@ -151,6 +151,7 @@ class BaseAgent:
         self._background_tasks: set[asyncio.Task] = set()
         self._active_phase: str | None = None  # Phase-based tool filtering (set by orchestrator)
         self._circuit_breaker = circuit_breaker
+        self._feature_flags = feature_flags
 
         # Structured agent logger
         self._log = get_agent_logger(agent_id)
@@ -180,6 +181,14 @@ class BaseAgent:
 
         # State manifest for blackboard architecture (optional)
         self.state_manifest: StateManifest | None = state_manifest
+
+    def _resolve_feature_flags(self) -> dict[str, bool]:
+        """Return injected feature flags, falling back to core config."""
+        if self._feature_flags is not None:
+            return self._feature_flags
+        from app.core.config import get_feature_flags
+
+        return get_feature_flags()
 
     def get_available_tools(self) -> list[dict[str, Any]] | None:
         """Get all available tools list, filtered by active phase if set."""
@@ -486,7 +495,7 @@ class BaseAgent:
 
         profiler = get_tool_profiler()
         tool_tracer = None
-        flags = get_feature_flags()
+        flags = self._resolve_feature_flags()
         if flags.get("tool_tracing"):
             tool_tracer = get_tool_tracer()
         start_time = time.perf_counter()

@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from app.core.config import get_feature_flags
 from app.domain.services.prediction.failure_predictor import FailurePredictor
 
 logger = logging.getLogger(__name__)
@@ -89,7 +88,13 @@ class ErrorIntegrationBridge:
     """
 
     def __init__(
-        self, error_handler=None, stuck_detector=None, pattern_analyzer=None, token_manager=None, memory_manager=None
+        self,
+        error_handler=None,
+        stuck_detector=None,
+        pattern_analyzer=None,
+        token_manager=None,
+        memory_manager=None,
+        feature_flags: dict[str, bool] | None = None,
     ):
         """Initialize with optional component references.
 
@@ -100,11 +105,20 @@ class ErrorIntegrationBridge:
         self._pattern_analyzer = pattern_analyzer
         self._token_manager = token_manager
         self._memory_manager = memory_manager
+        self._feature_flags = feature_flags
 
         # Track iteration state
         self._iteration_count = 0
         self._last_health_status: AgentHealthStatus | None = None
         self._compaction_triggered_at: int | None = None
+
+    def _resolve_feature_flags(self) -> dict[str, bool]:
+        """Return injected feature flags, falling back to core config."""
+        if self._feature_flags is not None:
+            return self._feature_flags
+        from app.core.config import get_feature_flags
+
+        return get_feature_flags()
 
     def set_error_handler(self, error_handler) -> None:
         """Set the error handler component."""
@@ -219,7 +233,7 @@ class ErrorIntegrationBridge:
         health.details["issues"] = issues
 
         # Failure prediction (shadow mode by default)
-        flags = get_feature_flags()
+        flags = self._resolve_feature_flags()
         if flags.get("failure_prediction"):
             try:
                 predictor = FailurePredictor()

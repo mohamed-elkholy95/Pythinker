@@ -4,7 +4,6 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from app.core.config import get_feature_flags
 from app.domain.external.llm import LLM
 from app.domain.external.observability import MetricsPort, get_null_metrics
 from app.domain.models.event import (
@@ -84,6 +83,7 @@ class ExecutionAgent(BaseAgent):
         user_id: str | None = None,
         attention_injector: AttentionInjector | None = None,
         circuit_breaker=None,
+        feature_flags: dict[str, bool] | None = None,
     ):
         super().__init__(
             agent_id=agent_id,
@@ -92,6 +92,7 @@ class ExecutionAgent(BaseAgent):
             json_parser=json_parser,
             tools=tools,
             circuit_breaker=circuit_breaker,
+            feature_flags=feature_flags,
         )
         # Initialize prompt adapter for dynamic context injection
         self._prompt_adapter = PromptAdapter()
@@ -515,7 +516,7 @@ class ExecutionAgent(BaseAgent):
             )
 
             # Reward hacking detection (log-only)
-            flags = get_feature_flags()
+            flags = self._resolve_feature_flags()
             if flags.get("reward_hacking_detection"):
                 try:
                     task_state_manager = get_task_state_manager()
@@ -767,7 +768,7 @@ class ExecutionAgent(BaseAgent):
             return content, None
 
         # Check feature flags
-        flags = get_feature_flags()
+        flags = self._resolve_feature_flags()
         if not flags.get("chain_of_verification", True):
             return content, None
 

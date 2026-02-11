@@ -69,8 +69,6 @@ except ImportError:
     BrowserAgentTool = None
     BROWSER_USE_AVAILABLE = False
 
-from app.core.alert_manager import get_alert_manager
-from app.core.config import get_feature_flags, get_settings
 from app.domain.external.observability import get_metrics, get_tracer
 from app.domain.services.agents.compliance_gates import ComplianceReport, get_compliance_gates
 from app.domain.services.agents.error_handler import ErrorContext, ErrorHandler, ErrorType
@@ -147,7 +145,12 @@ class PlanActFlow(BaseFlow):
         memory_service: Optional["MemoryService"] = None,
         user_id: str | None = None,
         file_sweep_callback: Callable[[], Coroutine[Any, Any, None]] | None = None,
+        feature_flags: dict[str, bool] | None = None,
+        browser_agent_enabled: bool = False,
+        alert_port=None,
     ):
+        self._feature_flags = feature_flags
+        self._alert_port = alert_port
         self._agent_id = agent_id
         self._repository = agent_repository
         self._session_id = session_id
@@ -219,8 +222,7 @@ class PlanActFlow(BaseFlow):
             tools.append(self._search_tool)
 
         # Add browser agent tool when cdp_url is available, enabled, and browser_use is installed
-        settings = get_settings()
-        if cdp_url and settings.browser_agent_enabled and BROWSER_USE_AVAILABLE and BrowserAgentTool:
+        if cdp_url and browser_agent_enabled and BROWSER_USE_AVAILABLE and BrowserAgentTool:
             try:
                 tools.append(BrowserAgentTool(cdp_url))
                 logger.info(f"Browser agent tool enabled for Agent {agent_id}")
@@ -260,8 +262,8 @@ class PlanActFlow(BaseFlow):
 
         # Create Tree-of-Thoughts explorer if feature enabled
         thought_tree_explorer = None
-        settings = get_settings()
-        if settings.feature_tree_of_thoughts:
+        flags = self._resolve_feature_flags()
+        if flags.get("tree_of_thoughts"):
             try:
                 from app.domain.services.agents.reasoning.thought_tree import (
                     ThoughtTreeExplorer,
@@ -282,6 +284,7 @@ class PlanActFlow(BaseFlow):
             memory_service=memory_service,
             user_id=user_id,
             thought_tree_explorer=thought_tree_explorer,
+            feature_flags=feature_flags,
         )
         logger.debug(f"Created planner agent for Agent {self._agent_id}")
 
@@ -293,6 +296,7 @@ class PlanActFlow(BaseFlow):
             json_parser=json_parser,
             memory_service=memory_service,
             user_id=user_id,
+            feature_flags=feature_flags,
         )
         logger.debug(f"Created execution agent for Agent {self._agent_id}")
 
@@ -301,7 +305,7 @@ class PlanActFlow(BaseFlow):
         if enable_verification:
             # Create self-consistency checker if feature enabled
             consistency_checker = None
-            if settings.feature_self_consistency:
+            if flags.get("self_consistency"):
                 try:
                     from app.domain.services.agents.reasoning.self_consistency import (
                         SelfConsistencyChecker,
@@ -323,6 +327,7 @@ class PlanActFlow(BaseFlow):
                     max_revision_loops=1,  # Reduced from 2 for faster response
                 ),
                 self_consistency_checker=consistency_checker,
+                feature_flags=feature_flags,
             )
             logger.info(f"VerifierAgent enabled for Agent {agent_id}")
 
@@ -379,6 +384,7 @@ class PlanActFlow(BaseFlow):
         self._error_bridge = ErrorIntegrationBridge(
             error_handler=self._error_handler,
             memory_manager=self._memory_manager,
+            feature_flags=feature_flags,
         )
 
     def set_circuit_breaker(self, circuit_breaker) -> None:
@@ -388,6 +394,22 @@ class PlanActFlow(BaseFlow):
         domain→infrastructure import violations.
         """
         self.executor._circuit_breaker = circuit_breaker
+
+    def _resolve_feature_flags(self) -> dict[str, bool]:
+        """Return injected feature flags, falling back to core config."""
+        if self._feature_flags is not None:
+            return self._feature_flags
+        from app.core.config import get_feature_flags
+
+        return get_feature_flags()
+
+    def _resolve_alert_port(self):
+        """Return injected alert port, falling back to core alert manager."""
+        if self._alert_port is not None:
+            return self._alert_port
+        from app.core.alert_manager import get_alert_manager
+
+        return get_alert_manager()
 
     def _init_multi_agent_dispatch(self) -> None:
         """Initialize the multi-agent dispatch system."""
@@ -672,7 +694,7 @@ class PlanActFlow(BaseFlow):
                     )
 
                     messages = self.executor.memory.get_messages()
-                    flags = get_feature_flags()
+                    flags = self._resolve_feature_flags()
 
                     if flags.get("context_optimization"):
                         optimized_messages, report = self._memory_manager.optimize_context(
@@ -856,7 +878,6 @@ class PlanActFlow(BaseFlow):
         """Execute deep research through the DeepResearchFlow manager path."""
         del original_message, trace_ctx  # Reserved for future tracing hooks
 
-        settings = get_settings()
         from app.core.deep_research_manager import get_deep_research_manager
         from app.domain.models.deep_research import DeepResearchConfig
         from app.domain.models.event import DeepResearchStatus
@@ -870,7 +891,8 @@ class PlanActFlow(BaseFlow):
             yield DoneEvent()
             return
 
-        if settings.feature_phased_research:
+        deep_flags = self._resolve_feature_flags()
+        if deep_flags.get("phased_research"):
             phased_flow = PhasedResearchFlow(
                 search_engine=self._search_engine,
                 session_id=self._session_id,
@@ -976,7 +998,7 @@ class PlanActFlow(BaseFlow):
             logger.warning("No plan available for validation")
             return False
 
-        flags = get_feature_flags()
+        flags = self._resolve_feature_flags()
         if flags.get("plan_validation_v2"):
             tool_names = [
                 t.get("function", {}).get("name", "")
@@ -1954,7 +1976,6 @@ class PlanActFlow(BaseFlow):
                                 should_retry = err_ctx.recoverable and (
                                     (is_timeout_err and retry.retry_on_timeout)
                                     or (not is_timeout_err and retry.retry_on_tool_error)
-                                    or retry.max_retries > 0
                                 )
                             else:
                                 should_retry = False
@@ -1985,7 +2006,7 @@ class PlanActFlow(BaseFlow):
 
                     # Check if we can skip plan update phase for faster response
                     # Skipping saves 2-5 seconds by avoiding an LLM call
-                    flags = get_feature_flags()
+                    flags = self._resolve_feature_flags()
                     if flags.get("failure_prediction"):
                         try:
                             progress = self._task_state_manager.get_progress_metrics()
@@ -2009,7 +2030,7 @@ class PlanActFlow(BaseFlow):
                                 "predicted" if prediction.will_fail else "clear",
                                 prediction.probability,
                             )
-                            await get_alert_manager().check_thresholds(
+                            await self._resolve_alert_port().check_thresholds(
                                 self._session_id,
                                 {"failure_prediction_probability": prediction.probability},
                             )
