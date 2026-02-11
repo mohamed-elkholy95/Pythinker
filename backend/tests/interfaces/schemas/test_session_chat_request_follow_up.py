@@ -8,7 +8,7 @@ for suggestion click context.
 import pytest
 from pydantic import ValidationError
 
-from app.interfaces.schemas.session import ChatRequest
+from app.interfaces.schemas.session import ChatRequest, FollowUpContext
 
 
 class TestChatRequestFollowUp:
@@ -27,9 +27,10 @@ class TestChatRequestFollowUp:
 
         assert request.message == "Tell me more about that"
         assert request.follow_up is not None
-        assert request.follow_up["selected_suggestion"] == "Can you explain this in more detail?"
-        assert request.follow_up["anchor_event_id"] == "evt_123456"
-        assert request.follow_up["source"] == "suggestion_click"
+        assert isinstance(request.follow_up, FollowUpContext)
+        assert request.follow_up.selected_suggestion == "Can you explain this in more detail?"
+        assert request.follow_up.anchor_event_id == "evt_123456"
+        assert request.follow_up.source == "suggestion_click"
 
     def test_chat_request_without_follow_up(self):
         """Test ChatRequest without follow_up (optional field)"""
@@ -47,21 +48,20 @@ class TestChatRequestFollowUp:
 
     def test_chat_request_follow_up_missing_required_fields(self):
         """Test ChatRequest rejects follow_up missing required fields"""
-        # This test expects validation to fail if follow_up is provided
-        # but missing required fields (we'll implement validation later if needed)
-        # For now, we're using a dict, so this test verifies the structure
-        request = ChatRequest(
-            message="Test",
-            follow_up={
-                "selected_suggestion": "Test suggestion",
-                # Missing anchor_event_id and source
-            },
-        )
+        # With Pydantic model, this should now raise ValidationError
+        with pytest.raises(ValidationError) as exc_info:
+            ChatRequest(
+                message="Test",
+                follow_up={
+                    "selected_suggestion": "Test suggestion",
+                    # Missing anchor_event_id (required field)
+                },
+            )
 
-        # Since we're using dict type, this will pass
-        # If we want strict validation, we'd need a Pydantic model for follow_up
-        assert request.follow_up is not None
-        assert "selected_suggestion" in request.follow_up
+        # Verify that anchor_event_id is mentioned in the error
+        errors = exc_info.value.errors()
+        assert len(errors) > 0
+        assert any("anchor_event_id" in str(error) for error in errors)
 
     def test_chat_request_serialization_with_follow_up(self):
         """Test ChatRequest serializes correctly with follow_up"""
@@ -79,3 +79,36 @@ class TestChatRequestFollowUp:
         assert data["follow_up"]["selected_suggestion"] == "What about X?"
         assert data["follow_up"]["anchor_event_id"] == "evt_789"
         assert data["follow_up"]["source"] == "suggestion_click"
+
+    def test_chat_request_follow_up_default_source(self):
+        """Test ChatRequest follow_up with default source value"""
+        request = ChatRequest(
+            message="Follow-up message",
+            follow_up={
+                "selected_suggestion": "What about X?",
+                "anchor_event_id": "evt_789",
+                # source not provided, should use default
+            },
+        )
+
+        assert request.follow_up is not None
+        assert request.follow_up.source == "suggestion_click"
+
+    def test_follow_up_context_validation(self):
+        """Test FollowUpContext direct validation"""
+        # Valid context
+        context = FollowUpContext(
+            selected_suggestion="Test suggestion",
+            anchor_event_id="evt_123",
+        )
+        assert context.selected_suggestion == "Test suggestion"
+        assert context.anchor_event_id == "evt_123"
+        assert context.source == "suggestion_click"
+
+        # Missing required field
+        with pytest.raises(ValidationError) as exc_info:
+            FollowUpContext(selected_suggestion="Test suggestion")
+
+        errors = exc_info.value.errors()
+        assert len(errors) > 0
+        assert any("anchor_event_id" in str(error) for error in errors)
