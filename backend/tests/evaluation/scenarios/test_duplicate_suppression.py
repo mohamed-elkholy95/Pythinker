@@ -7,10 +7,9 @@ Expected Results:
 - Enhanced: 60-70% duplicates suppressed (within window, high quality)
 """
 
-import asyncio
-import pytest
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from app.domain.services.agents.duplicate_query_policy import DuplicateQueryPolicy
 
@@ -56,7 +55,7 @@ class TestDuplicateSuppressionEvaluation:
 
         results = {"executed": 0, "suppressed": 0, "override": 0}
 
-        for i, query in enumerate(search_queries):
+        for _, query in enumerate(search_queries):
             # Check for duplicate
             should_suppress, reason = duplicate_policy.should_suppress(
                 tool_name=query["tool"],
@@ -90,7 +89,7 @@ class TestDuplicateSuppressionEvaluation:
         assert results["executed"] == 1, f"Expected 1 execution, got {results['executed']}"
         assert results["suppressed"] == 2, f"Expected 2 suppressions, got {results['suppressed']}"
 
-        print(f"\n=== Search Query Suppression Results ===")
+        print("\n=== Search Query Suppression Results ===")
         print(f"Total queries: {total}")
         print(f"Executed: {results['executed']}")
         print(f"Suppressed: {results['suppressed']} ({suppression_rate*100:.1f}%)")
@@ -150,7 +149,7 @@ class TestDuplicateSuppressionEvaluation:
         # Expected: first executed, next 2 suppressed
         assert results["suppressed"] >= 2, f"Expected ≥2 suppressions, got {results['suppressed']}"
 
-        print(f"\n=== Browser Navigation Suppression Results ===")
+        print("\n=== Browser Navigation Suppression Results ===")
         print(f"Total calls: {total}")
         print(f"Executed: {results['executed']}")
         print(f"Suppressed: {results['suppressed']} ({suppression_rate*100:.1f}%)")
@@ -208,7 +207,7 @@ class TestDuplicateSuppressionEvaluation:
 
         assert results["suppressed"] >= 2, f"Expected ≥2 suppressions, got {results['suppressed']}"
 
-        print(f"\n=== File Read Suppression Results ===")
+        print("\n=== File Read Suppression Results ===")
         print(f"Total reads: {total}")
         print(f"Executed: {results['executed']}")
         print(f"Suppressed: {results['suppressed']} ({suppression_rate*100:.1f}%)")
@@ -249,8 +248,8 @@ class TestDuplicateSuppressionEvaluation:
         else:
             print("Not detected as duplicate (expected override)")
 
-        print(f"\n=== Low Quality Override Results ===")
-        print(f"Quality score: 0.60 (threshold: 0.85)")
+        print("\n=== Low Quality Override Results ===")
+        print("Quality score: 0.60 (threshold: 0.85)")
         print(f"Duplicate detected: {should_suppress}")
         print(f"Override occurred: {not should_suppress or reason != 'duplicate_within_window'}")
 
@@ -286,7 +285,7 @@ class TestDuplicateSuppressionEvaluation:
         # For now, just verify policy has window configured
         assert duplicate_policy.window_minutes == 5
 
-        print(f"\n=== Window Expiration Results ===")
+        print("\n=== Window Expiration Results ===")
         print(f"Window duration: {duplicate_policy.window_minutes} minutes")
         print(f"Within window suppressed: {should_suppress2}")
 
@@ -329,11 +328,9 @@ class TestDuplicateSuppressionEvaluation:
             "code review checklist",
         ]
 
-        for i, query in enumerate(base_queries):
-            session_id = f"eval-session-batch-{i}"
-
+        for _, query in enumerate(base_queries):
             # Execute same query 3 times per session
-            for attempt in range(3):
+            for _ in range(3):
                 results["total"] += 1
 
                 should_suppress, reason = duplicate_policy.should_suppress(
@@ -367,7 +364,7 @@ class TestDuplicateSuppressionEvaluation:
         expected_suppressed = 25 * 2  # 50 suppressions expected
         assert results["suppressed"] >= 40, f"Expected ≥40 suppressions, got {results['suppressed']}"
 
-        print(f"\n=== Batch Suppression Effectiveness ===")
+        print("\n=== Batch Suppression Effectiveness ===")
         print(f"Total queries: {results['total']}")
         print(f"Executed: {results['executed']}")
         print(f"Suppressed: {results['suppressed']} ({suppression_rate*100:.1f}%)")
