@@ -12,6 +12,7 @@ import pytest
 # Evaluation Mode Configuration
 # =============================================================================
 
+
 def pytest_addoption(parser):
     """Add custom command-line options for evaluation mode."""
     parser.addoption(
@@ -45,6 +46,7 @@ def evaluation_output_path(request):
 # Evaluation Markers
 # =============================================================================
 
+
 def pytest_configure(config):
     """Register custom markers for evaluation tests."""
     config.addinivalue_line(
@@ -56,6 +58,7 @@ def pytest_configure(config):
 # =============================================================================
 # Helper Functions
 # =============================================================================
+
 
 def evaluation_config(evaluation_mode) -> dict[str, Any]:
     """Return configuration based on evaluation mode.
@@ -110,13 +113,15 @@ class ResultsCollector:
             expected_baseline: Expected baseline value
             expected_enhanced: Expected enhanced value
         """
-        self.results.append({
-            "scenario": scenario,
-            "metric": metric,
-            "value": value,
-            "expected_baseline": expected_baseline,
-            "expected_enhanced": expected_enhanced,
-        })
+        self.results.append(
+            {
+                "scenario": scenario,
+                "metric": metric,
+                "value": value,
+                "expected_baseline": expected_baseline,
+                "expected_enhanced": expected_enhanced,
+            }
+        )
 
     def get_results(self) -> dict[str, Any]:
         """Get all collected results.

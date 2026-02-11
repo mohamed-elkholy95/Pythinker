@@ -92,7 +92,7 @@ class TestDuplicateSuppressionEvaluation:
         print("\n=== Search Query Suppression Results ===")
         print(f"Total queries: {total}")
         print(f"Executed: {results['executed']}")
-        print(f"Suppressed: {results['suppressed']} ({suppression_rate*100:.1f}%)")
+        print(f"Suppressed: {results['suppressed']} ({suppression_rate * 100:.1f}%)")
         print(f"Override (low quality): {results['override']}")
 
     @pytest.mark.asyncio
@@ -150,7 +150,7 @@ class TestDuplicateSuppressionEvaluation:
         print("\n=== Browser Navigation Suppression Results ===")
         print(f"Total calls: {total}")
         print(f"Executed: {results['executed']}")
-        print(f"Suppressed: {results['suppressed']} ({suppression_rate*100:.1f}%)")
+        print(f"Suppressed: {results['suppressed']} ({suppression_rate * 100:.1f}%)")
 
     @pytest.mark.asyncio
     async def test_repeated_file_reads(self, duplicate_policy):
@@ -206,7 +206,7 @@ class TestDuplicateSuppressionEvaluation:
         print("\n=== File Read Suppression Results ===")
         print(f"Total reads: {total}")
         print(f"Executed: {results['executed']}")
-        print(f"Suppressed: {results['suppressed']} ({suppression_rate*100:.1f}%)")
+        print(f"Suppressed: {results['suppressed']} ({suppression_rate * 100:.1f}%)")
 
     @pytest.mark.asyncio
     async def test_low_quality_override(self, duplicate_policy):
@@ -359,6 +359,6 @@ class TestDuplicateSuppressionEvaluation:
         print("\n=== Batch Suppression Effectiveness ===")
         print(f"Total queries: {results['total']}")
         print(f"Executed: {results['executed']}")
-        print(f"Suppressed: {results['suppressed']} ({suppression_rate*100:.1f}%)")
+        print(f"Suppressed: {results['suppressed']} ({suppression_rate * 100:.1f}%)")
         print(f"Override (low quality): {results['override']}")
-        print(f"Expected suppression: {expected_suppressed} ({expected_suppressed/results['total']*100:.1f}%)")
+        print(f"Expected suppression: {expected_suppressed} ({expected_suppressed / results['total'] * 100:.1f}%)")

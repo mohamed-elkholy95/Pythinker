@@ -795,7 +795,12 @@ class TokenManager:
             level = PressureLevel.NORMAL
 
         # Priority 4: Log and emit metrics for early warning and higher
-        if level in (PressureLevel.EARLY_WARNING, PressureLevel.WARNING, PressureLevel.CRITICAL, PressureLevel.OVERFLOW):
+        if level in (
+            PressureLevel.EARLY_WARNING,
+            PressureLevel.WARNING,
+            PressureLevel.CRITICAL,
+            PressureLevel.OVERFLOW,
+        ):
             logger.warning(
                 f"Token pressure: {level.value} ({predicted_ratio:.1%}) - "
                 f"{predicted_tokens:,}/{self._effective_limit:,} tokens, "

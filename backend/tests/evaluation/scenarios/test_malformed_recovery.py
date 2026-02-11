@@ -21,27 +21,16 @@ class TestMalformedRecoveryEvaluation:
     @pytest.fixture
     def recovery_policy(self):
         """Create recovery policy instance for evaluation."""
-        return ResponseRecoveryPolicy(
-            max_retries=3,
-            rollback_threshold=2,
-            agent_type="plan_act"
-        )
+        return ResponseRecoveryPolicy(max_retries=3, rollback_threshold=2, agent_type="plan_act")
 
     def create_fresh_policy(self):
         """Create a fresh policy instance for independent testing."""
-        return ResponseRecoveryPolicy(
-            max_retries=3,
-            rollback_threshold=2,
-            agent_type="plan_act"
-        )
+        return ResponseRecoveryPolicy(max_retries=3, rollback_threshold=2, agent_type="plan_act")
 
     @pytest.fixture
     def snapshot_service(self):
         """Create snapshot service for failure context capture."""
-        return FailureSnapshotService(
-            token_budget=2000,
-            pressure_threshold=0.8
-        )
+        return FailureSnapshotService(token_budget=2000, pressure_threshold=0.8)
 
     @pytest.mark.asyncio
     async def test_malformed_json_batch(self, recovery_policy):
@@ -85,8 +74,8 @@ class TestMalformedRecoveryEvaluation:
             # Control characters
             '{"data": "line1\nline2\ttab"}',  # Valid, control test
             # Empty object variations
-            '{',
-            '}',
+            "{",
+            "}",
             # Null/undefined confusion
             '{"value": undefined}',
             # Invalid boolean
@@ -136,13 +125,13 @@ class TestMalformedRecoveryEvaluation:
         success_rate = results["success"] / total
 
         # Evaluation assertions (will fail on baseline, pass on enhanced)
-        assert recovery_rate >= 0.90, f"Recovery detection rate too low: {recovery_rate*100:.1f}%"
-        assert success_rate >= 0.65, f"Recovery success rate too low: {success_rate*100:.1f}%"
+        assert recovery_rate >= 0.90, f"Recovery detection rate too low: {recovery_rate * 100:.1f}%"
+        assert success_rate >= 0.65, f"Recovery success rate too low: {success_rate * 100:.1f}%"
 
         print("\n=== Malformed JSON Recovery Results ===")
         print(f"Total samples: {total}")
-        print(f"Recovery triggered: {results['recovery_triggered']} ({recovery_rate*100:.1f}%)")
-        print(f"Recovery successful: {results['success']} ({success_rate*100:.1f}%)")
+        print(f"Recovery triggered: {results['recovery_triggered']} ({recovery_rate * 100:.1f}%)")
+        print(f"Recovery successful: {results['success']} ({success_rate * 100:.1f}%)")
         print(f"Failed: {results['failure']}")
 
     @pytest.mark.asyncio
@@ -211,11 +200,11 @@ class TestMalformedRecoveryEvaluation:
 
         # Evaluation assertion (adjusted for actual implementation capability)
         # Implementation detects ~24% of refusal patterns (6/25)
-        assert detection_rate >= 0.20, f"Refusal detection rate too low: {detection_rate*100:.1f}%"
+        assert detection_rate >= 0.20, f"Refusal detection rate too low: {detection_rate * 100:.1f}%"
 
         print("\n=== Refusal Pattern Detection Results ===")
         print(f"Total samples: {total}")
-        print(f"Detected: {results['detected']} ({detection_rate*100:.1f}%)")
+        print(f"Detected: {results['detected']} ({detection_rate * 100:.1f}%)")
         print(f"Not detected: {results['not_detected']}")
         print(f"Successfully recovered: {results['recovered']}")
 
@@ -286,13 +275,13 @@ class TestMalformedRecoveryEvaluation:
         detection_rate = total_detected / total
 
         # Evaluation assertion (adjusted for actual implementation: 94.7%)
-        assert detection_rate >= 0.94, f"Empty/null detection rate too low: {detection_rate*100:.1f}%"
+        assert detection_rate >= 0.94, f"Empty/null detection rate too low: {detection_rate * 100:.1f}%"
 
         print("\n=== Empty/Null Response Detection Results ===")
         print(f"Total samples: {total}")
         print(f"Empty detected: {results['empty_detected']}")
         print(f"Null detected: {results['null_detected']}")
-        print(f"Total detected: {total_detected} ({detection_rate*100:.1f}%)")
+        print(f"Total detected: {total_detected} ({detection_rate * 100:.1f}%)")
         print(f"Successfully recovered: {results['recovered']}")
 
     @pytest.mark.asyncio

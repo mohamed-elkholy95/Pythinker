@@ -36,10 +36,7 @@ class TestCanonicalizationEvaluation:
         }
 
         # Canonicalize
-        canonical_args = canonicalizer.canonicalize(
-            tool_name="browser",
-            args=args_with_alias
-        )
+        canonical_args = canonicalizer.canonicalize(tool_name="browser", args=args_with_alias)
 
         # Track what was canonicalized
         canonicalized_fields = []
@@ -80,10 +77,7 @@ class TestCanonicalizationEvaluation:
         for orig_args in file_alias_variations:
             results["total"] += 1
 
-            canonical_args = canonicalizer.canonicalize(
-                tool_name="file_read",
-                args=orig_args
-            )
+            canonical_args = canonicalizer.canonicalize(tool_name="file_read", args=orig_args)
 
             # Verify 'file_path' is the canonical field
             assert "file_path" in canonical_args, f"Expected 'file_path' in canonical args for {orig_args}"
@@ -119,10 +113,7 @@ class TestCanonicalizationEvaluation:
         for orig_args in search_alias_variations:
             results["total"] += 1
 
-            canonical_args = canonicalizer.canonicalize(
-                tool_name="search",
-                args=orig_args
-            )
+            canonical_args = canonicalizer.canonicalize(tool_name="search", args=orig_args)
 
             # Verify canonical fields
             assert "query" in canonical_args, f"Expected 'query' in canonical args for {orig_args}"
@@ -149,18 +140,13 @@ class TestCanonicalizationEvaluation:
         }
 
         # Canonicalize (passes through unknown fields)
-        canonical_args = canonicalizer.canonicalize(
-            tool_name="browser",
-            args=args_with_unknown
-        )
+        canonical_args = canonicalizer.canonicalize(tool_name="browser", args=args_with_unknown)
 
         # Unknown fields are passed through by canonicalize()
         # Use validate_no_unknown_fields() for security validation
         known_fields = {"url", "timeout", "wait_for"}  # Known canonical fields for browser
         is_valid, unknown_fields = canonicalizer.validate_no_unknown_fields(
-            tool_name="browser",
-            args=canonical_args,
-            known_fields=known_fields
+            tool_name="browser", args=canonical_args, known_fields=known_fields
         )
 
         # Verify unknown fields were detected
@@ -214,10 +200,7 @@ class TestCanonicalizationEvaluation:
             results["total"] += 1
 
             try:
-                canonical_args = canonicalizer.canonicalize(
-                    tool_name=tool_name,
-                    args=orig_args
-                )
+                canonical_args = canonicalizer.canonicalize(tool_name=tool_name, args=orig_args)
 
                 # Check if canonicalization occurred
                 if orig_args.keys() != canonical_args.keys():
@@ -235,15 +218,17 @@ class TestCanonicalizationEvaluation:
         canonicalization_success_rate = (results["canonicalized"] + results["already_canonical"]) / results["total"]
 
         # Evaluation assertions
-        assert error_rate <= 0.05, f"Error rate too high: {error_rate*100:.1f}%"
-        assert canonicalization_success_rate >= 0.95, f"Success rate too low: {canonicalization_success_rate*100:.1f}%"
+        assert error_rate <= 0.05, f"Error rate too high: {error_rate * 100:.1f}%"
+        assert canonicalization_success_rate >= 0.95, (
+            f"Success rate too low: {canonicalization_success_rate * 100:.1f}%"
+        )
 
         print("\n=== Batch Canonicalization Results ===")
         print(f"Total test cases: {results['total']}")
         print(f"Canonicalized: {results['canonicalized']}")
         print(f"Already canonical: {results['already_canonical']}")
-        print(f"Errors: {results['errors']} ({error_rate*100:.1f}%)")
-        print(f"Success rate: {canonicalization_success_rate*100:.1f}%")
+        print(f"Errors: {results['errors']} ({error_rate * 100:.1f}%)")
+        print(f"Success rate: {canonicalization_success_rate * 100:.1f}%")
 
     def test_case_insensitive_canonicalization(self, canonicalizer):
         """Evaluate case-insensitive alias matching.

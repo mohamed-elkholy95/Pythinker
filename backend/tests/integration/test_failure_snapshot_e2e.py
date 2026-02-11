@@ -149,9 +149,7 @@ class TestFailureSnapshotE2E:
     async def test_snapshot_metrics_tracked(self, snapshot_service):
         """E2E: Snapshot generation and injection metrics tracked."""
         # Capture initial metrics
-        initial_generated = failure_snapshot_generated.get(
-            {"failure_type": "ValueError", "step_name": "test_step"}
-        )
+        initial_generated = failure_snapshot_generated.get({"failure_type": "ValueError", "step_name": "test_step"})
 
         # Generate snapshot
         error = ValueError("Test")
@@ -162,9 +160,7 @@ class TestFailureSnapshotE2E:
         )
 
         # Verify generation metric incremented
-        final_generated = failure_snapshot_generated.get(
-            {"failure_type": "ValueError", "step_name": "test_step"}
-        )
+        final_generated = failure_snapshot_generated.get({"failure_type": "ValueError", "step_name": "test_step"})
         assert final_generated >= initial_generated
 
         # Capture initial injection metrics

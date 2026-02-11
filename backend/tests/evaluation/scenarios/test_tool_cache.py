@@ -91,14 +91,14 @@ class TestToolCacheEvaluation:
         # First lookup is miss, rest should be hits (9/10 = 90%)
         assert results["hits"] == 9, f"Expected 9 cache hits, got {results['hits']}"
         assert results["misses"] == 1, f"Expected 1 cache miss, got {results['misses']}"
-        assert hit_rate >= 0.80, f"Cache hit rate too low: {hit_rate*100:.1f}%"
+        assert hit_rate >= 0.80, f"Cache hit rate too low: {hit_rate * 100:.1f}%"
 
         # Performance: avg should be closer to cache speed (<1ms) than MCP speed (40ms)
         assert avg_time_ms < 10, f"Average lookup too slow: {avg_time_ms:.2f}ms (expected <10ms)"
 
         print("\n=== Repeated Tool Lookup Results ===")
         print(f"Total lookups: {lookups}")
-        print(f"Cache hits: {results['hits']} ({hit_rate*100:.1f}%)")
+        print(f"Cache hits: {results['hits']} ({hit_rate * 100:.1f}%)")
         print(f"Cache misses: {results['misses']}")
         print(f"Average lookup time: {avg_time_ms:.2f}ms")
 
@@ -139,13 +139,13 @@ class TestToolCacheEvaluation:
 
         assert results["misses"] == expected_misses, f"Expected {expected_misses} misses, got {results['misses']}"
         assert results["hits"] == expected_hits, f"Expected {expected_hits} hits, got {results['hits']}"
-        assert hit_rate == 0.80, f"Expected 80% hit rate, got {hit_rate*100:.1f}%"
+        assert hit_rate == 0.80, f"Expected 80% hit rate, got {hit_rate * 100:.1f}%"
 
         print("\n=== Multiple Tool Definitions Results ===")
         print(f"Total tools: {len(tools)}")
         print(f"Lookups per tool: {lookups_per_tool}")
         print(f"Total lookups: {results['total']}")
-        print(f"Cache hits: {results['hits']} ({hit_rate*100:.1f}%)")
+        print(f"Cache hits: {results['hits']} ({hit_rate * 100:.1f}%)")
         print(f"Cache misses: {results['misses']}")
 
     @pytest.mark.asyncio
@@ -225,8 +225,8 @@ class TestToolCacheEvaluation:
 
         # Verify cache size limit enforced
         stats = tool_cache.get_stats()
-        cache_size = stats['size']
-        max_size = stats['max_size']
+        cache_size = stats["size"]
+        max_size = stats["max_size"]
         assert cache_size <= max_size, f"Cache size {cache_size} exceeds max {max_size}"
 
         print("\n=== Cache Max Size Limit Results ===")
@@ -244,11 +244,31 @@ class TestToolCacheEvaluation:
         - Enhanced: 28 MCP calls (88.8% hit rate)
         """
         tool_names = [
-            "browser", "file", "shell", "search", "terminal",
-            "database", "api", "email", "slack", "github",
-            "docker", "kubernetes", "aws", "gcp", "azure",
-            "redis", "mongodb", "postgres", "mysql", "kafka",
-            "nginx", "apache", "haproxy", "cloudflare", "datadog",
+            "browser",
+            "file",
+            "shell",
+            "search",
+            "terminal",
+            "database",
+            "api",
+            "email",
+            "slack",
+            "github",
+            "docker",
+            "kubernetes",
+            "aws",
+            "gcp",
+            "azure",
+            "redis",
+            "mongodb",
+            "postgres",
+            "mysql",
+            "kafka",
+            "nginx",
+            "apache",
+            "haproxy",
+            "cloudflare",
+            "datadog",
         ]
 
         lookups_per_tool = 10
@@ -282,7 +302,7 @@ class TestToolCacheEvaluation:
         expected_misses = len(tool_names)
 
         assert results["misses"] == expected_misses, f"Expected {expected_misses} misses, got {results['misses']}"
-        assert hit_rate >= 0.80, f"Hit rate too low: {hit_rate*100:.1f}%"
+        assert hit_rate >= 0.80, f"Hit rate too low: {hit_rate * 100:.1f}%"
 
         # Performance improvement
         # Without cache: 250 lookups x 40ms = 10,000ms
@@ -293,7 +313,7 @@ class TestToolCacheEvaluation:
 
         print("\n=== Batch Cache Performance Results ===")
         print(f"Total lookups: {results['total']}")
-        print(f"Cache hits: {results['hits']} ({hit_rate*100:.1f}%)")
+        print(f"Cache hits: {results['hits']} ({hit_rate * 100:.1f}%)")
         print(f"Cache misses: {results['misses']}")
         print(f"Average lookup time: {avg_time_ms:.2f}ms")
         print(f"Total time: {results['total_time_ms']:.2f}ms")
@@ -317,7 +337,7 @@ class TestToolCacheEvaluation:
 
         # Estimate memory usage
         stats = tool_cache.get_stats()
-        cache_memory_bytes = stats['memory_bytes']
+        cache_memory_bytes = stats["memory_bytes"]
 
         # Expected: ~100-200 bytes per definition
         # 50 tools x 150 bytes = 7,500 bytes (~7KB)

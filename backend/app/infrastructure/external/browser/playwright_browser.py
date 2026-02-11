@@ -1807,7 +1807,9 @@ class PlaywrightBrowser:
 
         # Handle final timeout or error after all retries
         if not interactive_elements:
-            logger.warning("Interactive element extraction timed out or returned empty after %d attempts", max_retries + 1)
+            logger.warning(
+                "Interactive element extraction timed out or returned empty after %d attempts", max_retries + 1
+            )
             return ["0:<span>Page too complex or extraction timed out - use browser_click with coordinates</span>"]
 
         # Update cache
@@ -1875,7 +1877,7 @@ class PlaywrightBrowser:
                 if page_size and page_size.get("isHeavy"):
                     is_heavy_page = True
                     logger.warning(
-                        f"Heavy page detected early: {page_size.get('htmlSize', 0)//1024}KB HTML, "
+                        f"Heavy page detected early: {page_size.get('htmlSize', 0) // 1024}KB HTML, "
                         f"{page_size.get('domCount', 0)} DOM elements - switching to lightweight mode"
                     )
                     from app.infrastructure.observability.prometheus_metrics import (
@@ -1934,9 +1936,7 @@ class PlaywrightBrowser:
                         )
 
                         browser_wikipedia_summary_mode_total.inc()
-                        logger.info(
-                            f"Wikipedia summary extracted ({len(result_data['content'])} chars) from {url}"
-                        )
+                        logger.info(f"Wikipedia summary extracted ({len(result_data['content'])} chars) from {url}")
                     else:
                         # Extract content automatically
                         content = await self._extract_content()

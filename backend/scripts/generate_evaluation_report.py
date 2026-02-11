@@ -124,23 +124,17 @@ def generate_summary_table(baseline: dict, enhanced: dict) -> str:
     # Recovery Success Rate (enhanced only)
     e_recovery = enhanced.get("recovery_success_rate")
     status = "✅" if e_recovery and e_recovery >= 0.7 else "⚠️" if e_recovery and e_recovery >= 0.5 else "❌"
-    rows.append(
-        f"| Recovery Success Rate | N/A | {format_percentage(e_recovery)} | NEW | {status} |"
-    )
+    rows.append(f"| Recovery Success Rate | N/A | {format_percentage(e_recovery)} | NEW | {status} |")
 
     # Duplicate Suppression Rate (enhanced only)
     e_dup_supp = enhanced.get("duplicate_suppression_rate")
     status = "✅" if e_dup_supp and e_dup_supp >= 0.5 else "⚠️" if e_dup_supp and e_dup_supp >= 0.3 else "❌"
-    rows.append(
-        f"| Duplicate Suppression | N/A | {format_percentage(e_dup_supp)} | NEW | {status} |"
-    )
+    rows.append(f"| Duplicate Suppression | N/A | {format_percentage(e_dup_supp)} | NEW | {status} |")
 
     # Cache Hit Rate (enhanced only)
     e_cache = enhanced.get("cache_hit_rate")
     status = "✅" if e_cache and e_cache >= 0.8 else "⚠️" if e_cache and e_cache >= 0.6 else "❌"
-    rows.append(
-        f"| Tool Cache Hit Rate | N/A | {format_percentage(e_cache)} | NEW | {status} |"
-    )
+    rows.append(f"| Tool Cache Hit Rate | N/A | {format_percentage(e_cache)} | NEW | {status} |")
 
     # P95 Step Duration
     b_dur = baseline.get("step_duration_p95")
@@ -184,9 +178,7 @@ def generate_regression_table(baseline: dict, enhanced: dict) -> str:
     change, change_str = calculate_improvement(b_llm, e_llm)
     threshold_met = change <= 15 if b_llm and e_llm else False
     status = "✅ PASS" if threshold_met else "⚠️ REVIEW"
-    rows.append(
-        f"| LLM API Calls | {format_rate(b_llm)} | {format_rate(e_llm)} | {change_str} | {status} |"
-    )
+    rows.append(f"| LLM API Calls | {format_rate(b_llm)} | {format_rate(e_llm)} | {change_str} | {status} |")
 
     return "\n".join(rows)
 
@@ -205,15 +197,15 @@ def evaluate_success_criteria(baseline: dict, enhanced: dict) -> tuple[bool, str
 
     e_recovery = enhanced.get("recovery_success_rate")
     if e_recovery and e_recovery < 0.65:
-        failures.append(f"Recovery success rate: {e_recovery*100:.1f}% (target: ≥65%)")
+        failures.append(f"Recovery success rate: {e_recovery * 100:.1f}% (target: ≥65%)")
 
     e_dup_supp = enhanced.get("duplicate_suppression_rate")
     if e_dup_supp and e_dup_supp < 0.5:
-        failures.append(f"Duplicate suppression: {e_dup_supp*100:.1f}% (target: ≥50%)")
+        failures.append(f"Duplicate suppression: {e_dup_supp * 100:.1f}% (target: ≥50%)")
 
     e_cache = enhanced.get("cache_hit_rate")
     if e_cache and e_cache < 0.75:
-        failures.append(f"Cache hit rate: {e_cache*100:.1f}% (target: ≥75%)")
+        failures.append(f"Cache hit rate: {e_cache * 100:.1f}% (target: ≥75%)")
 
     # Regression metrics
     b_success = baseline.get("session_success_rate")
@@ -251,7 +243,7 @@ def generate_report(baseline_dir: Path, enhanced_dir: Path, output_file: Path) -
     # Generate report
     report = f"""# Phase 0-5 Enhancement Evaluation Results
 
-**Generated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+**Generated**: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 **Baseline Directory**: `{baseline_dir}`
 **Enhanced Directory**: `{enhanced_dir}`
 
@@ -282,22 +274,22 @@ def generate_report(baseline_dir: Path, enhanced_dir: Path, output_file: Path) -
 ## Detailed Enhancement Metrics
 
 ### Response Recovery
-- **Recovery Trigger Rate**: {format_rate(enhanced.get('recovery_triggers'))}
-- **Recovery Success Rate**: {format_percentage(enhanced.get('recovery_success_rate'))}
-- **P95 Recovery Duration**: {format_duration(enhanced.get('recovery_duration_p95'))}
+- **Recovery Trigger Rate**: {format_rate(enhanced.get("recovery_triggers"))}
+- **Recovery Success Rate**: {format_percentage(enhanced.get("recovery_success_rate"))}
+- **P95 Recovery Duration**: {format_duration(enhanced.get("recovery_duration_p95"))}
 
 ### Duplicate Suppression
-- **Duplicate Blocks**: {format_rate(enhanced.get('duplicate_blocks'))}
-- **Suppression Effectiveness**: {format_percentage(enhanced.get('duplicate_suppression_rate'))}
+- **Duplicate Blocks**: {format_rate(enhanced.get("duplicate_blocks"))}
+- **Suppression Effectiveness**: {format_percentage(enhanced.get("duplicate_suppression_rate"))}
 
 ### Argument Canonicalization
-- **Arguments Canonicalized**: {format_rate(enhanced.get('args_canonicalized'))}
+- **Arguments Canonicalized**: {format_rate(enhanced.get("args_canonicalized"))}
 
 ### Tool Definition Caching
-- **Cache Hit Rate**: {format_percentage(enhanced.get('cache_hit_rate'))}
+- **Cache Hit Rate**: {format_percentage(enhanced.get("cache_hit_rate"))}
 
 ### Failure Snapshots
-- **Snapshot Generation Rate**: {format_rate(enhanced.get('snapshot_generation'))}
+- **Snapshot Generation Rate**: {format_rate(enhanced.get("snapshot_generation"))}
 
 ---
 
@@ -323,11 +315,11 @@ def generate_report(baseline_dir: Path, enhanced_dir: Path, output_file: Path) -
 
     e_recovery = enhanced.get("recovery_success_rate")
     if e_recovery and e_recovery >= 0.65:
-        report += f"3. {e_recovery*100:.0f}% recovery success rate achieved\n"
+        report += f"3. {e_recovery * 100:.0f}% recovery success rate achieved\n"
 
     e_cache = enhanced.get("cache_hit_rate")
     if e_cache and e_cache >= 0.75:
-        report += f"4. {e_cache*100:.0f}% tool cache hit rate\n"
+        report += f"4. {e_cache * 100:.0f}% tool cache hit rate\n"
 
     report += """
 ### Recommended Next Steps
