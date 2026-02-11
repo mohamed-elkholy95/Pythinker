@@ -14,6 +14,7 @@ from app.domain.models.event import (
     SkillActivationEvent,
     SkillDeliveryEvent,
     StepEvent,
+    SuggestionEvent,
     ThoughtEvent,
     ToolContent,
     ToolEvent,
@@ -60,6 +61,10 @@ class MessageEventData(BaseEventData):
     role: Literal["user", "assistant"]
     content: str
     attachments: list[FileInfoResponse] | None = None
+    # Follow-up context from suggestion clicks
+    follow_up_selected_suggestion: str | None = None
+    follow_up_anchor_event_id: str | None = None
+    follow_up_source: str | None = None
 
 
 class MessageSSEEvent(BaseSSEEvent):
@@ -78,7 +83,13 @@ class MessageSSEEvent(BaseSSEEvent):
 
         return cls(
             data=MessageEventData(
-                **BaseEventData.base_event_data(event), role=event.role, content=event.message, attachments=attachments
+                **BaseEventData.base_event_data(event),
+                role=event.role,
+                content=event.message,
+                attachments=attachments,
+                follow_up_selected_suggestion=event.follow_up_selected_suggestion,
+                follow_up_anchor_event_id=event.follow_up_anchor_event_id,
+                follow_up_source=event.follow_up_source,
             )
         )
 
@@ -252,11 +263,26 @@ class ReportSSEEvent(BaseSSEEvent):
 
 class SuggestionEventData(BaseEventData):
     suggestions: list[str]
+    source: str | None = None
+    anchor_event_id: str | None = None
+    anchor_excerpt: str | None = None
 
 
 class SuggestionSSEEvent(BaseSSEEvent):
     event: Literal["suggestion"] = "suggestion"
     data: SuggestionEventData
+
+    @classmethod
+    def from_event(cls, event: "SuggestionEvent") -> Self:  # type: ignore[name-defined]
+        return cls(
+            data=SuggestionEventData(
+                **BaseEventData.base_event_data(event),
+                suggestions=event.suggestions,
+                source=event.source,
+                anchor_event_id=event.anchor_event_id,
+                anchor_excerpt=event.anchor_excerpt,
+            )
+        )
 
 
 class ModeChangeEventData(BaseEventData):

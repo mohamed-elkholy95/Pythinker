@@ -190,3 +190,54 @@ class TestSuggestionFollowUpDetection:
     def test_excluded_from_should_use_fast_path(self):
         """Suggestion-style follow-ups should bypass fast-path entry checks."""
         assert should_use_fast_path("Can you explain this in more detail?") is False
+
+
+class TestSuggestionClickMetadataDetection:
+    """Tests for metadata-based suggestion click detection (primary method)."""
+
+    def test_bypasses_fast_path_when_follow_up_source_is_suggestion_click(self):
+        """When follow_up_source='suggestion_click', fast path should be bypassed."""
+        from app.domain.models.message import Message
+
+        message = Message(
+            message="What are the best next steps?",
+            follow_up_source="suggestion_click",
+            follow_up_selected_suggestion="What are the best next steps?",
+            follow_up_anchor_event_id="evt_123",
+        )
+
+        # Should return False (bypass fast path) due to metadata
+        assert should_use_fast_path(message.message, follow_up_source=message.follow_up_source) is False
+
+    def test_uses_fast_path_when_no_follow_up_metadata(self):
+        """When no follow_up_source metadata, should use intent classification."""
+        from app.domain.models.message import Message
+
+        message = Message(
+            message="what is python?",  # KNOWLEDGE intent
+        )
+
+        # Should return True (use fast path) for knowledge query
+        assert should_use_fast_path(message.message, follow_up_source=message.follow_up_source) is True
+
+    def test_metadata_takes_precedence_over_regex(self):
+        """Metadata-based detection should take precedence over regex-based detection."""
+        from app.domain.models.message import Message
+
+        # Message matches regex pattern but has different follow_up_source
+        message = Message(
+            message="Can you explain this in more detail?",
+            follow_up_source="manual_input",  # Not "suggestion_click"
+        )
+
+        # Regex would detect this as suggestion follow-up, but metadata says otherwise
+        # Should still bypass fast path because regex fallback kicks in
+        assert should_use_fast_path(message.message, follow_up_source=message.follow_up_source) is False
+
+    def test_regex_fallback_when_no_metadata_provided(self):
+        """When no metadata provided, should fall back to regex detection."""
+        # Message that matches regex pattern, no metadata
+        message_text = "Can you explain this in more detail?"
+
+        # Should bypass fast path due to regex fallback
+        assert should_use_fast_path(message_text, follow_up_source=None) is False

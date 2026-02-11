@@ -118,6 +118,32 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def should_bypass_fast_path_for_suggestion(message: Message, has_recent_assistant_reply: bool) -> bool:
+    """Determine if message should bypass fast path due to being a suggestion follow-up.
+
+    Uses two detection methods (in priority order):
+    1. Metadata-based: Check message.follow_up_source == "suggestion_click" (primary)
+    2. Regex-based: Check if message matches known suggestion patterns (fallback)
+
+    Args:
+        message: The user message with potential follow-up metadata
+        has_recent_assistant_reply: Whether there's a recent assistant message in session
+
+    Returns:
+        True if should bypass fast path (use full contextual flow)
+        False if can proceed with fast path evaluation
+    """
+    if not has_recent_assistant_reply:
+        return False
+
+    # Primary detection: Metadata from frontend
+    if message.follow_up_source == "suggestion_click":
+        return True
+
+    # Fallback detection: Regex pattern matching (backwards compatibility)
+    return is_suggestion_follow_up_message(message.message)
+
+
 class PlanActFlow(BaseFlow):
     """Plan-Act flow with optional multi-agent step dispatch.
 
@@ -1452,10 +1478,19 @@ class PlanActFlow(BaseFlow):
                 isinstance(event, MessageEvent) and event.role == "assistant" and bool((event.message or "").strip())
                 for event in reversed(session.events or [])
             )
-            is_suggestion_follow_up = has_recent_assistant_reply and is_suggestion_follow_up_message(message.message)
+            is_suggestion_follow_up = should_bypass_fast_path_for_suggestion(message, has_recent_assistant_reply)
 
             if is_suggestion_follow_up:
-                skip_reason = "suggestion follow-up requires contextual session history"
+                # Log which detection method was used for observability
+                detection_method = (
+                    "metadata (follow_up_source='suggestion_click')"
+                    if message.follow_up_source == "suggestion_click"
+                    else "regex pattern match"
+                )
+                skip_reason = (
+                    f"suggestion follow-up detected via {detection_method}, requires contextual session history"
+                )
+                logger.info(f"Skipping fast path: {skip_reason}")
             elif intent == QueryIntent.GREETING:
                 # Greetings don't need browser or tools - always use fast path, even during init
                 use_fast_path = True

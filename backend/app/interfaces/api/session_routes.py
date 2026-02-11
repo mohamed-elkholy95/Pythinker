@@ -345,6 +345,15 @@ async def chat(
                     data=sse_event.data.model_dump_json() if sse_event.data else None,
                 )
 
+            # Convert FollowUpContext to dict for service layer
+            follow_up_dict = None
+            if request.follow_up:
+                follow_up_dict = {
+                    "selected_suggestion": request.follow_up.selected_suggestion,
+                    "anchor_event_id": request.follow_up.anchor_event_id,
+                    "source": request.follow_up.source,
+                }
+
             async for event in agent_service.chat(
                 session_id=session_id,
                 user_id=current_user.id,
@@ -354,6 +363,7 @@ async def chat(
                 attachments=request.attachments,
                 skills=request.skills,
                 deep_research=request.deep_research,
+                follow_up=follow_up_dict,
             ):
                 # Phase 3: Check for client disconnect before sending
                 if use_sse_v2 and await http_request.is_disconnected():
