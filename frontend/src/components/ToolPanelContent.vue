@@ -92,7 +92,7 @@
 
           <!-- Replay mode: static screenshots -->
           <div
-            v-else-if="currentViewType === 'vnc' && isReplayMode"
+            v-else-if="isReplayMode && !!replayScreenshotUrl"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
             <ScreenshotReplayViewer

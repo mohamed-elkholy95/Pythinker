@@ -3,7 +3,7 @@
 Provides shared fixtures and configuration for Phase 0-5 evaluation tests.
 """
 
-from typing import Any
+from typing import Any  # noqa: I001
 
 import pytest
 
@@ -75,15 +75,15 @@ def evaluation_config(evaluation_mode) -> dict[str, Any]:
             "response_recovery_enabled": False,
             "failure_snapshot_enabled": False,
         }
-    else:  # enhanced
-        # Post-enhancement configuration
-        return {
-            "duplicate_query_policy_enabled": True,
-            "argument_canonicalizer_enabled": True,
-            "tool_definition_cache_enabled": True,
-            "response_recovery_enabled": True,
-            "failure_snapshot_enabled": True,
-        }
+    # enhanced
+    # Post-enhancement configuration
+    return {
+        "duplicate_query_policy_enabled": True,
+        "argument_canonicalizer_enabled": True,
+        "tool_definition_cache_enabled": True,
+        "response_recovery_enabled": True,
+        "failure_snapshot_enabled": True,
+    }
 
 
 class ResultsCollector:
