@@ -14,10 +14,9 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
 
 
-def load_metric(file_path: Path) -> Optional[float]:
+def load_metric(file_path: Path) -> float | None:
     """Load a metric value from Prometheus JSON response."""
     if not file_path.exists():
         return None
@@ -40,7 +39,7 @@ def load_metric(file_path: Path) -> Optional[float]:
         return None
 
 
-def calculate_improvement(baseline: Optional[float], enhanced: Optional[float]) -> tuple[float, str]:
+def calculate_improvement(baseline: float | None, enhanced: float | None) -> tuple[float, str]:
     """Calculate percentage improvement from baseline to enhanced."""
     if baseline is None or enhanced is None:
         return 0.0, "N/A"
@@ -55,7 +54,7 @@ def calculate_improvement(baseline: Optional[float], enhanced: Optional[float]) 
     return change, f"{sign}{change:.1f}%"
 
 
-def format_duration(seconds: Optional[float]) -> str:
+def format_duration(seconds: float | None) -> str:
     """Format seconds as human-readable duration."""
     if seconds is None:
         return "N/A"
@@ -64,7 +63,7 @@ def format_duration(seconds: Optional[float]) -> str:
     return f"{seconds:.2f}s"
 
 
-def format_rate(per_second: Optional[float]) -> str:
+def format_rate(per_second: float | None) -> str:
     """Format rate as per minute."""
     if per_second is None:
         return "N/A"
@@ -72,14 +71,14 @@ def format_rate(per_second: Optional[float]) -> str:
     return f"{per_minute:.2f}/min"
 
 
-def format_percentage(value: Optional[float]) -> str:
+def format_percentage(value: float | None) -> str:
     """Format value as percentage."""
     if value is None:
         return "N/A"
     return f"{value * 100:.1f}%"
 
 
-def load_all_metrics(metrics_dir: Path) -> dict[str, Optional[float]]:
+def load_all_metrics(metrics_dir: Path) -> dict[str, float | None]:
     """Load all metrics from a directory."""
     return {
         "step_failures": load_metric(metrics_dir / "step_failures.json"),
@@ -100,7 +99,7 @@ def load_all_metrics(metrics_dir: Path) -> dict[str, Optional[float]]:
     }
 
 
-def generate_summary_table(baseline: Dict, enhanced: Dict) -> str:
+def generate_summary_table(baseline: dict, enhanced: dict) -> str:
     """Generate summary comparison table."""
     rows = []
 
@@ -155,7 +154,7 @@ def generate_summary_table(baseline: Dict, enhanced: Dict) -> str:
     return "\n".join(rows)
 
 
-def generate_regression_table(baseline: Dict, enhanced: Dict) -> str:
+def generate_regression_table(baseline: dict, enhanced: dict) -> str:
     """Generate regression metrics table."""
     rows = []
 
