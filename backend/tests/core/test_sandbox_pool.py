@@ -243,7 +243,11 @@ class TestStop:
     async def test_stop_handles_destroy_timeout(self, mock_settings: MagicMock, mock_prewarm: AsyncMock) -> None:
         """stop() handles sandboxes whose destroy() times out."""
         sb = _make_mock_sandbox("sb-slow")
-        sb.destroy = AsyncMock(side_effect=lambda: asyncio.sleep(999))  # never finishes
+
+        async def _slow_destroy() -> None:
+            await asyncio.sleep(999)  # never finishes
+
+        sb.destroy = AsyncMock(side_effect=_slow_destroy)
 
         sandbox_cls = _make_mock_sandbox_cls([sb])
         pool = SandboxPool(sandbox_cls, min_pool_size=1, max_pool_size=2, warmup_interval=300)
@@ -279,6 +283,7 @@ class TestAcquire:
 
         result = await pool.acquire(timeout=5.0)
         assert result.id == "sb-pooled"
+        assert pool._total_acquisitions == 1
 
         await pool.stop()
 
@@ -300,6 +305,44 @@ class TestAcquire:
         sandbox_cls.create.assert_awaited_once()
 
         pool._started = False  # cleanup
+
+    @pytest.mark.asyncio
+    @patch(SETTINGS_PATH, return_value=_make_mock_settings())
+    async def test_acquire_unhealthy_pooled_sandbox_does_not_increment_total(self, mock_settings: MagicMock) -> None:
+        """Failed health checks in acquire() do not count as successful acquisitions."""
+        unhealthy = _make_mock_sandbox("sb-unhealthy")
+        unhealthy.unpause = AsyncMock(return_value=True)
+        unhealthy.ensure_sandbox = AsyncMock(side_effect=RuntimeError("health-check failed"))
+
+        async def _slow_destroy() -> None:
+            await asyncio.sleep(999)
+
+        unhealthy.destroy = AsyncMock(side_effect=_slow_destroy)
+
+        on_demand_sb = _make_mock_sandbox("sb-ondemand")
+        sandbox_cls = MagicMock()
+        sandbox_cls.create = AsyncMock(return_value=on_demand_sb)
+
+        pool = SandboxPool(sandbox_cls, min_pool_size=0, max_pool_size=4, warmup_interval=300)
+        pool._started = True
+        pool._stopping = True  # disable replenishment side effects for deterministic assertions
+        pool._pool.put_nowait(unhealthy)
+        pool._pool_timestamps[unhealthy.id] = time.time()
+        pool._paused_ids.add(unhealthy.id)
+
+        real_wait_for = asyncio.tasks.wait_for
+
+        async def _wait_for_with_short_destroy_timeout(awaitable: asyncio.Future, timeout: float):
+            if timeout == 15.0:
+                return await real_wait_for(awaitable, timeout=0.01)
+            return await real_wait_for(awaitable, timeout=timeout)
+
+        with patch("app.core.sandbox_pool.asyncio.wait_for", side_effect=_wait_for_with_short_destroy_timeout):
+            result = await pool.acquire(timeout=0.1)
+
+        assert result.id == "sb-ondemand"
+        assert pool._total_acquisitions == 0
+        unhealthy.destroy.assert_awaited_once()
 
     @pytest.mark.asyncio
     @patch(PREWARM_PATH, new_callable=AsyncMock)

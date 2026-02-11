@@ -33,7 +33,26 @@ fi
 ### 2. Check CLAUDE.md
 
 ```bash
-grep -i "worktree.*director" CLAUDE.md 2>/dev/null
+claude_pref=$(grep -i "worktree.*director" CLAUDE.md 2>/dev/null | head -n 1)
+
+if [ -n "$claude_pref" ]; then
+    case "$claude_pref" in
+      *".worktrees"*)
+        selected_dir=".worktrees"
+        ;;
+      *".config/superpowers/worktrees"*)
+        project=$(basename "$(git rev-parse --show-toplevel)")
+        selected_dir="$HOME/.config/superpowers/worktrees/$project"
+        ;;
+      *"worktrees"*)
+        selected_dir="worktrees"
+        ;;
+    esac
+fi
+
+if [ -n "$selected_dir" ]; then
+    export selected_dir
+fi
 ```
 
 **If preference specified:** Use it without asking.
@@ -46,9 +65,31 @@ If no directory exists and no CLAUDE.md preference:
 No worktree directory found. Where should I create worktrees?
 
 1. .worktrees/ (project-local, hidden)
-2. ~/.config/superpowers/worktrees/<project-name>/ (global location)
+2. worktrees/ (project-local, visible)
+3. ~/.config/superpowers/worktrees/<project-name>/ (global location)
 
 Which would you prefer?
+```
+
+```bash
+read -r user_choice
+case "$user_choice" in
+  1)
+    selected_dir=".worktrees"
+    ;;
+  2)
+    selected_dir="worktrees"
+    ;;
+  3)
+    project=$(basename "$(git rev-parse --show-toplevel)")
+    selected_dir="$HOME/.config/superpowers/worktrees/$project"
+    ;;
+  *)
+    echo "Error: Invalid selection '$user_choice'" >&2
+    exit 1
+    ;;
+esac
+export selected_dir
 ```
 
 ## Safety Verification
@@ -58,6 +99,12 @@ Which would you prefer?
 **MUST verify directory is ignored before creating worktree:**
 
 ```bash
+# Fail fast if directory selection never resolved
+if [ -z "$selected_dir" ]; then
+    echo "Error: selected_dir is not set" >&2
+    exit 1
+fi
+
 # Check if the selected directory is ignored (respects local, global, and system gitignore)
 # $selected_dir must be set during the Directory Selection Process above
 git check-ignore -q "$selected_dir" 2>/dev/null
@@ -88,12 +135,16 @@ project=$(basename "$(git rev-parse --show-toplevel)")
 
 ```bash
 # Determine full path
-case $LOCATION in
+case "$selected_dir" in
   .worktrees|worktrees)
-    path="$LOCATION/$BRANCH_NAME"
+    path="$selected_dir/$BRANCH_NAME"
     ;;
-  ~/.config/superpowers/worktrees/*)
-    path="$HOME/.config/superpowers/worktrees/$project/$BRANCH_NAME"
+  "$HOME"/.config/superpowers/worktrees/*)
+    path="$selected_dir/$BRANCH_NAME"
+    ;;
+  *)
+    echo "Error: Unsupported worktree directory '$selected_dir'" >&2
+    exit 1
     ;;
 esac
 

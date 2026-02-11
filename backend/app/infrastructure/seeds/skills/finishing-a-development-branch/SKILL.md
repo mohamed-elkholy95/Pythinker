@@ -46,7 +46,8 @@ if git rev-parse --verify main >/dev/null 2>&1; then
 elif git rev-parse --verify master >/dev/null 2>&1; then
     BASE_BRANCH=master
 else
-    echo "Neither main nor master found"
+    echo "Error: Neither main nor master branch found" >&2
+    exit 1
 fi
 echo "Base branch: $BASE_BRANCH"
 ```
@@ -151,7 +152,7 @@ FEATURE_BRANCH=$(git branch --show-current)
 
 Then, after checkout to base branch, check if the feature branch had a worktree:
 ```bash
-git worktree list | grep "$FEATURE_BRANCH"
+git worktree list | grep -F "$FEATURE_BRANCH"
 ```
 
 If yes:
