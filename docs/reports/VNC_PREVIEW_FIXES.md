@@ -1,942 +1,287 @@
-# VNC Preview & Timeline Replay Fixes
+# VNC Preview & Timeline Replay Remediation Plan (Context7 Validated)
 
-**Date**: 2026-02-11
-**Status**: 🔴 Issues Identified, Awaiting Implementation
-**Priority**: P0 - High User Impact
+**Date**: 2026-02-11  
+**Status**: 🟡 In Progress (plan revised, implementation not started)  
+**Priority**: P0/P1 fixes for session-end UX and replay integrity
 
 ---
 
 ## Executive Summary
 
-| Issue | Severity | Impact | Priority |
-|-------|----------|--------|----------|
-| VNC Mini Preview not showing at session end | **HIGH** | Users can't see final desktop state | P0 |
-| SESSION_END screenshot not captured | **HIGH** | Missing final state for replay | P0 |
-| Timeline scrubber lacks tool context | **MEDIUM** | Screenshots without metadata | P1 |
-| VNC shows generic state instead of final screenshot | **MEDIUM** | Poor UX at session completion | P1 |
-| WebSocket reconnection missing jitter | **LOW** | Potential thundering herd | P2 |
+This revised plan corrects multiple technical gaps in the prior draft and aligns fixes with:
+
+- Current repository behavior (frontend replay pipeline, backend screenshot ordering, existing metrics API)
+- Context7-validated guidance for Vue Composition API, Prometheus client usage, and async test structure
+- Low-regression, testable implementation patterns
+
+Top corrections vs previous draft:
+
+1. Do **not** fetch final screenshot inside `VncMiniPreview.vue`; reuse existing replay pipeline from `useScreenshotReplay`.
+2. Do **not** use `limit=1&offset=0` for final screenshot; backend returns screenshots in ascending `sequence_number`, so that returns the **first** frame.
+3. Do **not** add Prometheus metrics with incompatible constructor/signature; this codebase uses custom metrics classes with `(name, help_text, labels)` and `.inc({...})`.
+4. Keep `computed` pure; move async/side-effect logic to `watch`/composables.
+5. Add jitter via a deterministic utility function (testable with injected RNG), not inline randomness that is hard to verify.
 
 ---
 
-## Issue #1: VNC Mini Preview Not Showing at Session End
+## Validated Findings (Code-Backed)
 
-### Problem Description
+## 1) VNC mini preview drops to generic state at session end
 
-When a session completes, the VNC mini preview shows a generic "Initializing" state instead of the final desktop view.
+**Evidence**: `frontend/src/components/VncMiniPreview.vue:235` gates live VNC on `effectiveToolContent`. After completion, tool context clears, so `shouldShowLiveVnc` returns `false`.
 
-### Root Cause
-
-**File**: `frontend/src/components/VncMiniPreview.vue` (lines 235-246)
-
-```typescript
-const shouldShowLiveVnc = computed(() => {
-  if (!props.sessionId || !props.enabled || props.isInitializing) {
-    return false;
-  }
-
-  // BUG: This condition requires active tool context
-  // When session ends, there's no active tool, so VNC never shows
-  if (!effectiveToolContent.value) {
-    return false;
-  }
-
-  return props.isActive || currentViewType.value === 'vnc';
-});
+```ts
+if (!effectiveToolContent.value) {
+  return false;
+}
 ```
 
-**Flow when session ends**:
-1. `isActive` → `false`
-2. `toolContent` → cleared
-3. `effectiveToolContent.value` → `undefined`
-4. `shouldShowLiveVnc` → `false`
-5. Falls back to generic tool-preview state
+**Impact**: Thumbnail regresses to generic "Initializing"/tool fallback instead of final meaningful visual state.
 
-### Fix Implementation
+## 2) SESSION_END capture reliability is weakly observable
 
-**File**: `frontend/src/components/VncMiniPreview.vue`
+**Evidence**: `backend/app/domain/services/agent_task_runner.py:1458` captures `SESSION_END`, but failures are only debug-logged in cleanup path.
 
-```vue
-<script setup lang="ts">
-// ... existing code ...
+**Impact**: Real failures can be missed operationally; replay may miss a final frame without clear alerting.
 
-const shouldShowLiveVnc = computed(() => {
-  if (!props.sessionId || !props.enabled || props.isInitializing) {
-    return false;
-  }
+## 3) Periodic screenshots miss tool metadata
 
-  // Show VNC when:
-  // 1. Tool is actively running OR
-  // 2. Current view type is VNC (explicitly requested) OR
-  // 3. Session exists but no active tool (session end/idle state)
-  const hasActiveTool = props.isActive || currentViewType.value === 'vnc';
-  const hasSessionIdle = props.sessionId && !props.isActive && !props.toolName;
-  
-  return hasActiveTool || hasSessionIdle;
-});
-</script>
+**Evidence**: `backend/app/application/services/screenshot_service.py:355` periodic loop calls:
+
+```py
+await self.capture(ScreenshotTrigger.PERIODIC)
 ```
 
-### Testing
+No current tool context is attached unless explicitly passed.
 
-```typescript
-// Test cases for shouldShowLiveVnc
-describe('shouldShowLiveVnc', () => {
-  it('returns true when tool is active', () => {
-    wrapper.setProps({ sessionId: '123', isActive: true });
-    expect(wrapper.vm.shouldShowLiveVnc).toBe(true);
-  });
+**Impact**: Timeline frames are hard to interpret (poor replay semantics).
 
-  it('returns true when session idle (session end)', () => {
-    wrapper.setProps({ sessionId: '123', isActive: false, toolName: '' });
-    expect(wrapper.vm.shouldShowLiveVnc).toBe(true);
-  });
+## 4) Previous draft’s final screenshot retrieval logic was incorrect
 
-  it('returns false when initializing', () => {
-    wrapper.setProps({ sessionId: '123', isInitializing: true });
-    expect(wrapper.vm.shouldShowLiveVnc).toBe(false);
-  });
-});
+**Evidence**:
+
+- `backend/app/infrastructure/repositories/mongo_screenshot_repository.py` sorts `+sequence_number` (ascending).
+- `GET /sessions/{id}/screenshots?limit=1&offset=0` returns earliest screenshot, not final.
+
+## 5) WebSocket reconnect currently uses deterministic exponential backoff only
+
+**Evidence**: `frontend/src/components/SandboxViewer.vue:260`
+
+```ts
+const delay = Math.min(1000 * Math.pow(2, connectionAttempts), 10000)
 ```
+
+**Impact**: synchronized reconnect bursts possible under shared failures.
 
 ---
 
-## Issue #2: SESSION_END Screenshot Not Captured
+## Context7 Validation Applied
 
-### Problem Description
-
-Final screenshot with trigger `SESSION_END` is not being captured, even though the code exists.
-
-### Evidence
-
-```
-Session 73c2f38741bd4e3c analysis:
-Total screenshots: 78
-- Periodic: 72 (93%)
-- Tool (before/after): 6 (7%)
-- SESSION_END: 0 (0%) ← MISSING
-```
-
-### Root Cause
-
-**File**: `backend/app/domain/services/agent_task_runner.py`
-
-```python
-# Current code - issues:
-# 1. Exception logged at DEBUG level (invisible)
-# 2. May execute after sandbox destroyed
-# 3. No success verification
-try:
-    await self._screenshot_service.capture(ScreenshotTrigger.SESSION_END)
-except Exception as e:
-    logger.debug(f"Screenshot cleanup failed (non-critical): {e}")
-```
-
-### Fix Implementation
-
-**File**: `backend/app/domain/services/agent_task_runner.py`
-
-```python
-from app.domain.models.screenshot import ScreenshotTrigger
-from app.infrastructure.observability.prometheus_metrics import (
-    screenshot_session_end_total,
-)
-
-class AgentTaskRunner:
-    def __init__(self, ...):
-        # ... existing init ...
-        self._last_tool_name: str | None = None
-        self._last_function_name: str | None = None
-
-    async def _execute_tool(self, tool_name: str, function_name: str, ...):
-        # Track last tool for SESSION_END metadata
-        self._last_tool_name = tool_name
-        self._last_function_name = function_name
-        # ... rest of execution ...
-
-    async def _cleanup_session(self) -> None:
-        """Session cleanup with guaranteed final screenshot."""
-        
-        # 1. Capture SESSION_END BEFORE stopping periodic captures
-        screenshot_captured = False
-        if self._screenshot_service:
-            try:
-                screenshot = await self._screenshot_service.capture(
-                    trigger=ScreenshotTrigger.SESSION_END,
-                    tool_name=self._last_tool_name,
-                    function_name=self._last_function_name,
-                )
-                if screenshot:
-                    screenshot_captured = True
-                    logger.info(
-                        "SESSION_END screenshot captured",
-                        extra={
-                            "session_id": self._session_id,
-                            "screenshot_id": screenshot.id,
-                        }
-                    )
-                else:
-                    logger.warning(
-                        "SESSION_END screenshot returned None",
-                        extra={"session_id": self._session_id}
-                    )
-            except Exception as e:
-                logger.warning(
-                    f"SESSION_END screenshot failed: {e}",
-                    extra={"session_id": self._session_id},
-                    exc_info=True
-                )
-        
-        # 2. Record metric
-        screenshot_session_end_total.inc(
-            {"status": "success" if screenshot_captured else "failed"}
-        )
-        
-        # 3. Stop periodic captures
-        if self._screenshot_service:
-            await self._screenshot_service.stop_periodic()
-        
-        # ... rest of cleanup ...
-```
-
-**File**: `backend/app/infrastructure/observability/prometheus_metrics.py`
-
-```python
-# Add new metric
-screenshot_session_end_total = Counter(
-    name="pythinker_screenshot_session_end_total",
-    documentation="Session end screenshot capture attempts by status",
-    labelnames=["status"],
-)
-```
-
-### Testing
-
-```python
-# tests/domain/services/test_session_end_screenshot.py
-import pytest
-from unittest.mock import AsyncMock, MagicMock
-from app.domain.services.agent_task_runner import AgentTaskRunner
-from app.domain.models.screenshot import ScreenshotTrigger
-
-@pytest.mark.asyncio
-async def test_session_end_screenshot_captured():
-    """Verify SESSION_END screenshot is captured during cleanup."""
-    runner = AgentTaskRunner(...)
-    runner._screenshot_service = MagicMock()
-    runner._screenshot_service.capture = AsyncMock(return_value=MagicMock(id="test_id"))
-    runner._last_tool_name = "browser"
-    runner._last_function_name = "navigate"
-    
-    await runner._cleanup_session()
-    
-    runner._screenshot_service.capture.assert_called_once_with(
-        trigger=ScreenshotTrigger.SESSION_END,
-        tool_name="browser",
-        function_name="navigate",
-    )
-
-@pytest.mark.asyncio
-async def test_session_end_screenshot_failure_logged():
-    """Verify SESSION_END screenshot failure is logged at WARNING level."""
-    runner = AgentTaskRunner(...)
-    runner._screenshot_service = MagicMock()
-    runner._screenshot_service.capture = AsyncMock(side_effect=Exception("Sandbox gone"))
-    
-    with pytest.MonkeyPatch.context() as m:
-        mock_logger = MagicMock()
-        m.setattr("app.domain.services.agent_task_runner.logger", mock_logger)
-        await runner._cleanup_session()
-        
-        # Should log WARNING, not DEBUG
-        mock_logger.warning.assert_called()
-```
+| Area | Context7 Source | Applied Decision |
+|---|---|---|
+| Vue Composition API (`computed`, `watch`, cleanup) | `/vuejs/docs` (`computed.md`, `watchers.md`, `reactivity-core.md`) | Keep `computed` side-effect free. Use `watch`/composable for async and cleanup logic. |
+| Prometheus Python client labels/counters | `/prometheus/client_python` (`instrumenting/labels.md`) | Use stable, low-cardinality labels only; increment counters with label maps/values, avoid per-session/per-tool-call labels. |
+| Async test execution model | `/pytest-dev/pytest-asyncio` (`concepts.md`) | Keep async tests explicit (`@pytest.mark.asyncio`), deterministic, and isolated. |
 
 ---
 
-## Issue #3: Timeline Scrubber Lacks Tool Context
+## Remediation Plan
 
-### Problem Description
+## P0-A: Correct session-end thumbnail behavior without duplicate data fetching
 
-93% of screenshots (periodic captures) lack tool context metadata, making timeline navigation difficult.
+**Goal**: At session completion, thumbnail shows replay/final frame (or meaningful fallback), not generic initializing state.
 
-### Evidence
+### Design
 
-```
-Session 73c2f38741bd4e3c:
-- Screenshots with tool_name: 6/78 (7%)
-- Screenshots without tool_name: 72/78 (93%)
-```
+1. Reuse existing replay state from `ChatPage` (`useScreenshotReplay`) instead of introducing API calls inside `VncMiniPreview`.
+2. Pass replay completion/frame props through `TaskProgressBar` to `VncMiniPreview`.
+3. Update display precedence in `VncMiniPreview`:
+   - Initializing / specialized preview states
+   - Active live VNC (during active tool execution)
+   - Completed replay frame (session ended + replay frame available)
+   - Generic fallback
+4. Update initializing-dot logic to not display "Initializing" when session is ended.
 
-### Root Cause
+### Files
 
-**File**: `backend/app/application/services/screenshot_service.py`
+- `frontend/src/pages/ChatPage.vue`
+- `frontend/src/components/TaskProgressBar.vue`
+- `frontend/src/components/VncMiniPreview.vue`
+- `frontend/tests/components/VncMiniPreview.spec.ts`
 
-```python
-# Periodic loop doesn't include tool context
-async def _periodic_loop() -> None:
-    while True:
-        await asyncio.sleep(capture_interval)
-        await self.capture(ScreenshotTrigger.PERIODIC)  # No tool info!
-```
+### Acceptance Criteria
 
-### Fix Implementation
-
-**File**: `backend/app/application/services/screenshot_service.py`
-
-```python
-from dataclasses import dataclass
-from typing import Any
-
-@dataclass
-class ToolExecutionContext:
-    """Context for enriching periodic screenshots with tool metadata."""
-    tool_name: str | None = None
-    function_name: str | None = None
-    tool_call_id: str | None = None
-    action_type: str | None = None
-
-
-class ScreenshotCaptureService:
-    """Captures screenshots during session execution for later replay."""
-    
-    MAX_PERIODIC_FAILURES = 3
-
-    def __init__(
-        self,
-        sandbox,
-        session_id: str,
-        repository: ScreenshotRepository | None = None,
-        mongodb=None,
-    ):
-        # ... existing init ...
-        self._tool_context: ToolExecutionContext | None = None
-
-    def set_tool_context(
-        self,
-        tool_name: str | None = None,
-        function_name: str | None = None,
-        tool_call_id: str | None = None,
-        action_type: str | None = None,
-    ) -> None:
-        """Set current tool context for periodic captures.
-        
-        Call this when a tool starts execution to enrich periodic
-        screenshots with tool metadata.
-        """
-        self._tool_context = ToolExecutionContext(
-            tool_name=tool_name,
-            function_name=function_name,
-            tool_call_id=tool_call_id,
-            action_type=action_type,
-        )
-        logger.debug(
-            f"Tool context set: {tool_name}/{function_name}",
-            extra={"session_id": self._session_id}
-        )
-
-    def clear_tool_context(self) -> None:
-        """Clear tool context when tool execution completes."""
-        self._tool_context = None
-        logger.debug(
-            "Tool context cleared",
-            extra={"session_id": self._session_id}
-        )
-
-    async def capture(
-        self,
-        trigger: ScreenshotTrigger,
-        tool_call_id: str | None = None,
-        tool_name: str | None = None,
-        function_name: str | None = None,
-        action_type: str | None = None,
-    ) -> SessionScreenshot | None:
-        """Capture a screenshot. Never raises -- returns None on failure."""
-        
-        # For periodic captures, use stored context if not provided
-        if trigger == ScreenshotTrigger.PERIODIC and self._tool_context:
-            tool_name = tool_name or self._tool_context.tool_name
-            function_name = function_name or self._tool_context.function_name
-            tool_call_id = tool_call_id or self._tool_context.tool_call_id
-            action_type = action_type or self._tool_context.action_type
-        
-        # ... rest of capture logic unchanged ...
-```
-
-**File**: `backend/app/domain/services/agent_task_runner.py`
-
-```python
-async def _execute_tool(self, tool_name: str, tool_input: dict, ...):
-    """Execute tool with screenshot context tracking."""
-    
-    # Set tool context for periodic screenshots
-    if self._screenshot_service:
-        self._screenshot_service.set_tool_context(
-            tool_name=tool_name,
-            function_name=tool_input.get("function"),
-            tool_call_id=tool_call_id,
-        )
-    
-    try:
-        # Capture TOOL_BEFORE screenshot
-        if self._screenshot_service:
-            await self._screenshot_service.capture(
-                ScreenshotTrigger.TOOL_BEFORE,
-                tool_name=tool_name,
-                function_name=tool_input.get("function"),
-                tool_call_id=tool_call_id,
-            )
-        
-        # Execute tool
-        result = await tool.execute(...)
-        
-        # Capture TOOL_AFTER screenshot
-        if self._screenshot_service:
-            await self._screenshot_service.capture(
-                ScreenshotTrigger.TOOL_AFTER,
-                tool_name=tool_name,
-                function_name=tool_input.get("function"),
-                tool_call_id=tool_call_id,
-            )
-        
-        return result
-        
-    finally:
-        # Clear tool context
-        if self._screenshot_service:
-            self._screenshot_service.clear_tool_context()
-```
-
-### Testing
-
-```python
-# tests/application/services/test_screenshot_context.py
-import pytest
-from app.application.services.screenshot_service import ScreenshotCaptureService
-
-@pytest.mark.asyncio
-async def test_periodic_screenshot_uses_tool_context():
-    """Verify periodic captures use stored tool context."""
-    service = ScreenshotCaptureService(mock_sandbox, "session-123", mock_repo, mock_mongo)
-    
-    # Set context
-    service.set_tool_context(
-        tool_name="browser",
-        function_name="navigate",
-        tool_call_id="call-456",
-    )
-    
-    # Capture periodic (no explicit tool info)
-    await service.capture(ScreenshotTrigger.PERIODIC)
-    
-    # Verify saved screenshot has tool context
-    saved = await mock_repo.find_by_session("session-123", limit=1, offset=0)
-    assert saved[0].tool_name == "browser"
-    assert saved[0].function_name == "navigate"
-    assert saved[0].tool_call_id == "call-456"
-
-@pytest.mark.asyncio
-async def test_clear_tool_context():
-    """Verify context is cleared properly."""
-    service = ScreenshotCaptureService(...)
-    
-    service.set_tool_context(tool_name="browser")
-    assert service._tool_context is not None
-    
-    service.clear_tool_context()
-    assert service._tool_context is None
-```
+- Completed session with replay data: thumbnail shows screenshot frame, not generic initializing state.
+- Active session with active visual tool: live VNC still shown.
+- No additional screenshot list API calls are made from `VncMiniPreview`.
 
 ---
 
-## Issue #4: VNC Shows Generic State Instead of Final Screenshot
+## P0-B: Harden SESSION_END capture and observability
 
-### Problem Description
+**Goal**: Final screenshot capture failure is explicit, measurable, and test-covered.
 
-When session ends, VNC preview should show final screenshot thumbnail, not generic icon.
+### Design
 
-### Root Cause
+1. Keep cleanup order deterministic:
+   - stop periodic loop
+   - attempt `SESSION_END` capture
+   - then sandbox destruction
+2. Upgrade failure logging at capture callsite to `warning` with structured context + stack trace.
+3. Treat `capture(...) == None` as failure signal (not just exceptions).
+4. Use existing metric family already emitted by `record_screenshot_capture`:
+   - `pythinker_screenshot_captures_total{trigger="session_end",status="success|error"}`
+   No redundant custom metric unless a genuine gap remains.
 
-**File**: `frontend/src/components/VncMiniPreview.vue`
+### Files
 
-No handling for "session complete but no active tool" state.
+- `backend/app/domain/services/agent_task_runner.py`
+- `backend/tests/domain/services/test_agent_task_runner_cleanup.py`
+- `backend/tests/application/services/test_screenshot_service_metrics.py`
 
-### Fix Implementation
+### Acceptance Criteria
 
-**File**: `frontend/src/components/VncMiniPreview.vue`
-
-```vue
-<template>
-  <div class="vnc-mini-preview" :class="sizeClass" @click="emit('click')">
-    
-    <!-- ... existing states (initializing, wide research, terminal, etc.) ... -->
-    
-    <!-- VNC view (active tool context) -->
-    <div v-else-if="shouldShowLiveVnc" class="vnc-container">
-      <LiveViewer
-        :session-id="sessionId"
-        :enabled="enabled"
-        :view-only="true"
-        prefer="vnc"
-      />
-    </div>
-
-    <!-- NEW: Final screenshot thumbnail (session complete) -->
-    <div
-      v-else-if="shouldShowFinalScreenshot"
-      class="final-screenshot-preview"
-    >
-      <img
-        v-if="finalScreenshotUrl"
-        :src="finalScreenshotUrl"
-        alt="Final session state"
-        class="final-screenshot-image"
-        @error="handleImageError"
-      />
-      <div v-else class="final-screenshot-placeholder">
-        <Monitor class="placeholder-icon" />
-        <span class="placeholder-text">Session Complete</span>
-      </div>
-      <div class="completion-badge">
-        <Check class="badge-icon" />
-        <span>Complete</span>
-      </div>
-    </div>
-
-    <!-- Generic tool indicator (fallback) -->
-    <div v-else class="tool-preview">
-      <!-- ... existing fallback ... -->
-    </div>
-
-    <!-- Hover overlay -->
-    <div class="hover-overlay">
-      <Monitor class="hover-icon" />
-    </div>
-  </div>
-</template>
-
-<script setup lang="ts">
-import { computed, ref, watch } from 'vue';
-import { Monitor, Check } from 'lucide-vue-next';
-import LiveViewer from '@/components/LiveViewer.vue';
-import { apiClient } from '@/api/client';
-
-const props = withDefaults(defineProps<{
-  sessionId?: string;
-  enabled?: boolean;
-  size?: 'sm' | 'md' | 'lg';
-  toolName?: string;
-  toolFunction?: string;
-  isActive?: boolean;
-  contentPreview?: string;
-  filePath?: string;
-  isInitializing?: boolean;
-  searchResults?: Array<{...}>;
-  searchQuery?: string;
-  toolContent?: ToolContent;
-  isSummaryStreaming?: boolean;
-  // NEW PROPS
-  isSessionComplete?: boolean;
-  finalScreenshotUrl?: string;
-}>(), {
-  // ... existing defaults ...
-  isSessionComplete: false,
-  finalScreenshotUrl: '',
-});
-
-const emit = defineEmits<{
-  click: [];
-}>();
-
-// ... existing code ...
-
-// NEW: Determine if we should show final screenshot
-const shouldShowFinalScreenshot = computed(() => {
-  // Show final screenshot when:
-  // 1. Session is marked complete
-  // 2. Not initializing
-  // 3. No active tool
-  // 4. Not showing live VNC
-  return (
-    props.isSessionComplete &&
-    !props.isInitializing &&
-    !props.isActive &&
-    !shouldShowLiveVnc.value
-  );
-});
-
-// NEW: Auto-fetch final screenshot if not provided
-const autoFinalScreenshotUrl = ref('');
-const imageError = ref(false);
-
-watch([() => props.sessionId, () => props.isSessionComplete], async ([sessionId, isComplete]) => {
-  if (isComplete && sessionId && !props.finalScreenshotUrl) {
-    try {
-      const response = await apiClient.get(`/sessions/${sessionId}/screenshots`, {
-        params: { limit: 1, offset: 0 }
-      });
-      const screenshots = response.data?.data?.screenshots || [];
-      if (screenshots.length > 0) {
-        autoFinalScreenshotUrl.value = `/api/v1/sessions/${sessionId}/screenshots/${screenshots[0].id}`;
-      }
-    } catch (e) {
-      console.debug('Failed to fetch final screenshot:', e);
-    }
-  }
-}, { immediate: true });
-
-const finalScreenshotUrl = computed(() => {
-  return props.finalScreenshotUrl || autoFinalScreenshotUrl.value;
-});
-
-const handleImageError = () => {
-  imageError.value = true;
-};
-</script>
-
-<style scoped>
-/* ... existing styles ... */
-
-/* NEW: Final screenshot preview */
-.final-screenshot-preview {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bolt-elements-bg-depth-2);
-  overflow: hidden;
-}
-
-.final-screenshot-image {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.final-screenshot-placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  color: var(--bolt-elements-textTertiary);
-}
-
-.placeholder-icon {
-  width: 24px;
-  height: 24px;
-}
-
-.placeholder-text {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.completion-badge {
-  position: absolute;
-  bottom: 6px;
-  right: 6px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 6px;
-  background: var(--function-success);
-  color: white;
-  border-radius: 4px;
-  font-size: 9px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.badge-icon {
-  width: 10px;
-  height: 10px;
-}
-</style>
-```
-
-### Testing
-
-```typescript
-// tests/components/VncMiniPreview.spec.ts
-import { mount } from '@vue/test-utils';
-import VncMiniPreview from '@/components/VncMiniPreview.vue';
-
-describe('VncMiniPreview', () => {
-  describe('shouldShowFinalScreenshot', () => {
-    it('returns true when session complete and no active tool', () => {
-      const wrapper = mount(VncMiniPreview, {
-        props: {
-          sessionId: 'test-123',
-          isSessionComplete: true,
-          isActive: false,
-          isInitializing: false,
-        }
-      });
-      expect(wrapper.vm.shouldShowFinalScreenshot).toBe(true);
-    });
-
-    it('returns false when session is active', () => {
-      const wrapper = mount(VncMiniPreview, {
-        props: {
-          sessionId: 'test-123',
-          isSessionComplete: true,
-          isActive: true, // Still active
-        }
-      });
-      expect(wrapper.vm.shouldShowFinalScreenshot).toBe(false);
-    });
-  });
-
-  describe('final screenshot display', () => {
-    it('displays final screenshot image when URL provided', () => {
-      const wrapper = mount(VncMiniPreview, {
-        props: {
-          sessionId: 'test-123',
-          isSessionComplete: true,
-          finalScreenshotUrl: '/api/v1/sessions/test/screenshots/123',
-        }
-      });
-      expect(wrapper.find('.final-screenshot-image').exists()).toBe(true);
-    });
-
-    it('displays placeholder when image fails to load', async () => {
-      const wrapper = mount(VncMiniPreview, {
-        props: {
-          sessionId: 'test-123',
-          isSessionComplete: true,
-          finalScreenshotUrl: '/invalid-url',
-        }
-      });
-      
-      await wrapper.find('.final-screenshot-image').trigger('error');
-      expect(wrapper.find('.final-screenshot-placeholder').exists()).toBe(true);
-    });
-  });
-});
-```
+- Cleanup path logs warning on any SESSION_END failure/None result.
+- Session-end success/error visible in existing metrics.
+- Tests assert capture attempted during destroy and warning behavior on failure.
 
 ---
 
-## Issue #5: WebSocket Reconnection Missing Jitter
+## P1-A: Add tool context enrichment for periodic screenshots (race-safe)
 
-### Problem Description
+**Goal**: Periodic screenshots carry meaningful tool metadata when a visual tool is active.
 
-WebSocket reconnection uses exponential backoff without jitter, potentially causing thundering herd.
+### Design
 
-### Root Cause
+1. Add explicit context tracking in screenshot service:
+   - `set_tool_context(...)`
+   - `clear_tool_context(tool_call_id)` (clear only matching active context)
+2. In runner tool lifecycle:
+   - set context on `CALLING` for visual tools
+   - clear context on `CALLED`/finalization for that same tool call id
+3. For periodic captures, merge current context snapshot when present.
+4. Keep metric labels low-cardinality; if context coverage metric is added, use boolean labels only.
 
-**File**: `frontend/src/components/SandboxViewer.vue`
+### Files
 
-```typescript
-// Current: No jitter
-const delay = Math.min(1000 * Math.pow(2, connectionAttempts), 10000);
-```
+- `backend/app/application/services/screenshot_service.py`
+- `backend/app/domain/services/agent_task_runner.py`
+- `backend/tests/application/services/test_screenshot_service_metrics.py`
 
-### Fix Implementation
+### Acceptance Criteria
 
-**File**: `frontend/src/components/SandboxViewer.vue`
-
-```typescript
-// Configuration
-const BASE_DELAY_MS = 1000;
-const MAX_DELAY_MS = 10000;
-const JITTER_FACTOR = 0.3; // ±30% randomization
-
-/**
- * Calculate reconnection delay with exponential backoff and jitter.
- * 
- * @param attempt - Current attempt number (0-indexed)
- * @returns Delay in milliseconds
- * 
- * @example
- * // Attempt 0: ~1000ms ± 30%
- * // Attempt 1: ~2000ms ± 30%
- * // Attempt 2: ~4000ms ± 30%
- * // Attempt 3: ~8000ms ± 30%
- * // Attempt 4+: ~10000ms ± 30% (capped)
- */
-function calculateReconnectDelay(attempt: number): number {
-  // Exponential backoff: base * 2^attempt
-  const exponentialDelay = BASE_DELAY_MS * Math.pow(2, attempt);
-  
-  // Cap at maximum
-  const cappedDelay = Math.min(exponentialDelay, MAX_DELAY_MS);
-  
-  // Add jitter: ±30% randomization
-  // This prevents synchronized reconnection attempts (thundering herd)
-  const jitterRange = cappedDelay * JITTER_FACTOR;
-  const jitter = (Math.random() * 2 - 1) * jitterRange;
-  
-  // Ensure minimum delay
-  return Math.max(BASE_DELAY_MS, Math.round(cappedDelay + jitter));
-}
-
-// Usage in ws.onclose handler
-ws.onclose = (e) => {
-  ws = null;
-  stopStatsTracking();
-  cleanupInput();
-
-  if (intentionalClose) {
-    return;
-  }
-
-  const closeReason = e.reason || `WebSocket closed (code ${e.code})`;
-  emit('disconnected', closeReason);
-
-  const shouldRetry = !NON_RETRYABLE_WS_CODES.has(e.code) &&
-    !closeReason.toLowerCase().includes('session not found') &&
-    !closeReason.toLowerCase().includes('sandbox not found');
-
-  if (props.enabled && shouldRetry && connectionAttempts < MAX_RECONNECT_ATTEMPTS) {
-    const delay = calculateReconnectDelay(connectionAttempts);
-    connectionAttempts++;
-    
-    statusText.value = `Reconnecting in ${(delay / 1000).toFixed(1)}s...`;
-    isLoading.value = true;
-
-    logger.debug(`WebSocket reconnect scheduled`, {
-      attempt: connectionAttempts,
-      delay_ms: delay,
-      reason: closeReason,
-    });
-
-    reconnectTimeout = window.setTimeout(() => {
-      screencastWsUrl.value = null;
-      initConnection();
-    }, delay);
-  } else {
-    emit('error', closeReason);
-  }
-};
-```
-
-### Testing
-
-```typescript
-// tests/components/SandboxViewer.spec.ts
-import { calculateReconnectDelay } from '@/components/SandboxViewer.vue';
-
-describe('calculateReconnectDelay', () => {
-  it('returns base delay for first attempt', () => {
-    // Run multiple times to account for jitter
-    const delays = Array.from({ length: 100 }, () => calculateReconnectDelay(0));
-    const avgDelay = delays.reduce((a, b) => a + b, 0) / delays.length;
-    
-    // Average should be close to 1000ms
-    expect(avgDelay).toBeGreaterThan(700);
-    expect(avgDelay).toBeLessThan(1300);
-  });
-
-  it('caps delay at MAX_DELAY_MS', () => {
-    const delays = Array.from({ length: 100 }, () => calculateReconnectDelay(10));
-    
-    // All delays should be <= MAX + jitter
-    expect(Math.max(...delays)).toBeLessThanOrEqual(13000);
-  });
-
-  it('includes jitter (non-deterministic)', () => {
-    const delays = new Set<number>();
-    for (let i = 0; i < 10; i++) {
-      delays.add(calculateReconnectDelay(2));
-    }
-    
-    // Should have variation due to jitter
-    expect(delays.size).toBeGreaterThan(1);
-  });
-});
-```
+- Periodic screenshots captured during active visual tool include `tool_name`/`function_name`.
+- Context is cleared correctly after tool completion.
+- No high-cardinality metric labels introduced.
 
 ---
 
-## Implementation Checklist
+## P2-A: Add jittered reconnect backoff with deterministic tests
 
-### Phase 1: Critical Fixes (P0)
+**Goal**: Reduce synchronized reconnect spikes while keeping behavior testable.
 
-- [ ] **Fix VNC preview logic** (`VncMiniPreview.vue`)
-  - [ ] Update `shouldShowLiveVnc` computed
-  - [ ] Add unit tests
-  - [ ] Manual test: verify VNC shows at session end
+### Design
 
-- [ ] **Fix SESSION_END screenshot** (`agent_task_runner.py`)
-  - [ ] Add `_last_tool_name` / `_last_function_name` tracking
-  - [ ] Elevate log level to WARNING
-  - [ ] Add `screenshot_session_end_total` metric
-  - [ ] Add integration test
-  - [ ] Manual test: verify SESSION_END screenshot captured
+1. Extract reconnect delay logic into utility, e.g. `frontend/src/utils/reconnectBackoff.ts`.
+2. Use capped exponential + jitter (recommend full jitter).
+3. Inject RNG (`rng: () => number`) for deterministic unit tests.
+4. Keep non-retryable close code/reason checks unchanged.
 
-### Phase 2: Enhancements (P1)
+### Files
 
-- [ ] **Add tool context to periodic screenshots** (`screenshot_service.py`)
-  - [ ] Add `ToolExecutionContext` dataclass
-  - [ ] Add `set_tool_context()` / `clear_tool_context()` methods
-  - [ ] Update periodic capture to use context
-  - [ ] Integrate in `agent_task_runner.py`
-  - [ ] Add unit tests
+- `frontend/src/components/SandboxViewer.vue`
+- `frontend/src/utils/reconnectBackoff.ts` (new)
+- `frontend/tests/utils/reconnectBackoff.spec.ts` (new)
 
-- [ ] **Add final screenshot display** (`VncMiniPreview.vue`)
-  - [ ] Add `isSessionComplete` / `finalScreenshotUrl` props
-  - [ ] Add `shouldShowFinalScreenshot` computed
-  - [ ] Add final screenshot template section
-  - [ ] Add CSS styles
-  - [ ] Add auto-fetch logic
-  - [ ] Add unit tests
+### Acceptance Criteria
 
-### Phase 3: Reliability (P2)
-
-- [ ] **Add WebSocket jitter** (`SandboxViewer.vue`)
-  - [ ] Add `calculateReconnectDelay()` function
-  - [ ] Update `ws.onclose` handler
-  - [ ] Add unit tests for jitter calculation
+- Delay remains bounded `[min_delay, max_delay]`.
+- Delay distribution varies for same attempt index.
+- Unit tests deterministic via mocked RNG.
 
 ---
 
-## Metrics to Track
+## Implementation Order
 
-After implementation, monitor these metrics:
+1. P0-A (thumbnail/replay wiring)
+2. P0-B (SESSION_END reliability/observability)
+3. P1-A (periodic context enrichment)
+4. P2-A (reconnect jitter utility)
+
+---
+
+## Verification Checklist
+
+## Frontend
+
+- [ ] `frontend/tests/components/VncMiniPreview.spec.ts` updated for completion/replay behavior
+- [ ] jitter/backoff utility tests added and passing
+- [ ] `cd frontend && bun run lint && bun run type-check`
+
+## Backend
+
+- [ ] cleanup tests cover session-end capture success/failure paths
+- [ ] periodic context enrichment tests pass
+- [ ] `conda activate pythinker && cd backend && ruff check . && ruff format --check . && pytest tests/`
+
+---
+
+## Observability Queries (Post-Implementation)
 
 ```promql
-# SESSION_END screenshot success rate
-rate(pythinker_screenshot_session_end_total{status="success"}[5m])
+# SESSION_END success ratio
+sum(rate(pythinker_screenshot_captures_total{trigger="session_end",status="success"}[5m]))
 /
-rate(pythinker_screenshot_session_end_total[5m])
+clamp_min(sum(rate(pythinker_screenshot_captures_total{trigger="session_end"}[5m])), 1)
 
-# Screenshots with tool context
-sum(rate(pythinker_screenshot_captures_total{trigger!="periodic"}[5m]))
+# Periodic capture success ratio
+sum(rate(pythinker_screenshot_captures_total{trigger="periodic",status="success"}[5m]))
 /
-sum(rate(pythinker_screenshot_captures_total[5m]))
+clamp_min(sum(rate(pythinker_screenshot_captures_total{trigger="periodic"}[5m])), 1)
+```
 
-# WebSocket reconnection rate
-rate(pythinker_websocket_reconnects_total[5m])
+If a new context-coverage metric is added (optional), track:
+
+```promql
+sum(rate(pythinker_screenshot_periodic_context_total{has_context="true"}[5m]))
+/
+clamp_min(sum(rate(pythinker_screenshot_periodic_context_total[5m])), 1)
 ```
 
 ---
 
-## Rollback Plan
+## Rollback Strategy
 
-If issues arise after deployment:
+1. Revert reconnect utility adoption in `SandboxViewer.vue` only (isolated change).
+2. Revert periodic tool-context enrichment if metadata regression appears.
+3. Keep SESSION_END warning/metrics changes unless they cause log noise issues.
+4. Revert thumbnail replay wiring if it causes unexpected panel interactions.
 
-1. **VNC Preview**: Revert `shouldShowLiveVnc` to original logic
-2. **SESSION_END**: Disable capture in `agent_task_runner.py`
-3. **Tool Context**: Set `screenshot_tool_context_enabled=false` (add feature flag)
-4. **Final Screenshot**: Set `isSessionComplete=false` always
-5. **Jitter**: Remove jitter function, use simple exponential backoff
+---
+
+## Status Tracking
+
+| Workstream | Status |
+|---|---|
+| Plan review and correction | **Completed** |
+| Context7 validation pass | **Completed** |
+| Code implementation | **Not Started** |
+| Automated verification run | **Not Started** |
 
 ---
 
 ## References
 
-- Vue 3 Composition API Best Practices: https://vuejs.org/guide/reusability/composables.html
-- WebSocket Reconnection Strategies: https://dev.to/hexshift/robust-websocket-reconnection-strategies
-- Session Replay Best Practices: https://openreplay.com/resources/session-replay-guide
-- Prometheus Best Practices: https://prometheus.io/docs/practices/
+- Vue Watchers / Reactivity Core (watch cleanup, side effects): https://vuejs.org/guide/essentials/watchers.html
+- Vue Computed (derived state): https://vuejs.org/guide/essentials/computed.html
+- Prometheus Python client labels/counters: https://github.com/prometheus/client_python/blob/master/docs/content/instrumenting/labels.md
+- pytest-asyncio concepts: https://pytest-asyncio.readthedocs.io/en/latest/concepts.html
 
 ---
 
 ## Document History
 
 | Date | Author | Changes |
-|------|--------|---------|
-| 2026-02-11 | Agent Analysis | Initial issue identification and fix plans |
+|---|---|---|
+| 2026-02-11 | Agent Analysis | Initial issue identification and fix plan |
+| 2026-02-11 | Codex Review | Context7-validated rewrite with corrected architecture, metrics, and verification gates |

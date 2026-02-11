@@ -1,6 +1,6 @@
 """Unit tests for graceful crash degradation (Priority 1)."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 

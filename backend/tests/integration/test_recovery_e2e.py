@@ -3,6 +3,8 @@
 End-to-end tests for malformed response recovery flows.
 """
 
+from contextlib import suppress
+
 import pytest
 
 from app.domain.models.recovery import (
@@ -118,7 +120,7 @@ class TestRecoveryE2E:
         malformed = '{\"incomplete\":'
 
         # Exhaust budget by recovering 3 times
-        for i in range(3):
+        for _ in range(3):
             decision = await recovery_policy.detect_malformed(malformed)
             await recovery_policy.execute_recovery(
                 response_text=malformed,
@@ -356,14 +358,12 @@ class TestRecoveryE2E:
 
         # Trigger budget exhaustion
         decision = await recovery_policy.detect_malformed(malformed)
-        try:
+        with suppress(RecoveryBudgetExhaustedError):
             await recovery_policy.execute_recovery(
                 response_text=malformed,
                 recovery_reason=decision.recovery_reason,
                 strategy=decision.strategy,
             )
-        except RecoveryBudgetExhaustedError:
-            pass  # Expected
 
         # Verify failure metric incremented
         final_failures = agent_response_recovery_failure.get(

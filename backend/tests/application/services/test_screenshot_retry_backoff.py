@@ -105,8 +105,6 @@ async def test_retry_respects_max_attempts():
 @pytest.mark.asyncio
 async def test_successful_retry_increments_metric():
     """Test that successful retry increments the retry metric."""
-    from app.infrastructure.observability.prometheus_metrics import screenshot_retry_attempts_total
-
     mock_sandbox = Mock()
 
     call_count = 0
