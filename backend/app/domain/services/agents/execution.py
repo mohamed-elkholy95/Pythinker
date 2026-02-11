@@ -551,11 +551,14 @@ class ExecutionAgent(BaseAgent):
             has_title = bool(message_title)
             is_report_structure = self._is_report_structure(message_content)
 
+            # Track report event ID for suggestion anchoring
+            report_event_id = None
             if is_substantial or has_title or is_report_structure:
                 title = message_title or "Summary"
                 sources = self.get_collected_sources() if self._collected_sources else None
+                report_event_id = str(uuid.uuid4())
                 yield ReportEvent(
-                    id=str(uuid.uuid4()),
+                    id=report_event_id,
                     title=title,
                     content=message_content,
                     attachments=None,
@@ -569,7 +572,14 @@ class ExecutionAgent(BaseAgent):
                 content=message_content,
             )
             if suggestions:
-                yield SuggestionEvent(suggestions=suggestions)
+                # Emit suggestion with session-anchored metadata
+                content_excerpt = message_content[:500] + ("..." if len(message_content) > 500 else "")
+                yield SuggestionEvent(
+                    suggestions=suggestions,
+                    source="completion",
+                    anchor_event_id=report_event_id,
+                    anchor_excerpt=content_excerpt,
+                )
 
         except Exception as e:
             logger.error(f"Error during summarization: {e}")
@@ -605,15 +615,36 @@ class ExecutionAgent(BaseAgent):
         return "Task Report"
 
     async def _generate_follow_up_suggestions(self, title: str, content: str) -> list[str]:
-        """Generate follow-up suggestions and always return a non-empty fallback."""
+        """Generate follow-up suggestions grounded in session context.
+
+        Enriches suggestion generation with:
+        - Original user request
+        - Completion title
+        - Bounded content excerpt (first 500 chars)
+
+        Args:
+            title: Report title
+            content: Full report content
+
+        Returns:
+            List of 3 contextual suggestion strings
+        """
         try:
+            # Build session-contextual prompt
+            user_request_context = f'User request: "{self._user_request}"\n' if self._user_request else ""
+            content_excerpt = content[:500] + ("..." if len(content) > 500 else "")
+
             suggestion_response = await self.llm.ask(
                 [
                     {
                         "role": "user",
                         "content": (
-                            f'Given this report title: "{title}", '
-                            "suggest exactly 3 short follow-up questions (5-15 words each). "
+                            f"{user_request_context}"
+                            f'Completion title: "{title}"\n'
+                            f"Summary excerpt: {content_excerpt}\n\n"
+                            "Generate exactly 3 short follow-up questions (5-15 words each) that are grounded "
+                            "in the actual completion results and user's original request. "
+                            "Suggestions should help the user explore next steps or dive deeper into specific aspects. "
                             "Return ONLY a JSON array of 3 strings."
                         ),
                     }
