@@ -13,6 +13,11 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from app.core.config import get_settings
 from app.domain.models.tool_result import ToolResult
 from app.infrastructure.external.llm import get_llm
+from app.infrastructure.observability.prometheus_metrics import (
+    browser_element_extraction_latency,
+    browser_element_extraction_timeout_total,
+    browser_element_extraction_total,
+)
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
@@ -176,8 +181,12 @@ VIDEO_URL_PATTERNS: list[re.Pattern] = [
 MAX_INTERACTIVE_ELEMENTS = 100  # Cap interactive elements to prevent 4+ minute extractions
 MAX_CONTENT_ELEMENTS = 200  # Cap content elements for text extraction
 JS_EVAL_TIMEOUT_MS = 5000  # 5 second timeout for JavaScript evaluation
-EXTRACTION_CACHE_TTL_SECONDS = 10  # Cache extraction results for 10 seconds
+EXTRACTION_CACHE_TTL_SECONDS = 10  # Cache extraction results for 10 seconds (overridden by config)
 HEAVY_PAGE_THRESHOLD = 3000  # Pages with more elements use lightweight extraction
+
+# Wikipedia and heavy page detection (Priority 1: crash prevention)
+WIKIPEDIA_DOMAINS = ["wikipedia.org", "en.wikipedia.org", "*.wikipedia.org"]
+QUICK_SIZE_CHECK_TIMEOUT_MS = 500  # Quick page size check timeout
 
 
 def is_video_url(url: str) -> bool:
@@ -366,6 +375,147 @@ class PlaywrightBrowser:
             }))()""",
             timeout_ms=1000,  # Very quick check
         )
+
+    async def _quick_page_size_check(self) -> dict[str, Any] | None:
+        """Quick page size check BEFORE expensive DOM operations.
+
+        This runs before smart scroll and element extraction to detect heavy pages proactively.
+        Priority 1: Crash prevention - check HTML size and DOM count with minimal overhead.
+
+        Returns:
+            Dict with htmlSize, domCount, isHeavy or None if check fails
+        """
+        if not self.page:
+            return None
+
+        return await self._evaluate_with_timeout(
+            f"""(() => {{
+                const htmlSize = document.documentElement.innerHTML.length;
+                const domCount = document.querySelectorAll('*').length;
+                return {{
+                    htmlSize: htmlSize,
+                    domCount: domCount,
+                    isHeavy: htmlSize > {get_settings().browser_heavy_page_html_size_threshold} ||
+                             domCount > {get_settings().browser_heavy_page_dom_threshold}
+                }};
+            }})()""",
+            timeout_ms=QUICK_SIZE_CHECK_TIMEOUT_MS,
+        )
+
+    def _is_wikipedia_url(self, url: str) -> bool:
+        """Check if URL is a Wikipedia page.
+
+        Args:
+            url: URL to check
+
+        Returns:
+            True if URL is Wikipedia, False otherwise
+        """
+        if not url:
+            return False
+        return any(domain in url.lower() for domain in WIKIPEDIA_DOMAINS)
+
+    async def _extract_wikipedia_summary(self) -> dict[str, Any]:
+        """Extract lightweight summary from Wikipedia page.
+
+        Priority 1: Memory optimization - extract only lead section to prevent crashes.
+        Skips tables, references, navigation, and sidebars.
+
+        Returns:
+            Dict with title, summary, url
+        """
+        if not self.page:
+            return {"title": "", "summary": "", "url": ""}
+
+        try:
+            summary_data = await self._evaluate_with_timeout(
+                """(() => {
+                    const title = document.querySelector('#firstHeading')?.textContent || document.title;
+                    const content = document.querySelector('#mw-content-text .mw-parser-output');
+
+                    if (!content) {
+                        return {title: title, summary: '', paragraphs: 0};
+                    }
+
+                    // Extract only first 3 paragraphs (lead section)
+                    const paragraphs = Array.from(content.querySelectorAll('p'))
+                        .slice(0, 3)
+                        .map(p => p.textContent.trim())
+                        .filter(text => text.length > 0);
+
+                    return {
+                        title: title,
+                        summary: paragraphs.join('\\n\\n'),
+                        paragraphs: paragraphs.length
+                    };
+                })()""",
+                timeout_ms=2000,
+            )
+
+            if summary_data:
+                logger.info(
+                    f"Extracted Wikipedia summary: {summary_data.get('paragraphs', 0)} paragraphs, "
+                    f"{len(summary_data.get('summary', ''))} chars"
+                )
+                return {
+                    "title": summary_data.get("title", ""),
+                    "summary": summary_data.get("summary", ""),
+                    "url": self.page.url,
+                    "mode": "wikipedia_summary",
+                }
+        except Exception as e:
+            logger.warning(f"Wikipedia summary extraction failed: {e}")
+
+        return {"title": "", "summary": "", "url": self.page.url if self.page else ""}
+
+    async def _check_memory_pressure(self) -> dict[str, Any] | None:
+        """Check browser memory usage via CDP Performance.getMetrics().
+
+        Priority 1: Proactive crash prevention - detect memory pressure before browser crashes.
+
+        Returns:
+            Dict with used_mb, total_mb, pressure_level (low/medium/high/critical) or None
+        """
+        if not self.page:
+            return None
+
+        try:
+            # Get CDP session
+            cdp_session = await self.page.context.new_cdp_session(self.page)
+
+            # Get performance metrics
+            metrics = await cdp_session.send("Performance.getMetrics")
+
+            # Extract memory metrics
+            metrics_dict = {m["name"]: m["value"] for m in metrics.get("metrics", [])}
+
+            js_heap_used = metrics_dict.get("JSHeapUsedSize", 0) / (1024 * 1024)  # Convert to MB
+            js_heap_total = metrics_dict.get("JSHeapTotalSize", 0) / (1024 * 1024)
+            nodes = metrics_dict.get("Nodes", 0)
+
+            # Determine pressure level
+            settings = get_settings()
+            if js_heap_used > settings.browser_memory_critical_threshold_mb or nodes > 10000:
+                pressure_level = "critical"
+            elif js_heap_used > settings.browser_memory_high_threshold_mb:
+                pressure_level = "high"
+            elif js_heap_used > 300:  # 300MB
+                pressure_level = "medium"
+            else:
+                pressure_level = "low"
+
+            await cdp_session.detach()
+
+            return {
+                "used_mb": round(js_heap_used, 2),
+                "total_mb": round(js_heap_total, 2),
+                "nodes": int(nodes),
+                "pressure_level": pressure_level,
+            }
+
+        except Exception as e:
+            logger.debug(f"Memory pressure check failed: {e}")
+            return None
 
     async def _force_window_position(
         self, page: Page, x: int = 0, y: int = 0, width: int = 1280, height: int = 1024
@@ -1404,12 +1554,19 @@ class PlaywrightBrowser:
             now = time.time()
 
             # Check extraction cache (prevents duplicate extractions after navigate)
+            # Priority 5: Use config value for cache TTL (increased from 10s to 15s)
+            cache_ttl = get_settings().browser_element_extraction_cache_ttl
             if (
                 self._extraction_cache["url"] == current_url
-                and now - self._extraction_cache["timestamp"] < EXTRACTION_CACHE_TTL_SECONDS
+                and now - self._extraction_cache["timestamp"] < cache_ttl
                 and self._extraction_cache["elements"] is not None
             ):
                 logger.debug(f"Returning cached extraction for {current_url}")
+                from app.infrastructure.observability.prometheus_metrics import (
+                    element_extraction_cache_hits_total,
+                )
+
+                element_extraction_cache_hits_total.inc()
                 return ToolResult(
                     success=True,
                     data={
@@ -1420,6 +1577,13 @@ class PlaywrightBrowser:
                         "cached": True,
                     },
                 )
+
+            # Cache miss
+            from app.infrastructure.observability.prometheus_metrics import (
+                element_extraction_cache_misses_total,
+            )
+
+            element_extraction_cache_misses_total.inc()
 
             # Wait for page to be ready
             if wait_for_load:
@@ -1475,6 +1639,7 @@ class PlaywrightBrowser:
         Optimized extraction that:
         - Limits elements to MAX_INTERACTIVE_ELEMENTS (100) to prevent hangs
         - Uses timeout protection to avoid blocking on heavy pages
+        - Retries with exponential backoff for slow-loading pages
         - Skips expensive getComputedStyle for most elements
         - Preserves label/placeholder extraction for form elements
 
@@ -1488,9 +1653,14 @@ class PlaywrightBrowser:
         # Clear the cache to ensure we get fresh elements
         self._interactive_elements_cache = []
 
-        # Execute JavaScript with timeout protection and element limit
-        interactive_elements = await self._evaluate_with_timeout(
-            f"""(() => {{
+        # Get configuration values
+        settings = get_settings()
+        timeout_ms = int(settings.browser_element_extraction_timeout * 1000)
+        max_retries = settings.browser_element_extraction_retries
+        retry_delay = settings.browser_element_extraction_retry_delay
+
+        # Extraction JavaScript code
+        extraction_script = f"""(() => {{
                 const MAX_ELEMENTS = {MAX_INTERACTIVE_ELEMENTS};
                 const interactiveElements = [];
                 const viewportHeight = window.innerHeight;
@@ -1564,26 +1734,80 @@ class PlaywrightBrowser:
                     }}
 
                     // Set data attribute for later selection
-                    element.setAttribute('data-manus-id', 'manus-element-' + validElementIndex);
+                    element.setAttribute('data-pythinker-id', 'pythinker-element-' + validElementIndex);
 
                     interactiveElements.push({{
                         index: validElementIndex,
                         tag: tagName,
                         text: text,
-                        selector: '[data-manus-id="manus-element-' + validElementIndex + '"]'
+                        selector: '[data-pythinker-id="pythinker-element-' + validElementIndex + '"]'
                     }});
 
                     validElementIndex++;
                 }}
 
                 return interactiveElements;
-            }})()""",
-            timeout_ms=3000,  # 3 second timeout for element extraction
-        )
+            }})()"""
 
-        # Handle timeout or error
+        # Retry loop with exponential backoff
+        interactive_elements = None
+        start_time = time.time()
+        extraction_status = "error"  # Default to error, update on success
+
+        for attempt in range(max_retries + 1):
+            try:
+                # Execute JavaScript with timeout protection and element limit
+                interactive_elements = await self._evaluate_with_timeout(
+                    extraction_script,
+                    timeout_ms=timeout_ms,
+                )
+
+                # Success - break out of retry loop
+                if interactive_elements:
+                    extraction_status = "success"
+                    break
+
+                # Empty result but no exception - might need to wait for page load
+                if attempt < max_retries:
+                    # Don't record as "timeout" - this is just an empty result
+                    # Only actual timeout exceptions should be recorded in timeout metrics
+                    logger.debug(
+                        "Element extraction returned empty result (attempt %d/%d), retrying after %.1fs",
+                        attempt + 1,
+                        max_retries + 1,
+                        retry_delay,
+                    )
+                    await asyncio.sleep(retry_delay)
+
+            except (PlaywrightTimeoutError, TimeoutError) as e:
+                # Record timeout metric
+                attempt_label = "final" if attempt == max_retries else ("retry" if attempt > 0 else "first")
+                browser_element_extraction_timeout_total.inc({"attempt": attempt_label})
+
+                if attempt < max_retries:
+                    logger.debug(
+                        "Element extraction timed out (attempt %d/%d), retrying after %.1fs",
+                        attempt + 1,
+                        max_retries + 1,
+                        retry_delay,
+                    )
+                    await asyncio.sleep(retry_delay)
+                else:
+                    extraction_status = "timeout"
+                    logger.warning(
+                        "Element extraction timed out after %d attempts: %s",
+                        max_retries + 1,
+                        str(e),
+                    )
+
+        # Record metrics
+        elapsed = time.time() - start_time
+        browser_element_extraction_total.inc({"status": extraction_status})
+        browser_element_extraction_latency.observe({"status": extraction_status}, elapsed)
+
+        # Handle final timeout or error after all retries
         if not interactive_elements:
-            logger.warning("Interactive element extraction timed out or returned empty")
+            logger.warning("Interactive element extraction timed out or returned empty after %d attempts", max_retries + 1)
             return ["0:<span>Page too complex or extraction timed out - use browser_click with coordinates</span>"]
 
         # Update cache
@@ -1623,8 +1847,18 @@ class PlaywrightBrowser:
         """Internal navigate implementation (caller must hold _navigation_lock)."""
         await self._ensure_page()
 
-        # Clear cache as the page is about to change
-        self._interactive_elements_cache = []
+        # Clear cache only if URL changed (Priority 5: improve cache effectiveness)
+        current_url = self.page.url if self.page else None
+        if current_url != url:
+            self._interactive_elements_cache = []
+
+        # Priority 1: Wikipedia-specific optimization
+        settings = get_settings()
+        is_wikipedia = self._is_wikipedia_url(url) and settings.browser_wikipedia_lightweight_mode
+        if is_wikipedia:
+            logger.info(f"Wikipedia URL detected: {url} - using lightweight mode")
+            # Force domcontentloaded instead of full load for Wikipedia
+            wait_until = "domcontentloaded"
 
         try:
             # Navigate with proper wait_until parameter
@@ -1634,13 +1868,33 @@ class PlaywrightBrowser:
             if response and response.status >= 400:
                 logger.warning(f"Navigation to {url} returned status {response.status}")
 
+            # Priority 1: Quick page size check BEFORE expensive operations
+            is_heavy_page = False
+            if auto_extract and not is_wikipedia:
+                page_size = await self._quick_page_size_check()
+                if page_size and page_size.get("isHeavy"):
+                    is_heavy_page = True
+                    logger.warning(
+                        f"Heavy page detected early: {page_size.get('htmlSize', 0)//1024}KB HTML, "
+                        f"{page_size.get('domCount', 0)} DOM elements - switching to lightweight mode"
+                    )
+                    from app.infrastructure.observability.prometheus_metrics import (
+                        browser_heavy_page_detections_total,
+                    )
+
+                    browser_heavy_page_detections_total.labels(detection_method="proactive").inc()
+
             # AUTOMATIC BEHAVIOR: Smart scroll to load lazy content comprehensively
-            if auto_extract:
+            # Priority 1: Skip smart scroll for Wikipedia and heavy pages to prevent crashes
+            if auto_extract and not is_wikipedia and not is_heavy_page:
                 try:
                     await self._smart_scroll_for_lazy_content()
                     logger.debug("Smart-scrolled page to load lazy content")
                 except Exception as e:
                     logger.debug(f"Smart scroll failed (non-critical): {e}")
+            elif auto_extract and (is_wikipedia or is_heavy_page):
+                skip_reason = "Wikipedia" if is_wikipedia else "heavy page"
+                logger.debug(f"Skipped smart scroll for {skip_reason}")
 
             # Extract interactive elements after page loads
             interactive_elements = await self._extract_interactive_elements()
@@ -1669,17 +1923,53 @@ class PlaywrightBrowser:
 
             if auto_extract:
                 try:
-                    # Extract content automatically
-                    content = await self._extract_content()
-                    title = await self.page.title()
+                    # Priority 1: Use Wikipedia summary for Wikipedia pages
+                    if is_wikipedia:
+                        wiki_summary = await self._extract_wikipedia_summary()
+                        result_data["content"] = wiki_summary.get("summary", "")
+                        result_data["title"] = wiki_summary.get("title", await self.page.title())
+                        result_data["extraction_mode"] = "wikipedia_summary"
+                        from app.infrastructure.observability.prometheus_metrics import (
+                            browser_wikipedia_summary_mode_total,
+                        )
 
-                    result_data["content"] = content
-                    result_data["title"] = title
+                        browser_wikipedia_summary_mode_total.inc()
+                        logger.info(
+                            f"Wikipedia summary extracted ({len(result_data['content'])} chars) from {url}"
+                        )
+                    else:
+                        # Extract content automatically
+                        content = await self._extract_content()
+                        title = await self.page.title()
 
-                    logger.info(f"Auto-extracted content ({len(content)} chars) from {url}")
+                        result_data["content"] = content
+                        result_data["title"] = title
+
+                        logger.info(f"Auto-extracted content ({len(content)} chars) from {url}")
                 except Exception as e:
                     logger.warning(f"Auto-extract content failed: {e}")
                     # Continue without content - non-critical
+
+            # Priority 1: Check memory pressure after navigation (if heavy page)
+            if settings.browser_memory_auto_restart and auto_extract:
+                memory_pressure = await self._check_memory_pressure()
+                if memory_pressure:
+                    pressure_level = memory_pressure.get("pressure_level")
+                    if pressure_level in ("high", "critical"):
+                        logger.warning(
+                            f"Memory pressure {pressure_level}: {memory_pressure.get('used_mb')}MB used, "
+                            f"{memory_pressure.get('nodes')} DOM nodes"
+                        )
+                        from app.infrastructure.observability.prometheus_metrics import (
+                            browser_memory_pressure_total,
+                        )
+
+                        browser_memory_pressure_total.labels(level=pressure_level).inc()
+
+                        if pressure_level == "critical":
+                            logger.warning("CRITICAL memory pressure - browser restart recommended on next navigation")
+                            # Note: Don't restart immediately - wait for next navigation
+                            # This prevents disrupting current successful navigation
 
             # Successful navigation — reset display circuit breaker
             self._display_failure_count = 0
@@ -1726,7 +2016,36 @@ class PlaywrightBrowser:
             if self._is_crash_error(e):
                 logger.error(f"Browser crash detected during navigation to {url}: {e}")
                 self._connection_healthy = False
-                # Attempt auto-recovery via restart
+
+                # Priority 1: Graceful degradation - return partial result instead of failing
+                if settings.browser_graceful_degradation:
+                    logger.info("Graceful degradation enabled - returning partial result instead of failure")
+                    try:
+                        # Try to get whatever info we can before crash
+                        partial_data = {
+                            "url": url,
+                            "partial": True,
+                            "crash_reason": "browser_crash",
+                            "interactive_elements": [],
+                        }
+
+                        # Try to get title and URL if page still exists
+                        if self.page:
+                            try:
+                                partial_data["title"] = await self.page.title()
+                                partial_data["url"] = self.page.url
+                            except Exception:
+                                pass
+
+                        return ToolResult(
+                            success=True,  # Mark as success with partial data
+                            message="Page navigated but browser crashed during extraction. Partial data available.",
+                            data=partial_data,
+                        )
+                    except Exception as partial_err:
+                        logger.warning(f"Could not extract partial data: {partial_err}")
+
+                # Attempt auto-recovery via restart (if graceful degradation disabled or failed)
                 try:
                     recovery_result = await self.restart(url)
                     if recovery_result.success:
@@ -1735,6 +2054,7 @@ class PlaywrightBrowser:
                         return recovery_result
                 except Exception as recovery_err:
                     logger.error(f"Browser crash recovery failed: {recovery_err}")
+
                 return ToolResult(
                     success=False,
                     message=f"Browser crashed navigating to {url}. Recovery failed — try again.",
@@ -1987,7 +2307,7 @@ class PlaywrightBrowser:
         """Get element by index using multiple fallback strategies.
 
         Phase 5: Enhanced element targeting with fallbacks:
-        1. Primary: data-manus-id selector
+        1. Primary: data-pythinker-id selector
         2. Fallback 1: Original selector from cache
         3. Fallback 2: Text-based matching from cache
         4. Fallback 3: Refresh element list and retry
@@ -2010,14 +2330,14 @@ class PlaywrightBrowser:
 
         cached_element = self._interactive_elements_cache[index]
 
-        # Strategy 1: Use data-manus-id selector (most reliable)
-        selector = f'[data-manus-id="manus-element-{index}"]'
+        # Strategy 1: Use data-pythinker-id selector (most reliable)
+        selector = f'[data-pythinker-id="pythinker-element-{index}"]'
         try:
             element = await self.page.query_selector(selector)
             if element:
                 return element
         except Exception as e:
-            logger.debug(f"Strategy 1 (data-manus-id) failed for index {index}: {e}")
+            logger.debug(f"Strategy 1 (data-pythinker-id) failed for index {index}: {e}")
 
         # Strategy 2: Try original selector from cache
         if "selector" in cached_element:

@@ -88,6 +88,31 @@ class AgentService:
         self._settings_service = get_settings_service()
         self._background_tasks: set[asyncio.Task] = set()
         self._sandbox_warm_locks: dict[str, asyncio.Lock] = {}
+        self._sandbox_warm_tasks: dict[str, asyncio.Task] = {}
+
+    def _register_sandbox_warmup_task(self, session_id: str, task: asyncio.Task) -> None:
+        """Track a warm-up task so it can be cancelled on stop/delete."""
+        existing = self._sandbox_warm_tasks.get(session_id)
+        if existing and not existing.done():
+            existing.cancel()
+        self._sandbox_warm_tasks[session_id] = task
+
+        def _cleanup(_task: asyncio.Task) -> None:
+            current = self._sandbox_warm_tasks.get(session_id)
+            if current is _task:
+                self._sandbox_warm_tasks.pop(session_id, None)
+
+        task.add_done_callback(_cleanup)
+
+    async def _cancel_sandbox_warmup_task(self, session_id: str) -> None:
+        """Cancel any in-flight sandbox warm-up task for a session."""
+        task = self._sandbox_warm_tasks.pop(session_id, None)
+        if not task or task.done():
+            return
+
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
     def _clamp_create_session_wait_seconds(self, requested_seconds: float) -> float:
         """Clamp user-provided warm-up wait to a bounded latency budget."""
@@ -166,6 +191,7 @@ class AgentService:
             task = asyncio.create_task(self._warm_sandbox_for_session(session.id))
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
+            self._register_sandbox_warmup_task(session.id, task)
             logger.info(f"Started background sandbox warm-up for session {session.id}")
             wait_budget_seconds = self._clamp_create_session_wait_seconds(sandbox_wait_seconds)
             try:
@@ -192,6 +218,7 @@ class AgentService:
             task = asyncio.create_task(self._warm_sandbox_for_session(session.id))
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
+            self._register_sandbox_warmup_task(session.id, task)
             logger.info(f"Started background sandbox warm-up for session {session.id}")
 
         elapsed_ms = (time.perf_counter() - started_at) * 1000
@@ -567,6 +594,12 @@ class AgentService:
         )
         stream_iter = event_stream.__aiter__()
 
+        # Event resumption: skip events up to and including event_id
+        # This enables page refresh to resume from the last received event
+        skip_until_resume_point = bool(event_id)
+        if event_id:
+            logger.info(f"Event resumption enabled: skipping events until event_id={event_id}")
+
         try:
             while True:
                 try:
@@ -590,6 +623,21 @@ class AgentService:
                         retry_hint="Try again, or simplify the request.",
                     )
                     return
+
+                # Event resumption: skip already-sent events
+                if skip_until_resume_point:
+                    current_event_id = getattr(event, "event_id", None)
+                    if current_event_id:
+                        if current_event_id == event_id:
+                            # Found the resume point - start sending events AFTER this one
+                            logger.info(f"Resume point found at event_id={event_id}, starting fresh event stream")
+                            skip_until_resume_point = False
+                        continue  # Skip this event (already sent before page refresh)
+                    else:
+                        # Event has no event_id (shouldn't happen, but be defensive)
+                        logger.warning(f"Event without event_id during resumption: {type(event).__name__}")
+                        # Skip events without IDs during resumption to be safe
+                        continue
 
                 logger.debug(f"Received event: {event}")
                 emitted_events += 1
@@ -636,6 +684,7 @@ class AgentService:
             raise NotFoundError("Session not found")
 
         # Stop any running task first
+        await self._cancel_sandbox_warmup_task(session_id)
         try:
             await self._agent_domain_service.stop_session(session_id)
         except Exception as e:
@@ -652,6 +701,7 @@ class AgentService:
         if not session:
             logger.error(f"Session {session_id} not found for user {user_id}")
             raise NotFoundError("Session not found")
+        await self._cancel_sandbox_warmup_task(session_id)
         await self._agent_domain_service.stop_session(session_id)
         logger.info(f"Session {session_id} stopped successfully")
 
@@ -716,6 +766,9 @@ class AgentService:
 
     async def shutdown(self):
         logger.info("Closing all agents and cleaning up resources")
+        for session_id in list(self._sandbox_warm_tasks.keys()):
+            with contextlib.suppress(Exception):
+                await self._cancel_sandbox_warmup_task(session_id)
         # Clean up all Agents and their associated sandboxes
         await self._agent_domain_service.shutdown()
         logger.info("All agents closed successfully")

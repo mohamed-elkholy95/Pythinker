@@ -363,7 +363,9 @@ class PlannerAgent(BaseAgent):
                         context_parts.append(mem_text)
 
                     task_memory = "\n\n".join(context_parts)
-                    logger.debug(f"Injected {len(similar_tasks)} similar tasks + {len(memories)} memories into planning")
+                    logger.debug(
+                        f"Injected {len(similar_tasks)} similar tasks + {len(memories)} memories into planning"
+                    )
             except Exception as e:
                 logger.warning(f"Failed to retrieve task memories for planning: {e}")
 

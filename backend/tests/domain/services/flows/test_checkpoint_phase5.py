@@ -3,7 +3,6 @@
 Tests checkpoint writing during execution to prevent context loss.
 """
 
-from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -29,8 +28,12 @@ class TestIncrementalCheckpointWrites:
         flow_mock._session_id = "session-456"
 
         # Create mock plan with completed steps
-        step1 = Step(id="step-1", description="First step", status=ExecutionStatus.COMPLETED, success=True, result="Done")
-        step2 = Step(id="step-2", description="Second step", status=ExecutionStatus.COMPLETED, success=True, result="Complete")
+        step1 = Step(
+            id="step-1", description="First step", status=ExecutionStatus.COMPLETED, success=True, result="Done"
+        )
+        step2 = Step(
+            id="step-2", description="Second step", status=ExecutionStatus.COMPLETED, success=True, result="Complete"
+        )
         step3 = Step(id="step-3", description="Third step", status=ExecutionStatus.PENDING)
 
         plan = Plan(title="Test Plan", steps=[step1, step2, step3])
@@ -112,9 +115,15 @@ class TestIncrementalCheckpointWrites:
         flow_mock._user_id = "user-123"
         flow_mock._session_id = "session-456"
 
-        step1 = Step(id="step-1", description="Task A", status=ExecutionStatus.COMPLETED, success=True, result="Success A")
-        step2 = Step(id="step-2", description="Task B", status=ExecutionStatus.COMPLETED, success=True, result="Success B")
-        step3 = Step(id="step-3", description="Task C", status=ExecutionStatus.COMPLETED, success=False, result="Failed C")
+        step1 = Step(
+            id="step-1", description="Task A", status=ExecutionStatus.COMPLETED, success=True, result="Success A"
+        )
+        step2 = Step(
+            id="step-2", description="Task B", status=ExecutionStatus.COMPLETED, success=True, result="Success B"
+        )
+        step3 = Step(
+            id="step-3", description="Task C", status=ExecutionStatus.COMPLETED, success=False, result="Failed C"
+        )
 
         flow_mock.plan = Plan(title="Test", steps=[step1, step2, step3])
 
@@ -144,7 +153,13 @@ class TestIncrementalCheckpointWrites:
 
         # 15 completed steps
         steps = [
-            Step(id=f"step-{i}", description=f"Task {i}", status=ExecutionStatus.COMPLETED, success=True, result=f"Result {i}")
+            Step(
+                id=f"step-{i}",
+                description=f"Task {i}",
+                status=ExecutionStatus.COMPLETED,
+                success=True,
+                result=f"Result {i}",
+            )
             for i in range(15)
         ]
 
@@ -159,8 +174,8 @@ class TestIncrementalCheckpointWrites:
         assert "Task 5" in content or "Task 6" in content  # First of last 10
         assert "Task 14" in content  # Last step
         # Should not include early steps
-        assert "Task 0" not in content
-        assert "Task 1" not in content
+        assert "Step 1: ✓ Success - Task 0 (Result 0)" not in content
+        assert "Step 2: ✓ Success - Task 1 (Result 1)" not in content
 
     @pytest.mark.asyncio
     async def test_no_checkpoint_without_memory_service(self):

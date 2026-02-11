@@ -66,3 +66,20 @@ def test_response_compressor_preserves_key_sections() -> None:
 
     assert len(compressed) <= 903
     assert result.is_valid is True
+
+
+def test_output_coverage_validator_accepts_explicit_no_artifacts_statement() -> None:
+    validator = OutputCoverageValidator()
+    output = """
+    Final result: Investigated the runtime behavior and completed the requested analysis.
+    Artifact references: no file artifacts were created for this request.
+    Next step: Review the findings and decide whether implementation changes are needed.
+    """
+    result = validator.validate(
+        output=output,
+        user_request="Investigate behavior and summarize findings",
+        required_sections=["final result", "artifact references", "next step"],
+    )
+
+    assert result.is_valid is True
+    assert "artifact references" not in result.missing_requirements

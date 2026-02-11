@@ -245,6 +245,84 @@ screenshot_fetch_latency = Histogram(
     buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0],
 )
 
+# Browser Element Extraction Metrics (Phase 6: timeout fixes)
+browser_element_extraction_total = Counter(
+    name="pythinker_browser_element_extraction_total",
+    help_text="Total browser element extraction attempts",
+    labels=["status"],  # status: success, timeout, error
+)
+
+browser_element_extraction_timeout_total = Counter(
+    name="pythinker_browser_element_extraction_timeout_total",
+    help_text="Total browser element extraction timeouts",
+    labels=["attempt"],  # attempt: first, retry, final
+)
+
+browser_element_extraction_latency = Histogram(
+    name="pythinker_browser_element_extraction_latency_seconds",
+    help_text="Browser element extraction latency in seconds",
+    labels=["status"],
+    buckets=[0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0],
+)
+
+# Browser Crash Prevention Metrics (Priority 1)
+browser_heavy_page_detections_total = Counter(
+    name="pythinker_browser_heavy_page_detections_total",
+    help_text="Total heavy page detections",
+    labels=["detection_method"],  # detection_method: proactive, reactive
+)
+
+browser_wikipedia_summary_mode_total = Counter(
+    name="pythinker_browser_wikipedia_summary_mode_total",
+    help_text="Total Wikipedia pages using summary extraction mode",
+    labels=[],
+)
+
+browser_memory_pressure_total = Counter(
+    name="pythinker_browser_memory_pressure_total",
+    help_text="Total browser memory pressure detections",
+    labels=["level"],  # level: low, medium, high, critical
+)
+
+browser_memory_restarts_total = Counter(
+    name="pythinker_browser_memory_restarts_total",
+    help_text="Total browser restarts due to memory pressure",
+    labels=[],
+)
+
+# Element Extraction Cache Metrics (Priority 5)
+element_extraction_cache_hits_total = Counter(
+    name="pythinker_element_extraction_cache_hits_total",
+    help_text="Total element extraction cache hits",
+    labels=[],
+)
+
+element_extraction_cache_misses_total = Counter(
+    name="pythinker_element_extraction_cache_misses_total",
+    help_text="Total element extraction cache misses",
+    labels=[],
+)
+
+# Sandbox Connection Metrics (Phase 6: warmup optimization)
+sandbox_connection_attempts_total = Counter(
+    name="pythinker_sandbox_connection_attempts_total",
+    help_text="Total sandbox connection attempts",
+    labels=["result"],  # result: success, failure, timeout
+)
+
+sandbox_connection_failure_total = Counter(
+    name="pythinker_sandbox_connection_failure_total",
+    help_text="Total sandbox connection failures",
+    labels=["reason"],  # reason: timeout, disconnected, refused, unreachable
+)
+
+sandbox_warmup_duration = Histogram(
+    name="pythinker_sandbox_warmup_duration_seconds",
+    help_text="Sandbox warmup duration in seconds",
+    labels=["status"],  # status: success, failure
+    buckets=[0.5, 1.0, 2.0, 3.0, 5.0, 10.0, 15.0, 30.0],
+)
+
 errors_total = Counter(
     name="pythinker_errors_total",
     help_text="Total number of errors",
@@ -294,6 +372,52 @@ circuit_breaker_mttr = Histogram(
     help_text="Circuit breaker mean time to recovery (seconds)",
     labels=["name"],
     buckets=[5, 15, 30, 60, 120, 300, 600, 1200],
+)
+
+# Screenshot Resilience Metrics (Priority 2)
+screenshot_circuit_state = Gauge(
+    name="pythinker_screenshot_circuit_state",
+    help_text="Screenshot circuit breaker state (0=closed, 1=half_open, 2=open)",
+    labels=["state"],  # state: closed, half_open, open
+)
+
+screenshot_retry_attempts_total = Counter(
+    name="pythinker_screenshot_retry_attempts_total",
+    help_text="Total screenshot retry attempts",
+    labels=[],
+)
+
+# Sandbox Health Monitoring Metrics (Priority 3)
+sandbox_health_check_total = Counter(
+    name="pythinker_sandbox_health_check_total",
+    help_text="Total sandbox health checks",
+    labels=["status"],  # status: success, failure
+)
+
+sandbox_oom_kills_total = Counter(
+    name="pythinker_sandbox_oom_kills_total",
+    help_text="Total sandbox OOM kills detected",
+    labels=[],
+)
+
+sandbox_runtime_crashes_total = Counter(
+    name="pythinker_sandbox_runtime_crashes_total",
+    help_text="Total sandbox runtime crashes",
+    labels=[],
+)
+
+# Token Management Metrics (Priority 4)
+token_pressure_level = Gauge(
+    name="pythinker_token_pressure_level",
+    help_text="Token pressure level (0=normal, 1=early, 2=moderate, 3=critical, 4=overflow)",
+    labels=["session_id"],
+)
+
+# Rating Endpoint Security Metrics (Priority 6)
+rating_unauthorized_attempts_total = Counter(
+    name="pythinker_rating_unauthorized_attempts_total",
+    help_text="Total unauthorized rating attempts",
+    labels=[],
 )
 
 # Phase 6: LLM Concurrency Metrics
@@ -362,6 +486,14 @@ _metrics_registry = [
     screenshot_fetch_total,
     screenshot_fetch_size_bytes,
     screenshot_fetch_latency,
+    # Browser Element Extraction (Phase 6: timeout fixes)
+    browser_element_extraction_total,
+    browser_element_extraction_timeout_total,
+    browser_element_extraction_latency,
+    # Sandbox Connection (Phase 6: warmup optimization)
+    sandbox_connection_attempts_total,
+    sandbox_connection_failure_total,
+    sandbox_warmup_duration,
     errors_total,
     # Phase 6: Circuit Breaker
     circuit_breaker_state,
@@ -906,6 +1038,37 @@ def record_screenshot_fetch(
 
     if normalized_status == "success" and size_bytes > 0:
         screenshot_fetch_size_bytes.inc({"access": normalized_access}, size_bytes)
+
+
+def record_sandbox_health_check(status: str) -> None:
+    """Record sandbox health check result.
+
+    Priority 3: Sandbox Health Monitoring
+
+    Args:
+        status: "success", "failure", or "error"
+    """
+    normalized_status = (status or "").strip().lower()
+    if normalized_status not in {"success", "failure", "error"}:
+        normalized_status = "error"
+
+    sandbox_health_check_total.inc({"status": normalized_status})
+
+
+def record_sandbox_oom_kill() -> None:
+    """Record sandbox OOM kill detection.
+
+    Priority 3: Sandbox Health Monitoring
+    """
+    sandbox_oom_kills_total.inc({})
+
+
+def record_sandbox_runtime_crash() -> None:
+    """Record sandbox runtime crash (non-OOM).
+
+    Priority 3: Sandbox Health Monitoring
+    """
+    sandbox_runtime_crashes_total.inc({})
 
 
 def record_plan_verification(result: str) -> None:

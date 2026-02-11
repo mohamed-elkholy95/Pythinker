@@ -52,12 +52,11 @@ class MemoryEvidence:
 
         if combined_score >= 0.85:
             return EvidenceConfidence.HIGH
-        elif combined_score >= 0.70:
+        if combined_score >= 0.70:
             return EvidenceConfidence.MEDIUM
-        elif combined_score >= 0.50:
+        if combined_score >= 0.50:
             return EvidenceConfidence.LOW
-        else:
-            return EvidenceConfidence.MINIMAL
+        return EvidenceConfidence.MINIMAL
 
     @property
     def needs_caveat(self) -> bool:
@@ -68,8 +67,7 @@ class MemoryEvidence:
     def should_reject(self) -> bool:
         """Check if this evidence should be rejected entirely."""
         return (
-            self.confidence == EvidenceConfidence.MINIMAL
-            or len(self.contradictions) >= 2  # Multiple contradictions
+            self.confidence == EvidenceConfidence.MINIMAL or len(self.contradictions) >= 2  # Multiple contradictions
         )
 
     def to_prompt_block(self, include_metadata: bool = True) -> str:

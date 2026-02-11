@@ -7,9 +7,10 @@ export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
   const currentIndex = ref<number>(-1)
   const isLoading = ref(false)
 
-  // Blob URL management — revoke previous to prevent memory leaks
+  // Blob URL for currently rendered frame
   const currentBlobUrl = ref<string>('')
-  let pendingBlobUrl: string | null = null
+  const blobUrlCache = new Map<string, string>()
+  let renderRequestVersion = 0
 
   const currentScreenshot: ComputedRef<ScreenshotMetadata | null> = computed(() => {
     if (currentIndex.value < 0 || currentIndex.value >= screenshots.value.length) return null
@@ -55,29 +56,63 @@ export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
     }
   }
 
-  // Watch currentScreenshot and fetch blob
+  function clearBlobCache(): void {
+    for (const url of blobUrlCache.values()) {
+      URL.revokeObjectURL(url)
+    }
+    blobUrlCache.clear()
+    currentBlobUrl.value = ''
+  }
+
+  async function getOrFetchBlobUrl(screenshotId: string): Promise<string> {
+    const cachedUrl = blobUrlCache.get(screenshotId)
+    if (cachedUrl) return cachedUrl
+
+    const blobUrl = await fetchScreenshotBlob(screenshotId)
+    if (blobUrl) blobUrlCache.set(screenshotId, blobUrl)
+    return blobUrl
+  }
+
+  async function prefetchNextScreenshot(): Promise<void> {
+    const nextIndex = currentIndex.value + 1
+    if (nextIndex < 0 || nextIndex >= screenshots.value.length) return
+
+    const nextScreenshot = screenshots.value[nextIndex]
+    if (!nextScreenshot || blobUrlCache.has(nextScreenshot.id)) return
+
+    const blobUrl = await fetchScreenshotBlob(nextScreenshot.id)
+    if (blobUrl) blobUrlCache.set(nextScreenshot.id, blobUrl)
+  }
+
+  // Keep the current frame warm and prefetch the next frame for smoother stepping.
   watch(currentScreenshot, async (screenshot) => {
+    const requestVersion = ++renderRequestVersion
     if (!screenshot) {
-      if (pendingBlobUrl) {
-        URL.revokeObjectURL(pendingBlobUrl)
-        pendingBlobUrl = null
-      }
       currentBlobUrl.value = ''
       return
     }
 
-    const url = await fetchScreenshotBlob(screenshot.id)
-    // Revoke previous blob URL
-    if (pendingBlobUrl) {
-      URL.revokeObjectURL(pendingBlobUrl)
+    const blobUrl = await getOrFetchBlobUrl(screenshot.id)
+    if (requestVersion !== renderRequestVersion) return
+
+    currentBlobUrl.value = blobUrl
+    void prefetchNextScreenshot()
+  })
+
+  watch(sessionId, (nextSessionId, previousSessionId) => {
+    if (nextSessionId !== previousSessionId) {
+      renderRequestVersion++
+      clearBlobCache()
+      screenshots.value = []
+      currentIndex.value = -1
     }
-    pendingBlobUrl = url
-    currentBlobUrl.value = url
   })
 
   async function loadScreenshots(): Promise<void> {
     if (!sessionId.value) return
     isLoading.value = true
+    renderRequestVersion++
+    clearBlobCache()
     try {
       const response = await apiClient.get<ApiResponse<ScreenshotListResponse>>(
         `/sessions/${sessionId.value}/screenshots`
@@ -115,10 +150,8 @@ export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
 
   // Cleanup blob URLs on unmount
   onUnmounted(() => {
-    if (pendingBlobUrl) {
-      URL.revokeObjectURL(pendingBlobUrl)
-      pendingBlobUrl = null
-    }
+    renderRequestVersion++
+    clearBlobCache()
   })
 
   return {

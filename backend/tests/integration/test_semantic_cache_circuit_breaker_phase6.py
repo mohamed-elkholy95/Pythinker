@@ -4,7 +4,7 @@ Tests end-to-end SLO monitoring and automatic cache bypass.
 """
 
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -133,7 +133,6 @@ class TestSemanticCacheCircuitBreakerIntegration:
         """Test Prometheus metrics are updated during cache operations."""
         from app.infrastructure.external.cache.semantic_cache import SemanticCache
         from app.infrastructure.observability.prometheus_metrics import (
-            semantic_cache_circuit_breaker_state,
             semantic_cache_hit_total,
             semantic_cache_query_total,
         )

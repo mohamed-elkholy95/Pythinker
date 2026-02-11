@@ -63,9 +63,7 @@ class OutboxEntry(BaseModel):
             return False
         if self.retry_count >= self.max_retries:
             return False
-        if self.next_retry_at and self.next_retry_at > datetime.utcnow():
-            return False
-        return True
+        return not (self.next_retry_at and self.next_retry_at > datetime.utcnow())
 
     def calculate_next_retry(self) -> datetime:
         """Calculate next retry time with exponential backoff.

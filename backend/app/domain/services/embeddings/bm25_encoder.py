@@ -14,7 +14,6 @@ import logging
 import re
 from collections import Counter
 from functools import lru_cache
-from typing import Any
 
 import numpy as np
 from rank_bm25 import BM25Okapi
@@ -61,10 +60,9 @@ class BM25SparseEncoder:
             List of tokens
         """
         # Remove punctuation and convert to lowercase
-        text = re.sub(r'[^\w\s]', ' ', text.lower())
+        text = re.sub(r"[^\w\s]", " ", text.lower())
         # Split on whitespace and filter empty strings
-        tokens = [t for t in text.split() if t]
-        return tokens
+        return [t for t in text.split() if t]
 
     def _build_vocab(self, tokenized_corpus: list[list[str]]) -> None:
         """Build vocabulary from tokenized corpus.
@@ -152,7 +150,7 @@ class BM25SparseEncoder:
 
         # Keep only top-k scores
         sorted_scores = sorted(term_scores.items(), key=lambda x: -x[1])
-        top_scores = dict(sorted_scores[:self.top_k])
+        top_scores = dict(sorted_scores[: self.top_k])
 
         # Normalize scores to [0, 1] range
         if top_scores:

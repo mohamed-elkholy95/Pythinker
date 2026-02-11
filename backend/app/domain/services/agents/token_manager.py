@@ -85,10 +85,12 @@ class TokenManager:
 
     # Context pressure thresholds (fraction of max tokens)
     # Research recommends 64-75% for early compaction (Anthropic 2025, ArXiv 2601.06007)
+    # Priority 4: Optimized thresholds for better context utilization
     PRESSURE_THRESHOLDS: ClassVar[dict[str, float]] = {
-        "warning": 0.60,  # 60% - suggest planning for summarization
-        "critical": 0.70,  # 70% - begin proactive trimming
-        "overflow": 0.85,  # 85% - force summarization
+        "early_warning": 0.60,  # 60% - early notice for planning
+        "warning": 0.70,  # 70% - suggest planning for summarization
+        "critical": 0.80,  # 80% - begin proactive trimming (raised from 0.70)
+        "overflow": 0.90,  # 90% - force summarization (raised from 0.85)
     }
 
     # Default model context limits
@@ -119,7 +121,9 @@ class TokenManager:
     }
 
     # Safety margin (reserve tokens for response) — ensures completion buffer for final answers
-    SAFETY_MARGIN = 4096
+    # Priority 4: Reduced from 4096 to 2048 (most responses under 2K tokens)
+    # Can be overridden via config
+    SAFETY_MARGIN = 2048  # Default, will use config value if available
 
     # Token count cache settings
     TOKEN_CACHE_MAX_SIZE = 1000  # Max cached entries
@@ -146,7 +150,12 @@ class TokenManager:
 
         # Determine context limit
         self._max_tokens = max_context_tokens or self._get_model_limit(model_name)
-        self._safety_margin = safety_margin or self.SAFETY_MARGIN
+        # Priority 4: Use config value for safety margin if not explicitly provided
+        if safety_margin is None:
+            from app.core.config import get_settings
+
+            safety_margin = get_settings().token_safety_margin
+        self._safety_margin = safety_margin
         self._effective_limit = self._max_tokens - self._safety_margin
 
         # Token count cache (content_hash -> token_count)
@@ -773,15 +782,25 @@ class TokenManager:
         predicted_tokens = current_tokens + int(growth_rate * steps)
         predicted_ratio = predicted_tokens / self._effective_limit
 
-        # Determine predicted level
+        # Determine predicted level (Priority 4: added EARLY_WARNING threshold)
         if predicted_ratio >= self.PRESSURE_THRESHOLDS["overflow"]:
             level = PressureLevel.OVERFLOW
         elif predicted_ratio >= self.PRESSURE_THRESHOLDS["critical"]:
             level = PressureLevel.CRITICAL
         elif predicted_ratio >= self.PRESSURE_THRESHOLDS["warning"]:
             level = PressureLevel.WARNING
+        elif predicted_ratio >= self.PRESSURE_THRESHOLDS["early_warning"]:
+            level = PressureLevel.EARLY_WARNING
         else:
             level = PressureLevel.NORMAL
+
+        # Priority 4: Log and emit metrics for early warning and higher
+        if level in (PressureLevel.EARLY_WARNING, PressureLevel.WARNING, PressureLevel.CRITICAL, PressureLevel.OVERFLOW):
+            logger.warning(
+                f"Token pressure: {level.value} ({predicted_ratio:.1%}) - "
+                f"{predicted_tokens:,}/{self._effective_limit:,} tokens, "
+                f"growth: ~{int(growth_rate):,} tokens/step"
+            )
 
         # Generate predictive recommendations
         recommendations = self._get_predictive_recommendations(level, predicted_ratio, steps, growth_rate)

@@ -5,8 +5,6 @@ Tests SLO monitoring and automatic cache bypass when hit rate drops.
 
 import time
 
-import pytest
-
 from app.infrastructure.external.cache.circuit_breaker import (
     CircuitBreakerConfig,
     CircuitState,

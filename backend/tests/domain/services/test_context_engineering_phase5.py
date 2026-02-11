@@ -180,7 +180,9 @@ class TestAdaptiveContextInjection:
         )
 
         # Context should be inserted at index 1 (after system prompt)
-        assert memory.messages.insert.call_args[0][0] == 1
+        assert len(memory.messages) == 2
+        assert memory.messages[0]["content"] == "System prompt"
+        assert "Relevant context" in memory.messages[1]["content"]
 
     @pytest.mark.asyncio
     async def test_pressure_signal_in_message(self):
@@ -200,7 +202,7 @@ class TestAdaptiveContextInjection:
         )
 
         # Check pressure signal in message
-        injected_message = memory.messages.insert.call_args[0][1]
+        injected_message = memory.messages[0]
         assert "pressure: 0.73" in injected_message["content"]
 
 
@@ -225,5 +227,5 @@ class TestBackwardCompatibility:
         assert result is True
         assert len(memory.messages) > 0
         # Original method doesn't include pressure info
-        injected_message = memory.messages.insert.call_args[0][1]
+        injected_message = memory.messages[0]
         assert "pressure" not in injected_message["content"]

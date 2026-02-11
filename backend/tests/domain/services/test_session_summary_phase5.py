@@ -3,7 +3,6 @@
 Tests session summary generation and storage as critical memories.
 """
 
-from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -174,8 +173,8 @@ class TestSessionSummaryPersistence:
 
         prompt = llm_mock.ask.call_args.kwargs["messages"][0]["content"]
         # Should be truncated to 200 chars
-        assert long_message[:200] in prompt
-        assert long_message[201:] not in prompt
+        assert "x" * 200 in prompt
+        assert "x" * 201 not in prompt
 
     @pytest.mark.asyncio
     async def test_session_id_preview_in_content(self):
@@ -188,10 +187,11 @@ class TestSessionSummaryPersistence:
 
         service = MemoryService(repository=repo_mock, llm=llm_mock)
         service.store_memory = AsyncMock(return_value=MagicMock())
+        session_id = "session-abcd1234"
 
         await service.store_session_summary(
             user_id="user-123",
-            session_id="session-abcd1234",
+            session_id=session_id,
             conversation=[],
             outcome="Test",
             success=True,
@@ -199,7 +199,7 @@ class TestSessionSummaryPersistence:
 
         call_kwargs = service.store_memory.call_args.kwargs
         # Session ID should be shortened to first 8 chars
-        assert "session-a" in call_kwargs["content"]
+        assert f"Session {session_id[:8]} summary:" in call_kwargs["content"]
 
     @pytest.mark.asyncio
     async def test_metadata_contains_all_required_fields(self):

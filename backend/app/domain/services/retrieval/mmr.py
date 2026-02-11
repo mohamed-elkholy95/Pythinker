@@ -5,7 +5,8 @@ by balancing relevance to query with diversity from already-selected items.
 """
 
 import logging
-from typing import Callable, TypeVar
+from collections.abc import Callable
+from typing import TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
     except ImportError:
         # Fallback without numpy
         logger.warning("numpy not available, using fallback cosine similarity")
-        dot = sum(a * b for a, b in zip(vec1, vec2))
+        dot = sum(a * b for a, b in zip(vec1, vec2, strict=False))
         norm1 = sum(a * a for a in vec1) ** 0.5
         norm2 = sum(b * b for b in vec2) ** 0.5
         if norm1 == 0 or norm2 == 0:

@@ -3,16 +3,42 @@
 Phase 2: Tests MongoDB ↔ Qdrant consistency checking and repair.
 """
 
-import uuid
+import contextlib
 from datetime import datetime, timedelta
 
 import pytest
+from bson import ObjectId
+from pymongo import MongoClient
+from pymongo.errors import PyMongoError
 
+from app.core.config import get_settings
 from app.domain.services.reconciliation_job import ReconciliationJob
 from app.infrastructure.repositories.qdrant_memory_repository import QdrantMemoryRepository
 from app.infrastructure.repositories.sync_outbox_repository import SyncOutboxRepository
 from app.infrastructure.storage.mongodb import get_mongodb
 from app.infrastructure.storage.qdrant import get_qdrant
+
+
+def _is_mongodb_available() -> bool:
+    """Check whether MongoDB is reachable for reconciliation tests."""
+    settings = get_settings()
+    try:
+        client = MongoClient(
+            settings.mongodb_uri,
+            serverSelectionTimeoutMS=1500,
+            connectTimeoutMS=1500,
+            socketTimeoutMS=1500,
+        )
+        client.admin.command("ping")
+        client.close()
+        return True
+    except PyMongoError:
+        return False
+
+
+pytestmark = [
+    pytest.mark.skipif(not _is_mongodb_available(), reason="MongoDB not available for reconciliation tests"),
+]
 
 
 @pytest.fixture(scope="function")
@@ -31,29 +57,22 @@ async def outbox_repo():
     repo = SyncOutboxRepository()
     yield repo
     # Cleanup
-    try:
+    with contextlib.suppress(Exception):
         await repo._collection.delete_many({})
         await repo._dlq_collection.delete_many({})
-    except Exception:
-        pass
 
 
 @pytest.fixture(scope="function")
 async def memories_collection():
     """Get memories collection with cleanup."""
-    from app.core.config import get_settings
-
-    settings = get_settings()
     db = get_mongodb().database
     collection = db.memories
 
     yield collection
 
     # Cleanup: delete test memories
-    try:
+    with contextlib.suppress(Exception):
         await collection.delete_many({"user_id": {"$regex": "^test-"}})
-    except Exception:
-        pass
 
 
 @pytest.mark.asyncio
@@ -93,7 +112,7 @@ class TestFailedSyncRetry:
     async def test_retry_failed_syncs(self, outbox_repo, qdrant_repo, memories_collection):
         """Test retrying failed sync operations."""
         # Create a failed memory entry
-        memory_id = str(uuid.uuid4())
+        memory_id = str(ObjectId())
         memory_doc = {
             "_id": memory_id,
             "user_id": "test-user-retry",
@@ -112,8 +131,6 @@ class TestFailedSyncRetry:
         }
 
         # Insert into MongoDB
-        from bson import ObjectId
-
         memory_doc["_id"] = ObjectId(memory_id)
         await memories_collection.insert_one(memory_doc)
 
@@ -138,7 +155,7 @@ class TestFailedSyncRetry:
     async def test_skip_recently_failed(self, outbox_repo, qdrant_repo, memories_collection):
         """Test that recently failed syncs are not retried."""
         # Create a recently failed memory
-        memory_id = str(uuid.uuid4())
+        memory_id = str(ObjectId())
         memory_doc = {
             "_id": memory_id,
             "user_id": "test-user-recent",
@@ -154,15 +171,13 @@ class TestFailedSyncRetry:
             "updated_at": datetime.utcnow(),
         }
 
-        from bson import ObjectId
-
         memory_doc["_id"] = ObjectId(memory_id)
         await memories_collection.insert_one(memory_doc)
 
         # Run reconciliation (retry_failed_after_hours=1)
         job = ReconciliationJob(outbox_repo=outbox_repo, qdrant_repo=qdrant_repo, retry_failed_after_hours=1)
 
-        stats = await job.run_reconciliation()
+        await job.run_reconciliation()
 
         # Should NOT have retried (too recent)
         # Note: stats["failed_retried"] might be > 0 from other test data, so we check memory state
@@ -172,7 +187,7 @@ class TestFailedSyncRetry:
     async def test_skip_max_attempts_reached(self, outbox_repo, qdrant_repo, memories_collection):
         """Test that memories with too many attempts are skipped."""
         # Create memory with max attempts
-        memory_id = str(uuid.uuid4())
+        memory_id = str(ObjectId())
         memory_doc = {
             "_id": memory_id,
             "user_id": "test-user-maxed",
@@ -188,15 +203,13 @@ class TestFailedSyncRetry:
             "updated_at": datetime.utcnow(),
         }
 
-        from bson import ObjectId
-
         memory_doc["_id"] = ObjectId(memory_id)
         await memories_collection.insert_one(memory_doc)
 
         # Run reconciliation
         job = ReconciliationJob(outbox_repo=outbox_repo, qdrant_repo=qdrant_repo)
 
-        stats = await job.run_reconciliation()
+        await job.run_reconciliation()
 
         # Should NOT have retried (max attempts)
         updated_doc = await memories_collection.find_one({"_id": ObjectId(memory_id)})
@@ -211,7 +224,7 @@ class TestMissingVectorDetection:
     async def test_detect_missing_vectors(self, outbox_repo, qdrant_repo, memories_collection):
         """Test detecting MongoDB memories without Qdrant vectors."""
         # Create a memory marked as synced but with no Qdrant vector
-        memory_id = str(uuid.uuid4())
+        memory_id = str(ObjectId())
         memory_doc = {
             "_id": memory_id,
             "user_id": "test-user-missing",
@@ -225,8 +238,6 @@ class TestMissingVectorDetection:
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
         }
-
-        from bson import ObjectId
 
         memory_doc["_id"] = ObjectId(memory_id)
         await memories_collection.insert_one(memory_doc)

@@ -130,6 +130,28 @@ This catches wrong directions before you've built on them.
 
 ## Output Standards
 
+### Status Reporting Accuracy (Critical Priority)
+
+When creating summaries or status reports:
+- Maintain 100% factual accuracy.
+- Never mark a task as "Completed" if it is partially done or only foundational code exists.
+- Always use explicit status labels and keep them accurate: "Completed", "In Progress", "Not Started".
+
+### Full Implementation Only (Critical Priority)
+
+When asked to write code:
+- Provide full, unabridged implementations for every file.
+- Never use placeholders such as `// ... rest of code`, `// ... implementation details`, or omitted sections.
+- Never replace required code with summaries.
+
+### Persistence for Complex Requests (Critical Priority)
+
+If a request is complex:
+- Do not simplify scope to fit a single response.
+- Output as much complete, valid code as possible in each response.
+- If the response limit is reached, stop and wait for a "Continue" prompt, then proceed from where you stopped.
+- Prioritize completeness over brevity or speed.
+
 ### Code Quality
 
 - No bloated abstractions

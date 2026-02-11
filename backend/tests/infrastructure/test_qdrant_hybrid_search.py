@@ -3,9 +3,11 @@
 Phase 1: Tests dense+sparse hybrid retrieval with RRF fusion.
 """
 
-import pytest
 import uuid
+from contextlib import suppress
 from datetime import datetime
+
+import pytest
 
 from app.domain.models.long_term_memory import MemoryImportance, MemoryType
 from app.infrastructure.repositories.qdrant_memory_repository import QdrantMemoryRepository
@@ -25,13 +27,13 @@ async def qdrant_repo():
     original_batch_upsert = repo.upsert_memories_batch
 
     async def tracked_upsert(*args, **kwargs):
-        memory_id = kwargs.get('memory_id') or args[0]
+        memory_id = kwargs.get("memory_id") or args[0]
         inserted_ids.append(memory_id)
         return await original_upsert(*args, **kwargs)
 
     async def tracked_batch_upsert(memories, *args, **kwargs):
         for mem in memories:
-            inserted_ids.append(mem['memory_id'])
+            inserted_ids.append(mem["memory_id"])
         return await original_batch_upsert(memories, *args, **kwargs)
 
     repo.upsert_memory = tracked_upsert
@@ -41,10 +43,8 @@ async def qdrant_repo():
 
     # Cleanup: delete all inserted memories
     if inserted_ids:
-        try:
+        with suppress(Exception):
             await repo.delete_memories_batch(inserted_ids)
-        except Exception:
-            pass  # Ignore cleanup errors
 
     # Close Qdrant connection
     await qdrant.shutdown()

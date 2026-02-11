@@ -15,10 +15,10 @@ def test_research_acknowledgment_is_specific_not_generic() -> None:
     )
     acknowledgment = gen.generate(message)
 
-    assert acknowledgment.split(" ", 1)[0] in {"Understood.", "Got", "Sounds", "All"}
-    assert "research plan" in acknowledgment.lower()
+    assert acknowledgment.lower().startswith("got it! i will create a comprehensive research report on")
+    assert "code review and debugging tools" in acknowledgment.lower()
     assert "1." not in acknowledgment
-    assert len(acknowledgment) < 220
+    assert len(acknowledgment) < 260
 
 
 def test_create_acknowledgment_includes_focus() -> None:
@@ -27,8 +27,8 @@ def test_create_acknowledgment_includes_focus() -> None:
     message = "Create a dashboard for quarterly sales trends"
     acknowledgment = gen.generate(message)
 
+    assert acknowledgment.lower().startswith("got it!")
     assert "dashboard for quarterly sales trends" in acknowledgment.lower()
-    assert "create a plan" in acknowledgment.lower()
 
 
 def test_research_acknowledgment_for_short_prompt_mentions_topic() -> None:
@@ -37,8 +37,8 @@ def test_research_acknowledgment_for_short_prompt_mentions_topic() -> None:
     message = "Research the latest Claude Code model updates"
     acknowledgment = gen.generate(message)
 
-    assert "research request" in acknowledgment.lower()
-    assert "research plan" in acknowledgment.lower()
+    assert acknowledgment.lower().startswith("got it! i will research")
+    assert "claude code model updates" in acknowledgment.lower()
 
 
 def test_research_acknowledgment_normalizes_messy_prompt_text() -> None:
@@ -51,17 +51,23 @@ def test_research_acknowledgment_normalizes_messy_prompt_text() -> None:
     assert "i've received your request" not in acknowledgment.lower()
     assert "compoore" not in acknowledgment.lower()
     assert "sonet" not in acknowledgment.lower()
-    assert "research plan" in acknowledgment.lower()
+    assert acknowledgment.lower().startswith("got it! i will create a comprehensive research report on")
 
 
-def test_research_acknowledgment_uses_search_prompt_label_when_present() -> None:
+def test_research_acknowledgment_matches_expected_long_prompt_style() -> None:
     gen = _make_generator()
 
-    message = "Run research using this search text prompt for model comparison"
+    message = (
+        "Generate a comprehensive research report analyzing the most effective AI integrated development "
+        "environments (IDEs), AI agents, and code review tools capable of identifying and addressing the most "
+        "recent and prevalent bugs and issues in software development. Ensure reliance solely on the latest data "
+        "and sources from 2026."
+    )
     acknowledgment = gen.generate(message)
 
-    assert "search prompt" in acknowledgment.lower()
-    assert "research plan" in acknowledgment.lower()
+    assert acknowledgment.startswith("Got it! I will create a comprehensive research report on")
+    assert "AI IDEs, agents, and code review tools" in acknowledgment
+    assert "bug detection and resolution in 2026" in acknowledgment
 
 
 def test_extract_request_focus_trims_boilerplate() -> None:

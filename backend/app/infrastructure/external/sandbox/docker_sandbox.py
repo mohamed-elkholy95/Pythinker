@@ -17,6 +17,11 @@ from app.domain.external.sandbox import Sandbox
 from app.domain.models.tool_result import ToolResult
 from app.infrastructure.external.browser.connection_pool import BrowserConnectionPool
 from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
+from app.infrastructure.observability.prometheus_metrics import (
+    sandbox_connection_attempts_total,
+    sandbox_connection_failure_total,
+    sandbox_warmup_duration,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +35,9 @@ class DockerSandbox(Sandbox):
     def __init__(self, ip: str | None = None, container_name: str | None = None):
         """Initialize Docker sandbox and API interaction client"""
         settings = get_settings()
-        self._client: httpx.AsyncClient | None = httpx.AsyncClient(timeout=600)
+        # Phase 1: Connection pooling - remove direct httpx client creation
+        # Client will be obtained from HTTPClientPool instead
+        self._client: httpx.AsyncClient | None = None  # Deprecated, use get_client()
         # Resolve hostname to IP if needed (Chrome CDP requires IP, not hostname)
         raw_address = ip or settings.sandbox_address or "localhost"
         self.ip = self._resolve_to_ip(raw_address)
@@ -40,22 +47,56 @@ class DockerSandbox(Sandbox):
         self._framework_url = f"http://{self.ip}:{settings.sandbox_framework_port}"
         self._container_name = container_name
         self._background_tasks: set[asyncio.Task[Any]] = set()
+        # Pool client name for HTTPClientPool
+        self._pool_client_name = f"sandbox-{self.id}"
+
+    async def get_client(self):
+        """Get HTTP client from connection pool.
+
+        Phase 1: Connection pooling integration.
+        Returns a managed client from HTTPClientPool for connection reuse.
+
+        Returns:
+            ManagedHTTPClient from the pool
+        """
+        from app.infrastructure.external.http_pool import HTTPClientConfig, HTTPClientPool
+
+        settings = get_settings()
+
+        return await HTTPClientPool.get_client(
+            name=self._pool_client_name,
+            base_url=self.base_url,
+            timeout=600.0,
+            config=HTTPClientConfig(
+                base_url=self.base_url,
+                timeout=600.0,
+                connect_timeout=10.0,
+                read_timeout=600.0,
+                write_timeout=30.0,
+                pool_timeout=10.0,
+                max_connections=10,  # Sandbox-specific limit
+                max_keepalive_connections=5,
+                keepalive_expiry=30.0,  # Keep connections alive longer for sandbox
+                http2=settings.sandbox_http2_enabled,  # Phase 3: Controlled by feature flag
+            ),
+        )
 
     @property
     def client(self) -> httpx.AsyncClient:
-        """Auto-healing httpx client — recreates if closed or None.
+        """DEPRECATED: Use await get_client() instead.
 
-        Note: Property access is synchronous and single-threaded in asyncio,
-        so concurrent coroutines won't interleave within this property.
+        This property is maintained for backward compatibility but will log a warning.
+        Auto-healing httpx client fallback for synchronous access.
         """
-        if self._client is None or self._client.is_closed:
+        logger.warning(
+            f"DockerSandbox.client property is deprecated. Use 'await get_client()' for connection pooling. Sandbox: {self.id}"
+        )
+        if self._client is None or (hasattr(self._client, "is_closed") and self._client.is_closed):
             old = self._client
             self._client = httpx.AsyncClient(timeout=600)
             # Prevent leak if old client was not fully closed
             if old is not None and not old.is_closed:
                 try:
-                    import asyncio
-
                     loop = asyncio.get_running_loop()
                     task = loop.create_task(old.aclose())
                     self._background_tasks.add(task)
@@ -66,6 +107,7 @@ class DockerSandbox(Sandbox):
 
     @client.setter
     def client(self, value: httpx.AsyncClient | None) -> None:
+        """DEPRECATED: Setter for backward compatibility."""
         self._client = value
 
     @staticmethod
@@ -311,27 +353,66 @@ class DockerSandbox(Sandbox):
         1. All supervisor services are RUNNING
         2. Chrome DevTools Protocol is accessible
         3. Browser is responsive and has pages available
+
+        Uses a warmup grace period to avoid race conditions during container startup.
+
+        Metrics are recorded ONCE per warmup session (not per retry attempt) to
+        avoid inflating failure counts.
         """
+        import time
+
+        settings = get_settings()
+
+        # Configurable warmup parameters (Phase 6: race condition fix)
         max_retries = 30  # Maximum number of retries
-        retry_interval = 2  # Seconds between retries
+        warmup_grace_period = settings.sandbox_warmup_grace_period
+        initial_retry_delay = settings.sandbox_warmup_initial_retry_delay
+        max_retry_delay = settings.sandbox_warmup_max_retry_delay
+        backoff_multiplier = settings.sandbox_warmup_backoff_multiplier
+        connection_failure_threshold = settings.sandbox_warmup_connection_failure_threshold
+
+        # Record start time for warmup tracking
+        start_time = time.time()
+
+        # Wait for warmup grace period before first health check
+        # This prevents checking too early during container initialization
+        if warmup_grace_period > 0:
+            logger.debug(f"Waiting {warmup_grace_period}s warmup grace period before first health check...")
+            await asyncio.sleep(warmup_grace_period)
+
+        retry_delay = initial_retry_delay
+        connection_failures = 0
+
+        # Track warmup result for metrics (record once at end, not per retry)
+        warmup_succeeded = False
+        final_error_reason = "unknown"
 
         for attempt in range(max_retries):
+            elapsed = time.time() - start_time
+            in_warmup_window = elapsed < 10.0  # More tolerant during first 10 seconds
+
             try:
-                response = await self.client.get(f"{self.base_url}/api/v1/supervisor/status")
+                client = await self.get_client()
+                response = await client.get(f"{self.base_url}/api/v1/supervisor/status")
                 response.raise_for_status()
+
+                # Reset connection failure counter on successful connection
+                connection_failures = 0
 
                 # Parse response as ToolResult
                 tool_result = ToolResult(**response.json())
 
                 if not tool_result.success:
                     logger.warning(f"Supervisor status check failed: {tool_result.message}")
-                    await asyncio.sleep(retry_interval)
+                    await asyncio.sleep(retry_delay)
+                    retry_delay = min(retry_delay * backoff_multiplier, max_retry_delay)
                     continue
 
                 services = tool_result.data or []
                 if not services:
                     logger.warning("No services found in supervisor status")
-                    await asyncio.sleep(retry_interval)
+                    await asyncio.sleep(retry_delay)
+                    retry_delay = min(retry_delay * backoff_multiplier, max_retry_delay)
                     continue
 
                 # Check if all services are RUNNING
@@ -355,9 +436,10 @@ class DockerSandbox(Sandbox):
 
                 if not all_running:
                     logger.info(
-                        f"Waiting for services... Non-running: {', '.join(non_running_services)} (attempt {attempt + 1}/{max_retries})"
+                        f"Waiting for services... Non-running: {', '.join(non_running_services)} (attempt {attempt + 1}/{max_retries}, {elapsed:.1f}s elapsed)"
                     )
-                    await asyncio.sleep(retry_interval)
+                    await asyncio.sleep(retry_delay)
+                    retry_delay = min(retry_delay * backoff_multiplier, max_retry_delay)
                     continue
 
                 # All services running - now verify browser health
@@ -366,37 +448,115 @@ class DockerSandbox(Sandbox):
                 # Check CDP connection
                 cdp_ok = await self._verify_cdp_connection()
                 if not cdp_ok:
-                    logger.info(f"CDP not ready yet (attempt {attempt + 1}/{max_retries})")
-                    await asyncio.sleep(retry_interval)
+                    logger.info(f"CDP not ready yet (attempt {attempt + 1}/{max_retries}, {elapsed:.1f}s elapsed)")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay = min(retry_delay * backoff_multiplier, max_retry_delay)
                     continue
 
                 # Check browser responsiveness
                 browser_ok = await self._verify_browser_responsive()
                 if not browser_ok:
-                    logger.info(f"Browser not responsive yet (attempt {attempt + 1}/{max_retries})")
-                    await asyncio.sleep(retry_interval)
+                    logger.info(
+                        f"Browser not responsive yet (attempt {attempt + 1}/{max_retries}, {elapsed:.1f}s elapsed)"
+                    )
+                    await asyncio.sleep(retry_delay)
+                    retry_delay = min(retry_delay * backoff_multiplier, max_retry_delay)
                     continue
 
-                logger.info(f"Sandbox fully ready: {len(services)} services running, browser healthy")
-                return  # Success - all checks passed
+                # Success! Mark warmup as succeeded
+                warmup_succeeded = True
+                logger.info(
+                    f"Sandbox fully ready: {len(services)} services running, browser healthy (warmup took {elapsed:.1f}s)"
+                )
+                break  # Exit retry loop
 
             except httpx.ConnectError as e:
-                # Connection refused — sandbox container is not reachable, reduce retries
-                if attempt >= 5:
-                    logger.error(f"Sandbox unreachable after {attempt + 1} attempts, giving up")
-                    raise RuntimeError(f"Sandbox unreachable after {attempt + 1} connection attempts") from e
-                logger.warning(f"Sandbox unreachable (attempt {attempt + 1}/{max_retries})")
-                await asyncio.sleep(retry_interval)
-            except Exception as e:
-                logger.warning(f"Failed to check sandbox status (attempt {attempt + 1}/{max_retries}): {e!s}")
-                await asyncio.sleep(retry_interval)
+                # Connection refused — sandbox container is not reachable
+                connection_failures += 1
+                final_error_reason = "refused"
 
-        # If we reach here, we've exhausted all retries
-        error_message = (
-            f"Sandbox failed to become ready after {max_retries} attempts ({max_retries * retry_interval} seconds)"
-        )
-        logger.error(error_message)
-        raise RuntimeError(error_message)
+                if not self._container_exists_and_running():
+                    final_error_reason = "container_stopped"
+                    elapsed = time.time() - start_time
+                    logger.error("Sandbox container %s is no longer running", self._container_name)
+                    # Record metrics before raising
+                    sandbox_connection_attempts_total.inc({"result": "failure"})
+                    sandbox_connection_failure_total.inc({"reason": final_error_reason})
+                    sandbox_warmup_duration.observe({"status": "failure"}, elapsed)
+                    raise RuntimeError(f"Sandbox container {self._container_name} is no longer running") from e
+
+                # Be more tolerant during warmup window
+                failure_threshold = connection_failure_threshold if in_warmup_window else 8
+
+                if connection_failures >= failure_threshold:
+                    elapsed = time.time() - start_time
+                    logger.error(
+                        f"Sandbox unreachable after {connection_failures} connection attempts ({elapsed:.1f}s elapsed), giving up"
+                    )
+                    # Record metrics before raising
+                    sandbox_connection_attempts_total.inc({"result": "failure"})
+                    sandbox_connection_failure_total.inc({"reason": final_error_reason})
+                    sandbox_warmup_duration.observe({"status": "failure"}, elapsed)
+                    raise RuntimeError(f"Sandbox unreachable after {connection_failures} connection attempts") from e
+
+                logger.warning(
+                    f"Sandbox unreachable (attempt {attempt + 1}/{max_retries}, connection failure {connection_failures}/{failure_threshold}, {elapsed:.1f}s elapsed)"
+                )
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * backoff_multiplier, max_retry_delay)
+
+            except httpx.TimeoutException as e:
+                final_error_reason = "timeout"
+                logger.warning(
+                    f"Sandbox health check timed out (attempt {attempt + 1}/{max_retries}, {elapsed:.1f}s elapsed): {e!s}"
+                )
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * backoff_multiplier, max_retry_delay)
+
+            except Exception as e:
+                # Generic failure (could be network error, parsing error, etc.)
+                final_error_reason = "error"
+                logger.warning(
+                    f"Failed to check sandbox status (attempt {attempt + 1}/{max_retries}, {elapsed:.1f}s elapsed): {e!s}"
+                )
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * backoff_multiplier, max_retry_delay)
+
+        # Record metrics once at the end (not per retry attempt)
+        elapsed = time.time() - start_time
+
+        if warmup_succeeded:
+            # Success - record successful warmup
+            sandbox_connection_attempts_total.inc({"result": "success"})
+            sandbox_warmup_duration.observe({"status": "success"}, elapsed)
+            return  # Success - all checks passed
+
+        # Failure - exhausted all retries
+        sandbox_connection_attempts_total.inc({"result": "failure"})
+        sandbox_connection_failure_total.inc({"reason": final_error_reason})
+        sandbox_warmup_duration.observe({"status": "failure"}, elapsed)
+
+            error_message = f"Sandbox failed to become ready after {max_retries} attempts ({elapsed:.1f}s elapsed)"
+            logger.error(error_message)
+            raise RuntimeError(error_message)
+
+    def _container_exists_and_running(self) -> bool:
+        """Best-effort check to avoid retry storms for removed containers."""
+        if not self._container_name:
+            return True
+        if self._container_name.startswith("dev-sandbox-"):
+            # Static sandbox identifiers are long-lived and externally managed.
+            return True
+        try:
+            dc = docker.from_env()
+            container = dc.containers.get(self._container_name)
+            container.reload()
+            return container.status in {"running", "restarting", "paused"}
+        except DockerNotFound:
+            return False
+        except Exception:
+            # If Docker API is temporarily unavailable, fall back to retry logic.
+            return True
 
     async def ensure_framework(self, session_id: str) -> None:
         """Initialize sandbox framework state for the session."""
@@ -405,7 +565,8 @@ class DockerSandbox(Sandbox):
             return
 
         try:
-            response = await self.client.post(
+            client = await self.get_client()
+            response = await client.post(
                 f"{self._framework_url}/api/v1/framework/bootstrap",
                 json={"session_id": session_id},
             )
@@ -417,32 +578,33 @@ class DockerSandbox(Sandbox):
             logger.warning(message)
 
     async def exec_command(self, session_id: str, exec_dir: str, command: str) -> ToolResult:
-        response = await self.client.post(
+        client = await self.get_client()
+        response = await client.post(
             f"{self.base_url}/api/v1/shell/exec", json={"id": session_id, "exec_dir": exec_dir, "command": command}
         )
         return ToolResult(**response.json())
 
     async def view_shell(self, session_id: str, console: bool = False) -> ToolResult:
-        response = await self.client.post(
-            f"{self.base_url}/api/v1/shell/view", json={"id": session_id, "console": console}
-        )
+        client = await self.get_client()
+        response = await client.post(f"{self.base_url}/api/v1/shell/view", json={"id": session_id, "console": console})
         return ToolResult(**response.json())
 
     async def wait_for_process(self, session_id: str, seconds: int | None = None) -> ToolResult:
-        response = await self.client.post(
-            f"{self.base_url}/api/v1/shell/wait", json={"id": session_id, "seconds": seconds}
-        )
+        client = await self.get_client()
+        response = await client.post(f"{self.base_url}/api/v1/shell/wait", json={"id": session_id, "seconds": seconds})
         return ToolResult(**response.json())
 
     async def write_to_process(self, session_id: str, input_text: str, press_enter: bool = True) -> ToolResult:
-        response = await self.client.post(
+        client = await self.get_client()
+        response = await client.post(
             f"{self.base_url}/api/v1/shell/write",
             json={"id": session_id, "input": input_text, "press_enter": press_enter},
         )
         return ToolResult(**response.json())
 
     async def kill_process(self, session_id: str) -> ToolResult:
-        response = await self.client.post(f"{self.base_url}/api/v1/shell/kill", json={"id": session_id})
+        client = await self.get_client()
+        response = await client.post(f"{self.base_url}/api/v1/shell/kill", json={"id": session_id})
         return ToolResult(**response.json())
 
     async def file_write(
@@ -467,7 +629,8 @@ class DockerSandbox(Sandbox):
         Returns:
             Result of write operation
         """
-        response = await self.client.post(
+        client = await self.get_client()
+        response = await client.post(
             f"{self.base_url}/api/v1/file/write",
             json={
                 "file": file,
@@ -494,7 +657,8 @@ class DockerSandbox(Sandbox):
         Returns:
             File content
         """
-        response = await self.client.post(
+        client = await self.get_client()
+        response = await client.post(
             f"{self.base_url}/api/v1/file/read",
             json={"file": file, "start_line": start_line, "end_line": end_line, "sudo": sudo},
         )
@@ -509,7 +673,8 @@ class DockerSandbox(Sandbox):
         Returns:
             Whether file exists
         """
-        response = await self.client.post(f"{self.base_url}/api/v1/file/exists", json={"path": path})
+        client = await self.get_client()
+        response = await client.post(f"{self.base_url}/api/v1/file/exists", json={"path": path})
         return ToolResult(**response.json())
 
     async def file_delete(self, path: str) -> ToolResult:
@@ -521,7 +686,8 @@ class DockerSandbox(Sandbox):
         Returns:
             Result of delete operation
         """
-        response = await self.client.post(f"{self.base_url}/api/v1/file/delete", json={"path": path})
+        client = await self.get_client()
+        response = await client.post(f"{self.base_url}/api/v1/file/delete", json={"path": path})
         return ToolResult(**response.json())
 
     async def file_list(self, path: str) -> ToolResult:
@@ -533,7 +699,8 @@ class DockerSandbox(Sandbox):
         Returns:
             List of directory contents
         """
-        response = await self.client.post(f"{self.base_url}/api/v1/file/list", json={"path": path})
+        client = await self.get_client()
+        response = await client.post(f"{self.base_url}/api/v1/file/list", json={"path": path})
         return ToolResult(**response.json())
 
     async def file_replace(self, file: str, old_str: str, new_str: str, sudo: bool = False) -> ToolResult:
@@ -548,7 +715,8 @@ class DockerSandbox(Sandbox):
         Returns:
             Result of replace operation
         """
-        response = await self.client.post(
+        client = await self.get_client()
+        response = await client.post(
             f"{self.base_url}/api/v1/file/replace",
             json={"file": file, "old_str": old_str, "new_str": new_str, "sudo": sudo},
         )
@@ -565,7 +733,8 @@ class DockerSandbox(Sandbox):
         Returns:
             Search results
         """
-        response = await self.client.post(
+        client = await self.get_client()
+        response = await client.post(
             f"{self.base_url}/api/v1/file/search", json={"file": file, "regex": regex, "sudo": sudo}
         )
         return ToolResult(**response.json())
@@ -580,9 +749,8 @@ class DockerSandbox(Sandbox):
         Returns:
             List of found files
         """
-        response = await self.client.post(
-            f"{self.base_url}/api/v1/file/find", json={"path": path, "glob": glob_pattern}
-        )
+        client = await self.get_client()
+        response = await client.post(f"{self.base_url}/api/v1/file/find", json={"path": path, "glob": glob_pattern})
         return ToolResult(**response.json())
 
     async def file_upload(self, file_data: BinaryIO, path: str, filename: str | None = None) -> ToolResult:
@@ -600,7 +768,8 @@ class DockerSandbox(Sandbox):
         files = {"file": (filename or "upload", file_data, "application/octet-stream")}
         data = {"path": path}
 
-        response = await self.client.post(f"{self.base_url}/api/v1/file/upload", files=files, data=data)
+        client = await self.get_client()
+        response = await client.post(f"{self.base_url}/api/v1/file/upload", files=files, data=data)
         return ToolResult(**response.json())
 
     async def file_download(self, path: str) -> BinaryIO:
@@ -612,7 +781,8 @@ class DockerSandbox(Sandbox):
         Returns:
             File content as binary stream
         """
-        response = await self.client.get(f"{self.base_url}/api/v1/file/download", params={"path": path})
+        client = await self.get_client()
+        response = await client.get(f"{self.base_url}/api/v1/file/download", params={"path": path})
         response.raise_for_status()
 
         # Return the response content as a BinaryIO stream
@@ -624,7 +794,8 @@ class DockerSandbox(Sandbox):
         self, session_id: str, project_name: str = "project", template: str = "none"
     ) -> ToolResult:
         """Initialize a workspace for a session"""
-        response = await self.client.post(
+        client = await self.get_client()
+        response = await client.post(
             f"{self.base_url}/api/v1/workspace/init",
             json={"session_id": session_id, "project_name": project_name, "template": template},
         )
@@ -632,12 +803,14 @@ class DockerSandbox(Sandbox):
 
     async def workspace_info(self, session_id: str) -> ToolResult:
         """Get workspace information"""
-        response = await self.client.post(f"{self.base_url}/api/v1/workspace/info", json={"session_id": session_id})
+        client = await self.get_client()
+        response = await client.post(f"{self.base_url}/api/v1/workspace/info", json={"session_id": session_id})
         return ToolResult(**response.json())
 
     async def workspace_tree(self, session_id: str, depth: int = 3, include_hidden: bool = False) -> ToolResult:
         """Get workspace directory tree"""
-        response = await self.client.post(
+        client = await self.get_client()
+        response = await client.post(
             f"{self.base_url}/api/v1/workspace/tree",
             json={"session_id": session_id, "depth": depth, "include_hidden": include_hidden},
         )
@@ -645,7 +818,8 @@ class DockerSandbox(Sandbox):
 
     async def workspace_clean(self, session_id: str, preserve_config: bool = True) -> ToolResult:
         """Clean workspace contents"""
-        response = await self.client.post(
+        client = await self.get_client()
+        response = await client.post(
             f"{self.base_url}/api/v1/workspace/clean",
             json={"session_id": session_id, "preserve_config": preserve_config},
         )
@@ -653,7 +827,8 @@ class DockerSandbox(Sandbox):
 
     async def workspace_exists(self, session_id: str) -> ToolResult:
         """Check if workspace exists"""
-        response = await self.client.post(f"{self.base_url}/api/v1/workspace/exists", json={"session_id": session_id})
+        client = await self.get_client()
+        response = await client.post(f"{self.base_url}/api/v1/workspace/exists", json={"session_id": session_id})
         return ToolResult(**response.json())
 
     # Git operations
@@ -661,7 +836,8 @@ class DockerSandbox(Sandbox):
         self, url: str, target_dir: str, branch: str | None = None, shallow: bool = True, auth_token: str | None = None
     ) -> ToolResult:
         """Clone a git repository"""
-        response = await self.client.post(
+        client = await self.get_client()
+        response = await client.post(
             f"{self.base_url}/api/v1/git/clone",
             json={"url": url, "target_dir": target_dir, "branch": branch, "shallow": shallow, "auth_token": auth_token},
         )
@@ -669,26 +845,30 @@ class DockerSandbox(Sandbox):
 
     async def git_status(self, repo_path: str) -> ToolResult:
         """Get git repository status"""
-        response = await self.client.post(f"{self.base_url}/api/v1/git/status", json={"repo_path": repo_path})
+        client = await self.get_client()
+        response = await client.post(f"{self.base_url}/api/v1/git/status", json={"repo_path": repo_path})
         return ToolResult(**response.json())
 
     async def git_diff(self, repo_path: str, staged: bool = False, file_path: str | None = None) -> ToolResult:
         """Get git diff"""
-        response = await self.client.post(
+        client = await self.get_client()
+        response = await client.post(
             f"{self.base_url}/api/v1/git/diff", json={"repo_path": repo_path, "staged": staged, "file_path": file_path}
         )
         return ToolResult(**response.json())
 
     async def git_log(self, repo_path: str, limit: int = 10, file_path: str | None = None) -> ToolResult:
         """Get git commit history"""
-        response = await self.client.post(
+        client = await self.get_client()
+        response = await client.post(
             f"{self.base_url}/api/v1/git/log", json={"repo_path": repo_path, "limit": limit, "file_path": file_path}
         )
         return ToolResult(**response.json())
 
     async def git_branches(self, repo_path: str, show_remote: bool = True) -> ToolResult:
         """Get git branches"""
-        response = await self.client.post(
+        client = await self.get_client()
+        response = await client.post(
             f"{self.base_url}/api/v1/git/branches", json={"repo_path": repo_path, "show_remote": show_remote}
         )
         return ToolResult(**response.json())
@@ -696,7 +876,8 @@ class DockerSandbox(Sandbox):
     # Code development operations
     async def code_format(self, file_path: str, formatter: str = "auto", check_only: bool = False) -> ToolResult:
         """Format a code file"""
-        response = await self.client.post(
+        client = await self.get_client()
+        response = await client.post(
             f"{self.base_url}/api/v1/code/format",
             json={"file_path": file_path, "formatter": formatter, "check_only": check_only},
         )
@@ -704,14 +885,16 @@ class DockerSandbox(Sandbox):
 
     async def code_lint(self, path: str, linter: str = "auto", fix: bool = False) -> ToolResult:
         """Lint code files"""
-        response = await self.client.post(
+        client = await self.get_client()
+        response = await client.post(
             f"{self.base_url}/api/v1/code/lint", json={"path": path, "linter": linter, "fix": fix}
         )
         return ToolResult(**response.json())
 
     async def code_analyze(self, path: str, analysis_type: str = "all") -> ToolResult:
         """Analyze code"""
-        response = await self.client.post(
+        client = await self.get_client()
+        response = await client.post(
             f"{self.base_url}/api/v1/code/analyze", json={"path": path, "analysis_type": analysis_type}
         )
         return ToolResult(**response.json())
@@ -720,7 +903,8 @@ class DockerSandbox(Sandbox):
         self, directory: str, pattern: str, file_glob: str = "*", context_lines: int = 2, max_results: int = 100
     ) -> ToolResult:
         """Search code files"""
-        response = await self.client.post(
+        client = await self.get_client()
+        response = await client.post(
             f"{self.base_url}/api/v1/code/search",
             json={
                 "directory": directory,
@@ -743,7 +927,8 @@ class DockerSandbox(Sandbox):
         verbose: bool = False,
     ) -> ToolResult:
         """Run tests"""
-        response = await self.client.post(
+        client = await self.get_client()
+        response = await client.post(
             f"{self.base_url}/api/v1/test/run",
             json={
                 "path": path,
@@ -758,14 +943,14 @@ class DockerSandbox(Sandbox):
 
     async def test_list(self, path: str, framework: str = "auto") -> ToolResult:
         """List available tests"""
-        response = await self.client.post(
-            f"{self.base_url}/api/v1/test/list", json={"path": path, "framework": framework}
-        )
+        client = await self.get_client()
+        response = await client.post(f"{self.base_url}/api/v1/test/list", json={"path": path, "framework": framework})
         return ToolResult(**response.json())
 
     async def test_coverage(self, path: str, output_format: str = "html", output_dir: str | None = None) -> ToolResult:
         """Generate coverage report"""
-        response = await self.client.post(
+        client = await self.get_client()
+        response = await client.post(
             f"{self.base_url}/api/v1/test/coverage",
             json={"path": path, "output_format": output_format, "output_dir": output_dir},
         )
@@ -774,7 +959,8 @@ class DockerSandbox(Sandbox):
     # Export operations
     async def export_organize(self, session_id: str, source_path: str, target_category: str = "other") -> ToolResult:
         """Organize files"""
-        response = await self.client.post(
+        client = await self.get_client()
+        response = await client.post(
             f"{self.base_url}/api/v1/export/organize",
             json={"session_id": session_id, "source_path": source_path, "target_category": target_category},
         )
@@ -789,7 +975,8 @@ class DockerSandbox(Sandbox):
         base_path: str | None = None,
     ) -> ToolResult:
         """Create archive"""
-        response = await self.client.post(
+        client = await self.get_client()
+        response = await client.post(
             f"{self.base_url}/api/v1/export/archive",
             json={
                 "session_id": session_id,
@@ -809,7 +996,8 @@ class DockerSandbox(Sandbox):
         title: str = "Workspace Report",
     ) -> ToolResult:
         """Generate report"""
-        response = await self.client.post(
+        client = await self.get_client()
+        response = await client.post(
             f"{self.base_url}/api/v1/export/report",
             json={"session_id": session_id, "report_type": report_type, "output_format": output_format, "title": title},
         )
@@ -817,7 +1005,8 @@ class DockerSandbox(Sandbox):
 
     async def export_list(self, session_id: str) -> ToolResult:
         """List exports"""
-        response = await self.client.post(f"{self.base_url}/api/v1/export/list", json={"session_id": session_id})
+        client = await self.get_client()
+        response = await client.post(f"{self.base_url}/api/v1/export/list", json={"session_id": session_id})
         return ToolResult(**response.json())
 
     @staticmethod
@@ -888,9 +1077,22 @@ class DockerSandbox(Sandbox):
                 else:
                     DockerSandbox.get.cache_clear()
 
+            # Phase 1: Close HTTP client from pool instead of direct aclose()
+            # This allows the pool to properly cleanup and reuse connections
+            try:
+                from app.infrastructure.external.http_pool import HTTPClientPool
+
+                closed = await HTTPClientPool.close_client(self._pool_client_name)
+                if closed:
+                    logger.debug(f"Closed HTTP pool client for sandbox {self.id}")
+            except Exception as e:
+                logger.debug(f"HTTP pool client cleanup skipped: {e}")
+
+            # Fallback cleanup for deprecated direct client
             if self._client and not self._client.is_closed:
                 await self._client.aclose()
             self._client = None
+
             is_static_sandbox_id = bool(
                 uses_static_sandboxes and self._container_name and self._container_name.startswith("dev-sandbox-")
             )
@@ -979,7 +1181,8 @@ class DockerSandbox(Sandbox):
             HTTP response with image bytes
         """
         try:
-            response = await self.client.get(
+            client = await self.get_client()
+            response = await client.get(
                 f"{self.base_url}/api/v1/vnc/screenshot",
                 params={"quality": quality, "scale": scale, "format": format},
                 timeout=10.0,
