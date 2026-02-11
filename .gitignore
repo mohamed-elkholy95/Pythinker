@@ -126,3 +126,6 @@ mcp.json
 .claude/
 app_ui_design.mov
 design.html
+
+# Git worktrees
+.worktrees/
