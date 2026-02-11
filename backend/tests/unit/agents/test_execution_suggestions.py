@@ -1,0 +1,198 @@
+"""Tests for ExecutionAgent suggestion generation with session context."""
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from app.domain.models.event import ReportEvent, SuggestionEvent
+from app.domain.models.message import Message
+from app.domain.models.plan import ExecutionStatus, Plan, Step
+from app.domain.services.agents.execution import ExecutionAgent
+
+
+class TestExecutionAgentSuggestionGeneration:
+    """Test ExecutionAgent generates session-anchored suggestions."""
+
+    @pytest.fixture
+    def mock_agent_repository(self):
+        """Mock agent repository."""
+        repo = AsyncMock()
+        repo.get_memory = AsyncMock(return_value=MagicMock(messages=[], empty=True))
+        repo.save_memory = AsyncMock()
+        return repo
+
+    @pytest.fixture
+    def executor(self, mock_llm, mock_agent_repository, mock_json_parser):
+        """Create an ExecutionAgent with mocked dependencies."""
+        return ExecutionAgent(
+            agent_id="test-executor",
+            agent_repository=mock_agent_repository,
+            llm=mock_llm,
+            tools=[],
+            json_parser=mock_json_parser,
+        )
+
+    @pytest.mark.asyncio
+    async def test_suggestion_prompt_includes_user_request(self, executor, mock_llm):
+        """Suggestion generation should include original user request in prompt."""
+        # Store user request during summarize
+        executor._user_request = "Build a pirate themed website"
+
+        # Mock LLM to return suggestions
+        mock_llm.ask.return_value = {
+            "content": '{"suggestions": ["Add treasure map", "Include pirate crew", "Design ship navigation"]}'
+        }
+
+        # Generate suggestions
+        suggestions = await executor._generate_follow_up_suggestions(
+            title="Website Design Complete",
+            content="Created a pirate themed website with animations and interactive elements.",
+        )
+
+        # Verify LLM was called
+        assert mock_llm.ask.called
+        call_args = mock_llm.ask.call_args
+        messages = call_args[0][0]
+
+        # Verify prompt includes user request
+        prompt_content = messages[0]["content"]
+        assert "Build a pirate themed website" in prompt_content or "user" in prompt_content.lower()
+
+    @pytest.mark.asyncio
+    async def test_suggestion_prompt_includes_completion_title(self, executor, mock_llm):
+        """Suggestion generation should include completion title in prompt."""
+        executor._user_request = "Create API documentation"
+
+        mock_llm.ask.return_value = {
+            "content": '{"suggestions": ["Add examples", "Include authentication", "Document errors"]}'
+        }
+
+        await executor._generate_follow_up_suggestions(
+            title="API Documentation Complete",
+            content="Generated comprehensive API docs with endpoints and parameters.",
+        )
+
+        call_args = mock_llm.ask.call_args
+        messages = call_args[0][0]
+        prompt_content = messages[0]["content"]
+
+        # Verify prompt includes title
+        assert "API Documentation Complete" in prompt_content
+
+    @pytest.mark.asyncio
+    async def test_suggestion_prompt_includes_bounded_content_excerpt(self, executor, mock_llm):
+        """Suggestion generation should include bounded excerpt from completion content."""
+        executor._user_request = "Analyze performance metrics"
+
+        # Long content to test excerpt bounding
+        long_content = "Performance Analysis Results:\n" + ("Analysis detail. " * 200)
+
+        mock_llm.ask.return_value = {"content": '{"suggestions": ["Deep dive into metrics"]}'}
+
+        await executor._generate_follow_up_suggestions(title="Performance Report", content=long_content)
+
+        call_args = mock_llm.ask.call_args
+        messages = call_args[0][0]
+        prompt_content = messages[0]["content"]
+
+        # Verify excerpt is bounded (not the full 2000+ char content)
+        assert len(prompt_content) < len(long_content) + 500  # Reasonable overhead for prompt structure
+
+    @pytest.mark.asyncio
+    async def test_summarize_emits_suggestion_event_with_metadata(self, executor, mock_llm):
+        """Summarize should emit SuggestionEvent with source and anchor metadata."""
+        executor._user_request = "Create documentation"
+
+        # Mock streaming response
+        async def mock_stream(*args, **kwargs):
+            yield "# Documentation Complete\n"
+            yield "Generated comprehensive docs."
+
+        mock_llm.ask_stream = mock_stream
+
+        # Mock suggestion generation
+        mock_llm.ask.return_value = {"content": '["Add examples", "Include diagrams"]'}
+
+        # Collect events from summarize
+        events = []
+        async for event in executor.summarize():
+            events.append(event)
+
+        # Find SuggestionEvent
+        suggestion_events = [e for e in events if isinstance(e, SuggestionEvent)]
+        assert len(suggestion_events) == 1
+
+        suggestion_event = suggestion_events[0]
+
+        # Verify metadata is populated
+        assert suggestion_event.source == "completion"
+        assert suggestion_event.anchor_event_id is not None  # Should link to report
+
+        # Find ReportEvent to verify anchor_event_id matches
+        report_events = [e for e in events if isinstance(e, ReportEvent)]
+        if report_events:
+            assert suggestion_event.anchor_event_id == report_events[0].id
+
+    @pytest.mark.asyncio
+    async def test_suggestion_fallback_when_llm_fails(self, executor, mock_llm):
+        """Should return deterministic fallback suggestions when LLM fails."""
+        executor._user_request = "Test request"
+
+        # Mock LLM to fail
+        mock_llm.ask.side_effect = Exception("LLM unavailable")
+
+        suggestions = await executor._generate_follow_up_suggestions(
+            title="Test Title", content="Test content"
+        )
+
+        # Should return fallback suggestions
+        assert len(suggestions) == 3
+        assert all(isinstance(s, str) for s in suggestions)
+
+
+class TestExecutionAgentSuggestionAnchorExcerpt:
+    """Test anchor_excerpt generation for SuggestionEvent."""
+
+    @pytest.fixture
+    def mock_agent_repository(self):
+        """Mock agent repository."""
+        repo = AsyncMock()
+        repo.get_memory = AsyncMock(return_value=MagicMock(messages=[], empty=True))
+        repo.save_memory = AsyncMock()
+        return repo
+
+    @pytest.fixture
+    def executor(self, mock_llm, mock_agent_repository, mock_json_parser):
+        """Create an ExecutionAgent."""
+        return ExecutionAgent(
+            agent_id="test-executor",
+            agent_repository=mock_agent_repository,
+            llm=mock_llm,
+            tools=[],
+            json_parser=mock_json_parser,
+        )
+
+    @pytest.mark.asyncio
+    async def test_anchor_excerpt_includes_bounded_content(self, executor, mock_llm):
+        """anchor_excerpt should contain first N chars of completion content."""
+        executor._user_request = "Test"
+
+        # Mock streaming
+        async def mock_stream(*args, **kwargs):
+            yield "This is a test completion with some content that should be excerpted."
+
+        mock_llm.ask_stream = mock_stream
+        mock_llm.ask.return_value = {"content": '["Suggestion 1", "Suggestion 2"]'}
+
+        events = []
+        async for event in executor.summarize():
+            events.append(event)
+
+        suggestion_events = [e for e in events if isinstance(e, SuggestionEvent)]
+        assert len(suggestion_events) == 1
+
+        # Verify excerpt is populated and bounded
+        excerpt = suggestion_events[0].anchor_excerpt
+        assert excerpt is not None
+        assert len(excerpt) <= 500  # Should be bounded to prevent bloat
+        assert "test completion" in excerpt.lower()

@@ -264,16 +264,24 @@ class DiscussFlow(BaseFlow):
                     clean_message = self._clean_response(raw_response)
 
                     # Yield cleaned message
-                    yield MessageEvent(message=clean_message, role="assistant", attachments=event.attachments)
+                    cleaned_event = MessageEvent(message=clean_message, role="assistant", attachments=event.attachments)
+                    yield cleaned_event
 
                     # If model omitted suggestions JSON (e.g., exact-output requests),
                     # generate them separately so the UI can still render follow-ups.
                     if not suggestions:
                         suggestions = await self._generate_follow_up_suggestions(message.message, clean_message)
 
-                    # Yield suggestions if available
+                    # Yield suggestions if available with discuss-specific metadata
                     if suggestions:
-                        yield SuggestionEvent(suggestions=suggestions)
+                        # Bounded excerpt from assistant message
+                        message_excerpt = clean_message[:500] + ("..." if len(clean_message) > 500 else "")
+                        yield SuggestionEvent(
+                            suggestions=suggestions,
+                            source="discuss",
+                            anchor_event_id=cleaned_event.id,
+                            anchor_excerpt=message_excerpt,
+                        )
 
                 elif isinstance(event, ErrorEvent):
                     self.status = DiscussStatus.ERROR

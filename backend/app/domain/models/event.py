@@ -443,6 +443,9 @@ class SuggestionEvent(BaseEvent):
 
     type: Literal["suggestion"] = "suggestion"
     suggestions: list[str]  # List of 2-3 contextual suggestions
+    source: str | None = None  # Source of suggestions: "completion", "discuss"
+    anchor_event_id: str | None = None  # Event ID to anchor context to (report/message)
+    anchor_excerpt: str | None = None  # Brief excerpt from anchored content
 
 
 class PlanningPhase(str, Enum):
