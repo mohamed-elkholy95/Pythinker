@@ -1,12 +1,10 @@
 """Tests for ExecutionAgent suggestion generation with session context."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from app.domain.models.event import ReportEvent, SuggestionEvent
-from app.domain.models.message import Message
-from app.domain.models.plan import ExecutionStatus, Plan, Step
 from app.domain.services.agents.execution import ExecutionAgent
 
 
@@ -44,7 +42,7 @@ class TestExecutionAgentSuggestionGeneration:
         }
 
         # Generate suggestions
-        suggestions = await executor._generate_follow_up_suggestions(
+        await executor._generate_follow_up_suggestions(
             title="Website Design Complete",
             content="Created a pirate themed website with animations and interactive elements.",
         )
@@ -141,9 +139,7 @@ class TestExecutionAgentSuggestionGeneration:
         # Mock LLM to fail
         mock_llm.ask.side_effect = Exception("LLM unavailable")
 
-        suggestions = await executor._generate_follow_up_suggestions(
-            title="Test Title", content="Test content"
-        )
+        suggestions = await executor._generate_follow_up_suggestions(title="Test Title", content="Test content")
 
         # Should return fallback suggestions
         assert len(suggestions) == 3

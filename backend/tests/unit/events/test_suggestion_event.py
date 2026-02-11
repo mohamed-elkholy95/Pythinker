@@ -1,7 +1,5 @@
 """Tests for SuggestionEvent metadata fields."""
 
-import pytest
-
 from app.domain.models.event import SuggestionEvent
 
 
