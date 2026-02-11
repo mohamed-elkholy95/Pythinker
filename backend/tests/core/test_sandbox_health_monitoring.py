@@ -1,9 +1,9 @@
 """Unit tests for sandbox health monitoring (Priority 3)."""
 
 import asyncio
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from unittest.mock import AsyncMock, Mock, patch
 
 from app.core.sandbox_pool import SandboxPool
 
@@ -19,14 +19,16 @@ async def test_health_monitor_task_started_with_pool():
         max_size=2,
     )
 
-    with patch.object(pool, "_continuous_health_monitor", new_callable=AsyncMock) as mock_monitor:
-        with patch.object(pool, "_monitor_docker_events", new_callable=AsyncMock) as mock_events:
-            with patch.object(pool, "_warm_pool_loop", new_callable=AsyncMock):
-                await pool.start()
+    with (
+        patch.object(pool, "_continuous_health_monitor", new_callable=AsyncMock),
+        patch.object(pool, "_monitor_docker_events", new_callable=AsyncMock),
+        patch.object(pool, "_warm_pool_loop", new_callable=AsyncMock),
+    ):
+        await pool.start()
 
-                # Tasks should be running
-                assert pool._health_monitor_task is not None
-                assert pool._docker_events_task is not None
+        # Tasks should be running
+        assert pool._health_monitor_task is not None
+        assert pool._docker_events_task is not None
 
                 await pool.stop()
 
@@ -142,8 +144,6 @@ async def test_check_sandbox_health_queries_docker_api():
 @pytest.mark.asyncio
 async def test_health_check_metric_incremented():
     """Test that health check metrics are incremented."""
-    from app.infrastructure.observability.prometheus_metrics import sandbox_health_check_total
-
     from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
 
     pool = SandboxPool(
@@ -154,8 +154,6 @@ async def test_health_check_metric_incremented():
 
     mock_sandbox = Mock()
     mock_sandbox.container_id = "test-container"
-
-    initial_success = sandbox_health_check_total._value.get(frozenset({"status": "success"}.items()), 0)
 
     # Mock healthy check
     with patch("asyncio.to_thread", return_value="running"):

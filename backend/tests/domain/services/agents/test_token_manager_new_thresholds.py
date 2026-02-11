@@ -1,7 +1,5 @@
 """Unit tests for token management optimization (Priority 4)."""
 
-import pytest
-
 from app.domain.models.pressure import PressureLevel
 from app.domain.services.agents.token_manager import TokenManager
 
@@ -114,8 +112,6 @@ def test_pressure_level_boundaries_exact():
 
 def test_token_pressure_metric_recorded():
     """Test that token pressure is recorded to metrics."""
-    from app.infrastructure.observability.prometheus_metrics import token_pressure_level
-
     manager = TokenManager(max_context_tokens=10000, safety_margin=2000, session_id="test-session")
 
     # Trigger critical pressure

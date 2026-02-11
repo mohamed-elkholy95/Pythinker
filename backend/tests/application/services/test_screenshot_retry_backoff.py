@@ -58,13 +58,15 @@ async def test_retry_uses_exponential_backoff():
 
     service = ScreenshotCaptureService(sandbox=mock_sandbox, session_id="test-session")
 
-    with patch("asyncio.sleep", side_effect=track_sleep):
-        with patch.object(service._settings, "screenshot_http_retry_attempts", 3):
-            with patch.object(service._settings, "screenshot_http_retry_delay", 1.0):
-                try:
-                    await service._get_screenshot_with_retry(quality=80, scale=1.0)
-                except Exception:
-                    pass
+    with (
+        patch("asyncio.sleep", side_effect=track_sleep),
+        patch.object(service._settings, "screenshot_http_retry_attempts", 3),
+        patch.object(service._settings, "screenshot_http_retry_delay", 1.0),
+    ):
+        from contextlib import suppress
+
+        with suppress(Exception):
+            await service._get_screenshot_with_retry(quality=80, scale=1.0)
 
     # Should have delays: 1s, 2s (exponential backoff)
     # Note: Last attempt doesn't sleep
@@ -90,9 +92,11 @@ async def test_retry_respects_max_attempts():
 
     mock_sandbox.get_screenshot = count_calls
 
-    with patch.object(service._settings, "screenshot_http_retry_attempts", 3):
-        with pytest.raises(Exception):
-            await service._get_screenshot_with_retry(quality=80, scale=1.0)
+    with (
+        patch.object(service._settings, "screenshot_http_retry_attempts", 3),
+        pytest.raises(Exception),
+    ):
+        await service._get_screenshot_with_retry(quality=80, scale=1.0)
 
     # Should have tried exactly 3 times
     assert call_count == 3
@@ -119,8 +123,6 @@ async def test_successful_retry_increments_metric():
     mock_sandbox.get_screenshot = mock_get_screenshot
 
     service = ScreenshotCaptureService(sandbox=mock_sandbox, session_id="test-session")
-
-    initial_count = screenshot_retry_attempts_total._value.get(frozenset(), 0)
 
     # This would increment the metric (in full implementation with mocks)
     await service._get_screenshot_with_retry(quality=80, scale=1.0)
