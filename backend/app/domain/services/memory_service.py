@@ -926,35 +926,79 @@ class MemoryService:
         # Delete from MongoDB
         return await self._repository.delete_by_user(user_id)
 
-    async def format_memories_for_context(self, memories: list[MemorySearchResult], max_tokens: int = 500) -> str:
+    async def format_memories_for_context(
+        self,
+        memories: list[MemorySearchResult],
+        max_tokens: int = 500,
+        enable_contradiction_detection: bool = True,
+    ) -> str:
         """Format memories for inclusion in agent context.
+
+        Phase 4: Enhanced with evidence-based formatting, confidence scoring,
+        and contradiction detection to reduce hallucinations.
 
         Args:
             memories: List of memories to format
             max_tokens: Approximate token limit
+            enable_contradiction_detection: Detect and mark contradictions
 
         Returns:
-            Formatted string for context injection
+            Formatted string for context injection with evidence blocks
         """
         if not memories:
             return ""
 
-        lines = ["## Relevant Memories\n"]
-        current_length = 0
-        char_limit = max_tokens * 4  # Rough char to token conversion
+        # Phase 4: Convert to evidence format
+        from app.domain.models.memory_evidence import MemoryEvidence
 
+        evidence_list = []
         for result in memories:
             mem = result.memory
-            line = f"- [{mem.memory_type.value}] {mem.content}"
+            evidence = MemoryEvidence(
+                memory_id=mem.id,
+                content=mem.content,
+                source_type="user_knowledge",  # Could derive from collection
+                retrieval_score=result.relevance_score,
+                embedding_quality=mem.embedding_quality if hasattr(mem, "embedding_quality") and mem.embedding_quality else 0.8,
+                timestamp=mem.created_at,
+                session_id=mem.session_id if hasattr(mem, "session_id") else None,
+                memory_type=mem.memory_type.value,
+                importance=mem.importance.value,
+            )
+            evidence_list.append(evidence)
 
-            if mem.importance in (MemoryImportance.CRITICAL, MemoryImportance.HIGH):
-                line = f"**{line}**"
+        # Phase 4: Detect contradictions
+        if enable_contradiction_detection:
+            try:
+                from app.domain.services.retrieval.contradiction_resolver import get_contradiction_resolver
 
-            if current_length + len(line) > char_limit:
+                resolver = get_contradiction_resolver(llm=self._llm)
+                evidence_list = await resolver.detect_contradictions(evidence_list)
+            except Exception as e:
+                logger.debug(f"Contradiction detection failed: {e}")
+
+        # Phase 4: Filter rejected evidence
+        evidence_list = [ev for ev in evidence_list if not ev.should_reject]
+
+        if not evidence_list:
+            return ""
+
+        # Phase 4: Format as evidence blocks
+        lines = ["## Relevant Memories (Evidence-Based)\n"]
+        current_length = 0
+        char_limit = max_tokens * 4
+
+        for evidence in evidence_list:
+            block = evidence.to_prompt_block(include_metadata=True)
+            if not block:
+                continue
+
+            if current_length + len(block) > char_limit:
                 break
 
-            lines.append(line)
-            current_length += len(line)
+            lines.append(block)
+            lines.append("")  # Blank line between evidence blocks
+            current_length += len(block)
 
         return "\n".join(lines)
 
