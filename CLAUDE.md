@@ -18,6 +18,7 @@ Pythinker is an AI Agent system that runs tools (browser, terminal, files, searc
 > 7. **Type Safety**: Full type hints (Python) / strict mode (TypeScript); no `any`
 > 8. **Layer Discipline**: Business logic in domain, not in API routes or components
 > 9. **Naming**: Python `snake_case` functions / `PascalCase` classes; Vue `PascalCase` components / `useX` composables
+> 10. **Context7 Validation (Always)**: Validate all new implementations, files, and configurations against fetched Context7 MCP documentation to ensure accuracy and compliance before deployment
 >
 > **Before committing:**
 > - **Frontend**: `cd frontend && bun run lint && bun run type-check`
@@ -27,9 +28,16 @@ Pythinker is an AI Agent system that runs tools (browser, terminal, files, searc
 
 - **Read [instructions.md](instructions.md) first** - Core engineering behaviors and patterns
 - **Reuse Before Creating**: Before implementing any new code, component, utility, or feature, **search the existing codebase** for similar functionality. Check composables, services, utilities, domain models, and components that may already solve the problem or can be extended. Never create a duplicate when an existing piece can be reused or adapted.
+- **HTTP Connection Pooling**: Always use `HTTPClientPool` for HTTP communication. Never create `httpx.AsyncClient` directly. See `docs/architecture/HTTP_CLIENT_POOLING.md` for details.
 - **Pydantic v2**: `@field_validator` methods **must** be `@classmethod`
 - **Python Environment**: Always `conda activate pythinker` before running tests
 - **Plan Execution**: Complete ALL phases - priorities indicate order, not optional phases
+
+## Communication & Accuracy Standards
+
+- **Absolute Status Accuracy Rule**: When creating summaries or status reports, maintain 100% factual accuracy. Never mark a task as "Completed" if it is only partially done or if only foundational code is in place. Always clearly distinguish "Completed", "In Progress", and "Not Started".
+- **Absolute Full Implementation Rule**: When requested to write code, provide the full, unabridged implementation for every file. Never use placeholders (e.g., `// ... rest of code`, `// ... implementation details`), summaries, or skipped sections to save space.
+- **Absolute Persistence Rule**: If a request is complex, do not simplify it to fit a single response. Output as much valid code as possible, then stop and await a "Continue" prompt to finish the rest. Prioritize absolute completeness over brevity or speed, regardless of task size.
 
 ## Detailed Standards
 
@@ -198,6 +206,7 @@ sparse = encoder.encode("query text")  # Returns {index: score} dict
 5. **Deep Nesting** - Prefer early returns and guard clauses
 6. **Redundant Code** - Never create new files, components, utilities, or services without first searching for existing ones that serve the same or similar purpose
 7. **Over-Engineering** - Avoid unnecessary abstractions, premature generalization, or complex patterns when a simple direct solution works equally well
+8. **Direct HTTP Clients** - Never create `httpx.AsyncClient` directly; always use `HTTPClientPool` for connection pooling and metrics
 
 ---
 
@@ -209,6 +218,7 @@ sparse = encoder.encode("query text")  # Returns {index: score} dict
 - [ ] Type hints/annotations complete
 - [ ] Business logic in domain layer
 - [ ] No `any` types (TS) / untyped functions (Python)
+- [ ] New implementations/files/configurations validated against fetched Context7 MCP documentation
 - [ ] Tests pass, linting passes
 
 ---

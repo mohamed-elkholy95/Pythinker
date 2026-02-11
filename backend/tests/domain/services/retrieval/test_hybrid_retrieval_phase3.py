@@ -174,11 +174,13 @@ class TestBatchedRetrieval:
         memory_service_mock = MagicMock()
 
         # First call succeeds, second fails, third succeeds
-        memory_service_mock.retrieve_relevant = AsyncMock(side_effect=[
-            [MagicMock()],  # Success
-            Exception("Retrieval error"),  # Failure
-            [MagicMock()],  # Success
-        ])
+        memory_service_mock.retrieve_relevant = AsyncMock(
+            side_effect=[
+                [MagicMock()],  # Success
+                Exception("Retrieval error"),  # Failure
+                [MagicMock()],  # Success
+            ]
+        )
 
         queries = ["query1", "query2", "query3"]
         result = await batch_retrieve(memory_service_mock, "user-123", queries)
@@ -216,10 +218,12 @@ class TestBatchedRetrieval:
         result3.relevance_score = 0.7
 
         memory_service_mock = MagicMock()
-        memory_service_mock.retrieve_relevant = AsyncMock(side_effect=[
-            [result1, result3],  # Query 1
-            [result2],  # Query 2 (has duplicate of mem-1)
-        ])
+        memory_service_mock.retrieve_relevant = AsyncMock(
+            side_effect=[
+                [result1, result3],  # Query 1
+                [result2],  # Query 2 (has duplicate of mem-1)
+            ]
+        )
 
         queries = ["query1", "query2"]
         deduped = await batch_retrieve_deduped(memory_service_mock, "user-123", queries, limit_total=10)

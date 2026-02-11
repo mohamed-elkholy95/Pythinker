@@ -114,12 +114,15 @@ class Settings(BaseSettings):
     sandbox_no_proxy: str | None = None
     sandbox_seccomp_profile: str | None = None
     sandbox_shm_size: str | None = "1g"  # Chrome headless needs 512MB-1GB (reduced from 2g)
-    sandbox_mem_limit: str | None = "3g"  # Right-sized for single-session sandbox (reduced from 4g)
+    sandbox_mem_limit: str | None = "4g"  # Increased from 3g to reduce OOM kills (Priority 3)
     sandbox_cpu_limit: float | None = 1.5  # 2 containers x 1.5 CPU = 3 cores, leaves room for services
     sandbox_pids_limit: int | None = 300  # Sufficient for Chrome + Node + Python + supervisor
     sandbox_framework_port: int = 8082
     sandbox_framework_enabled: bool = True
     sandbox_framework_required: bool = False
+
+    # Phase 3: HTTP/2 Configuration
+    sandbox_http2_enabled: bool = False  # Enable HTTP/2 for sandbox API communication (requires httpx[http2])
 
     # Session initialization optimization (Phase 1-5)
     sandbox_cdp_initial_delay: float = 0.5  # Initial delay for CDP retry backoff
@@ -127,6 +130,13 @@ class Settings(BaseSettings):
     sandbox_cdp_retries: int = 10  # Number of CDP connection retries
     sandbox_eager_init: bool = True  # Start sandbox creation on session create
     workspace_lazy_init: bool = True  # Defer workspace init until needed
+
+    # Sandbox warmup race condition fix (Phase 6)
+    sandbox_warmup_grace_period: float = 3.0  # Wait before first health check to avoid race condition
+    sandbox_warmup_initial_retry_delay: float = 1.0  # Initial delay between retries
+    sandbox_warmup_max_retry_delay: float = 3.0  # Maximum delay between retries
+    sandbox_warmup_backoff_multiplier: float = 1.5  # Exponential backoff multiplier
+    sandbox_warmup_connection_failure_threshold: int = 12  # Max connection failures before giving up
 
     # Sandbox Pool Pre-warming (Phase 3)
     sandbox_pool_enabled: bool = True  # Enable sandbox pool for instant allocation (20-32s → 2-5s cold start)
@@ -142,6 +152,11 @@ class Settings(BaseSettings):
     # Sandbox lifecycle optimization
     sandbox_pool_reaper_interval: int = 60  # Orphan reaper check interval (seconds)
     sandbox_pool_reaper_grace_period: int = 120  # Don't reap containers younger than this (seconds)
+
+    # Sandbox health monitoring (Priority 3: proactive crash detection)
+    sandbox_health_check_interval: int = 30  # Continuous health check interval (seconds)
+    sandbox_oom_monitor_enabled: bool = True  # Monitor Docker events for OOM kills
+    sandbox_runtime_crash_recovery: bool = True  # Automatically replace crashed sandboxes
 
     # Lazy initialization (Phase 5)
     mcp_lazy_init: bool = True  # Defer MCP initialization until first use
@@ -205,6 +220,28 @@ class Settings(BaseSettings):
     browser_pool_health_interval: float = 60.0  # Health check interval (1 min)
     browser_init_timeout: float = 60.0  # Overall timeout for browser initialization (seconds)
 
+    # Browser element extraction configuration (Phase 6: fix timeouts)
+    browser_element_extraction_timeout: float = 5.0  # Timeout for interactive element extraction (seconds) - reduced from 7.0 to match JS timeout
+    browser_element_extraction_retries: int = 2  # Number of retries for element extraction
+    browser_element_extraction_retry_delay: float = 1.0  # Delay between retries (seconds)
+    browser_element_extraction_cache_ttl: float = 15.0  # Cache TTL for extracted elements (seconds) - increased from 10.0
+
+    # Browser crash prevention (Priority 1: fix Wikipedia crashes)
+    browser_graceful_degradation: bool = True  # Return partial results instead of failing on browser crash
+    browser_memory_auto_restart: bool = True  # Proactively restart browser on memory pressure
+    browser_memory_critical_threshold_mb: int = 800  # Restart trigger threshold
+    browser_memory_high_threshold_mb: int = 500  # Warning level threshold
+    browser_wikipedia_lightweight_mode: bool = True  # Special handling for Wikipedia pages
+
+    # Heavy page detection (Priority 1: proactive detection before expensive operations)
+    browser_heavy_page_html_size_threshold: int = 5_000_000  # 5MB HTML size triggers lightweight mode
+    browser_heavy_page_dom_threshold: int = 3000  # DOM element count triggers lightweight mode
+    browser_heavy_page_skip_scroll: bool = True  # Skip smart scroll on heavy pages
+
+    # Fast acknowledgment refiner configuration (Phase 6: fix timeouts)
+    fast_ack_refiner_timeout: float = 2.5  # LLM timeout for fast acknowledgment generation (seconds)
+    fast_ack_refiner_traceback_sample_rate: float = 0.05  # Sample rate for error traceback logging
+
     # Screenshot capture configuration (session replay)
     screenshot_capture_enabled: bool = True
     screenshot_periodic_interval: float = 10.0  # seconds between periodic captures
@@ -212,6 +249,15 @@ class Settings(BaseSettings):
     screenshot_scale: float = 0.5  # Scale factor for full-res
     screenshot_thumbnail_quality: int = 40  # JPEG quality for thumbnails
     screenshot_thumbnail_scale: float = 0.25  # Scale factor for thumbnails
+
+    # Screenshot resilience (Priority 2: prevent HTTP pool exhaustion)
+    screenshot_circuit_breaker_enabled: bool = True  # Enable circuit breaker
+    screenshot_max_consecutive_failures: int = 5  # Open circuit after N failures
+    screenshot_circuit_recovery_seconds: int = 60  # Time before retry
+    screenshot_http_max_connections: int = 50  # Dedicated pool size (increased from default)
+    screenshot_http_pool_timeout: float = 30.0  # Pool wait timeout
+    screenshot_http_retry_attempts: int = 3  # Retry on failure
+    screenshot_http_retry_delay: float = 2.0  # Initial retry delay (exponential backoff)
 
     # Stuck Detection Configuration (P3.2/P3.3: faster loop detection)
     stuck_detection_window: int = 5  # Response window size (reduced from 10)
@@ -395,6 +441,11 @@ class Settings(BaseSettings):
     llm_concurrency_enabled: bool = True  # Enable LLM concurrency limiting
     token_budget_warn_threshold: float = 0.8  # Warn when budget reaches this utilization (0-1)
 
+    # Token management optimization (Priority 4: reduce aggressive trimming)
+    token_safety_margin: int = 2048  # Reduced from hardcoded 4096 - most responses under 2K
+    token_early_warning_threshold: float = 0.60  # New early warning threshold
+    token_critical_threshold: float = 0.80  # Raised from 0.70 to allow more context
+
     # Self-Healing Configuration (Enhancement Phase 1)
     max_recovery_attempts: int = 3  # Max recovery attempts per error
     reflection_interval: int = 5  # Iterations between self-reflection cycles
@@ -448,6 +499,21 @@ class Settings(BaseSettings):
     # Feature flag
     feature_enhanced_research: bool = False  # Enable enhanced research flow
     feature_phased_research: bool = False  # Enable phased research workflow for deep research
+
+    # Typo correction configuration (PromptQuickValidator enhancements)
+    typo_correction_enabled: bool = True
+    typo_correction_log_events: bool = True
+    typo_correction_confidence_threshold: float = 0.90
+    typo_correction_max_suggestions: int = 1
+    typo_correction_rapidfuzz_enabled: bool = False
+    typo_correction_rapidfuzz_score_cutoff: float = 90.0
+    typo_correction_symspell_enabled: bool = False
+    typo_correction_symspell_dictionary_path: str = "data/frequency_dictionary_en_82_765.txt"
+    typo_correction_symspell_bigram_path: str = "data/frequency_bigramdictionary_en_243_342.txt"
+    typo_correction_symspell_max_edit_distance: int = 2
+    typo_correction_symspell_prefix_length: int = 7
+    typo_correction_feedback_store_path: str = "data/typo_correction_feedback.json"
+    typo_correction_feedback_min_occurrences: int = 3
 
     model_config = SettingsConfigDict(
         env_file=".env",

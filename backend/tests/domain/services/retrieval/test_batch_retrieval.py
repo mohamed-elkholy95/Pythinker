@@ -157,24 +157,24 @@ class TestBatchRetrieveDeduped:
                         match_type="semantic",
                     ),
                 ]
-            else:  # query 2
-                return [
-                    MemorySearchResult(memory=shared_memory, relevance_score=0.85, match_type="semantic"),
-                    MemorySearchResult(
-                        memory=MemoryEntry(
-                            id="mem-unique-2",
-                            user_id=user_id,
-                            content="Unique to query 2",
-                            memory_type=MemoryType.FACT,
-                            importance=MemoryImportance.MEDIUM,
-                            keywords=[],
-                            tags=[],
-                            entities=[],
-                        ),
-                        relevance_score=0.6,
-                        match_type="semantic",
+            # query 2
+            return [
+                MemorySearchResult(memory=shared_memory, relevance_score=0.85, match_type="semantic"),
+                MemorySearchResult(
+                    memory=MemoryEntry(
+                        id="mem-unique-2",
+                        user_id=user_id,
+                        content="Unique to query 2",
+                        memory_type=MemoryType.FACT,
+                        importance=MemoryImportance.MEDIUM,
+                        keywords=[],
+                        tags=[],
+                        entities=[],
                     ),
-                ]
+                    relevance_score=0.6,
+                    match_type="semantic",
+                ),
+            ]
 
         memory_service.retrieve_relevant = AsyncMock(side_effect=mock_retrieve)
 

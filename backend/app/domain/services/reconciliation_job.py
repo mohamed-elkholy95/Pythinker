@@ -40,12 +40,22 @@ class ReconciliationJob:
         self.retry_failed_after_hours = retry_failed_after_hours
         self.max_retries_per_run = max_retries_per_run
 
-        # Get MongoDB collections
-        from app.core.config import get_settings
+        # Lazily resolve MongoDB handles so construction is safe before startup init.
+        self._mongodb = get_mongodb()
+        self._memories_collection = None
 
-        settings = get_settings()
-        db = get_mongodb().database
-        self._memories_collection = db.memories
+    async def _get_memories_collection(self):
+        """Return initialized memories collection."""
+        if self._memories_collection is not None:
+            return self._memories_collection
+
+        try:
+            _ = self._mongodb.client
+        except RuntimeError:
+            await self._mongodb.initialize()
+
+        self._memories_collection = self._mongodb.database.memories
+        return self._memories_collection
 
     async def run_reconciliation(self) -> dict[str, Any]:
         """Run full reconciliation cycle.
@@ -107,7 +117,8 @@ class ReconciliationJob:
         cutoff = datetime.utcnow() - timedelta(hours=self.retry_failed_after_hours)
 
         # Find failed memories eligible for retry
-        cursor = self._memories_collection.find(
+        memories_collection = await self._get_memories_collection()
+        cursor = memories_collection.find(
             {
                 "sync_state": "failed",
                 "last_sync_attempt": {"$lt": cutoff},
@@ -144,7 +155,7 @@ class ReconciliationJob:
                 )
 
                 # Update memory to indicate retry
-                await self._memories_collection.update_one(
+                await memories_collection.update_one(
                     {"_id": memory_doc["_id"]},
                     {
                         "$set": {
@@ -178,7 +189,8 @@ class ReconciliationJob:
         # Sample recently synced memories to verify
         recent_cutoff = datetime.utcnow() - timedelta(hours=24)
 
-        cursor = self._memories_collection.find(
+        memories_collection = await self._get_memories_collection()
+        cursor = memories_collection.find(
             {
                 "sync_state": "synced",
                 "updated_at": {"$gte": recent_cutoff},
@@ -220,7 +232,7 @@ class ReconciliationJob:
                     )
 
                     # Update sync state
-                    await self._memories_collection.update_one(
+                    await memories_collection.update_one(
                         {"_id": memory_doc["_id"]},
                         {"$set": {"sync_state": "pending"}},
                     )
@@ -262,7 +274,8 @@ class ReconciliationJob:
         ]
 
         sync_states = {}
-        async for doc in self._memories_collection.aggregate(pipeline):
+        memories_collection = await self._get_memories_collection()
+        async for doc in memories_collection.aggregate(pipeline):
             state = doc["_id"] or "unknown"
             count = doc["count"]
             sync_states[state] = count

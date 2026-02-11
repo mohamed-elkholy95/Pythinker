@@ -330,6 +330,13 @@ async def lifespan(app: FastAPI):
         # Initialize observability (OTEL, metrics)
         _initialize_observability()
 
+        # Initialize typo correction analytics/feedback store
+        from app.infrastructure.observability.typo_correction_analytics import (
+            get_typo_correction_analytics,
+        )
+
+        get_typo_correction_analytics()
+
         # Initialize MongoDB and Beanie
         await get_mongodb().initialize()
         _health_state["mongodb"] = True
@@ -461,7 +468,6 @@ async def lifespan(app: FastAPI):
         logger.info("Application startup complete - all services initialized")
 
         # Phase 2: Start sync worker for MongoDB → Qdrant outbox processing
-        sync_worker_task = None
         if _health_state["qdrant"]:
             try:
                 from app.domain.services.sync_worker import start_sync_worker
@@ -622,6 +628,16 @@ async def lifespan(app: FastAPI):
                 await close_http_session()
             except Exception as e:
                 logger.debug(f"HTTP session cleanup error: {e}")
+
+            # Close all HTTPClientPool connections (Phase 1: Connection pooling)
+            try:
+                from app.infrastructure.external.http_pool import HTTPClientPool
+
+                count = await HTTPClientPool.close_all()
+                if count > 0:
+                    logger.info(f"Closed {count} HTTP client pool connections")
+            except Exception as e:
+                logger.debug(f"HTTPClientPool cleanup error: {e}")
 
             # --- Infrastructure disconnection (no more DB queries after this) ---
 

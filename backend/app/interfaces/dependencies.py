@@ -210,6 +210,11 @@ def get_screenshot_query_service() -> ScreenshotQueryService:
     return _get_screenshot_query_service()
 
 
+def get_session_repository() -> MongoSessionRepository:
+    """Get session repository instance for dependency injection (Priority 6: rating security)."""
+    return MongoSessionRepository()
+
+
 async def get_current_user(
     bearer_credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),  # noqa: B008
     auth_service: AuthService = Depends(get_auth_service),  # noqa: B008

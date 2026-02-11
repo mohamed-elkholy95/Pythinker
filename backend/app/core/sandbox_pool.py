@@ -25,6 +25,11 @@ import docker
 from docker.errors import NotFound as DockerNotFound
 
 from app.core.config import get_settings
+from app.infrastructure.observability.prometheus_metrics import (
+    record_sandbox_health_check,
+    record_sandbox_oom_kill,
+    record_sandbox_runtime_crash,
+)
 
 if TYPE_CHECKING:
     from app.domain.external.sandbox import Sandbox
@@ -60,6 +65,10 @@ class SandboxPool:
 
     BROWSER_PREWARM_TIMEOUT_SECONDS = 12.0
     _PAUSE_DELAY_SECONDS = 5.0  # Delay before pausing a newly pooled sandbox
+    _DEFAULT_IDLE_TTL_SECONDS = 300
+    _DEFAULT_HOST_MEMORY_THRESHOLD = 0.80
+    _DEFAULT_REAPER_INTERVAL_SECONDS = 60.0
+    _DEFAULT_REAPER_GRACE_PERIOD_SECONDS = 120.0
 
     def __init__(
         self,
@@ -79,6 +88,12 @@ class SandboxPool:
         self._started = False
         self._stopping = False
 
+        # Priority 3: Health monitoring tasks
+        self._health_monitor_task: asyncio.Task | None = None
+        self._docker_events_task: asyncio.Task | None = None
+        self._health_check_interval = getattr(settings, "sandbox_health_check_interval", 30)
+        self._oom_monitor_enabled = getattr(settings, "sandbox_oom_monitor_enabled", True)
+
         # Circuit breaker for sandbox creation failures
         self._consecutive_failures = 0
         self._max_consecutive_failures = 5
@@ -87,11 +102,23 @@ class SandboxPool:
         self._circuit_open_count = 0
 
         # Idle management settings
-        self._idle_ttl = settings.sandbox_pool_idle_ttl_seconds
+        self._idle_ttl = self._coerce_int(
+            getattr(settings, "sandbox_pool_idle_ttl_seconds", self._DEFAULT_IDLE_TTL_SECONDS),
+            default=self._DEFAULT_IDLE_TTL_SECONDS,
+        )
         self._pause_idle = settings.sandbox_pool_pause_idle
-        self._host_memory_threshold = settings.sandbox_pool_host_memory_threshold
-        self._reaper_interval = settings.sandbox_pool_reaper_interval
-        self._reaper_grace_period = settings.sandbox_pool_reaper_grace_period
+        self._host_memory_threshold = self._coerce_float(
+            getattr(settings, "sandbox_pool_host_memory_threshold", self._DEFAULT_HOST_MEMORY_THRESHOLD),
+            default=self._DEFAULT_HOST_MEMORY_THRESHOLD,
+        )
+        self._reaper_interval = self._coerce_float(
+            getattr(settings, "sandbox_pool_reaper_interval", self._DEFAULT_REAPER_INTERVAL_SECONDS),
+            default=self._DEFAULT_REAPER_INTERVAL_SECONDS,
+        )
+        self._reaper_grace_period = self._coerce_float(
+            getattr(settings, "sandbox_pool_reaper_grace_period", self._DEFAULT_REAPER_GRACE_PERIOD_SECONDS),
+            default=self._DEFAULT_REAPER_GRACE_PERIOD_SECONDS,
+        )
 
         # Pool entry timestamps: sandbox.id → time added to pool
         self._pool_timestamps: dict[str, float] = {}
@@ -107,6 +134,32 @@ class SandboxPool:
         self._total_on_demand = 0
         self._total_evictions = 0
         self._last_reaper_run: float = 0
+
+    @staticmethod
+    def _coerce_float(value: Any, default: float) -> float:
+        """Coerce settings values to finite positive float with fallback."""
+        if isinstance(value, bool):
+            return default
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return default
+        if not (parsed > 0):
+            return default
+        return parsed
+
+    @staticmethod
+    def _coerce_int(value: Any, default: int) -> int:
+        """Coerce settings values to positive int with fallback."""
+        if isinstance(value, bool):
+            return default
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return default
+        if parsed <= 0:
+            return default
+        return parsed
 
     @property
     def size(self) -> int:
@@ -172,6 +225,15 @@ class SandboxPool:
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
 
+        # Priority 3: Start health monitoring tasks
+        if self._health_check_interval > 0:
+            self._health_monitor_task = create_task(self._continuous_health_monitor())
+            logger.info(f"Started continuous health monitoring (interval={self._health_check_interval}s)")
+
+        if self._oom_monitor_enabled:
+            self._docker_events_task = create_task(self._monitor_docker_events())
+            logger.info("Started Docker events monitoring for OOM detection")
+
         logger.info("Sandbox pool started")
 
     async def stop(self) -> None:
@@ -185,6 +247,12 @@ class SandboxPool:
         # Cancel the warming task
         if self._warming_task:
             self._warming_task.cancel()
+
+        # Priority 3: Cancel health monitoring tasks
+        if self._health_monitor_task:
+            self._health_monitor_task.cancel()
+        if self._docker_events_task:
+            self._docker_events_task.cancel()
             with contextlib.suppress(CancelledError):
                 await self._warming_task
             self._warming_task = None
@@ -620,6 +688,179 @@ class SandboxPool:
         if reaped:
             logger.info(f"Orphan reaper: cleaned up {reaped} containers")
         return reaped
+
+    # --- Priority 3: Health Monitoring ---
+
+    async def _continuous_health_monitor(self) -> None:
+        """Continuously monitor pooled sandboxes for crashes.
+
+        Priority 3: Sandbox health monitoring - detect crashes proactively.
+        Runs every N seconds checking all pooled sandboxes via Docker API.
+        """
+        while not self._stopping:
+            try:
+                await sleep(self._health_check_interval)
+                if self._stopping:
+                    break
+
+                # Check health of all pooled sandboxes
+                failed_sandboxes: list[Sandbox] = []
+                pool_snapshot = list(self._pool._queue)  # type: ignore
+
+                for sandbox in pool_snapshot:
+                    try:
+                        is_healthy = await self._check_sandbox_health(sandbox)
+                        if is_healthy:
+                            record_sandbox_health_check(status="success")
+                        else:
+                            record_sandbox_health_check(status="failure")
+                            failed_sandboxes.append(sandbox)
+                            logger.warning(
+                                f"Health check failed for sandbox {sandbox.container_id}: "
+                                f"container not running"
+                            )
+                    except Exception as e:
+                        record_sandbox_health_check(status="error")
+                        logger.error(f"Error checking sandbox health: {e}")
+
+                # Remove failed sandboxes from pool
+                for failed_sandbox in failed_sandboxes:
+                    try:
+                        # Remove from queue
+                        temp_queue: asyncio.Queue[Sandbox] = asyncio.Queue()
+                        while not self._pool.empty():
+                            item = await self._pool.get()
+                            if item != failed_sandbox:
+                                await temp_queue.put(item)
+                            else:
+                                record_sandbox_runtime_crash()
+                                logger.warning(
+                                    f"Removed crashed sandbox from pool: {failed_sandbox.container_id}"
+                                )
+                        # Restore remaining sandboxes
+                        while not temp_queue.empty():
+                            await self._pool.put(await temp_queue.get())
+
+                        # Clean up the failed sandbox
+                        try:
+                            await failed_sandbox.cleanup()
+                        except Exception as cleanup_error:
+                            logger.debug(f"Failed to cleanup crashed sandbox: {cleanup_error}")
+                    except Exception as e:
+                        logger.error(f"Error removing failed sandbox from pool: {e}")
+
+                # Trigger replenishment if needed
+                if failed_sandboxes and not self._stopping:
+                    await self._replenish_one()
+
+            except CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in health monitor loop: {e}")
+                await sleep(5)
+
+    async def _check_sandbox_health(self, sandbox: "Sandbox") -> bool:
+        """Check if a sandbox is still healthy using Docker API.
+
+        Returns:
+            True if healthy (container running/paused), False if crashed/exited.
+        """
+        try:
+            # Use Docker API to verify container status
+            def _check_container_status(container_id: str) -> str | None:
+                import docker
+
+                dc = docker.from_env()
+                try:
+                    container = dc.containers.get(container_id)
+                    return container.status
+                except docker.errors.NotFound:
+                    return None
+
+            status = await asyncio.to_thread(_check_container_status, sandbox.container_id)
+
+            # Healthy states: running, paused
+            # Unhealthy states: exited, dead, None (not found)
+            if status in ("running", "paused"):
+                return True
+
+            logger.debug(
+                f"Sandbox {sandbox.container_id} unhealthy: status={status}"
+            )
+            return False
+
+        except Exception as e:
+            logger.error(f"Error checking sandbox health for {sandbox.container_id}: {e}")
+            return False
+
+    async def _monitor_docker_events(self) -> None:
+        """Monitor Docker events for OOM kills and crashes.
+
+        Priority 3: Instant OOM detection via Docker events API.
+        Subscribes to 'die' events and checks for OOM kill exit codes.
+        """
+        while not self._stopping:
+            try:
+
+                def _events_generator():
+                    import docker
+
+                    dc = docker.from_env()
+                    # Subscribe to container die events
+                    return dc.events(
+                        decode=True,
+                        filters={"type": "container", "event": "die"},
+                    )
+
+                # Run in thread to avoid blocking
+                events_gen = await asyncio.to_thread(_events_generator)
+
+                for event in events_gen:
+                    if self._stopping:
+                        break
+
+                    try:
+                        container_id = event.get("Actor", {}).get("ID", "")[:12]
+                        attributes = event.get("Actor", {}).get("Attributes", {})
+                        exit_code = attributes.get("exitCode", "")
+                        oom_killed = attributes.get("oomKilled", "false") == "true"
+
+                        # Detect OOM kills (exit code 137 or oomKilled flag)
+                        if oom_killed or exit_code == "137":
+                            record_sandbox_oom_kill()
+                            logger.warning(
+                                f"OOM kill detected for container {container_id} "
+                                f"(exit_code={exit_code}, oomKilled={oom_killed})"
+                            )
+
+                            # Remove from pool if present
+                            temp_queue: asyncio.Queue[Sandbox] = asyncio.Queue()
+                            found = False
+                            while not self._pool.empty():
+                                sandbox = await self._pool.get()
+                                if sandbox.container_id == container_id:
+                                    found = True
+                                    logger.warning(
+                                        f"Removed OOM-killed sandbox from pool: {container_id}"
+                                    )
+                                else:
+                                    await temp_queue.put(sandbox)
+                            # Restore remaining
+                            while not temp_queue.empty():
+                                await self._pool.put(await temp_queue.get())
+
+                            if found:
+                                # Trigger replenishment
+                                await self._replenish_one()
+
+                    except Exception as event_error:
+                        logger.debug(f"Error processing Docker event: {event_error}")
+
+            except CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in Docker events monitor: {e}")
+                await sleep(5)
 
     # --- Background Loops ---
 

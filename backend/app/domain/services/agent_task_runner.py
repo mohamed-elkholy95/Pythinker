@@ -283,6 +283,35 @@ class AgentTaskRunner(TaskRunner):
             from app.core.config import get_feature_flags
 
             feature_flags = get_feature_flags()
+            rapidfuzz_matcher = None
+            symspell_provider = None
+
+            if settings.typo_correction_rapidfuzz_enabled:
+                try:
+                    from app.infrastructure.text.rapidfuzz_matcher import RapidFuzzMatcher
+
+                    rapidfuzz_matcher = RapidFuzzMatcher()
+                except Exception as exc:
+                    logger.warning("RapidFuzz matcher unavailable; falling back to difflib: %s", exc)
+
+            if settings.typo_correction_symspell_enabled:
+                try:
+                    from app.infrastructure.text.symspell_provider import SymSpellProvider
+
+                    symspell_provider = SymSpellProvider(
+                        dictionary_path=settings.typo_correction_symspell_dictionary_path,
+                        bigram_path=settings.typo_correction_symspell_bigram_path,
+                        max_edit_distance=settings.typo_correction_symspell_max_edit_distance,
+                        prefix_length=settings.typo_correction_symspell_prefix_length,
+                    )
+                except Exception as exc:
+                    logger.warning("SymSpell provider unavailable; falling back to base validator: %s", exc)
+
+            from app.infrastructure.observability.typo_correction_analytics import (
+                get_typo_correction_analytics,
+            )
+
+            typo_analytics = get_typo_correction_analytics()
             self._plan_act_flow = PlanActFlow(
                 self._agent_id,
                 self._repository,
@@ -304,6 +333,10 @@ class AgentTaskRunner(TaskRunner):
                 file_sweep_callback=self._sweep_workspace_files,
                 feature_flags=feature_flags,
                 browser_agent_enabled=settings.browser_agent_enabled,
+                rapidfuzz_matcher=rapidfuzz_matcher,
+                symspell_provider=symspell_provider,
+                correction_event_sink=typo_analytics.record_event,
+                feedback_lookup=typo_analytics.get_feedback_override,
             )
             # Inject circuit breaker for tool-level failure protection
             try:

@@ -55,7 +55,7 @@ class TestBM25SparseEncoder:
 
         assert isinstance(sparse_vector, dict)
         assert len(sparse_vector) <= 10  # Respects top_k limit
-        assert all(isinstance(k, int) for k in sparse_vector.keys())  # Integer indices
+        assert all(isinstance(k, int) for k in sparse_vector)  # Integer indices
         assert all(isinstance(v, float) for v in sparse_vector.values())  # Float scores
         assert all(0.0 <= v <= 1.0 for v in sparse_vector.values())  # Normalized scores
 

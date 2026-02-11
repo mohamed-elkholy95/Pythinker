@@ -9,6 +9,7 @@ Ensures reliable MongoDB → Qdrant synchronization with:
 
 import asyncio
 import logging
+from contextlib import suppress
 from typing import Any
 
 from app.domain.models.sync_outbox import OutboxEntry, OutboxOperation, OutboxStatus
@@ -53,10 +54,8 @@ class SyncWorker:
         self._running = False
         if self._task:
             self._task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
 
         logger.info("Sync worker stopped")
 
@@ -183,10 +182,7 @@ class SyncWorker:
         if entry.status == OutboxStatus.FAILED:
             # Exceeded max retries, move to DLQ
             await self.outbox_repo.move_to_dead_letter_queue(entry)
-            logger.error(
-                f"Outbox entry {entry.id} moved to DLQ after {entry.retry_count} retries. "
-                f"Error: {error}"
-            )
+            logger.error(f"Outbox entry {entry.id} moved to DLQ after {entry.retry_count} retries. Error: {error}")
         else:
             # Update with retry info
             await self.outbox_repo.mark_failed(

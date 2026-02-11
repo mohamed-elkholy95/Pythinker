@@ -89,6 +89,14 @@ pythinker_llm_latency_seconds           # LLM response latency
 pythinker_http_requests_total           # HTTP request count
 pythinker_http_request_duration_seconds # HTTP request duration
 pythinker_http_errors_total             # HTTP error count
+
+# Screenshot Replay Metrics
+pythinker_screenshot_captures_total             # Capture attempts by trigger/status
+pythinker_screenshot_capture_latency_seconds    # Capture latency histogram
+pythinker_screenshot_capture_size_bytes_total   # Captured bytes by trigger
+pythinker_screenshot_fetch_total                # Replay fetches by access/status
+pythinker_screenshot_fetch_latency_seconds      # Replay fetch latency histogram
+pythinker_screenshot_fetch_size_bytes_total     # Served bytes by access
 ```
 
 ---

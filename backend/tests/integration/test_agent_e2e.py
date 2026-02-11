@@ -233,6 +233,44 @@ def _extract_response_text(events: list[dict]) -> str:
     return "".join(parts)
 
 
+def _has_execution_signals(events: list[dict]) -> bool:
+    """Return True when the workflow clearly reached execution/tooling stages."""
+    categories = _categorize_events(events)
+    phases = [str(pe["data"].get("phase", "")).lower() for pe in categories.get("progress", [])]
+    execution_phase_markers = ("execut", "research", "tool", "search", "step")
+    return any(any(marker in phase for marker in execution_phase_markers) for phase in phases)
+
+
+def _looks_like_uncertainty_or_limited_access(response_text: str) -> bool:
+    """Detect whether a no-tool response avoids overconfident real-time claims."""
+    lowered = (response_text or "").lower()
+    markers = (
+        "don't have",
+        "do not have",
+        "can't access",
+        "cannot access",
+        "unable to access",
+        "couldn't access",
+        "could not access",
+        "can't verify",
+        "cannot verify",
+        "couldn't verify",
+        "could not verify",
+        "not sure",
+        "uncertain",
+        "as of my knowledge",
+    )
+    return any(marker in lowered for marker in markers)
+
+
+def _is_ack_only_response(response_text: str) -> bool:
+    """Return True when extracted text is just an early acknowledgment."""
+    normalized = (response_text or "").strip()
+    if not normalized:
+        return False
+    return normalized.lower().startswith("got it!")
+
+
 # =============================================================================
 # Skip all tests if backend is not available
 # =============================================================================
@@ -624,14 +662,22 @@ class TestAgentBehavior:
             )
             categories = _categorize_events(events)
             tool_events = categories.get("tool", [])
+            progress_events = categories.get("progress", [])
 
             tool_names = [te["data"].get("tool_name", te["data"].get("function_name", "")) for te in tool_events]
             print(f"\n  Tools used: {tool_names}")
             print(f"  Total events: {len(events)}")
-            # For full workflow tasks, agent should use tools
-            # But if fast path handled it (knowledge intent), that's also acceptable
-            if len(events) > 5:  # Got enough events for full workflow
+            phases = [str(pe["data"].get("phase", "")).lower() for pe in progress_events]
+            print(f"  Progress phases: {phases}")
+            # Require tools only when execution/tool stages were actually reached.
+            if _has_execution_signals(events):
                 assert len(tool_events) > 0, "Agent did not use any tools in full workflow mode"
+            else:
+                final_response = _extract_response_text(events)
+                if final_response and not _is_ack_only_response(final_response):
+                    assert _looks_like_uncertainty_or_limited_access(final_response), (
+                        "No-tool factual response should acknowledge uncertainty or limited real-time access"
+                    )
         finally:
             _stop_session(session_id)
             _delete_session(session_id)
@@ -937,10 +983,15 @@ class TestHallucinationGrounding:
                 name = data.get("tool_name", data.get("function_name", ""))
                 print(f"    {name}: {data.get('status', 'N/A')}")
 
-            # For full workflow tasks with search instructions, agent should use tools
-            # If only got progress events (sandbox init timeout), lower the bar
-            if len(events) > 5:
+            # Require tools only when execution/tool stages were actually reached.
+            if _has_execution_signals(events):
                 assert len(tool_events) > 0, "Agent did not use any tools for a question requiring current information"
+            else:
+                final_response = _extract_response_text(events)
+                if final_response and not _is_ack_only_response(final_response):
+                    assert _looks_like_uncertainty_or_limited_access(final_response), (
+                        "No-tool current-info response should acknowledge uncertainty or limited real-time access"
+                    )
         finally:
             _stop_session(session_id)
             _delete_session(session_id)

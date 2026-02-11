@@ -99,7 +99,9 @@ class MemoryEntry(BaseModel):
     sync_error: str | None = Field(default=None, description="Last sync error message (truncated to 500 chars)")
 
     # Embedding metadata (Phase 1: Track embedding quality for grounding)
-    embedding_model: str | None = Field(default=None, description="Model used for embedding (e.g., text-embedding-3-small)")
+    embedding_model: str | None = Field(
+        default=None, description="Model used for embedding (e.g., text-embedding-3-small)"
+    )
     embedding_provider: str | None = Field(default=None, description="Provider for embedding (e.g., openai)")
     embedding_quality: float = Field(
         default=1.0,

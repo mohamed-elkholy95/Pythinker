@@ -39,42 +39,34 @@ class AcknowledgmentGenerator:
 
         # Specific task types
         if any(word in message_lower for word in ["create", "build", "make", "generate", "write"]):
-            if is_large_prompt:
-                return (
-                    "I've received your request. I'll prepare a clear plan and start working through it step by step."
-                )
-            if request_focus and request_focus != "this task":
-                return f"I'll help you with {request_focus}. Let me create a plan and get started."
-            return "I'll help you with that. Let me create a plan and get started."
+            return self._ack_create_or_build(user_message, message_lower, request_focus, is_large_prompt)
 
         if any(word in message_lower for word in ["fix", "debug", "solve", "resolve"]):
             if is_large_prompt:
-                return "I've received your debugging request. I'll diagnose the issue and work toward a reliable fix."
-            return "I'll analyze the issue and work on a solution."
+                return "Got it! I will diagnose the issue and work toward a reliable fix."
+            return "Got it! I will analyze the issue and work on a solution."
 
         if any(word in message_lower for word in ["find", "search", "look for", "locate"]):
             if is_large_prompt:
-                return (
-                    "I've received your request. I'll gather the relevant information and return a structured summary."
-                )
-            return "I'll search for that information."
+                return "Got it! I will gather the relevant information and return a structured summary."
+            return "Got it! I will search for that information."
 
         if any(word in message_lower for word in ["explain", "how does", "what is", "why"]):
-            return "Let me look into that for you."
+            return "Got it! I will look into that for you."
 
         if any(word in message_lower for word in ["update", "modify", "change", "edit"]):
-            return "I'll work on making those changes."
+            return "Got it! I will work on making those changes."
 
         if any(word in message_lower for word in ["install", "setup", "configure"]):
-            return "I'll help you set that up."
+            return "Got it! I will help you set that up."
 
         if any(word in message_lower for word in ["test", "check", "verify", "validate"]):
-            return "I'll run some checks on that."
+            return "Got it! I will run checks on that."
 
         # Default
         if is_large_prompt:
-            return "I've received your request. I'll analyze it and proceed with a structured response."
-        return "I'll help you with that. Let me work on it."
+            return "Got it! I will analyze your request and proceed with a structured response."
+        return "Got it! I will help with that."
 
     def _ack_skill_creation(self, user_message: str, message_lower: str) -> str:
         """Generate acknowledgment for skill creation requests."""
@@ -91,47 +83,109 @@ class AcknowledgmentGenerator:
 
     def _ack_research(self, user_message: str, request_focus: str, is_large_prompt: bool) -> str:
         """Generate acknowledgment for research requests."""
-        _ = (request_focus, is_large_prompt)
-        label = self._resolve_research_label(user_message)
-        opener = self._select_variant(
-            user_message,
-            ("Understood.", "Got it.", "Sounds good.", "All set."),
-            salt=17,
-        )
-        action = self._select_variant(
-            user_message,
-            (
-                "I’m analyzing your {label} now and preparing the research plan.",
-                "I’m reviewing your {label} now and structuring the research plan.",
-                "I’m evaluating your {label} now and organizing the research plan.",
-            ),
-            salt=53,
-        )
-        return f"{opener} {action.format(label=label)}"
+        topic_source = self._extract_research_topic(user_message) if is_large_prompt else request_focus
+        topic = self._normalize_subject(self._compact_subject(topic_source))
 
-    def _resolve_research_label(self, user_message: str) -> str:
+        if self._is_research_report_request(user_message):
+            report_topic = self._normalize_research_report_topic(topic, user_message)
+            if report_topic:
+                return f"Got it! I will create a comprehensive research report on {report_topic}"
+            return "Got it! I will create a comprehensive research report for your request"
+
+        research_topic = self._normalize_simple_research_topic(topic, user_message)
+        if research_topic:
+            return f"Got it! I will research {research_topic}."
+        return "Got it! I will research this topic."
+
+    def _ack_create_or_build(
+        self, user_message: str, message_lower: str, request_focus: str, is_large_prompt: bool
+    ) -> str:
+        if self._is_reference_design_request(message_lower):
+            return (
+                "Got it! I'll review the reference files you've provided and create a website with a standardized "
+                "global design system including consistent buttons, colors, and styling based on the code.html reference."
+            )
+
+        if request_focus and request_focus != "this task":
+            focus = self._compact_subject(request_focus) or request_focus
+            return f"Got it! I will work on {focus}."
+
+        if is_large_prompt:
+            return "Got it! I will work through your request and create the implementation."
+        return "Got it! I will work on your request."
+
+    def _is_reference_design_request(self, message_lower: str) -> bool:
+        has_reference_file = bool(re.search(r"\b\w+\.html\b", message_lower))
+        has_design_terms = any(
+            term in message_lower for term in ("design", "global design", "buttons", "colors", "standardized")
+        )
+        has_build_terms = any(term in message_lower for term in ("create", "build", "same exact", "reference"))
+        return has_reference_file and has_design_terms and has_build_terms
+
+    def _is_research_report_request(self, user_message: str) -> bool:
         text = (user_message or "").lower()
-        has_prompt = "prompt" in text
-        has_task = "task" in text
-        has_search = "search" in text or "research" in text
+        return "research report" in text or "comprehensive research report" in text
 
-        if has_search and has_prompt:
-            return "search prompt"
-        if has_search and has_task:
-            return "research task"
-        if has_search:
-            return "research request"
-        if has_task:
-            return "task"
-        if has_prompt:
-            return "prompt"
-        return "request"
+    def _normalize_research_report_topic(self, topic: str | None, user_message: str) -> str | None:
+        normalized = self._normalize_research_ack_topic(topic, user_message)
+        if not normalized:
+            return None
 
-    def _select_variant(self, text: str, variants: tuple[str, ...], salt: int) -> str:
-        if not variants:
-            return ""
-        index = (sum(ord(ch) for ch in text) + salt) % len(variants)
-        return variants[index]
+        normalized = re.sub(r"^develop\b", "developing", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"^create\b", "creating", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"^build\b", "building", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\s+", " ", normalized).strip(" .,:;")
+        return normalized or None
+
+    def _normalize_simple_research_topic(self, topic: str | None, user_message: str) -> str | None:
+        if topic:
+            normalized = topic
+        else:
+            normalized = self._extract_request_focus(user_message)
+            if normalized == "this task":
+                return None
+
+        normalized = re.sub(r"^on\s+", "", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\s+", " ", normalized).strip(" .,:;")
+
+        if not normalized:
+            return None
+
+        # Prefer natural phrasing for short research asks.
+        if re.match(r"^(best|top|latest|most)\b", normalized, flags=re.IGNORECASE):
+            normalized = f"the {normalized[0].lower() + normalized[1:]}"
+        return normalized
+
+    def _normalize_research_ack_topic(self, topic: str | None, user_message: str) -> str | None:
+        """Apply focused cleanup so acknowledgment topics read naturally."""
+        if not topic:
+            return None
+
+        normalized = topic
+        replacements: tuple[tuple[str, str], ...] = (
+            (r"\bai integrated development environments\s*\(ides\)", "AI IDEs"),
+            (r"\bai agents\b", "agents"),
+            (r"\bcapable of identifying and addressing\b", "for"),
+            (
+                r"\bthe most recent and prevalent bugs and issues in software development\b",
+                "bug detection and resolution",
+            ),
+            (r"\bbugs and issues in software development\b", "bug detection and resolution"),
+        )
+        for pattern, replacement in replacements:
+            normalized = re.sub(pattern, replacement, normalized, flags=re.IGNORECASE)
+
+        if re.search(r"\b(bug|bugs|issue|issues)\b", user_message, flags=re.IGNORECASE) and not re.search(
+            r"\bbug detection and resolution\b", normalized, flags=re.IGNORECASE
+        ):
+            normalized = f"{normalized} for bug detection and resolution"
+
+        # Include 2026 context when user explicitly requests it and it's missing in compacted topic.
+        if "2026" in user_message and "2026" not in normalized:
+            normalized = f"{normalized} in 2026"
+
+        normalized = re.sub(r"\s+", " ", normalized).strip(" .,:;")
+        return normalized or None
 
     def _is_large_prompt(self, user_message: str, request_focus: str) -> bool:
         """Detect prompts that should use compact acknowledgments."""

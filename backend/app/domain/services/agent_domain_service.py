@@ -515,7 +515,14 @@ class AgentDomainService:
                 except TimeoutError:
                     logger.warning(f"Sandbox {target_session.sandbox_id} destroy timed out during teardown")
                 except Exception as e:
-                    logger.warning(f"Failed to destroy sandbox {target_session.sandbox_id} during teardown: {e}")
+                    error_text = str(e)
+                    if "No such container" in error_text:
+                        logger.info(
+                            "Sandbox %s already removed during teardown, continuing",
+                            target_session.sandbox_id,
+                        )
+                    else:
+                        logger.warning(f"Failed to destroy sandbox {target_session.sandbox_id} during teardown: {e}")
             else:
                 logger.info(
                     "Skipping sandbox destroy for session %s (sandbox %s not owned by session)",
@@ -540,8 +547,8 @@ class AgentDomainService:
         """
         session = await self._session_repository.find_by_id(session_id)
         if not session:
-            logger.error(f"Attempted to stop non-existent Session {session_id}")
-            raise RuntimeError("Session not found")
+            logger.info(f"Stop requested for non-existent Session {session_id}; treating as already stopped")
+            return
         await self._teardown_session_runtime(
             session_id,
             session=session,

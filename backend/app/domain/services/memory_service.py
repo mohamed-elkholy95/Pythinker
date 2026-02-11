@@ -559,11 +559,13 @@ class MemoryService:
                     # Rebuild results with rerank scores
                     memory_lookup = {r.memory.id: r.memory for r in results}
                     results = []
-                    for text, meta, rerank_score in reranked:
+                    for _text, meta, rerank_score in reranked:
                         mem_id = meta["memory_id"]
                         memory = memory_lookup[mem_id]
                         results.append(
-                            MemorySearchResult(memory=memory, relevance_score=rerank_score, match_type="hybrid_reranked")
+                            MemorySearchResult(
+                                memory=memory, relevance_score=rerank_score, match_type="hybrid_reranked"
+                            )
                         )
 
                     logger.debug(f"Reranked {len(results)} memories")
@@ -959,7 +961,9 @@ class MemoryService:
                 content=mem.content,
                 source_type="user_knowledge",  # Could derive from collection
                 retrieval_score=result.relevance_score,
-                embedding_quality=mem.embedding_quality if hasattr(mem, "embedding_quality") and mem.embedding_quality else 0.8,
+                embedding_quality=mem.embedding_quality
+                if hasattr(mem, "embedding_quality") and mem.embedding_quality
+                else 0.8,
                 timestamp=mem.created_at,
                 session_id=mem.session_id if hasattr(mem, "session_id") else None,
                 memory_type=mem.memory_type.value,
@@ -1692,15 +1696,14 @@ class ContextEngineeringService:
         if pressure_signal < 0.5:
             # Plenty of space: use full budget
             return base_budget
-        elif pressure_signal < 0.7:
+        if pressure_signal < 0.7:
             # Moderate pressure: reduce to 75%
             return int(base_budget * 0.75)
-        elif pressure_signal < 0.85:
+        if pressure_signal < 0.85:
             # High pressure: reduce to 50%
             return int(base_budget * 0.50)
-        else:
-            # Critical pressure: minimal memories only
-            return int(base_budget * 0.25)
+        # Critical pressure: minimal memories only
+        return int(base_budget * 0.25)
 
     async def inject_context_adaptive(
         self,

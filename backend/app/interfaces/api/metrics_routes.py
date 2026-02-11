@@ -12,6 +12,7 @@ import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, Response
+from pydantic import BaseModel, Field
 
 from app.domain.models.user import User
 from app.domain.services.agents.metrics import get_metrics_collector
@@ -28,6 +29,14 @@ from app.infrastructure.observability.tracer import get_tracer
 from app.interfaces.dependencies import get_current_user, get_optional_current_user
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
+
+
+class TypoCorrectionFeedbackRequest(BaseModel):
+    """Feedback payload for typo correction overrides."""
+
+    original: str = Field(min_length=1, description="Original word/token")
+    corrected: str = Field(min_length=1, description="System-corrected word/token")
+    user_override: str = Field(min_length=1, description="User-preferred correction")
 
 
 @router.get("", response_class=Response)
@@ -390,6 +399,37 @@ async def get_cost_tracking(
         "total_cost_usd": 0.0,
         "by_model": {},
     }
+
+
+@router.get("/typo-correction")
+async def get_typo_correction_metrics(
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Get typo correction analytics and learned feedback summary."""
+    from app.application.services.typo_correction_service import get_typo_correction_service
+
+    service = get_typo_correction_service()
+    return {
+        "data": service.get_summary(),
+        "status": "success",
+    }
+
+
+@router.post("/typo-correction/feedback")
+async def submit_typo_correction_feedback(
+    request: TypoCorrectionFeedbackRequest,
+    current_user: User = Depends(get_current_user),
+) -> dict[str, str]:
+    """Record user override feedback for typo correction decisions."""
+    from app.application.services.typo_correction_service import get_typo_correction_service
+
+    service = get_typo_correction_service()
+    service.submit_feedback(
+        original=request.original,
+        corrected=request.corrected,
+        user_override=request.user_override,
+    )
+    return {"status": "recorded"}
 
 
 async def _update_dynamic_metrics() -> None:

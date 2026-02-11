@@ -80,6 +80,14 @@ class MongoDB:
         return self._client
 
     @property
+    def database(self):
+        """Return the configured MongoDB database handle.
+
+        Backward-compatible accessor used across repositories/services.
+        """
+        return self.client[self._settings.mongodb_database]
+
+    @property
     def screenshot_bucket(self) -> AsyncIOMotorGridFSBucket:
         """Return GridFS bucket for screenshots"""
         if self._screenshot_bucket is None:

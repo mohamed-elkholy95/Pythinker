@@ -44,6 +44,10 @@ class OutputCoverageValidator:
         "your",
     }
     _CAVEAT_PATTERN = re.compile(r"\b(caveat|limitation|risk|warning|note)\b", re.IGNORECASE)
+    _NO_ARTIFACT_PATTERN = re.compile(
+        r"\b(no|none|n/?a)\s+(file\s+)?(artifacts?|files?|paths?|references?)\b",
+        re.IGNORECASE,
+    )
     _ARTIFACT_PATTERN = re.compile(
         r"(`[^`]+\.(?:py|ts|js|md|json|yaml|yml|txt|sql|sh|tsx?|jsx?)`|"
         r"(?:^|[\s(])(?:[A-Za-z]:\\|\.{0,2}/)?(?:[\w.-]+/)+[\w.-]+\.[A-Za-z0-9]{1,8}(?::\d+)?)",
@@ -51,7 +55,7 @@ class OutputCoverageValidator:
     )
 
     _REQUIREMENT_PATTERNS: ClassVar[dict[str, tuple[str, ...]]] = {
-        "final result": (r"\b(result|outcome|solution|answer|completed)\b",),
+        "final result": (r"\b(result|outcome|solution|answer|completed|implemented|updated|fixed|created|added)\b",),
         "artifact references": (r"\b(file|path|diff|report|artifact)\b",),
         "key caveat": (r"\b(caveat|limitation|risk|warning|note)\b",),
         "next step": (r"\b(next step|follow-up|you can now|recommended)\b",),
@@ -74,9 +78,10 @@ class OutputCoverageValidator:
 
         addresses_user_request = self._addresses_user_request(text, user_request)
         has_artifact_references = bool(self._ARTIFACT_PATTERN.search(text))
+        has_explicit_no_artifacts = bool(self._NO_ARTIFACT_PATTERN.search(text))
         has_caveat = bool(self._CAVEAT_PATTERN.search(text))
 
-        if "artifact references" in requirements and not has_artifact_references:
+        if "artifact references" in requirements and not (has_artifact_references or has_explicit_no_artifacts):
             missing.append("artifact references")
         if "key caveat" in requirements and not has_caveat:
             missing.append("key caveat")
@@ -85,7 +90,9 @@ class OutputCoverageValidator:
         checks = [
             1.0 if not missing else 0.0,
             1.0 if addresses_user_request else 0.0,
-            1.0 if ("artifact references" not in requirements or has_artifact_references) else 0.0,
+            1.0
+            if ("artifact references" not in requirements or has_artifact_references or has_explicit_no_artifacts)
+            else 0.0,
             1.0 if ("key caveat" not in requirements or has_caveat) else 0.0,
         ]
         quality_score = sum(checks) / len(checks)

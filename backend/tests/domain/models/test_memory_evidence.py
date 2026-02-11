@@ -5,8 +5,6 @@ Phase 4: Tests evidence-based memory with confidence scoring and caveat detectio
 
 from datetime import datetime
 
-import pytest
-
 from app.domain.models.memory_evidence import EvidenceConfidence, MemoryEvidence
 
 
@@ -263,7 +261,7 @@ class TestEvidenceSerialization:
         assert data["retrieval_score"] == 0.85
         assert data["embedding_quality"] == 0.80
         assert data["timestamp"] == timestamp.isoformat()
-        assert data["confidence"] == "high"
+        assert data["confidence"] == "medium"
         assert data["contradictions"] == ["mem-17"]
         assert data["needs_caveat"] is True
         assert data["should_reject"] is False

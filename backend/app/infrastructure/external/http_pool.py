@@ -93,26 +93,87 @@ class ManagedHTTPClient:
         self.config = config
         self.stats = ClientStats()
         self._closed = False
+        self._stats_lock = asyncio.Lock()
+
+    @property
+    def is_closed(self) -> bool:
+        """Check if the client is closed."""
+        return self._closed
 
     async def request(self, method: str, url: str, **kwargs) -> httpx.Response:
-        """Make an HTTP request with stats tracking."""
+        """Make an HTTP request with stats tracking and Prometheus metrics."""
         import time
 
-        self.stats.requests_total += 1
+        # Thread-safe stats update
+        async with self._stats_lock:
+            self.stats.requests_total += 1
+
         start_time = time.perf_counter()
 
         try:
             response = await self.client.request(method, url, **kwargs)
 
             # Track successful response
-            response_time = (time.perf_counter() - start_time) * 1000
-            self.stats.requests_successful += 1
-            self.stats.total_response_time_ms += response_time
+            response_time_ms = (time.perf_counter() - start_time) * 1000
+            response_time_sec = response_time_ms / 1000
+
+            # Thread-safe stats update
+            async with self._stats_lock:
+                self.stats.requests_successful += 1
+                self.stats.total_response_time_ms += response_time_ms
+
+            # Record Prometheus metrics
+            try:
+                from app.infrastructure.observability.prometheus_metrics import record_http_pool_request
+
+                record_http_pool_request(
+                    client_name=self.name,
+                    status="success",
+                    latency=response_time_sec,
+                )
+            except Exception as e:
+                logger.debug(f"Failed to record HTTP pool metrics: {e}")
 
             return response
 
+        except httpx.PoolTimeout as e:
+            # Thread-safe stats update
+            async with self._stats_lock:
+                self.stats.requests_failed += 1
+            # Record pool exhaustion metric
+            try:
+                from app.infrastructure.observability.prometheus_metrics import record_http_pool_error
+
+                record_http_pool_error(self.name, "pool_exhaustion")
+            except Exception as e:
+                logger.debug(f"Failed to record pool exhaustion metric: {e}")
+            logger.warning(f"HTTP pool timeout for {self.name}: {method} {url} - {e}")
+            raise
+
         except Exception as e:
-            self.stats.requests_failed += 1
+            # Thread-safe stats update
+            async with self._stats_lock:
+                self.stats.requests_failed += 1
+            # Determine error type
+            error_type = "connection" if isinstance(e, httpx.ConnectError) else "unknown"
+            response_time_sec = time.perf_counter() - start_time
+
+            # Record metrics
+            try:
+                from app.infrastructure.observability.prometheus_metrics import (
+                    record_http_pool_error,
+                    record_http_pool_request,
+                )
+
+                record_http_pool_request(
+                    client_name=self.name,
+                    status="error",
+                    latency=response_time_sec,
+                )
+                record_http_pool_error(self.name, error_type)
+            except Exception as e:
+                logger.debug(f"Failed to record HTTP error metrics: {e}")
+
             logger.warning(f"HTTP request failed for {self.name}: {method} {url} - {e}")
             raise
 
@@ -157,7 +218,15 @@ class HTTPClientPool:
     """Pool of managed HTTP clients for different services."""
 
     _clients: ClassVar[dict[str, ManagedHTTPClient]] = {}
-    _lock: ClassVar[asyncio.Lock] = asyncio.Lock()
+    _lock: ClassVar[asyncio.Lock | None] = None
+    _max_pool_size: ClassVar[int] = 100  # Maximum number of pooled clients
+
+    @classmethod
+    def _get_lock(cls) -> asyncio.Lock:
+        """Get or create the asyncio lock (lazy initialization)."""
+        if cls._lock is None:
+            cls._lock = asyncio.Lock()
+        return cls._lock
 
     @classmethod
     async def get_client(
@@ -181,14 +250,29 @@ class HTTPClientPool:
 
         Returns:
             ManagedHTTPClient instance
+
+        Raises:
+            RuntimeError: If pool is at maximum capacity
         """
-        async with cls._lock:
+        lock = cls._get_lock()
+        async with lock:
             if name in cls._clients:
                 client = cls._clients[name]
                 if not client._closed:
                     return client
                 # Client was closed, remove and recreate
                 del cls._clients[name]
+
+            # Check pool size limit (LRU eviction strategy)
+            if len(cls._clients) >= cls._max_pool_size:
+                # Evict least recently used client (first in dict - Python 3.7+ dicts are ordered)
+                lru_name = next(iter(cls._clients))
+                logger.warning(
+                    f"HTTP pool at capacity ({cls._max_pool_size}), evicting LRU client: {lru_name}",
+                    extra={"pool_size": len(cls._clients), "evicted": lru_name, "new": name},
+                )
+                await cls._clients[lru_name].close()
+                del cls._clients[lru_name]
 
             # Build config
             if config is None:
@@ -242,7 +326,8 @@ class HTTPClientPool:
         Returns:
             True if client was found and closed
         """
-        async with cls._lock:
+        lock = cls._get_lock()
+        async with lock:
             if name in cls._clients:
                 await cls._clients[name].close()
                 del cls._clients[name]
@@ -256,7 +341,8 @@ class HTTPClientPool:
         Returns:
             Number of clients closed
         """
-        async with cls._lock:
+        lock = cls._get_lock()
+        async with lock:
             count = len(cls._clients)
 
             close_tasks = [client.close() for client in cls._clients.values()]

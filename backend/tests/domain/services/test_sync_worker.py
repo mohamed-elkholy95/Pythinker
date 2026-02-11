@@ -8,12 +8,37 @@ import uuid
 from datetime import datetime, timedelta
 
 import pytest
+from pymongo import MongoClient
+from pymongo.errors import PyMongoError
 
-from app.domain.models.sync_outbox import OutboxCreate, OutboxOperation, OutboxStatus
+from app.core.config import get_settings
+from app.domain.models.sync_outbox import OutboxCreate, OutboxOperation
 from app.domain.services.sync_worker import SyncWorker
 from app.infrastructure.repositories.qdrant_memory_repository import QdrantMemoryRepository
 from app.infrastructure.repositories.sync_outbox_repository import SyncOutboxRepository
 from app.infrastructure.storage.qdrant import get_qdrant
+
+
+def _is_mongodb_available() -> bool:
+    """Check whether MongoDB is reachable for integration-style sync tests."""
+    settings = get_settings()
+    try:
+        client = MongoClient(
+            settings.mongodb_uri,
+            serverSelectionTimeoutMS=1500,
+            connectTimeoutMS=1500,
+            socketTimeoutMS=1500,
+        )
+        client.admin.command("ping")
+        client.close()
+        return True
+    except PyMongoError:
+        return False
+
+
+pytestmark = [
+    pytest.mark.skipif(not _is_mongodb_available(), reason="MongoDB not available for sync worker tests"),
+]
 
 
 @pytest.fixture(scope="function")
@@ -62,7 +87,7 @@ class TestSyncWorkerBasics:
         """Test worker processes pending outbox entries."""
         # Create a pending entry
         memory_id = str(uuid.uuid4())
-        entry = await outbox_repo.create(
+        await outbox_repo.create(
             OutboxCreate(
                 operation=OutboxOperation.UPSERT,
                 collection_name="user_knowledge",
@@ -126,7 +151,11 @@ class TestRetryLogic:
         )
 
         # Verify retry scheduled
-        updated_entry = (await outbox_repo.get_pending_entries(limit=1))[0] if await outbox_repo.get_pending_entries(limit=1) else None
+        updated_entry = (
+            (await outbox_repo.get_pending_entries(limit=1))[0]
+            if await outbox_repo.get_pending_entries(limit=1)
+            else None
+        )
 
         # Entry should not be pending yet (next_retry_at is in future)
         assert updated_entry is None or updated_entry.id != entry.id
@@ -190,7 +219,7 @@ class TestBatchOperations:
             for i in range(3)
         ]
 
-        entry = await outbox_repo.create(
+        await outbox_repo.create(
             OutboxCreate(
                 operation=OutboxOperation.BATCH_UPSERT, collection_name="user_knowledge", payload={"memories": memories}
             )
@@ -227,9 +256,11 @@ class TestBatchOperations:
             )
 
         # Create batch delete entry
-        entry = await outbox_repo.create(
+        await outbox_repo.create(
             OutboxCreate(
-                operation=OutboxOperation.BATCH_DELETE, collection_name="user_knowledge", payload={"memory_ids": memory_ids}
+                operation=OutboxOperation.BATCH_DELETE,
+                collection_name="user_knowledge",
+                payload={"memory_ids": memory_ids},
             )
         )
 

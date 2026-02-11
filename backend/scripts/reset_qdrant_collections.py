@@ -10,7 +10,6 @@ Usage:
 import asyncio
 import logging
 
-from app.core.config import get_settings
 from app.infrastructure.storage.qdrant import get_qdrant
 
 logging.basicConfig(level=logging.INFO)
@@ -19,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 async def reset_collections():
     """Drop and recreate all Qdrant collections."""
-    settings = get_settings()
     qdrant = get_qdrant()
 
     logger.info("Connecting to Qdrant...")

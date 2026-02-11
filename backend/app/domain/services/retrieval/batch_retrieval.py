@@ -60,7 +60,7 @@ async def batch_retrieve(
 
     results = await gather_compat(*[retrieve_one(q) for q in queries], return_exceptions=False)
 
-    return {query: result for query, result in zip(queries, results)}
+    return dict(zip(queries, results, strict=False))
 
 
 async def batch_retrieve_deduped(
@@ -94,7 +94,7 @@ async def batch_retrieve_deduped(
     )
 
     # Deduplicate by memory ID, keeping highest score
-    seen_ids: dict[str, "MemorySearchResult"] = {}
+    seen_ids: dict[str, MemorySearchResult] = {}
 
     for query_results in batch_results.values():
         for result in query_results:

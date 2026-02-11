@@ -3,8 +3,6 @@
 Phase 1: Self-hosted keyword search with rank-bm25.
 """
 
-import pytest
-
 from app.domain.services.embeddings.bm25_encoder import BM25SparseEncoder, get_bm25_encoder
 
 
@@ -51,7 +49,7 @@ class TestBM25SparseEncoder:
         # Should return dict with indices and scores
         assert isinstance(sparse, dict)
         assert len(sparse) > 0
-        assert all(isinstance(k, int) for k in sparse.keys())
+        assert all(isinstance(k, int) for k in sparse)
         assert all(isinstance(v, float) for v in sparse.values())
         # Scores should be normalized to [0, 1]
         assert all(0.0 <= v <= 1.0 for v in sparse.values())

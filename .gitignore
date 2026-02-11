@@ -54,6 +54,10 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 
+# Evaluation results
+backend/results/*
+!backend/results/.gitkeep
+
 # Logs
 *.log
 logs/

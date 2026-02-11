@@ -94,8 +94,6 @@ class SemanticCacheCircuitBreaker:
         self._consecutive_failures = 0
         self._consecutive_successes = 0
         self._lock = Lock()  # Thread safety
-        self._last_failure_check = 0.0  # Rate limit state checks
-        self._last_recovery_check = 0.0
 
         logger.info(
             f"Circuit breaker initialized: "
@@ -141,37 +139,47 @@ class SemanticCacheCircuitBreaker:
             # Check state transitions
             self._update_state()
 
+    def _normalized_state(self) -> CircuitState:
+        """Return a valid CircuitState even if internals were mutated."""
+        current_state = self._state
+
+        if isinstance(current_state, CircuitState):
+            return current_state
+
+        if isinstance(current_state, str):
+            normalized = current_state.strip().lower().replace("-", "_")
+            for known_state in CircuitState:
+                if normalized in (known_state.value, known_state.name.lower()):
+                    self._state = known_state
+                    return known_state
+
+        logger.warning(f"Invalid circuit breaker state {current_state!r}; resetting to CLOSED")
+        self._state = CircuitState.CLOSED
+        return CircuitState.CLOSED
+
     def _update_state(self) -> None:
         """Update circuit breaker state based on recent hit rates."""
         now = time.time()
+        state = self.state
 
-        if self._state == CircuitState.CLOSED:
-            # Rate limit failure checks to once per minute to avoid premature opening
-            if now - self._last_failure_check < 60:
-                return
-
-            self._last_failure_check = now
-
+        if state == CircuitState.CLOSED:
             # Check for failure condition
             hit_rate = self._get_hit_rate_in_window(self._config.failure_window_seconds)
             if hit_rate is not None and hit_rate < self._config.failure_threshold:
                 self._consecutive_failures += 1
-                logger.debug(
-                    f"Low hit rate detected: {hit_rate:.2%} "
-                    f"(failures: {self._consecutive_failures}/3)"
-                )
+                logger.debug(f"Low hit rate detected: {hit_rate:.2%} (failures: {self._consecutive_failures}/3)")
                 if self._consecutive_failures >= 3:  # 3 consecutive low samples
                     self._open_circuit()
             else:
                 self._consecutive_failures = 0
 
-        elif self._state == CircuitState.OPEN:
+        elif state == CircuitState.OPEN:
             # Check if enough time has passed to try half-open
             time_since_open = now - self._state_changed_at
             if time_since_open >= self._config.failure_window_seconds:
                 self._half_open_circuit()
 
-        elif self._state == CircuitState.HALF_OPEN:
+        elif state == CircuitState.HALF_OPEN:
             # Check for recovery or re-failure
             if self._half_open_started_at is None:
                 self._half_open_started_at = now
@@ -180,12 +188,6 @@ class SemanticCacheCircuitBreaker:
 
             # Only check recovery once the test period completes
             if test_duration >= self._config.half_open_test_seconds:
-                # Rate limit recovery checks
-                if now - self._last_recovery_check < 30:
-                    return
-
-                self._last_recovery_check = now
-
                 # Evaluate recovery using HALF_OPEN test period (not full recovery window)
                 # to avoid insufficient samples issue
                 hit_rate = self._get_hit_rate_in_window(self._config.half_open_test_seconds)
@@ -196,10 +198,7 @@ class SemanticCacheCircuitBreaker:
 
                 if hit_rate >= self._config.recovery_threshold:
                     self._consecutive_successes += 1
-                    logger.debug(
-                        f"Recovery hit rate: {hit_rate:.2%} "
-                        f"(successes: {self._consecutive_successes}/2)"
-                    )
+                    logger.debug(f"Recovery hit rate: {hit_rate:.2%} (successes: {self._consecutive_successes}/2)")
                     if self._consecutive_successes >= 2:  # 2 consecutive good samples
                         self._close_circuit()
                 else:
@@ -236,8 +235,8 @@ class SemanticCacheCircuitBreaker:
 
     def _open_circuit(self) -> None:
         """Open the circuit (bypass cache)."""
-        if self._state != CircuitState.OPEN:
-            from_state = self._state.value
+        if self.state != CircuitState.OPEN:
+            from_state = self.state.value
 
             logger.warning(
                 f"Circuit breaker OPEN: Cache hit rate below {self._config.failure_threshold:.0%}. "
@@ -245,7 +244,6 @@ class SemanticCacheCircuitBreaker:
             )
             self._state = CircuitState.OPEN
             self._state_changed_at = time.time()
-            self._consecutive_failures = 0
             self._half_open_started_at = None
 
             # Record state transition metric
@@ -253,8 +251,8 @@ class SemanticCacheCircuitBreaker:
 
     def _half_open_circuit(self) -> None:
         """Transition to half-open state (testing recovery)."""
-        if self._state != CircuitState.HALF_OPEN:
-            from_state = self._state.value
+        if self.state != CircuitState.HALF_OPEN:
+            from_state = self.state.value
 
             logger.info("Circuit breaker HALF_OPEN: Testing cache recovery")
             self._state = CircuitState.HALF_OPEN
@@ -267,15 +265,12 @@ class SemanticCacheCircuitBreaker:
 
     def _close_circuit(self) -> None:
         """Close the circuit (normal operation)."""
-        if self._state != CircuitState.CLOSED:
-            from_state = self._state.value
+        if self.state != CircuitState.CLOSED:
+            from_state = self.state.value
 
-            logger.info(
-                f"Circuit breaker CLOSED: Cache hit rate recovered above {self._config.recovery_threshold:.0%}"
-            )
+            logger.info(f"Circuit breaker CLOSED: Cache hit rate recovered above {self._config.recovery_threshold:.0%}")
             self._state = CircuitState.CLOSED
             self._state_changed_at = time.time()
-            self._consecutive_successes = 0
             self._half_open_started_at = None
 
             # Record state transition metric
@@ -293,10 +288,12 @@ class SemanticCacheCircuitBreaker:
                 semantic_cache_circuit_transitions_total,
             )
 
-            semantic_cache_circuit_transitions_total.inc({
-                "from_state": from_state,
-                "to_state": to_state,
-            })
+            semantic_cache_circuit_transitions_total.inc(
+                {
+                    "from_state": from_state,
+                    "to_state": to_state,
+                }
+            )
         except Exception as e:
             # Don't fail circuit breaker due to metrics errors
             logger.debug(f"Failed to record state transition metric: {e}")
@@ -307,12 +304,12 @@ class SemanticCacheCircuitBreaker:
         Returns:
             True if cache should be used, False if bypassed
         """
-        return self._state in (CircuitState.CLOSED, CircuitState.HALF_OPEN)
+        return self.state in (CircuitState.CLOSED, CircuitState.HALF_OPEN)
 
     @property
     def state(self) -> CircuitState:
         """Get current circuit state."""
-        return self._state
+        return self._normalized_state()
 
     @property
     def state_numeric(self) -> int:
@@ -321,14 +318,15 @@ class SemanticCacheCircuitBreaker:
             CircuitState.CLOSED: 0,
             CircuitState.OPEN: 1,
             CircuitState.HALF_OPEN: 2,
-        }[self._state]
+        }[self.state]
 
     def get_metrics(self) -> dict:
         """Get circuit breaker metrics for monitoring."""
         current_hit_rate = self._get_hit_rate_in_window(60)  # Last minute
+        state = self.state
 
         return {
-            "state": self._state.value,
+            "state": state.value,
             "state_numeric": self.state_numeric,
             "current_hit_rate": current_hit_rate,
             "failure_threshold": self._config.failure_threshold,

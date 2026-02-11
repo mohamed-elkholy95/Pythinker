@@ -340,20 +340,6 @@ const researchWorkflow = useResearchWorkflow()
 // ConnectorDialog composable — dialog manages its own visibility
 useConnectorDialog()
 
-// Screenshot replay for completed sessions
-const replay = useScreenshotReplay(computed(() => sessionId.value))
-
-const hasScreenshotReplay = computed(() => replay.hasScreenshots.value)
-
-// Replay mode: session is completed/failed and has replay data
-const isReplayMode = computed(() => {
-  const ended = !isLoading.value && sessionStatus.value &&
-    [SessionStatus.COMPLETED, SessionStatus.FAILED].includes(sessionStatus.value)
-  return !!ended && hasScreenshotReplay.value
-})
-
-const isScreenshotReplayMode = computed(() => isReplayMode.value)
-
 // Create initial state factory
 const createInitialState = () => ({
   inputMessage: '',
@@ -439,6 +425,21 @@ const {
   followUpAnchorEventId,
   pendingFollowUpSuggestion,
 } = toRefs(state);
+
+// Screenshot replay for completed sessions.
+// Must be initialized after sessionId ref is created to avoid TDZ runtime errors.
+const replay = useScreenshotReplay(computed(() => sessionId.value))
+
+const hasScreenshotReplay = computed(() => replay.hasScreenshots.value)
+
+// Replay mode: session is completed/failed and has replay data
+const isReplayMode = computed(() => {
+  const ended = !isLoading.value && sessionStatus.value &&
+    [SessionStatus.COMPLETED, SessionStatus.FAILED].includes(sessionStatus.value)
+  return !!ended && hasScreenshotReplay.value
+})
+
+const isScreenshotReplayMode = computed(() => isReplayMode.value)
 
 // Message ID counter for generating unique keys (avoids crypto overhead)
 let messageIdCounter = 0;
@@ -658,6 +659,12 @@ watch(sessionId, async (newSessionId) => {
   await waitForSessionIfInitializing();
 }, { immediate: true });
 
+// Centralized sessionStorage cleanup for session-specific data
+const cleanupSessionStorage = (sessionId: string) => {
+  sessionStorage.removeItem(`pythinker-last-event-${sessionId}`);
+  sessionStorage.removeItem(`pythinker-stopped-${sessionId}`);
+};
+
 // Reset all refs to their initial values
 const resetState = () => {
   // Cancel any existing chat connection
@@ -667,7 +674,7 @@ const resetState = () => {
 
   // Clean up sessionStorage for old session
   if (sessionId.value) {
-    sessionStorage.removeItem(`pythinker-last-event-${sessionId.value}`);
+    cleanupSessionStorage(sessionId.value);
   }
 
   researchWorkflow.reset();
@@ -1816,10 +1823,8 @@ const chat = async (message: string = '', files: FileInfo[] = []) => {
           if (cancelCurrentChat.value) {
             cancelCurrentChat.value = null;
           }
-          // Notify sidebar that session is no longer running
-          if (sessionId.value) {
-            emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
-          }
+          // Note: Status change is handled by DoneEvent (line 1662)
+          // Don't set COMPLETED here - onClose fires for stops, errors, and refreshes too
         },
         onError: () => {
           isResponseSettled.value = true;
@@ -1860,7 +1865,7 @@ const restoreSession = async () => {
   const savedEventId = sessionStorage.getItem(`pythinker-last-event-${sessionId.value}`);
   if (savedEventId) {
     lastEventId.value = savedEventId;
-    console.debug('[RESTORE] Loaded lastEventId from sessionStorage:', savedEventId);
+    console.log('[RESTORE] Loaded lastEventId from sessionStorage:', savedEventId);
   }
 
   const session = await agentApi.getSession(sessionId.value);
@@ -1878,39 +1883,22 @@ const restoreSession = async () => {
     await waitForSessionIfInitializing();
   }
   if (sessionStatus.value === SessionStatus.RUNNING || sessionStatus.value === SessionStatus.PENDING) {
-    // Check if this session was recently manually stopped (prevents auto-resume on page refresh)
+    // Check if this session was manually stopped (prevents auto-resume on page refresh)
+    // Using sessionStorage: persists on refresh, cleared on tab close
     const stoppedKey = `pythinker-stopped-${sessionId.value}`;
-    const stoppedTimestamp = localStorage.getItem(stoppedKey);
-    if (stoppedTimestamp) {
-      const elapsed = Date.now() - Number(stoppedTimestamp);
-      // If stopped within the last 60 seconds, verify with backend before skipping resume
-      if (elapsed < 60_000) {
-        console.log('[RESTORE] Found recent stop flag, verifying with backend...');
-        localStorage.removeItem(stoppedKey);
-        // Re-fetch session status after a brief delay to get the real status
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        const refreshedSession = await agentApi.getSession(sessionId.value!);
-        sessionStatus.value = refreshedSession.status as SessionStatus;
-        console.log('[RESTORE] Backend status after stop flag check:', sessionStatus.value);
+    const wasManuallyStopped = sessionStorage.getItem(stoppedKey);
 
-        // Only skip resume if backend confirms completion
-        if (sessionStatus.value === SessionStatus.COMPLETED || sessionStatus.value === SessionStatus.FAILED) {
-          replay.loadScreenshots();
-          return;  // Don't resume
-        }
-        // Backend says still running - flag was stale or backend is behind
-        console.log('[RESTORE] Backend says still running, proceeding with resume');
-        await chat();
-      } else {
-        // Stale flag (>60s old), clean up and proceed normally
-        console.log('[RESTORE] Stale stop flag (>60s), cleaning up and resuming');
-        localStorage.removeItem(stoppedKey);
-        await chat();
-      }
-    } else {
-      console.log('[RESTORE] No stop flag, auto-resuming session');
-      await chat();
+    if (wasManuallyStopped) {
+      console.log('[RESTORE] Session was manually stopped, not auto-resuming');
+      sessionStorage.removeItem(stoppedKey);
+      // Trust the stop flag - user explicitly stopped this session
+      // Don't resume even if backend says RUNNING (backend stop might be async)
+      return;
     }
+
+    // No stop flag - safe to auto-resume
+    console.log('[RESTORE] No stop flag, auto-resuming session');
+    await chat();
   } else if (sessionStatus.value === SessionStatus.COMPLETED || sessionStatus.value === SessionStatus.FAILED) {
     // Load screenshots for replay mode
     replay.loadScreenshots()
@@ -2096,9 +2084,10 @@ const handleStop = () => {
   }
   if (sessionId.value) {
     // Mark this session as manually stopped to prevent auto-resume on page refresh
-    localStorage.setItem(`pythinker-stopped-${sessionId.value}`, String(Date.now()));
-    // Clear lastEventId from sessionStorage since session is stopped
-    sessionStorage.removeItem(`pythinker-last-event-${sessionId.value}`);
+    // Using sessionStorage: persists on refresh, cleared on tab close (better than localStorage)
+    sessionStorage.setItem(`pythinker-stopped-${sessionId.value}`, 'true');
+    // Clear lastEventId from sessionStorage since session is stopped (use centralized cleanup)
+    cleanupSessionStorage(sessionId.value);
     agentApi.stopSession(sessionId.value);
     // Notify sidebar that session is no longer running
     emitStatusChange(sessionId.value, SessionStatus.COMPLETED);

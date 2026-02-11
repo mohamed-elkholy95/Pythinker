@@ -129,16 +129,15 @@ class ContradictionResolver:
                 has_negation_1 = "not " in content1 or "never " in content1
                 has_negation_2 = "not " in content2 or "never " in content2
 
-                if has_negation_1 != has_negation_2:
+                if has_negation_1 != has_negation_2 and self._shares_keywords(content1, content2, min_shared=3):
                     # One has negation, other doesn't - potential contradiction
-                    if self._shares_keywords(content1, content2, min_shared=3):
-                        if ev2.memory_id not in ev1.contradictions:
-                            ev1.contradictions.append(ev2.memory_id)
-                            ev1.contradiction_reasons.append("Direct negation detected")
+                    if ev2.memory_id not in ev1.contradictions:
+                        ev1.contradictions.append(ev2.memory_id)
+                        ev1.contradiction_reasons.append("Direct negation detected")
 
-                        if ev1.memory_id not in ev2.contradictions:
-                            ev2.contradictions.append(ev1.memory_id)
-                            ev2.contradiction_reasons.append("Direct negation detected")
+                    if ev1.memory_id not in ev2.contradictions:
+                        ev2.contradictions.append(ev1.memory_id)
+                        ev2.contradiction_reasons.append("Direct negation detected")
 
         return evidence_list
 
@@ -184,7 +183,9 @@ Only report clear contradictions, not just different perspectives.
 For example, "User prefers Python" and "User also uses JavaScript" are NOT contradictions."""
 
         try:
-            response = await self.llm.ask(messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"})
+            response = await self.llm.ask(
+                messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"}
+            )
 
             import json
 

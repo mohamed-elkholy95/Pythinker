@@ -78,7 +78,7 @@ class SelfHostedReranker:
         scores = self._model.predict(pairs)
 
         # Combine with metadata and sort
-        results = [(text, meta, float(score)) for (text, meta), score in zip(candidates, scores)]
+        results = [(text, meta, float(score)) for (text, meta), score in zip(candidates, scores, strict=False)]
         results.sort(key=lambda x: x[2], reverse=True)
 
         return results[:top_k]

@@ -155,3 +155,25 @@ async def test_stop_session_handles_missing_task_gracefully():
     assert session.task_id is None
     assert session.status == SessionStatus.COMPLETED
     session_repo.save.assert_awaited_once_with(session)
+
+
+@pytest.mark.asyncio
+async def test_stop_session_is_idempotent_when_session_missing():
+    session_repo = AsyncMock()
+    session_repo.find_by_id = AsyncMock(return_value=None)
+
+    service = AgentDomainService(
+        agent_repository=AsyncMock(),
+        session_repository=session_repo,
+        llm=MagicMock(),
+        sandbox_cls=MagicMock(),
+        task_cls=MagicMock(),
+        json_parser=MagicMock(),
+        file_storage=AsyncMock(),
+        mcp_repository=AsyncMock(),
+        search_engine=AsyncMock(),
+    )
+
+    await service.stop_session("missing-session-id")
+
+    session_repo.find_by_id.assert_awaited_once_with("missing-session-id")

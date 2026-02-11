@@ -22,12 +22,32 @@ class SyncOutboxRepository:
     """Repository for managing sync outbox entries."""
 
     def __init__(self):
-        self._db = get_mongodb().database
-        self._collection: AsyncIOMotorCollection = self._db.sync_outbox
-        self._dlq_collection: AsyncIOMotorCollection = self._db.dead_letter_queue
+        self._mongodb = get_mongodb()
+        self._collection: AsyncIOMotorCollection | None = None
+        self._dlq_collection: AsyncIOMotorCollection | None = None
+
+    async def _ensure_collections(self) -> tuple[AsyncIOMotorCollection, AsyncIOMotorCollection]:
+        """Lazily initialize MongoDB collections.
+
+        Sync worker services may be constructed before app startup has fully initialized
+        MongoDB. Resolve handles at first use so construction remains safe.
+        """
+        if self._collection is not None and self._dlq_collection is not None:
+            return self._collection, self._dlq_collection
+
+        try:
+            _ = self._mongodb.client
+        except RuntimeError:
+            await self._mongodb.initialize()
+
+        db = self._mongodb.database
+        self._collection = db.sync_outbox
+        self._dlq_collection = db.dead_letter_queue
+        return self._collection, self._dlq_collection
 
     async def create(self, entry: OutboxCreate) -> OutboxEntry:
         """Create a new outbox entry."""
+        collection, _ = await self._ensure_collections()
         outbox_entry = OutboxEntry(
             operation=entry.operation,
             collection_name=entry.collection_name,
@@ -36,7 +56,7 @@ class SyncOutboxRepository:
         )
 
         doc = outbox_entry.model_dump(exclude={"id"})
-        result = await self._collection.insert_one(doc)
+        result = await collection.insert_one(doc)
 
         outbox_entry.id = str(result.inserted_id)
         logger.debug(f"Created outbox entry {outbox_entry.id} for {entry.operation}")
@@ -50,16 +70,21 @@ class SyncOutboxRepository:
         - Either no next_retry_at or next_retry_at <= now
         - Ordered by created_at (FIFO)
         """
+        collection, _ = await self._ensure_collections()
         now = datetime.utcnow()
-        cursor = self._collection.find(
-            {
-                "status": OutboxStatus.PENDING.value,
-                "$or": [
-                    {"next_retry_at": None},
-                    {"next_retry_at": {"$lte": now}},
-                ],
-            }
-        ).sort("created_at", 1).limit(limit)
+        cursor = (
+            collection.find(
+                {
+                    "status": OutboxStatus.PENDING.value,
+                    "$or": [
+                        {"next_retry_at": None},
+                        {"next_retry_at": {"$lte": now}},
+                    ],
+                }
+            )
+            .sort("created_at", 1)
+            .limit(limit)
+        )
 
         entries = []
         async for doc in cursor:
@@ -70,24 +95,20 @@ class SyncOutboxRepository:
 
     async def update(self, entry_id: str, update: OutboxUpdate) -> bool:
         """Update an outbox entry."""
-        update_data = {
-            k: v for k, v in update.model_dump(exclude_none=True).items()
-        }
+        collection, _ = await self._ensure_collections()
+        update_data = dict(update.model_dump(exclude_none=True))
         update_data["updated_at"] = datetime.utcnow()
 
-        result = await self._collection.update_one(
+        result = await collection.update_one(
             {"_id": self._to_object_id(entry_id)},
-            {"$set": update_data}
+            {"$set": update_data},
         )
 
         return result.modified_count > 0
 
     async def mark_processing(self, entry_id: str) -> bool:
         """Mark entry as currently being processed."""
-        return await self.update(
-            entry_id,
-            OutboxUpdate(status=OutboxStatus.PROCESSING)
-        )
+        return await self.update(entry_id, OutboxUpdate(status=OutboxStatus.PROCESSING))
 
     async def mark_completed(self, entry_id: str) -> bool:
         """Mark entry as successfully completed."""
@@ -96,7 +117,7 @@ class SyncOutboxRepository:
             OutboxUpdate(
                 status=OutboxStatus.COMPLETED,
                 completed_at=datetime.utcnow(),
-            )
+            ),
         )
 
     async def mark_failed(self, entry_id: str, error: str, retry_count: int, next_retry_at: datetime | None) -> bool:
@@ -109,11 +130,12 @@ class SyncOutboxRepository:
                 last_error_at=datetime.utcnow(),
                 retry_count=retry_count,
                 next_retry_at=next_retry_at,
-            )
+            ),
         )
 
     async def move_to_dead_letter_queue(self, entry: OutboxEntry) -> DeadLetterEntry:
         """Move failed entry to dead-letter queue."""
+        _, dlq_collection = await self._ensure_collections()
         dlq_entry = DeadLetterEntry(
             original_outbox_id=entry.id or "",
             operation=entry.operation,
@@ -132,29 +154,23 @@ class SyncOutboxRepository:
         )
 
         doc = dlq_entry.model_dump(exclude={"id"})
-        result = await self._dlq_collection.insert_one(doc)
+        result = await dlq_collection.insert_one(doc)
         dlq_entry.id = str(result.inserted_id)
 
         # Mark original entry as FAILED
-        await self.update(
-            entry.id or "",
-            OutboxUpdate(status=OutboxStatus.FAILED)
-        )
+        await self.update(entry.id or "", OutboxUpdate(status=OutboxStatus.FAILED))
 
         logger.warning(
-            f"Moved outbox entry {entry.id} to DLQ after {entry.retry_count} retries. "
-            f"Error: {entry.error_message}"
+            f"Moved outbox entry {entry.id} to DLQ after {entry.retry_count} retries. Error: {entry.error_message}"
         )
 
         return dlq_entry
 
     async def get_stats(self) -> dict[str, Any]:
         """Get outbox statistics."""
+        collection, dlq_collection = await self._ensure_collections()
         pipeline = [
-            {"$group": {
-                "_id": "$status",
-                "count": {"$sum": 1}
-            }}
+            {"$group": {"_id": "$status", "count": {"$sum": 1}}},
         ]
 
         stats = {
@@ -164,13 +180,13 @@ class SyncOutboxRepository:
             "failed": 0,
         }
 
-        async for doc in self._collection.aggregate(pipeline):
+        async for doc in collection.aggregate(pipeline):
             status = doc["_id"]
             count = doc["count"]
             stats[status] = count
 
         # DLQ stats
-        dlq_count = await self._dlq_collection.count_documents({})
+        dlq_count = await dlq_collection.count_documents({})
         stats["dead_letter_queue"] = dlq_count
 
         return stats
@@ -184,13 +200,16 @@ class SyncOutboxRepository:
         Returns:
             Number of deleted entries
         """
+        collection, _ = await self._ensure_collections()
         from datetime import timedelta
 
         cutoff = datetime.utcnow() - timedelta(days=days)
-        result = await self._collection.delete_many({
-            "status": OutboxStatus.COMPLETED.value,
-            "completed_at": {"$lt": cutoff}
-        })
+        result = await collection.delete_many(
+            {
+                "status": OutboxStatus.COMPLETED.value,
+                "completed_at": {"$lt": cutoff},
+            }
+        )
 
         if result.deleted_count > 0:
             logger.info(f"Cleaned up {result.deleted_count} completed outbox entries older than {days} days")
@@ -200,4 +219,5 @@ class SyncOutboxRepository:
     def _to_object_id(self, id_str: str):
         """Convert string ID to MongoDB ObjectId."""
         from bson import ObjectId
+
         return ObjectId(id_str)

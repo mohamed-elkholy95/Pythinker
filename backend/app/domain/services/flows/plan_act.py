@@ -55,7 +55,12 @@ from app.domain.services.flows.fast_path import (
     QueryIntent,
     is_suggestion_follow_up_message,
 )
-from app.domain.services.flows.prompt_quick_validator import PromptQuickValidator
+from app.domain.services.flows.prompt_quick_validator import (
+    CorrectionEvent,
+    PromptQuickValidator,
+    SimilarityMatcher,
+    SpellCorrectionProvider,
+)
 from app.domain.services.flows.step_failure import StepFailureHandler
 from app.domain.services.tools.browser import BrowserTool
 from app.domain.services.tools.code_executor import CodeExecutorTool
@@ -71,6 +76,7 @@ except ImportError:
     BrowserAgentTool = None
     BROWSER_USE_AVAILABLE = False
 
+from app.core.config import get_settings
 from app.domain.external.observability import get_metrics, get_tracer
 from app.domain.services.agents.compliance_gates import ComplianceReport, get_compliance_gates
 from app.domain.services.agents.error_handler import ErrorContext, ErrorHandler, ErrorType
@@ -178,6 +184,10 @@ class PlanActFlow(BaseFlow):
         feature_flags: dict[str, bool] | None = None,
         browser_agent_enabled: bool = False,
         alert_port=None,
+        rapidfuzz_matcher: SimilarityMatcher | None = None,
+        symspell_provider: SpellCorrectionProvider | None = None,
+        correction_event_sink: Callable[[CorrectionEvent], None] | None = None,
+        feedback_lookup: Callable[[str], str | None] | None = None,
     ):
         self._feature_flags = feature_flags
         self._alert_port = alert_port
@@ -393,9 +403,25 @@ class PlanActFlow(BaseFlow):
             self._init_multi_agent_dispatch()
 
         # Extracted sub-coordinators
+        settings = get_settings()
         self._ack_generator = AcknowledgmentGenerator()
-        self._ack_refiner = FastAcknowledgmentRefiner(llm=llm, fallback_generator=self._ack_generator)
-        self._prompt_quick_validator = PromptQuickValidator()
+        self._ack_refiner = FastAcknowledgmentRefiner(
+            llm=llm,
+            fallback_generator=self._ack_generator,
+            timeout_seconds=settings.fast_ack_refiner_timeout,
+            traceback_sample_rate=settings.fast_ack_refiner_traceback_sample_rate,
+        )
+        self._prompt_quick_validator = PromptQuickValidator(
+            enabled=settings.typo_correction_enabled,
+            log_corrections=settings.typo_correction_log_events,
+            confidence_threshold=settings.typo_correction_confidence_threshold,
+            rapidfuzz_score_cutoff=settings.typo_correction_rapidfuzz_score_cutoff,
+            max_suggestions=settings.typo_correction_max_suggestions,
+            rapidfuzz_matcher=rapidfuzz_matcher,
+            symspell_provider=symspell_provider,
+            correction_event_sink=correction_event_sink,
+            feedback_lookup=feedback_lookup,
+        )
         self._step_failure_handler = StepFailureHandler()
 
         # Workflow loop safety limits
@@ -854,7 +880,7 @@ class PlanActFlow(BaseFlow):
                 if i <= step_index and step.status == ExecutionStatus.COMPLETED:
                     status_str = "✓ Success" if step.success else "✗ Failed"
                     result_preview = str(step.result)[:100] if step.result else "completed"
-                    completed_steps.append(f"Step {i+1}: {status_str} - {step.description[:80]} ({result_preview})")
+                    completed_steps.append(f"Step {i + 1}: {status_str} - {step.description[:80]} ({result_preview})")
 
             if not completed_steps:
                 return
@@ -1831,7 +1857,9 @@ class PlanActFlow(BaseFlow):
                                                 summary = task.get("content_summary", "")[:200]
                                                 task_lines.append(f"- {summary} ({outcome})")
                                             memory_context_parts.append("\n".join(task_lines))
-                                            logger.debug(f"Injected {len(similar_tasks)} similar tasks into planning context")
+                                            logger.debug(
+                                                f"Injected {len(similar_tasks)} similar tasks into planning context"
+                                            )
                                     except Exception as e:
                                         logger.debug(f"Similar task retrieval failed: {e}")
 
@@ -2029,8 +2057,12 @@ class PlanActFlow(BaseFlow):
                         # Phase 5: Write final checkpoint before summarizing
                         if self._steps_completed_count > 0:
                             last_completed_index = next(
-                                (len(self.plan.steps) - 1 - i for i, s in enumerate(reversed(self.plan.steps)) if s.status == ExecutionStatus.COMPLETED),
-                                -1
+                                (
+                                    len(self.plan.steps) - 1 - i
+                                    for i, s in enumerate(reversed(self.plan.steps))
+                                    if s.status == ExecutionStatus.COMPLETED
+                                ),
+                                -1,
                             )
                             if last_completed_index >= 0:
                                 await self._write_checkpoint(last_completed_index, is_final=True)

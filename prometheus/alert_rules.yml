@@ -163,3 +163,109 @@ groups:
         annotations:
           summary: "Low cache hit rate"
           description: "Cache hit rate is {{ $value | humanizePercentage }}. Consider cache tuning or warming."
+
+  - name: pythinker_replay
+    interval: 30s
+    rules:
+      # High screenshot capture error ratio
+      - alert: HighReplayCaptureErrorRate
+        expr: |
+          (
+            sum(rate(pythinker_screenshot_captures_total{status="error"}[10m]))
+            /
+            clamp_min(sum(rate(pythinker_screenshot_captures_total[10m])), 0.000001)
+          ) > 0.2
+          and
+          sum(rate(pythinker_screenshot_captures_total[10m])) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          component: replay
+        annotations:
+          summary: "High screenshot capture error rate"
+          description: "Replay screenshot capture errors exceed 20% over 10m (value={{ $value | humanizePercentage }})."
+
+      # High screenshot fetch error ratio
+      - alert: HighReplayFetchErrorRate
+        expr: |
+          (
+            sum(rate(pythinker_screenshot_fetch_total{status="error"}[10m]))
+            /
+            clamp_min(sum(rate(pythinker_screenshot_fetch_total[10m])), 0.000001)
+          ) > 0.1
+          and
+          sum(rate(pythinker_screenshot_fetch_total[10m])) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          component: replay
+        annotations:
+          summary: "High screenshot fetch error rate"
+          description: "Replay screenshot fetch errors exceed 10% over 10m (value={{ $value | humanizePercentage }})."
+
+      # Slow screenshot capture p95 latency
+      - alert: SlowReplayCaptureLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(pythinker_screenshot_capture_latency_seconds_bucket{status="success"}[10m]))
+          ) > 2
+          and
+          sum(rate(pythinker_screenshot_captures_total{status="success"}[10m])) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          component: replay
+        annotations:
+          summary: "Slow replay screenshot capture latency"
+          description: "Replay screenshot capture p95 latency is above 2 seconds over the last 10 minutes."
+
+  - name: pythinker_fast_ack
+    interval: 30s
+    rules:
+      # High fallback ratio for fast acknowledgment refinement
+      - alert: FastAckHighFallbackRate
+        expr: |
+          (
+            sum(rate(fast_ack_refiner_total{status="fallback"}[10m]))
+            /
+            clamp_min(sum(rate(fast_ack_refiner_total[10m])), 0.000001)
+          ) > 0.2
+          and
+          sum(rate(fast_ack_refiner_total[10m])) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          component: fast_ack
+        annotations:
+          summary: "Fast acknowledgment fallback rate is high"
+          description: "Fast ack fallback ratio is above 20% over the last 10m (value={{ $value | humanizePercentage }})."
+
+      # High p95 latency for fast acknowledgment path
+      - alert: FastAckHighLatencyP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(fast_ack_refiner_latency_seconds_bucket[10m]))
+          ) > 0.3
+          and
+          sum(rate(fast_ack_refiner_total[10m])) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          component: fast_ack
+        annotations:
+          summary: "Fast acknowledgment latency p95 is high"
+          description: "Fast ack p95 latency is above 300ms for at least 5m (value={{ $value | humanizeDuration }})."
+
+      # Timeout fallbacks indicate refinement path is not responding quickly enough
+      - alert: FastAckTimeoutSpike
+        expr: |
+          increase(fast_ack_refiner_total{status="fallback", reason="timeout"}[10m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          component: fast_ack
+        annotations:
+          summary: "Fast acknowledgment timeout spike detected"
+          description: "More than 10 timeout fallbacks occurred in the last 10 minutes."

@@ -6,7 +6,6 @@ Verifies optimizer config, on-disk payload, and production HNSW parameters.
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from qdrant_client import models
 
 
 class TestQdrantPerformanceTuning:
@@ -73,7 +72,7 @@ class TestQdrantPerformanceTuning:
         from app.infrastructure.storage.qdrant import COLLECTIONS
 
         # Check HNSW config in COLLECTIONS constant
-        for collection_name, vector_params in COLLECTIONS.items():
+        for _collection_name, vector_params in COLLECTIONS.items():
             assert hasattr(vector_params, "hnsw_config")
             hnsw = vector_params.hnsw_config
 
@@ -142,7 +141,6 @@ class TestQdrantCapacityMetrics:
     @pytest.mark.asyncio
     async def test_collection_size_metric_updated(self):
         """Test Qdrant collection size is tracked."""
-        from unittest.mock import MagicMock
 
         from app.infrastructure.observability.prometheus_metrics import qdrant_collection_size
 

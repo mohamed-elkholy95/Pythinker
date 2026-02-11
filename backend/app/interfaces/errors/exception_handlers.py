@@ -10,6 +10,10 @@ from app.domain.exceptions.browser import (
     BrowserError,
     ConnectionPoolExhaustedError,
 )
+from app.domain.models.recovery import (
+    MalformedResponseError,
+    RecoveryBudgetExhaustedError,
+)
 from app.infrastructure.observability.prometheus_metrics import record_error
 from app.interfaces.schemas.base import APIResponse
 
@@ -136,6 +140,73 @@ def register_exception_handlers(app: FastAPI) -> None:
                 data={"recoverable": True, "retry_after_seconds": 5},
             ).model_dump(),
             headers={"Retry-After": "5"},
+        )
+
+    @app.exception_handler(RecoveryBudgetExhaustedError)
+    async def recovery_budget_exhausted_handler(request: Request, exc: RecoveryBudgetExhaustedError) -> JSONResponse:
+        """Handle recovery budget exhaustion.
+
+        Returns 429 Too Many Requests with retry-after hint.
+        """
+        # Record error metric for monitoring
+        record_error("recovery_budget_exhausted", "agent")
+
+        logger.warning(f"Recovery budget exhausted: {exc.attempt_count} attempts (reason: {exc.recovery_reason.value})")
+
+        response_data: dict[str, Any] = {
+            "code": 429,
+            "msg": "Agent recovery attempts exhausted",
+            "data": {
+                "error": "recovery_budget_exhausted",
+                "message": str(exc),
+                "attempt_count": exc.attempt_count,
+                "max_retries": exc.max_retries,
+                "recovery_reason": exc.recovery_reason.value,
+                "retry_after_seconds": exc.cooldown_seconds,
+                "recoverable": True,
+                "recovery_hint": "Wait before retrying the task",
+            },
+        }
+
+        return JSONResponse(
+            status_code=429,
+            content=response_data,
+            headers={"Retry-After": str(exc.cooldown_seconds)},
+        )
+
+    @app.exception_handler(MalformedResponseError)
+    async def malformed_response_handler(request: Request, exc: MalformedResponseError) -> JSONResponse:
+        """Handle malformed LLM responses.
+
+        Returns 422 Unprocessable Entity for validation/format errors.
+        """
+        # Record error metric for monitoring
+        record_error("malformed_response", "agent")
+
+        logger.error(
+            f"Malformed response detected: {exc.detection_reason.value}",
+            extra={
+                "detection_reason": exc.detection_reason.value,
+                "response_preview": exc.response_text[:200],
+            },
+        )
+
+        response_data: dict[str, Any] = {
+            "code": 422,
+            "msg": "LLM response is malformed and could not be processed",
+            "data": {
+                "error": "malformed_response",
+                "message": str(exc),
+                "detection_reason": exc.detection_reason.value,
+                "response_preview": exc.response_text[:200],
+                "recoverable": True,
+                "recovery_hint": "Retry the request with modified input",
+            },
+        }
+
+        return JSONResponse(
+            status_code=422,
+            content=response_data,
         )
 
     @app.exception_handler(Exception)

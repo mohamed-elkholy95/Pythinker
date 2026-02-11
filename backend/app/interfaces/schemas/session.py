@@ -31,15 +31,26 @@ class FollowUpContext(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    """Chat request schema"""
+    """Chat request schema
+
+    Attributes:
+        timestamp: Unix timestamp when message was sent
+        message: User message text
+        attachments: List of attached files
+        event_id: Optional event ID to resume from (skips events up to this ID).
+                 Used for page refresh resumption to avoid re-sending old events.
+        skills: List of skill IDs to enable for this request
+        deep_research: Enable deep research mode (parallel wide_research)
+        follow_up: Follow-up context from suggestion clicks
+    """
 
     timestamp: int | None = None
     message: str | None = None
     attachments: list[dict] | None = None
     event_id: str | None = None
     skills: list[str] | None = None
-    deep_research: bool | None = None  # Enable deep research mode (parallel wide_research)
-    follow_up: FollowUpContext | None = None  # Follow-up context from suggestion clicks
+    deep_research: bool | None = None
+    follow_up: FollowUpContext | None = None
 
 
 class ResumeSessionRequest(BaseModel):
