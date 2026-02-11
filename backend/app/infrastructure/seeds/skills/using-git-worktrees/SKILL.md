@@ -20,9 +20,12 @@ Follow this priority order:
 ### 1. Check Existing Directories
 
 ```bash
-# Check in priority order
-ls -d .worktrees 2>/dev/null     # Preferred (hidden)
-ls -d worktrees 2>/dev/null      # Alternative
+# Check in priority order and set selected_dir
+if [ -d .worktrees ]; then
+    selected_dir=".worktrees"
+elif [ -d worktrees ]; then
+    selected_dir="worktrees"
+fi
 ```
 
 **If found:** Use that directory. If both exist, `.worktrees` wins.
@@ -55,8 +58,9 @@ Which would you prefer?
 **MUST verify directory is ignored before creating worktree:**
 
 ```bash
-# Check if directory is ignored (respects local, global, and system gitignore)
-git check-ignore -q .worktrees 2>/dev/null || git check-ignore -q worktrees 2>/dev/null
+# Check if the selected directory is ignored (respects local, global, and system gitignore)
+# $selected_dir must be set during the Directory Selection Process above
+git check-ignore -q "$selected_dir" 2>/dev/null
 ```
 
 **If NOT ignored:**
@@ -89,7 +93,7 @@ case $LOCATION in
     path="$LOCATION/$BRANCH_NAME"
     ;;
   ~/.config/superpowers/worktrees/*)
-    path="~/.config/superpowers/worktrees/$project/$BRANCH_NAME"
+    path="$HOME/.config/superpowers/worktrees/$project/$BRANCH_NAME"
     ;;
 esac
 

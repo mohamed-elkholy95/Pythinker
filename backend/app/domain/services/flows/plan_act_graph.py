@@ -312,9 +312,12 @@ def create_plan_act_graph() -> WorkflowGraph:
                     "predicted" if prediction.will_fail else "clear",
                     prediction.probability,
                 )
-                from app.core.alert_manager import get_alert_manager
+                alert_manager = state.metadata.get("alert_port")
+                if alert_manager is None:
+                    from app.core.alert_manager import get_alert_manager
 
-                await get_alert_manager().check_thresholds(
+                    alert_manager = get_alert_manager()
+                await alert_manager.check_thresholds(
                     state.session_id,
                     {"failure_prediction_probability": prediction.probability},
                 )
@@ -616,6 +619,7 @@ class PlanActGraphFlow(BaseFlow):
             task_state_manager=self._task_state_manager,
         )
         state.metadata["feature_flags"] = self._resolve_feature_flags()
+        state.metadata["alert_port"] = self._resolve_alert_port()
 
         # Run with tracing
         with tracer.trace(

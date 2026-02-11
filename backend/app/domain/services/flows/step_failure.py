@@ -52,7 +52,7 @@ class StepFailureHandler:
         for dep_id in step.dependencies:
             dep_step = next((s for s in plan.steps if s.id == dep_id), None)
             if dep_step and dep_step.status == ExecutionStatus.BLOCKED:
-                return False, ""
+                return True, "Dependency is blocked"
 
         # Check for optional steps
         optional_patterns = ["optional", "if needed", "if required", "alternatively"]

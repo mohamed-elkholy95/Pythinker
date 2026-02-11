@@ -167,6 +167,16 @@ class HealthMonitor:
         else:
             health.status = ComponentStatus.HEALTHY
 
+        # Include pool stats if pool is active
+        try:
+            from app.core.sandbox_pool import get_sandbox_pool
+
+            pool = await get_sandbox_pool()
+            if pool and pool.is_started:
+                stats["pool"] = pool.get_pool_stats()
+        except Exception:
+            pass
+
         health.add_metric(
             HealthMetric(
                 name="healthy_sandbox_ratio",

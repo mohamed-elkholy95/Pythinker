@@ -90,7 +90,7 @@ digraph process {
 
 ## Example Workflow
 
-```
+```text
 You: I'm using Subagent-Driven Development to execute this plan.
 
 [Read plan file once: docs/plans/feature-plan.md]

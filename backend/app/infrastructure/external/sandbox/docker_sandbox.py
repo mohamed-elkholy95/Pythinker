@@ -176,9 +176,9 @@ class DockerSandbox(Sandbox):
                 "cap_drop": ["ALL"],
                 "cap_add": ["CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE", "SYS_CHROOT"],
                 "tmpfs": {
-                    "/run": "size=100M,nosuid,nodev",
-                    "/tmp": "size=500M,nosuid,nodev",
-                    "/home/ubuntu/.cache": "size=200M,nosuid,nodev",
+                    "/run": "size=50M,nosuid,nodev",
+                    "/tmp": "size=300M,nosuid,nodev",
+                    "/home/ubuntu/.cache": "size=150M,nosuid,nodev",
                 },
                 "ulimits": [Ulimit(name="nofile", soft=65536, hard=65536), Ulimit(name="nproc", soft=4096, hard=8192)],
                 "shm_size": settings.sandbox_shm_size,
@@ -915,6 +915,56 @@ class DockerSandbox(Sandbox):
             return True
         except Exception as e:
             logger.error(f"Failed to destroy Docker sandbox: {e!s}")
+            return False
+
+    async def pause(self) -> bool:
+        """Pause container to reclaim CPU while preserving memory state."""
+        if not self._container_name:
+            return False
+        try:
+
+            def _pause(name: str) -> None:
+                dc = docker.from_env()
+                container = dc.containers.get(name)
+                if container.status == "running":
+                    container.pause()
+
+            await asyncio.to_thread(_pause, self._container_name)
+            logger.info(f"Paused sandbox container: {self._container_name}")
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to pause sandbox {self._container_name}: {e}")
+            return False
+
+    async def unpause(self) -> bool:
+        """Unpause a paused container, resuming all processes."""
+        if not self._container_name:
+            return False
+        try:
+
+            def _unpause(name: str) -> None:
+                dc = docker.from_env()
+                container = dc.containers.get(name)
+                if container.status == "paused":
+                    container.unpause()
+
+            await asyncio.to_thread(_unpause, self._container_name)
+            logger.info(f"Unpaused sandbox container: {self._container_name}")
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to unpause sandbox {self._container_name}: {e}")
+            return False
+
+    @property
+    def is_paused(self) -> bool:
+        """Check if container is currently paused (synchronous, best-effort)."""
+        if not self._container_name:
+            return False
+        try:
+            dc = docker.from_env()
+            container = dc.containers.get(self._container_name)
+            return container.status == "paused"
+        except Exception:
             return False
 
     async def get_screenshot(self, quality: int = 75, scale: float = 0.5, format: str = "jpeg") -> httpx.Response:

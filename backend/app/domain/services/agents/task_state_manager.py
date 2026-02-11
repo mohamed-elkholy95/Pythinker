@@ -386,8 +386,6 @@ class TaskStateManager:
                 logger.debug(f"Could not load task state: {e}")
                 return False
 
-        return False
-
     def reset(self) -> None:
         """Reset task state"""
         self._state = None

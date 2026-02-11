@@ -102,13 +102,13 @@ services:
       #- "5901:5901"        # VNC WebSocket port (removed - using CDP screencast)
       - "8083:8080"         # Sandbox API
       - "8082:8082"         # Framework API
-    # Shared memory size for Chrome browser stability (prevents crashes)
-    shm_size: '2gb'
+    # Shared memory for Chrome browser stability (512MB-1GB recommended for headless)
+    shm_size: '1gb'
     # Temp filesystem - improves I/O performance for browser temp files
     tmpfs:
-      - /run:size=100M,nosuid,nodev
-      - /tmp:size=500M,nosuid,nodev
-      - /home/ubuntu/.cache:size=200M,nosuid,nodev,uid=1000,gid=1000,mode=0700
+      - /run:size=50M,nosuid,nodev
+      - /tmp:size=300M,nosuid,nodev
+      - /home/ubuntu/.cache:size=150M,nosuid,nodev,uid=1000,gid=1000,mode=0700
     # File descriptor limits for browser and node processes
     ulimits:
       nofile:
@@ -117,13 +117,15 @@ services:
       nproc:
         soft: 4096
         hard: 8192
-    # Resource limits for browser sandbox
+    # Resource limits optimized for 2 concurrent sandboxes
     deploy:
       resources:
         limits:
-          memory: 4G
+          memory: 3G
+          cpus: '1.5'
+          pids: 300
         reservations:
-          memory: 1G
+          memory: 768M
     environment:
       - UVI_ARGS="--reload"
       - FRAMEWORK_UVI_ARGS="--reload"
@@ -135,10 +137,10 @@ services:
       - pythinker-network
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
-      interval: 30s
-      timeout: 10s
+      interval: 15s
+      timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 15s
 
   sandbox2:
     profiles:
@@ -156,11 +158,11 @@ services:
     ports:
       - "8084:8080"         # Sandbox API (different port)
       - "8085:8082"         # Framework API (different port)
-    shm_size: '2gb'
+    shm_size: '1gb'
     tmpfs:
-      - /run:size=100M,nosuid,nodev
-      - /tmp:size=500M,nosuid,nodev
-      - /home/ubuntu/.cache:size=200M,nosuid,nodev,uid=1000,gid=1000,mode=0700
+      - /run:size=50M,nosuid,nodev
+      - /tmp:size=300M,nosuid,nodev
+      - /home/ubuntu/.cache:size=150M,nosuid,nodev,uid=1000,gid=1000,mode=0700
     ulimits:
       nofile:
         soft: 65536
@@ -171,9 +173,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 4G
+          memory: 3G
+          cpus: '1.5'
+          pids: 300
         reservations:
-          memory: 1G
+          memory: 768M
     environment:
       - UVI_ARGS="--reload"
       - FRAMEWORK_UVI_ARGS="--reload"
@@ -185,10 +189,10 @@ services:
       - pythinker-network
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
-      interval: 30s
-      timeout: 10s
+      interval: 15s
+      timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 15s
 
   mongodb:
     image: mongo:7.0

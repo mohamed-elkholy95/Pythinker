@@ -536,6 +536,22 @@ class Sandbox(Protocol):
         """
         ...
 
+    async def pause(self) -> bool:
+        """Pause container to reclaim CPU while preserving memory state.
+
+        Returns:
+            Whether paused successfully
+        """
+        ...
+
+    async def unpause(self) -> bool:
+        """Unpause a paused container, resuming all processes.
+
+        Returns:
+            Whether unpaused successfully
+        """
+        ...
+
     async def get_browser(self, clear_session: bool = False) -> Browser:
         """Get browser instance
 

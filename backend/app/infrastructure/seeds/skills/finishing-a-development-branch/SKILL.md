@@ -40,8 +40,15 @@ Stop. Don't proceed to Step 2.
 ### Step 2: Determine Base Branch
 
 ```bash
-# Try common base branches
-git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null
+# Detect which base branch exists and store the name
+if git rev-parse --verify main >/dev/null 2>&1; then
+    BASE_BRANCH=main
+elif git rev-parse --verify master >/dev/null 2>&1; then
+    BASE_BRANCH=master
+else
+    echo "Neither main nor master found"
+fi
+echo "Base branch: $BASE_BRANCH"
 ```
 
 Or ask: "This branch split from main - is that correct?"
@@ -137,9 +144,14 @@ Then: Cleanup worktree (Step 5)
 
 **For Options 1 and 4:**
 
-Check if in worktree:
+**Important:** Capture the feature branch name *before* any `git checkout`:
 ```bash
-git worktree list | grep $(git branch --show-current)
+FEATURE_BRANCH=$(git branch --show-current)
+```
+
+Then, after checkout to base branch, check if the feature branch had a worktree:
+```bash
+git worktree list | grep "$FEATURE_BRANCH"
 ```
 
 If yes:

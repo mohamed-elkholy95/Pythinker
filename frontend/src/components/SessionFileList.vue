@@ -386,18 +386,20 @@ const resolveReportTitles = async (fileList: FileInfo[]) => {
     const reportsWithoutTitle = fileList.filter(
         f => isReportFile(f) && !f.metadata?.title && !resolvedTitles.value[f.file_id]
     );
-    for (const file of reportsWithoutTitle) {
-        try {
-            const blob = await downloadFileContent(file.file_id);
-            const text = await blob.text();
-            const title = extractTitleFromMarkdown(text);
-            if (title) {
-                resolvedTitles.value[file.file_id] = title;
-            }
-        } catch {
-            // Silently ignore — will fall back to filename
+    if (reportsWithoutTitle.length === 0) return;
+
+    const results = await Promise.allSettled(
+        reportsWithoutTitle.map(file =>
+            downloadFileContent(file.file_id)
+                .then(blob => blob.text())
+                .then(text => extractTitleFromMarkdown(text))
+        )
+    );
+    results.forEach((result, index) => {
+        if (result.status === 'fulfilled' && result.value) {
+            resolvedTitles.value[reportsWithoutTitle[index].file_id] = result.value;
         }
-    }
+    });
 };
 
 const fetchFiles = async (sessionId: string) => {
