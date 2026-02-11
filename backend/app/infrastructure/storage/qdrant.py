@@ -8,26 +8,30 @@ from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Collection definitions for multi-collection architecture with named vectors
-# Phase 1: Named-vector schema supporting hybrid dense + sparse retrieval
-COLLECTIONS: dict[str, dict[str, models.VectorParams | models.SparseVectorParams]] = {
-    "user_knowledge": {
-        "dense": models.VectorParams(size=1536, distance=models.Distance.COSINE),
-        "sparse": models.SparseVectorParams(modifier=models.Modifier.IDF),
-    },
-    "task_artifacts": {
-        "dense": models.VectorParams(size=1536, distance=models.Distance.COSINE),
-        "sparse": models.SparseVectorParams(modifier=models.Modifier.IDF),
-    },
-    "tool_logs": {
-        "dense": models.VectorParams(size=1536, distance=models.Distance.COSINE),
-        "sparse": models.SparseVectorParams(modifier=models.Modifier.IDF),
-    },
-    "semantic_cache": {
-        "dense": models.VectorParams(size=1536, distance=models.Distance.COSINE),
-        "sparse": models.SparseVectorParams(modifier=models.Modifier.IDF),
-    },
+# Dense vector configuration (1536 = OpenAI text-embedding-3-small)
+# HNSW config is specified per-vector, not at collection level, to avoid applying to sparse vectors
+DENSE_VECTOR_CONFIG = models.VectorParams(
+    size=1536,
+    distance=models.Distance.COSINE,
+    hnsw_config=models.HnswConfigDiff(
+        m=16,  # Connections per node in HNSW graph
+        ef_construct=100,  # Build-time accuracy
+        full_scan_threshold=10000,  # Use full scan for <10k points
+    ),
+)
+
+# Collection names mapped to dense vector params.
+# Keep this shape stable for wiring/tests that inspect size/distance directly.
+COLLECTIONS: dict[str, models.VectorParams] = {
+    "user_knowledge": DENSE_VECTOR_CONFIG,
+    "task_artifacts": DENSE_VECTOR_CONFIG,
+    "tool_logs": DENSE_VECTOR_CONFIG,
+    "semantic_cache": DENSE_VECTOR_CONFIG,
 }
+
+# Sparse vector configuration (BM25 + IDF)
+# Sparse vectors use inverted indexes, not HNSW, so no hnsw_config needed
+SPARSE_VECTOR_CONFIG = models.SparseVectorParams(modifier=models.Modifier.IDF)
 
 # Payload indexes for each collection (for fast filtered search)
 # Phase 1: Enhanced indexes including tags, session_id, created_at
@@ -45,6 +49,7 @@ class QdrantStorage:
     def __init__(self):
         self._client: AsyncQdrantClient | None = None
         self._settings = get_settings()
+        self._using_local_fallback = False
 
     async def initialize(self) -> None:
         """Initialize Qdrant connection."""
@@ -58,15 +63,41 @@ class QdrantStorage:
                 prefer_grpc=self._settings.qdrant_prefer_grpc,
                 api_key=self._settings.qdrant_api_key,
             )
-            # Verify connection
             await self._client.get_collections()
+            self._using_local_fallback = False
             logger.info("Successfully connected to Qdrant")
+        except Exception as remote_error:
+            can_fallback = getattr(self._settings, "environment", "development") != "production"
+            if not can_fallback:
+                await self._safe_close_client()
+                self._client = None
+                logger.error(f"Failed to connect to Qdrant: {remote_error}")
+                raise
 
+            logger.warning(
+                "Failed to connect to remote Qdrant (%s). Falling back to in-memory Qdrant for development.",
+                remote_error,
+            )
+            await self._safe_close_client()
+            self._client = AsyncQdrantClient(location=":memory:")
+            await self._client.get_collections()
+            self._using_local_fallback = True
+
+        try:
             # Ensure all collections exist
             await self._ensure_collections()
-        except Exception as e:
-            logger.error(f"Failed to connect to Qdrant: {e}")
+        except Exception:
+            await self._safe_close_client()
+            self._client = None
+            self._using_local_fallback = False
             raise
+
+    async def _safe_close_client(self) -> None:
+        """Best-effort close for partially initialized clients."""
+        if self._client is None:
+            return
+        with contextlib.suppress(Exception):
+            await self._client.close()
 
     async def _ensure_collections(self) -> None:
         """Create all collections with named-vector schema and payload indexes.
@@ -83,29 +114,21 @@ class QdrantStorage:
         logger.info(f"Qdrant active memory collection: {active_collection}")
 
         # Create multi-collection architecture with named vectors
-        for name, vector_configs in COLLECTIONS.items():
+        for name, dense_params in COLLECTIONS.items():
             if name not in existing_names:
-                # Named-vector configuration
-                vectors_config = {
-                    vector_name: vector_params
-                    for vector_name, vector_params in vector_configs.items()
-                }
-
                 await self._client.create_collection(
                     collection_name=name,
-                    vectors_config=vectors_config,
+                    vectors_config={"dense": dense_params},  # HNSW config is in dense_params
+                    sparse_vectors_config={"sparse": SPARSE_VECTOR_CONFIG},  # Uses inverted index
                     optimizers_config=models.OptimizersConfigDiff(
                         indexing_threshold=20000,  # Start HNSW indexing at 20k points
                         memmap_threshold=50000,  # Use disk for collections >50k
                         max_segment_size=200000,  # Balance query speed vs memory
                     ),
-                    hnsw_config=models.HnswConfigDiff(
-                        m=16,  # Connections per node
-                        ef_construct=100,  # Build-time accuracy
-                        full_scan_threshold=10000,  # Use full scan for <10k points
-                    ),
+                    # NOTE: No collection-level hnsw_config - it's specified per-vector in dense_params
+                    # to avoid applying HNSW to sparse vectors (which use inverted indexes)
                 )
-                logger.info(f"Created Qdrant collection '{name}' with named vectors: {list(vectors_config.keys())}")
+                logger.info("Created Qdrant collection '%s' with named vectors: dense + sparse", name)
             else:
                 logger.debug(f"Qdrant collection '{name}' already exists")
 
@@ -130,6 +153,7 @@ class QdrantStorage:
         if self._client is not None:
             await self._client.close()
             self._client = None
+            self._using_local_fallback = False
             logger.info("Disconnected from Qdrant")
         # Clear cache for this module
         get_qdrant.cache_clear()
