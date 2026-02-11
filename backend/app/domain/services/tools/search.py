@@ -705,6 +705,17 @@ class SearchTool(BaseTool):
         """
         logger.info(f"Info search web: {query}")
 
+        # Record query in task state to survive token trimming
+        try:
+            from app.domain.services.agents.task_state_manager import get_task_state_manager
+
+            tsm = get_task_state_manager()
+            is_new = tsm.record_query(query)
+            if not is_new:
+                logger.info(f"Search query already executed: {query}")
+        except Exception:
+            pass  # Non-critical
+
         # Try browser-based search first only when explicitly enabled via settings
         if self._should_use_browser_search():
             result = await self._search_via_browser(query, date_range)
@@ -832,6 +843,17 @@ wide_research(
                     all_queries.append((variant, stype))
 
         logger.info(f"Wide research on '{topic}': {len(all_queries)} total queries across {len(stypes)} search types")
+
+        # Record all queries in task state to survive token trimming
+        try:
+            from app.domain.services.agents.task_state_manager import get_task_state_manager
+
+            tsm = get_task_state_manager()
+            tsm.record_query(topic)
+            for q in queries:
+                tsm.record_query(q)
+        except Exception:
+            pass  # Non-critical
 
         # Execute all searches in parallel with lock-protected dedup
         all_items: list[SearchResultItem] = []

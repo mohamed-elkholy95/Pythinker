@@ -128,6 +128,10 @@ class LoopType(Enum):
     BROWSER_SAME_PAGE_LOOP = "browser_same_page_loop"
     BROWSER_SCROLL_NO_PROGRESS = "browser_scroll_no_progress"
     BROWSER_CLICK_FAILURES = "browser_click_failures"
+    # Enhanced detection patterns
+    EXCESSIVE_SAME_TOOL = "excessive_same_tool"
+    URL_REVISIT_PATTERN = "url_revisit_pattern"
+    NO_PROGRESS = "no_progress"
 
 
 class RecoveryStrategy(Enum):
@@ -685,6 +689,16 @@ class StuckDetector:
         if analysis := self._detect_browser_click_failures():
             return analysis
 
+        # Check enhanced patterns (URL revisit, excessive same tool, no progress)
+        if analysis := self._detect_url_revisit_pattern():
+            return analysis
+
+        if analysis := self._detect_excessive_same_tool():
+            return analysis
+
+        if analysis := self._detect_no_progress():
+            return analysis
+
         # Check generic patterns in order of severity
         if analysis := self._detect_action_error_loop():
             return analysis
@@ -943,6 +957,139 @@ class StuckDetector:
 
         return None
 
+    def _detect_excessive_same_tool(self) -> StuckAnalysis | None:
+        """Detect when the same tool is called excessively within a sliding window.
+
+        Pattern: search → search → search → ... (8+ times in last 10 without a different tool)
+        Catches rotating search patterns that hash-based detection misses.
+        """
+        window = 10
+        threshold = 8
+
+        if len(self._tool_action_history) < threshold:
+            return None
+
+        recent = list(self._tool_action_history)[-window:]
+
+        # Count tool frequencies in the window
+        tool_counts: dict[str, int] = {}
+        for r in recent:
+            tool_counts[r.tool_name] = tool_counts.get(r.tool_name, 0) + 1
+
+        # Check if any single tool dominates the window
+        for tool_name, count in tool_counts.items():
+            if count >= threshold:
+                # Verify these are search/browser tools (not legitimate repeated file reads)
+                repetitive_tools = {
+                    "info_search_web",
+                    "wide_research",
+                    "search",
+                    "browser_navigate",
+                    "browser_get_content",
+                }
+                if tool_name in repetitive_tools:
+                    return StuckAnalysis(
+                        loop_type=LoopType.EXCESSIVE_SAME_TOOL,
+                        confidence=0.85,
+                        repeat_count=count,
+                        recovery_strategy=RecoveryStrategy.TRY_ALTERNATIVE_APPROACH,
+                        details=(
+                            f"Tool '{tool_name}' called {count} times in last {window} actions. "
+                            "You likely have enough information — synthesize your findings and move on."
+                        ),
+                        affected_tools=[tool_name],
+                    )
+
+        return None
+
+    def _detect_url_revisit_pattern(self) -> StuckAnalysis | None:
+        """Detect when the agent revisits URLs already tracked in TaskState.
+
+        Cross-references tool args against TaskState.visited_urls to catch
+        the agent re-visiting pages it already extracted content from.
+        """
+        revisit_threshold = 3
+        window = 10
+
+        if len(self._tool_action_history) < 3:
+            return None
+
+        try:
+            from app.domain.services.agents.task_state_manager import get_task_state_manager
+
+            tsm = get_task_state_manager()
+            visited = tsm.get_visited_urls()
+            if not visited:
+                return None
+        except Exception:
+            return None
+
+        recent = list(self._tool_action_history)[-window:]
+        url_tools = {"search", "browser_navigate", "browser_get_content"}
+
+        # Count how many recent search/browser calls match
+        # same args_hash (indicating same URL) appearing multiple times
+        args_counts: dict[str, int] = {}
+        for record in recent:
+            if record.tool_name in url_tools:
+                key = f"{record.tool_name}:{record.args_hash}"
+                args_counts[key] = args_counts.get(key, 0) + 1
+
+        # If any URL tool + args combo appears 3+ times, likely revisiting
+        for key, count in args_counts.items():
+            if count >= revisit_threshold:
+                tool_name = key.split(":")[0]
+                return StuckAnalysis(
+                    loop_type=LoopType.URL_REVISIT_PATTERN,
+                    confidence=0.80,
+                    repeat_count=count,
+                    recovery_strategy=RecoveryStrategy.TRY_ALTERNATIVE_APPROACH,
+                    details=(
+                        f"Same URL visited {count} times via '{tool_name}'. "
+                        "Content hasn't changed — extract what you need and move to the next step."
+                    ),
+                    affected_tools=[tool_name],
+                )
+
+        return None
+
+    def _detect_no_progress(self) -> StuckAnalysis | None:
+        """Detect when no new key findings are added after many iterations.
+
+        Checks TaskState.key_findings count vs iteration count to detect
+        when the agent is spinning without making meaningful progress.
+        """
+        no_progress_threshold = 15
+
+        if len(self._tool_action_history) < no_progress_threshold:
+            return None
+
+        try:
+            from app.domain.services.agents.task_state_manager import get_task_state_manager
+
+            tsm = get_task_state_manager()
+            metrics = tsm.get_progress_metrics()
+            if not metrics:
+                return None
+
+            # Check if stall count (no-progress counter) exceeds threshold
+            if metrics.stall_count >= no_progress_threshold:
+                return StuckAnalysis(
+                    loop_type=LoopType.NO_PROGRESS,
+                    confidence=0.75,
+                    repeat_count=metrics.stall_count,
+                    recovery_strategy=RecoveryStrategy.REPLAN_TASK,
+                    details=(
+                        f"No meaningful progress detected in {metrics.stall_count} consecutive actions. "
+                        "Consider completing the current step with available information or moving on."
+                    ),
+                    affected_tools=[],
+                )
+        except Exception:
+            pass
+
+        return None
+
     def get_recovery_guidance(self) -> str:
         """
         Get detailed recovery guidance based on current stuck analysis.
@@ -1037,6 +1184,32 @@ class StuckDetector:
                 "2. Element indices change after page updates - always refresh\n"
                 "3. The element may be off-screen - try scrolling first\n"
                 "4. Consider using browser_scroll_down if element is below viewport"
+            ),
+            # Enhanced detection recovery
+            LoopType.EXCESSIVE_SAME_TOOL: (
+                f"You've been calling the same tool excessively.\n"
+                f"Affected tools: {', '.join(self._stuck_analysis.affected_tools)}\n"
+                "RECOVERY STEPS:\n"
+                "1. STOP searching/browsing — you likely have enough information\n"
+                "2. Synthesize the information you've already gathered\n"
+                "3. Write up your findings and complete the current step\n"
+                "4. If you truly need more data, use DIFFERENT search queries"
+            ),
+            LoopType.URL_REVISIT_PATTERN: (
+                "You're revisiting URLs you already extracted content from.\n"
+                "RECOVERY STEPS:\n"
+                "1. The content at these URLs hasn't changed\n"
+                "2. Review the information you already extracted\n"
+                "3. Visit NEW URLs or use different search queries\n"
+                "4. If you have enough information, complete the current step"
+            ),
+            LoopType.NO_PROGRESS: (
+                "No meaningful progress has been made in many iterations.\n"
+                "RECOVERY STEPS:\n"
+                "1. STOP and assess what you've accomplished so far\n"
+                "2. Write a summary of findings with what you have\n"
+                "3. Complete the current step — partial results are better than infinite loops\n"
+                "4. If truly stuck, skip this step and move to the next one"
             ),
         }
 

@@ -91,29 +91,47 @@ class AcknowledgmentGenerator:
 
     def _ack_research(self, user_message: str, request_focus: str, is_large_prompt: bool) -> str:
         """Generate acknowledgment for research requests."""
-        if is_large_prompt:
-            topic = self._compact_subject(self._extract_research_topic(user_message))
-            if topic:
-                return (
-                    f"I've received your request for {topic}. "
-                    "I will begin by researching the latest tools and data to provide a detailed analysis."
-                )
-            return (
-                "I've received your request for a comprehensive research report. "
-                "I will begin by researching the latest tools and data to provide a detailed analysis."
-            )
-
-        if request_focus and request_focus != "this task":
-            compact_focus = self._compact_subject(request_focus)
-            if compact_focus:
-                return (
-                    f"I've received your request for {compact_focus}. "
-                    "I will begin by researching the latest tools and data to provide a detailed analysis."
-                )
-        return (
-            "I've received your request for research on this topic. "
-            "I will begin by researching the latest tools and data to provide a detailed analysis."
+        _ = (request_focus, is_large_prompt)
+        label = self._resolve_research_label(user_message)
+        opener = self._select_variant(
+            user_message,
+            ("Understood.", "Got it.", "Sounds good.", "All set."),
+            salt=17,
         )
+        action = self._select_variant(
+            user_message,
+            (
+                "I’m analyzing your {label} now and preparing the research plan.",
+                "I’m reviewing your {label} now and structuring the research plan.",
+                "I’m evaluating your {label} now and organizing the research plan.",
+            ),
+            salt=53,
+        )
+        return f"{opener} {action.format(label=label)}"
+
+    def _resolve_research_label(self, user_message: str) -> str:
+        text = (user_message or "").lower()
+        has_prompt = "prompt" in text
+        has_task = "task" in text
+        has_search = "search" in text or "research" in text
+
+        if has_search and has_prompt:
+            return "search prompt"
+        if has_search and has_task:
+            return "research task"
+        if has_search:
+            return "research request"
+        if has_task:
+            return "task"
+        if has_prompt:
+            return "prompt"
+        return "request"
+
+    def _select_variant(self, text: str, variants: tuple[str, ...], salt: int) -> str:
+        if not variants:
+            return ""
+        index = (sum(ord(ch) for ch in text) + salt) % len(variants)
+        return variants[index]
 
     def _is_large_prompt(self, user_message: str, request_focus: str) -> bool:
         """Detect prompts that should use compact acknowledgments."""
@@ -145,6 +163,64 @@ class AcknowledgmentGenerator:
             normalized = " ".join(words[:max_words]).rstrip(",:;")
         if len(normalized) > max_chars:
             normalized = normalized[:max_chars].rstrip(" ,:;")
+
+        return normalized or None
+
+    def _normalize_subject(self, subject: str | None) -> str | None:
+        """Normalize subject phrasing to reduce noisy spacing/wording from user prompts."""
+        if not subject:
+            return None
+
+        normalized = subject.strip()
+        if not normalized:
+            return None
+
+        # Remove common lead-ins that make acknowledgments repetitive.
+        normalized = re.sub(
+            r"^(?:a\s+)?(?:comprehensive\s+)?research\s+report\s+(?:on|about)\s*[:\-]?\s*",
+            "",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        normalized = re.sub(r"^(?:on|about)\s*[:\-]?\s*", "", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\s+", " ", normalized).strip(" .,:;")
+
+        # Correct common typos in short research/model prompts.
+        typo_patterns: tuple[tuple[str, str], ...] = (
+            (r"\bcompo+re\b", "compare"),
+            (r"\bcomparre\b", "compare"),
+            (r"\bsonet+\b", "sonnet"),
+            (r"\bopu+s\b", "opus"),
+            (r"\bloweffort\b", "low-effort"),
+        )
+        for pattern, replacement in typo_patterns:
+            normalized = re.sub(pattern, replacement, normalized, flags=re.IGNORECASE)
+
+        # Normalize well-known compact phrasing.
+        normalized = re.sub(r"\blow[\s\-_]*effort\b", "low-effort", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(
+            r"\b(opus|sonnet|haiku|gpt|claude|gemini|llama|mistral)\s*([0-9]+(?:\.[0-9]+)+)\b",
+            lambda m: f"{m.group(1).capitalize()} {m.group(2)}",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+
+        # Convert imperative opening to a smoother noun/gerund phrase.
+        normalized = re.sub(r"^compare\s+", "comparing ", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"^analy[sz]e\s+", "analyzing ", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"^evaluate\s+", "evaluating ", normalized, flags=re.IGNORECASE)
+
+        # If input still starts with "create ... report on", trim again after normalization.
+        normalized = re.sub(
+            r"^create\s+(?:a\s+)?(?:comprehensive\s+)?research\s+report\s+(?:on|about)\s*[:\-]?\s*",
+            "",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+
+        # Basic punctuation/spacing cleanup.
+        normalized = re.sub(r"\s+([,.;:!?])", r"\1", normalized)
+        normalized = re.sub(r"\s+", " ", normalized).strip(" .,:;")
 
         return normalized or None
 

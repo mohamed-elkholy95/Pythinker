@@ -92,3 +92,14 @@ class LLM(Protocol):
     def max_tokens(self) -> int:
         """Get the max tokens"""
         ...
+
+    @property
+    def last_stream_metadata(self) -> dict[str, Any] | None:
+        """Get metadata for the most recent streaming call.
+
+        Typical keys:
+        - finish_reason: "stop", "length", provider-specific reason, or "error"
+        - truncated: bool indicating length/token truncation
+        - provider: provider identifier for diagnostics
+        """
+        ...

@@ -46,7 +46,6 @@ from app.interfaces.schemas.session import (
     GetSessionResponse,
     ListSessionItem,
     ListSessionResponse,
-    OpenReplaySessionRequest,
     ResumeSessionRequest,
     SandboxInfo,
     SharedSessionResponse,
@@ -132,8 +131,6 @@ async def get_session(
             status=session.status,
             events=await EventMapper.events_to_sse_events(session.events),
             is_shared=session.is_shared,
-            openreplay_session_id=session.openreplay_session_id,
-            openreplay_session_url=session.openreplay_session_url,
         )
     )
 
@@ -200,25 +197,6 @@ async def resume_session(
     return APIResponse.success()
 
 
-@router.post("/{session_id}/openreplay", response_model=APIResponse[None])
-async def link_openreplay_session(
-    session_id: str,
-    request: OpenReplaySessionRequest,
-    current_user: User = Depends(get_current_user),
-    agent_service: AgentService = Depends(get_agent_service),
-) -> APIResponse[None]:
-    """Link OpenReplay session metadata to a Pythinker session."""
-    updated = await agent_service.link_openreplay_session(
-        session_id,
-        current_user.id,
-        request.openreplay_session_id,
-        request.openreplay_session_url,
-    )
-    if not updated:
-        raise NotFoundError("Session not found")
-    return APIResponse.success()
-
-
 @router.patch("/{session_id}/rename", response_model=APIResponse[None])
 async def rename_session(
     session_id: str,
@@ -257,8 +235,6 @@ async def get_all_sessions(
             latest_message=session.latest_message,
             latest_message_at=int(session.latest_message_at.timestamp()) if session.latest_message_at else None,
             is_shared=session.is_shared,
-            openreplay_session_id=session.openreplay_session_id,
-            openreplay_session_url=session.openreplay_session_url,
         )
         for session in sessions
     ]
@@ -285,8 +261,6 @@ async def stream_sessions(
                         if session.latest_message_at
                         else None,
                         is_shared=session.is_shared,
-                        openreplay_session_id=session.openreplay_session_id,
-                        openreplay_session_url=session.openreplay_session_url,
                     )
                     for session in sessions
                 ]
@@ -1186,7 +1160,5 @@ async def get_shared_session(
             status=session.status,
             events=await EventMapper.events_to_sse_events(session.events),
             is_shared=session.is_shared,
-            openreplay_session_id=session.openreplay_session_id,
-            openreplay_session_url=session.openreplay_session_url,
         )
     )

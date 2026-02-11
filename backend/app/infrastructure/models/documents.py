@@ -148,10 +148,6 @@ class SessionDocument(BaseDocument[Session], id_field="session_id", domain_model
     # Timeline tracking
     event_count: int = 0  # Total number of events for efficient queries
 
-    # OpenReplay integration
-    openreplay_session_id: str | None = None
-    openreplay_session_url: str | None = None
-
     # Browser takeover settings
     persist_login_state: bool | None = None  # Whether to persist browser login state across tasks
 

@@ -85,6 +85,7 @@ class BaseAgent:
     # Iteration budget management
     iteration_warning_threshold: float = 0.8  # Warn at 80% of limit
     read_only_iteration_weight: float = 0.3  # Read-only ops count as 30% (reduced from 50%)
+    max_step_iterations: int = 50  # Max iterations for a single step before auto-failing
 
     # Phase-based tool filtering: keeps active tool count <20 per phase
     # to reduce hallucination (OpenAI guidance: accuracy drops above ~20 tools)
@@ -181,6 +182,9 @@ class BaseAgent:
 
         # State manifest for blackboard architecture (optional)
         self.state_manifest: StateManifest | None = state_manifest
+
+        # Flag set when stuck recovery is exhausted — signals callers to force-advance
+        self._stuck_recovery_exhausted: bool = False
 
     def _resolve_feature_flags(self) -> dict[str, bool]:
         """Return injected feature flags, falling back to core config."""
@@ -800,6 +804,7 @@ class BaseAgent:
         # Use weighted iteration tracking for better handling of large tasks
         iteration_budget = float(self.max_iterations)
         iteration_spent = 0.0
+        step_iteration_count = 0  # Per-step iteration counter
         warning_emitted = False
         graceful_completion_requested = False
 
@@ -825,6 +830,16 @@ class BaseAgent:
             # Calculate iteration cost for this cycle
             iteration_cost = self._calculate_iteration_cost(tool_calls)
             iteration_spent += iteration_cost
+            step_iteration_count += 1
+
+            # Check per-step iteration budget
+            if step_iteration_count >= self.max_step_iterations:
+                logger.warning(
+                    f"Step iteration budget exhausted ({step_iteration_count}/{self.max_step_iterations}). "
+                    "Setting stuck_recovery_exhausted flag."
+                )
+                self._stuck_recovery_exhausted = True
+                break
 
             # Check if we're approaching the limit
             remaining_budget = iteration_budget - iteration_spent
@@ -1241,6 +1256,11 @@ class BaseAgent:
                 await self._add_to_memory([filtered_message, {"role": "user", "content": recovery_prompt}])
                 continue
 
+            # If stuck but recovery exhausted, set flag for caller (e.g., plan_act step execution)
+            if is_stuck and not self._stuck_detector.can_attempt_recovery():
+                self._stuck_recovery_exhausted = True
+                logger.warning("Stuck recovery exhausted — signaling caller to force-advance step")
+
             await self._add_to_memory([filtered_message])
             empty_response_count = 0  # Reset on successful non-empty response
             return filtered_message
@@ -1392,12 +1412,24 @@ class BaseAgent:
             },
         }
 
+    def is_stuck_recovery_exhausted(self) -> bool:
+        """Check if stuck recovery was exhausted during the last execution.
+
+        Returns True once and resets the flag, allowing callers to take
+        remedial action (e.g., force-fail the current step and advance).
+        """
+        if self._stuck_recovery_exhausted:
+            self._stuck_recovery_exhausted = False
+            return True
+        return False
+
     def reset_reliability_state(self) -> None:
         """Reset all reliability tracking state.
 
         Call this when starting a new task or session.
         """
         self._stuck_detector.reset()
+        self._stuck_recovery_exhausted = False
         logger.debug("Reliability state reset")
 
     async def ask_streaming(self, request: str, format: str | None = None) -> AsyncGenerator[BaseEvent, None]:

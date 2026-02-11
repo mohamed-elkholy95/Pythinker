@@ -2,7 +2,7 @@
 
 This guide matches the current setup:
 - Live view: CDP first, VNC fallback
-- Replay: OpenReplay first, screenshot fallback
+- Replay: screenshot timeline playback
 
 ## Stack Health
 
@@ -70,8 +70,7 @@ Goal: verify replay priority.
 2. Open session history replay.
 
 Expected:
-- If OpenReplay metadata exists, embedded OpenReplay player is used.
-- If missing/unavailable, screenshot replay is shown.
+- Screenshot replay is shown when session screenshots exist.
 
 ### Test 5: Takeover Input Channel
 
@@ -124,12 +123,12 @@ Expected RUNNING:
 
 ### Replay missing
 
-- Confirm session has OpenReplay linkage data.
-- If not, confirm screenshot replay endpoints return data.
+- Confirm screenshot replay endpoints return data for the session.
+- Confirm the session has reached `completed` or `failed`.
 
 ## Success Criteria
 
 - Live view works reliably with CDP as default.
 - Fallback to VNC works automatically when CDP fails.
-- Replay defaults to OpenReplay and falls back to screenshots.
+- Replay works from screenshot timeline data.
 - No signature mismatch regressions in screencast URL flow.

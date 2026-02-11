@@ -28,8 +28,7 @@ Pythinker runs as a multi-service system with a backend coordinator, sandbox con
 
 ### Replay (current)
 
-- Primary replay: OpenReplay (`SessionReplayPlayer`)
-- Fallback replay: screenshot timeline/player
+- Replay: screenshot timeline/player
 
 ## Core Services
 
@@ -49,7 +48,7 @@ Pythinker runs as a multi-service system with a backend coordinator, sandbox con
 - `frontend/src/components/LiveViewer.vue`
 - `frontend/src/components/SandboxViewer.vue`
 - `frontend/src/components/VNCViewer.vue`
-- `frontend/src/components/SessionReplayPlayer.vue`
+- `frontend/src/components/ScreenshotReplayViewer.vue`
 - `frontend/src/components/ToolPanelContent.vue`
 
 ## Key Backend Endpoints

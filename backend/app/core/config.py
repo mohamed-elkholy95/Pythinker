@@ -89,13 +89,17 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://qdrant:6333"
     qdrant_grpc_port: int = 6334
     qdrant_prefer_grpc: bool = True  # 2x faster than REST
-    qdrant_collection: str = "agent_memories"
+    qdrant_collection: str = "agent_memories"  # Legacy collection (deprecated, use user_knowledge)
     qdrant_api_key: str | None = None
 
-    # Multi-collection configuration
-    qdrant_user_knowledge_collection: str = "user_knowledge"
+    # Multi-collection configuration (Phase 1: Named vectors with dense + sparse hybrid search)
+    qdrant_user_knowledge_collection: str = "user_knowledge"  # Primary memory collection
     qdrant_task_artifacts_collection: str = "task_artifacts"
     qdrant_tool_logs_collection: str = "tool_logs"
+
+    # Phase 1: Hybrid search feature flags
+    qdrant_use_hybrid_search: bool = True  # Enable dense+sparse hybrid retrieval (RRF fusion)
+    qdrant_sparse_vector_enabled: bool = True  # Generate BM25 sparse vectors
 
     # Sandbox configuration
     sandbox_lifecycle_mode: str = "static"  # "static" | "ephemeral"
@@ -356,6 +360,7 @@ class Settings(BaseSettings):
     feature_semantic_citation_validation: bool = True  # Semantic matching for citations
     feature_strict_numeric_verification: bool = True  # Reject unverified numeric claims
     feature_reject_ungrounded_reports: bool = False  # Start permissive, can enable later
+    feature_delivery_integrity_gate: bool = True  # Enforce truncation/completeness gate before delivery
 
     # Autonomy Configuration (Enhancement Phase 1)
     autonomy_level: str = "guided"  # supervised, guided, autonomous, unrestricted
@@ -410,12 +415,6 @@ class Settings(BaseSettings):
     workspace_auto_init: bool = True  # Auto-initialize workspace on first message
     workspace_default_template: str = "python"  # Default template: none, python, nodejs, web, fullstack
     workspace_default_project_name: str = "project"  # Default project name
-
-    # OpenReplay Session Recording Configuration
-    openreplay_enabled: bool = True  # Enable OpenReplay integration
-    openreplay_project_key: str = "pythinker-dev"  # OpenReplay project key
-    openreplay_ingest_url: str = "http://localhost:9001"  # OpenReplay ingestion endpoint
-    openreplay_api_url: str = "http://localhost:8090"  # OpenReplay API endpoint
 
     # Canvas / Image Generation configuration
     fal_api_key: str | None = None  # fal.ai API key for FLUX image generation
@@ -676,6 +675,7 @@ def get_feature_flags() -> dict[str, bool]:
             "semantic_citation_validation": True,
             "strict_numeric_verification": True,
             "reject_ungrounded_reports": False,
+            "delivery_integrity_gate": True,
         }
     return {
         "tree_of_thoughts": settings.feature_tree_of_thoughts,
@@ -704,4 +704,5 @@ def get_feature_flags() -> dict[str, bool]:
         "semantic_citation_validation": settings.feature_semantic_citation_validation,
         "strict_numeric_verification": settings.feature_strict_numeric_verification,
         "reject_ungrounded_reports": settings.feature_reject_ungrounded_reports,
+        "delivery_integrity_gate": settings.feature_delivery_integrity_gate,
     }

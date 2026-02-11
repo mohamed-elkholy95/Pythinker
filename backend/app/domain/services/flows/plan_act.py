@@ -54,6 +54,7 @@ from app.domain.services.flows.fast_path import (
     QueryIntent,
     is_suggestion_follow_up_message,
 )
+from app.domain.services.flows.prompt_quick_validator import PromptQuickValidator
 from app.domain.services.flows.step_failure import StepFailureHandler
 from app.domain.services.tools.browser import BrowserTool
 from app.domain.services.tools.code_executor import CodeExecutorTool
@@ -388,6 +389,7 @@ class PlanActFlow(BaseFlow):
 
         # Extracted sub-coordinators
         self._ack_generator = AcknowledgmentGenerator()
+        self._prompt_quick_validator = PromptQuickValidator()
         self._step_failure_handler = StepFailureHandler()
 
         # Workflow loop safety limits
@@ -1428,6 +1430,17 @@ class PlanActFlow(BaseFlow):
 
     async def _run_with_trace(self, message: Message, trace_ctx) -> AsyncGenerator[BaseEvent, None]:
         """Internal run method with tracing."""
+        original_message = message.message
+        validated_message = self._prompt_quick_validator.validate(original_message)
+        if validated_message != original_message:
+            logger.info(
+                "Prompt quick validation updated message for session %s: %s -> %s",
+                self._session_id,
+                original_message[:120],
+                validated_message[:120],
+            )
+            message.message = validated_message
+
         # TODO: move to task runner
         session = await self._session_repository.find_by_id(self._session_id)
         if not session:
@@ -1999,6 +2012,22 @@ class PlanActFlow(BaseFlow):
                             if hasattr(step_executor, "_token_manager"):
                                 step_executor._token_manager.mark_step_completed()
 
+                            # Check if stuck recovery was exhausted — force-fail the step
+                            if (
+                                hasattr(step_executor, "is_stuck_recovery_exhausted")
+                                and step_executor.is_stuck_recovery_exhausted()
+                            ):
+                                logger.warning(f"Step {step.id} stuck recovery exhausted — force-failing and advancing")
+                                step.success = False
+                                step.error = "Stuck — exceeded retry limit. Moving to next step."
+                                step.status = ExecutionStatus.FAILED
+                                step.notes = (
+                                    step.notes or ""
+                                ) + "\n[Auto-failed: agent stuck in loop, recovery exhausted]"
+                                # Reset stuck detector for fresh detection on next step
+                                step_executor.reset_reliability_state()
+                                break
+
                             # If step succeeded, break out of retry loop
                             if step.success:
                                 break
@@ -2152,6 +2181,12 @@ class PlanActFlow(BaseFlow):
 
                     with trace_ctx.span("summarizing", "agent_step") as summary_span:
                         async for event in self.executor.summarize(response_policy=self._response_policy):
+                            if isinstance(event, ErrorEvent):
+                                logger.warning(f"Agent {self._agent_id} summarization failed: {event.error}")
+                                yield event
+                                self._transition_to(AgentStatus.ERROR, force=True, reason="summarization failed")
+                                break
+
                             if isinstance(event, (ReportEvent, MessageEvent)):
                                 content = event.content if isinstance(event, ReportEvent) else event.message
                                 content = content or ""

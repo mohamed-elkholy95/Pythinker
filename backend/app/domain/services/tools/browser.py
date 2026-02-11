@@ -204,6 +204,8 @@ class BrowserTool(BaseTool):
         """
         super().__init__(max_observe=max_observe)
         self.browser = browser
+        # Per-session URL visit counter to warn/reject repeated visits
+        self._url_visit_counts: dict[str, int] = {}
 
     def _extract_focused_content(self, text: str, focus: str | None, max_length: int = 50000) -> str:
         """Extract content relevant to the focus area.
@@ -315,6 +317,32 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
         """
         logger.info(f"Searching URL: {url}" + (f" (focus: {focus})" if focus else ""))
 
+        # Record URL visit in task state to survive token trimming
+        try:
+            from app.domain.services.agents.task_state_manager import get_task_state_manager
+
+            tsm = get_task_state_manager()
+            tsm.record_url(url)
+        except Exception:
+            pass  # Non-critical
+
+        # Track per-session visit count and warn/reject repeated visits
+        normalized_url = url.split("#")[0].rstrip("/")
+        visit_count = self._url_visit_counts.get(normalized_url, 0) + 1
+        self._url_visit_counts[normalized_url] = visit_count
+
+        if visit_count >= 3:
+            logger.warning(f"URL visited {visit_count} times, returning short rejection: {url[:80]}")
+            return ToolResult(
+                success=True,
+                message=(
+                    f"This URL has already been visited {visit_count} times this session. "
+                    "Content is identical to previous visits. "
+                    "Please proceed with different URLs or complete the current step with the information you have."
+                ),
+                data={"url": url, "visit_count": visit_count, "access_status": "repeated"},
+            )
+
         # Check URL content cache
         if url in self._url_cache:
             cached_ts, cached_text = self._url_cache[url]
@@ -325,6 +353,12 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
                 message = f"Content fetched (cached): {len(cached_text)} chars."
                 if focus:
                     message = f"[FOCUSED: {focus}] {message}"
+                # Append warning on 2nd visit
+                if visit_count == 2:
+                    message += (
+                        "\n\nNOTE: You have already visited this URL. The content has not changed. "
+                        "Consider visiting a different URL or extracting different information."
+                    )
                 return ToolResult(
                     success=True,
                     message=message,
@@ -479,6 +513,32 @@ Returns: Interactive elements, page content, title, URL - ready to use without a
         Returns:
             Navigation result with interactive elements and page content
         """
+        # Record URL visit in task state to survive token trimming
+        try:
+            from app.domain.services.agents.task_state_manager import get_task_state_manager
+
+            tsm = get_task_state_manager()
+            tsm.record_url(url)
+        except Exception:
+            pass  # Non-critical
+
+        # Track per-session visit count and warn/reject repeated visits
+        nav_normalized_url = url.split("#")[0].rstrip("/")
+        nav_visit_count = self._url_visit_counts.get(nav_normalized_url, 0) + 1
+        self._url_visit_counts[nav_normalized_url] = nav_visit_count
+
+        if nav_visit_count >= 3:
+            logger.warning(f"browser_navigate: URL visited {nav_visit_count} times, returning rejection: {url[:80]}")
+            return ToolResult(
+                success=True,
+                message=(
+                    f"This URL has already been visited {nav_visit_count} times this session. "
+                    "Content is identical to previous visits. "
+                    "Please proceed with different URLs or complete the current step."
+                ),
+                data={"url": url, "visit_count": nav_visit_count},
+            )
+
         # Navigate to URL
         result = await self.browser.navigate(url)
 

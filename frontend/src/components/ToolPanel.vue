@@ -27,7 +27,6 @@
         :isReplayMode="panelProps.isReplayMode"
         :replayScreenshotUrl="panelProps.replayScreenshotUrl"
         :replayMetadata="panelProps.replayMetadata"
-        :openReplaySessionId="panelProps.openReplaySessionId"
         :summaryStreamText="panelProps.summaryStreamText"
         :isSummaryStreaming="panelProps.isSummaryStreaming"
         @hide="() => hideToolPanel(true)"
@@ -87,7 +86,6 @@ const panelProps = defineProps<{
   isReplayMode?: boolean
   replayScreenshotUrl?: string
   replayMetadata?: ScreenshotMetadata | null
-  openReplaySessionId?: string | null
   summaryStreamText?: string
   isSummaryStreaming?: boolean
 }>()

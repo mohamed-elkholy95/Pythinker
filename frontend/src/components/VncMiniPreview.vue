@@ -150,6 +150,11 @@
       <div class="tool-preview-content">
         <component :is="toolIcon" class="tool-preview-icon" />
         <span class="tool-preview-label">{{ toolLabel }}</span>
+        <div v-if="showInitializingDots" class="loading-dots init-loading-dots" aria-hidden="true">
+          <span class="dot"></span>
+          <span class="dot"></span>
+          <span class="dot"></span>
+        </div>
       </div>
       <div v-if="isActive" class="activity-pulse"></div>
     </div>
@@ -336,8 +341,17 @@ const toolLabel = computed(() => {
   if (func.includes('search')) return 'Search';
   if (func.includes('code')) return 'Code';
 
-  return props.toolName || 'Working';
+  if (showInitializingDots.value) return 'Initializing';
+
+  return props.toolName || 'Initializing';
 });
+
+const showInitializingDots = computed(() => (
+  Boolean(props.sessionId) &&
+  props.enabled &&
+  !props.toolName &&
+  !props.toolFunction
+));
 
 const sizeClass = computed(() => {
   switch (props.size) {
@@ -801,6 +815,10 @@ const sizeClass = computed(() => {
   color: var(--bolt-elements-textSecondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.init-loading-dots .dot {
+  background: var(--bolt-elements-textSecondary);
 }
 
 .activity-pulse {

@@ -2,7 +2,7 @@ import logging
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from app.domain.external.llm import LLM
 from app.domain.external.observability import MetricsPort, get_null_metrics
@@ -26,6 +26,7 @@ from app.domain.models.source_citation import SourceCitation
 from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.services.agents.base import BaseAgent
 from app.domain.services.agents.chain_of_verification import ChainOfVerification, CoVeResult
+from app.domain.services.agents.compliance_gates import GateStatus, get_compliance_gates
 from app.domain.services.agents.context_manager import ContextManager, InsightType
 from app.domain.services.agents.critic import CriticAgent, CriticConfig, CriticVerdict
 from app.domain.services.agents.error_pattern_analyzer import get_error_pattern_analyzer
@@ -453,12 +454,57 @@ class ExecutionAgent(BaseAgent):
         await self._ensure_within_token_limit()
 
         try:
+            flags = self._resolve_feature_flags()
+            delivery_integrity_enabled = flags.get("delivery_integrity_gate", False)
             accumulated_text = ""
+            stream_messages = list(self.memory.get_messages())
+            stream_metadata: dict[str, Any] = {}
+            truncation_exhausted = False
+            max_stream_continuations = 2 if delivery_integrity_enabled else 0
+            stream_attempt = 0
 
             # Phase 1: Stream tokens live via StreamEvent
-            async for chunk in self.llm.ask_stream(self.memory.get_messages(), tools=None, tool_choice=None):
-                accumulated_text += chunk
-                yield StreamEvent(content=chunk, is_final=False, phase="summarizing")
+            while True:
+                stream_attempt += 1
+                attempt_text = ""
+
+                async for chunk in self.llm.ask_stream(stream_messages, tools=None, tool_choice=None):
+                    attempt_text += chunk
+                    accumulated_text += chunk
+                    yield StreamEvent(content=chunk, is_final=False, phase="summarizing")
+
+                stream_metadata = self._get_last_stream_metadata()
+                is_truncated_stream = (
+                    bool(stream_metadata.get("truncated")) or stream_metadata.get("finish_reason") == "length"
+                )
+                if not (delivery_integrity_enabled and is_truncated_stream):
+                    break
+
+                if stream_attempt > max_stream_continuations:
+                    truncation_exhausted = True
+                    logger.warning(
+                        "Delivery integrity: stream remained truncated after %d continuation attempts",
+                        max_stream_continuations,
+                    )
+                    break
+
+                logger.warning(
+                    "Delivery integrity: stream truncation detected (finish_reason=%s), requesting continuation (%d/%d)",
+                    stream_metadata.get("finish_reason"),
+                    stream_attempt,
+                    max_stream_continuations,
+                )
+                assistant_fragment = attempt_text.strip() or accumulated_text[-2000:]
+                if not assistant_fragment.strip():
+                    truncation_exhausted = True
+                    logger.warning("Delivery integrity: truncation detected with empty fragment, aborting continuation")
+                    break
+
+                stream_messages = [
+                    *stream_messages,
+                    {"role": "assistant", "content": assistant_fragment},
+                    {"role": "user", "content": self._build_continuation_prompt()},
+                ]
 
             # Signal streaming complete
             yield StreamEvent(content="", is_final=True, phase="summarizing")
@@ -470,6 +516,15 @@ class ExecutionAgent(BaseAgent):
 
             # Phase 2: Post-processing (CoVe + Critic on complete text)
             if len(message_content) > 300 and self._user_request:
+                # Emit progress event before CoVe to prevent SSE timeout during verification
+                yield StepEvent(
+                    status=StepStatus.RUNNING,
+                    step=Step(
+                        id="cove_verification",
+                        description="Verifying factual claims...",
+                        status=ExecutionStatus.RUNNING,
+                    ),
+                )
                 message_content, cove_result = await self._apply_cove_verification(message_content, self._user_request)
                 if cove_result and cove_result.has_contradictions:
                     logger.info(
@@ -478,17 +533,26 @@ class ExecutionAgent(BaseAgent):
                     )
 
             if len(message_content) > 200 and self._user_request:
+                # Emit progress event before Critic to prevent SSE timeout during review
+                yield StepEvent(
+                    status=StepStatus.RUNNING,
+                    step=Step(
+                        id="critic_review",
+                        description="Reviewing output quality...",
+                        status=ExecutionStatus.RUNNING,
+                    ),
+                )
                 message_content = await self._apply_critic_revision(message_content, [])
 
-            base_coverage = self._output_coverage_validator.validate(
+            coverage_result = self._output_coverage_validator.validate(
                 output=message_content,
                 user_request=self._user_request or "",
                 required_sections=active_policy.min_required_sections,
             )
-            if not base_coverage.is_valid:
+            if not coverage_result.is_valid:
                 logger.warning(
                     "Summary coverage missing required elements before compression: %s",
-                    ", ".join(base_coverage.missing_requirements) or "unknown",
+                    ", ".join(coverage_result.missing_requirements) or "unknown",
                 )
 
             if active_policy.allow_compression and active_policy.mode == VerbosityMode.CONCISE:
@@ -502,11 +566,32 @@ class ExecutionAgent(BaseAgent):
                 )
                 if compressed_coverage.is_valid and len(compressed_content) < len(message_content):
                     message_content = compressed_content
+                    coverage_result = compressed_coverage
                 else:
                     _metrics.record_counter(
                         "compression_rejected_total",
                         labels={"reason": "coverage_drop"},
                     )
+
+            gate_passed, gate_issues = self._run_delivery_integrity_gate(
+                content=message_content,
+                response_policy=active_policy,
+                coverage_result=coverage_result,
+                stream_metadata=stream_metadata,
+                truncation_exhausted=truncation_exhausted,
+            )
+            if not gate_passed:
+                issue_text = "; ".join(gate_issues)
+                yield StepEvent(
+                    status=StepStatus.FAILED,
+                    step=Step(
+                        id="summarize",
+                        description="Summary failed delivery integrity checks",
+                        status=ExecutionStatus.FAILED,
+                    ),
+                )
+                yield ErrorEvent(error=f"Delivery integrity gate blocked output: {issue_text}")
+                return
 
             _metrics.record_counter("response_policy_mode_total", labels={"mode": active_policy.mode.value})
             _metrics.record_histogram(
@@ -516,7 +601,6 @@ class ExecutionAgent(BaseAgent):
             )
 
             # Reward hacking detection (log-only)
-            flags = self._resolve_feature_flags()
             if flags.get("reward_hacking_detection"):
                 try:
                     task_state_manager = get_task_state_manager()
@@ -584,6 +668,80 @@ class ExecutionAgent(BaseAgent):
         except Exception as e:
             logger.error(f"Error during summarization: {e}")
             yield ErrorEvent(error=f"Failed to generate summary: {e!s}")
+
+    def _get_last_stream_metadata(self) -> dict[str, Any]:
+        """Safely read stream metadata from the LLM adapter."""
+        metadata = getattr(self.llm, "last_stream_metadata", None)
+        if isinstance(metadata, dict):
+            return metadata
+        return {}
+
+    def _build_continuation_prompt(self) -> str:
+        """Prompt used when stream truncation is detected."""
+        return (
+            "Your previous response was truncated by token limits. Continue exactly where you stopped, "
+            "without repeating prior sections. Complete any unfinished heading, list, or code block."
+        )
+
+    def _run_delivery_integrity_gate(
+        self,
+        content: str,
+        response_policy: ResponsePolicy,
+        coverage_result: Any,
+        stream_metadata: dict[str, Any],
+        truncation_exhausted: bool,
+    ) -> tuple[bool, list[str]]:
+        """Fail-closed delivery gate for truncation/completeness risks."""
+        flags = self._resolve_feature_flags()
+        if not flags.get("delivery_integrity_gate", False):
+            return True, []
+
+        strict_mode = self._is_integrity_strict_mode(content, response_policy)
+        issues: list[str] = []
+        warnings: list[str] = []
+
+        finish_reason = str(stream_metadata.get("finish_reason") or "")
+        is_stream_truncated = bool(stream_metadata.get("truncated")) or finish_reason == "length"
+        if truncation_exhausted:
+            issues.append("stream_truncation_unresolved")
+        elif is_stream_truncated:
+            warnings.append("stream_truncation_detected")
+
+        completeness_result = get_compliance_gates().check_content_completeness(content)
+        if completeness_result.status == GateStatus.WARNING:
+            if strict_mode:
+                issues.append("content_completeness_warning")
+            else:
+                warnings.append("content_completeness_warning")
+
+        if not getattr(coverage_result, "is_valid", True):
+            missing = getattr(coverage_result, "missing_requirements", [])
+            missing_text = ", ".join(missing) if missing else "unknown_requirements"
+            if strict_mode:
+                issues.append(f"coverage_missing:{missing_text}")
+            else:
+                warnings.append(f"coverage_missing:{missing_text}")
+
+        if warnings:
+            logger.warning("Delivery integrity warnings: %s", "; ".join(warnings))
+
+        if issues:
+            logger.warning(
+                "Delivery integrity gate blocked output (strict_mode=%s): %s",
+                strict_mode,
+                "; ".join(issues),
+            )
+            return False, issues
+
+        return True, []
+
+    def _is_integrity_strict_mode(self, content: str, response_policy: ResponsePolicy) -> bool:
+        """Enable strict integrity checks for report/evidence-heavy outputs."""
+        return (
+            response_policy.mode == VerbosityMode.DETAILED
+            or "artifact references" in response_policy.min_required_sections
+            or self._is_report_structure(content)
+        )
 
     def _extract_title(self, content: str) -> str:
         """Extract a title from markdown content."""

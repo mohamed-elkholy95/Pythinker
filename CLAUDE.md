@@ -12,11 +12,12 @@ Pythinker is an AI Agent system that runs tools (browser, terminal, files, searc
 > 1. **Reuse First**: Search existing codebase for components, utilities, and services before creating new ones
 > 2. **Simplicity First**: Design with simplicity and directness — prefer straightforward solutions that maintain robustness, reliability, and best practices; avoid unnecessary complexity or overcomplication
 > 3. **Full-Stack Design**: Design each feature by thoroughly evaluating and integrating front-end and back-end architecture considerations, ensuring seamless compatibility, optimal performance, and cohesive system integration across all components
-> 4. **Dependency Rule**: Domain → Application → Infrastructure → Interfaces (inward only)
-> 5. **SOLID**: Single responsibility, depend on abstractions, inject dependencies
-> 6. **Type Safety**: Full type hints (Python) / strict mode (TypeScript); no `any`
-> 7. **Layer Discipline**: Business logic in domain, not in API routes or components
-> 8. **Naming**: Python `snake_case` functions / `PascalCase` classes; Vue `PascalCase` components / `useX` composables
+> 4. **Self-Hosted First**: When integrating solutions and services, prioritize self-hosted, zero-cost, open-source options that do not rely on external dependencies; ensure all integrations are self-contained and require no additional external resources or dependencies
+> 5. **Dependency Rule**: Domain → Application → Infrastructure → Interfaces (inward only)
+> 6. **SOLID**: Single responsibility, depend on abstractions, inject dependencies
+> 7. **Type Safety**: Full type hints (Python) / strict mode (TypeScript); no `any`
+> 8. **Layer Discipline**: Business logic in domain, not in API routes or components
+> 9. **Naming**: Python `snake_case` functions / `PascalCase` classes; Vue `PascalCase` components / `useX` composables
 >
 > **Before committing:**
 > - **Frontend**: `cd frontend && bun run lint && bun run type-check`
@@ -37,7 +38,7 @@ For comprehensive coding standards, see:
 - **[Python Standards](docs/guides/PYTHON_STANDARDS.md)** - Pydantic v2, FastAPI, Legacy Flow, async patterns
 - **[Vue Standards](docs/guides/VUE_STANDARDS.md)** - Composition API, Pinia, TypeScript
 - **[Superpowers Workflow](docs/guides/SUPERPOWERS.md)** - `/brainstorm`, `/tdd`, `/debug` commands
-- **[OpenReplay & Sandbox](docs/guides/OPENREPLAY.md)** - Session replay, CDP screencast
+- **[Replay & Sandbox](docs/guides/OPENREPLAY.md)** - Screenshot replay, CDP screencast
 
 ---
 
@@ -90,6 +91,80 @@ bun run test:run     # Single test run
 - **SSE Streaming**: Real-time events to frontend
 - **Legacy Flow Workflows**: Planning → Execution → Reflection → Verification
 - **Sandbox Isolation**: Docker containers with CDP screencast
+
+### Memory System Architecture (Phase 1: Hybrid Retrieval)
+
+**Overview**: Pythinker uses a dual-store memory architecture with MongoDB (document storage) and Qdrant (vector search).
+
+**Named-Vector Schema**:
+- Collections use named vectors: `dense` (OpenAI embeddings, 1536d) + `sparse` (BM25 keyword vectors)
+- Primary collection: `user_knowledge` (replaces legacy `agent_memories`)
+- Multi-collection: `task_artifacts`, `tool_logs`, `semantic_cache`
+
+**Hybrid Search**:
+- Dense semantic search: OpenAI `text-embedding-3-small` via API
+- Sparse keyword search: Self-hosted BM25 using `rank-bm25` library
+- Fusion: Reciprocal Rank Fusion (RRF) combines dense + sparse results
+
+**Sync State Tracking**:
+- MongoDB fields: `sync_state` (pending/synced/failed), `sync_attempts`, `last_sync_attempt`, `sync_error`
+- Foundation for Phase 2 reliability (outbox pattern, reconciliation)
+
+**Embedding Metadata**:
+- `embedding_model`, `embedding_provider`, `embedding_quality` (1.0 for API, 0.5 for fallback)
+- Used for Phase 4 grounding and confidence scoring
+
+**Usage Patterns**:
+```python
+# Store memory with hybrid vectors
+await memory_service.store_memory(
+    user_id="user-123",
+    content="User prefers dark mode",
+    memory_type=MemoryType.PREFERENCE,
+    generate_embedding=True,  # Generates both dense + sparse
+)
+
+# Hybrid search (dense+sparse RRF)
+from app.infrastructure.repositories.qdrant_memory_repository import QdrantMemoryRepository
+repo = QdrantMemoryRepository()
+results = await repo.search_hybrid(
+    user_id="user-123",
+    query_text="dark mode preferences",
+    dense_vector=dense_embedding,
+    sparse_vector=bm25_encoder.encode("dark mode preferences"),
+    limit=10,
+)
+
+# Dense-only search (backward compat)
+results = await repo.search_similar(
+    user_id="user-123",
+    query_vector=dense_embedding,
+    limit=10,
+)
+```
+
+**BM25 Encoder**:
+```python
+from app.domain.services.embeddings.bm25_encoder import get_bm25_encoder
+
+encoder = get_bm25_encoder()
+# Fit on corpus (done automatically on app startup)
+encoder.fit(corpus)
+# Generate sparse vector
+sparse = encoder.encode("query text")  # Returns {index: score} dict
+```
+
+**Feature Flags** (`backend/app/core/config.py`):
+- `qdrant_use_hybrid_search: bool = True` - Enable RRF hybrid retrieval
+- `qdrant_sparse_vector_enabled: bool = True` - Generate BM25 sparse vectors
+- `qdrant_user_knowledge_collection: str = "user_knowledge"` - Primary memory collection
+
+**Payload Indexes** (fast filtered search):
+- `user_id`, `memory_type`, `importance`, `tags`, `session_id`, `created_at`
+
+**Testing**:
+- BM25 encoder: `tests/domain/services/test_bm25_encoder.py`
+- Hybrid search: `tests/infrastructure/test_qdrant_hybrid_search.py`
 
 ---
 

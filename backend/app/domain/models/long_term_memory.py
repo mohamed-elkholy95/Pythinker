@@ -89,6 +89,25 @@ class MemoryEntry(BaseModel):
     is_active: bool = Field(default=True)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="Confidence in this memory's accuracy")
 
+    # Sync state tracking (Phase 1: Foundation for Phase 2 reliability)
+    sync_state: str = Field(
+        default="pending",
+        description="Qdrant sync status: pending, synced, failed, dead_letter",
+    )
+    sync_attempts: int = Field(default=0, description="Number of sync retry attempts")
+    last_sync_attempt: datetime | None = Field(default=None, description="Timestamp of last sync attempt")
+    sync_error: str | None = Field(default=None, description="Last sync error message (truncated to 500 chars)")
+
+    # Embedding metadata (Phase 1: Track embedding quality for grounding)
+    embedding_model: str | None = Field(default=None, description="Model used for embedding (e.g., text-embedding-3-small)")
+    embedding_provider: str | None = Field(default=None, description="Provider for embedding (e.g., openai)")
+    embedding_quality: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Confidence in embedding quality (1.0 for API, lower for fallback)",
+    )
+
     def content_hash(self) -> str:
         """Generate hash of content for deduplication."""
         return hashlib.sha256(self.content.encode()).hexdigest()[:16]
@@ -173,6 +192,12 @@ class MemoryUpdate(BaseModel):
     is_active: bool | None = None
     confidence: float | None = None
     expires_at: datetime | None = None
+
+    # Sync state updates (Phase 1)
+    sync_state: str | None = None
+    sync_attempts: int | None = None
+    last_sync_attempt: datetime | None = None
+    sync_error: str | None = None
 
 
 class ExtractedMemory(BaseModel):

@@ -3,9 +3,12 @@
 This module provides high-performance vector similarity search using Qdrant,
 replacing the 500-candidate limit of MongoDB's local cosine similarity
 with sub-100ms retrieval at any scale.
+
+Phase 1: Named-vector schema with hybrid dense+sparse retrieval support.
 """
 
 import logging
+from datetime import datetime
 
 from qdrant_client import models
 
@@ -38,11 +41,14 @@ class QdrantMemoryRepository(VectorMemoryRepository):
 
     This repository handles only vector operations in Qdrant.
     Full memory documents remain in MongoDB for rich querying.
+
+    Phase 1: Supports named-vector schema with dense + sparse hybrid search.
     """
 
     def __init__(self):
         self._settings = get_settings()
-        self._collection = self._settings.qdrant_collection
+        # Use user_knowledge collection as primary (Phase 1 migration)
+        self._collection = self._settings.qdrant_user_knowledge_collection
 
     async def upsert_memory(
         self,
@@ -52,60 +58,107 @@ class QdrantMemoryRepository(VectorMemoryRepository):
         memory_type: str,
         importance: str,
         tags: list[str] | None = None,
+        sparse_vector: dict[int, float] | None = None,
+        session_id: str | None = None,
+        created_at: datetime | None = None,
     ) -> None:
-        """Store memory embedding in Qdrant.
+        """Store memory embedding in Qdrant with named vectors.
 
         Args:
             memory_id: Unique identifier matching MongoDB document
             user_id: User who owns this memory
-            embedding: Vector embedding (1536 dimensions for OpenAI)
+            embedding: Dense vector embedding (1536 dimensions for OpenAI)
             memory_type: Type of memory (fact, preference, etc.)
             importance: Importance level (critical, high, medium, low)
             tags: Optional tags for filtering
+            sparse_vector: Optional BM25 sparse vector {index: score}
+            session_id: Optional session ID for filtering
+            created_at: Optional creation timestamp for temporal filtering
         """
+        # Phase 1: Named-vector format
+        vectors = {"dense": embedding}
+
+        if sparse_vector:
+            # Convert dict to Qdrant SparseVector format
+            vectors["sparse"] = models.SparseVector(
+                indices=list(sparse_vector.keys()),
+                values=list(sparse_vector.values()),
+            )
+
+        # Enhanced payload with Phase 1 fields
+        payload = {
+            "user_id": user_id,
+            "memory_type": memory_type,
+            "importance": importance,
+            "tags": tags or [],
+        }
+
+        if session_id:
+            payload["session_id"] = session_id
+
+        if created_at:
+            # Store as Unix timestamp for integer indexing
+            payload["created_at"] = int(created_at.timestamp())
+
         await get_qdrant().client.upsert(
             collection_name=self._collection,
             points=[
                 models.PointStruct(
                     id=memory_id,
-                    vector=embedding,
-                    payload={
-                        "user_id": user_id,
-                        "memory_type": memory_type,
-                        "importance": importance,
-                        "tags": tags or [],
-                    },
+                    vector=vectors,
+                    payload=payload,
                 )
             ],
         )
-        logger.debug(f"Upserted memory {memory_id} to Qdrant")
+        logger.debug(f"Upserted memory {memory_id} to Qdrant with named vectors")
 
     async def upsert_memories_batch(
         self,
         memories: list[dict],
     ) -> None:
-        """Batch upsert multiple memories to Qdrant.
+        """Batch upsert multiple memories to Qdrant with named vectors.
 
         Args:
             memories: List of dicts with keys: memory_id, user_id, embedding,
-                     memory_type, importance, tags
+                     memory_type, importance, tags, sparse_vector (optional),
+                     session_id (optional), created_at (optional)
         """
         if not memories:
             return
 
-        points = [
-            models.PointStruct(
-                id=mem["memory_id"],
-                vector=mem["embedding"],
-                payload={
-                    "user_id": mem["user_id"],
-                    "memory_type": mem["memory_type"],
-                    "importance": mem["importance"],
-                    "tags": mem.get("tags", []),
-                },
+        points = []
+        for mem in memories:
+            # Named-vector format
+            vectors = {"dense": mem["embedding"]}
+
+            if "sparse_vector" in mem and mem["sparse_vector"]:
+                sparse = mem["sparse_vector"]
+                vectors["sparse"] = models.SparseVector(
+                    indices=list(sparse.keys()),
+                    values=list(sparse.values()),
+                )
+
+            # Enhanced payload
+            payload = {
+                "user_id": mem["user_id"],
+                "memory_type": mem["memory_type"],
+                "importance": mem["importance"],
+                "tags": mem.get("tags", []),
+            }
+
+            if "session_id" in mem and mem["session_id"]:
+                payload["session_id"] = mem["session_id"]
+
+            if "created_at" in mem and mem["created_at"]:
+                payload["created_at"] = int(mem["created_at"].timestamp())
+
+            points.append(
+                models.PointStruct(
+                    id=mem["memory_id"],
+                    vector=vectors,
+                    payload=payload,
+                )
             )
-            for mem in memories
-        ]
 
         await get_qdrant().client.upsert(
             collection_name=self._collection,
@@ -123,11 +176,13 @@ class QdrantMemoryRepository(VectorMemoryRepository):
         min_importance: MemoryImportance | None = None,
         tags: list[str] | None = None,
     ) -> list[VectorSearchResult]:
-        """Search for similar memories using Qdrant.
+        """Search for similar memories using dense vector only.
+
+        Phase 1: Uses named 'dense' vector. For hybrid search, use search_hybrid().
 
         Args:
             user_id: Filter to this user's memories
-            query_vector: Query embedding vector
+            query_vector: Query embedding vector (dense)
             limit: Maximum results to return
             min_score: Minimum similarity score (0-1)
             memory_types: Optional filter by memory types
@@ -168,13 +223,116 @@ class QdrantMemoryRepository(VectorMemoryRepository):
                 )
             )
 
+        # Phase 1: Use named 'dense' vector
         results = await get_qdrant().client.query_points(
             collection_name=self._collection,
             query=query_vector,
+            using="dense",  # Named vector
             query_filter=models.Filter(must=must_conditions),
             limit=limit,
             score_threshold=min_score,
         )
+
+        return [
+            VectorSearchResult(
+                memory_id=str(point.id),
+                relevance_score=point.score,
+                memory_type=point.payload.get("memory_type") if point.payload else None,
+                importance=point.payload.get("importance") if point.payload else None,
+            )
+            for point in results.points
+        ]
+
+    async def search_hybrid(
+        self,
+        user_id: str,
+        query_text: str,
+        dense_vector: list[float],
+        sparse_vector: dict[int, float],
+        limit: int = 10,
+        min_score: float = 0.3,
+        memory_types: list[MemoryType] | None = None,
+        min_importance: MemoryImportance | None = None,
+        tags: list[str] | None = None,
+    ) -> list[VectorSearchResult]:
+        """Hybrid search combining dense semantic + sparse keyword retrieval.
+
+        Phase 1: Uses RRF (Reciprocal Rank Fusion) to merge dense and sparse results.
+
+        Args:
+            user_id: Filter to this user's memories
+            query_text: Original query text (for logging)
+            dense_vector: Dense semantic embedding
+            sparse_vector: BM25 sparse vector {index: score}
+            limit: Maximum results to return
+            min_score: Minimum similarity score (0-1)
+            memory_types: Optional filter by memory types
+            min_importance: Optional minimum importance level
+            tags: Optional filter by tags (any match)
+
+        Returns:
+            List of VectorSearchResult with memory_id and relevance_score
+        """
+        # Build filter conditions
+        must_conditions = [models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id))]
+
+        if memory_types:
+            must_conditions.append(
+                models.FieldCondition(
+                    key="memory_type",
+                    match=models.MatchAny(any=[t.value for t in memory_types]),
+                )
+            )
+
+        if min_importance:
+            importance_order = ["low", "medium", "high", "critical"]
+            min_idx = importance_order.index(min_importance.value)
+            allowed = importance_order[min_idx:]
+            must_conditions.append(
+                models.FieldCondition(
+                    key="importance",
+                    match=models.MatchAny(any=allowed),
+                )
+            )
+
+        if tags:
+            must_conditions.append(
+                models.FieldCondition(
+                    key="tags",
+                    match=models.MatchAny(any=tags),
+                )
+            )
+
+        # Convert sparse dict to SparseVector
+        sparse_vec = models.SparseVector(
+            indices=list(sparse_vector.keys()),
+            values=list(sparse_vector.values()),
+        )
+
+        # Hybrid query with RRF fusion
+        results = await get_qdrant().client.query_points(
+            collection_name=self._collection,
+            prefetch=[
+                # Sparse prefetch (BM25 keyword search)
+                models.Prefetch(
+                    query=sparse_vec,
+                    using="sparse",
+                    limit=limit * 2,  # Fetch 2x for fusion
+                ),
+                # Dense prefetch (semantic search)
+                models.Prefetch(
+                    query=dense_vector,
+                    using="dense",
+                    limit=limit * 2,
+                ),
+            ],
+            query=models.FusionQuery(fusion=models.Fusion.RRF),  # Reciprocal Rank Fusion
+            query_filter=models.Filter(must=must_conditions),
+            limit=limit,
+            score_threshold=min_score,
+        )
+
+        logger.debug(f"Hybrid search for '{query_text[:50]}...' returned {len(results.points)} results")
 
         return [
             VectorSearchResult(

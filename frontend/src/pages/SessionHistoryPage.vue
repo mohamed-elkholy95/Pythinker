@@ -65,21 +65,9 @@
               <Clock :size="12" />
               {{ formatDate(session.latest_message_at) }}
             </span>
-            <span v-if="session.openreplay_session_id" class="session-replay-badge">
-              <Play :size="12" />
-              Replay Available
-            </span>
           </div>
         </div>
         <div class="session-actions">
-          <button
-            v-if="session.openreplay_session_id"
-            class="btn-action"
-            @click.stop="openReplay(session)"
-            title="View Replay"
-          >
-            <Play :size="16" />
-          </button>
           <button
             v-if="session.is_shared"
             class="btn-action shared"
@@ -92,20 +80,6 @@
       </div>
     </div>
 
-    <!-- Replay modal -->
-    <Teleport to="body">
-      <div v-if="selectedSession" class="replay-modal-overlay" @click="closeReplay">
-        <div class="replay-modal" @click.stop>
-          <SessionReplayPlayer
-            :session-id="selectedSession.session_id"
-            :session-title="selectedSession.title"
-            :open-replay-session-id="selectedSession.openreplay_session_id"
-            :events="replayEvents"
-            @close="closeReplay"
-          />
-        </div>
-      </div>
-    </Teleport>
   </div>
 </template>
 
@@ -118,11 +92,9 @@ import {
   History,
   MessageSquare,
   Clock,
-  Play,
   Share2
 } from 'lucide-vue-next'
 import { getSessions } from '../api/agent'
-import SessionReplayPlayer from '../components/SessionReplayPlayer.vue'
 
 interface SessionItem {
   session_id: string
@@ -131,15 +103,6 @@ interface SessionItem {
   latest_message: string | null
   latest_message_at: number | null
   is_shared: boolean
-  openreplay_session_id?: string | null
-}
-
-interface ReplayEvent {
-  id: string
-  type: string
-  name: string
-  timestamp: number
-  payload?: Record<string, unknown>
 }
 
 const router = useRouter()
@@ -149,8 +112,6 @@ const sessions = ref<SessionItem[]>([])
 const isLoading = ref(true)
 const searchQuery = ref('')
 const statusFilter = ref('')
-const selectedSession = ref<SessionItem | null>(null)
-const replayEvents = ref<ReplayEvent[]>([])
 
 // Filtered sessions
 const filteredSessions = computed(() => {
@@ -193,17 +154,6 @@ function goBack(): void {
 
 function viewSession(session: SessionItem): void {
   router.push(`/chat/${session.session_id}`)
-}
-
-function openReplay(session: SessionItem): void {
-  selectedSession.value = session
-  // In a real implementation, we'd fetch replay events here
-  replayEvents.value = []
-}
-
-function closeReplay(): void {
-  selectedSession.value = null
-  replayEvents.value = []
 }
 
 function copyShareLink(session: SessionItem): void {
@@ -475,17 +425,12 @@ onMounted(() => {
   gap: 16px;
 }
 
-.session-date,
-.session-replay-badge {
+.session-date {
   display: flex;
   align-items: center;
   gap: 4px;
   font-size: 12px;
   color: var(--text-muted);
-}
-
-.session-replay-badge {
-  color: var(--function-success);
 }
 
 .session-actions {
@@ -516,28 +461,6 @@ onMounted(() => {
 
 .btn-action.shared {
   color: var(--function-success);
-}
-
-.replay-modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--background-mask);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.replay-modal {
-  width: 90%;
-  max-width: 1200px;
-  height: 80vh;
-  background: var(--background-main);
-  border-radius: 12px;
-  overflow: hidden;
 }
 
 @keyframes spin {
