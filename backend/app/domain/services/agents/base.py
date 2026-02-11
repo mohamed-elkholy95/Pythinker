@@ -1327,7 +1327,7 @@ class BaseAgent:
         task.add_done_callback(self._background_tasks.discard)
         logger.info(f"Handled token limit by trimming {tokens_removed} tokens (save in background)")
 
-    async def cleanup_background_tasks(self, timeout: float = 5.0) -> None:
+    async def cleanup_background_tasks(self, timeout: float = 5.0) -> None:  # noqa: ASYNC109
         """Await pending background tasks with timeout, cancel remaining, and clear the set."""
         if not self._background_tasks:
             return

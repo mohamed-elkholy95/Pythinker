@@ -17,7 +17,6 @@ async def main():
             "sparse": models.SparseVectorParams(),
         }
 
-        print("Creating collection with named vectors...")
         await client.create_collection(
             collection_name="test_hybrid",
             vectors_config=vectors_config,
@@ -27,14 +26,11 @@ async def main():
                 max_segment_size=200000,
             ),
         )
-        print("✅ Collection created successfully!")
 
         # Check the collection info
-        info = await client.get_collection("test_hybrid")
-        print(f"Collection info: {info}")
+        await client.get_collection("test_hybrid")
 
-    except Exception as e:
-        print(f"❌ Error: {e}")
+    except Exception:
         traceback.print_exc()
     finally:
         if client is not None:

@@ -325,7 +325,7 @@ class CheckpointManager:
             except Exception as e:
                 logger.error(f"Failed to list checkpoints from MongoDB: {e}")
         else:
-            for _key, checkpoint in self._memory_storage.items():
+            for checkpoint in self._memory_storage.values():
                 if session_id and checkpoint.session_id != session_id:
                     continue
                 if status and checkpoint.status != status:

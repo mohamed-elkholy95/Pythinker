@@ -562,7 +562,7 @@ class DynamicToolsetManager:
         # Check if prefetch is already in progress
         if self._prefetch_in_progress.get(cache_key):
             # Wait for existing prefetch to complete
-            while self._prefetch_in_progress.get(cache_key, False):
+            while self._prefetch_in_progress.get(cache_key, False):  # noqa: ASYNC110
                 await asyncio.sleep(0.01)
             if self._is_cache_valid(cache_key):
                 return self._task_type_cache[cache_key][0]

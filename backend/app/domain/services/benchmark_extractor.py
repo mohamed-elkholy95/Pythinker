@@ -130,9 +130,9 @@ class BenchmarkExtractor:
 
                 # Add rule-based benchmarks not already found by LLM
                 existing_values = {(b.name.lower(), str(b.value)) for b in llm_benchmarks}
-                for rb in rule_benchmarks:
-                    if (rb.name.lower(), str(rb.value)) not in existing_values:
-                        all_benchmarks.append(rb)
+                all_benchmarks.extend(
+                    rb for rb in rule_benchmarks if (rb.name.lower(), str(rb.value)) not in existing_values
+                )
 
             except Exception as e:
                 logger.warning(f"Benchmark extraction failed for {source.get('url')}: {e}")
@@ -280,7 +280,7 @@ class BenchmarkExtractor:
             by_name[key].append(b)
 
         comparisons = []
-        for _name, group in by_name.items():
+        for group in by_name.values():
             if len(group) >= 2:  # Only create comparison if 2+ entries
                 entries = [
                     {

@@ -341,10 +341,7 @@ class TestPlannerAgent:
         )
 
         message = mock_message(message="Test task")
-        events = []
-
-        async for event in planner.create_plan(message):
-            events.append(event)
+        events = [event async for event in planner.create_plan(message)]
 
         # Should have generated some events (progress events at minimum)
         assert len(events) > 0

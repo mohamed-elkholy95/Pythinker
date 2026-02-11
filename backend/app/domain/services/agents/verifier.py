@@ -344,10 +344,7 @@ class VerifierAgent:
 
     def _format_steps(self, steps: list[Step]) -> str:
         """Format steps for prompt."""
-        lines = []
-        for step in steps:
-            lines.append(f"Step {step.id}: {step.description}")
-        return "\n".join(lines)
+        return "\n".join(f"Step {step.id}: {step.description}" for step in steps)
 
     async def verify_plan(
         self, plan: Plan, user_request: str, task_context: str = ""
@@ -739,13 +736,11 @@ class VerifierAgent:
             infeasible = [tf for tf in verification_result.tool_feasibility if not tf.feasible]
             if infeasible:
                 lines.append("\nInfeasible steps:")
-                for tf in infeasible:
-                    lines.append(f"- Step {tf.step_id}: {tf.reason}")
+                lines.extend(f"- Step {tf.step_id}: {tf.reason}" for tf in infeasible)
 
         if verification_result.dependency_issues:
             lines.append("\nDependency issues:")
-            for di in verification_result.dependency_issues:
-                lines.append(f"- Step {di.step_id}: {di.issue}")
+            lines.extend(f"- Step {di.step_id}: {di.issue}" for di in verification_result.dependency_issues)
 
         lines.append("\nPlease revise the plan to address these issues.")
 

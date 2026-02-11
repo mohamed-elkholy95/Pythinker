@@ -315,9 +315,7 @@ class TestVerifyPlanSkipIntegration:
             steps=[Step(id="1", description="Search for Python docs")],
         )
 
-        events = []
-        async for event in verifier.verify_plan(plan, "find python docs"):
-            events.append(event)
+        events = [event async for event in verifier.verify_plan(plan, "find python docs")]
 
         assert len(events) == 1
         assert events[0].status.value == "passed"
@@ -357,9 +355,7 @@ class TestVerifyPlanSkipIntegration:
             ],
         )
 
-        events = []
-        async for event in verifier.verify_plan(plan, "build auth"):
-            events.append(event)
+        events = [event async for event in verifier.verify_plan(plan, "build auth")]
 
         # Should have started event (not immediately skipped)
         assert any("started" in str(e.status).lower() for e in events)

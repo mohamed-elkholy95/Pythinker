@@ -151,7 +151,6 @@ class InputGuardrails:
 
     # Enhanced PII patterns (Phase 4 Enhancement)
     PII_PATTERNS: ClassVar[list[tuple[str, str]]] = [
-        # SSN (US)
         (r"\b\d{3}-\d{2}-\d{4}\b", "ssn"),
         (r"\b\d{9}\b", "ssn_no_dash"),  # SSN without dashes
         # Passport numbers (various formats)
@@ -369,55 +368,43 @@ class InputGuardrails:
 
     def _check_injection(self, text: str) -> list[InputIssue]:
         """Check for prompt injection attempts."""
-        issues = []
-
-        for pattern in self._injection_re:
-            if match := pattern.search(text):
-                issues.append(
-                    InputIssue(
-                        issue_type=InputIssueType.PROMPT_INJECTION,
-                        description="Potential prompt injection detected",
-                        severity=0.9,
-                        location=match.group(0),
-                    )
-                )
-
-        return issues
+        return [
+            InputIssue(
+                issue_type=InputIssueType.PROMPT_INJECTION,
+                description="Potential prompt injection detected",
+                severity=0.9,
+                location=match.group(0),
+            )
+            for pattern in self._injection_re
+            if (match := pattern.search(text))
+        ]
 
     def _check_jailbreak(self, text: str) -> list[InputIssue]:
         """Check for jailbreak attempts."""
-        issues = []
-
-        for pattern in self._jailbreak_re:
-            if match := pattern.search(text):
-                issues.append(
-                    InputIssue(
-                        issue_type=InputIssueType.JAILBREAK_ATTEMPT,
-                        description="Potential jailbreak attempt detected",
-                        severity=0.85,
-                        location=match.group(0),
-                    )
-                )
-
-        return issues
+        return [
+            InputIssue(
+                issue_type=InputIssueType.JAILBREAK_ATTEMPT,
+                description="Potential jailbreak attempt detected",
+                severity=0.85,
+                location=match.group(0),
+            )
+            for pattern in self._jailbreak_re
+            if (match := pattern.search(text))
+        ]
 
     def _check_sensitive_data(self, text: str) -> list[InputIssue]:
         """Check for sensitive data in input."""
-        issues = []
-
-        for pattern in self._sensitive_re:
-            if pattern.search(text):
-                issues.append(
-                    InputIssue(
-                        issue_type=InputIssueType.SENSITIVE_DATA,
-                        description="Potential sensitive data detected",
-                        severity=0.5,
-                        location="[REDACTED]",
-                        suggestion="Consider removing sensitive information",
-                    )
-                )
-
-        return issues
+        return [
+            InputIssue(
+                issue_type=InputIssueType.SENSITIVE_DATA,
+                description="Potential sensitive data detected",
+                severity=0.5,
+                location="[REDACTED]",
+                suggestion="Consider removing sensitive information",
+            )
+            for pattern in self._sensitive_re
+            if pattern.search(text)
+        ]
 
     def _check_ambiguity(self, text: str) -> list[InputIssue]:
         """Check for ambiguous or underspecified requests."""
@@ -670,38 +657,30 @@ class OutputGuardrails:
 
     def _check_instruction_leak(self, text: str) -> list[OutputIssue]:
         """Check for system instruction leakage."""
-        issues = []
-
-        for pattern in self._instruction_re:
-            if match := pattern.search(text):
-                issues.append(
-                    OutputIssue(
-                        issue_type=OutputIssueType.INSTRUCTION_LEAK,
-                        description="Potential system instruction leakage",
-                        severity=0.7,
-                        location=match.group(0),
-                        fix_suggestion="Remove references to internal instructions",
-                    )
-                )
-
-        return issues
+        return [
+            OutputIssue(
+                issue_type=OutputIssueType.INSTRUCTION_LEAK,
+                description="Potential system instruction leakage",
+                severity=0.7,
+                location=match.group(0),
+                fix_suggestion="Remove references to internal instructions",
+            )
+            for pattern in self._instruction_re
+            if (match := pattern.search(text))
+        ]
 
     def _check_harmful_content(self, text: str) -> list[OutputIssue]:
         """Check for potentially harmful content."""
-        issues = []
-
-        for pattern in self._harmful_re:
-            if match := pattern.search(text):
-                issues.append(
-                    OutputIssue(
-                        issue_type=OutputIssueType.HARMFUL_CONTENT,
-                        description="Potentially harmful content detected",
-                        severity=0.95,
-                        location=match.group(0),
-                    )
-                )
-
-        return issues
+        return [
+            OutputIssue(
+                issue_type=OutputIssueType.HARMFUL_CONTENT,
+                description="Potentially harmful content detected",
+                severity=0.95,
+                location=match.group(0),
+            )
+            for pattern in self._harmful_re
+            if (match := pattern.search(text))
+        ]
 
     def _check_relevance(
         self,

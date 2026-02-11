@@ -922,7 +922,7 @@ NOTE: The browser state may have changed. When you next use the browser:
                                     )
                                     tool_restrictions = skill_context.tool_restrictions or None
                             except Exception:
-                                pass  # Non-critical — activation event still emitted
+                                logger.debug("Failed to build skill context for activation event", exc_info=True)
 
                             activation_event = SkillActivationEvent(
                                 skill_ids=skills_to_use,
@@ -1016,15 +1016,11 @@ NOTE: The browser state may have changed. When you next use the browser:
                 return
 
             # Build conversation from message events
-            conversation: list[dict[str, str]] = []
-            for event in session.events:
-                if isinstance(event, MessageEvent):
-                    conversation.append(
-                        {
-                            "role": event.role,
-                            "content": event.message,
-                        }
-                    )
+            conversation: list[dict[str, str]] = [
+                {"role": event.role, "content": event.message}
+                for event in session.events
+                if isinstance(event, MessageEvent)
+            ]
 
             if not conversation:
                 return

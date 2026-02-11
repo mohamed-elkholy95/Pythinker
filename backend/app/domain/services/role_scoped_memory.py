@@ -113,8 +113,7 @@ class RoleScopedMemory:
                 return ""
 
             lines = ["Known issues to watch for:"]
-            for mem in memories:
-                lines.append(f"- {mem.memory.content}")
+            lines.extend(f"- {mem.memory.content}" for mem in memories)
 
             return "\n".join(lines)
 
@@ -140,8 +139,7 @@ class RoleScopedMemory:
                 return ""
 
             lines = ["User preferences:"]
-            for mem in memories:
-                lines.append(f"- {mem.memory.content}")
+            lines.extend(f"- {mem.memory.content}" for mem in memories)
 
             return "\n".join(lines)
 

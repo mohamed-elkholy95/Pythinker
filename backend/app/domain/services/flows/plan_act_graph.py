@@ -80,7 +80,6 @@ class PlanActState(WorkflowState):
     plan: Plan | None = None
     current_step: Step | None = None
 
-    # Agents (injected)
     planner: PlannerAgent | None = None
     executor: ExecutionAgent | None = None
     verifier: VerifierAgent | None = None

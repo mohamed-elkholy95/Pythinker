@@ -185,9 +185,7 @@ async def gather_with_taskgroup_detailed(
     end_time = datetime.now()
 
     # Separate successes from failures
-    for result in results:
-        if isinstance(result, Exception):
-            errors.append(result)
+    errors.extend(r for r in results if isinstance(r, Exception))
 
     successful_count = len(results) - len([r for r in results if isinstance(r, Exception)])
     failed_count = len([r for r in results if isinstance(r, Exception)])
@@ -206,7 +204,7 @@ async def gather_with_taskgroup_detailed(
 
 async def gather_with_timeout(
     *coros: Coroutine[Any, Any, T],
-    timeout: float,
+    timeout: float,  # noqa: ASYNC109
     return_exceptions: bool = False,
 ) -> list[T | Exception | asyncio.TimeoutError]:
     """Execute coroutines with a global timeout using TaskGroup.

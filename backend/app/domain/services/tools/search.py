@@ -714,7 +714,7 @@ class SearchTool(BaseTool):
             if not is_new:
                 logger.info(f"Search query already executed: {query}")
         except Exception:
-            pass  # Non-critical
+            logger.debug("Failed to record search query in task state", exc_info=True)
 
         # Try browser-based search first only when explicitly enabled via settings
         if self._should_use_browser_search():
@@ -839,8 +839,7 @@ wide_research(
         for query in queries:
             for stype in stypes:
                 variants = QueryExpander.expand(query, stype, max_variants=2)
-                for variant in variants:
-                    all_queries.append((variant, stype))
+                all_queries.extend((variant, stype) for variant in variants)
 
         logger.info(f"Wide research on '{topic}': {len(all_queries)} total queries across {len(stypes)} search types")
 
@@ -853,7 +852,7 @@ wide_research(
             for q in queries:
                 tsm.record_query(q)
         except Exception:
-            pass  # Non-critical
+            logger.debug("Failed to record batch search queries in task state", exc_info=True)
 
         # Execute all searches in parallel with lock-protected dedup
         all_items: list[SearchResultItem] = []

@@ -324,7 +324,7 @@ For complex interactions (clicking, scrolling, forms), use browser_navigate inst
             tsm = get_task_state_manager()
             tsm.record_url(url)
         except Exception:
-            pass  # Non-critical
+            logger.debug("Failed to record URL visit in task state", exc_info=True)
 
         # Track per-session visit count and warn/reject repeated visits
         normalized_url = url.split("#")[0].rstrip("/")
@@ -520,7 +520,7 @@ Returns: Interactive elements, page content, title, URL - ready to use without a
             tsm = get_task_state_manager()
             tsm.record_url(url)
         except Exception:
-            pass  # Non-critical
+            logger.debug("Failed to record URL visit in task state", exc_info=True)
 
         # Track per-session visit count and warn/reject repeated visits
         nav_normalized_url = url.split("#")[0].rstrip("/")

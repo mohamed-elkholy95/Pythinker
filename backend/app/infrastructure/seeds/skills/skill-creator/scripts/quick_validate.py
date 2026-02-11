@@ -118,9 +118,11 @@ def validate_skill(skill_dir: Path) -> list[ValidationError]:
 
     # Check for forbidden files
     forbidden = ["README.md", "CHANGELOG.md", ".git"]
-    for item in skill_dir.iterdir():
-        if item.name in forbidden:
-            errors.append(ValidationError("WARNING", f"Skill contains unnecessary file: {item.name}"))
+    errors.extend(
+        ValidationError("WARNING", f"Skill contains unnecessary file: {item.name}")
+        for item in skill_dir.iterdir()
+        if item.name in forbidden
+    )
 
     return errors
 
@@ -128,10 +130,6 @@ def validate_skill(skill_dir: Path) -> list[ValidationError]:
 def main() -> None:
     """Main entry point."""
     if len(sys.argv) < 2:
-        print("Usage: python quick_validate.py <skill-name-or-path>")
-        print("\nExamples:")
-        print("  python quick_validate.py web-scraper")
-        print("  python quick_validate.py /path/to/skill")
         sys.exit(1)
 
     skill_path = sys.argv[1]
@@ -142,30 +140,22 @@ def main() -> None:
         # Try as skill name in current directory
         skill_dir = Path(".") / skill_path
 
-    print(f"Validating skill: {skill_dir}\n")
-
     errors = validate_skill(skill_dir)
 
     # Count by severity
     error_count = sum(1 for e in errors if e.severity == "ERROR")
-    warning_count = sum(1 for e in errors if e.severity == "WARNING")
+    sum(1 for e in errors if e.severity == "WARNING")
 
     # Print results
     if not errors:
-        print("✅ Skill validation passed!")
         sys.exit(0)
 
-    for error in errors:
-        symbol = "❌" if error.severity == "ERROR" else "⚠️"
-        print(f"{symbol} {error}")
-
-    print(f"\nSummary: {error_count} error(s), {warning_count} warning(s)")
+    for _error in errors:
+        pass
 
     if error_count > 0:
-        print("\n❌ Validation FAILED - fix errors before delivery")
         sys.exit(1)
     else:
-        print("\n⚠️ Validation passed with warnings")
         sys.exit(0)
 
 

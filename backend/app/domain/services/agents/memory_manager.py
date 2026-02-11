@@ -284,17 +284,17 @@ class MemoryManager:
         urls = list(set(found_urls))[:5]
 
         # Extract title if present
-        title_match = re.search(r"<title[^>]*>([^<]+)</title>", content, re.I)
+        title_match = re.search(r"<title[^>]*>([^<]+)</title>", content, re.IGNORECASE)
         if title_match:
             facts.append(f"Title: {title_match.group(1)[:100]}")
 
         # Count interactive elements
-        link_count = len(re.findall(r"<a\s", content, re.I))
+        link_count = len(re.findall(r"<a\s", content, re.IGNORECASE))
         if link_count:
             facts.append(f"{link_count} links found")
 
         # Check for forms
-        if re.search(r"<form", content, re.I):
+        if re.search(r"<form", content, re.IGNORECASE):
             facts.append("Contains form")
 
         # Content length indicator

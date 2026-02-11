@@ -218,17 +218,17 @@ class FiveCheckResult(BaseModel):
 
     def get_failed_checks(self) -> list[str]:
         """Get list of failed check names."""
-        failed = []
-        for check in [
-            self.accuracy_check,
-            self.completeness_check,
-            self.consistency_check,
-            self.symmetry_check,
-            self.grounding_check,
-        ]:
-            if not check.passed:
-                failed.append(check.check_name)
-        return failed
+        return [
+            check.check_name
+            for check in [
+                self.accuracy_check,
+                self.completeness_check,
+                self.consistency_check,
+                self.symmetry_check,
+                self.grounding_check,
+            ]
+            if not check.passed
+        ]
 
     def has_critical_failures(self) -> bool:
         """Check if there are any critical severity failures."""
@@ -770,8 +770,9 @@ class CriticAgent:
         hallucination_result = self._hallucination_detector.analyze(output, verified_claims)
 
         if hallucination_result.has_high_risk_patterns:
-            for issue in hallucination_result.issues:
-                red_flags.append(f"{issue.description}: '{issue.matched_text[:50]}'")
+            red_flags.extend(
+                f"{issue.description}: '{issue.matched_text[:50]}'" for issue in hallucination_result.issues
+            )
             logger.warning(f"Hallucination detection: {hallucination_result.high_risk_count} high-risk patterns found")
 
         # Step 2: Check source attribution quality
@@ -956,17 +957,16 @@ class CriticAgent:
             parsed = await self.json_parser.parse(content)
 
             # Parse improvements
-            improvements = []
-            for imp in parsed.get("improvements", []):
-                improvements.append(
-                    StructuredImprovement(
-                        category=imp.get("category", "general"),
-                        severity=imp.get("severity", "minor"),
-                        issue=imp.get("issue", ""),
-                        fix=imp.get("fix", ""),
-                        location=imp.get("location"),
-                    )
+            improvements = [
+                StructuredImprovement(
+                    category=imp.get("category", "general"),
+                    severity=imp.get("severity", "minor"),
+                    issue=imp.get("issue", ""),
+                    fix=imp.get("fix", ""),
+                    location=imp.get("location"),
                 )
+                for imp in parsed.get("improvements", [])
+            ]
 
             return StructuredFeedback(
                 overall_quality=float(parsed.get("overall_quality", 0.7)),
@@ -1182,6 +1182,7 @@ class CriticAgent:
                         )
                     )
                 except Exception:
+                    logger.debug("Failed to parse asymmetry issue", exc_info=True)
                     continue
 
             result = FiveCheckResult(
@@ -1307,28 +1308,30 @@ class CriticAgent:
             if fabricated:
                 issues.append("### Fabricated Claims (No Source Found)")
                 issues.append(f"**{len(fabricated)} claims have no source evidence:**")
-                for claim in fabricated[:10]:  # Limit to 10
-                    issues.append(f'  - FABRICATED: "{claim.claim_text[:80]}..."')
+                issues.extend(
+                    f'  - FABRICATED: "{claim.claim_text[:80]}..."' for claim in fabricated[:10]
+                )  # Limit to 10
 
             unverified = provenance_store.get_unverified_claims()
             if unverified:
                 issues.append(f"**{len(unverified)} claims could not be verified:**")
-                for claim in unverified[:5]:  # Limit to 5
-                    issues.append(f'  - UNVERIFIED: "{claim.claim_text[:60]}..."')
+                issues.extend(f'  - UNVERIFIED: "{claim.claim_text[:60]}..."' for claim in unverified[:5])  # Limit to 5
 
         # Enhanced Grounding Issues
         if grounding_result:
             if grounding_result.fabricated_numeric_claims:
                 issues.append("### Fabricated Numeric Claims")
                 issues.append(f"**{len(grounding_result.fabricated_numeric_claims)} numbers not found in any source:**")
-                for claim in grounding_result.fabricated_numeric_claims[:10]:
-                    issues.append(f"  - FABRICATED METRIC: {claim}")
+                issues.extend(
+                    f"  - FABRICATED METRIC: {claim}" for claim in grounding_result.fabricated_numeric_claims[:10]
+                )
 
             if grounding_result.fabricated_entity_claims:
                 issues.append("### Unverified Entity Claims")
                 issues.append(f"**{len(grounding_result.fabricated_entity_claims)} entity claims not in sources:**")
-                for claim in grounding_result.fabricated_entity_claims[:10]:
-                    issues.append(f"  - UNVERIFIED ENTITY: {claim}")
+                issues.extend(
+                    f"  - UNVERIFIED ENTITY: {claim}" for claim in grounding_result.fabricated_entity_claims[:10]
+                )
 
         if not issues:
             return "No pre-verification issues detected."

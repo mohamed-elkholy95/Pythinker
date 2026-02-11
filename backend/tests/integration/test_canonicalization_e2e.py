@@ -182,11 +182,9 @@ class TestCanonicalizationE2E:
         # If we silently removed unknown fields, attacker could bypass validation
         # by sending: {"url": "https://evil.com", "secret_field": "admin_mode"}
         # Silent removal would result in: {"url": "https://evil.com"}
-        # Which would pass validation, but context is lost for security audit
-
-        # Our approach: Preserve and explicitly reject
-        # Result: {"url": "https://evil.com", "secret_field": "admin_mode"}
-        # Validation fails, security team can audit malicious attempt
+        # which would pass validation, but context is lost for security audit.
+        # Our approach: Preserve and explicitly reject so validation fails
+        # and security team can audit malicious attempt.
 
     @pytest.mark.asyncio
     async def test_multiple_tools_end_to_end(self, canonicalizer):

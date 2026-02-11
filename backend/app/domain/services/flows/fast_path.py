@@ -541,15 +541,14 @@ class FastPathRouter:
 
                 if search_result.success and search_result.data and search_result.data.results:
                     # Normalize results to consistent format (limit to 5)
-                    results_list: list[SearchResultItem] = []
-                    for result in search_result.data.results[:5]:
-                        results_list.append(
-                            SearchResultItem(
-                                title=result.title or "No title",
-                                link=result.link or "",
-                                snippet=result.snippet or "",
-                            )
+                    results_list: list[SearchResultItem] = [
+                        SearchResultItem(
+                            title=result.title or "No title",
+                            link=result.link or "",
+                            snippet=result.snippet or "",
                         )
+                        for result in search_result.data.results[:5]
+                    ]
 
                     # Emit ToolEvent CALLED with structured results for frontend
                     yield ToolEvent(

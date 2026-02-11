@@ -8,6 +8,7 @@ is not accessible.
 import io
 import logging
 import os
+from contextlib import suppress
 
 import httpx
 import pytest
@@ -28,12 +29,10 @@ SANDBOX_ADDRESSES = [
 def _get_sandbox_address():
     """Find reachable sandbox address, trying Docker network first."""
     for host, port in SANDBOX_ADDRESSES:
-        try:
+        with suppress(Exception):
             response = httpx.get(f"http://{host}:{port}/health", timeout=2.0)
             if response.status_code == 200:
                 return (host, port)
-        except Exception:
-            continue
     return None
 
 

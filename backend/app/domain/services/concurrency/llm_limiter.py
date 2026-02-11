@@ -150,7 +150,7 @@ class LLMConcurrencyLimiter:
             _update_llm_queue_waiting(self._queued)
 
     @asynccontextmanager
-    async def acquire(self, timeout: float | None = None):
+    async def acquire(self, timeout: float | None = None):  # noqa: ASYNC109
         """Acquire a slot for an LLM request.
 
         Args:

@@ -646,13 +646,10 @@ if __name__ == "__main__":
     async def test():
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
-            print("Set ANTHROPIC_API_KEY environment variable to test")
             return
 
         llm = AnthropicLLM(api_key=api_key)
 
-        response = await llm.ask([{"role": "user", "content": "What is 2 + 2?"}])
-
-        print(f"Response: {response}")
+        await llm.ask([{"role": "user", "content": "What is 2 + 2?"}])
 
     asyncio.run(test())

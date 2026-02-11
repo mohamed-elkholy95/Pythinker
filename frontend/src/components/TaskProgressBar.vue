@@ -190,24 +190,6 @@
         :class="showCollapsedThumbnail && sessionId ? 'has-thumbnail' : ''"
         @click="toggleExpand"
       >
-        <!-- Collapsed step timeline rail -->
-        <div v-if="steps.length > 0" class="collapsed-step-rail flex-shrink-0">
-          <div
-            v-for="(step, index) in steps"
-            :key="`collapsed-${step.id}`"
-            class="collapsed-step-item"
-          >
-            <div class="collapsed-step-node" :class="`is-${step.status}`">
-              <Check v-if="step.status === 'completed'" class="collapsed-step-check" :stroke-width="3" />
-              <span v-else-if="step.status === 'running'" class="collapsed-step-dot" aria-hidden="true"></span>
-            </div>
-            <div
-              v-if="index < steps.length - 1"
-              class="collapsed-step-line"
-            ></div>
-          </div>
-        </div>
-
         <!-- Content -->
         <div class="flex-1 min-w-0 flex flex-col gap-0.5">
           <!-- Flip Board Animation for Task Description -->
@@ -641,78 +623,6 @@ onUnmounted(() => {
 .progress-bar-collapsed:hover {
   background: var(--bolt-elements-bg-depth-2);
   border-color: var(--bolt-elements-borderColorActive);
-}
-
-/* ===== COLLAPSED STEP RAIL ===== */
-.collapsed-step-rail {
-  width: 16px;
-  align-self: stretch;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-
-.collapsed-step-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-height: 0;
-  flex: 1;
-}
-
-.collapsed-step-node {
-  width: 12px;
-  height: 12px;
-  border-radius: 9999px;
-  border: 1px solid var(--bolt-elements-borderColor);
-  background: var(--bolt-elements-bg-depth-2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.collapsed-step-node.is-completed {
-  border-color: var(--function-success);
-  background: var(--function-success);
-}
-
-.collapsed-step-node.is-running {
-  border-color: var(--bolt-elements-borderColorActive);
-  background: var(--bolt-elements-bg-depth-1);
-}
-
-.collapsed-step-node.is-pending {
-  border-color: var(--bolt-elements-borderColor);
-  background: var(--bolt-elements-bg-depth-2);
-}
-
-.collapsed-step-check {
-  width: 7px;
-  height: 7px;
-  color: #fff;
-}
-
-.collapsed-step-dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 9999px;
-  background: var(--bolt-elements-textSecondary);
-}
-
-.collapsed-step-line {
-  width: 1px;
-  min-height: 4px;
-  flex: 1;
-  margin: 2px 0;
-  background: repeating-linear-gradient(
-    to bottom,
-    var(--bolt-elements-borderColor) 0,
-    var(--bolt-elements-borderColor) 3px,
-    transparent 3px,
-    transparent 7px
-  );
 }
 
 /* ===== PROGRESS PILL ===== */

@@ -315,7 +315,7 @@ class ReasoningCache:
 
     def _hash_problem(self, problem: str) -> str:
         """Generate a hash of the problem."""
-        return hashlib.md5(problem.encode()).hexdigest()
+        return hashlib.md5(problem.encode()).hexdigest()  # noqa: S324 - MD5 used for non-security cache key, not cryptographic
 
     def _calculate_similarity(self, problem1: str, problem2: str) -> float:
         """Calculate similarity between two problems."""

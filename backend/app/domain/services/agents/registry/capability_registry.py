@@ -218,22 +218,14 @@ class AgentRegistry:
         min_level: CapabilityLevel = CapabilityLevel.BASIC,
     ) -> list[AgentProfile]:
         """Get agents that have a specific capability."""
-        matching = []
-        for profile in self._profiles.values():
-            if profile.has_capability(capability_name, min_level):
-                matching.append(profile)
-        return matching
+        return [profile for profile in self._profiles.values() if profile.has_capability(capability_name, min_level)]
 
     def get_agents_by_category(
         self,
         category: CapabilityCategory,
     ) -> list[AgentProfile]:
         """Get agents that have capabilities in a category."""
-        matching = []
-        for profile in self._profiles.values():
-            if profile.get_capabilities_by_category(category):
-                matching.append(profile)
-        return matching
+        return [profile for profile in self._profiles.values() if profile.get_capabilities_by_category(category)]
 
     def find_best_agent(
         self,

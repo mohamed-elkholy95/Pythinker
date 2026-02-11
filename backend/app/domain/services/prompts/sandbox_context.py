@@ -450,7 +450,7 @@ print(json.dumps({"os": platform.system(), "arch": platform.machine()}, indent=2
         age = None
         if generated_at:
             with contextlib.suppress(Exception):
-                gen_time = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+                gen_time = datetime.fromisoformat(generated_at)
                 age = datetime.utcnow() - gen_time
 
         return {

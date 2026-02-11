@@ -11,9 +11,7 @@ from app.domain.services.flows.workflow_graph import (
     WorkflowState,
 )
 
-# Deprecated experimental flows — import directly if needed:
-#   from app.domain.services.flows.plan_act_graph import PlanActGraphFlow
-#   from app.domain.services.flows.tree_of_thoughts_flow import TreeOfThoughtsFlow
+# Deprecated experimental flows — import directly if needed
 
 __all__ = [
     "END",

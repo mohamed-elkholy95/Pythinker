@@ -192,10 +192,10 @@
   --text-white-tsp: #ffffff99;
   --theme-text-primary: var(--bolt-elements-textPrimary);
   --logo-color: var(--bolt-elements-textPrimary);
-  --background-gray-main: #424242;
+  --background-gray-main: #303030;
   --background-gray-secondary: var(--bolt-elements-bg-depth-3);
   --background-white-main: var(--bolt-elements-bg-depth-1);
-  --background-main: #424242;
+  --background-main: #303030;
   --background-secondary: var(--bolt-elements-bg-depth-2);
   --background-tertiary: var(--bolt-elements-bg-depth-3);
   --background-hover: var(--fill-tsp-white-main);
@@ -203,7 +203,7 @@
   --background-menu-white: var(--bolt-elements-bg-depth-1);
   --background-tsp-menu-white: rgba(255, 255, 255, 0.06);
   --background-tsp-card-gray: rgba(255, 255, 255, 0.06);
-  --background-nav: #292929;
+  --background-nav: #1f1f1f;
   --background-card: var(--bolt-elements-bg-depth-1);
   --background-mask: rgba(0, 0, 0, 0.6);
   --border-main: var(--bolt-elements-borderColor);

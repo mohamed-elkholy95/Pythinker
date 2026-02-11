@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -10,6 +11,8 @@ from pydantic import BaseModel, Field
 from app.domain.external.llm import LLM
 from app.domain.models.research_phase import ResearchPhase
 from app.domain.models.tool_result import ToolResult
+
+logger = logging.getLogger(__name__)
 
 
 class ToolCall(BaseModel):
@@ -84,7 +87,7 @@ class ReflectiveExecutor:
             if parsed[0]:
                 return parsed
         except Exception:
-            pass
+            logger.debug("Failed to generate LLM reflection, using default", exc_info=True)
 
         return self._default_reflection(action, result)
 

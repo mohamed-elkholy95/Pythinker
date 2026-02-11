@@ -380,9 +380,8 @@ def import_superpowers_skills(superpowers_dir: Path) -> list[Skill]:
         try:
             skill = convert_skill_md_to_model(skill_md)
             skills.append(skill)
-        except SkillParseError as e:
+        except SkillParseError:
             # Log error but continue with other skills
-            print(f"Warning: Failed to parse {skill_dir.name}: {e}")
             continue
 
     return skills

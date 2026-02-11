@@ -415,8 +415,9 @@ class MCPClientManager:
         tool_priorities = []
         for server_name, health in self._server_health.items():
             if server_name in self._tools_cache:
-                for cached_tool in self._tools_cache[server_name].tools:
-                    tool_priorities.append((cached_tool.name, health.priority))
+                tool_priorities.extend(
+                    (cached_tool.name, health.priority) for cached_tool in self._tools_cache[server_name].tools
+                )
 
         # Sort by priority descending
         tool_priorities.sort(key=lambda x: x[1], reverse=True)
@@ -665,30 +666,30 @@ class MCPClientManager:
             templates = []
 
             if resources_response and hasattr(resources_response, "resources"):
-                for res in resources_response.resources:
-                    resources.append(
-                        MCPResource(
-                            uri=res.uri,
-                            name=res.name,
-                            description=getattr(res, "description", None),
-                            mime_type=getattr(res, "mimeType", None),
-                            server_name=server_name,
-                            annotations=getattr(res, "annotations", {}) or {},
-                        )
+                resources.extend(
+                    MCPResource(
+                        uri=res.uri,
+                        name=res.name,
+                        description=getattr(res, "description", None),
+                        mime_type=getattr(res, "mimeType", None),
+                        server_name=server_name,
+                        annotations=getattr(res, "annotations", {}) or {},
                     )
+                    for res in resources_response.resources
+                )
 
             # Check for resource templates
             if hasattr(resources_response, "resourceTemplates") and resources_response.resourceTemplates:
-                for tmpl in resources_response.resourceTemplates:
-                    templates.append(
-                        ResourceTemplate(
-                            uri_template=tmpl.uriTemplate,
-                            name=tmpl.name,
-                            description=getattr(tmpl, "description", None),
-                            mime_type=getattr(tmpl, "mimeType", None),
-                            server_name=server_name,
-                        )
+                templates.extend(
+                    ResourceTemplate(
+                        uri_template=tmpl.uriTemplate,
+                        name=tmpl.name,
+                        description=getattr(tmpl, "description", None),
+                        mime_type=getattr(tmpl, "mimeType", None),
+                        server_name=server_name,
                     )
+                    for tmpl in resources_response.resourceTemplates
+                )
 
             self._resources_cache[server_name] = resources
             self._templates_cache[server_name] = templates

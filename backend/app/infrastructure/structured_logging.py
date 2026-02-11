@@ -7,6 +7,7 @@ Provides JSON-formatted logging with correlation ID propagation through async op
 import logging
 import re
 import sys
+from contextlib import suppress
 from contextvars import ContextVar
 from typing import Any
 
@@ -171,7 +172,7 @@ def add_correlation_ids(logger: logging.Logger, method_name: str, event_dict: Ev
         event_dict["agent_id"] = agent_id
 
     # Also try to get from observability context (fallback)
-    try:
+    with suppress(Exception):
         from app.infrastructure.observability.context import get_request_context
 
         ctx = get_request_context()
@@ -183,8 +184,6 @@ def add_correlation_ids(logger: logging.Logger, method_name: str, event_dict: Ev
             event_dict["user_id"] = ctx.user_id
         if ctx.agent_id and "agent_id" not in event_dict:
             event_dict["agent_id"] = ctx.agent_id
-    except Exception:
-        pass  # Context not available
 
     return event_dict
 

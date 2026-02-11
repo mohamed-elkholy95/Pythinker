@@ -345,14 +345,15 @@ class TestReflectionAgent:
         """Test reflection with CONTINUE decision"""
         agent = ReflectionAgent(llm=mock_llm, json_parser=mock_json_parser)
 
-        events = []
-        async for event in agent.reflect(
-            goal="Complete task",
-            plan=test_plan,
-            progress=test_metrics,
-            trigger_type=ReflectionTriggerType.STEP_INTERVAL,
-        ):
-            events.append(event)
+        events = [
+            event
+            async for event in agent.reflect(
+                goal="Complete task",
+                plan=test_plan,
+                progress=test_metrics,
+                trigger_type=ReflectionTriggerType.STEP_INTERVAL,
+            )
+        ]
 
         assert len(events) == 2
         assert events[0].status == ReflectionStatus.TRIGGERED
@@ -375,11 +376,15 @@ class TestReflectionAgent:
 
         agent = ReflectionAgent(llm=mock_llm, json_parser=mock_json_parser)
 
-        events = []
-        async for event in agent.reflect(
-            goal="Complete task", plan=test_plan, progress=test_metrics, trigger_type=ReflectionTriggerType.AFTER_ERROR
-        ):
-            events.append(event)
+        events = [
+            event
+            async for event in agent.reflect(
+                goal="Complete task",
+                plan=test_plan,
+                progress=test_metrics,
+                trigger_type=ReflectionTriggerType.AFTER_ERROR,
+            )
+        ]
 
         result_event = events[-1]
         assert result_event.decision == "replan"
@@ -391,14 +396,15 @@ class TestReflectionAgent:
 
         agent = ReflectionAgent(llm=mock_llm, json_parser=mock_json_parser)
 
-        events = []
-        async for event in agent.reflect(
-            goal="Complete task",
-            plan=test_plan,
-            progress=test_metrics,
-            trigger_type=ReflectionTriggerType.STEP_INTERVAL,
-        ):
-            events.append(event)
+        events = [
+            event
+            async for event in agent.reflect(
+                goal="Complete task",
+                plan=test_plan,
+                progress=test_metrics,
+                trigger_type=ReflectionTriggerType.STEP_INTERVAL,
+            )
+        ]
 
         result_event = events[-1]
         # Should fail open with CONTINUE

@@ -5,6 +5,8 @@ Tests error handling, retry logic, cascade prevention, and graceful degradation
 across the agent workflow.
 """
 
+from contextlib import suppress
+
 import pytest
 
 from app.domain.models.plan import ExecutionStatus
@@ -359,11 +361,9 @@ class TestErrorRecoveryStrategies:
         # Simulate retries
         for tool in ["tool_a", "tool_b"]:
             for retry in range(3):
-                try:
+                with suppress(Exception):
                     await tracked_execute(tool, retry)
                     break
-                except Exception:
-                    continue
 
         assert retry_counts["tool_a"] == 2
         assert retry_counts["tool_b"] == 2

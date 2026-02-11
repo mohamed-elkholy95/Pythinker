@@ -188,7 +188,7 @@ class PlaywrightTool(BaseTool):
     async def _run_playwright_script(
         self,
         script: str,
-        timeout: int = 30,
+        timeout: int = 30,  # noqa: ASYNC109
     ) -> ToolResult:
         """
         Run a Playwright script in the sandbox.
@@ -340,7 +340,7 @@ async with async_playwright() as p:
         self,
         url: str,
         wait_until: str = "load",
-        timeout: int = 30000,
+        timeout: int = 30000,  # noqa: ASYNC109
         stealth: bool = False,
         human_delay: bool | None = None,
     ) -> ToolResult:
@@ -461,7 +461,7 @@ async with async_playwright() as p:
         selector: str,
         button: str = "left",
         click_count: int = 1,
-        timeout: int = 30000,
+        timeout: int = 30000,  # noqa: ASYNC109
     ) -> ToolResult:
         """
         Click on an element.
@@ -509,7 +509,7 @@ async with async_playwright() as p:
         self,
         selector: str,
         text: str,
-        timeout: int = 30000,
+        timeout: int = 30000,  # noqa: ASYNC109
     ) -> ToolResult:
         """
         Fill an input field.
@@ -723,7 +723,7 @@ async with async_playwright() as p:
         self,
         selector: str,
         state: str = "visible",
-        timeout: int = 30000,
+        timeout: int = 30000,  # noqa: ASYNC109
     ) -> ToolResult:
         """
         Wait for an element to reach a state.
@@ -974,13 +974,13 @@ async with async_playwright() as p:
         """Get a random user agent for stealth mode."""
         import random
 
-        return random.choice(self.USER_AGENTS)
+        return random.choice(self.USER_AGENTS)  # noqa: S311 - Random user agent for stealth/fingerprinting, not cryptographic
 
     def _get_random_viewport(self) -> dict[str, int]:
         """Get a random viewport for stealth mode."""
         import random
 
-        return random.choice(self.VIEWPORTS)
+        return random.choice(self.VIEWPORTS)  # noqa: S311 - Random viewport for stealth/fingerprinting, not cryptographic
 
     def _get_stealth_args(self) -> str:
         """Get stealth args as a Python list string."""
@@ -1005,7 +1005,7 @@ async with async_playwright() as p:
         self,
         url: str,
         wait_until: str = "networkidle",
-        timeout: int = 60000,
+        timeout: int = 60000,  # noqa: ASYNC109
         human_delay: bool = True,
     ) -> ToolResult:
         """

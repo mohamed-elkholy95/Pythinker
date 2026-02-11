@@ -3,6 +3,7 @@
 Tests end-to-end SLO monitoring and automatic cache bypass.
 """
 
+import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock
 
@@ -248,7 +249,7 @@ class TestCircuitBreakerRecoveryFlow:
                 cb.record_request(hit=True)
             for _ in range(7):
                 cb.record_request(hit=False)
-            time.sleep(0.1)
+            await asyncio.sleep(0.1)
 
         # Eventually should open (need consecutive failures)
         # Note: Actual transition depends on timing and consecutive failure logic
@@ -265,7 +266,7 @@ class TestCircuitBreakerRecoveryFlow:
                 cb.record_request(hit=True)
             for _ in range(3):
                 cb.record_request(hit=False)
-            time.sleep(0.1)
+            await asyncio.sleep(0.1)
 
         # Should eventually close after consecutive successes
 

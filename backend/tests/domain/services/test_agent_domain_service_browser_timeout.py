@@ -78,7 +78,7 @@ async def test_create_task_recycles_sandbox_on_browser_timeout():
         search_engine=AsyncMock(),
     )
 
-    async def fake_wait_for(coro, timeout):
+    async def fake_wait_for(coro, timeout):  # noqa: ASYNC109
         fake_wait_for.calls += 1
         if fake_wait_for.calls == 1:
             # Close coroutine to avoid "never awaited" warnings

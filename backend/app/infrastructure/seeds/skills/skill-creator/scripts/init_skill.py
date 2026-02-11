@@ -140,7 +140,6 @@ def create_skill(skill_name: str, base_dir: str = ".") -> None:
     # Create skill directory
     skill_dir = Path(base_dir) / skill_name
     if skill_dir.exists():
-        print(f"Error: Skill directory '{skill_dir}' already exists.")
         sys.exit(1)
 
     # Create directories
@@ -153,7 +152,6 @@ def create_skill(skill_name: str, base_dir: str = ".") -> None:
 
     for directory in directories:
         directory.mkdir(parents=True, exist_ok=True)
-        print(f"Created: {directory}")
 
     # Create SKILL.md
     skill_md_path = skill_dir / "SKILL.md"
@@ -162,7 +160,6 @@ def create_skill(skill_name: str, base_dir: str = ".") -> None:
         skill_title=skill_title,
     )
     skill_md_path.write_text(skill_md_content)
-    print(f"Created: {skill_md_path}")
 
     # Create example script
     script_name = f"example_{skill_name.replace('-', '_')}.py"
@@ -172,35 +169,21 @@ def create_skill(skill_name: str, base_dir: str = ".") -> None:
         script_name=script_name,
     )
     script_path.write_text(script_content)
-    print(f"Created: {script_path}")
 
     # Create example reference
     reference_path = skill_dir / "references" / "guidelines.md"
     reference_content = REFERENCE_TEMPLATE.format(title=f"{skill_title} Guidelines")
     reference_path.write_text(reference_content)
-    print(f"Created: {reference_path}")
 
     # Create example template
     template_path = skill_dir / "templates" / "output_template.md"
     template_content = TEMPLATE_TEMPLATE.format(title=skill_title)
     template_path.write_text(template_content)
-    print(f"Created: {template_path}")
-
-    print(f"\n✅ Skill '{skill_name}' initialized successfully!")
-    print("\nNext steps:")
-    print(f"1. Edit {skill_md_path} to define your skill")
-    print(f"2. Add scripts to {skill_dir}/scripts/")
-    print(f"3. Add references to {skill_dir}/references/")
-    print(f"4. Add templates to {skill_dir}/templates/")
-    print("5. Run quick_validate.py to validate the skill")
 
 
 def main() -> None:
     """Main entry point."""
     if len(sys.argv) < 2:
-        print("Usage: python init_skill.py <skill-name>")
-        print("\nExample:")
-        print("  python init_skill.py web-scraper")
         sys.exit(1)
 
     skill_name = sys.argv[1]

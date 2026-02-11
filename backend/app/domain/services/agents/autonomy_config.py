@@ -89,7 +89,7 @@ class PermissionFlags:
         default_factory=lambda: {
             "localhost",
             "127.0.0.1",
-            "0.0.0.0",
+            "0.0.0.0",  # noqa: S104 - Intentionally blocked domain for security
             "internal",
         }
     )

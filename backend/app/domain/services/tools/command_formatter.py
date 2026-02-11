@@ -330,7 +330,7 @@ class CommandFormatter:
 
         # Get first arg value
         first_arg = ""
-        for _key, value in args.items():
+        for value in args.values():
             if isinstance(value, str) and len(value) < 60:
                 first_arg = value
                 break

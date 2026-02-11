@@ -40,16 +40,11 @@ def get_superpowers_skills() -> list[Skill]:
         List of Skill models, or empty list if bundled skills directory not found
     """
     if not SUPERPOWERS_DIR.exists():
-        print(f"Warning: Superpowers directory not found at {SUPERPOWERS_DIR}")
-        print("Skipping Superpowers skills import.")
         return []
 
     try:
-        skills = import_superpowers_skills(SUPERPOWERS_DIR)
-        print(f"Successfully imported {len(skills)} Superpowers skills")
-        return skills
-    except Exception as e:
-        print(f"Error importing Superpowers skills: {e}")
+        return import_superpowers_skills(SUPERPOWERS_DIR)
+    except Exception:
         return []
 
 

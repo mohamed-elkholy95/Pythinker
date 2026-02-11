@@ -14,6 +14,7 @@ Features:
 
 import ast
 import asyncio
+import logging
 import re
 import tempfile
 from dataclasses import dataclass, field
@@ -31,6 +32,8 @@ from app.domain.models.skill_package import (
 )
 from app.domain.services.skill_packager import get_skill_packager
 from app.domain.services.tools.base import BaseTool, ToolResult, ToolSchema
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -402,10 +405,7 @@ class GitHubSkillSeeker(BaseTool):
             url = url.replace("git@github.com:", "https://github.com/")
 
         # Remove .git suffix
-        if url.endswith(".git"):
-            url = url[:-4]
-
-        return url
+        return url.removesuffix(".git")
 
     async def _clone_repository(self, repo_url: str, dest_path: Path) -> bool:
         """Clone a repository to the destination path."""
@@ -480,7 +480,7 @@ class GitHubSkillSeeker(BaseTool):
                 if match:
                     return match.group(1)
         except Exception:
-            pass
+            logger.debug("Failed to extract package name from git config", exc_info=True)
 
         # Fall back to directory name
         return repo_path.name
@@ -494,7 +494,7 @@ class GitHubSkillSeeker(BaseTool):
                 try:
                     return readme_path.read_text(encoding="utf-8")
                 except Exception:
-                    pass
+                    logger.debug(f"Failed to read README file: {readme_path}", exc_info=True)
         return None
 
     def _extract_description(self, readme_content: str) -> str:
@@ -540,7 +540,7 @@ class GitHubSkillSeeker(BaseTool):
                 if match:
                     return match.group(1)
             except Exception:
-                pass
+                logger.debug("Failed to extract module name from setup.py", exc_info=True)
 
         # Look for common patterns
         for pattern in ["src", "lib", "app"]:
@@ -590,7 +590,7 @@ class GitHubSkillSeeker(BaseTool):
                         if match:
                             dependencies.append(match.group(1))
             except Exception:
-                pass
+                logger.debug("Failed to parse requirements.txt", exc_info=True)
 
         # Try pyproject.toml
         pyproject = repo_path / "pyproject.toml"
@@ -606,7 +606,7 @@ class GitHubSkillSeeker(BaseTool):
                         if match:
                             dependencies.append(match.group(1))
             except Exception:
-                pass
+                logger.debug("Failed to parse pyproject.toml dependencies", exc_info=True)
 
         return list(set(dependencies))
 
@@ -616,13 +616,11 @@ class GitHubSkillSeeker(BaseTool):
 
         # Look for __main__.py
         main_files = list(repo_path.rglob("__main__.py"))
-        for f in main_files:
-            entry_points.append(str(f.relative_to(repo_path)))
+        entry_points.extend(str(f.relative_to(repo_path)) for f in main_files)
 
         # Look for cli.py or main.py
         for pattern in ["cli.py", "main.py", "app.py"]:
-            for f in repo_path.rglob(pattern):
-                entry_points.append(str(f.relative_to(repo_path)))
+            entry_points.extend(str(f.relative_to(repo_path)) for f in repo_path.rglob(pattern))
 
         return entry_points
 
@@ -634,8 +632,7 @@ class GitHubSkillSeeker(BaseTool):
         for examples_dir in ["examples", "example", "demos", "demo"]:
             dir_path = repo_path / examples_dir
             if dir_path.is_dir():
-                for f in dir_path.rglob("*.py"):
-                    examples.append(str(f.relative_to(repo_path)))
+                examples.extend(str(f.relative_to(repo_path)) for f in dir_path.rglob("*.py"))
 
         return examples
 
@@ -705,15 +702,15 @@ class GitHubSkillSeeker(BaseTool):
         if analysis.classes:
             api_features: list[SkillFeatureMapping] = []
             for cls in analysis.classes[:10]:  # Limit to top 10
-                for method in cls.methods[:5]:  # Limit methods per class
-                    if method.docstring:
-                        api_features.append(
-                            SkillFeatureMapping(
-                                feature=f"{cls.name}.{method.name}",
-                                user_value=method.docstring.split("\n")[0][:100],
-                                when_to_use=f"When working with {cls.name}",
-                            )
-                        )
+                api_features.extend(
+                    SkillFeatureMapping(
+                        feature=f"{cls.name}.{method.name}",
+                        user_value=method.docstring.split("\n")[0][:100],
+                        when_to_use=f"When working with {cls.name}",
+                    )
+                    for method in cls.methods[:5]  # Limit methods per class
+                    if method.docstring
+                )
             if api_features:
                 feature_categories.append(
                     SkillFeatureCategory(
@@ -744,13 +741,13 @@ class GitHubSkillSeeker(BaseTool):
         # Create examples from analysis
         examples: list[SkillExample] = []
         if include_examples and analysis.examples_found:
-            for example_file in analysis.examples_found[:3]:
-                examples.append(
-                    SkillExample(
-                        title=f"Example: {Path(example_file).stem}",
-                        description=f"Example usage from {example_file}",
-                    )
+            examples.extend(
+                SkillExample(
+                    title=f"Example: {Path(example_file).stem}",
+                    description=f"Example usage from {example_file}",
                 )
+                for example_file in analysis.examples_found[:3]
+            )
 
         # Create metadata
         metadata = SkillPackageMetadata(
@@ -898,8 +895,7 @@ if __name__ == "__main__":
 
         if analysis.dependencies:
             parts.append("\n## Dependencies\n")
-            for dep in analysis.dependencies[:10]:
-                parts.append(f"- {dep}")
+            parts.extend(f"- {dep}" for dep in analysis.dependencies[:10])
             if len(analysis.dependencies) > 10:
                 parts.append(f"- ... and {len(analysis.dependencies) - 10} more")
 
@@ -922,8 +918,7 @@ if __name__ == "__main__":
 
         if info.get("features"):
             parts.append("\n## Features\n")
-            for feature in info["features"][:10]:
-                parts.append(f"- {feature}")
+            parts.extend(f"- {feature}" for feature in info["features"][:10])
 
         if info.get("installation"):
             parts.append("\n## Installation\n")

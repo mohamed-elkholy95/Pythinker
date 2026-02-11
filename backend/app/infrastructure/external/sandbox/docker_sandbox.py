@@ -171,7 +171,7 @@ class DockerSandbox(Sandbox):
         if not ip_address and "Networks" in network_settings:
             networks = network_settings["Networks"]
             # Try to get IP from first available network
-            for _network_name, network_config in networks.items():
+            for network_config in networks.values():
                 if network_config.get("IPAddress"):
                     ip_address = network_config["IPAddress"]
                     break
@@ -923,7 +923,7 @@ class DockerSandbox(Sandbox):
         framework: str = "auto",
         pattern: str | None = None,
         coverage: bool = False,
-        timeout: int = 300,
+        timeout: int = 300,  # noqa: ASYNC109
         verbose: bool = False,
     ) -> ToolResult:
         """Run tests"""

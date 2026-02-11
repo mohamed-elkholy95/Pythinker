@@ -316,8 +316,7 @@ class WideResearchFlow:
                 if config.expand_queries:
                     # Expand each query into variants
                     variants = QueryExpander.expand(query, search_type, config.max_variants)
-                    for variant in variants:
-                        all_queries.append((variant, search_type))
+                    all_queries.extend((variant, search_type) for variant in variants)
                 else:
                     all_queries.append((query, search_type))
 
@@ -327,7 +326,7 @@ class WideResearchFlow:
         self,
         queries: list[tuple[str, SearchType]],
         max_concurrent: int,
-        timeout: int,
+        timeout: int,  # noqa: ASYNC109
         date_range: str | None,
     ) -> None:
         """Execute all searches in parallel.

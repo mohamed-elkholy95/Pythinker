@@ -245,11 +245,8 @@ class ExecutionAgent(BaseAgent):
 
                 # 2. Error context for tools being used (Phase 3)
                 # Infer likely tools from step description
-                likely_tools = []
                 step_lower = step.description.lower()
-                for tool in self.tools:
-                    if tool.name.lower() in step_lower:
-                        likely_tools.append(tool.name)
+                likely_tools = [tool.name for tool in self.tools if tool.name.lower() in step_lower]
 
                 if likely_tools:
                     for tool_name in likely_tools[:2]:  # Limit to 2 tools

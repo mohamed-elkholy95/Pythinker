@@ -16,6 +16,7 @@ class ComplexityAssessment:
     recommended_iterations: int
     estimated_tool_calls: int
     reasoning: str
+    recommended_phases: list[str] | None = None  # PhaseType values to activate
 
 
 class ComplexityAssessor:
@@ -165,12 +166,18 @@ class ComplexityAssessor:
         # Build reasoning
         reasoning = f"Complexity: {category} ({score:.2f}). " + ", ".join(reasoning_parts)
 
+        # Select recommended phases based on complexity
+        from app.domain.services.flows.phase_registry import select_phases_for_complexity
+
+        recommended_phases = [p.value for p in select_phases_for_complexity(score)]
+
         assessment = ComplexityAssessment(
             score=score,
             category=category,
             recommended_iterations=recommended_iterations,
             estimated_tool_calls=estimated_tool_calls,
             reasoning=reasoning,
+            recommended_phases=recommended_phases,
         )
 
         logger.info(f"Complexity assessment: {assessment.reasoning}")

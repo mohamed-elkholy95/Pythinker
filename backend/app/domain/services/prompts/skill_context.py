@@ -189,7 +189,7 @@ async def expand_dynamic_context(content: str, skill_source: "SkillSource | None
                 result = await asyncio.wait_for(
                     asyncio.get_event_loop().run_in_executor(
                         None,
-                        lambda args=parsed_args: subprocess.run(
+                        lambda args=parsed_args: subprocess.run(  # noqa: S603, ASYNC221 - Validated command execution in executor for skill dynamic context
                             args,
                             shell=False,  # SECURITY: Never use shell=True
                             capture_output=True,

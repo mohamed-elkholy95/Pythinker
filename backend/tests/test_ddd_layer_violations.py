@@ -37,9 +37,7 @@ def _get_domain_python_files():
     domain_dir = os.path.abspath(domain_dir)
     files = []
     for root, _, filenames in os.walk(domain_dir):
-        for f in filenames:
-            if f.endswith(".py") and not f.startswith("__"):
-                files.append(os.path.join(root, f))
+        files.extend(os.path.join(root, f) for f in filenames if f.endswith(".py") and not f.startswith("__"))
     return files
 
 
@@ -60,14 +58,18 @@ def _check_imports(filepath: str, forbidden: list[str]) -> list[str]:
 
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module:
-            for prefix in forbidden:
-                if node.module.startswith(prefix):
-                    violations.append(f"{filepath}:{node.lineno} imports {node.module}")
+            violations.extend(
+                f"{filepath}:{node.lineno} imports {node.module}"
+                for prefix in forbidden
+                if node.module.startswith(prefix)
+            )
         elif isinstance(node, ast.Import):
             for alias in node.names:
-                for prefix in forbidden:
-                    if alias.name.startswith(prefix):
-                        violations.append(f"{filepath}:{node.lineno} imports {alias.name}")
+                violations.extend(
+                    f"{filepath}:{node.lineno} imports {alias.name}"
+                    for prefix in forbidden
+                    if alias.name.startswith(prefix)
+                )
     return violations
 
 
@@ -97,9 +99,7 @@ def _get_application_python_files():
     app_dir = os.path.abspath(app_dir)
     files = []
     for root, _, filenames in os.walk(app_dir):
-        for f in filenames:
-            if f.endswith(".py") and not f.startswith("__"):
-                files.append(os.path.join(root, f))
+        files.extend(os.path.join(root, f) for f in filenames if f.endswith(".py") and not f.startswith("__"))
     return files
 
 
@@ -119,9 +119,7 @@ def _get_interfaces_python_files():
     iface_dir = os.path.abspath(iface_dir)
     files = []
     for root, _, filenames in os.walk(iface_dir):
-        for f in filenames:
-            if f.endswith(".py") and not f.startswith("__"):
-                files.append(os.path.join(root, f))
+        files.extend(os.path.join(root, f) for f in filenames if f.endswith(".py") and not f.startswith("__"))
     return files
 
 

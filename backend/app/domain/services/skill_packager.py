@@ -380,8 +380,10 @@ class SkillPackager:
                 if category.mappings:
                     content_parts.append("\n| Feature | User Value | When to Use |")
                     content_parts.append("|---------|-----------|-------------|")
-                    for mapping in category.mappings:
-                        content_parts.append(f"| {mapping.feature} | {mapping.user_value} | {mapping.when_to_use} |")
+                    content_parts.extend(
+                        f"| {mapping.feature} | {mapping.user_value} | {mapping.when_to_use} |"
+                        for mapping in category.mappings
+                    )
                 content_parts.append("")
 
         # Workflow section
@@ -389,8 +391,7 @@ class SkillPackager:
             content_parts.append("## Workflow\n")
             for step in metadata.workflow_steps:
                 content_parts.append(f"{step.step_number}. {step.description}")
-                for substep in step.substeps:
-                    content_parts.append(f"   - {substep}")
+                content_parts.extend(f"   - {substep}" for substep in step.substeps)
             content_parts.append("")
         elif workflow_content:
             content_parts.append(f"## Workflow\n\n{workflow_content}\n")
@@ -402,8 +403,7 @@ class SkillPackager:
                 content_parts.append(f"\n### Layer: {layer.name}\n")
                 if layer.goal:
                     content_parts.append(f"**Goal**: {layer.goal}\n")
-                for code in layer.code_examples:
-                    content_parts.append(f"\n```python\n{code}\n```\n")
+                content_parts.extend(f"\n```python\n{code}\n```\n" for code in layer.code_examples)
 
         # Examples section
         if metadata.examples:

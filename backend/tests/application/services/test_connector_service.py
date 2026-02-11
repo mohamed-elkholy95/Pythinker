@@ -959,7 +959,7 @@ class TestGetUserMcpConfigs:
 
 
 # ===========================================================================
-# Additional: get_connected_connectors
+# get_connected_connectors tests
 # ===========================================================================
 
 

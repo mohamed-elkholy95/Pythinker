@@ -50,7 +50,7 @@ class TestRunnerTool(BaseTool):
         framework: str = "auto",
         pattern: str | None = None,
         coverage: bool = False,
-        timeout: int = 300,
+        timeout: int = 300,  # noqa: ASYNC109
         verbose: bool = False,
     ) -> ToolResult:
         """Run tests

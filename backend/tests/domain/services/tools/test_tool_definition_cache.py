@@ -3,7 +3,7 @@
 Test coverage for tool definition caching, warming, and invalidation.
 """
 
-import time
+import asyncio
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -74,7 +74,7 @@ class TestToolDefinitionCache:
         assert result == definition
 
         # Wait for expiration
-        time.sleep(1.5)
+        await asyncio.sleep(1.5)
 
         # After TTL: should miss
         result = await short_cache.get("test_tool")
@@ -180,7 +180,7 @@ class TestToolDefinitionCache:
         assert len(short_cache._cache) == 2
 
         # Wait for expiration
-        time.sleep(1.5)
+        await asyncio.sleep(1.5)
 
         # Cleanup
         removed = short_cache.cleanup_expired()
@@ -211,15 +211,15 @@ class TestToolDefinitionCache:
 
         # Add 3 entries
         await small_cache.set("tool1", {"name": "tool1"})
-        time.sleep(0.1)  # Ensure different timestamps
+        await asyncio.sleep(0.1)  # Ensure different timestamps
         await small_cache.set("tool2", {"name": "tool2"})
-        time.sleep(0.1)
+        await asyncio.sleep(0.1)
         await small_cache.set("tool3", {"name": "tool3"})
 
         assert len(small_cache._cache) == 3
 
         # Add 4th entry (should evict oldest)
-        time.sleep(0.1)
+        await asyncio.sleep(0.1)
         await small_cache.set("tool4", {"name": "tool4"})
 
         assert len(small_cache._cache) == 3
@@ -294,7 +294,7 @@ class TestToolDefinitionCache:
         assert result is not None
 
         # Wait past custom TTL
-        time.sleep(2.5)
+        await asyncio.sleep(2.5)
 
         # Should be expired
         result = await cache.get("tool1")

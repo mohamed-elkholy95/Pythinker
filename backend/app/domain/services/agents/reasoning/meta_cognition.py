@@ -335,7 +335,7 @@ class MetaCognitionModule:
         task_lower = task.lower()
         relevant = []
 
-        for _name, domain in self._domains.items():
+        for domain in self._domains.values():
             # Check if any known topics match
             for topic in domain.known_topics:
                 if topic.lower() in task_lower:
@@ -361,19 +361,19 @@ class MetaCognitionModule:
         gaps.extend(self._extract_uncertainty_gaps(task))
 
         # Check domain limitations
-        for domain in domains:
-            for unknown in domain.unknown_topics:
-                if unknown.lower() in task.lower():
-                    gaps.append(
-                        KnowledgeGap(
-                            gap_type=GapType.FACTUAL,
-                            severity=GapSeverity.HIGH,
-                            description=f"Task involves {unknown}, which is outside known knowledge",
-                            topic=unknown,
-                            can_be_filled=True,
-                            requires_external=True,
-                        )
-                    )
+        gaps.extend(
+            KnowledgeGap(
+                gap_type=GapType.FACTUAL,
+                severity=GapSeverity.HIGH,
+                description=f"Task involves {unknown}, which is outside known knowledge",
+                topic=unknown,
+                can_be_filled=True,
+                requires_external=True,
+            )
+            for domain in domains
+            for unknown in domain.unknown_topics
+            if unknown.lower() in task.lower()
+        )
 
         # Check for capability gaps
         capability_gaps = self._identify_capability_gaps(task)

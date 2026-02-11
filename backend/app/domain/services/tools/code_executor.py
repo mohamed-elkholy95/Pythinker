@@ -311,7 +311,7 @@ class CodeExecutorTool(BaseTool):
         language: str,
         code: str,
         packages: list[str] | None = None,
-        timeout: int | None = None,
+        timeout: int | None = None,  # noqa: ASYNC109
         env_vars: dict[str, str] | None = None,
         working_dir: str | None = None,
     ) -> ToolResult:
@@ -442,8 +442,9 @@ class CodeExecutorTool(BaseTool):
 
         if artifacts:
             message_parts.append(f"\n📁 Artifacts ({len(artifacts)} files):")
-            for artifact in artifacts[:5]:  # Show first 5
-                message_parts.append(f"  - {artifact.filename} ({artifact.size_bytes} bytes)")
+            message_parts.extend(
+                f"  - {artifact.filename} ({artifact.size_bytes} bytes)" for artifact in artifacts[:5]
+            )  # Show first 5
             if len(artifacts) > 5:
                 message_parts.append(f"  ... and {len(artifacts) - 5} more files")
 
@@ -467,7 +468,7 @@ class CodeExecutorTool(BaseTool):
         self,
         code: str,
         packages: list[str] | None = None,
-        timeout: int | None = None,
+        timeout: int | None = None,  # noqa: ASYNC109
     ) -> ToolResult:
         """
         Execute Python code.
@@ -505,7 +506,7 @@ class CodeExecutorTool(BaseTool):
         self,
         code: str,
         packages: list[str] | None = None,
-        timeout: int | None = None,
+        timeout: int | None = None,  # noqa: ASYNC109
     ) -> ToolResult:
         """
         Execute JavaScript code.
@@ -550,8 +551,7 @@ class CodeExecutorTool(BaseTool):
             )
 
         message_parts = [f"📁 Workspace: {self._workspace_path}", ""]
-        for artifact in artifacts:
-            message_parts.append(f"  {artifact.filename} ({artifact.size_bytes} bytes)")
+        message_parts.extend(f"  {artifact.filename} ({artifact.size_bytes} bytes)" for artifact in artifacts)
 
         return ToolResult(
             success=True,

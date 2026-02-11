@@ -289,7 +289,7 @@ class ResultCache:
     def _hash_result(self, result: Any) -> str:
         """Generate a hash of the result for deduplication."""
         result_str = str(result)
-        return hashlib.md5(result_str.encode()).hexdigest()
+        return hashlib.md5(result_str.encode()).hexdigest()  # noqa: S324 - MD5 used for non-security cache key, not cryptographic
 
     def _get_ttl(self, tool_name: str) -> int:
         """Get the TTL for a tool."""

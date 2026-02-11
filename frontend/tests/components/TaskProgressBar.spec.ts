@@ -471,7 +471,7 @@ describe('TaskProgressBar', () => {
     expect(miniPreview.props('summaryStreamText')).toBe('summary text')
   })
 
-  it('renders collapsed dotted timeline rail with all steps connected', () => {
+  it('does not render collapsed timeline rail', () => {
     const plan = createMockPlan([
       { id: '1', description: 'Step 1', status: 'completed' },
       { id: '2', description: 'Step 2', status: 'running' },
@@ -488,14 +488,9 @@ describe('TaskProgressBar', () => {
       },
     })
 
-    const nodes = wrapper.findAll('.collapsed-step-node')
-    const lines = wrapper.findAll('.collapsed-step-line')
-
-    expect(nodes).toHaveLength(5)
-    expect(lines).toHaveLength(4)
-    expect(nodes[0]?.classes()).toContain('is-completed')
-    expect(nodes[1]?.classes()).toContain('is-running')
-    expect(nodes[4]?.classes()).toContain('is-pending')
+    expect(wrapper.find('.collapsed-step-rail').exists()).toBe(false)
+    expect(wrapper.find('.collapsed-step-node').exists()).toBe(false)
+    expect(wrapper.find('.collapsed-step-line').exists()).toBe(false)
   })
 
   it('renders expanded dotted connectors between task nodes', async () => {

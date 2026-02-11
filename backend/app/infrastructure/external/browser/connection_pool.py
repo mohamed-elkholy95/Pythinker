@@ -680,7 +680,7 @@ class BrowserConnectionPool:
             CDP URL if available, None otherwise
         """
         # Find an existing CDP URL that has available capacity
-        for cdp_url, _connections in self._pools.items():
+        for cdp_url in self._pools:
             pool_stats = self._get_pool_stats_for_url(cdp_url)
 
             # Check if this pool has healthy connections and capacity

@@ -301,7 +301,7 @@ class DeepResearchFlow:
     async def _search_with_skip_check(
         self,
         query: ResearchQuery,
-        timeout: int,
+        timeout: int,  # noqa: ASYNC109
     ) -> ToolResult | None:
         """Execute search with periodic skip checks.
 
@@ -474,15 +474,15 @@ class DeepResearchFlow:
         all_results = []
         for query in self._session.queries:
             if query.status == ResearchQueryStatus.COMPLETED and query.result:
-                for result in query.result:
-                    all_results.append(
-                        {
-                            "query": query.query,
-                            "title": result.get("title", ""),
-                            "link": result.get("link", ""),
-                            "snippet": result.get("snippet", ""),
-                        }
-                    )
+                all_results.extend(
+                    {
+                        "query": query.query,
+                        "title": result.get("title", ""),
+                        "link": result.get("link", ""),
+                        "snippet": result.get("snippet", ""),
+                    }
+                    for result in query.result
+                )
         return all_results
 
     def generate_research_summary(self) -> str:

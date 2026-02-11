@@ -233,7 +233,7 @@ class HTTPClientPool:
         cls,
         name: str,
         base_url: str | None = None,
-        timeout: float = 30.0,
+        timeout: float = 30.0,  # noqa: ASYNC109
         headers: dict[str, str] | None = None,
         config: HTTPClientConfig | None = None,
         **kwargs,

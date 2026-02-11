@@ -3,7 +3,7 @@
 End-to-end tests for tool definition caching and warming.
 """
 
-import time
+import asyncio
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -247,7 +247,7 @@ class TestToolCacheE2E:
         assert immediate is not None
 
         # Step 3: Wait for TTL expiration
-        time.sleep(1.5)
+        await asyncio.sleep(1.5)
 
         # Step 4: Retrieve after expiration (should miss and remove)
         expired = await short_cache.get("short_lived")
@@ -264,15 +264,15 @@ class TestToolCacheE2E:
 
         # Step 1: Add 3 definitions (at capacity)
         await small_cache.set("tool1", {"name": "tool1"})
-        time.sleep(0.1)  # Ensure different timestamps
+        await asyncio.sleep(0.1)  # Ensure different timestamps
         await small_cache.set("tool2", {"name": "tool2"})
-        time.sleep(0.1)
+        await asyncio.sleep(0.1)
         await small_cache.set("tool3", {"name": "tool3"})
 
         assert len(small_cache._cache) == 3
 
         # Step 2: Add 4th definition (triggers eviction)
-        time.sleep(0.1)
+        await asyncio.sleep(0.1)
         await small_cache.set("tool4", {"name": "tool4"})
 
         # Step 3: Verify cache still at max size
@@ -325,7 +325,7 @@ class TestToolCacheE2E:
         await short_cache.set("expired2", {"name": "expired2"})
 
         # Wait for expiration
-        time.sleep(1.5)
+        await asyncio.sleep(1.5)
 
         # Step 2: Add fresh entry
         await short_cache.set("fresh", {"name": "fresh"})
@@ -379,7 +379,7 @@ class TestToolCacheE2E:
         assert immediate is not None
 
         # Step 3: Wait past custom TTL
-        time.sleep(1.5)
+        await asyncio.sleep(1.5)
 
         # Step 4: Retrieve after custom TTL (should be expired)
         expired = await cache.get("custom_ttl")

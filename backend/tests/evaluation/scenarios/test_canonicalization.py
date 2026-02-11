@@ -39,10 +39,7 @@ class TestCanonicalizationEvaluation:
         canonical_args = canonicalizer.canonicalize(tool_name="browser", args=args_with_alias)
 
         # Track what was canonicalized
-        canonicalized_fields = []
-        for orig_key in args_with_alias:
-            if orig_key not in canonical_args:
-                canonicalized_fields.append(orig_key)
+        canonicalized_fields = [orig_key for orig_key in args_with_alias if orig_key not in canonical_args]
 
         # Verify canonicalization
         assert "url" in canonical_args, "Expected 'url' in canonical args"

@@ -5,6 +5,7 @@ Phase 2: Tests outbox pattern, retry logic, and dead-letter queue.
 
 import asyncio
 import uuid
+from contextlib import suppress
 from datetime import datetime, timedelta
 
 import pytest
@@ -57,11 +58,9 @@ async def outbox_repo():
     repo = SyncOutboxRepository()
     yield repo
     # Cleanup: delete all test outbox entries
-    try:
+    with suppress(Exception):
         await repo._collection.delete_many({})
         await repo._dlq_collection.delete_many({})
-    except Exception:
-        pass
 
 
 @pytest.mark.asyncio

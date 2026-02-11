@@ -279,9 +279,7 @@ class IntentTracker:
 
         for pattern in should_patterns:
             matches = re.findall(pattern, text, re.IGNORECASE)
-            for match in matches:
-                if match.lower().strip() not in explicit_lower:
-                    implicit.append(match.strip())
+            implicit.extend(match.strip() for match in matches if match.lower().strip() not in explicit_lower)
 
         return implicit[:10]  # Limit
 
@@ -468,17 +466,17 @@ class IntentTracker:
                 break
 
         # Check for constraint violations
-        for constraint in intent.constraints:
-            if constraint.lower() in current_lower:
-                alerts.append(
-                    DriftAlert(
-                        drift_type=DriftType.SCOPE_CREEP,
-                        description=f"Work may violate constraint: {constraint}",
-                        severity=0.7,
-                        evidence=constraint,
-                        correction=f"Avoid: {constraint}",
-                    )
-                )
+        alerts.extend(
+            DriftAlert(
+                drift_type=DriftType.SCOPE_CREEP,
+                description=f"Work may violate constraint: {constraint}",
+                severity=0.7,
+                evidence=constraint,
+                correction=f"Avoid: {constraint}",
+            )
+            for constraint in intent.constraints
+            if constraint.lower() in current_lower
+        )
 
         # Check for topic drift (current work not related to goal)
         # Use semantic similarity for better matching
@@ -615,8 +613,7 @@ class IntentTracker:
 
         if unaddressed:
             lines.append("\n**Unaddressed Requirements:**")
-            for req in unaddressed[:5]:
-                lines.append(f"- {req}")
+            lines.extend(f"- {req}" for req in unaddressed[:5])
 
         if alerts:
             lines.append("\n**Issues Detected:**")

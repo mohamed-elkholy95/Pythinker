@@ -127,7 +127,7 @@ Constraints:
                     )
             else:
                 # Parse ISO 8601 format
-                execute_at = datetime.fromisoformat(scheduled_at.replace("Z", "+00:00"))
+                execute_at = datetime.fromisoformat(scheduled_at)
         except (ValueError, AttributeError) as e:
             return ToolResult(success=False, message=f"Invalid scheduled_at format: {e}")
 

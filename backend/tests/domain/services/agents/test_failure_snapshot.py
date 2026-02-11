@@ -64,7 +64,7 @@ class TestFailureSnapshotModel:
         # Token budget should be enforced (300 tokens)
         # tool_call_context should be truncated
         assert len(snapshot.tool_call_context) <= 3  # Max 3 items
-        for _key, value in snapshot.tool_call_context.items():
+        for value in snapshot.tool_call_context.values():
             assert len(str(value)) <= 100  # Values truncated to 100 chars
 
     def test_snapshot_minimal_factory(self):
@@ -214,11 +214,9 @@ class TestFailureSnapshotService:
     @pytest.mark.asyncio
     async def test_context_pressure_calculation(self, snapshot_service):
         """Test context pressure calculation."""
-        # 50% pressure
         pressure = await snapshot_service.calculate_context_pressure(5000, 10000)
         assert pressure == 0.5
 
-        # 100% pressure
         pressure = await snapshot_service.calculate_context_pressure(10000, 10000)
         assert pressure == 1.0
 

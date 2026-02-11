@@ -213,22 +213,19 @@ class ContextGraph:
         critical = self.get_critical_insights(limit=max_insights)
         if critical:
             lines.append("\n### Key Insights")
-            for insight in critical:
-                lines.append(f"- {insight.to_context_string()}")
+            lines.extend(f"- {insight.to_context_string()}" for insight in critical)
 
         # Add blockers if any
         blockers = self.get_blockers()
         if blockers:
             lines.append("\n### Active Blockers")
-            for blocker in blockers:
-                lines.append(f"- {blocker.content}")
+            lines.extend(f"- {blocker.content}" for blocker in blockers)
 
         # Add recent learnings
         learnings = self.get_learnings()[-3:]  # Last 3 learnings
         if learnings:
             lines.append("\n### Recent Learnings")
-            for learning in learnings:
-                lines.append(f"- {learning.content}")
+            lines.extend(f"- {learning.content}" for learning in learnings)
 
         return "\n".join(lines)
 
@@ -460,8 +457,7 @@ class InsightSynthesizer:
             if by_type.get(itype):
                 type_insights = by_type[itype][:3]  # Max 3 per type
                 lines.append(f"\n### {itype.value.replace('_', ' ').title()}")
-                for insight in type_insights:
-                    lines.append(f"- {insight.content}")
+                lines.extend(f"- {insight.content}" for insight in type_insights)
 
         return "\n".join(lines)
 
@@ -622,8 +618,7 @@ class ContextManager:
         # 1. Deliverables (highest priority)
         if self._context.deliverables:
             sections.append("## Completed Deliverables")
-            for path in self._context.deliverables:
-                sections.append(f"- {path}")
+            sections.extend(f"- {path}" for path in self._context.deliverables)
             sections.append("")
 
         # 2. Files context
@@ -641,15 +636,16 @@ class ContextManager:
         # 3. Key facts
         if self._context.key_facts:
             sections.append("## Key Findings")
-            for fact in self._context.key_facts[-10:]:  # Last 10 facts
-                sections.append(f"- {fact}")
+            sections.extend(f"- {fact}" for fact in self._context.key_facts[-10:])  # Last 10 facts
             sections.append("")
 
         # 4. Recent tool executions
         if self._context.tools:
             sections.append("## Recent Actions")
-            for tool_ctx in self._context.tools[-5:]:  # Last 5 tools
-                sections.append(f"- {tool_ctx.tool_name}: {tool_ctx.summary}")
+            sections.extend(
+                f"- {tool_ctx.tool_name}: {tool_ctx.summary}"
+                for tool_ctx in self._context.tools[-5:]  # Last 5 tools
+            )
             sections.append("")
 
         full_summary = "\n".join(sections)

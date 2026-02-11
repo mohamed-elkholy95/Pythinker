@@ -175,7 +175,7 @@ class HealthMonitor:
             if pool and pool.is_started:
                 stats["pool"] = pool.get_pool_stats()
         except Exception:
-            pass
+            logger.debug("Failed to get sandbox pool stats", exc_info=True)
 
         health.add_metric(
             HealthMetric(

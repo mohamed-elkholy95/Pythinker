@@ -570,12 +570,7 @@ class BaseTool:
         sig = inspect.signature(method)
 
         # Filter kwargs to only include parameters that the method accepts
-        filtered_kwargs = {}
-        for param_name, param_value in kwargs.items():
-            if param_name in sig.parameters:
-                filtered_kwargs[param_name] = param_value
-
-        return filtered_kwargs
+        return {param_name: param_value for param_name, param_value in kwargs.items() if param_name in sig.parameters}
 
     async def _get_result_cache(self):
         """Lazy-load the result cache."""
