@@ -7,9 +7,7 @@ Expected Results:
 - Enhanced: 80-90% cache hit rate
 """
 
-import asyncio
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from app.domain.services.tools.tool_definition_cache import ToolDefinitionCache
 
@@ -95,7 +93,7 @@ class TestToolCacheEvaluation:
         # Performance: avg should be closer to cache speed (<1ms) than MCP speed (40ms)
         assert avg_time_ms < 10, f"Average lookup too slow: {avg_time_ms:.2f}ms (expected <10ms)"
 
-        print(f"\n=== Repeated Tool Lookup Results ===")
+        print("\n=== Repeated Tool Lookup Results ===")
         print(f"Total lookups: {lookups}")
         print(f"Cache hits: {results['hits']} ({hit_rate*100:.1f}%)")
         print(f"Cache misses: {results['misses']}")
@@ -140,7 +138,7 @@ class TestToolCacheEvaluation:
         assert results["hits"] == expected_hits, f"Expected {expected_hits} hits, got {results['hits']}"
         assert hit_rate == 0.80, f"Expected 80% hit rate, got {hit_rate*100:.1f}%"
 
-        print(f"\n=== Multiple Tool Definitions Results ===")
+        print("\n=== Multiple Tool Definitions Results ===")
         print(f"Total tools: {len(tools)}")
         print(f"Lookups per tool: {lookups_per_tool}")
         print(f"Total lookups: {results['total']}")
@@ -175,9 +173,9 @@ class TestToolCacheEvaluation:
         cached_def = await tool_cache.get(tool_name)
         assert cached_def is None, "Lookup after invalidation should miss"
 
-        print(f"\n=== Cache Invalidation Results ===")
+        print("\n=== Cache Invalidation Results ===")
         print(f"Invalidation count: {invalidation_count}")
-        print(f"Cache properly invalidated: True")
+        print("Cache properly invalidated: True")
 
     @pytest.mark.asyncio
     async def test_cache_ttl_expiration(self, tool_cache, mock_mcp_client):
@@ -200,9 +198,9 @@ class TestToolCacheEvaluation:
         # For evaluation, just verify TTL is configured
         assert tool_cache.ttl_seconds == 300, "TTL should be 300 seconds"
 
-        print(f"\n=== Cache TTL Expiration Results ===")
+        print("\n=== Cache TTL Expiration Results ===")
         print(f"TTL configured: {tool_cache.ttl_seconds}s")
-        print(f"Cache entry stored and retrieved successfully")
+        print("Cache entry stored and retrieved successfully")
 
     @pytest.mark.asyncio
     async def test_cache_max_size_limit(self, tool_cache, mock_mcp_client):
@@ -228,7 +226,7 @@ class TestToolCacheEvaluation:
         max_size = stats['max_size']
         assert cache_size <= max_size, f"Cache size {cache_size} exceeds max {max_size}"
 
-        print(f"\n=== Cache Max Size Limit Results ===")
+        print("\n=== Cache Max Size Limit Results ===")
         print(f"Max size: {max_size}")
         print(f"Attempted to store: {len(tools_to_cache)}")
         print(f"Current cache size: {cache_size}")
@@ -256,7 +254,7 @@ class TestToolCacheEvaluation:
         import time
 
         for tool_name in tool_names:
-            for i in range(lookups_per_tool):
+            for _ in range(lookups_per_tool):
                 results["total"] += 1
                 start = time.time()
 
@@ -293,7 +291,7 @@ class TestToolCacheEvaluation:
         baseline_time_ms = results["total"] * 40  # All MCP calls
         time_savings_pct = ((baseline_time_ms - results["total_time_ms"]) / baseline_time_ms) * 100
 
-        print(f"\n=== Batch Cache Performance Results ===")
+        print("\n=== Batch Cache Performance Results ===")
         print(f"Total lookups: {results['total']}")
         print(f"Cache hits: {results['hits']} ({hit_rate*100:.1f}%)")
         print(f"Cache misses: {results['misses']}")
@@ -331,7 +329,7 @@ class TestToolCacheEvaluation:
         # Evaluation assertion
         assert memory_mb < 10, f"Cache memory usage too high: {memory_mb:.2f}MB"
 
-        print(f"\n=== Cache Memory Usage Results ===")
+        print("\n=== Cache Memory Usage Results ===")
         print(f"Tool definitions cached: {num_tools}")
         print(f"Memory usage: {memory_kb:.2f} KB ({memory_mb:.4f} MB)")
         print(f"Avg per definition: {cache_memory_bytes / num_tools:.0f} bytes")

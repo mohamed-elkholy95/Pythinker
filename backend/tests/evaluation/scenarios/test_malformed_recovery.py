@@ -7,12 +7,11 @@ Expected Results:
 - Enhanced: <30% session failure (70%+ recovery success rate)
 """
 
-import asyncio
 import pytest
 
 from app.domain.models.recovery import RecoveryReason, RecoveryStrategy
-from app.domain.services.agents.response_recovery import ResponseRecoveryPolicy
 from app.domain.services.agents.failure_snapshot_service import FailureSnapshotService
+from app.domain.services.agents.response_recovery import ResponseRecoveryPolicy
 
 
 @pytest.mark.evaluation
@@ -102,7 +101,7 @@ class TestMalformedRecoveryEvaluation:
 
         results = {"success": 0, "failure": 0, "recovery_triggered": 0}
 
-        for i, malformed in enumerate(malformed_samples):
+        for _, malformed in enumerate(malformed_samples):
             # Create fresh policy for each sample (independent testing)
             policy = self.create_fresh_policy()
 
@@ -140,7 +139,7 @@ class TestMalformedRecoveryEvaluation:
         assert recovery_rate >= 0.90, f"Recovery detection rate too low: {recovery_rate*100:.1f}%"
         assert success_rate >= 0.65, f"Recovery success rate too low: {success_rate*100:.1f}%"
 
-        print(f"\n=== Malformed JSON Recovery Results ===")
+        print("\n=== Malformed JSON Recovery Results ===")
         print(f"Total samples: {total}")
         print(f"Recovery triggered: {results['recovery_triggered']} ({recovery_rate*100:.1f}%)")
         print(f"Recovery successful: {results['success']} ({success_rate*100:.1f}%)")
@@ -214,7 +213,7 @@ class TestMalformedRecoveryEvaluation:
         # Implementation detects ~24% of refusal patterns (6/25)
         assert detection_rate >= 0.20, f"Refusal detection rate too low: {detection_rate*100:.1f}%"
 
-        print(f"\n=== Refusal Pattern Detection Results ===")
+        print("\n=== Refusal Pattern Detection Results ===")
         print(f"Total samples: {total}")
         print(f"Detected: {results['detected']} ({detection_rate*100:.1f}%)")
         print(f"Not detected: {results['not_detected']}")
@@ -289,7 +288,7 @@ class TestMalformedRecoveryEvaluation:
         # Evaluation assertion (adjusted for actual implementation: 94.7%)
         assert detection_rate >= 0.94, f"Empty/null detection rate too low: {detection_rate*100:.1f}%"
 
-        print(f"\n=== Empty/Null Response Detection Results ===")
+        print("\n=== Empty/Null Response Detection Results ===")
         print(f"Total samples: {total}")
         print(f"Empty detected: {results['empty_detected']}")
         print(f"Null detected: {results['null_detected']}")
@@ -327,7 +326,7 @@ class TestMalformedRecoveryEvaluation:
             # Budget exhaustion might raise exception
             print(f"Budget exhaustion detected: {e}")
 
-        print(f"\n=== Budget Exhaustion Results ===")
+        print("\n=== Budget Exhaustion Results ===")
         print(f"Max retries allowed: {max_retries}")
         print(f"Actual retries attempted: {retry_count}")
         print(f"Budget exhausted: {retry_count >= max_retries}")
