@@ -14,6 +14,7 @@ from app.domain.models.event import (
     SkillActivationEvent,
     SkillDeliveryEvent,
     StepEvent,
+    SuggestionEvent,
     ThoughtEvent,
     ToolContent,
     ToolEvent,
@@ -262,11 +263,26 @@ class ReportSSEEvent(BaseSSEEvent):
 
 class SuggestionEventData(BaseEventData):
     suggestions: list[str]
+    source: str | None = None
+    anchor_event_id: str | None = None
+    anchor_excerpt: str | None = None
 
 
 class SuggestionSSEEvent(BaseSSEEvent):
     event: Literal["suggestion"] = "suggestion"
     data: SuggestionEventData
+
+    @classmethod
+    def from_event(cls, event: "SuggestionEvent") -> Self:  # type: ignore[name-defined]
+        return cls(
+            data=SuggestionEventData(
+                **BaseEventData.base_event_data(event),
+                suggestions=event.suggestions,
+                source=event.source,
+                anchor_event_id=event.anchor_event_id,
+                anchor_excerpt=event.anchor_excerpt,
+            )
+        )
 
 
 class ModeChangeEventData(BaseEventData):

@@ -130,6 +130,9 @@ export interface ModeChangeEventData extends BaseEventData {
 
 export interface SuggestionEventData extends BaseEventData {
   suggestions: string[];
+  source?: string;                // Source of suggestions: "completion", "discuss"
+  anchor_event_id?: string;       // Event ID to anchor context to (report/message)
+  anchor_excerpt?: string;        // Brief excerpt from anchored content
 }
 
 export interface ReportEventData extends BaseEventData {
