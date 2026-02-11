@@ -1,9 +1,9 @@
 """Unit tests for sandbox OOM detection (Priority 3)."""
 
 import asyncio
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from unittest.mock import AsyncMock, Mock, patch
 
 from app.core.sandbox_pool import SandboxPool
 
@@ -19,28 +19,22 @@ async def test_docker_events_monitor_task_started():
         max_size=2,
     )
 
-    with patch.object(pool, "_monitor_docker_events", new_callable=AsyncMock) as mock_events:
-        with patch.object(pool, "_continuous_health_monitor", new_callable=AsyncMock):
-            with patch.object(pool, "_warm_pool_loop", new_callable=AsyncMock):
-                await pool.start()
+    with (
+        patch.object(pool, "_monitor_docker_events", new_callable=AsyncMock),
+        patch.object(pool, "_continuous_health_monitor", new_callable=AsyncMock),
+        patch.object(pool, "_warm_pool_loop", new_callable=AsyncMock),
+    ):
+        await pool.start()
 
-                # Events monitor should be running
-                assert pool._docker_events_task is not None
+        # Events monitor should be running
+        assert pool._docker_events_task is not None
 
-                await pool.stop()
+        await pool.stop()
 
 
 @pytest.mark.asyncio
 async def test_oom_event_detected_from_exit_code():
     """Test that OOM kills are detected from exit code 137."""
-    from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
-
-    pool = SandboxPool(
-        sandbox_cls=DockerSandbox,
-        min_size=0,
-        max_size=2,
-    )
-
     # Simulate Docker die event with exit code 137
     mock_event = {
         "Actor": {
@@ -63,14 +57,6 @@ async def test_oom_event_detected_from_exit_code():
 @pytest.mark.asyncio
 async def test_oom_event_detected_from_oom_killed_flag():
     """Test that OOM kills are detected from oomKilled flag."""
-    from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
-
-    pool = SandboxPool(
-        sandbox_cls=DockerSandbox,
-        min_size=0,
-        max_size=2,
-    )
-
     # Simulate Docker die event with oomKilled flag
     mock_event = {
         "Actor": {
@@ -82,7 +68,6 @@ async def test_oom_event_detected_from_oom_killed_flag():
         },
     }
 
-    exit_code = mock_event.get("Actor", {}).get("Attributes", {}).get("exitCode", "")
     oom_killed = mock_event.get("Actor", {}).get("Attributes", {}).get("oomKilled", "false") == "true"
 
     # oomKilled flag indicates OOM
