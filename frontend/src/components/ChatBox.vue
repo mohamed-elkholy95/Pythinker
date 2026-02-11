@@ -284,7 +284,6 @@ onMounted(() => {
 }
 
 .chatbox-input-area {
-    overflow-y: auto;
     padding-left: 16px;
     padding-right: 8px;
     min-height: 50px;
@@ -294,11 +293,11 @@ onMounted(() => {
 .chatbox-textarea {
     display: flex;
     border-radius: 8px;
-    overflow: hidden;
     flex: 1;
     background: transparent;
     padding: 0;
     padding-top: 1px;
+    padding-right: 8px;
     border: 0;
     width: 100%;
     font-size: 15px;
@@ -308,6 +307,53 @@ onMounted(() => {
     resize: none;
     min-height: 40px;
     outline: none;
+    transition: padding-right 0.2s ease;
+}
+
+/* Custom scrollbar - only visible on hover */
+.chatbox-textarea::-webkit-scrollbar {
+    width: 6px;
+}
+
+.chatbox-textarea::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 10px;
+}
+
+.chatbox-textarea::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 10px;
+    transition: background 0.2s ease;
+}
+
+.chatbox-textarea:hover::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.15);
+}
+
+.chatbox-textarea::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.25);
+}
+
+:global([data-theme='dark']) .chatbox-textarea:hover::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+:global([data-theme='dark']) .chatbox-textarea::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+/* Firefox scrollbar styling */
+.chatbox-textarea {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+}
+
+.chatbox-textarea:hover {
+    scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+}
+
+:global([data-theme='dark']) .chatbox-textarea:hover {
+    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
 }
 
 .chatbox-textarea::placeholder {
