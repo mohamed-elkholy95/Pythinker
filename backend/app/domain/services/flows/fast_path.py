@@ -799,11 +799,26 @@ def is_suggestion_follow_up_message(message: str) -> bool:
     return any(re.match(pattern, normalized) for pattern in SUGGESTION_FOLLOW_UP_PATTERNS)
 
 
-def should_use_fast_path(message: str) -> bool:
-    """Return True when a message should be handled by the fast path."""
+def should_use_fast_path(message: str, follow_up_source: str | None = None) -> bool:
+    """Return True when a message should be handled by the fast path.
+
+    Args:
+        message: The message text to classify
+        follow_up_source: Optional metadata indicating follow-up source (e.g., 'suggestion_click')
+
+    Returns:
+        False if message should bypass fast path (use full contextual flow)
+        True if message can use fast path
+    """
     global _classify_router
     if not message or not message.strip():
         return False
+
+    # Primary detection: Check metadata for suggestion-click follow-ups
+    if follow_up_source == "suggestion_click":
+        return False
+
+    # Fallback detection: Check regex patterns for backwards compatibility
     if is_suggestion_follow_up_message(message):
         return False
 
