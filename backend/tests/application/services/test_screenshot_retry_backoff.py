@@ -1,10 +1,9 @@
 """Unit tests for screenshot exponential backoff retry (Priority 2)."""
 
 import asyncio
-import time
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from unittest.mock import AsyncMock, Mock, patch
 
 from app.application.services.screenshot_service import ScreenshotCaptureService
 from app.domain.models.screenshot import ScreenshotTrigger
@@ -35,7 +34,7 @@ async def test_retry_succeeds_on_second_attempt():
     )
 
     # Capture should succeed after retry
-    result = await service.capture(ScreenshotTrigger.TOOL_CALL)
+    await service.capture(ScreenshotTrigger.TOOL_CALL)
 
     # Should have retried and succeeded
     assert call_count == 2

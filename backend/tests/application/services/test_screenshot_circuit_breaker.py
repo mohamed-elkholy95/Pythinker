@@ -1,10 +1,9 @@
 """Unit tests for screenshot circuit breaker (Priority 2)."""
 
-import asyncio
 import time
+from unittest.mock import AsyncMock, Mock
 
 import pytest
-from unittest.mock import AsyncMock, Mock, patch
 
 from app.application.services.screenshot_service import (
     ScreenshotCircuitBreaker,
@@ -109,8 +108,6 @@ def test_half_open_reopens_on_failure():
 
 def test_circuit_breaker_state_metric_updated():
     """Test that circuit breaker state is recorded to metrics."""
-    from app.infrastructure.observability.prometheus_metrics import screenshot_circuit_state
-
     cb = ScreenshotCircuitBreaker(max_consecutive_failures=2)
 
     # Initial state should be CLOSED (0)
