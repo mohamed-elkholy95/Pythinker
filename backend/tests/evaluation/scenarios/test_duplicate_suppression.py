@@ -7,9 +7,7 @@ Expected Results:
 - Enhanced: 60-70% duplicates suppressed (within window, high quality)
 """
 
-import asyncio
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 

@@ -7,11 +7,9 @@ Expected Results:
 - Enhanced: <30% session failure (70%+ recovery success rate)
 """
 
-import asyncio
-
 import pytest
 
-from app.domain.models.recovery import RecoveryReason, RecoveryStrategy
+from app.domain.models.recovery import RecoveryReason
 from app.domain.services.agents.failure_snapshot_service import FailureSnapshotService
 from app.domain.services.agents.response_recovery import ResponseRecoveryPolicy
 
