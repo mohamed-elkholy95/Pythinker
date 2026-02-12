@@ -332,7 +332,7 @@ services:
       retries: 3
 
   grafana:
-    image: grafana/grafana:12.4.0
+    image: grafana/grafana:latest
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
@@ -360,7 +360,7 @@ services:
       retries: 3
 
   loki:
-    image: grafana/loki:3.6.5
+    image: grafana/loki:latest
     command: ["-config.file=/etc/loki/config.yml"]
     volumes:
       - ./loki/config.yml:/etc/loki/config.yml:ro
@@ -377,7 +377,7 @@ services:
       retries: 3
 
   promtail:
-    image: grafana/promtail:3.6.5
+    image: grafana/promtail:latest
     command: ["-config.file=/etc/promtail/config.yml"]
     volumes:
       - ./promtail/config.yml:/etc/promtail/config.yml:ro
