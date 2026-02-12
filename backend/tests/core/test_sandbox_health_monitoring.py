@@ -44,17 +44,24 @@ async def test_health_monitor_checks_pooled_sandboxes():
         max_size=2,
     )
 
-    # Create mock sandboxes
+    # Create mock sandboxes with AsyncMock for async methods
     mock_sandbox1 = Mock()
     mock_sandbox1.container_id = "container1"
+    mock_sandbox1.cleanup = AsyncMock()
+    mock_sandbox1.destroy = AsyncMock()
+    mock_sandbox1.unpause = AsyncMock()
 
     mock_sandbox2 = Mock()
     mock_sandbox2.container_id = "container2"
+    mock_sandbox2.cleanup = AsyncMock()
+    mock_sandbox2.destroy = AsyncMock()
+    mock_sandbox2.unpause = AsyncMock()
 
     await pool._pool.put(mock_sandbox1)
     await pool._pool.put(mock_sandbox2)
 
-    with patch.object(pool, "_check_sandbox_health", return_value=True) as mock_check:
+    # Mock _check_sandbox_health as AsyncMock since it's async
+    with patch.object(pool, "_check_sandbox_health", new_callable=AsyncMock, return_value=True) as mock_check:
         # Run one iteration of health check manually
         pool_snapshot = list(pool._pool._queue)  # type: ignore
 
@@ -76,23 +83,27 @@ async def test_unhealthy_sandbox_removed_from_pool():
         max_size=2,
     )
 
-    # Create mock sandboxes
+    # Create mock sandboxes with all async methods properly mocked
     healthy_sandbox = Mock()
     healthy_sandbox.container_id = "healthy"
     healthy_sandbox.cleanup = AsyncMock()
+    healthy_sandbox.destroy = AsyncMock()
+    healthy_sandbox.unpause = AsyncMock()
 
     unhealthy_sandbox = Mock()
     unhealthy_sandbox.container_id = "unhealthy"
     unhealthy_sandbox.cleanup = AsyncMock()
+    unhealthy_sandbox.destroy = AsyncMock()
+    unhealthy_sandbox.unpause = AsyncMock()
 
     await pool._pool.put(healthy_sandbox)
     await pool._pool.put(unhealthy_sandbox)
 
-    # Mock health checks - one healthy, one not
+    # Mock health checks - one healthy, one not (use AsyncMock for async function)
     async def mock_health_check(sandbox):
         return sandbox.container_id == "healthy"
 
-    with patch.object(pool, "_check_sandbox_health", side_effect=mock_health_check):
+    with patch.object(pool, "_check_sandbox_health", new_callable=AsyncMock, side_effect=mock_health_check):
         # Manually run health check logic
         failed_sandboxes = []
         pool_snapshot = list(pool._pool._queue)  # type: ignore
@@ -131,8 +142,8 @@ async def test_check_sandbox_health_queries_docker_api():
     mock_sandbox = Mock()
     mock_sandbox.container_id = "test-container"
 
-    # Mock Docker API response
-    with patch("asyncio.to_thread") as mock_thread:
+    # Mock Docker API response - asyncio.to_thread is async so we need AsyncMock
+    with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
         mock_thread.return_value = "running"
 
         result = await pool._check_sandbox_health(mock_sandbox)
@@ -155,8 +166,8 @@ async def test_health_check_metric_incremented():
     mock_sandbox = Mock()
     mock_sandbox.container_id = "test-container"
 
-    # Mock healthy check
-    with patch("asyncio.to_thread", return_value="running"):
+    # Mock healthy check - asyncio.to_thread is async
+    with patch("asyncio.to_thread", new_callable=AsyncMock, return_value="running"):
         await pool._check_sandbox_health(mock_sandbox)
 
     # Metric should increment (in real implementation)
