@@ -2,7 +2,7 @@
 
 > Generated: 2026-02-11
 > Total Files: ~299
-> Progress: 96/299 files reviewed (32.1%)
+> Progress: 101/299 files reviewed (33.8%)
 
 ## Review Criteria
 
@@ -7756,4 +7756,199 @@ class ToolActionRecord:
 
 ---
 
-*Review will continue with Batch 20 (files 96-100) upon next iteration.*
+## Batch 20: Agent Services - Hallucination & Reflection (Files 96-100)
+
+### 96. `backend/app/domain/services/agents/grounding_validator.py` (1318 lines)
+
+**Purpose:** Grounding validation for hallucination prevention
+
+**Current Setup:**
+- `GroundingLevel` enum (FULLY_GROUNDED, PARTIALLY_GROUNDED, WEAKLY_GROUNDED, UNGROUNDED)
+- `Claim`, `NumericClaim`, `EntityClaim` dataclasses (Phase 3)
+- `GroundingResult` and `EnhancedGroundingResult` dataclasses
+- `GroundingValidator` class with word overlap scoring
+- `EnhancedGroundingValidator` with numeric/entity verification
+- `CitationValidator` for Phase 4 zero-hallucination defense
+
+**Strengths:**
+- EXCELLENT - Comprehensive grounding validation with multiple phases
+- Phase 3 enhancements: numeric claim extraction and verification
+- Entity claim verification with type classification
+- Provenance-based validation support
+- Phase 4: Citation validation for zero-hallucination defense
+- Placeholder URL detection
+- Jaccard similarity for claim matching
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 43, 53, 73, 90, 128, 1105 | Medium | Multiple dataclasses |
+| datetime.now() | Lines 100, 148 | Low | Should use `datetime.now(UTC)` |
+| Large file | Global | Low | 1318 lines - consider splitting |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 97. `backend/app/domain/services/agents/hallucination_detector.py` (484 lines)
+
+**Purpose:** Tool hallucination detection for non-existent tools
+
+**Current Setup:**
+- `HallucinationEvent` and `ToolValidationResult` dataclasses
+- `ToolHallucinationDetector` class with similar tool suggestions
+- `HIGH_RISK_PATTERNS` for semantic parameter validation
+- Parameter type checking against JSON schemas
+
+**Strengths:**
+- EXCELLENT - Comprehensive tool hallucination detection
+- Sequence matching for similar tool suggestions
+- Parameter schema validation (types, required params)
+- High-risk parameter patterns for dangerous commands (rm -rf, sudo, etc.)
+- Semantic validation for file paths, shell commands, URLs
+- Hallucination statistics tracking
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 20, 30 | Low | `HallucinationEvent`, `ToolValidationResult` use `@dataclass` |
+| datetime.now() | Line 26 | Low | Should use `datetime.now(UTC)` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 98. `backend/app/domain/services/agents/content_hallucination_detector.py` (1075 lines)
+
+**Purpose:** Content hallucination detection for fabricated metrics
+
+**Current Setup:**
+- `HallucinationRisk` enum (LOW, MEDIUM, HIGH, CRITICAL)
+- `HallucinationIssue`, `HallucinationAnalysisResult`, `Claim`, `ContradictionResult` dataclasses
+- `ContentHallucinationDetector` class with pattern-based detection
+- Contradiction detection across claims
+
+**Strengths:**
+- EXCELLENT - Comprehensive content hallucination detection
+- 20+ high-risk patterns for engagement metrics, prices, ratings
+- Attribution pattern detection to reduce false positives
+- Contradiction detection (numeric, polarity, format, version)
+- Entity extraction with technical term patterns
+- Sentiment polarity analysis for contradiction detection
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 45, 57, 90, 103 | Medium | Multiple dataclasses |
+| Large file | Global | Low | 1075 lines - consider splitting |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 99. `backend/app/domain/services/agents/reflection.py` (534 lines)
+
+**Purpose:** ReflectionAgent for intermediate progress assessment
+
+**Current Setup:**
+- `ReflectionAgent` class with Enhanced Self-Reflection pattern (Phase 2)
+- Metrics integration via module-level `_metrics`
+- Reflection event emission with status tracking
+- Stuck pattern reflection support
+
+**Strengths:**
+- EXCELLENT - Clean reflection implementation
+- Phase 2 Enhanced Self-Reflection pattern
+- Fail-open design (on error, recommends CONTINUE)
+- Reflection loop prevention with count limits
+- Feature flag support for advanced triggers
+- Metrics recording for observability
+- Specialized stuck pattern prompts
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No dataclass usage | N/A | N/A | Uses domain models instead |
+| Uses core.config | Line 130 | Low | Direct import from core config |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 100. `backend/app/domain/services/agents/self_consistency.py` (612 lines)
+
+**Purpose:** Self-consistency checker for hallucination reduction
+
+**Current Setup:**
+- `ConsistencyLevel` enum (UNANIMOUS, STRONG, MODERATE, WEAK, CONFLICTING)
+- `ClaimConsistency` and `SelfConsistencyResult` dataclasses
+- `SelfConsistencyChecker` class with majority voting
+- Parallel sample generation with asyncio.gather
+
+**Strengths:**
+- EXCELLENT - Implements Wang et al. 2022 self-consistency approach
+- Parallel sample generation (3-5 samples)
+- Claim extraction with normalization
+- Majority voting for consensus
+- Consolidated answer generation
+- Consistency level calculation with confidence scoring
+- Statistics tracking
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 53, 74 | Low | `ClaimConsistency`, `SelfConsistencyResult` use `@dataclass` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+## Batch 20 Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| Files Reviewed | 5 |
+| Total Lines | ~4,000 |
+| Total Issues Found | 11 |
+| Critical | 0 |
+| Medium | 3 |
+| Low | 8 |
+
+### Key Findings
+
+1. **Grounding Validation**: `grounding_validator.py` implements 4-phase validation with numeric/entity verification.
+
+2. **Tool Hallucination**: `hallucination_detector.py` uses sequence matching for similar tool suggestions.
+
+3. **Content Hallucination**: `content_hallucination_detector.py` implements 20+ high-risk patterns and contradiction detection.
+
+4. **Reflection System**: `reflection.py` implements Phase 2 Enhanced Self-Reflection with fail-open design.
+
+5. **Self-Consistency**: `self_consistency.py` implements Wang et al. 2022 approach with majority voting.
+
+### Priority Fixes
+
+1. **Medium**: Convert dataclasses to Pydantic `BaseModel` in grounding_validator, content_hallucination_detector
+2. **Low**: Fix `datetime.now()` to `datetime.now(UTC)` in grounding_validator, hallucination_detector
+3. **Low**: Consider splitting large files (grounding_validator.py at 1318 lines)
+
+---
+
+## Progress Update
+
+| Category | Files Reviewed | Total |
+|----------|---------------|-------|
+| Domain Models | 62 | 62 |
+| Domain Repositories | 14 | 14 |
+| Agent Services | 25 | 82 |
+| **Total So Far** | **101** | **299** |
+| **Progress** | **33.8%** | - |
+
+---
+
+*Review will continue with Batch 21 (files 101-105) upon next iteration.*
