@@ -436,8 +436,16 @@ export const createSSEConnection = async <T = unknown>(
               streamCompleted = true;
             }
 
-            // Parse event data and extract event_id for reconnection resume
-            const parsedData = JSON.parse(event.data) as T;
+            // Parse event data and extract event_id for reconnection resume.
+            // Guard against malformed payloads so a single bad frame does not
+            // crash the entire stream handler and force a reconnect cycle.
+            let parsedData: T;
+            try {
+              parsedData = JSON.parse(event.data) as T;
+            } catch {
+              console.warn('SSE: failed to parse event data, skipping frame', event.event);
+              return;
+            }
             const eventId = (parsedData as { event_id?: string })?.event_id;
             if (eventId) {
               lastReceivedEventId = eventId;
