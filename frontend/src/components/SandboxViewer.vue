@@ -17,8 +17,12 @@
     <div v-else-if="enabled" class="sandbox-content-inner">
       <!-- Loading overlay -->
       <div v-if="isLoading" class="sandbox-loading">
-        <div class="sandbox-loading-spinner"></div>
-        <span class="sandbox-loading-text">{{ statusText }}</span>
+        <LoadingState
+          label="Connecting to screen"
+          :detail="statusText"
+          :is-active="true"
+          animation="globe"
+        />
       </div>
 
       <!-- Error state -->
@@ -544,26 +548,7 @@ defineExpose({
   left: 0;
   right: 0;
   bottom: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  background: var(--background-gray-main);
   z-index: 10;
-}
-
-.sandbox-loading-spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid var(--border-color);
-  border-top-color: var(--function-success);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-.sandbox-loading-text {
-  color: var(--text-secondary);
-  font-size: 13px;
 }
 
 .sandbox-error {
