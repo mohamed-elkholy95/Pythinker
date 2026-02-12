@@ -86,6 +86,16 @@ class Settings(BaseSettings):
     redis_health_check_interval: int = 30  # 30s health check interval
     redis_retry_on_timeout: bool = True  # Retry on timeout
 
+    # MinIO S3 Object Storage configuration
+    minio_endpoint: str = "minio:9000"
+    minio_access_key: str = "minioadmin"
+    minio_secret_key: str = "minioadmin"
+    minio_bucket_name: str = "pythinker"
+    minio_use_ssl: bool = False
+    minio_region: str = "us-east-1"
+    minio_presigned_expiry_seconds: int = 3600  # 1 hour default
+    file_storage_backend: str = "minio"  # "minio" | "gridfs"
+
     # Qdrant Vector Database configuration
     qdrant_url: str = "http://qdrant:6333"
     qdrant_grpc_port: int = 6334
@@ -254,6 +264,18 @@ class Settings(BaseSettings):
     screenshot_scale: float = 0.5  # Scale factor for full-res
     screenshot_thumbnail_quality: int = 40  # JPEG quality for thumbnails
     screenshot_thumbnail_scale: float = 0.25  # Scale factor for thumbnails
+
+    # MinIO screenshot-specific buckets (uses shared MinIO config from above)
+    minio_screenshots_bucket: str = "screenshots"
+    minio_thumbnails_bucket: str = "thumbnails"
+
+    # Screenshot deduplication
+    screenshot_dedup_enabled: bool = True
+    screenshot_dedup_threshold: int = 5  # Hamming distance (0=exact match, 64=all different)
+
+    # WebP thumbnails
+    screenshot_thumbnail_webp_enabled: bool = True
+    screenshot_thumbnail_webp_quality: int = 75
 
     # Screenshot resilience (Priority 2: prevent HTTP pool exhaustion)
     screenshot_circuit_breaker_enabled: bool = True  # Enable circuit breaker

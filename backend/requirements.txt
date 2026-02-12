@@ -40,6 +40,13 @@ beanie>=1.27.0
 redis>=5.2.0
 qdrant-client>=1.12.0
 
+# Object storage
+minio>=7.2.0
+
+# Image processing (screenshot deduplication & WebP thumbnails)
+Pillow>=11.1.0
+imagehash>=4.3.1
+
 # Caching
 async-lru>=2.0.0
 

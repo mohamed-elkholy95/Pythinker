@@ -27,7 +27,6 @@ from app.core.config import get_settings
 from app.domain.models.user import User, UserRole
 from app.domain.services.memory_service import MemoryService
 from app.infrastructure.external.cache import get_cache
-from app.infrastructure.external.file.gridfsfile import get_file_storage
 
 # Import all required dependencies for agent service
 from app.infrastructure.external.llm import get_llm
@@ -47,6 +46,22 @@ logger = logging.getLogger(__name__)
 
 # Security scheme - Bearer Token only
 security_bearer = HTTPBearer(auto_error=False)
+
+
+@lru_cache
+def get_file_storage():
+    """Get file storage instance based on FILE_STORAGE_BACKEND configuration."""
+    settings = get_settings()
+    if settings.file_storage_backend == "minio":
+        from app.infrastructure.external.file.minios3storage import MinIOFileStorage
+        from app.infrastructure.storage.minio_storage import get_minio_storage
+
+        return MinIOFileStorage(minio_storage=get_minio_storage())
+
+    from app.infrastructure.external.file.gridfsfile import GridFSFileStorage
+    from app.infrastructure.storage.mongodb import get_mongodb
+
+    return GridFSFileStorage(mongodb=get_mongodb())
 
 
 def _get_llm_instance():

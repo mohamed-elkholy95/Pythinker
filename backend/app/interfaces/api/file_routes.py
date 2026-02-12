@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, File, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.application.errors.exceptions import NotFoundError
+from app.application.errors.exceptions import BadRequestError, NotFoundError
 from app.application.services.file_service import FileService
 from app.domain.models.user import User
 from app.interfaces.dependencies import get_current_user, get_file_service, get_optional_current_user, verify_signature
@@ -17,6 +17,26 @@ class BatchDownloadRequest(BaseModel):
     """Request body for batch file download as zip"""
 
     file_ids: list[str]
+
+
+class PresignedUploadRequest(BaseModel):
+    """Request body for generating a presigned upload URL"""
+
+    filename: str
+    content_type: str | None = None
+
+
+class PresignedUploadResponse(BaseModel):
+    """Response for presigned upload URL"""
+
+    upload_url: str
+    object_key: str
+
+
+class PresignedDownloadResponse(BaseModel):
+    """Response for presigned download URL"""
+
+    download_url: str
 
 
 logger = logging.getLogger(__name__)
@@ -147,6 +167,47 @@ async def create_file_signed_url(
         )
     except FileNotFoundError as e:
         raise NotFoundError("File not found") from e
+
+
+@router.post("/presigned-upload", response_model=APIResponse[PresignedUploadResponse])
+async def create_presigned_upload_url(
+    request_data: PresignedUploadRequest,
+    file_service: FileService = Depends(get_file_service),
+    current_user: User = Depends(get_current_user),
+) -> APIResponse[PresignedUploadResponse]:
+    """Generate a presigned URL for direct file upload to MinIO.
+
+    The client can PUT the file directly to the returned URL without
+    proxying through the backend.
+    """
+    try:
+        upload_url, object_key = await file_service.generate_upload_url(
+            filename=request_data.filename,
+            user_id=current_user.id,
+            content_type=request_data.content_type,
+        )
+    except NotImplementedError as e:
+        raise BadRequestError("Presigned URLs are not supported by the current storage backend") from e
+    return APIResponse.success(PresignedUploadResponse(upload_url=upload_url, object_key=object_key))
+
+
+@router.get("/{file_id}/presigned-download", response_model=APIResponse[PresignedDownloadResponse])
+async def create_presigned_download_url(
+    file_id: str,
+    file_service: FileService = Depends(get_file_service),
+    current_user: User = Depends(get_current_user),
+) -> APIResponse[PresignedDownloadResponse]:
+    """Generate a presigned URL for direct file download from MinIO."""
+    try:
+        download_url = await file_service.generate_download_url(
+            file_id=file_id,
+            user_id=current_user.id,
+        )
+    except NotImplementedError as e:
+        raise BadRequestError("Presigned URLs are not supported by the current storage backend") from e
+    except PermissionError as e:
+        raise NotFoundError("File not found") from e
+    return APIResponse.success(PresignedDownloadResponse(download_url=download_url))
 
 
 @router.post("/batch/download")

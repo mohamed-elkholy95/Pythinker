@@ -63,3 +63,36 @@ class FileStorage(Protocol):
             FileInfo containing file metadata, None if file not found
         """
         ...
+
+    async def generate_upload_url(
+        self, filename: str, user_id: str, content_type: str | None = None
+    ) -> tuple[str, str]:
+        """Generate a presigned URL for direct file upload.
+
+        Args:
+            filename: Name of the file to be uploaded
+            user_id: ID of the user uploading the file
+            content_type: MIME type of the file (optional)
+
+        Returns:
+            Tuple of (presigned_url, object_key)
+
+        Raises:
+            NotImplementedError: If the storage backend doesn't support presigned URLs
+        """
+        raise NotImplementedError("Presigned upload URLs not supported by this storage backend")
+
+    async def generate_download_url(self, file_id: str, user_id: str | None = None) -> str:
+        """Generate a presigned URL for direct file download.
+
+        Args:
+            file_id: File ID / object key
+            user_id: ID of the user downloading the file (optional)
+
+        Returns:
+            Presigned download URL
+
+        Raises:
+            NotImplementedError: If the storage backend doesn't support presigned URLs
+        """
+        raise NotImplementedError("Presigned download URLs not supported by this storage backend")

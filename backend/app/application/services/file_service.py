@@ -127,6 +127,26 @@ class FileService:
 
         return signed_url
 
+    async def generate_upload_url(
+        self, filename: str, user_id: str, content_type: str | None = None
+    ) -> tuple[str, str]:
+        """Generate a presigned URL for direct file upload.
+
+        Returns:
+            Tuple of (presigned_url, object_key)
+        """
+        if not self._file_storage:
+            raise RuntimeError("File storage service not available")
+
+        return await self._file_storage.generate_upload_url(filename, user_id, content_type)
+
+    async def generate_download_url(self, file_id: str, user_id: str | None = None) -> str:
+        """Generate a presigned URL for direct file download."""
+        if not self._file_storage:
+            raise RuntimeError("File storage service not available")
+
+        return await self._file_storage.generate_download_url(file_id, user_id)
+
     async def create_zip_archive(self, file_ids: list[str], user_id: str | None = None) -> tuple[io.BytesIO, str]:
         """Create a zip archive containing multiple files
 
