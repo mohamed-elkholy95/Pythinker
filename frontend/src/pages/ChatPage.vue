@@ -121,6 +121,7 @@
             :showStepLeadingConnector="shouldShowStepLeadingConnector(index)"
             :showStepConnector="shouldShowStepConnector(index)"
             :showAssistantHeader="shouldShowAssistantHeader(index)"
+            :showAssistantCompletionFooter="assistantCompletionFooterIds.has(message.id)"
             @toolClick="handleToolClick"
             @reportOpen="handleReportOpen"
             @reportFileOpen="handleReportFileOpen"
@@ -170,6 +171,24 @@
             :suggestions="suggestions"
             @select="handleSuggestionSelect"
           />
+
+          <div
+            v-if="showAgentGuidanceCta && !isLoading && !isThinking"
+            class="mt-3 mb-1 rounded-xl border border-green-200 bg-green-50 px-3 py-2.5 dark:border-green-900/40 dark:bg-green-950/20"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <p class="text-sm text-green-800 dark:text-green-300">
+                This looks like a complex task. Run it with full agent mode?
+              </p>
+              <button
+                type="button"
+                class="shrink-0 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-green-700"
+                @click="handleUseAgentMode"
+              >
+                Use Agent Mode
+              </button>
+            </div>
+          </div>
         </div>
 
         <div
@@ -410,6 +429,11 @@ const createInitialState = () => ({
   isWaitingForReply: false, // True when agent is waiting for user input
   followUpAnchorEventId: undefined as string | undefined, // Event ID to anchor follow-up context to
   pendingFollowUpSuggestion: undefined as string | undefined, // Suggestion waiting to be sent
+  assistantCompletionFooterIds: new Set<string>(), // Assistant message IDs that should show green completion footer
+  shortPathActivated: false, // Whether short completion path has been observed in this session
+  showAgentGuidanceCta: false, // Whether to show "Use Agent Mode" CTA
+  agentGuidancePrompt: undefined as string | undefined, // Prompt to replay with explicit agent guidance
+  bypassShortPathLockOnce: false, // One-shot bypass when user explicitly clicks "Use Agent Mode"
 });
 
 // Create reactive state
@@ -454,6 +478,11 @@ const {
   isWaitingForReply,
   followUpAnchorEventId,
   pendingFollowUpSuggestion,
+  assistantCompletionFooterIds,
+  shortPathActivated,
+  showAgentGuidanceCta,
+  agentGuidancePrompt,
+  bypassShortPathLockOnce,
 } = toRefs(state);
 
 // Screenshot replay for completed sessions.
@@ -1622,6 +1651,58 @@ const ensureCompletionSuggestions = () => {
   }
 };
 
+const SHORT_COMPLETION_MAX_CHARS = 220;
+const COMPLEX_PROMPT_MIN_CHARS = 70;
+const COMPLEX_PROMPT_PATTERNS = [
+  /\b(build|implement|create|develop|design|architect|refactor)\b/i,
+  /\b(debug|fix|investigate|analyze)\b/i,
+  /\b(plan|step[-\s]?by[-\s]?step|workflow|roadmap)\b/i,
+  /\bapi|backend|frontend|database|integration|deployment\b/i,
+  /\bcomprehensive|detailed|end-to-end|production\b/i,
+];
+
+const shouldShowShortCompletionFooter = (assistantContent: string): boolean => {
+  const content = assistantContent.trim();
+  if (!content || content.length > SHORT_COMPLETION_MAX_CHARS) {
+    return false;
+  }
+
+  // Keep the fast-route completion footer focused on simple short replies.
+  const hasStructuredMarkdown = /(^|\n)\s*(#{1,6}\s|[-*+]\s|\d+\.\s|```|\|.+\|)/m.test(content);
+  return !hasStructuredMarkdown;
+};
+
+const isComplexTaskPrompt = (text: string): boolean => {
+  const normalized = text.trim();
+  if (!normalized) return false;
+  if (normalized.length >= COMPLEX_PROMPT_MIN_CHARS) return true;
+  return COMPLEX_PROMPT_PATTERNS.some((pattern) => pattern.test(normalized));
+};
+
+const markShortAssistantCompletion = (): boolean => {
+  for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+    const message = messages.value[i];
+
+    // Long/report flows already have their own completion footer with rating.
+    if (message.type === 'report' || message.type === 'skill_delivery') {
+      return false;
+    }
+
+    if (message.type !== 'assistant') {
+      continue;
+    }
+
+    const content = ((message.content as MessageContent).content || '').trim();
+    if (shouldShowShortCompletionFooter(content)) {
+      assistantCompletionFooterIds.value.add(message.id);
+      shortPathActivated.value = true;
+      return true;
+    }
+    return false;
+  }
+  return false;
+};
+
 // Handle report event
 const handleReportEvent = (reportData: ReportEventData) => {
   // Clear summary streaming overlay — report card takes over
@@ -1920,6 +2001,7 @@ const processEvent = (event: AgentSSEEvent) => {
     handlePhaseEvent(event.data as import('../types/event').AgentPhaseEventData);
   } else if (event.event === 'done') {
     ensureCompletionSuggestions();
+    markShortAssistantCompletion();
     isResponseSettled.value = true;
     isLoading.value = false;
     isThinking.value = false;
@@ -1985,6 +2067,17 @@ const handleSubmit = () => {
   chat(inputMessage.value, attachments.value);
 }
 
+const handleUseAgentMode = () => {
+  const originalPrompt = (agentGuidancePrompt.value || '').trim();
+  if (!originalPrompt) return;
+
+  bypassShortPathLockOnce.value = true;
+  showAgentGuidanceCta.value = false;
+
+  const guidedPrompt = `Use full agent mode for this task. First create a clear plan, then execute it:\n\n${originalPrompt}`;
+  chat(guidedPrompt, []);
+};
+
 // Track last sent message to prevent duplicate submissions
 let lastSentMessage = '';
 let lastSentTime = 0;
@@ -2006,6 +2099,36 @@ const chat = async (
   if (normalizedMessage) {
     lastSentMessage = normalizedMessage;
     lastSentTime = now;
+    showAgentGuidanceCta.value = false;
+    agentGuidancePrompt.value = undefined;
+  }
+
+  const bypassShortPathLock = bypassShortPathLockOnce.value;
+  if (bypassShortPathLockOnce.value) {
+    bypassShortPathLockOnce.value = false;
+  }
+
+  // Keep short path sticky: after short path is activated, complex prompts
+  // require explicit user confirmation via "Use Agent Mode".
+  if (
+    !bypassShortPathLock &&
+    normalizedMessage &&
+    shortPathActivated.value &&
+    isComplexTaskPrompt(normalizedMessage)
+  ) {
+    if (!options?.skipOptimistic) {
+      addOptimisticUserMessage(normalizedMessage, files);
+    }
+    inputMessage.value = '';
+    clearSelectedSkills();
+    suggestions.value = [];
+    isResponseSettled.value = true;
+    isLoading.value = false;
+    isThinking.value = false;
+    isWaitingForReply.value = false;
+    showAgentGuidanceCta.value = true;
+    agentGuidancePrompt.value = normalizedMessage;
+    return;
   }
 
   // Build follow-up context if this message came from a suggestion click
@@ -2153,11 +2276,28 @@ const restoreSession = async () => {
     const wasManuallyStopped = sessionStorage.getItem(stoppedKey);
 
     if (wasManuallyStopped) {
-      console.log('[RESTORE] Session was manually stopped, not auto-resuming');
-      sessionStorage.removeItem(stoppedKey);
-      // Trust the stop flag - user explicitly stopped this session
-      // Don't resume even if backend says RUNNING (backend stop might be async)
-      return;
+      // Parse timestamp-based stop flag (new format: JSON with timestamp)
+      // Old format ('true') is treated as stale
+      let isStale = true;
+      try {
+        const parsed = JSON.parse(wasManuallyStopped);
+        if (parsed?.timestamp) {
+          const ageMs = Date.now() - parsed.timestamp;
+          isStale = ageMs > 60_000; // >60s old = stale
+        }
+      } catch {
+        // Old 'true' format or invalid JSON — treat as stale
+      }
+
+      if (isStale) {
+        console.log('[RESTORE] Stop flag is stale (>60s or old format), removing and resuming');
+        sessionStorage.removeItem(stoppedKey);
+        // Fall through to auto-resume below
+      } else {
+        console.log('[RESTORE] Session was recently stopped, not auto-resuming');
+        sessionStorage.removeItem(stoppedKey);
+        return;
+      }
     }
 
     // No stop flag - safe to auto-resume
@@ -2391,11 +2531,11 @@ const handleStop = () => {
     cancelCurrentChat.value = null;
   }
   if (sessionId.value) {
-    // Mark this session as manually stopped to prevent auto-resume on page refresh
-    // Using sessionStorage: persists on refresh, cleared on tab close (better than localStorage)
-    sessionStorage.setItem(`pythinker-stopped-${sessionId.value}`, 'true');
     // Clear lastEventId from sessionStorage since session is stopped (use centralized cleanup)
     cleanupSessionStorage(sessionId.value);
+    // Mark this session as manually stopped to prevent auto-resume on page refresh
+    // Set AFTER cleanup so the flag isn't immediately removed
+    sessionStorage.setItem(`pythinker-stopped-${sessionId.value}`, JSON.stringify({ timestamp: Date.now() }));
     agentApi.stopSession(sessionId.value);
     // Notify sidebar that session is no longer running
     emitStatusChange(sessionId.value, SessionStatus.COMPLETED);

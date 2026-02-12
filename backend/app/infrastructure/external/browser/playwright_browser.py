@@ -990,6 +990,21 @@ class PlaywrightBrowser:
         logger.error(f"Page crash detected (CDP: {self.cdp_url}) - marking connection unhealthy")
         self._connection_healthy = False
 
+    def is_healthy(self) -> bool:
+        """Synchronous health check for fast-path routing.
+
+        Returns:
+            bool: True if browser components are initialized and page is open.
+        """
+        return bool(
+            self.playwright
+            and self.browser
+            and self.context
+            and self.page
+            and not self.page.is_closed()
+            and self._connection_healthy
+        )
+
     async def _verify_connection_health(self) -> bool:
         """Verify the browser connection is healthy
 

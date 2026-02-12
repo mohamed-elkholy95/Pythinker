@@ -293,7 +293,7 @@ class FastPathRouter:
         # Check for knowledge questions (simple enough for direct LLM response)
         # But only if it's short enough (long questions may need research)
         word_count = len(message_clean.split())
-        if word_count < 20:
+        if word_count < 35:
             for pattern in KNOWLEDGE_PATTERNS:
                 if re.search(pattern, message_lower):
                     logger.info("Query classified as KNOWLEDGE")

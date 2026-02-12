@@ -1658,6 +1658,47 @@ class PlanActFlow(BaseFlow):
                 progress_percent=15,
             )
 
+        # === ANCHOR CONTEXT: Inject referenced event context for follow-ups ===
+        if message.follow_up_anchor_event_id and self._session_repository:
+            try:
+                anchor_event = await self._session_repository.get_event_by_id(
+                    self._session_id, message.follow_up_anchor_event_id
+                )
+                if anchor_event:
+                    anchor_text = ""
+                    if isinstance(anchor_event, dict):
+                        etype = anchor_event.get("type", "")
+                        if etype == "report":
+                            title = anchor_event.get("title", "")
+                            content = anchor_event.get("content", "")
+                            anchor_text = f"{title}: {content}"[:500]
+                        elif etype == "message":
+                            anchor_text = (anchor_event.get("message", ""))[:500]
+                        else:
+                            anchor_text = str(anchor_event)[:500]
+                    else:
+                        if hasattr(anchor_event, "title") and hasattr(anchor_event, "content"):
+                            anchor_text = f"{anchor_event.title}: {anchor_event.content}"[:500]
+                        elif hasattr(anchor_event, "message"):
+                            anchor_text = anchor_event.message[:500]
+                    if anchor_text:
+                        context_prefix = f"[Context from previous result: {anchor_text}]\n\n"
+                        message = message.model_copy(deep=True)
+                        message.message = context_prefix + message.message
+                        logger.info(
+                            "Injected anchor context (%d chars) for session %s",
+                            len(anchor_text),
+                            self._session_id,
+                        )
+                else:
+                    logger.warning(
+                        "Anchor event %s not found for session %s",
+                        message.follow_up_anchor_event_id,
+                        self._session_id,
+                    )
+            except Exception:
+                logger.warning("Failed to retrieve anchor event", exc_info=True)
+
         # === FAST PATH: Check if this is a simple query that can skip planning ===
         # Always classify messages to detect greetings/simple queries
         # Greetings and knowledge queries work regardless of session status

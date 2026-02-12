@@ -110,3 +110,7 @@ class SessionRepository(Protocol):
     async def get_event_by_sequence(self, session_id: str, sequence: int) -> BaseEvent | None:
         """Get an event by its sequence number."""
         ...
+
+    async def get_event_by_id(self, session_id: str, event_id: str) -> BaseEvent | None:
+        """Get an event by its unique ID."""
+        ...
