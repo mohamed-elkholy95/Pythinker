@@ -167,11 +167,6 @@ const handleClick = () => {
 }
 
 .tool-icon-shell {
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  border: 1px solid var(--border-main);
-  background: var(--background-white-main);
   display: inline-flex;
   align-items: center;
   justify-content: center;
