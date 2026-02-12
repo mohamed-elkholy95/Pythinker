@@ -322,7 +322,7 @@ class DefaultAgentFactory:
             tools.append(ShellTool(self._sandbox))
 
         if AgentCapability.FILE_OPERATIONS in spec.capabilities and self._sandbox:
-            tools.append(FileTool(self._sandbox))
+            tools.append(FileTool(self._sandbox, session_id=spec.agent_type.value))
 
         if AgentCapability.WEB_BROWSING in spec.capabilities and self._browser:
             tools.append(BrowserTool(self._browser))

@@ -507,7 +507,7 @@ class PlanActGraphFlow(BaseFlow):
         self._session_repository = session_repository
 
         # Build tools list
-        tools = [ShellTool(sandbox), BrowserTool(browser), FileTool(sandbox), MessageTool(), IdleTool(), mcp_tool]
+        tools = [ShellTool(sandbox), BrowserTool(browser), FileTool(sandbox, session_id=session_id), MessageTool(), IdleTool(), mcp_tool]
 
         # Pass browser to SearchTool for visual search when search_prefer_browser is enabled
         if search_engine:

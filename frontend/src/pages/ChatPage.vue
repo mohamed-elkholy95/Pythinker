@@ -584,16 +584,25 @@ const hasUserMessages = computed(() =>
   messages.value.some((message) => message.type === 'user')
 );
 
-const hasAgentStartedResponding = computed(() =>
-  messages.value.some((message) =>
+const hasAgentStartedResponding = computed(() => {
+  // Check for message-based signals (assistant, tool, step, etc.)
+  const hasMessageSignal = messages.value.some((message) =>
     message.type === 'assistant' ||
     message.type === 'tool' ||
     message.type === 'step' ||
     message.type === 'report' ||
     message.type === 'deep_research' ||
     message.type === 'skill_delivery'
-  )
-);
+  );
+
+  // Check for early activity signals (progress or streaming)
+  // This ensures lightweight direct responses don't show abrupt warmup->response transitions
+  const hasEarlyActivitySignal =
+    planningProgress.value !== null ||  // ProgressEvent received
+    isThinkingStreaming.value;          // StreamEvent active
+
+  return hasMessageSignal || hasEarlyActivitySignal;
+});
 
 const shouldPinComposerToBottom = computed(() =>
   isLoading.value || hasAgentStartedResponding.value || messages.value.length > 0
@@ -2299,6 +2308,18 @@ const restoreSession = async () => {
     await waitForSessionIfInitializing();
   }
   if (sessionStatus.value === SessionStatus.RUNNING || sessionStatus.value === SessionStatus.PENDING) {
+    // Defense-in-depth: if event replay already set status to COMPLETED (via DoneEvent
+    // handler), the condition above will be false and we skip auto-resume. But if the
+    // server returned "running" AND events didn't include a DoneEvent (edge case),
+    // do a lightweight status re-check to avoid restarting a completed task.
+    const freshStatus = await agentApi.getSessionStatus(sessionId.value);
+    if (freshStatus && ['completed', 'failed'].includes(freshStatus.status)) {
+      console.log('[RESTORE] Status re-check shows session is', freshStatus.status, '- not resuming');
+      sessionStatus.value = freshStatus.status === 'completed' ? SessionStatus.COMPLETED : SessionStatus.FAILED;
+      replay.loadScreenshots();
+      return;
+    }
+
     // Check if this session was manually stopped (prevents auto-resume on page refresh)
     // Using sessionStorage: persists on refresh, cleared on tab close
     const stoppedKey = `pythinker-stopped-${sessionId.value}`;

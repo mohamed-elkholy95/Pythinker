@@ -55,15 +55,17 @@ class FileTool(BaseTool):
 
     name: str = "file"
 
-    def __init__(self, sandbox: Sandbox, max_observe: int | None = None):
+    def __init__(self, sandbox: Sandbox, max_observe: int | None = None, session_id: str | None = None):
         """Initialize file tool class
 
         Args:
             sandbox: Sandbox service
             max_observe: Optional custom observation limit (default: 8000)
+            session_id: Optional session ID for shell command execution (needed for PDF text extraction)
         """
         super().__init__(max_observe=max_observe)
         self.sandbox = sandbox
+        self._session_id = session_id
 
     @tool(
         name="file_read",
@@ -392,15 +394,20 @@ class FileTool(BaseTool):
                     last_page = max(pages_to_extract)
                     extract_cmd = f"pdftotext -f {first_page} -l {last_page} {safe_file} -"
 
-                text_result = await self.sandbox.shell_exec(extract_cmd)
-                if text_result.success:
-                    result_data["extracted_text"] = text_result.result[:10000]  # Limit text length
+                if self._session_id:
+                    text_result = await self.sandbox.exec_command(self._session_id, "/", extract_cmd)
+                    if text_result.success:
+                        output = text_result.data if isinstance(text_result.data, str) else (text_result.message or "")
+                        result_data["extracted_text"] = output[:10000]  # Limit text length
 
             # Get page count
-            page_count_cmd = f"pdfinfo {shlex.quote(file)} | grep 'Pages:' | awk '{{print $2}}'"
-            page_result = await self.sandbox.shell_exec(page_count_cmd)
-            if page_result.success and page_result.result.strip().isdigit():
-                result_data["page_count"] = int(page_result.result.strip())
+            if self._session_id:
+                page_count_cmd = f"pdfinfo {shlex.quote(file)} | grep 'Pages:' | awk '{{print $2}}'"
+                page_result = await self.sandbox.exec_command(self._session_id, "/", page_count_cmd)
+                if page_result.success:
+                    output = page_result.data if isinstance(page_result.data, str) else (page_result.message or "")
+                    if output.strip().isdigit():
+                        result_data["page_count"] = int(output.strip())
 
             result_text = (
                 f"**PDF Document:** {result_data['file_name']}\n**Pages:** {result_data.get('page_count', 'unknown')}\n"

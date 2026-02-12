@@ -1020,13 +1020,22 @@ NOTE: The browser state may have changed. When you next use the browser:
                 event.id = event_id
                 logger.debug(f"Got event from Session {session_id}'s event queue: {type(event).__name__}")
                 await self._session_repository.update_unread_message_count(session_id, 0)
-                yield event
+
+                # Detect terminal events and persist status BEFORE yielding to SSE.
+                # This prevents a race condition where a page refresh between the
+                # SSE send and _teardown_session_runtime sees "running" in the DB.
                 if isinstance(event, DoneEvent):
                     terminal_status = SessionStatus.COMPLETED
+                    await self._session_repository.update_status(session_id, SessionStatus.COMPLETED)
+                    yield event
                     break
                 if isinstance(event, ErrorEvent):
                     terminal_status = SessionStatus.FAILED
+                    await self._session_repository.update_status(session_id, SessionStatus.FAILED)
+                    yield event
                     break
+
+                yield event
                 if isinstance(event, WaitEvent):
                     break
 
