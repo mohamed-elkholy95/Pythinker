@@ -976,31 +976,37 @@ class PlanActFlow(BaseFlow):
         phases: list[Phase] = []
         order = 0
         if research_ids:
-            phases.append(Phase(
-                phase_type=PhaseType.RESEARCH_FOUNDATION,
-                label="Research",
-                description="Gathering information",
-                order=order,
-                step_ids=research_ids,
-            ))
+            phases.append(
+                Phase(
+                    phase_type=PhaseType.RESEARCH_FOUNDATION,
+                    label="Research",
+                    description="Gathering information",
+                    order=order,
+                    step_ids=research_ids,
+                )
+            )
             order += 1
         if analysis_ids:
-            phases.append(Phase(
-                phase_type=PhaseType.ANALYSIS_SYNTHESIS,
-                label="Analysis",
-                description="Analyzing findings",
-                order=order,
-                step_ids=analysis_ids,
-            ))
+            phases.append(
+                Phase(
+                    phase_type=PhaseType.ANALYSIS_SYNTHESIS,
+                    label="Analysis",
+                    description="Analyzing findings",
+                    order=order,
+                    step_ids=analysis_ids,
+                )
+            )
             order += 1
         if report_ids:
-            phases.append(Phase(
-                phase_type=PhaseType.REPORT_GENERATION,
-                label="Report",
-                description="Generating output",
-                order=order,
-                step_ids=report_ids,
-            ))
+            phases.append(
+                Phase(
+                    phase_type=PhaseType.REPORT_GENERATION,
+                    label="Report",
+                    description="Generating output",
+                    order=order,
+                    step_ids=report_ids,
+                )
+            )
 
         # Fallback: if all steps ended up in one bucket or none matched
         if not phases:
