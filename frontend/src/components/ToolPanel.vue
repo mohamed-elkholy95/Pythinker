@@ -6,7 +6,7 @@
       'h-full w-full top-0 ltr:right-0 rtl:left-0 z-50 fixed sm:sticky sm:top-0 sm:right-0 sm:h-[100vh] sm:ml-3 sm:py-3 sm:mr-4': isShow,
       'h-full overflow-hidden': !isShow
     }"
-    :style="{ 'width': isShow ? `${parentSize/2}px` : '0px', 'opacity': isShow ? '1' : '0', 'transition': '0.2s ease-in-out' }">
+    :style="{ 'width': isShow ? panelWidth : '0px', 'opacity': isShow ? '1' : '0', 'transition': '0.2s ease-in-out' }">
     <div class="h-full flex flex-col" :style="{ 'width': isShow ? '100%' : '0px' }">
       <ToolPanelContent
         ref="toolPanelContentRef"
@@ -42,7 +42,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import type { ToolContent } from '../types/message'
 import type { PlanEventData } from '../types/event'
 import type { ScreenshotMetadata } from '../types/screenshot'
@@ -56,6 +56,14 @@ const { size: parentSize } = useResizeObserver(toolPanelRef, {
   target: 'parent',
   property: 'width'
 })
+
+// On mobile (<640px) the panel overlaps the full screen
+const isMobile = ref(window.innerWidth < 640)
+const onResize = () => { isMobile.value = window.innerWidth < 640 }
+window.addEventListener('resize', onResize)
+onUnmounted(() => window.removeEventListener('resize', onResize))
+
+const panelWidth = computed(() => isMobile.value ? '100%' : `${parentSize.value / 2}px`)
 
 // Tool panel state
 const isShow = ref(false)
