@@ -4,7 +4,7 @@ import re
 import time
 from collections.abc import AsyncGenerator, Callable, Coroutine
 from contextlib import asynccontextmanager, suppress
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, ClassVar, Optional
 
 from pydantic import TypeAdapter
 
@@ -46,7 +46,6 @@ from app.domain.repositories.mcp_repository import MCPRepository
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.agents.usage_context import UsageContextManager
 from app.domain.services.comparison_chart_generator import ComparisonChartGenerator
-from app.domain.services.plotly_chart_orchestrator import PlotlyChartOrchestrator  # Phase 4
 from app.domain.services.flows.base import BaseFlow
 from app.domain.services.flows.discuss import DiscussFlow
 from app.domain.services.flows.plan_act import PlanActFlow
@@ -55,6 +54,7 @@ from app.domain.services.orchestration.coordinator_flow import (
     CoordinatorMode,
     create_coordinator_flow,
 )
+from app.domain.services.plotly_chart_orchestrator import PlotlyChartOrchestrator
 from app.domain.services.tool_event_handler import ToolEventHandler
 from app.domain.services.tools.mcp import MCPTool
 from app.domain.utils.diff import build_unified_diff
@@ -469,7 +469,7 @@ class AgentTaskRunner(TaskRunner):
         return event
 
     # Extension-based MIME type fallback map (Phase 1: MIME hardening)
-    _EXTENSION_MIME_MAP = {
+    _EXTENSION_MIME_MAP: ClassVar[dict[str, str]] = {
         ".html": "text/html",
         ".png": "image/png",
         ".svg": "image/svg+xml",

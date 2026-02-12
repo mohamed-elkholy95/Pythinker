@@ -104,7 +104,7 @@ class PlotlyChartOrchestrator:
 
         # Run Plotly chart generator script in sandbox
         try:
-            script_cmd = f"python3 /app/scripts/generate_comparison_chart_plotly.py"
+            script_cmd = "python3 /app/scripts/generate_comparison_chart_plotly.py"
             result = await self._sandbox.shell_exec(script_cmd, stdin_data=json.dumps(script_input))
 
             if not result.success:
