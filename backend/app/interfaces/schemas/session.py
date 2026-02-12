@@ -99,6 +99,21 @@ class GetSessionResponse(BaseModel):
     is_shared: bool = False
 
 
+class SessionStatusResponse(BaseModel):
+    """Lightweight session status response for polling."""
+
+    session_id: str
+    status: SessionStatus
+    sandbox_id: str | None = None
+    created_at: float | None = None
+
+
+class ActiveSessionResponse(BaseModel):
+    """Response for active session lookup."""
+
+    session: SessionStatusResponse | None = None
+
+
 class ListSessionItem(BaseModel):
     """List session item schema"""
 

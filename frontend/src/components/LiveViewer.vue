@@ -18,6 +18,7 @@
     :session-id="sessionId"
     :enabled="enabled"
     :view-only="viewOnly"
+    :compact-loading="compactLoading"
     @connected="handleVncConnected"
     @disconnected="handleVncDisconnected"
     @credentialsRequired="emit('credentialsRequired')"
@@ -44,6 +45,7 @@ const props = withDefaults(
     showStats?: boolean
     prefer?: LiveRenderer
     allowFallback?: boolean
+    compactLoading?: boolean
   }>(),
   {
     sessionId: '',
@@ -52,7 +54,8 @@ const props = withDefaults(
     quality: 70,
     maxFps: 15,
     showStats: false,
-    allowFallback: true
+    allowFallback: true,
+    compactLoading: false
   }
 )
 

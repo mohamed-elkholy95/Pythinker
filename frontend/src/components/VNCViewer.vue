@@ -1,9 +1,13 @@
 <template>
   <div ref="wrapperRef" class="vnc-wrapper">
     <!-- Loading state -->
-    <div v-if="isLoading" class="vnc-loading">
+    <div
+      v-if="isLoading"
+      class="vnc-loading"
+      :class="{ 'vnc-loading--compact': !!props.compactLoading }"
+    >
       <LoadingState
-        label="Connecting to screen"
+        :label="props.compactLoading ? 'Connecting' : 'Connecting to screen'"
         :detail="statusText"
         :is-active="true"
         animation="globe"
@@ -24,6 +28,7 @@ const props = defineProps<{
   sessionId: string;
   enabled?: boolean;
   viewOnly?: boolean;
+  compactLoading?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -240,5 +245,39 @@ defineExpose({
   right: 0;
   bottom: 0;
   z-index: 10;
+}
+
+/* Compact loading mode for tiny/thumbnail viewers (e.g. mini VNC preview) */
+.vnc-loading--compact :deep(.loading-state) {
+  padding: 8px;
+}
+
+.vnc-loading--compact :deep(.loading-animation) {
+  margin-bottom: 2px;
+  transform: scale(0.42);
+  transform-origin: center;
+}
+
+.vnc-loading--compact :deep(.loading-text) {
+  gap: 4px;
+}
+
+.vnc-loading--compact :deep(.loading-label) {
+  font-size: 10px;
+  line-height: 1.1;
+}
+
+.vnc-loading--compact :deep(.loading-detail) {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .vnc-loading--compact :deep(.loading-animation) {
+    transform: scale(0.34);
+  }
+
+  .vnc-loading--compact :deep(.loading-label) {
+    font-size: 9px;
+  }
 }
 </style>

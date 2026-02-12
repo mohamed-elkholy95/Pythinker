@@ -489,14 +489,18 @@ class ScreenshotDocument(
     session_id: str
     sequence_number: int = 0
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    gridfs_file_id: str = ""
-    thumbnail_file_id: str | None = None
+    storage_key: str = ""  # MinIO S3 object key
+    thumbnail_storage_key: str | None = None
     trigger: str = "periodic"
     tool_call_id: str | None = None
     tool_name: str | None = None
     function_name: str | None = None
     action_type: str | None = None
     size_bytes: int = 0
+    # Deduplication fields
+    perceptual_hash: str | None = None
+    is_duplicate: bool = False
+    original_storage_key: str | None = None
 
     class Settings:
         name: ClassVar[str] = "session_screenshots"
@@ -504,6 +508,7 @@ class ScreenshotDocument(
             "session_id",
             IndexModel([("session_id", ASCENDING), ("sequence_number", ASCENDING)]),
             IndexModel([("session_id", ASCENDING), ("timestamp", ASCENDING)]),
+            IndexModel([("session_id", ASCENDING), ("perceptual_hash", ASCENDING)]),
         ]
 
 

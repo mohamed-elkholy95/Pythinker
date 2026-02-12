@@ -72,6 +72,7 @@
         :enabled="enabled"
         :view-only="true"
         prefer="vnc"
+        :compact-loading="true"
       />
     </div>
 
@@ -142,6 +143,7 @@
         :enabled="enabled"
         :view-only="true"
         prefer="vnc"
+        :compact-loading="true"
       />
     </div>
 

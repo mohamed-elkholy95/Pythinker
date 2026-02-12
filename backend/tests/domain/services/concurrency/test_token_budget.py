@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.domain.external.observability import get_null_metrics, set_metrics
 from app.domain.services.concurrency.token_budget import (
     TokenBudget,
     TokenBudgetExceededError,
@@ -213,6 +214,35 @@ class TestTokenBudget:
 
             # Check that warning was logged
             assert budget._warned is True
+
+    def test_metrics_use_configured_metrics_port(self, mock_settings):
+        """Token budget metrics should flow through the injected domain metrics port."""
+
+        class _MetricsSpy:
+            def __init__(self) -> None:
+                self.calls: list[tuple[int, int]] = []
+
+            def update_token_budget(self, used: int, remaining: int) -> None:
+                self.calls.append((used, remaining))
+
+        import app.domain.services.concurrency.token_budget as token_budget_module
+
+        spy = _MetricsSpy()
+        set_metrics(spy)  # type: ignore[arg-type]
+        token_budget_module._metrics_imported = False
+        token_budget_module._update_token_budget = None
+
+        try:
+            with patch("app.core.config.get_settings", return_value=mock_settings):
+                budget = TokenBudget("test-session", max_tokens=1000)
+                budget.consume(prompt_tokens=120, completion_tokens=80)
+        finally:
+            set_metrics(get_null_metrics())
+            token_budget_module._metrics_imported = False
+            token_budget_module._update_token_budget = None
+
+        assert spy.calls
+        assert spy.calls[-1] == (200, 800)
 
 
 class TestSessionBudgetManagement:

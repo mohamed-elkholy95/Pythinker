@@ -245,6 +245,19 @@ screenshot_fetch_latency = Histogram(
     buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0],
 )
 
+# Screenshot Deduplication Metrics
+screenshot_dedup_total = Counter(
+    name="pythinker_screenshot_dedup_total",
+    help_text="Total deduplicated screenshots (storage skipped)",
+    labels=["trigger"],
+)
+
+screenshot_dedup_saved_bytes = Counter(
+    name="pythinker_screenshot_dedup_saved_bytes_total",
+    help_text="Total bytes saved by screenshot deduplication",
+    labels=["trigger"],
+)
+
 # Browser Element Extraction Metrics (Phase 6: timeout fixes)
 browser_element_extraction_total = Counter(
     name="pythinker_browser_element_extraction_total",
@@ -486,6 +499,8 @@ _metrics_registry = [
     screenshot_fetch_total,
     screenshot_fetch_size_bytes,
     screenshot_fetch_latency,
+    screenshot_dedup_total,
+    screenshot_dedup_saved_bytes,
     # Browser Element Extraction (Phase 6: timeout fixes)
     browser_element_extraction_total,
     browser_element_extraction_timeout_total,

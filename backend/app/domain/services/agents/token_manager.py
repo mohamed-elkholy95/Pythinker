@@ -933,9 +933,9 @@ class TokenManager:
         status = self.get_context_pressure(messages)
 
         # Record metric via domain port
-        from app.domain.external.observability import get_null_metrics
+        from app.domain.external.observability import get_metrics
 
-        metrics = get_null_metrics()  # Can be replaced with injected instance
+        metrics = get_metrics()
         metrics.update_token_budget(
             used=status.current_tokens,
             remaining=status.available_tokens,

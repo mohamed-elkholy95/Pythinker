@@ -1,12 +1,5 @@
 <template>
   <div class="usage-chart">
-    <!-- Y-Axis Labels -->
-    <div class="chart-y-axis">
-      <span class="y-label">{{ formatNumber(maxValue) }}</span>
-      <span class="y-label">{{ formatNumber(Math.round(maxValue / 2)) }}</span>
-      <span class="y-label">0</span>
-    </div>
-
     <!-- Chart Area -->
     <div class="chart-area">
       <!-- Grid Lines -->
@@ -165,7 +158,7 @@ function formatNumber(num: number): string {
 .chart-area {
   position: relative;
   height: 140px;
-  margin-left: 44px;
+  margin-left: 0;
 }
 
 .chart-grid {

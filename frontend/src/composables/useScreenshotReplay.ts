@@ -73,15 +73,40 @@ export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
     return blobUrl
   }
 
-  async function prefetchNextScreenshot(): Promise<void> {
-    const nextIndex = currentIndex.value + 1
-    if (nextIndex < 0 || nextIndex >= screenshots.value.length) return
+  const MAX_CACHE_SIZE = 20
 
-    const nextScreenshot = screenshots.value[nextIndex]
-    if (!nextScreenshot || blobUrlCache.has(nextScreenshot.id)) return
+  function evictOldFrames(): void {
+    if (blobUrlCache.size <= MAX_CACHE_SIZE) return
+    const current = currentIndex.value
+    // Build set of IDs we want to keep (current ± 5)
+    const keepIds = new Set<string>()
+    for (let i = Math.max(0, current - 5); i <= Math.min(screenshots.value.length - 1, current + 5); i++) {
+      keepIds.add(screenshots.value[i].id)
+    }
+    for (const [id, url] of blobUrlCache.entries()) {
+      if (!keepIds.has(id)) {
+        URL.revokeObjectURL(url)
+        blobUrlCache.delete(id)
+      }
+      if (blobUrlCache.size <= MAX_CACHE_SIZE) break
+    }
+  }
 
-    const blobUrl = await fetchScreenshotBlob(nextScreenshot.id)
-    if (blobUrl) blobUrlCache.set(nextScreenshot.id, blobUrl)
+  async function prefetchAhead(count = 3): Promise<void> {
+    const fetches: Promise<void>[] = []
+    for (let offset = 1; offset <= count; offset++) {
+      const idx = currentIndex.value + offset
+      if (idx < 0 || idx >= screenshots.value.length) break
+      const s = screenshots.value[idx]
+      if (!s || blobUrlCache.has(s.id)) continue
+      fetches.push(
+        fetchScreenshotBlob(s.id).then((url) => {
+          if (url) blobUrlCache.set(s.id, url)
+        })
+      )
+    }
+    await Promise.all(fetches)
+    evictOldFrames()
   }
 
   // Keep the current frame warm and prefetch the next frame for smoother stepping.
@@ -96,7 +121,7 @@ export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
     if (requestVersion !== renderRequestVersion) return
 
     currentBlobUrl.value = blobUrl
-    void prefetchNextScreenshot()
+    void prefetchAhead(3)
   })
 
   watch(sessionId, (nextSessionId, previousSessionId) => {
@@ -117,7 +142,10 @@ export function useScreenshotReplay(sessionId: Ref<string | undefined>) {
       const response = await apiClient.get<ApiResponse<ScreenshotListResponse>>(
         `/sessions/${sessionId.value}/screenshots`
       )
-      screenshots.value = response.data.data.screenshots
+      // Filter out session_end screenshots (captured after browser navigates to about:blank)
+      screenshots.value = response.data.data.screenshots.filter(
+        (s) => s.trigger !== 'session_end'
+      )
       if (screenshots.value.length > 0) {
         currentIndex.value = screenshots.value.length - 1
       }

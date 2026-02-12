@@ -237,6 +237,9 @@ class AgentService:
         When a user starts a new task, any previously running sessions should be
         stopped to release sandbox and browser resources, preventing connection
         pool exhaustion (BROWSER_1004).
+
+        Also closes browser connections for the sandbox CDP URL and unregisters
+        sandbox ownership to ensure the browser is clean for the next session.
         """
         active_statuses = {SessionStatus.RUNNING, SessionStatus.INITIALIZING}
         try:
@@ -247,6 +250,9 @@ class AgentService:
                     logger.info(
                         f"Auto-stopping stale session {session.id} (status={session.status}) for user {user_id}"
                     )
+                    # Close browser connections for this session's sandbox before stopping
+                    if session.sandbox_id:
+                        await self._close_browser_for_sandbox(session.sandbox_id)
                     await self._agent_domain_service.stop_session(session.id)
                 except Exception as e:
                     logger.warning(f"Failed to auto-stop stale session {session.id}: {e}")
@@ -254,6 +260,29 @@ class AgentService:
                 logger.info(f"Cleaned up {len(stale)} stale session(s) for user {user_id}")
         except Exception as e:
             logger.warning(f"Stale session cleanup failed for user {user_id}: {e}")
+
+    async def _close_browser_for_sandbox(self, sandbox_id: str) -> None:
+        """Close all browser connections for a sandbox to free the browser for reuse."""
+        try:
+            sandbox = await self._sandbox_cls.get(sandbox_id)
+            if sandbox:
+                cdp_url = f"http://{sandbox.ip}:9222"
+                from app.infrastructure.external.browser.connection_pool import BrowserConnectionPool
+
+                pool = BrowserConnectionPool.get_instance()
+                closed = await pool.close_all_for_url(cdp_url)
+                if closed:
+                    logger.info(f"Closed {closed} browser connection(s) for sandbox {sandbox_id}")
+
+                # Unregister sandbox ownership
+                from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
+
+                # Extract address from sandbox_id (format: dev-sandbox-{address})
+                if sandbox_id.startswith("dev-sandbox-"):
+                    address = sandbox_id[len("dev-sandbox-") :]
+                    DockerSandbox.unregister_session(address)
+        except Exception as e:
+            logger.debug(f"Browser cleanup for sandbox {sandbox_id} failed (non-critical): {e}")
 
     async def _warm_sandbox_for_session(self, session_id: str) -> None:
         """Background task to pre-warm sandbox for session.
@@ -348,6 +377,18 @@ class AgentService:
 
                     if metadata_changed:
                         await self._session_repository.save(session)
+
+                    # Register sandbox ownership for contention prevention
+                    if uses_static_sandboxes and sandbox.id.startswith("dev-sandbox-"):
+                        from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
+
+                        address = sandbox.id[len("dev-sandbox-") :]
+                        previous_session = DockerSandbox.register_session(address, session_id)
+                        if previous_session:
+                            logger.info(
+                                f"Sandbox {address} was owned by session {previous_session}, "
+                                f"now reassigned to {session_id}"
+                            )
 
                     # Run ensure_sandbox for full health check (includes browser verification)
                     if hasattr(sandbox, "ensure_sandbox"):
