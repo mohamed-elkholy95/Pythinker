@@ -88,10 +88,7 @@ async def download_file_with_signature(
         is_chart = file_info.metadata.get("is_comparison_chart") or file_info.metadata.get("chart_engine") == "plotly"
         if is_chart:
             headers["Content-Security-Policy"] = (
-                "default-src 'none'; "
-                "script-src https://cdn.plot.ly; "
-                "style-src 'unsafe-inline'; "
-                "img-src data:;"
+                "default-src 'none'; script-src https://cdn.plot.ly; style-src 'unsafe-inline'; img-src data:;"
             )
             headers["X-Content-Type-Options"] = "nosniff"
             # Use 'inline' instead of 'attachment' for viewing in browser
@@ -131,10 +128,7 @@ async def download_file(
         is_chart = file_info.metadata.get("is_comparison_chart") or file_info.metadata.get("chart_engine") == "plotly"
         if is_chart:
             headers["Content-Security-Policy"] = (
-                "default-src 'none'; "
-                "script-src https://cdn.plot.ly; "
-                "style-src 'unsafe-inline'; "
-                "img-src data:;"
+                "default-src 'none'; script-src https://cdn.plot.ly; style-src 'unsafe-inline'; img-src data:;"
             )
             headers["X-Content-Type-Options"] = "nosniff"
             # Use 'inline' instead of 'attachment' for viewing in browser

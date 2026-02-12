@@ -874,7 +874,10 @@ class AgentTaskRunner(TaskRunner):
 
         # Run Plotly chart orchestrator
         chart_result = await self._plotly_chart_orchestrator.generate_chart(
-            report_title=event.title, markdown_content=event.content, report_id=event.id, force_generation=force_generation
+            report_title=event.title,
+            markdown_content=event.content,
+            report_id=event.id,
+            force_generation=force_generation,
         )
 
         if chart_result is None:
