@@ -36,6 +36,8 @@ services:
       - mongodb
       - redis
       - qdrant
+      - minio:
+          condition: service_healthy
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -182,6 +184,28 @@ services:
       retries: 3
       start_period: 15s
 
+  minio:
+    image: minio/minio:latest
+    container_name: pythinker-minio
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Console UI
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   mongodb:
     image: mongo:7.0
     volumes:
@@ -222,6 +246,8 @@ volumes:
     name: pythinker-mongodb-data
   qdrant_data:
     name: pythinker-qdrant-data
+  minio_data:
+    name: pythinker-minio-data
 
 networks:
   pythinker-network:
