@@ -20,9 +20,6 @@ services:
       - BACKEND_URL=http://backend:8000
       - VITE_USE_POLLING=true
       - VITE_POLLING_INTERVAL=100
-      - VITE_HMR_HOST=localhost
-      - VITE_HMR_PORT=5174
-      - VITE_HMR_PROTOCOL=ws
       - VITE_LIVE_RENDERER=${LIVE_RENDERER:-cdp}
     depends_on:
       backend:

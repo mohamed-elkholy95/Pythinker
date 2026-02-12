@@ -32,12 +32,16 @@ services:
           - linux/amd64
           - linux/arm64
     depends_on:
-      - sandbox
-      - mongodb
-      - redis
-      - qdrant
-      - minio:
-          condition: service_healthy
+      sandbox:
+        condition: service_started
+      mongodb:
+        condition: service_started
+      redis:
+        condition: service_started
+      qdrant:
+        condition: service_started
+      minio:
+        condition: service_healthy
     restart: unless-stopped
     ports:
       - "8000:8000"

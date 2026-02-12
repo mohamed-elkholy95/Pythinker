@@ -2,7 +2,7 @@
 
 > Generated: 2026-02-11
 > Total Files: ~299
-> Progress: 25/299 files reviewed (8.4%)
+> Progress: 40/299 files reviewed (13.4%)
 
 ## Review Criteria
 
@@ -593,6 +593,9 @@ def validate_response(schema_name: str, data: dict) -> BaseModel:
 | 3 | 11-15 | ✅ Complete | 19 | 2026-02-11 |
 | 4 | 16-20 | ✅ Complete | 21 | 2026-02-11 |
 | 5 | 21-25 | ✅ Complete | 17 | 2026-02-11 |
+| 6 | 26-30 | ✅ Complete | 15 | 2026-02-11 |
+| 7 | 31-35 | ✅ Complete | 14 | 2026-02-11 |
+| 8 | 36-40 | ✅ Complete | 16 | 2026-02-11 |
 
 ---
 
@@ -2808,3 +2811,1146 @@ class MultiTaskChallenge(BaseModel):
 ---
 
 *Review will continue with Batch 6 (files 26-30) upon next iteration.*
+
+---
+
+## Batch 6: Domain Models (Files 26-30)
+
+### 26. `backend/app/domain/models/path_state.py`
+
+**Purpose:** Path state models for Tree-of-Thoughts multi-path exploration
+
+**Current Setup:**
+- `PathStatus` and `BranchingDecision` enums for path lifecycle
+- `PathMetrics` dataclass for scoring paths
+- `PathState` dataclass with comprehensive state tracking
+- `ComplexityAnalysis` and `TreeOfThoughtsConfig` dataclasses
+- `PathScoreWeights` Pydantic model for scoring weights
+
+**Strengths:**
+- Comprehensive Tree-of-Thoughts implementation
+- Path scoring with metrics tracking
+- Complexity analysis for branching decisions
+- `PathMetrics.average_confidence` and `error_rate` properties
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Truncated UUID | Line 67 | High | `str(uuid.uuid4())[:8]` - only 8 chars, collision risk |
+| Uses dataclasses | Lines 36-61, 63-145, 157-172, 184-196 | Medium | Should use Pydantic for consistency |
+| No UTC timezone | Lines 88, 95, 101, 107, 113 | Medium | Uses `datetime.now()` without UTC |
+| Mutable defaults | Lines 44, 73, 80, 85, 164 | Low | Multiple list fields with `field(default_factory=list)` |
+
+**Enhancement Suggestions:**
+
+```python
+import uuid
+from datetime import UTC, datetime
+from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class PathState(BaseModel):
+    """State of a single exploration path."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: str = Field(default_factory=lambda: f"path_{uuid.uuid4().hex}")
+    description: str = ""
+    strategy: str = ""
+    status: PathStatus = PathStatus.CREATED
+    steps: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
+    current_step_index: int = Field(default=0, ge=0)
+    metrics: PathMetrics = Field(default_factory=PathMetrics)
+    intermediate_results: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
+    final_result: str | None = None
+    score: float = Field(default=0.0, ge=0.0, le=1.0)
+    score_breakdown: dict[str, float] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+    def start(self) -> None:
+        """Mark path as started."""
+        self.status = PathStatus.EXPLORING
+        self.started_at = datetime.now(UTC)
+```
+
+**Overall Rating:** ⚠️ Needs Work
+
+---
+
+### 27. `backend/app/domain/models/plan.py`
+
+**Purpose:** Plan models with phases, steps, and quality analysis
+
+**Current Setup:**
+- `PhaseType`, `StepType`, `ExecutionStatus` enums for categorization
+- `Phase`, `Step`, `Plan` Pydantic models for plan structure
+- `RetryPolicy` for per-step retry configuration
+- `PlanQualityAnalyzer` class with multi-dimensional quality analysis
+- `ValidationResult`, `PlanQualityMetrics` dataclasses for analysis results
+
+**Strengths:**
+- EXCELLENT - Comprehensive plan management with phases and steps
+- `ExecutionStatus` with rich class methods: `get_active_statuses()`, `is_terminal()`, etc.
+- Dependency tracking with circular dependency detection
+- `infer_smart_dependencies()` with pattern detection
+- Multi-dimensional quality analysis (Clarity, Completeness, Structure, Feasibility, Efficiency)
+- `unblock_independent_steps()` for partial result handling
+- Uses UTC correctly in `PlanQualityAnalyzer.analyze()` (Line 835)
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses dataclasses | Lines 596-607, 619-640, 642-696 | Low | `ValidationResult`, `DimensionScore`, `PlanQualityMetrics` use dataclass |
+| No model_config | Lines 29-56, 117-125, 127-177, 179-594 | Medium | Missing `ConfigDict` for Pydantic models |
+| Mutable defaults | Lines 136, 140, 187 | Low | `attachments`, `dependencies`, `steps` with `[]` |
+| Large file | Global | Low | 1114 lines - could split into plan.py, plan_quality.py |
+
+**Enhancement Suggestions:**
+
+```python
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class Phase(BaseModel):
+    """A phase grouping multiple steps in the agent workflow."""
+
+    model_config = ConfigDict(strict=True)
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    phase_type: PhaseType
+    label: str = Field(..., min_length=1, max_length=200)
+    description: str = ""
+    status: "ExecutionStatus" = Field(default="pending")
+    order: int = Field(default=0, ge=0)
+    icon: str = ""
+    color: str = ""
+    step_ids: list[str] = Field(default_factory=list, max_length=50)
+    skipped: bool = False
+    skip_reason: str | None = None
+
+
+class Step(BaseModel):
+    """Step in a plan with enhanced status tracking."""
+
+    model_config = ConfigDict(strict=True)
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    description: str = Field(default="", max_length=2000)
+    status: ExecutionStatus = ExecutionStatus.PENDING
+    result: str | None = None
+    error: str | None = None
+    success: bool = False
+    attachments: list[str] = Field(default_factory=list, max_length=20)
+    notes: str = ""
+    agent_type: str | None = None
+    dependencies: list[str] = Field(default_factory=list, max_length=20)
+    blocked_by: str | None = None
+    metadata: dict[str, Any] | None = Field(default=None, max_length=50)
+    phase_id: str | None = None
+    step_type: StepType = StepType.EXECUTION
+    expected_output: str | None = None
+    retry_policy: RetryPolicy = Field(default_factory=RetryPolicy)
+    budget_tokens: int | None = Field(default=None, ge=0)
+```
+
+**Overall Rating:** ✅ Excellent (with minor improvements needed)
+
+---
+
+### 28. `backend/app/domain/models/pressure.py`
+
+**Purpose:** Canonical PressureLevel enum for token/memory pressure management
+
+**Current Setup:**
+- Single `PressureLevel` enum with 5 levels
+- Clear documentation on thresholds
+- Used by both TokenManager and MemoryManager
+
+**Strengths:**
+- Simple, focused model with single responsibility
+- Clear documentation with percentage thresholds
+- Canonical source for pressure levels
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| None | - | - | This file is well-designed |
+
+**Enhancement Suggestions:**
+
+```python
+from enum import Enum
+
+
+class PressureLevel(str, Enum):
+    """Token/memory pressure levels for proactive management.
+
+    Used by both TokenManager and MemoryManager for consistent
+    pressure detection and response.
+
+    Thresholds (Priority 4: Optimized for better context utilization):
+    - NORMAL: < 60% - operating normally
+    - EARLY_WARNING: 60-70% - early notice for planning
+    - WARNING: 70-80% - consider summarizing
+    - CRITICAL: 80-90% - begin proactive trimming
+    - OVERFLOW: > 90% - force immediate action
+    """
+
+    NORMAL = "normal"
+    EARLY_WARNING = "early_warning"
+    WARNING = "warning"
+    CRITICAL = "critical"
+    OVERFLOW = "overflow"
+
+    @classmethod
+    def from_percentage(cls, percentage: float) -> "PressureLevel":
+        """Determine pressure level from a percentage value."""
+        if percentage < 0.6:
+            return cls.NORMAL
+        if percentage < 0.7:
+            return cls.EARLY_WARNING
+        if percentage < 0.8:
+            return cls.WARNING
+        if percentage < 0.9:
+            return cls.CRITICAL
+        return cls.OVERFLOW
+```
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 29. `backend/app/domain/models/recovery.py`
+
+**Purpose:** Response Recovery Domain Models for handling LLM response failures
+
+**Current Setup:**
+- `RecoveryReason` and `RecoveryStrategy` enums for categorization
+- `RecoveryDecision` model with retry tracking
+- `RecoveryAttempt` model for attempt history
+- `RecoveryBudgetExhaustedError` and `MalformedResponseError` exceptions
+
+**Strengths:**
+- Clean separation of recovery concerns
+- Pydantic v2 compliant validators with `@classmethod`
+- Custom exceptions with detailed attributes
+- `RecoveryAttempt` with timing tracking
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No UTC timezone | Lines 74 | Low | `datetime` without timezone context |
+| No model_config | Lines 32-55, 58-85 | Medium | Missing `ConfigDict` for Pydantic models |
+| No timestamp defaults | Lines 74 | Low | No `default_factory` for `start_time` |
+
+**Enhancement Suggestions:**
+
+```python
+from datetime import UTC, datetime
+from enum import Enum
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class RecoveryDecision(BaseModel):
+    """Decision outcome from recovery policy."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    should_recover: bool
+    recovery_reason: RecoveryReason
+    strategy: RecoveryStrategy
+    retry_count: int = Field(default=0, ge=0)
+    message: str = Field(..., max_length=1000)
+
+
+class RecoveryAttempt(BaseModel):
+    """Record of a recovery attempt."""
+
+    model_config = ConfigDict(strict=True)
+
+    attempt_number: int = Field(..., ge=1)
+    recovery_reason: RecoveryReason
+    strategy_used: RecoveryStrategy
+    start_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    end_time: datetime | None = None
+    success: bool | None = None
+    error_message: str | None = Field(default=None, max_length=2000)
+```
+
+**Overall Rating:** ✅ Good
+
+---
+
+### 30. `backend/app/domain/models/reflection.py`
+
+**Purpose:** Reflection models for intermediate progress assessment (Phase 2)
+
+**Current Setup:**
+- `ReflectionTriggerType` and `ReflectionDecision` enums
+- `ReflectionTrigger` dataclass with trigger configuration
+- `ProgressMetrics` dataclass for tracking execution
+- `ReflectionResult` Pydantic model for assessment results
+- `ReflectionConfig` dataclass for configuration
+- Helper functions: `calculate_plan_divergence()`, `detect_pattern_change()`
+
+**Strengths:**
+- Comprehensive reflection system with multiple trigger types
+- `ReflectionTrigger.should_trigger_enhanced()` with plan divergence detection
+- `ProgressMetrics` with stall detection and success rate
+- Pattern change detection in tool usage
+- `ReflectionResult` with decision factors and alternatives
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses dataclasses | Lines 43-203, 310-393, 446-454 | Medium | `ReflectionTrigger`, `ProgressMetrics`, `ReflectionConfig` use dataclass |
+| No UTC timezone | Lines 361, 377 | Medium | Uses `datetime.now()` without UTC |
+| No model_config | Lines 396-444 | Medium | `ReflectionResult` missing `ConfigDict` |
+| Mutable defaults | Lines 69, 330 | Low | `_confidence_history`, `errors` use mutable defaults |
+
+**Enhancement Suggestions:**
+
+```python
+from datetime import UTC, datetime
+from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class ReflectionResult(BaseModel):
+    """Result of a reflection assessment."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    decision: ReflectionDecision
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    progress_assessment: str = Field(..., max_length=5000)
+    issues_identified: list[str] = Field(default_factory=list, max_length=20)
+    strategy_adjustment: str | None = Field(default=None, max_length=2000)
+    replan_reason: str | None = Field(default=None, max_length=2000)
+    user_question: str | None = Field(default=None, max_length=1000)
+    summary: str = Field(..., max_length=2000)
+    trigger_type: ReflectionTriggerType | None = None
+    decision_factors: list[str] = Field(default_factory=list, max_length=10)
+    alternative_decisions: list[str] = Field(default_factory=list, max_length=5)
+    recommended_actions: list[str] = Field(default_factory=list, max_length=10)
+
+
+class ProgressMetrics(BaseModel):
+    """Metrics tracking execution progress."""
+
+    model_config = ConfigDict(strict=True)
+
+    steps_completed: int = Field(default=0, ge=0)
+    steps_remaining: int = Field(default=0, ge=0)
+    total_steps: int = Field(default=0, ge=0)
+    successful_actions: int = Field(default=0, ge=0)
+    failed_actions: int = Field(default=0, ge=0)
+    started_at: datetime | None = None
+    last_progress_at: datetime | None = None
+    actions_since_progress: int = Field(default=0, ge=0)
+    errors: list[str] = Field(default_factory=list, max_length=20)
+
+    @property
+    def success_rate(self) -> float:
+        total = self.successful_actions + self.failed_actions
+        if total == 0:
+            return 1.0
+        return self.successful_actions / total
+
+    @property
+    def is_stalled(self) -> bool:
+        return self.actions_since_progress >= 3
+
+    def record_success(self) -> None:
+        self.successful_actions += 1
+        self.actions_since_progress = 0
+        self.last_progress_at = datetime.now(UTC)
+```
+
+**Overall Rating:** ✅ Good
+
+---
+
+## Batch 6 Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| Files Reviewed | 5 |
+| Total Issues Found | 15 |
+| Critical | 0 |
+| Medium | 8 |
+| Low | 7 |
+
+### Key Findings
+
+1. **Pydantic vs Dataclass**: Several files (`path_state.py`, `reflection.py`) use dataclasses for core models - should migrate to Pydantic for consistency.
+
+2. **Model Design**: `plan.py` is exemplary - comprehensive with quality analysis, dependency tracking, and validation.
+
+3. **Simple Models**: `pressure.py` demonstrates good single-responsibility principle with a focused enum.
+
+4. **UTC Timezone**: Mixed - `plan.py` uses UTC correctly, but `path_state.py` and `reflection.py` use `datetime.now()` without timezone.
+
+5. **ID Generation**: `path_state.py` truncates UUID to 8 characters - collision risk.
+
+### Priority Fixes
+
+1. **High**: Fix truncated UUIDs in `path_state.py`
+2. **Medium**: Convert dataclasses to Pydantic models in `path_state.py` and `reflection.py`
+3. **Medium**: Add `model_config = ConfigDict(...)` to Pydantic models
+4. **Low**: Consider splitting `plan.py` into smaller modules
+5. **Low**: Add timezone to datetime fields
+
+---
+
+*Review will continue with Batch 7 (files 31-35) upon next iteration.*
+
+---
+
+## Batch 7: Domain Models (Files 31-35)
+
+### 31. `backend/app/domain/models/repo_map.py`
+
+**Purpose:** Repository Map Domain Models for codebase structure and navigation
+
+**Current Setup:**
+- `EntryType` enum for repository entry types
+- `RepoMapEntry` dataclass for individual entries
+- `RepoMap` dataclass for complete repository maps
+- `RepoMapConfig` dataclass for configuration
+- Token-aware context string generation
+
+**Strengths:**
+- `to_context_line()` for compact LLM-friendly output
+- Token-aware `to_context_string()` with truncation
+- Importance scoring for entries
+- Language detection and file counting
+- Configurable include/exclude patterns
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses dataclasses | Lines 27-89, 133-251, 254-319 | Medium | Should use Pydantic for consistency |
+| Unix timestamp | Line 152 | Low | Uses float for `generated_at` instead of datetime |
+| No model_config | Global | Medium | Missing `ConfigDict` |
+| Mutable defaults | Lines 52, 58, 140, 149, 263, 283 | Low | Multiple list/dict fields with mutable defaults |
+
+**Enhancement Suggestions:**
+
+```python
+from datetime import UTC, datetime
+from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class RepoMapEntry(BaseModel):
+    """A single entry in the repository map."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    path: str = Field(..., min_length=1, max_length=1000)
+    entry_type: EntryType
+    name: str = Field(..., min_length=1, max_length=500)
+    signature: str | None = Field(default=None, max_length=1000)
+    docstring: str | None = Field(default=None, max_length=5000)
+    line_number: int | None = Field(default=None, ge=1)
+    parent: str | None = None
+    references: list[str] = Field(default_factory=list, max_length=100)
+    importance: float = Field(default=1.0, ge=0.0, le=10.0)
+    metadata: dict[str, Any] = Field(default_factory=dict, max_length=50)
+
+    def to_context_line(self, include_signature: bool = True) -> str:
+        """Convert to a single line for context."""
+        # ... implementation ...
+```
+
+**Overall Rating:** ⚠️ Needs Work
+
+---
+
+### 32. `backend/app/domain/models/report.py`
+
+**Purpose:** Structured Report Models with discriminated unions for flexible output types
+
+**Current Setup:**
+- `ReportType` enum for report categories
+- `ReportSection`, `KeyFinding`, `Benchmark`, `ComparisonItem` models
+- Discriminated union: `ResearchReport | ComparisonReport | AnalysisReport`
+- `ReportMetadata`, `CitationEntry`, `StructuredReportOutput` for complete output
+
+**Strengths:**
+- Excellent discriminated union pattern with `Literal["research"]` etc.
+- `@field_validator` to prevent placeholder content
+- `min_length` constraints on critical fields
+- Complete report structure with metadata and citations
+- Type-safe report handling via discriminator
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Deprecated datetime.utcnow() | Lines 82, 95, 109 | Medium | Uses `datetime.utcnow()` instead of `datetime.now(UTC)` |
+| No model_config | All classes | Medium | Missing `ConfigDict` with strict settings |
+| No citation ID format validation | Lines 25, 43, 67 | Low | Citation IDs have no format validation |
+
+**Enhancement Suggestions:**
+
+```python
+from datetime import UTC, datetime
+from enum import Enum
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class ReportSection(BaseModel):
+    """A section within a report."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    heading: str = Field(..., min_length=3, max_length=200)
+    content: str = Field(..., min_length=10, max_length=50000)
+    citations: list[str] = Field(default_factory=list, max_length=100)
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+
+    @field_validator("content")
+    @classmethod
+    def validate_content_not_placeholder(cls, v: str) -> str:
+        """Ensure content is not placeholder text."""
+        placeholders = ["todo", "tbd", "lorem ipsum", "[content]", "placeholder"]
+        if any(p in v.lower() for p in placeholders):
+            raise ValueError("Section content appears to be placeholder text")
+        return v
+
+
+class ResearchReport(BaseModel):
+    """Research report with findings and citations."""
+
+    model_config = ConfigDict(strict=True)
+
+    report_type: Literal["research"] = "research"
+    title: str = Field(..., min_length=5, max_length=500)
+    executive_summary: str = Field(..., min_length=50, max_length=10000)
+    key_findings: list[KeyFinding] = Field(..., min_length=1, max_length=50)
+    sections: list[ReportSection] = Field(..., min_length=1, max_length=50)
+    benchmarks: list[Benchmark] = Field(default_factory=list, max_length=100)
+    methodology: str | None = Field(default=None, max_length=10000)
+    limitations: list[str] = Field(default_factory=list, max_length=20)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+```
+
+**Overall Rating:** ✅ Good
+
+---
+
+### 33. `backend/app/domain/models/research_phase.py`
+
+**Purpose:** Domain models for phased research workflows
+
+**Current Setup:**
+- `ResearchPhase` enum for structured phases
+- `ResearchCheckpoint` for saved notes from completed phases
+- `ResearchState` for tracking progress across phases
+
+**Strengths:**
+- Simple, focused models for phased research
+- Checkpoint pattern for phase persistence
+- Clean state tracking
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No UTC timezone | Line 26 | Medium | Uses `datetime.now()` without UTC |
+| No model_config | All classes | Medium | Missing `ConfigDict` with strict settings |
+| No bounds on checkpoints | Line 34 | Low | `checkpoints` list has no max |
+
+**Enhancement Suggestions:**
+
+```python
+from datetime import UTC, datetime
+from enum import Enum
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class ResearchCheckpoint(BaseModel):
+    """Saved notes from a completed research phase."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    phase: ResearchPhase
+    notes: str = Field(..., max_length=50000)
+    sources: list[str] = Field(default_factory=list, max_length=100)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    query_context: str = Field(..., max_length=5000)
+
+
+class ResearchState(BaseModel):
+    """Tracks progress across phased research execution."""
+
+    model_config = ConfigDict(strict=True)
+
+    current_phase: ResearchPhase
+    checkpoints: list[ResearchCheckpoint] = Field(default_factory=list, max_length=20)
+    action_count: int = Field(default=0, ge=0)
+    last_reflection: str | None = Field(default=None, max_length=10000)
+    next_step: str | None = Field(default=None, max_length=2000)
+```
+
+**Overall Rating:** ⚠️ Needs Work
+
+---
+
+### 34. `backend/app/domain/models/research_task.py`
+
+**Purpose:** Research task model for wide research pattern (parallel sub-tasks)
+
+**Current Setup:**
+- `ResearchStatus` enum for task lifecycle
+- `ResearchTask` model with comprehensive state tracking
+- Methods: `start()`, `complete()`, `fail()`, `skip()`
+- Uses UTC correctly: `datetime.now(UTC)`
+
+**Strengths:**
+- EXCELLENT - Uses `datetime.now(UTC)` correctly throughout
+- Prefixed ID: `f"research_{uuid.uuid4().hex[:12]}"`
+- Clean state management with methods
+- Good documentation on wide research pattern
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Truncated UUID | Line 47 | Medium | `uuid.uuid4().hex[:12]` - only 12 hex chars |
+| No model_config | Global | Medium | Missing `ConfigDict` with strict settings |
+| No max bounds on sources | Line 54 | Low | `sources` list has no max |
+
+**Enhancement Suggestions:**
+
+```python
+import uuid
+from datetime import UTC, datetime
+from enum import Enum
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class ResearchTask(BaseModel):
+    """A single research sub-task in wide research."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: str = Field(default_factory=lambda: f"research_{uuid.uuid4().hex}")
+    query: str = Field(..., min_length=1, max_length=5000)
+    parent_task_id: str = Field(..., min_length=1)
+    index: int = Field(..., ge=0)
+    total: int = Field(..., ge=1)
+    status: ResearchStatus = ResearchStatus.PENDING
+    result: str | None = Field(default=None, max_length=100000)
+    sources: list[str] = Field(default_factory=list, max_length=50)
+    error: str | None = Field(default=None, max_length=5000)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+    def start(self) -> None:
+        """Mark task as started."""
+        self.status = ResearchStatus.IN_PROGRESS
+        self.started_at = datetime.now(UTC)
+
+    def complete(self, result: str, sources: list[str] | None = None) -> None:
+        """Mark task as completed with result."""
+        self.status = ResearchStatus.COMPLETED
+        self.result = result
+        self.sources = sources or []
+        self.completed_at = datetime.now(UTC)
+```
+
+**Overall Rating:** ✅ Good
+
+---
+
+### 35. `backend/app/domain/models/screenshot.py`
+
+**Purpose:** Session screenshot domain models
+
+**Current Setup:**
+- `ScreenshotTrigger` enum for capture timing
+- `SessionScreenshot` model with deduplication support
+- Uses UTC correctly: `datetime.now(UTC)`
+- MinIO S3 storage integration
+
+**Strengths:**
+- Uses UTC correctly
+- Deduplication support with perceptual hash
+- Thumbnail storage support
+- Tool call linking
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No model_config | Global | Medium | Missing `ConfigDict` with strict settings |
+| No ID validation | Line 18 | Low | `id` has no format validation |
+| No size validation | Line 29 | Low | `size_bytes` has no bounds |
+
+**Enhancement Suggestions:**
+
+```python
+from datetime import UTC, datetime
+from enum import Enum
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class SessionScreenshot(BaseModel):
+    """Session screenshot model."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: str = Field(..., min_length=1, max_length=100)
+    session_id: str = Field(..., min_length=1, max_length=100)
+    sequence_number: int = Field(..., ge=0)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    storage_key: str = Field(..., min_length=1, max_length=500)
+    thumbnail_storage_key: str | None = Field(default=None, max_length=500)
+    trigger: ScreenshotTrigger
+    tool_call_id: str | None = Field(default=None, max_length=100)
+    tool_name: str | None = Field(default=None, max_length=100)
+    function_name: str | None = Field(default=None, max_length=100)
+    action_type: str | None = Field(default=None, max_length=50)
+    size_bytes: int = Field(default=0, ge=0, le=50_000_000)  # 50MB max
+    perceptual_hash: str | None = Field(default=None, max_length=64)
+    is_duplicate: bool = False
+    original_storage_key: str | None = Field(default=None, max_length=500)
+```
+
+**Overall Rating:** ✅ Good
+
+---
+
+## Batch 7 Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| Files Reviewed | 5 |
+| Total Issues Found | 14 |
+| Critical | 0 |
+| Medium | 8 |
+| Low | 6 |
+
+### Key Findings
+
+1. **Pydantic vs Dataclass**: `repo_map.py` uses dataclasses - should migrate to Pydantic.
+
+2. **UTC Timezone**: Good - `research_task.py` and `screenshot.py` use `datetime.now(UTC)` correctly. Issues in `report.py` (deprecated `datetime.utcnow()`) and `research_phase.py`.
+
+3. **Discriminated Unions**: `report.py` demonstrates excellent discriminated union pattern with `Literal["type"]`.
+
+4. **Wide Research Pattern**: `research_task.py` implements the wide research pattern for parallel sub-tasks with isolated contexts.
+
+5. **Repository Mapping**: `repo_map.py` provides token-aware context generation for LLM consumption.
+
+### Priority Fixes
+
+1. **Medium**: Replace `datetime.utcnow()` with `datetime.now(UTC)` in `report.py`
+2. **Medium**: Convert dataclasses to Pydantic in `repo_map.py`
+3. **Medium**: Add `model_config = ConfigDict(...)` to all model classes
+4. **Low**: Fix truncated UUID in `research_task.py`
+5. **Low**: Add max bounds to list fields
+
+---
+
+*Review will continue with Batch 8 (files 36-40) upon next iteration.*
+
+---
+
+## Batch 8: Domain Models (Files 36-40)
+
+### 36. `backend/app/domain/models/scheduled_task.py`
+
+**Purpose:** Scheduled Task Model for deferred or recurring agent execution
+
+**Current Setup:**
+- Multiple enums: `ScheduleType`, `NotificationChannel`, `OutputDeliveryMethod`, `ScheduledTaskStatus`, `ExecutionStatus`
+- `ExecutionRecord`, `ScheduleConfig`, `NotificationConfig`, `OutputConfig` models
+- `ScheduledTask` with comprehensive scheduling, retry logic, and execution history
+- Uses UTC correctly: `datetime.now(UTC)` throughout
+
+**Strengths:**
+- EXCELLENT - Comprehensive scheduling system with cron, daily, weekly, monthly support
+- Uses UTC correctly throughout
+- Execution history with 100-record limit
+- Bounded history cleanup (Lines 233-234)
+- Retry logic with delay configuration
+- `_calculate_next_execution()` with multiple schedule types
+- `get_execution_stats()` for observability
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Truncated UUIDs | Lines 73, 137 | Medium | `uuid.uuid4().hex[:12]` and `[:16]` - collision risk |
+| No model_config | All classes | Medium | Missing `ConfigDict` with strict settings |
+| Mutable defaults | Lines 91, 103, 107, 117, 173, 180 | Low | Multiple list fields with `Field(default_factory=list)` |
+| Duplicated ExecutionStatus | Line 61 | Low | Same enum exists in `plan.py` - should be shared |
+
+**Enhancement Suggestions:**
+
+```python
+import uuid
+from datetime import UTC, datetime, timedelta
+from enum import Enum
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class ScheduledTask(BaseModel):
+    """Scheduled task model for deferred or recurring agent execution."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    MIN_INTERVAL_SECONDS: int = 300
+
+    id: str = Field(default_factory=lambda: f"task_{uuid.uuid4().hex}")
+    user_id: str = Field(..., min_length=1)
+    session_id: str | None = None
+    name: str = Field(default="", max_length=200)
+    task_description: str = Field(..., min_length=1, max_length=10000)
+    schedule_type: ScheduleType = ScheduleType.ONCE
+    scheduled_at: datetime
+    interval_seconds: int | None = Field(default=None, ge=300)
+    # ... rest of fields
+```
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 37. `backend/app/domain/models/search.py`
+
+**Purpose:** Search result models for web search
+
+**Current Setup:**
+- Simple `SearchResultItem` model
+- `SearchResults` container model
+
+**Strengths:**
+- Simple, focused models
+- Clear field descriptions
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No model_config | All classes | Medium | Missing `ConfigDict` with strict settings |
+| No validation | Global | Low | No URL validation on `link`, no length bounds |
+| Empty default | Line 9 | Low | `snippet: str = Field(default="")` - empty default |
+
+**Enhancement Suggestions:**
+
+```python
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class SearchResultItem(BaseModel):
+    """Single search result item."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    title: str = Field(..., min_length=1, max_length=500)
+    link: str = Field(..., min_length=1, max_length=2048)
+    snippet: str = Field(default="", max_length=2000)
+
+    @field_validator("link")
+    @classmethod
+    def validate_link(cls, v: str) -> str:
+        if not v.startswith(("http://", "https://")):
+            raise ValueError("Link must be a valid URL")
+        return v
+
+
+class SearchResults(BaseModel):
+    """Complete search results data structure."""
+
+    model_config = ConfigDict(strict=True)
+
+    query: str = Field(..., min_length=1, max_length=1000)
+    date_range: str | None = Field(default=None, max_length=100)
+    total_results: int = Field(default=0, ge=0)
+    results: list[SearchResultItem] = Field(default_factory=list, max_length=100)
+```
+
+**Overall Rating:** ⚠️ Needs Work
+
+---
+
+### 38. `backend/app/domain/models/session.py`
+
+**Purpose:** Session model for agent session management
+
+**Current Setup:**
+- `SessionStatus` and `AgentMode` enums
+- `Session` model with comprehensive session tracking
+- Sandbox lifecycle management
+- Budget tracking
+- Multi-task challenge support
+
+**Strengths:**
+- Uses UTC correctly: `datetime.now(UTC)` (Lines 45-47)
+- Sandbox lifecycle modes (static/ephemeral)
+- Budget tracking with warning threshold
+- `get_last_plan()` method for plan retrieval
+- Multi-task challenge integration
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Truncated UUID | Line 34 | Medium | `uuid.uuid4().hex[:16]` - collision risk |
+| No model_config | Global | Medium | Missing `ConfigDict` with strict settings |
+| Mutable defaults | Lines 48-49, 60, 65-66 | Low | `events`, `files`, `workspace_capabilities` with mutable defaults |
+| Circular import risk | Lines 7-10 | Low | Imports from multiple domain models |
+
+**Enhancement Suggestions:**
+
+```python
+import uuid
+from datetime import UTC, datetime
+from enum import Enum
+from typing import TYPE_CHECKING, Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+if TYPE_CHECKING:
+    from app.domain.models.event import AgentEvent, PlanEvent
+    from app.domain.models.file import FileInfo
+    from app.domain.models.multi_task import MultiTaskChallenge
+    from app.domain.models.plan import Plan
+
+
+class Session(BaseModel):
+    """Session model."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: str = Field(default_factory=lambda: f"session_{uuid.uuid4().hex}")
+    user_id: str = Field(..., min_length=1)
+    sandbox_id: str | None = None
+    sandbox_owned: bool = False
+    sandbox_lifecycle_mode: str | None = Field(default=None, pattern=r"^(static|ephemeral)$")
+    sandbox_created_at: datetime | None = None
+    agent_id: str = Field(..., min_length=1)
+    # ... rest of fields with proper bounds
+```
+
+**Overall Rating:** ✅ Good
+
+---
+
+### 39. `backend/app/domain/models/skill.py`
+
+**Purpose:** Skill domain models for prepackaged agent capabilities
+
+**Current Setup:**
+- Multiple enums: `ResourceType`, `SkillCategory`, `SkillSource`, `SkillInvocationType`
+- `SkillResource`, `SkillMetadata` models
+- `Skill` model with progressive disclosure, marketplace features
+- `UserSkillConfig` for per-user configuration
+
+**Strengths:**
+- EXCELLENT - Comprehensive skill system with progressive disclosure
+- Uses UTC correctly: `datetime.now(UTC)` (Lines 185-186)
+- `get_disclosure_level()` for level-based data exposure
+- `from_skill_md()` class method for SKILL.md parsing
+- Marketplace features (rating, install count)
+- Trigger patterns for automatic activation
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No model_config | All classes | Medium | Missing `ConfigDict` with strict settings |
+| Regex in method | Lines 108, 318 | Low | Regex compiled on every call - could cache |
+| Mutable defaults | Lines 136-143, 177, 222 | Low | Multiple list fields with mutable defaults |
+
+**Enhancement Suggestions:**
+
+```python
+from datetime import UTC, datetime
+from enum import Enum
+from typing import Any
+
+import yaml
+from pydantic import BaseModel, ConfigDict, Field
+
+# Pre-compiled regex for frontmatter
+import re
+_FRONTMATTER_PATTERN = re.compile(r"^---\n(.*?)\n?---", re.DOTALL)
+
+
+class Skill(BaseModel):
+    """Prepackaged capability for agents."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: str = Field(..., min_length=1, max_length=100)
+    name: str = Field(..., min_length=1, max_length=200)
+    description: str = Field(..., min_length=1, max_length=5000)
+    category: SkillCategory
+    source: SkillSource = SkillSource.CUSTOM
+    icon: str = Field(default="sparkles", max_length=50)
+    required_tools: list[str] = Field(default_factory=list, max_length=50)
+    optional_tools: list[str] = Field(default_factory=list, max_length=50)
+    system_prompt_addition: str | None = Field(default=None, max_length=50000)
+    configurations: dict[str, dict[str, Any]] = Field(default_factory=dict, max_length=50)
+    default_enabled: bool = False
+    invocation_type: SkillInvocationType = SkillInvocationType.BOTH
+    allowed_tools: list[str] | None = Field(default=None, max_length=100)
+    supports_dynamic_context: bool = False
+    trigger_patterns: list[str] = Field(default_factory=list, max_length=20)
+    version: str = Field(default="1.0.0", pattern=r"^\d+\.\d+\.\d+$")
+    author: str | None = Field(default=None, max_length=200)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    is_premium: bool = False
+    owner_id: str | None = None
+    is_public: bool = False
+    parent_skill_id: str | None = None
+    community_rating: float = Field(default=0.0, ge=0.0, le=5.0)
+    rating_count: int = Field(default=0, ge=0)
+    install_count: int = Field(default=0, ge=0)
+    is_featured: bool = False
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    body: str = Field(default="", max_length=100000)
+    resources: list[SkillResource] = Field(default_factory=list, max_length=50)
+
+    def get_disclosure_level(self, level: int) -> dict[str, Any]:
+        """Get skill data at the specified disclosure level."""
+        if level not in (1, 2, 3):
+            raise ValueError(f"Invalid disclosure level: {level}. Must be 1, 2, or 3.")
+        # ... implementation
+```
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 40. `backend/app/domain/models/skill_package.py`
+
+**Purpose:** Skill package domain models for deliverable skill artifacts
+
+**Current Setup:**
+- `SkillPackageType` enum for package complexity
+- Multiple nested models: `SkillFeatureMapping`, `SkillFeatureCategory`, `SkillWorkflowStep`, `SkillExample`, `SkillImplementationLayer`, `SkillPackageFile`, `SkillPackageMetadata`
+- `SkillPackage` model with file management and Manus-style format
+
+**Strengths:**
+- EXCELLENT - Comprehensive skill package system
+- Uses UTC correctly: `datetime.now(UTC)` (Lines 173-174)
+- Manus-style four-layer implementation pattern
+- File type detection in `SkillPackageFile.from_content()`
+- Directory-based file organization with helper methods
+- `summary` property for package overview
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No model_config | All classes | Medium | Missing `ConfigDict` with strict settings |
+| No ID generation | Line 154 | Low | `id: str` has no default factory |
+| Mutable defaults | Lines 42, 50, 69, 114-115, 120, 128-136, 164-165 | Low | Multiple list/dict fields with mutable defaults |
+
+**Enhancement Suggestions:**
+
+```python
+import uuid
+from datetime import UTC, datetime
+from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class SkillPackage(BaseModel):
+    """A deliverable skill package."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: str = Field(default_factory=lambda: f"pkg_{uuid.uuid4().hex}")
+    name: str = Field(..., min_length=1, max_length=200)
+    description: str = Field(..., min_length=1, max_length=5000)
+    version: str = Field(default="1.0.0", pattern=r"^\d+\.\d+\.\d+$")
+    icon: str = Field(default="puzzle", max_length=50)
+    category: str = Field(default="custom", max_length=50)
+    author: str | None = Field(default=None, max_length=200)
+    package_type: SkillPackageType = SkillPackageType.STANDARD
+    files: list[SkillPackageFile] = Field(default_factory=list, max_length=500)
+    file_tree: dict[str, Any] = Field(default_factory=dict, max_length=100)
+    file_id: str | None = None
+    skill_id: str | None = None
+    metadata: SkillPackageMetadata | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @property
+    def filename(self) -> str:
+        """Get the package filename with .skill extension."""
+        safe_name = self.name.lower().replace(" ", "-")
+        safe_name = "".join(c for c in safe_name if c.isalnum() or c == "-")
+        return f"{safe_name}.skill"
+```
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+## Batch 8 Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| Files Reviewed | 5 |
+| Total Issues Found | 16 |
+| Critical | 0 |
+| Medium | 8 |
+| Low | 8 |
+
+### Key Findings
+
+1. **Comprehensive Systems**: `scheduled_task.py`, `skill.py`, and `skill_package.py` demonstrate excellent domain modeling with comprehensive feature sets.
+
+2. **UTC Timezone**: All files correctly use `datetime.now(UTC)`.
+
+3. **Progressive Disclosure**: Both `skill.py` and `skill_package.py` implement the Manus-style progressive disclosure pattern.
+
+4. **Scheduling**: `scheduled_task.py` implements a complete scheduling system with multiple schedule types and execution history.
+
+5. **Simple Models**: `search.py` is minimal but could use more validation.
+
+### Priority Fixes
+
+1. **Medium**: Add `model_config = ConfigDict(...)` to all model classes
+2. **Medium**: Fix truncated UUIDs in `scheduled_task.py` and `session.py`
+3. **Medium**: Add URL validation to `SearchResultItem.link`
+4. **Low**: Extract duplicate `ExecutionStatus` enum to shared module
+5. **Low**: Cache compiled regex patterns in `skill.py`
+
+---
+
+*Review will continue with Batch 9 (files 41-45) upon next iteration.*
