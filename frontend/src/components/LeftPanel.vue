@@ -1,4 +1,6 @@
 <template>
+  <!-- Mobile backdrop overlay -->
+  <div v-if="isLeftPanelShow" class="mobile-backdrop" @click="hideLeftPanel" />
   <div
     class="left-panel-container h-full flex flex-col"
     :class="{
@@ -173,7 +175,7 @@ import UserMenu from './UserMenu.vue';
 import { useSessionStatus } from '@/composables/useSessionStatus';
 
 const { t } = useI18n()
-const { isLeftPanelShow, toggleLeftPanel } = useLeftPanel()
+const { isLeftPanelShow, toggleLeftPanel, hideLeftPanel } = useLeftPanel()
 const { openSettingsDialog } = useSettingsDialog()
 const { currentUser } = useAuth()
 const { onStatusChange } = useSessionStatus()
@@ -534,6 +536,43 @@ watch(() => route.path, async (newPath, oldPath) => {
 .collapsed-icon-btn:hover {
   background: var(--fill-tsp-gray-main);
   color: var(--icon-primary);
+}
+
+/* ===== MOBILE: sidebar overlays the screen ===== */
+@media (max-width: 639px) {
+  .left-panel-expanded {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100dvh;
+    width: var(--left-panel-width-expanded);
+    z-index: 60;
+    box-shadow: 8px 0 24px rgba(0, 0, 0, 0.15);
+  }
+
+  .left-panel-collapsed {
+    width: 0;
+    overflow: hidden;
+  }
+
+  .left-panel-collapsed .collapsed-sidebar {
+    display: none;
+  }
+}
+
+/* Backdrop overlay when sidebar is open on mobile */
+.mobile-backdrop {
+  display: none;
+}
+@media (max-width: 639px) {
+  .mobile-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 59;
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(2px);
+  }
 }
 
 /* ===== NAV SECTIONS ===== */
