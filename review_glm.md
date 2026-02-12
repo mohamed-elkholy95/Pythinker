@@ -2,7 +2,7 @@
 
 > Generated: 2026-02-11
 > Total Files: ~299
-> Progress: 40/299 files reviewed (13.4%)
+> Progress: 75/299 files reviewed (25.1%)
 
 ## Review Criteria
 
@@ -5589,4 +5589,1340 @@ class FileUploadResult(BaseModel):
 
 ---
 
-*Review will continue with Batch 13 (files 61-65) upon next iteration.*
+## Batch 13: Domain Repositories (Files 61-65)
+
+### 61. `backend/app/domain/repositories/agent_repository.py`
+
+**Purpose:** Repository interface for Agent aggregate - defines persistence contract
+
+**Current Setup:**
+- `AgentRepository` as Protocol (structural typing)
+- Methods: `save()`, `find_by_id()`, `add_memory()`, `get_memory()`, `save_memory()`
+- Uses `...` ellipsis for Protocol method bodies
+
+**Strengths:**
+- EXCELLENT - Clean Protocol-based interface
+- Follows DDD dependency inversion principle
+- Simple, focused interface
+- Proper use of `Protocol` for structural typing
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Missing return type | Line 22 | Low | `get_memory` should return `Memory | None` not `Memory` |
+| Missing docstrings | Lines 22-24, 26-28 | Low | `get_memory` and `save_memory` lack detailed docstrings |
+| No type annotations for parameters | All methods | Low | Could add `Field` constraints via Annotated types |
+
+**Enhancement Suggestions:**
+
+```python
+from typing import Protocol
+
+from app.domain.models.agent import Agent
+from app.domain.models.memory import Memory
+
+
+class AgentRepository(Protocol):
+    """Repository interface for Agent aggregate."""
+
+    async def save(self, agent: Agent) -> None:
+        """Save or update an agent.
+
+        Args:
+            agent: The agent aggregate to persist
+        """
+        ...
+
+    async def find_by_id(self, agent_id: str) -> Agent | None:
+        """Find an agent by its ID.
+
+        Args:
+            agent_id: Unique identifier of the agent
+
+        Returns:
+            Agent if found, None otherwise
+        """
+        ...
+
+    async def add_memory(self, agent_id: str, name: str, memory: Memory) -> None:
+        """Add or update a memory for an agent.
+
+        Args:
+            agent_id: Agent to add memory to
+            name: Memory slot name
+            memory: Memory object to add
+        """
+        ...
+
+    async def get_memory(self, agent_id: str, name: str) -> Memory | None:
+        """Get memory by name from agent.
+
+        Args:
+            agent_id: Agent to get memory from
+            name: Memory slot name
+
+        Returns:
+            Memory if found, None otherwise
+        """
+        ...
+
+    async def save_memory(self, agent_id: str, name: str, memory: Memory) -> None:
+        """Update the messages of a memory.
+
+        Args:
+            agent_id: Agent to update
+            name: Memory slot name
+            memory: Updated memory object
+        """
+        ...
+```
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 62. `backend/app/domain/repositories/analytics_repository.py`
+
+**Purpose:** Repository interface for analytics and diagnostic data access
+
+**Current Setup:**
+- Multiple `@dataclass` models: `SessionAnalytics`, `ToolExecutionAnalytics`, `AgentDecisionAnalytics`, `WorkflowStateAnalytics`
+- `AnalyticsRepository` as ABC (abstract base class)
+- Global singleton pattern with `set_analytics_repository()` and `get_analytics_repository()`
+- Comprehensive analytics methods
+
+**Strengths:**
+- EXCELLENT - Well-designed analytics repository
+- Comprehensive analytics coverage (sessions, tools, decisions, workflow states)
+- Global singleton pattern for dependency injection
+- Good docstrings with Args/Returns
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses dataclass instead of Pydantic | Lines 12, 22, 36, 47 | Medium | Should use Pydantic for validation consistency |
+| Global mutable state | Lines 198, 210-211 | Medium | Global `_analytics_repo` could cause issues in tests |
+| No bounds on limit parameters | Lines 69, 101, 133, 165, 182 | Low | Limit parameters have no maximum |
+
+**Enhancement Suggestions:**
+
+```python
+from abc import ABC, abstractmethod
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class SessionAnalytics(BaseModel):
+    """Session data for analytics."""
+
+    model_config = ConfigDict(strict=True, frozen=True)
+
+    session_id: str = Field(..., min_length=1)
+    status: str = Field(..., min_length=1, max_length=50)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class ToolExecutionAnalytics(BaseModel):
+    """Tool execution data for analytics."""
+
+    model_config = ConfigDict(strict=True, frozen=True)
+
+    session_id: str = Field(..., min_length=1)
+    tool_name: str = Field(..., min_length=1, max_length=100)
+    success: bool
+    started_at: datetime | None = None
+    duration_ms: float | None = Field(default=None, ge=0)
+    error_message: str | None = Field(default=None, max_length=5000)
+    container_cpu_percent: float | None = Field(default=None, ge=0, le=100)
+    container_memory_mb: float | None = Field(default=None, ge=0)
+
+
+class AnalyticsRepository(ABC):
+    """Abstract repository for analytics data access."""
+
+    @abstractmethod
+    async def get_failed_sessions(
+        self,
+        since: datetime,
+        limit: int = Field(default=100, ge=1, le=10000),
+    ) -> list[SessionAnalytics]:
+        """Get failed sessions since a given date."""
+        ...
+```
+
+**Overall Rating:** ✅ Good
+
+---
+
+### 63. `backend/app/domain/repositories/canvas_repository.py`
+
+**Purpose:** Repository protocol for canvas project persistence
+
+**Current Setup:**
+- `CanvasRepository` as Protocol
+- Methods for CRUD operations and versioning
+- Pagination support with `skip` and `limit`
+
+**Strengths:**
+- EXCELLENT - Clean Protocol-based interface
+- Version management methods: `save_version()`, `get_versions()`, `get_version()`, `count_versions()`
+- Pagination support
+- Simple, focused interface
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Missing docstrings | All methods | Medium | No docstrings for methods |
+| No parameter validation hints | Lines 15, 25, 27 | Low | Could document skip/limit constraints |
+
+**Enhancement Suggestions:**
+
+```python
+from typing import Protocol
+
+from app.domain.models.canvas import CanvasProject, CanvasVersion
+
+
+class CanvasRepository(Protocol):
+    """Protocol for canvas project persistence."""
+
+    async def save(self, project: CanvasProject) -> CanvasProject:
+        """Save a new canvas project.
+
+        Args:
+            project: Canvas project to save
+
+        Returns:
+            Saved canvas project with generated ID
+        """
+        ...
+
+    async def find_by_id(self, project_id: str) -> CanvasProject | None:
+        """Find a canvas project by ID.
+
+        Args:
+            project_id: Unique project identifier
+
+        Returns:
+            Canvas project if found, None otherwise
+        """
+        ...
+
+    async def find_by_user_id(
+        self,
+        user_id: str,
+        skip: int = 0,
+        limit: int = 50,
+    ) -> list[CanvasProject]:
+        """Find canvas projects for a user with pagination.
+
+        Args:
+            user_id: User to find projects for
+            skip: Number of results to skip
+            limit: Maximum results to return (default 50, max 100)
+
+        Returns:
+            List of canvas projects
+        """
+        ...
+
+    async def get_versions(
+        self,
+        project_id: str,
+        limit: int = 20,
+    ) -> list[CanvasVersion]:
+        """Get version history for a project.
+
+        Args:
+            project_id: Project to get versions for
+            limit: Maximum versions to return (default 20, max 100)
+
+        Returns:
+            List of canvas versions, newest first
+        """
+        ...
+```
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 64. `backend/app/domain/repositories/connector_repository.py`
+
+**Purpose:** Repository protocols for connector persistence
+
+**Current Setup:**
+- `ConnectorRepository` Protocol for catalog
+- `UserConnectorRepository` Protocol for user instances
+- Search and filtering capabilities
+
+**Strengths:**
+- EXCELLENT - Clean separation of catalog and user instances
+- Comprehensive CRUD operations
+- Search functionality with type filtering
+- MCP-specific query method `get_mcp_connectors_by_user()`
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Missing docstrings | All methods | Medium | No docstrings for methods |
+| Duplicate method patterns | Lines 13, 34 | Low | `get_by_id` appears in both protocols |
+
+**Enhancement Suggestions:**
+
+```python
+from typing import Protocol
+
+from app.domain.models.connector import Connector, ConnectorType, UserConnector
+
+
+class ConnectorRepository(Protocol):
+    """Protocol for connector catalog persistence."""
+
+    async def get_all(self) -> list[Connector]:
+        """Get all available connectors.
+
+        Returns:
+            List of all connectors in the catalog
+        """
+        ...
+
+    async def get_by_id(self, connector_id: str) -> Connector | None:
+        """Get a connector by its ID.
+
+        Args:
+            connector_id: Unique connector identifier
+
+        Returns:
+            Connector if found, None otherwise
+        """
+        ...
+
+    async def get_by_type(self, connector_type: ConnectorType) -> list[Connector]:
+        """Get connectors by type.
+
+        Args:
+            connector_type: Type to filter by
+
+        Returns:
+            List of connectors matching the type
+        """
+        ...
+
+    async def search(
+        self,
+        query: str | None = None,
+        connector_type: ConnectorType | None = None,
+    ) -> list[Connector]:
+        """Search connectors with optional filters.
+
+        Args:
+            query: Search query string
+            connector_type: Optional type filter
+
+        Returns:
+            List of matching connectors
+        """
+        ...
+
+
+class UserConnectorRepository(Protocol):
+    """Protocol for user connector instance persistence."""
+
+    async def get_by_user(self, user_id: str) -> list[UserConnector]:
+        """Get all connector instances for a user.
+
+        Args:
+            user_id: User to get connectors for
+
+        Returns:
+            List of user's connector instances
+        """
+        ...
+
+    async def get_connected_by_user(self, user_id: str) -> list[UserConnector]:
+        """Get connected connector instances for a user.
+
+        Args:
+            user_id: User to get connectors for
+
+        Returns:
+            List of connected connector instances only
+        """
+        ...
+```
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 65. `backend/app/domain/repositories/mcp_repository.py`
+
+**Purpose:** Repository interface for MCP (Model Context Protocol) configuration
+
+**Current Setup:**
+- `MCPRepository` as Protocol
+- Single method: `get_mcp_config()`
+
+**Strengths:**
+- Simple, focused interface
+- Follows DDD principles
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Single method interface | Global | Low | Very minimal interface - consider if more methods needed |
+| Missing docstrings | Lines 9-11 | Low | Could add more detail to docstring |
+| No error handling hints | Global | Low | Should document what happens if config not found |
+
+**Enhancement Suggestions:**
+
+```python
+from typing import Protocol
+
+from app.domain.models.mcp_config import MCPConfig
+
+
+class MCPRepository(Protocol):
+    """Repository interface for MCP configuration.
+
+    Provides access to Model Context Protocol configuration
+    for tool discovery and execution.
+    """
+
+    async def get_mcp_config(self) -> MCPConfig:
+        """Get the MCP configuration.
+
+        Returns:
+            MCPConfig object containing all MCP server configurations
+
+        Raises:
+            ConfigurationError: If MCP configuration is invalid or missing
+        """
+        ...
+
+    async def get_server_config(self, server_name: str) -> dict | None:
+        """Get configuration for a specific MCP server.
+
+        Args:
+            server_name: Name of the MCP server
+
+        Returns:
+            Server configuration dict if found, None otherwise
+        """
+        ...
+
+    async def list_servers(self) -> list[str]:
+        """List all configured MCP server names.
+
+        Returns:
+            List of server names
+        """
+        ...
+```
+
+**Overall Rating:** ✅ Good
+
+---
+
+## Batch 13 Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| Files Reviewed | 5 |
+| Total Issues Found | 14 |
+| Critical | 0 |
+| Medium | 4 |
+| Low | 10 |
+
+### Key Findings
+
+1. **Protocol-Based Design**: All repositories use `Protocol` or `ABC` properly, following DDD principles.
+
+2. **Clean Interfaces**: Repository interfaces are well-designed with focused responsibilities.
+
+3. **Analytics Repository**: The most complex repository with comprehensive analytics models and singleton pattern.
+
+4. **Version Management**: `CanvasRepository` provides excellent version control support.
+
+5. **Connector Separation**: Clean separation between catalog (`ConnectorRepository`) and user instances (`UserConnectorRepository`).
+
+### Priority Fixes
+
+1. **Medium**: Replace `@dataclass` with Pydantic `BaseModel` in `analytics_repository.py` for consistency
+2. **Medium**: Add docstrings to `canvas_repository.py` and `connector_repository.py` methods
+3. **Low**: Fix `get_memory` return type to `Memory | None` in `agent_repository.py`
+4. **Low**: Consider expanding `MCPRepository` with additional methods
+
+---
+
+## Batch 14: Domain Repositories (Files 66-70)
+
+### 66. `backend/app/domain/repositories/memory_repository.py`
+
+**Purpose:** Repository interface for long-term memory persistence with vector search support
+
+**Current Setup:**
+- `MemoryRepository` as ABC with 19 methods
+- Comprehensive CRUD operations
+- Vector similarity search support
+- Deduplication via content hash
+- Entity-based queries
+- Access tracking and statistics
+- Memory merging capability
+- BM25 corpus support for startup
+
+**Strengths:**
+- EXCELLENT - Comprehensive memory repository
+- Vector search with `embedding` parameter
+- Deduplication via `find_duplicates()` with content hash
+- Access tracking with `record_access()`
+- Memory merging with `merge_memories()`
+- BM25 corpus support with `get_all_content()`
+- Statistics with `get_stats()`
+- Expiration handling with `cleanup_expired()`
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Large interface | Global | Low | 19 methods - could split into focused interfaces |
+| No bounds on list parameters | Lines 127, 161, 176, 191, 219 | Low | `limit` parameters have no maximum |
+| Cross-user query | Line 219 | Low | `get_all_content()` is cross-user - security consideration |
+
+**Enhancement Suggestions:**
+
+```python
+from abc import ABC, abstractmethod
+from datetime import datetime
+
+from pydantic import Field
+
+from app.domain.models.long_term_memory import (
+    MemoryEntry,
+    MemoryQuery,
+    MemorySearchResult,
+    MemoryStats,
+    MemoryType,
+    MemoryUpdate,
+)
+
+
+class MemoryRepository(ABC):
+    """Abstract repository for long-term memory storage."""
+
+    @abstractmethod
+    async def vector_search(
+        self,
+        user_id: str,
+        embedding: list[float],
+        limit: int = Field(default=10, ge=1, le=1000),
+        min_score: float = Field(default=0.0, ge=0.0, le=1.0),
+        memory_types: list[MemoryType] | None = None,
+    ) -> list[MemorySearchResult]:
+        """Search memories by vector similarity."""
+        ...
+
+    @abstractmethod
+    async def get_all_content(
+        self,
+        limit: int = Field(default=10000, ge=1, le=100000),
+    ) -> list[str]:
+        """Get content strings from all active memories (cross-user).
+
+        Used for BM25 corpus fitting at startup.
+        Security note: This accesses all users' memory content.
+        """
+        ...
+```
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 67. `backend/app/domain/repositories/provenance_repository.py`
+
+**Purpose:** Repository interface for claim provenance tracking - hallucination prevention
+
+**Current Setup:**
+- `ProvenanceRepository` as ABC with 22 methods
+- Three sections: VisitedSource operations, ClaimProvenance operations, Audit & Analysis
+- Full audit trail support with `trace_claim_to_source()`
+- Verification status tracking
+- Special queries for numeric and fabricated claims
+
+**Strengths:**
+- EXCELLENT - Comprehensive provenance tracking system
+- Clear section organization with comment headers
+- Batch operations for `save_claim_provenance_batch()`
+- Special queries: `find_numeric_claims()`, `find_fabricated_claims()`, `find_unverified_claims()`
+- Full audit trail: `trace_claim_to_source()`
+- Verification summary: `get_verification_summary()`
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Untyped return | Line 268 | Low | `get_verification_summary()` returns `dict` instead of typed model |
+| Large interface | Global | Low | 22 methods - well-organized but large |
+
+**Enhancement Suggestions:**
+
+```python
+from abc import ABC, abstractmethod
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.domain.models.claim_provenance import ClaimProvenance, ProvenanceStore
+from app.domain.models.visited_source import VisitedSource
+
+
+class VerificationSummary(BaseModel):
+    """Summary of claim verification statistics."""
+
+    model_config = ConfigDict(frozen=True)
+
+    total_claims: int = Field(..., ge=0)
+    verified_claims: int = Field(..., ge=0)
+    unverified_claims: int = Field(..., ge=0)
+    fabricated_claims: int = Field(..., ge=0)
+    numeric_claims: int = Field(..., ge=0)
+    verification_rate: float = Field(..., ge=0.0, le=1.0)
+
+
+class ProvenanceRepository(ABC):
+    """Repository interface for provenance tracking."""
+
+    @abstractmethod
+    async def get_verification_summary(
+        self,
+        session_id: str,
+    ) -> VerificationSummary:
+        """Get summary statistics of claim verification.
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            VerificationSummary with statistics
+        """
+        ...
+```
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 68. `backend/app/domain/repositories/screenshot_repository.py`
+
+**Purpose:** Repository protocol for screenshot persistence
+
+**Current Setup:**
+- `ScreenshotRepository` as Protocol
+- 5 methods: `save()`, `find_by_session()`, `find_by_id()`, `count_by_session()`, `delete_by_session()`
+- Minimal, focused interface
+
+**Strengths:**
+- EXCELLENT - Clean, minimal interface
+- Pagination support with `limit` and `offset`
+- Count and delete operations
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Missing docstrings | All methods | Medium | No docstrings for methods |
+| No bounds on limit | Line 10 | Low | `limit: int = 500` has no maximum validation |
+
+**Enhancement Suggestions:**
+
+```python
+from typing import Protocol
+
+from app.domain.models.screenshot import SessionScreenshot
+
+
+class ScreenshotRepository(Protocol):
+    """Protocol for screenshot persistence."""
+
+    async def save(self, screenshot: SessionScreenshot) -> None:
+        """Save a screenshot.
+
+        Args:
+            screenshot: Screenshot to save
+        """
+        ...
+
+    async def find_by_session(
+        self,
+        session_id: str,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> list[SessionScreenshot]:
+        """Get screenshots for a session with pagination.
+
+        Args:
+            session_id: Session to get screenshots for
+            limit: Maximum results (default 500, max 5000)
+            offset: Number to skip
+
+        Returns:
+            List of screenshots ordered by timestamp
+        """
+        ...
+
+    async def count_by_session(self, session_id: str) -> int:
+        """Count screenshots for a session.
+
+        Args:
+            session_id: Session to count
+
+        Returns:
+            Number of screenshots
+        """
+        ...
+```
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 69. `backend/app/domain/repositories/session_repository.py`
+
+**Purpose:** Repository interface for Session aggregate
+
+**Current Setup:**
+- `SessionRepository` as Protocol with 23 methods
+- CRUD operations and field updates
+- Event management with pagination
+- File management
+- Timeline query methods
+
+**Strengths:**
+- EXCELLENT - Comprehensive session repository
+- Timeline query methods: `get_events_paginated()`, `get_events_in_range()`, `get_event_by_sequence()`
+- Authorization support with `find_by_id_and_user_id()`
+- Pending action flow for confirmations
+- Mode switching support
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Large interface | Global | Low | 23 methods - could split into read/write interfaces |
+| Untyped dict | Lines 79, 85 | Low | `pending_action: dict` and `updates: dict` lack typing |
+| No bounds on limit | Line 98 | Low | `limit: int = 100` has no maximum |
+
+**Enhancement Suggestions:**
+
+```python
+from datetime import datetime
+from typing import Any, Protocol
+
+from pydantic import Field
+
+from app.domain.models.event import BaseEvent
+from app.domain.models.file import FileInfo
+from app.domain.models.session import AgentMode, Session, SessionStatus
+
+
+class SessionRepository(Protocol):
+    """Repository interface for Session aggregate."""
+
+    async def update_pending_action(
+        self,
+        session_id: str,
+        pending_action: dict[str, Any] | None,
+        status: str | None,
+    ) -> None:
+        """Update pending action details for confirmation flow.
+
+        Args:
+            session_id: Session to update
+            pending_action: Action requiring confirmation
+            status: Current status
+        """
+        ...
+
+    async def get_events_paginated(
+        self,
+        session_id: str,
+        offset: int = Field(default=0, ge=0),
+        limit: int = Field(default=100, ge=1, le=10000),
+    ) -> list[BaseEvent]:
+        """Get paginated events for a session.
+
+        Args:
+            session_id: Session to get events for
+            offset: Number to skip
+            limit: Maximum to return
+
+        Returns:
+            List of events ordered by sequence
+        """
+        ...
+```
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 70. `backend/app/domain/repositories/skill_repository.py`
+
+**Purpose:** Repository interface for Skill aggregate with marketplace features
+
+**Current Setup:**
+- `SkillRepository` as Protocol with 19 methods
+- CRUD operations
+- Marketplace methods: search, featured, popular, recent
+- Rating and install tracking
+- Fork capability
+
+**Strengths:**
+- EXCELLENT - Comprehensive skill repository with marketplace
+- Marketplace discovery: `get_featured()`, `get_popular()`, `get_recent()`
+- Rating system with `rate_skill()`
+- Fork capability for customization
+- Tag-based search with `get_by_tags()`
+- Install tracking with `increment_install_count()`
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Untyped filters | Line 58 | Medium | `filters: Any` should be typed |
+| No bounds on limit | Lines 60, 67, 71, 75, 79 | Low | Multiple `limit` parameters lack maximum |
+| Missing docstrings | All methods | Low | No docstrings for methods |
+
+**Enhancement Suggestions:**
+
+```python
+from typing import Protocol
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.domain.models.skill import Skill, SkillCategory
+
+
+class SkillSearchFilters(BaseModel):
+    """Filters for skill search."""
+
+    model_config = ConfigDict(frozen=True)
+
+    query: str | None = Field(default=None, max_length=200)
+    category: SkillCategory | None = None
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    owner_id: str | None = None
+    is_public: bool | None = None
+    min_rating: float | None = Field(default=None, ge=0.0, le=5.0)
+
+
+class SkillRepository(Protocol):
+    """Repository interface for Skill aggregate."""
+
+    async def search(
+        self,
+        filters: SkillSearchFilters,
+        skip: int = Field(default=0, ge=0),
+        limit: int = Field(default=20, ge=1, le=100),
+        sort_by: str = "community_rating",
+        sort_order: int = -1,
+    ) -> tuple[list[Skill], int]:
+        """Search skills in the marketplace.
+
+        Args:
+            filters: Search filters
+            skip: Number to skip
+            limit: Maximum results
+            sort_by: Field to sort by
+            sort_order: 1 for ascending, -1 for descending
+
+        Returns:
+            Tuple of (matching skills, total count)
+        """
+        ...
+```
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+## Batch 14 Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| Files Reviewed | 5 |
+| Total Issues Found | 13 |
+| Critical | 0 |
+| Medium | 2 |
+| Low | 11 |
+
+### Key Findings
+
+1. **Comprehensive Repositories**: All repositories provide complete interfaces with well-organized methods.
+
+2. **Provenance System**: `provenance_repository.py` offers an excellent hallucination prevention system with full audit trails.
+
+3. **Memory Repository**: The most feature-rich repository with vector search, deduplication, access tracking, and merging.
+
+4. **Marketplace Features**: `skill_repository.py` includes comprehensive marketplace functionality.
+
+5. **Minimal Interfaces**: `screenshot_repository.py` demonstrates clean, focused repository design.
+
+### Priority Fixes
+
+1. **Medium**: Type the `filters: Any` parameter in `skill_repository.py` to `SkillSearchFilters`
+2. **Medium**: Type the `dict` return in `provenance_repository.py` to `VerificationSummary`
+3. **Low**: Add docstrings to `screenshot_repository.py` methods
+4. **Low**: Add bounds validation to limit parameters across repositories
+5. **Low**: Consider splitting large interfaces (MemoryRepository, SessionRepository) into focused protocols
+
+---
+
+## Batch 15: Domain Repositories + Agent Services Init (Files 71-75)
+
+### 71. `backend/app/domain/repositories/snapshot_repository.py`
+
+**Purpose:** Repository interface for StateSnapshot aggregate - timeline reconstruction support
+
+**Current Setup:**
+- `SnapshotRepository` as Protocol with 11 methods
+- Batch operations with `save_many()`
+- Sequence-based and time-based queries
+- Retention policy enforcement
+
+**Strengths:**
+- EXCELLENT - Comprehensive snapshot repository
+- `find_nearest_before()` for efficient state reconstruction
+- `find_nearest_before_time()` for time-based reconstruction
+- `get_snapshots_in_range()` for range queries
+- `delete_older_than()` for retention policy
+- `get_latest_full_snapshot()` for checkpoint recovery
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No bounds on limit | Line 24 | Low | `limit: int | None = None` lacks maximum |
+| Missing docstrings | Lines 12-14, 16-18, 20-22 | Low | Some methods lack docstrings |
+
+**Enhancement Suggestions:**
+
+```python
+from datetime import datetime
+from typing import Protocol
+
+from pydantic import Field
+
+from app.domain.models.snapshot import StateSnapshot
+
+
+class SnapshotRepository(Protocol):
+    """Repository interface for StateSnapshot aggregate."""
+
+    async def find_by_session(
+        self,
+        session_id: str,
+        limit: int | None = Field(default=None, ge=1, le=10000),
+    ) -> list[StateSnapshot]:
+        """Find all snapshots for a session, ordered by sequence number.
+
+        Args:
+            session_id: Session to get snapshots for
+            limit: Optional maximum results
+
+        Returns:
+            List of snapshots ordered by sequence number
+        """
+        ...
+```
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 72. `backend/app/domain/repositories/user_repository.py`
+
+**Purpose:** User repository interface for authentication and user management
+
+**Current Setup:**
+- `UserRepository` as ABC with 9 methods
+- Standard CRUD operations
+- Lookup by ID, fullname, email
+- Existence checks for uniqueness validation
+
+**Strengths:**
+- Clean, focused interface
+- `fullname_exists()` and `email_exists()` for uniqueness validation
+- Pagination support in `list_users()`
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses `pass` instead of `...` | Lines 12, 17, 22, 27, 32, 37, 42, 47, 52 | Low | ABC methods should use `...` not `pass` |
+| No docstrings | All methods | Low | Could add more detailed docstrings |
+| No bounds on limit | Line 40 | Low | `limit: int = 100` lacks maximum |
+
+**Enhancement Suggestions:**
+
+```python
+from abc import ABC, abstractmethod
+
+from pydantic import Field
+
+from app.domain.models.user import User
+
+
+class UserRepository(ABC):
+    """User repository interface."""
+
+    @abstractmethod
+    async def create_user(self, user: User) -> User:
+        """Create a new user.
+
+        Args:
+            user: User to create
+
+        Returns:
+            Created user with generated ID
+        """
+        ...
+
+    @abstractmethod
+    async def get_user_by_id(self, user_id: str) -> User | None:
+        """Get user by ID.
+
+        Args:
+            user_id: Unique user identifier
+
+        Returns:
+            User if found, None otherwise
+        """
+        ...
+
+    @abstractmethod
+    async def list_users(
+        self,
+        limit: int = Field(default=100, ge=1, le=10000),
+        offset: int = Field(default=0, ge=0),
+    ) -> list[User]:
+        """List users with pagination.
+
+        Args:
+            limit: Maximum users to return
+            offset: Number to skip
+
+        Returns:
+            List of users
+        """
+        ...
+```
+
+**Overall Rating:** ✅ Good
+
+---
+
+### 73. `backend/app/domain/repositories/vector_memory_repository.py`
+
+**Purpose:** Repository interface for vector-based memory search
+
+**Current Setup:**
+- `VectorSearchResult` dataclass for search results
+- `VectorMemoryRepository` as ABC with 4 methods
+- Global singleton pattern with getter/setter
+- TYPE_CHECKING import pattern for forward references
+
+**Strengths:**
+- EXCELLENT - Clean vector search interface
+- Global singleton pattern for dependency injection
+- TYPE_CHECKING pattern for avoiding circular imports
+- Comprehensive filtering options in `search_similar()`
+- Batch delete capability
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses dataclass instead of Pydantic | Lines 17-24 | Medium | Should use Pydantic for `VectorSearchResult` |
+| Global mutable state | Lines 106, 118-119 | Low | Global singleton could cause test issues |
+| No bounds on limit | Line 63 | Low | `limit: int = 10` lacks maximum |
+
+**Enhancement Suggestions:**
+
+```python
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Protocol
+
+from pydantic import BaseModel, ConfigDict, Field
+
+if TYPE_CHECKING:
+    from app.domain.models.long_term_memory import MemoryImportance, MemoryType
+
+
+class VectorSearchResult(BaseModel):
+    """Result from vector similarity search."""
+
+    model_config = ConfigDict(frozen=True)
+
+    memory_id: str = Field(..., min_length=1)
+    relevance_score: float = Field(..., ge=0.0, le=1.0)
+    memory_type: str | None = Field(default=None, max_length=50)
+    importance: str | None = Field(default=None, max_length=20)
+
+
+class VectorMemoryRepository(ABC):
+    """Abstract repository for vector-based memory search."""
+
+    @abstractmethod
+    async def search_similar(
+        self,
+        user_id: str,
+        query_vector: list[float],
+        limit: int = Field(default=10, ge=1, le=1000),
+        min_score: float = Field(default=0.3, ge=0.0, le=1.0),
+        memory_types: list[MemoryType] | None = None,
+        min_importance: MemoryImportance | None = None,
+        tags: list[str] | None = None,
+    ) -> list[VectorSearchResult]:
+        """Search for similar memories using vector similarity."""
+        ...
+```
+
+**Overall Rating:** ✅ Good
+
+---
+
+### 74. `backend/app/domain/repositories/vector_repos.py`
+
+**Purpose:** Domain-layer ports for vector database repositories - cross-session learning support
+
+**Current Setup:**
+- `EmbeddingProvider` Protocol for embedding generation
+- `TaskArtifactRepository` ABC for task artifact vectors
+- `ToolLogRepository` ABC for tool execution log vectors
+- Three global singletons with getter/setter functions
+
+**Strengths:**
+- EXCELLENT - Comprehensive vector repository system
+- `EmbeddingProvider` Protocol for shared embedding generation
+- `TaskArtifactRepository` for cross-session learning
+- `ToolLogRepository` for error pattern learning
+- Clean separation of concerns
+- Global singleton pattern for dependency injection
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Untyped dict returns | Lines 50, 81 | Medium | Returns `list[dict[str, Any]]` instead of typed models |
+| Global mutable state | Lines 89-91 | Low | Three global singletons |
+| No bounds on limit | Lines 47, 79 | Low | `limit` parameters lack maximum |
+
+**Enhancement Suggestions:**
+
+```python
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from typing import Protocol
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class SimilarTaskResult(BaseModel):
+    """Result from similar task search."""
+
+    model_config = ConfigDict(frozen=True)
+
+    artifact_id: str
+    session_id: str
+    artifact_type: str
+    agent_role: str
+    task_id: str | None
+    success: bool | None
+    content_summary: str
+    similarity_score: float = Field(..., ge=0.0, le=1.0)
+
+
+class SimilarToolResult(BaseModel):
+    """Result from similar tool execution search."""
+
+    model_config = ConfigDict(frozen=True)
+
+    log_id: str
+    session_id: str
+    tool_name: str
+    outcome: str
+    input_summary: str
+    error_type: str | None
+    similarity_score: float = Field(..., ge=0.0, le=1.0)
+
+
+class EmbeddingProvider(Protocol):
+    """Protocol for embedding generation."""
+
+    async def embed(self, text: str) -> list[float]: ...
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]: ...
+
+
+class TaskArtifactRepository(ABC):
+    """Abstract repository for task artifact vectors."""
+
+    @abstractmethod
+    async def find_similar_tasks(
+        self,
+        user_id: str,
+        query_vector: list[float],
+        limit: int = Field(default=5, ge=1, le=100),
+        min_score: float = Field(default=0.5, ge=0.0, le=1.0),
+        artifact_types: list[str] | None = None,
+    ) -> list[SimilarTaskResult]:
+        """Find similar tasks from previous sessions."""
+        ...
+```
+
+**Overall Rating:** ✅ Good
+
+---
+
+### 75. `backend/app/domain/services/agents/__init__.py`
+
+**Purpose:** Package init for agent services - exports public API
+
+**Current Setup:**
+- Exports 65 symbols from 20+ modules
+- Organized with comment headers (Task 7.1, P0 Priority, Quick Wins, etc.)
+- Uses `__all__` for explicit public API
+- Groups imports by feature area
+
+**Strengths:**
+- EXCELLENT - Well-organized package init
+- Clear `__all__` declaration for explicit public API
+- Comment headers organize imports by priority/feature
+- Comprehensive exports covering all agent services
+- Consistent naming conventions
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Large export list | Lines 84-149 | Low | 65 exports - consider splitting package |
+| Relative import | Line 1 | Low | Uses relative import `from ...models.agent` |
+| No module docstring | Global | Low | Could add package-level documentation |
+
+**Enhancement Suggestions:**
+
+```python
+"""
+Agent Services Package
+
+This package provides the core agent services for Pythinker:
+
+P0 Priority (Hallucination Prevention):
+- GroundingValidator: Validates responses against visited sources
+- GuardrailsManager: Input/output safety checks
+
+P1 Priority (Task Decomposition):
+- TaskDecomposer: Breaks complex tasks into subtasks
+- RequirementExtractor: Extracts requirements from input
+
+Optimization:
+- SmartRouter: Routes requests to optimal model
+- PromptCompressor: Reduces prompt token usage
+- ParallelToolExecutor: Executes tools in parallel
+
+Safety:
+- SecurityCritic: Evaluates code execution safety
+- CriticAgent: Quality gate pattern
+- StuckDetector: Detects stuck loops
+"""
+
+from app.domain.models.agent import Agent
+
+# Task 7.1: Critic Agent for quality gate pattern
+from .critic_agent import CriticAgent, CriticResult
+from .error_handler import ErrorContext, ErrorHandler, ErrorType, TokenLimitExceededError
+
+# ... rest of imports ...
+
+__all__ = [
+    "Agent",
+    # ... rest of exports ...
+]
+```
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+## Batch 15 Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| Files Reviewed | 5 |
+| Total Issues Found | 14 |
+| Critical | 0 |
+| Medium | 2 |
+| Low | 12 |
+
+### Key Findings
+
+1. **Repository Completeness**: All domain repositories are now reviewed, providing comprehensive coverage.
+
+2. **Vector Search System**: `vector_memory_repository.py` and `vector_repos.py` provide a complete vector search abstraction layer.
+
+3. **Snapshot Repository**: Excellent timeline reconstruction support with sequence and time-based queries.
+
+4. **Agent Services Init**: Well-organized package init with 65 exports covering all agent capabilities.
+
+5. **Singleton Pattern**: Multiple repositories use global singleton pattern for dependency injection.
+
+### Priority Fixes
+
+1. **Medium**: Replace `@dataclass` with Pydantic `BaseModel` in `vector_memory_repository.py` for `VectorSearchResult`
+2. **Medium**: Type the `dict` returns in `vector_repos.py` to `SimilarTaskResult` and `SimilarToolResult`
+3. **Low**: Replace `pass` with `...` in `user_repository.py` ABC methods
+4. **Low**: Add package docstring to `agents/__init__.py`
+5. **Low**: Add bounds validation to limit parameters across repositories
+
+---
+
+## Domain Models & Repositories Complete
+
+With Batch 15, all domain models (62 files) and domain repositories (14 files) have been reviewed.
+
+### Progress Update
+
+| Category | Files Reviewed | Total |
+|----------|---------------|-------|
+| Domain Models | 62 | 62 |
+| Domain Repositories | 14 | 14 |
+| Agent Services | 1 | 82 |
+| **Total So Far** | **77** | **299** |
+| **Progress** | **25.8%** | - |
+
+### Key Patterns Observed
+
+1. **UTC Timezone Issues**: Many files use `datetime.now()` or `datetime.utcnow()` instead of `datetime.now(UTC)`
+
+2. **Pydantic v2 Migration**: Many files still use legacy `class Config` instead of `model_config = ConfigDict(...)`
+
+3. **Weak ID Generation**: Some files use `timestamp()` for IDs instead of UUIDs
+
+4. **Protocol vs ABC**: Repositories use both `Protocol` (structural typing) and `ABC` (nominal typing)
+
+5. **Singleton Pattern**: Multiple repositories use module-level singletons for dependency injection
+
+---
+
+*Review will continue with Batch 16 (files 76-80) - Agent Services Core.*
