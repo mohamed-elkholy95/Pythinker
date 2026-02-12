@@ -85,14 +85,18 @@ async def test_oom_killed_sandbox_removed_from_pool():
         max_size=2,
     )
 
-    # Create mock sandbox
+    # Create mock sandbox with all async methods as AsyncMock
     oom_sandbox = Mock()
     oom_sandbox.container_id = "abc123def456"[:12]  # First 12 chars
     oom_sandbox.cleanup = AsyncMock()
+    oom_sandbox.destroy = AsyncMock()
+    oom_sandbox.unpause = AsyncMock()
 
     healthy_sandbox = Mock()
     healthy_sandbox.container_id = "xyz789abc123"[:12]
     healthy_sandbox.cleanup = AsyncMock()
+    healthy_sandbox.destroy = AsyncMock()
+    healthy_sandbox.unpause = AsyncMock()
 
     await pool._pool.put(oom_sandbox)
     await pool._pool.put(healthy_sandbox)
