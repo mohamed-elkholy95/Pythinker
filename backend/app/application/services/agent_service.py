@@ -28,7 +28,7 @@ from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
 from app.domain.external.task import Task
 from app.domain.models.agent import Agent
-from app.domain.models.event import AgentEvent, ErrorEvent
+from app.domain.models.event import AgentEvent, DoneEvent, ErrorEvent, MessageEvent
 from app.domain.models.file import FileInfo
 from app.domain.models.session import AgentMode, Session, SessionStatus
 from app.domain.repositories.agent_repository import AgentRepository
@@ -571,6 +571,47 @@ class AgentService:
         emitted_events = 0
         logger.info(f"Starting chat with session {session_id}: {(message or '')[:50]}...")
 
+        # Extract follow_up fields early so they can be included in fast-path user events.
+        follow_up_selected_suggestion: str | None = None
+        follow_up_anchor_event_id: str | None = None
+        follow_up_source: str | None = None
+        if follow_up:
+            follow_up_selected_suggestion = follow_up.get("selected_suggestion")
+            follow_up_anchor_event_id = follow_up.get("anchor_event_id")
+            follow_up_source = follow_up.get("source")
+
+        # Lightweight direct-response bypass for trivial prompts (e.g., "hi", "thanks").
+        # This intentionally avoids warm-up waits, connector loading, and full domain chat init.
+        if message:
+            try:
+                direct_response = self._try_lightweight_direct_response(
+                    message=message,
+                    attachments=attachments,
+                    skills=skills,
+                    deep_research=deep_research,
+                    follow_up=follow_up,
+                )
+                if direct_response:
+                    async for event in self._emit_lightweight_direct_response(
+                        session_id=session_id,
+                        user_id=user_id,
+                        message=message,
+                        response=direct_response,
+                        timestamp=timestamp,
+                        follow_up_selected_suggestion=follow_up_selected_suggestion,
+                        follow_up_anchor_event_id=follow_up_anchor_event_id,
+                        follow_up_source=follow_up_source,
+                    ):
+                        emitted_events += 1
+                        yield event
+                    return
+            except Exception as e:
+                logger.warning(
+                    "Lightweight direct-response bypass failed for session %s; falling back to full chat path: %s",
+                    session_id,
+                    e,
+                )
+
         # Set correlation IDs for structured logging throughout the call chain
         try:
             from app.infrastructure.structured_logging import set_session_id, set_user_id
@@ -606,15 +647,6 @@ class AgentService:
                 user_id,
                 e,
             )
-
-        # Extract follow_up fields for domain service
-        follow_up_selected_suggestion: str | None = None
-        follow_up_anchor_event_id: str | None = None
-        follow_up_source: str | None = None
-        if follow_up:
-            follow_up_selected_suggestion = follow_up.get("selected_suggestion")
-            follow_up_anchor_event_id = follow_up.get("anchor_event_id")
-            follow_up_source = follow_up.get("source")
 
         # Guard long stalls waiting for the next domain event so API calls do not hang indefinitely.
         event_timeout_seconds = max(0.0, self.CHAT_EVENT_TIMEOUT_SECONDS)
@@ -674,11 +706,14 @@ class AgentService:
                             logger.info(f"Resume point found at event_id={event_id}, starting fresh event stream")
                             skip_until_resume_point = False
                         continue  # Skip this event (already sent before page refresh)
-                    else:
-                        # Event has no event_id (shouldn't happen, but be defensive)
-                        logger.warning(f"Event without event_id during resumption: {type(event).__name__}")
-                        # Skip events without IDs during resumption to be safe
-                        continue
+
+                    # Event has no event_id. Resume skipping cannot safely continue here;
+                    # disable skip mode and emit this and subsequent events.
+                    logger.warning(
+                        "Event without event_id during resumption: %s; disabling skip mode",
+                        type(event).__name__,
+                    )
+                    skip_until_resume_point = False
 
                 logger.debug(f"Received event: {event}")
                 emitted_events += 1
@@ -694,6 +729,76 @@ class AgentService:
                 elapsed_ms,
                 emitted_events,
             )
+
+    def _try_lightweight_direct_response(
+        self,
+        message: str,
+        attachments: list[dict] | None,
+        skills: list[str] | None,
+        deep_research: bool | None,
+        follow_up: dict | None,
+    ) -> str | None:
+        """Return a deterministic direct response for tiny prompts, when safe."""
+        # Only bypass for bare chat prompts. Any enriched context should go through full flow.
+        if attachments or skills or deep_research or follow_up is not None:
+            return None
+
+        normalized = message.strip()
+        if not normalized or len(normalized) > 120:
+            return None
+
+        import re
+
+        from app.domain.services.agents.smart_router import SmartRouter
+
+        # Match direct-response patterns first to avoid SmartRouter's ambiguity guard
+        # suppressing short greetings like "hi".
+        for pattern, response in SmartRouter.DIRECT_RESPONSE_PATTERNS.items():
+            if re.match(pattern, normalized, flags=re.IGNORECASE):
+                return response
+        return None
+
+    async def _emit_lightweight_direct_response(
+        self,
+        session_id: str,
+        user_id: str,
+        message: str,
+        response: str,
+        timestamp: datetime | None,
+        follow_up_selected_suggestion: str | None,
+        follow_up_anchor_event_id: str | None,
+        follow_up_source: str | None,
+    ) -> AsyncGenerator[AgentEvent, None]:
+        """Persist and emit a compact user/assistant exchange without task initialization."""
+        session = await self._session_repository.find_by_id_and_user_id(session_id, user_id)
+        if not session:
+            raise RuntimeError("Session not found")
+
+        user_event = MessageEvent(
+            role="user",
+            message=message,
+            follow_up_selected_suggestion=follow_up_selected_suggestion,
+            follow_up_anchor_event_id=follow_up_anchor_event_id,
+            follow_up_source=follow_up_source,
+        )
+        assistant_event = MessageEvent(role="assistant", message=response)
+        done_event = DoneEvent()
+
+        now = timestamp or datetime.now()
+        await self._session_repository.update_latest_message(session_id, message, now)
+        await self._session_repository.add_event(session_id, user_event)
+        await self._session_repository.add_event(session_id, assistant_event)
+        await self._session_repository.add_event(session_id, done_event)
+
+        logger.info(
+            "Lightweight direct response served for session %s (message=%r)",
+            session_id,
+            message[:40],
+        )
+
+        yield user_event
+        yield assistant_event
+        yield done_event
 
     async def get_session(self, session_id: str, user_id: str | None = None) -> Session | None:
         """Get a session by ID, ensuring it belongs to the user"""

@@ -86,3 +86,48 @@ async def test_chat_wait_event_does_not_trigger_runtime_teardown() -> None:
     assert len(events) == 1
     assert isinstance(events[0], WaitEvent)
     teardown.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_chat_no_active_task_and_no_input_ends_without_done_or_teardown() -> None:
+    task = None
+    session = Session(
+        id="session-id",
+        user_id="user-id",
+        agent_id="agent-id",
+        status=SessionStatus.RUNNING,
+        task_id=None,
+        sandbox_id="sandbox-id",
+        sandbox_owned=True,
+    )
+
+    service, teardown = _build_service(session, task)
+    events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
+
+    assert events == []
+    teardown.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_chat_done_emitted_when_task_completes_without_events() -> None:
+    task = SimpleNamespace(
+        id="task-id",
+        output_stream=SimpleNamespace(get=AsyncMock()),
+        done=True,
+    )
+    session = Session(
+        id="session-id",
+        user_id="user-id",
+        agent_id="agent-id",
+        status=SessionStatus.RUNNING,
+        task_id="task-id",
+        sandbox_id="sandbox-id",
+        sandbox_owned=True,
+    )
+
+    service, teardown = _build_service(session, task)
+    events = [event async for event in service.chat(session_id=session.id, user_id=session.user_id, message=None)]
+
+    assert len(events) == 1
+    assert isinstance(events[0], DoneEvent)
+    teardown.assert_awaited_once_with(session.id, status=SessionStatus.COMPLETED, destroy_sandbox=False)

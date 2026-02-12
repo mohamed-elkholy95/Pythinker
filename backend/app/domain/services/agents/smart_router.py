@@ -59,6 +59,14 @@ class SmartRouter:
             # Proceed with LLM call
     """
 
+    IDENTITY_RESPONSE: ClassVar[str] = (
+        "I am Pythinker, an AI assistant created by the Pythinker Team and Mohamed Elkholy."
+    )
+    MODEL_RESPONSE: ClassVar[str] = (
+        "I am Pythinker. My exact backend model can vary by configuration, and I am created by the "
+        "Pythinker Team and Mohamed Elkholy."
+    )
+
     # Patterns for direct responses (no LLM needed)
     DIRECT_RESPONSE_PATTERNS: ClassVar[dict[str, str]] = {
         # Greetings
@@ -66,8 +74,13 @@ class SmartRouter:
         r"^(thanks|thank you|thx)[\s!.]*$": "You're welcome! Is there anything else I can help with?",
         r"^(bye|goodbye|see you)[\s!.]*$": "Goodbye! Feel free to return if you need assistance.",
         # Identity questions (use configured identity)
-        r"^who\s+(are|r)\s+you[\s?]*$": "I am Pythinker, an AI assistant created by the Pythinker Team and Mohamed Elkholy.",
-        r"^what\s+(are|r)\s+you[\s?]*$": "I am Pythinker, an AI assistant that helps with research, coding, and problem-solving.",
+        r"^who\s+(?:are|r)\s+you[\s?.!]*$": IDENTITY_RESPONSE,
+        r"^what\s+(?:are|r)\s+you[\s?.!]*$": IDENTITY_RESPONSE,
+        r"^who\s+(?:made|created|built|developed)\s+you[\s?.!]*$": IDENTITY_RESPONSE,
+        r"^who\s+is\s+your\s+(?:creator|maker|developer)[\s?.!]*$": IDENTITY_RESPONSE,
+        r"^what(?:'s|\s+is)\s+your\s+(?:model|model\s+name|underlying\s+model)[\s?.!]*$": MODEL_RESPONSE,
+        r"^what\s+model\s+(?:are\s+you|do\s+you\s+use|powers?\s+you)[\s?.!]*$": MODEL_RESPONSE,
+        r"^which\s+model\s+(?:are\s+you|do\s+you\s+use|powers?\s+you)[\s?.!]*$": MODEL_RESPONSE,
     }
 
     # Patterns for direct tool calls (no LLM reasoning needed)

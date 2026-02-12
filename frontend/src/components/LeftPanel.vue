@@ -545,9 +545,14 @@ watch(() => route.path, async (newPath, oldPath) => {
     top: 0;
     left: 0;
     height: 100dvh;
-    width: var(--left-panel-width-expanded);
+    width: min(88vw, 340px);
+    max-width: calc(100vw - 12px);
     z-index: 60;
     box-shadow: 8px 0 24px rgba(0, 0, 0, 0.15);
+  }
+
+  .left-panel-expanded .left-panel-content {
+    width: 100%;
   }
 
   .left-panel-collapsed {

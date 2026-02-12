@@ -47,7 +47,7 @@
 
       <!-- Menu button (appears on hover) -->
       <div @click="handleSessionMenuClick"
-        class="w-6 h-6 flex-shrink-0 rounded-md flex items-center justify-center cursor-pointer opacity-0 group-hover:opacity-100 hover:bg-[var(--fill-tsp-gray-dark)] transition-opacity"
+        class="w-6 h-6 flex-shrink-0 rounded-md flex items-center justify-center cursor-pointer opacity-100 sm:opacity-0 sm:group-hover:opacity-100 hover:bg-[var(--fill-tsp-gray-dark)] transition-opacity"
         :class="isContextMenuOpen ? 'opacity-100 bg-[var(--fill-tsp-gray-dark)]' : ''"
         aria-expanded="false" aria-haspopup="dialog">
         <Ellipsis :size="14" class="text-[var(--icon-secondary)]" />

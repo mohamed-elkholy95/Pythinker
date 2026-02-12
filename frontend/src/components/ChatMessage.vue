@@ -19,7 +19,7 @@
           </button>
         </div>
       </div>
-      <div class="user-message-actions flex items-center justify-end gap-1 invisible group-hover:visible">
+      <div class="user-message-actions flex items-center justify-end gap-1 visible sm:invisible sm:group-hover:visible">
         <button
           @click="handleCopyUserMessage"
           class="p-1 rounded-md text-[var(--icon-tertiary)] hover:bg-[var(--fill-tsp-gray-main)] hover:text-[var(--icon-secondary)]"
@@ -78,6 +78,7 @@
         </button>
       </div>
     </div>
+    <TaskCompletedFooter v-if="props.showAssistantCompletionFooter" :showRating="false" />
   </div>
   <ToolUse v-else-if="message.type === 'tool'" :tool="toolContent" :is-active="true" @click="handleToolClick(toolContent)" />
   <div
@@ -219,11 +220,10 @@ import PhaseGroup from './PhaseGroup.vue';
 import { marked, Renderer } from 'marked';
 import DOMPurify from 'dompurify';
 import { CheckIcon, Copy, Check } from 'lucide-vue-next';
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, onUnmounted } from 'vue';
 import { ToolContent, StepContent } from '../types/message';
 import { useRelativeTime } from '../composables/useTime';
 import { Bot } from 'lucide-vue-next';
-import { useClipboard } from '@vueuse/core';
 import AttachmentsMessage from './AttachmentsMessage.vue';
 import { ReportCard, AttachmentsInlineGrid, TaskCompletedFooter } from './report';
 import type { ReportData } from './report';
@@ -232,6 +232,7 @@ import DeepResearchCard from './DeepResearchCard.vue';
 import SkillDeliveryCard from './SkillDeliveryCard.vue';
 import ThinkingIndicator from './ui/ThinkingIndicator.vue';
 import { useShiki } from '@/composables/useShiki';
+import { copyToClipboard } from '../utils/dom';
 
 
 const props = defineProps<{
@@ -242,6 +243,7 @@ const props = defineProps<{
   showStepLeadingConnector?: boolean;
   showStepConnector?: boolean;
   showAssistantHeader?: boolean;
+  showAssistantCompletionFooter?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -368,16 +370,33 @@ const formatTimestampTooltip = (timestamp: number): string => {
   });
 };
 
-// Clipboard for copy functionality
-const { copy, copied } = useClipboard();
+// Clipboard copy state for user message actions
+const copied = ref(false);
+let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Copy user message to clipboard
-const handleCopyUserMessage = () => {
+const handleCopyUserMessage = async () => {
   const content = messageContent.value?.content;
   if (content) {
-    copy(content);
+    const success = await copyToClipboard(content);
+    if (!success) return;
+
+    copied.value = true;
+    if (copyResetTimer) {
+      clearTimeout(copyResetTimer);
+    }
+    copyResetTimer = setTimeout(() => {
+      copied.value = false;
+    }, 1500);
   }
 };
+
+onUnmounted(() => {
+  if (copyResetTimer) {
+    clearTimeout(copyResetTimer);
+    copyResetTimer = null;
+  }
+});
 
 // Shiki syntax highlighting
 const { highlightDualTheme, normalizeLanguage } = useShiki();

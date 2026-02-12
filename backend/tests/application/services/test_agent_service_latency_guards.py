@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.application.services.agent_service import AgentService
-from app.domain.models.event import ErrorEvent
+from app.domain.models.event import DoneEvent, ErrorEvent, MessageEvent
 
 
 class DummyLLM:
@@ -78,7 +78,7 @@ async def test_chat_timeout_path_emits_controlled_status_not_hang(monkeypatch):
             service.chat(
                 session_id="session-1",
                 user_id="user-1",
-                message="hello",
+                message="please summarize the architecture choices",
             )
         ),
         timeout=0.5,
@@ -125,7 +125,7 @@ async def test_chat_waits_for_active_sandbox_warmup_lock(monkeypatch):
                 service.chat(
                     session_id="session-1",
                     user_id="user-1",
-                    message="hello",
+                    message="please explain token budget behavior",
                 )
             ),
             timeout=1.0,
@@ -164,9 +164,148 @@ async def test_chat_forwards_user_skill_auto_trigger_policy(monkeypatch):
         service.chat(
             session_id="session-1",
             user_id="user-1",
-            message="hello",
+            message="please explain this design",
         )
     )
 
     assert len(events) == 1
     assert captured_kwargs["auto_trigger_enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_chat_bypasses_full_initialization_for_greeting(monkeypatch):
+    service = _build_service()
+
+    session_repo = MagicMock()
+    session_repo.find_by_id_and_user_id = AsyncMock(return_value=SimpleNamespace(id="session-1"))
+    session_repo.update_latest_message = AsyncMock()
+    session_repo.add_event = AsyncMock()
+    service._session_repository = session_repo
+
+    service._wait_for_sandbox_warmup_if_needed = AsyncMock()
+
+    async def _domain_chat_should_not_run(*_args, **_kwargs):
+        raise AssertionError("domain chat should not be called for greeting bypass")
+        if False:  # pragma: no cover
+            yield None
+
+    service._agent_domain_service = SimpleNamespace(chat=_domain_chat_should_not_run)
+
+    def _connector_should_not_be_called():
+        raise AssertionError("connector service should not be called for greeting bypass")
+
+    monkeypatch.setattr(
+        "app.application.services.connector_service.get_connector_service",
+        _connector_should_not_be_called,
+    )
+
+    events = await _collect_events(
+        service.chat(
+            session_id="session-1",
+            user_id="user-1",
+            message="hello",
+        )
+    )
+
+    assert len(events) == 3
+    assert isinstance(events[0], MessageEvent)
+    assert events[0].role == "user"
+    assert events[0].message == "hello"
+    assert isinstance(events[1], MessageEvent)
+    assert events[1].role == "assistant"
+    assert isinstance(events[2], DoneEvent)
+
+    service._wait_for_sandbox_warmup_if_needed.assert_not_awaited()
+    session_repo.update_latest_message.assert_awaited_once()
+    assert session_repo.add_event.await_count == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("message", "expected_fragment"),
+    [
+        ("who created you?", "Pythinker Team and Mohamed Elkholy"),
+        ("what model are you?", "exact backend model can vary by configuration"),
+    ],
+)
+async def test_chat_bypasses_full_initialization_for_identity_queries(
+    monkeypatch,
+    message: str,
+    expected_fragment: str,
+):
+    service = _build_service()
+
+    session_repo = MagicMock()
+    session_repo.find_by_id_and_user_id = AsyncMock(return_value=SimpleNamespace(id="session-1"))
+    session_repo.update_latest_message = AsyncMock()
+    session_repo.add_event = AsyncMock()
+    service._session_repository = session_repo
+
+    service._wait_for_sandbox_warmup_if_needed = AsyncMock()
+
+    async def _domain_chat_should_not_run(*_args, **_kwargs):
+        raise AssertionError("domain chat should not be called for direct identity bypass")
+        if False:  # pragma: no cover
+            yield None
+
+    service._agent_domain_service = SimpleNamespace(chat=_domain_chat_should_not_run)
+
+    def _connector_should_not_be_called():
+        raise AssertionError("connector service should not be called for direct identity bypass")
+
+    monkeypatch.setattr(
+        "app.application.services.connector_service.get_connector_service",
+        _connector_should_not_be_called,
+    )
+
+    events = await _collect_events(
+        service.chat(
+            session_id="session-1",
+            user_id="user-1",
+            message=message,
+        )
+    )
+
+    assert len(events) == 3
+    assert isinstance(events[0], MessageEvent)
+    assert events[0].role == "user"
+    assert events[0].message == message
+    assert isinstance(events[1], MessageEvent)
+    assert events[1].role == "assistant"
+    assert expected_fragment in events[1].message
+    assert isinstance(events[2], DoneEvent)
+
+    service._wait_for_sandbox_warmup_if_needed.assert_not_awaited()
+    session_repo.update_latest_message.assert_awaited_once()
+    assert session_repo.add_event.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_chat_resumption_emits_idless_events_instead_of_skipping_forever(monkeypatch):
+    service = _build_service()
+
+    async def _domain_chat_idless(*_args, **_kwargs):
+        yield MessageEvent(role="assistant", message="quick response")
+        yield DoneEvent(title="Done", summary="Completed")
+
+    service._agent_domain_service = SimpleNamespace(chat=_domain_chat_idless)
+
+    fake_connector_service = SimpleNamespace(get_user_mcp_configs=AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        "app.application.services.connector_service.get_connector_service",
+        lambda: fake_connector_service,
+    )
+
+    events = await _collect_events(
+        service.chat(
+            session_id="session-1",
+            user_id="user-1",
+            message="please explain architecture summary",
+            event_id="already-seen-event-id",
+        )
+    )
+
+    assert len(events) == 2
+    assert isinstance(events[0], MessageEvent)
+    assert events[0].message == "quick response"
+    assert isinstance(events[1], DoneEvent)
