@@ -2423,7 +2423,6 @@ const handleCopyLink = async () => {
 }
 
 .chat-bottom-dock {
-  background: var(--background-gray-main);
   padding-top: 8px;
   z-index: 20;
 }

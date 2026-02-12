@@ -1,68 +1,21 @@
 <template>
-    <svg :width="size" :height="size" viewBox="0 0 19 18" fill="none"
-        :style="{ minWidth: `${size}px`, minHeight: `${size}px` }">
-        <g :filter="`url(#${filterId})`">
-            <path
-                d="M2 4.7C2 3.20883 3.20883 2 4.7 2H13.3C14.7912 2 16 3.20883 16 4.7V13.3C16 14.7912 14.7912 16 13.3 16H4.7C3.20883 16 2 14.7912 2 13.3V4.7Z"
-                :fill="`url(#${gradientId})`"></path>
-        </g>
-        <path class="icon-border"
-            d="M2.42857 4.7C2.42857 3.44552 3.44552 2.42857 4.7 2.42857H13.3C14.5545 2.42857 15.5714 3.44552 15.5714 4.7V13.3C15.5714 14.5545 14.5545 15.5714 13.3 15.5714H4.7C3.44552 15.5714 2.42857 14.5545 2.42857 13.3V4.7Z"
-            stroke-width="0.857143"></path>
-        <path class="icon-detail"
-            d="M9.24211 5.70711C9.63264 5.31658 10.2658 5.31658 10.6563 5.70711V5.70711V5.70711C11.0468 6.09763 11.0468 6.7308 10.6563 7.12132L7.12079 10.6569H5.70658V9.24264L9.24211 5.70711Z"
-            stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"></path>
-        <path class="icon-detail" d="M8 12H12" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"></path>
-        <defs>
-            <filter :id="filterId" x="1.5" y="1.5" width="15" height="15" filterUnits="userSpaceOnUse"
-                color-interpolation-filters="sRGB">
-                <feFlood flood-opacity="0" result="BackgroundImageFix"></feFlood>
-                <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"></feBlend>
-                <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
-                    result="hardAlpha"></feColorMatrix>
-                <feOffset dx="1" dy="1"></feOffset>
-                <feGaussianBlur stdDeviation="0.25"></feGaussianBlur>
-                <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"></feComposite>
-                <feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.6 0"></feColorMatrix>
-                <feBlend mode="normal" in2="shape" :result="`effect1_${uid}`"></feBlend>
-                <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
-                    result="hardAlpha"></feColorMatrix>
-                <feOffset dx="-1" dy="-1"></feOffset>
-                <feGaussianBlur stdDeviation="0.25"></feGaussianBlur>
-                <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"></feComposite>
-                <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.08 0"></feColorMatrix>
-                <feBlend mode="normal" :in2="`effect1_${uid}`" :result="`effect2_${uid}`">
-                </feBlend>
-            </filter>
-            <linearGradient :id="gradientId" x1="9" y1="2" x2="9" y2="16" gradientUnits="userSpaceOnUse">
-                <stop stop-color="white" stop-opacity="0"></stop>
-                <stop offset="1" stop-opacity="0.16"></stop>
-            </linearGradient>
-        </defs>
-    </svg>
+  <svg :width="size" :height="size" viewBox="0 0 16 16" fill="none"
+    :style="{ minWidth: `${size}px`, minHeight: `${size}px` }">
+    <path class="icon-glyph"
+      d="M9.5 3.5L12.5 6.5M2 14L3 10L11.5 1.5C12.0523 0.947715 12.9477 0.947715 13.5 1.5L14.5 2.5C15.0523 3.05228 15.0523 3.94772 14.5 4.5L6 13L2 14Z"
+      stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+  </svg>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-
 defineProps({
-    size: {
-        type: Number,
-        default: 21
-    }
+  size: { type: Number, default: 21 },
 });
-
-// Generate unique IDs for this instance to avoid SVG filter/gradient conflicts
-const uid = Math.random().toString(36).substring(2, 9);
-const filterId = computed(() => `edit_filter_${uid}`);
-const gradientId = computed(() => `edit_gradient_${uid}`);
 </script>
 
 <style scoped>
-.icon-border {
-    stroke: var(--border-main, #B9B9B7);
-}
-.icon-detail {
-    stroke: var(--icon-secondary, #535350);
+.icon-glyph {
+  stroke: var(--icon-secondary, #535350);
+  fill: none;
 }
 </style>
