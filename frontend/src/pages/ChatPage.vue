@@ -3,15 +3,16 @@
     <div id="manus-chat-box" ref="chatContainerRef" class="relative flex flex-col h-full flex-1 flex-shrink-0 min-w-0 bg-[var(--background-gray-main)]">
       <div ref="observerRef"
         class="chat-header flex flex-row items-center pt-3 pb-1 gap-1 ps-[16px] pe-[24px] sticky top-0 z-10 flex-shrink-0 bg-[var(--background-gray-main)]">
-        <!-- Left side - panel toggle -->
-        <div class="flex items-center justify-start" style="width: calc((100% - min(768px, 100%)) / 2);">
-          <button
-            class="sm:hidden h-8 w-8 inline-flex items-center justify-center rounded-lg hover:bg-[var(--fill-tsp-gray-main)] transition-colors"
-            @click="toggleLeftPanel"
-            aria-label="Open sidebar"
-          >
-            <Menu :size="20" class="text-[var(--icon-secondary)]" />
-          </button>
+        <!-- Mobile sidebar toggle -->
+        <button
+          class="sm:hidden h-8 w-8 inline-flex items-center justify-center rounded-lg hover:bg-[var(--fill-tsp-gray-main)] transition-colors flex-shrink-0 mr-1"
+          @click="toggleLeftPanel"
+          aria-label="Open sidebar"
+        >
+          <Menu :size="20" class="text-[var(--icon-secondary)]" />
+        </button>
+        <!-- Left side spacer (desktop only) -->
+        <div class="hidden sm:flex items-center justify-start" style="width: calc((100% - min(768px, 100%)) / 2);">
         </div>
         <!-- Center content - matches chat content width -->
         <div class="max-w-full sm:max-w-[768px] sm:min-w-[400px] w-full flex items-center justify-between gap-3">
