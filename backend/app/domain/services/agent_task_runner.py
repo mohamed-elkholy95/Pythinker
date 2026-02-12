@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import time
 from collections.abc import AsyncGenerator, Callable, Coroutine
 from contextlib import asynccontextmanager, suppress
@@ -44,6 +45,7 @@ from app.domain.repositories.agent_repository import AgentRepository
 from app.domain.repositories.mcp_repository import MCPRepository
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.agents.usage_context import UsageContextManager
+from app.domain.services.comparison_chart_generator import ComparisonChartGenerator
 from app.domain.services.flows.base import BaseFlow
 from app.domain.services.flows.discuss import DiscussFlow
 from app.domain.services.flows.plan_act import PlanActFlow
@@ -240,6 +242,7 @@ class AgentTaskRunner(TaskRunner):
 
         # Tool event handler for action/observation metadata enrichment
         self._tool_event_handler = ToolEventHandler()
+        self._comparison_chart_generator = ComparisonChartGenerator()
 
         # Initialize flows based on mode
         self._plan_act_flow: PlanActFlow | None = None
@@ -723,35 +726,189 @@ class AgentTaskRunner(TaskRunner):
         if not event.content or not event.content.strip():
             return
 
-        # Avoid duplicating the same report attachment
         existing = event.attachments or []
         expected_name = f"report-{event.id}.md"
-        for attachment in existing:
-            if attachment.filename == expected_name:
-                return
-            if attachment.file_path and attachment.file_path.endswith(expected_name):
+        if not self._has_attachment(existing, expected_name):
+            file_path = f"/home/ubuntu/{expected_name}"
+            try:
+                result = await self._sandbox.file_write(file=file_path, content=event.content)
+                if result is not None and hasattr(result, "success") and not result.success:
+                    logger.warning(f"Agent {self._agent_id}: Failed to write report file '{file_path}' (success=False)")
+                    return
+            except Exception as e:
+                logger.warning(f"Agent {self._agent_id}: Failed to write report file '{file_path}': {e}")
                 return
 
-        file_path = f"/home/ubuntu/{expected_name}"
-        try:
-            result = await self._sandbox.file_write(file=file_path, content=event.content)
-            if result is not None and hasattr(result, "success") and not result.success:
-                logger.warning(f"Agent {self._agent_id}: Failed to write report file '{file_path}' (success=False)")
-                return
-        except Exception as e:
-            logger.warning(f"Agent {self._agent_id}: Failed to write report file '{file_path}': {e}")
+            report_size = len(event.content.encode("utf-8"))
+            report_info = FileInfo(
+                filename=expected_name,
+                file_path=file_path,
+                size=report_size,
+                content_type="text/markdown",
+                user_id=self._user_id,
+                metadata={"is_report": True, "title": event.title},
+            )
+            existing = [*existing, report_info]
+
+        chart_mode = self._resolve_chart_generation_mode()
+        if chart_mode in {"skip", "regenerate"}:
+            existing, removed = self._strip_comparison_chart_attachments(existing, event.id)
+            if removed:
+                logger.info(
+                    "Removed %s existing comparison chart attachment(s) for report_id=%s mode=%s session=%s",
+                    removed,
+                    event.id,
+                    chart_mode,
+                    self._session_id,
+                )
+
+        if chart_mode == "skip":
+            logger.info(
+                "Skipping comparison chart generation for report_id=%s session=%s due to user override",
+                event.id,
+                self._session_id,
+            )
+            event.attachments = existing
             return
 
-        report_size = len(event.content.encode("utf-8"))
-        report_info = FileInfo(
-            filename=expected_name,
-            file_path=file_path,
-            size=report_size,
-            content_type="text/markdown",
-            user_id=self._user_id,
-            metadata={"is_report": True, "title": event.title},
+        existing = await self._ensure_comparison_chart_file(
+            event,
+            existing,
+            force_generation=chart_mode in {"force", "regenerate"},
+            generation_mode=chart_mode,
         )
-        event.attachments = [*existing, report_info]
+        event.attachments = existing
+
+    async def _ensure_comparison_chart_file(
+        self,
+        event: ReportEvent,
+        attachments: list[FileInfo],
+        *,
+        force_generation: bool,
+        generation_mode: str,
+    ) -> list[FileInfo]:
+        """Generate and attach a comparison chart SVG when report content contains comparison data."""
+        chart_name = f"comparison-chart-{event.id}.svg"
+        if self._has_attachment(attachments, chart_name):
+            return attachments
+
+        chart = self._comparison_chart_generator.generate_chart(
+            report_title=event.title,
+            markdown_content=event.content,
+            force_generation=force_generation,
+        )
+        if chart is None:
+            if force_generation:
+                logger.info(
+                    "Comparison chart forced but no chartable table found for report_id=%s session=%s",
+                    event.id,
+                    self._session_id,
+                )
+            return attachments
+
+        file_path = f"/home/ubuntu/{chart_name}"
+        try:
+            result = await self._sandbox.file_write(file=file_path, content=chart.svg_content)
+            if result is not None and hasattr(result, "success") and not result.success:
+                logger.warning(f"Agent {self._agent_id}: Failed to write chart file '{file_path}' (success=False)")
+                return attachments
+        except Exception as e:
+            logger.warning(f"Agent {self._agent_id}: Failed to write chart file '{file_path}': {e}")
+            return attachments
+
+        chart_info = FileInfo(
+            filename=chart_name,
+            file_path=file_path,
+            size=len(chart.svg_content.encode("utf-8")),
+            content_type="image/svg+xml",
+            user_id=self._user_id,
+            metadata={
+                "is_comparison_chart": True,
+                "chart_kind": chart.chart_kind,
+                "metric_name": chart.metric_name,
+                "source_report_id": event.id,
+                "source_report_title": event.title,
+                "data_points": chart.data_points,
+                "chart_width": chart.width,
+                "chart_height": chart.height,
+                "chart_format": chart.output_format,
+                "generation_mode": generation_mode,
+                "generated_at_unix_ms": int(time.time() * 1000),
+            },
+        )
+        logger.info(
+            "Comparison chart generated: session=%s report_id=%s mode=%s kind=%s metric=%s points=%s size=%sx%s",
+            self._session_id,
+            event.id,
+            generation_mode,
+            chart.chart_kind,
+            chart.metric_name or "n/a",
+            chart.data_points,
+            chart.width,
+            chart.height,
+        )
+        return [*attachments, chart_info]
+
+    def _has_attachment(self, attachments: list[FileInfo], expected_name: str) -> bool:
+        """Check if an attachment exists by filename or path suffix."""
+        for attachment in attachments:
+            if attachment.filename == expected_name:
+                return True
+            if attachment.file_path and attachment.file_path.endswith(expected_name):
+                return True
+        return False
+
+    def _resolve_chart_generation_mode(self) -> str:
+        """Resolve user override for chart generation from current task text."""
+        task_text = self.current_task or ""
+        if not task_text.strip():
+            return "auto"
+
+        directive_pattern = re.compile(
+            r"(?:^|\s|\[)(?:--)?chart\s*[:=]\s*(skip|off|disable|none|force|on|enable|regenerate|refresh)\b",
+            re.IGNORECASE,
+        )
+        explicit = list(directive_pattern.finditer(task_text))
+        if explicit:
+            value = explicit[-1].group(1).lower()
+            if value in {"skip", "off", "disable", "none"}:
+                return "skip"
+            if value in {"regenerate", "refresh"}:
+                return "regenerate"
+            return "force"
+
+        lowered = task_text.lower()
+        if any(phrase in lowered for phrase in ("no chart", "without chart", "skip chart", "disable chart")):
+            return "skip"
+        if any(phrase in lowered for phrase in ("regenerate chart", "refresh chart", "rebuild chart")):
+            return "regenerate"
+        if any(phrase in lowered for phrase in ("include chart", "with chart", "add chart", "force chart")):
+            return "force"
+
+        return "auto"
+
+    def _strip_comparison_chart_attachments(
+        self, attachments: list[FileInfo], report_id: str
+    ) -> tuple[list[FileInfo], int]:
+        """Remove comparison chart attachment(s) for a report from an attachment list."""
+        remaining: list[FileInfo] = []
+        removed = 0
+        for attachment in attachments:
+            if self._is_comparison_chart_attachment(attachment, report_id):
+                removed += 1
+                continue
+            remaining.append(attachment)
+        return remaining, removed
+
+    def _is_comparison_chart_attachment(self, attachment: FileInfo, report_id: str) -> bool:
+        """Return True if attachment represents a generated comparison chart for this report."""
+        expected_name = f"comparison-chart-{report_id}.svg"
+        if attachment.filename == expected_name:
+            return True
+        if attachment.file_path and attachment.file_path.endswith(expected_name):
+            return True
+        metadata = attachment.metadata or {}
+        return bool(metadata.get("is_comparison_chart")) and metadata.get("source_report_id") == report_id
 
     def _get_tool_execution_agent(self):
         """Return an agent instance capable of invoking tools."""

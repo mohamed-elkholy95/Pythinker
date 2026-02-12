@@ -1145,6 +1145,7 @@ WRITING GUIDELINES:
 - Focus on FACTS and FINDINGS only
 - Use **bold** for key terms, not for entire headings
 - Use tables for structured comparisons
+- For comparison/versus reports, include a dedicated "## Comparison Table" section with first column as item name and at least one numeric metric column
 - Use bullet points for lists of items
 - Include numbered references at the end
 - Write in professional, direct tone
@@ -1221,6 +1222,7 @@ WRITING GUIDELINES:
 - Focus on FACTS and FINDINGS only
 - Use **bold** for key terms, not for entire headings
 - Use tables for structured comparisons
+- For comparison/versus reports, include a dedicated "## Comparison Table" section with first column as item name and at least one numeric metric column
 - Use bullet points for lists of items
 - Include numbered references at the end
 - Write in professional, direct tone
