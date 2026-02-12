@@ -79,7 +79,7 @@ class MessageSSEEvent(BaseSSEEvent):
             converted = [await FileInfoResponse.from_file_info(att) for att in event.attachments]
             # Filter out None values (invalid attachments)
             valid_attachments = [att for att in converted if att is not None]
-            attachments = valid_attachments if valid_attachments else None
+            attachments = valid_attachments or None
 
         return cls(
             data=MessageEventData(
@@ -248,7 +248,7 @@ class ReportSSEEvent(BaseSSEEvent):
             converted = [await FileInfoResponse.from_file_info(att) for att in event.attachments]
             # Filter out None values (invalid attachments)
             valid_attachments = [att for att in converted if att is not None]
-            attachments = valid_attachments if valid_attachments else None
+            attachments = valid_attachments or None
 
         return cls(
             data=ReportEventData(

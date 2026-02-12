@@ -419,7 +419,7 @@ class ErrorHandler:
                 return f"{base_prompt}\n\n{pattern_insights}"
             return pattern_insights
 
-        return base_prompt if base_prompt else None
+        return base_prompt or None
 
     def _get_pattern_insights(self, tool_name: str | None = None) -> str | None:
         """Get insights from error pattern analysis"""

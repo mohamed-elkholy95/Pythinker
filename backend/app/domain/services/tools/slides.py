@@ -481,7 +481,7 @@ class SlidesTool(BaseTool):
             elif in_table:
                 break
 
-        return table_lines if table_lines else None
+        return table_lines or None
 
     def _generate_speaker_notes(self, title: str, content: str) -> str:
         """Generate speaker notes for a slide."""

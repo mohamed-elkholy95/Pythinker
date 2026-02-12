@@ -282,7 +282,7 @@ class DynamicToolsetManager:
                     detected.append(task_type)
                     break
 
-        return detected if detected else ["general"]
+        return detected or ["general"]
 
     def get_tools_for_task(
         self, task_description: str, include_mcp: bool = True, additional_tools: list[str] | None = None

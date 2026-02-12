@@ -330,4 +330,4 @@ JSON:"""
         if stripped != text.strip():
             logger.info("Stripped Qwen3 thinking tags from LLM output")
 
-        return stripped if stripped else text
+        return stripped or text

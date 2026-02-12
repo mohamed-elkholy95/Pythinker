@@ -82,4 +82,4 @@ def build_discuss_prompt(message: str, attachments: str = "", language: str = "E
     Returns:
         Formatted discuss prompt
     """
-    return DISCUSS_PROMPT.format(message=message, attachments=attachments if attachments else "None", language=language)
+    return DISCUSS_PROMPT.format(message=message, attachments=attachments or "None", language=language)
