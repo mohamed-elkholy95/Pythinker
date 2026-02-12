@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import AsyncGenerator
-from scenarios.engine import eid, ts, tc, delay
+from scenarios.engine import eid, ts, delay
 
 async def run(message: str, session_id: str) -> AsyncGenerator[tuple[str, dict], None]:
     topic = message.lower().replace("wide research", "").replace("on", "").strip()

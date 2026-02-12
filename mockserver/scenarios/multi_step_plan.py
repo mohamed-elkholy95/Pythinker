@@ -163,7 +163,7 @@ async def run(message: str, session_id: str) -> AsyncGenerator[tuple[str, dict],
 
     yield "message", {
         "event_id": eid(), "timestamp": ts(),
-        "content": f"I've completed the task. Here's a summary of what I did:\n\n1. **Researched** the topic and found relevant sources\n2. **Analyzed** the top results for key information\n3. **Created** an output file with the findings\n4. **Verified** the output is correct\n\nThe results are saved in `/workspace/output.md`.",
+        "content": "I've completed the task. Here's a summary of what I did:\n\n1. **Researched** the topic and found relevant sources\n2. **Analyzed** the top results for key information\n3. **Created** an output file with the findings\n4. **Verified** the output is correct\n\nThe results are saved in `/workspace/output.md`.",
         "role": "assistant", "attachments": [],
     }
     await delay(0.2)

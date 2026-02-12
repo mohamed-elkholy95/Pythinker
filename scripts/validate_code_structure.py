@@ -94,7 +94,7 @@ def main():
 
     valid, missing = check_imports(sandbox_pool, expected)
     if valid:
-        print(f"✓ sandbox_pool.py - All required imports present")
+        print("✓ sandbox_pool.py - All required imports present")
     else:
         print(f"✗ sandbox_pool.py - Missing imports: {missing}")
         all_valid = False

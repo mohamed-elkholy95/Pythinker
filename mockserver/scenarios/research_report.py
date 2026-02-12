@@ -171,7 +171,7 @@ async def run(message: str, session_id: str) -> AsyncGenerator[tuple[str, dict],
         "tool_call_id": tc3, "name": "file_write", "status": "calling",
         "function": "file_write",
         "args": {"file": f"/workspace/research_{topic.replace(' ', '_')[:20]}.md"},
-        "display_command": f"Writing research report",
+        "display_command": "Writing research report",
         "command_category": "file",
         "file_path": f"/workspace/research_{topic.replace(' ', '_')[:20]}.md",
     }

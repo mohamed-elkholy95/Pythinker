@@ -143,7 +143,7 @@ def create_sandbox(password: str, project_id: str = None):
     # Start supervisord in a session for new sandbox
     start_supervisord_session(sandbox)
 
-    logger.info(f"Sandbox environment successfully initialized")
+    logger.info("Sandbox environment successfully initialized")
     return sandbox
 
 

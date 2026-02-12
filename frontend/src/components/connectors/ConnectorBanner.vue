@@ -128,16 +128,6 @@ const handleClose = () => {
   opacity: 0.7;
 }
 
-.connector-banner:hover .connector-banner-icon,
-.connector-banner:hover .connector-banner-text {
-  color: var(--text-primary);
-}
-
-:global(.dark) .connector-banner:hover .connector-banner-icon,
-:global(.dark) .connector-banner:hover .connector-banner-text {
-  color: #edf2f9;
-}
-
 :global(.dark) .connector-banner-close {
   color: #aeb7c5;
 }

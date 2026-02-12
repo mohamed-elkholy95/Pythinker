@@ -181,17 +181,59 @@ const route = useRoute()
 const router = useRouter()
 
 const sessions = ref<ListSessionItem[]>([])
+const optimisticTitleHints = ref<Record<string, string>>({})
 
 // Search state
 const searchQuery = ref('')
 const isSearching = ref(false)
 const searchInputRef = ref<HTMLInputElement | null>(null)
 
+interface SessionTitleHintDetail {
+  sessionId: string
+  title: string
+  status?: SessionStatus
+}
+
+const isPlaceholderTitle = (title: string): boolean => {
+  const placeholderTitles = new Set([
+    t('New Chat').toLowerCase(),
+    'new chat',
+  ])
+  return placeholderTitles.has(title.toLowerCase())
+}
+
+const getSessionDisplayTitle = (session: ListSessionItem): string | null => {
+  const normalizedTitle = session.title?.trim()
+  if (normalizedTitle && !isPlaceholderTitle(normalizedTitle)) {
+    return normalizedTitle
+  }
+
+  const normalizedLatestMessage = session.latest_message?.trim()
+  if (normalizedLatestMessage) {
+    return normalizedLatestMessage
+  }
+
+  const optimisticTitle = optimisticTitleHints.value[session.session_id]?.trim()
+  if (optimisticTitle) {
+    return optimisticTitle
+  }
+
+  return null
+}
+
+const hasResolvedTaskTitle = (session: ListSessionItem): boolean => {
+  return !!getSessionDisplayTitle(session)
+}
+
+const visibleSessions = computed(() =>
+  sessions.value.filter((session) => hasResolvedTaskTitle(session))
+)
+
 const filteredSessions = computed(() => {
-  if (!searchQuery.value.trim()) return sessions.value
+  if (!searchQuery.value.trim()) return visibleSessions.value
   const q = searchQuery.value.toLowerCase().trim()
-  return sessions.value.filter(s =>
-    s.title?.toLowerCase().includes(q) ||
+  return visibleSessions.value.filter(s =>
+    getSessionDisplayTitle(s)?.toLowerCase().includes(q) ||
     s.latest_message?.toLowerCase().includes(q)
   )
 })
@@ -219,11 +261,65 @@ const avatarLetter = computed(() => {
   return currentUser.value?.fullname?.charAt(0)?.toUpperCase() || 'M';
 })
 
+const mergeWithOptimisticSession = (serverSessions: ListSessionItem[]): ListSessionItem[] => {
+  const activeSessionId = route.params.sessionId as string | undefined
+  if (!activeSessionId || activeSessionId === 'new') {
+    return serverSessions
+  }
+
+  const optimisticTitle = optimisticTitleHints.value[activeSessionId]?.trim()
+  if (!optimisticTitle) {
+    return serverSessions
+  }
+
+  const alreadyExists = serverSessions.some((session) => session.session_id === activeSessionId)
+  if (alreadyExists) {
+    return serverSessions
+  }
+
+  return [{
+    session_id: activeSessionId,
+    title: optimisticTitle,
+    latest_message: optimisticTitle,
+    latest_message_at: Date.now(),
+    status: SessionStatus.PENDING,
+    unread_message_count: 0,
+    is_shared: false,
+  }, ...serverSessions]
+}
+
+const handleSessionTitleHint = (event: Event) => {
+  const detail = (event as CustomEvent<SessionTitleHintDetail>).detail
+  if (!detail?.sessionId) return
+
+  const optimisticTitle = detail.title?.trim()
+  if (!optimisticTitle) return
+
+  optimisticTitleHints.value = {
+    ...optimisticTitleHints.value,
+    [detail.sessionId]: optimisticTitle,
+  }
+
+  const existing = sessions.value.find((session) => session.session_id === detail.sessionId)
+  if (existing) {
+    if (!existing.title || isPlaceholderTitle(existing.title)) {
+      existing.title = optimisticTitle
+    }
+    if (!existing.latest_message) {
+      existing.latest_message = optimisticTitle
+      existing.latest_message_at = Date.now()
+    }
+    return
+  }
+
+  sessions.value = mergeWithOptimisticSession(sessions.value)
+}
+
 // Function to fetch sessions data
 const updateSessions = async () => {
   try {
     const response = await getSessions()
-    sessions.value = response.sessions
+    sessions.value = mergeWithOptimisticSession(response.sessions)
   } catch {
     // Session fetch failed - will retry on next navigation
   }
@@ -241,7 +337,7 @@ const fetchSessions = async () => {
         // SSE connection opened
       },
       onMessage: (event) => {
-        sessions.value = event.data.sessions
+        sessions.value = mergeWithOptimisticSession(event.data.sessions)
       },
       onError: () => {
         // SSE error - will reconnect automatically
@@ -302,6 +398,7 @@ onMounted(async () => {
 
   // Add keyboard event listener
   window.addEventListener('keydown', handleKeydown)
+  window.addEventListener('pythinker:session-title-hint', handleSessionTitleHint as EventListener)
 
   // Listen for session status changes from other components
   unsubscribeStatusChange = onStatusChange(handleSessionStatusChange)
@@ -315,6 +412,7 @@ onUnmounted(() => {
 
   // Remove keyboard event listener
   window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('pythinker:session-title-hint', handleSessionTitleHint as EventListener)
 
   // Unsubscribe from session status changes
   if (unsubscribeStatusChange) {

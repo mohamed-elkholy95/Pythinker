@@ -472,7 +472,7 @@ onMounted(() => {
     align-items: center;
     border-bottom-left-radius: 22px;
     border-bottom-right-radius: 22px;
-    transition: background-color 0.15s ease;
+    transition: border-color 0.15s ease;
     cursor: pointer;
 }
 
@@ -481,23 +481,24 @@ onMounted(() => {
 }
 
 .chatbox-connector-row:hover {
-    background: rgba(240, 239, 237, 1);
+    border-left-color: var(--border-main);
+    border-right-color: var(--border-main);
+    border-bottom-color: var(--border-main);
 }
 
 :global([data-theme='dark']) .chatbox-connector-row {
     background: rgba(255, 255, 255, 0.02);
 }
 
-:global([data-theme='dark']) .chatbox-connector-row:hover {
-    background: rgba(255, 255, 255, 0.09);
-}
-
 :global(.dark) .chatbox-connector-row {
     background: rgba(255, 255, 255, 0.03);
 }
 
+:global([data-theme='dark']) .chatbox-connector-row:hover,
 :global(.dark) .chatbox-connector-row:hover {
-    background: rgba(255, 255, 255, 0.11);
+    border-left-color: var(--border-dark);
+    border-right-color: var(--border-dark);
+    border-bottom-color: var(--border-dark);
 }
 
 .stop-icon {

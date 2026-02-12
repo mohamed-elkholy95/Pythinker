@@ -1,7 +1,7 @@
 from __future__ import annotations
 import asyncio
 from typing import AsyncGenerator
-from scenarios.engine import eid, ts, tc, delay
+from scenarios.engine import eid, ts, delay
 from stores import session_store
 
 async def run(message: str, session_id: str) -> AsyncGenerator[tuple[str, dict], None]:
