@@ -3,7 +3,7 @@ import io
 import logging
 import socket
 import uuid
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, ClassVar
 
 import docker
 import httpx
@@ -1370,6 +1370,33 @@ class DockerSandbox(Sandbox):
 
     # Round-robin counter for multi-sandbox dev mode
     _sandbox_rr_index: int = 0
+    # Sandbox → session ownership map (sandbox_address → session_id)
+    _active_sessions: ClassVar[dict[str, str]] = {}
+
+    @classmethod
+    def register_session(cls, sandbox_address: str, session_id: str) -> str | None:
+        """Register a session as owning a sandbox address.
+
+        Returns the previous session_id if one was registered (caller should stop it).
+        """
+        previous = cls._active_sessions.get(sandbox_address)
+        cls._active_sessions[sandbox_address] = session_id
+        if previous and previous != session_id:
+            logger.info(f"Sandbox {sandbox_address} reassigned: {previous} -> {session_id}")
+        return previous if previous and previous != session_id else None
+
+    @classmethod
+    def unregister_session(cls, sandbox_address: str, session_id: str | None = None) -> None:
+        """Unregister a session from a sandbox address."""
+        current = cls._active_sessions.get(sandbox_address)
+        if session_id is None or current == session_id:
+            cls._active_sessions.pop(sandbox_address, None)
+            logger.debug(f"Unregistered session from sandbox {sandbox_address}")
+
+    @classmethod
+    def get_session_for_sandbox(cls, sandbox_address: str) -> str | None:
+        """Get the session currently assigned to a sandbox address."""
+        return cls._active_sessions.get(sandbox_address)
 
     @classmethod
     async def create(cls) -> Sandbox:

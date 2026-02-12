@@ -60,6 +60,31 @@ export async function stopSession(sessionId: string): Promise<void> {
   await apiClient.post<ApiResponse<void>>(`/sessions/${sessionId}/stop`);
 }
 
+export interface SessionStatusResponse {
+  session_id: string
+  status: string
+  sandbox_id: string | null
+  created_at: number | null
+}
+
+export interface ActiveSessionResponse {
+  session: SessionStatusResponse | null
+}
+
+export async function getSessionStatus(sessionId: string): Promise<SessionStatusResponse> {
+  const response = await apiClient.get<ApiResponse<SessionStatusResponse>>(
+    `/sessions/${sessionId}/status`,
+  )
+  return response.data.data
+}
+
+export async function getActiveSession(): Promise<SessionStatusResponse | null> {
+  const response = await apiClient.get<ApiResponse<ActiveSessionResponse>>(
+    '/sessions/active/current',
+  )
+  return response.data.data.session
+}
+
 /**
  * Pause a session for user takeover
  * This pauses agent execution so the user can control the browser via VNC

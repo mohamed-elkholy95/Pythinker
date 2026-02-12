@@ -55,15 +55,18 @@ services:
       qdrant:
         condition: service_healthy
         required: true
+      minio:
+        condition: service_healthy
+        required: true
     restart: unless-stopped
     networks:
       - pythinker-network
     env_file:
       - .env
     environment:
-      - SANDBOX_LIFECYCLE_MODE=ephemeral
-      - SANDBOX_ADDRESS=
-      - SANDBOX_IMAGE=pythinker-sandbox
+      - SANDBOX_LIFECYCLE_MODE=static
+      - SANDBOX_ADDRESS=sandbox
+      - SANDBOX_IMAGE=pythinker/pythinker-sandbox
       - SANDBOX_CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome
       - "LOCAL_AUTH_PASSWORD=admin*123"  # Override .env to handle special chars
       - GRPC_ENABLE_FORK_SUPPORT=0  # Suppress gRPC fork warning from qdrant-client
@@ -217,6 +220,26 @@ services:
       timeout: 5s
       retries: 3
 
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=pythinker
+      - MINIO_ROOT_PASSWORD=pythinker123
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
   qdrant:
     image: qdrant/qdrant:latest
     container_name: pythinker-qdrant
@@ -241,6 +264,8 @@ volumes:
     name: pythinker-mongodb-data
   qdrant_data:
     name: pythinker-qdrant-data
+  minio_data:
+    name: pythinker-minio-data
 
 networks:
   pythinker-network:

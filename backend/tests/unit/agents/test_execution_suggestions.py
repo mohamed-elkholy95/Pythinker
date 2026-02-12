@@ -1,5 +1,6 @@
 """Tests for ExecutionAgent suggestion generation with session context."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -172,6 +173,20 @@ class TestExecutionAgentSuggestionGeneration:
         # Should return fallback suggestions
         assert len(suggestions) == 3
         assert all(isinstance(s, str) for s in suggestions)
+
+    @pytest.mark.asyncio
+    async def test_summarize_propagates_cancellation(self, executor, mock_llm):
+        """Summarize should not swallow task cancellation."""
+        executor._user_request = "Test cancellation"
+
+        async def cancelled_stream(*args, **kwargs):
+            raise asyncio.CancelledError()
+            yield "unreachable"
+
+        mock_llm.ask_stream = cancelled_stream
+
+        with pytest.raises(asyncio.CancelledError):
+            [event async for event in executor.summarize()]
 
 
 class TestExecutionAgentSuggestionAnchorExcerpt:

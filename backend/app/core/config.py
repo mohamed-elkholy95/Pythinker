@@ -63,7 +63,7 @@ class Settings(BaseSettings):
 
     # MongoDB configuration
     mongodb_uri: str = "mongodb://mongodb:27017"
-    mongodb_database: str = "manus"
+    mongodb_database: str = "pythinker"
     mongodb_username: str | None = None
     mongodb_password: str | None = None
     # MongoDB connection pooling and timeouts
@@ -88,8 +88,8 @@ class Settings(BaseSettings):
 
     # MinIO S3 Object Storage configuration
     minio_endpoint: str = "minio:9000"
-    minio_access_key: str = "minioadmin"
-    minio_secret_key: str = "minioadmin"
+    minio_access_key: str = "pythinker"
+    minio_secret_key: str = "pythinker123"
     minio_bucket_name: str = "pythinker"
     minio_use_ssl: bool = False
     minio_region: str = "us-east-1"

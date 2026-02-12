@@ -593,6 +593,39 @@ class BrowserConnectionPool:
 
         return released
 
+    async def close_all_for_url(self, cdp_url: str) -> int:
+        """Close and remove ALL connections for a CDP URL.
+
+        Unlike force_release_all (which only clears in-use markers),
+        this method actually closes browser connections and removes them
+        from the pool entirely. Used when a session is stopped to ensure
+        the browser is clean for the next session.
+
+        Args:
+            cdp_url: The CDP URL to close all connections for
+
+        Returns:
+            Number of connections closed
+        """
+        if cdp_url not in self._pools:
+            return 0
+
+        lock = self._get_pool_lock(cdp_url)
+        closed = 0
+
+        async with lock:
+            connections = self._pools.pop(cdp_url, [])
+            self._in_use.pop(cdp_url, None)
+
+            for conn in connections:
+                await self._safe_cleanup_connection(conn)
+                closed += 1
+
+        if closed > 0:
+            logger.info(f"Closed {closed} browser connection(s) for {cdp_url}")
+
+        return closed
+
     def _get_pool_stats_for_url(self, cdp_url: str) -> dict[str, Any]:
         """Get pool statistics for a specific URL."""
         pool = self._pools.get(cdp_url, [])

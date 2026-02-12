@@ -249,6 +249,7 @@
       :isReplayMode="isReplayMode"
       :replayScreenshotUrl="replay.currentScreenshotUrl.value"
       :replayMetadata="replay.currentScreenshot.value"
+      :replayScreenshots="replay.screenshots.value"
       @timelineStepForward="handleTimelineStepForward"
       @timelineStepBackward="handleTimelineStepBackward"
       @timelineSeek="handleTimelineSeek"
@@ -286,6 +287,7 @@
 import SimpleBar from '../components/SimpleBar.vue';
 import { ref, computed, onMounted, watch, nextTick, onUnmounted, reactive, toRefs } from 'vue';
 import { useRouter, onBeforeRouteUpdate, onBeforeRouteLeave } from 'vue-router';
+import { useDocumentVisibility } from '@vueuse/core';
 import { useI18n } from 'vue-i18n';
 import ChatBox from '../components/ChatBox.vue';
 import ChatMessage from '../components/ChatMessage.vue';
@@ -2240,6 +2242,35 @@ onMounted(async () => {
     } else {
       await restoreSession();
     }
+  }
+});
+
+// ======================================================================
+// Tab visibility: sync session status when user returns to tab
+// ======================================================================
+const documentVisibility = useDocumentVisibility();
+
+watch(documentVisibility, async (newVisibility) => {
+  if (newVisibility !== 'visible' || !sessionId.value) return;
+
+  // Only check if session was active when we left
+  const activeStatuses = [SessionStatus.RUNNING, SessionStatus.INITIALIZING, SessionStatus.PENDING];
+  if (!activeStatuses.includes(sessionStatus.value)) return;
+
+  try {
+    const status = await agentApi.getSessionStatus(sessionId.value);
+    if (status.status !== sessionStatus.value) {
+      console.log('[VISIBILITY] Session status changed while away:', sessionStatus.value, '->', status.status);
+      sessionStatus.value = status.status as SessionStatus;
+
+      // If session completed/failed while tab was hidden, load final state
+      if (status.status === 'completed' || status.status === 'failed') {
+        replay.loadScreenshots();
+      }
+    }
+  } catch {
+    // Session may have been deleted — clear state
+    console.log('[VISIBILITY] Session status check failed, session may no longer exist');
   }
 });
 

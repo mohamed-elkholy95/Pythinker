@@ -8,7 +8,7 @@ export const STREAMING_LABELS = {
   summarizing_final: 'Report complete',
   completed: 'Session complete',
   initializing: 'Initializing',
-  waiting: 'Waiting',
+  waiting: 'Observing',
 } as const;
 
 export const VALID_PHASE_TRANSITIONS: Record<StreamPhase, ReadonlyArray<StreamPhase>> = {

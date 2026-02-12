@@ -4,6 +4,7 @@ Tests for the token manager module.
 
 import logging
 
+from app.domain.external.observability import get_null_metrics, set_metrics
 from app.domain.services.agents.token_manager import TokenCount, TokenManager
 
 
@@ -152,6 +153,28 @@ class TestTokenManager:
         assert "max_tokens" in stats
         assert "effective_limit" in stats
         assert "tiktoken_available" in stats
+
+    def test_check_pressure_uses_configured_metrics_port(self):
+        """check_pressure should emit token budget updates to the configured metrics port."""
+
+        class _MetricsSpy:
+            def __init__(self) -> None:
+                self.calls: list[tuple[int, int]] = []
+
+            def update_token_budget(self, used: int, remaining: int) -> None:
+                self.calls.append((used, remaining))
+
+        spy = _MetricsSpy()
+        set_metrics(spy)  # type: ignore[arg-type]
+
+        try:
+            manager = TokenManager(max_context_tokens=1000, safety_margin=0)
+            status = manager.check_pressure([{"role": "user", "content": "x" * 400}])
+        finally:
+            set_metrics(get_null_metrics())
+
+        assert spy.calls
+        assert spy.calls[-1] == (status.current_tokens, status.available_tokens)
 
     def test_trim_messages_reduces_preserve_recent_when_over_limit(self):
         """Test that trimming reduces preserve_recent when system + recent exceeds limit.

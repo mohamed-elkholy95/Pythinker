@@ -1,7 +1,7 @@
 """Unit tests for screenshot circuit breaker (Priority 2)."""
 
 import time
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
@@ -132,7 +132,12 @@ async def test_screenshot_service_skips_capture_when_circuit_open():
     mock_sandbox = Mock()
     mock_sandbox.get_screenshot = AsyncMock(side_effect=Exception("Connection failed"))
 
-    service = ScreenshotCaptureService(sandbox=mock_sandbox, session_id="test-session")
+    # Create minio mock
+    minio = MagicMock()
+    minio.store_screenshot = AsyncMock(side_effect=lambda data, key, **kw: key)
+    minio.store_thumbnail = AsyncMock(side_effect=lambda data, key, **kw: key)
+
+    service = ScreenshotCaptureService(sandbox=mock_sandbox, session_id="test-session", minio_storage=minio)
 
     # Open the circuit by recording failures
     if service._circuit_breaker:
@@ -140,7 +145,7 @@ async def test_screenshot_service_skips_capture_when_circuit_open():
             service._circuit_breaker.record_failure()
 
         # Try to capture
-        result = await service.capture(ScreenshotTrigger.TOOL_CALL)
+        result = await service.capture(ScreenshotTrigger.TOOL_AFTER)
 
         # Should return None (skipped)
         assert result is None

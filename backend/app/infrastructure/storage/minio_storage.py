@@ -1,3 +1,4 @@
+import asyncio
 import io
 import logging
 from functools import lru_cache
@@ -18,6 +19,9 @@ class MinIOStorage:
     - Singleton via @lru_cache
     - initialize() / shutdown() lifecycle
     - Graceful error handling on startup
+
+    All I/O methods are async, delegating blocking MinIO SDK calls to a
+    thread-pool via ``asyncio.to_thread`` so the event loop is never blocked.
     """
 
     def __init__(self):
@@ -38,14 +42,15 @@ class MinIOStorage:
                 region=self._settings.minio_region,
             )
 
-            # Ensure all buckets exist
+            # Ensure all buckets exist (blocking I/O → thread)
             for bucket in [
                 self._settings.minio_bucket_name,
                 self._settings.minio_screenshots_bucket,
                 self._settings.minio_thumbnails_bucket,
             ]:
-                if not self._client.bucket_exists(bucket):
-                    self._client.make_bucket(bucket, location=self._settings.minio_region)
+                exists = await asyncio.to_thread(self._client.bucket_exists, bucket)
+                if not exists:
+                    await asyncio.to_thread(self._client.make_bucket, bucket, location=self._settings.minio_region)
                     logger.info("Created MinIO bucket '%s'", bucket)
                 else:
                     logger.info("MinIO bucket '%s' already exists", bucket)
@@ -77,9 +82,9 @@ class MinIOStorage:
             raise RuntimeError("MinIO client not initialized. Call initialize() first.")
         return self._client
 
-    # --- Screenshot storage methods ---
+    # --- Screenshot storage methods (all async via to_thread) ---
 
-    def store_screenshot(
+    async def store_screenshot(
         self,
         image_data: bytes,
         object_key: str,
@@ -87,7 +92,8 @@ class MinIOStorage:
     ) -> str:
         """Store screenshot in MinIO screenshots bucket. Returns the object key."""
         bucket = self._settings.minio_screenshots_bucket
-        self.client.put_object(
+        await asyncio.to_thread(
+            self.client.put_object,
             bucket,
             object_key,
             io.BytesIO(image_data),
@@ -97,7 +103,7 @@ class MinIOStorage:
         logger.debug("Stored screenshot: %s (%d bytes)", object_key, len(image_data))
         return object_key
 
-    def store_thumbnail(
+    async def store_thumbnail(
         self,
         image_data: bytes,
         object_key: str,
@@ -105,7 +111,8 @@ class MinIOStorage:
     ) -> str:
         """Store thumbnail in MinIO thumbnails bucket. Returns the object key."""
         bucket = self._settings.minio_thumbnails_bucket
-        self.client.put_object(
+        await asyncio.to_thread(
+            self.client.put_object,
             bucket,
             object_key,
             io.BytesIO(image_data),
@@ -115,32 +122,33 @@ class MinIOStorage:
         logger.debug("Stored thumbnail: %s (%d bytes)", object_key, len(image_data))
         return object_key
 
-    def get_screenshot(self, object_key: str) -> bytes:
+    async def get_screenshot(self, object_key: str) -> bytes:
         """Retrieve screenshot bytes from MinIO screenshots bucket."""
         bucket = self._settings.minio_screenshots_bucket
-        response = self.client.get_object(bucket, object_key)
-        try:
-            data = response.read()
-        finally:
-            response.close()
-            response.release_conn()
-        logger.debug("Retrieved screenshot: %s", object_key)
-        return data
+        return await asyncio.to_thread(self._get_object_bytes, bucket, object_key)
 
-    def get_thumbnail(self, object_key: str) -> bytes:
+    async def get_thumbnail(self, object_key: str) -> bytes:
         """Retrieve thumbnail bytes from MinIO thumbnails bucket."""
         bucket = self._settings.minio_thumbnails_bucket
+        return await asyncio.to_thread(self._get_object_bytes, bucket, object_key)
+
+    def _get_object_bytes(self, bucket: str, object_key: str) -> bytes:
+        """Synchronous helper to read object bytes (runs in thread)."""
         response = self.client.get_object(bucket, object_key)
         try:
             data = response.read()
         finally:
             response.close()
             response.release_conn()
-        logger.debug("Retrieved thumbnail: %s", object_key)
+        logger.debug("Retrieved object: %s/%s", bucket, object_key)
         return data
 
-    def delete_screenshots_by_session(self, session_id: str) -> int:
+    async def delete_screenshots_by_session(self, session_id: str) -> int:
         """Delete all screenshots and thumbnails for a session prefix."""
+        return await asyncio.to_thread(self._delete_by_session_sync, session_id)
+
+    def _delete_by_session_sync(self, session_id: str) -> int:
+        """Synchronous helper for session deletion (runs in thread)."""
         count = 0
         for bucket in [
             self._settings.minio_screenshots_bucket,

@@ -12,6 +12,7 @@ from uuid import uuid4
 from app.core.config import get_settings
 from app.domain.models.screenshot import ScreenshotTrigger, SessionScreenshot
 from app.domain.repositories.screenshot_repository import ScreenshotRepository
+from app.domain.repositories.screenshot_storage import ScreenshotStorage
 from app.infrastructure.observability.prometheus_metrics import (
     record_screenshot_capture,
     record_screenshot_fetch,
@@ -122,7 +123,10 @@ class ToolExecutionContext:
 
 
 class ScreenshotCaptureService:
-    """Captures screenshots during session execution for later replay."""
+    """Captures screenshots during session execution for later replay.
+
+    Uses MinIO S3 for binary storage and MongoDB for metadata.
+    """
 
     MAX_PERIODIC_FAILURES = 3
 
@@ -131,7 +135,7 @@ class ScreenshotCaptureService:
         sandbox,
         session_id: str,
         repository: ScreenshotRepository | None = None,
-        mongodb=None,
+        minio_storage: ScreenshotStorage | None = None,
     ):
         self._sandbox = sandbox
         self._session_id = session_id
@@ -145,11 +149,11 @@ class ScreenshotCaptureService:
 
             repository = MongoScreenshotRepository()
         self._repository = repository
-        if mongodb is None:
-            from app.infrastructure.storage.mongodb import get_mongodb
+        if minio_storage is None:
+            from app.infrastructure.storage.minio_storage import get_minio_storage
 
-            mongodb = get_mongodb()
-        self._mongodb = mongodb
+            minio_storage = get_minio_storage()
+        self._minio = minio_storage
         self._settings = get_settings()
 
         # Priority 2: Initialize circuit breaker
@@ -161,6 +165,13 @@ class ScreenshotCaptureService:
         else:
             self._circuit_breaker = None
         self._tool_context: ToolExecutionContext | None = None
+
+        # Initialize deduplication service
+        self._dedup = None
+        if self._settings.screenshot_dedup_enabled:
+            from app.application.services.screenshot_dedup_service import ScreenshotDedupService
+
+            self._dedup = ScreenshotDedupService()
 
     def set_tool_context(
         self,
@@ -236,51 +247,97 @@ class ScreenshotCaptureService:
 
                 size_bytes = len(image_data)
                 screenshot_id = uuid4().hex[:16]
-                filename = f"{self._session_id}_{self._sequence:04d}_{trigger.value}.jpg"
 
-                # Store full-res in GridFS
-                gridfs_file_id = await self._mongodb.store_screenshot(
-                    image_data,
-                    filename,
-                    {
-                        "session_id": self._session_id,
-                        "sequence": self._sequence,
-                        "trigger": trigger.value,
-                    },
-                )
+                # Deduplication: compute hash and check for duplicates
+                perceptual_hash: str | None = None
+                is_duplicate = False
+                original_storage_key: str | None = None
 
-                # Store thumbnail
-                thumbnail_file_id: str | None = None
-                try:
-                    thumb_response = await self._sandbox.get_screenshot(
-                        quality=self._settings.screenshot_thumbnail_quality,
-                        scale=self._settings.screenshot_thumbnail_scale,
+                if self._dedup:
+                    perceptual_hash = self._dedup.compute_hash(image_data)
+                    is_duplicate = self._dedup.is_duplicate(self._session_id, perceptual_hash, trigger)
+
+                # Store full-res in MinIO (key: {session_id}/{sequence}_{trigger}.jpg)
+                storage_key = f"{self._session_id}/{self._sequence:04d}_{trigger.value}.jpg"
+
+                if is_duplicate:
+                    # Find original's storage key to reference
+                    recent = await self._repository.find_by_session(self._session_id, limit=5, offset=0)
+                    original_storage_key = (
+                        self._dedup.find_original_key(self._session_id, recent) if self._dedup else None
                     )
-                    if thumb_response.content:
-                        thumbnail_file_id = await self._mongodb.store_screenshot(
-                            thumb_response.content,
-                            f"thumb_{filename}",
-                            {
-                                "session_id": self._session_id,
-                                "sequence": self._sequence,
-                                "is_thumbnail": True,
-                            },
+                    # Point storage_key to original (no new S3 upload)
+                    if original_storage_key:
+                        storage_key = original_storage_key
+                        # Record dedup metrics
+                        from app.infrastructure.observability.prometheus_metrics import (
+                            screenshot_dedup_saved_bytes,
+                            screenshot_dedup_total,
                         )
-                except Exception:
-                    logger.debug("Thumbnail capture failed, continuing without")
+
+                        screenshot_dedup_total.inc({"trigger": trigger.value})
+                        screenshot_dedup_saved_bytes.inc({"trigger": trigger.value}, len(image_data))
+                    else:
+                        # Fallback: store anyway if we can't find original
+                        is_duplicate = False
+                        await self._minio.store_screenshot(image_data, storage_key)
+                else:
+                    await self._minio.store_screenshot(image_data, storage_key)
+
+                # Store thumbnail in MinIO (skip entirely for duplicates)
+                thumbnail_storage_key: str | None = None
+                if not is_duplicate:
+                    try:
+                        thumb_response = await self._sandbox.get_screenshot(
+                            quality=self._settings.screenshot_thumbnail_quality,
+                            scale=self._settings.screenshot_thumbnail_scale,
+                        )
+                        if thumb_response.content:
+                            thumb_data = thumb_response.content
+                            thumb_content_type = "image/jpeg"
+                            thumb_ext = "jpg"
+
+                            # WebP conversion if enabled
+                            if self._settings.screenshot_thumbnail_webp_enabled:
+                                try:
+                                    from io import BytesIO
+
+                                    from PIL import Image
+
+                                    img = Image.open(BytesIO(thumb_response.content))
+                                    webp_buf = BytesIO()
+                                    img.save(
+                                        webp_buf,
+                                        format="WEBP",
+                                        quality=self._settings.screenshot_thumbnail_webp_quality,
+                                    )
+                                    thumb_data = webp_buf.getvalue()
+                                    thumb_content_type = "image/webp"
+                                    thumb_ext = "webp"
+                                except Exception:
+                                    logger.debug("WebP conversion failed, using JPEG thumbnail")
+
+                            thumb_key = f"{self._session_id}/thumb_{self._sequence:04d}.{thumb_ext}"
+                            await self._minio.store_thumbnail(thumb_data, thumb_key, content_type=thumb_content_type)
+                            thumbnail_storage_key = thumb_key
+                    except Exception:
+                        logger.debug("Thumbnail capture failed, continuing without")
 
                 screenshot = SessionScreenshot(
                     id=screenshot_id,
                     session_id=self._session_id,
                     sequence_number=self._sequence,
-                    gridfs_file_id=gridfs_file_id,
-                    thumbnail_file_id=thumbnail_file_id,
+                    storage_key=storage_key,
+                    thumbnail_storage_key=thumbnail_storage_key,
                     trigger=trigger,
                     tool_call_id=tool_call_id,
                     tool_name=tool_name,
                     function_name=function_name,
                     action_type=action_type,
                     size_bytes=size_bytes,
+                    perceptual_hash=perceptual_hash,
+                    is_duplicate=is_duplicate,
+                    original_storage_key=original_storage_key,
                 )
 
                 await self._repository.save(screenshot)
@@ -368,7 +425,7 @@ class ScreenshotCaptureService:
                         )
 
                         screenshot_retry_attempts_total.inc({})
-                        logger.info(f"Screenshot capture succeeded on retry attempt {attempt + 1}/{max_attempts}")
+                        logger.info("Screenshot capture succeeded on retry attempt %d/%d", attempt + 1, max_attempts)
                     return response
 
             except Exception as e:
@@ -377,20 +434,25 @@ class ScreenshotCaptureService:
                     # Exponential backoff: 2s, 4s, 8s
                     delay = base_delay * (2**attempt)
                     logger.debug(
-                        f"Screenshot capture attempt {attempt + 1}/{max_attempts} failed: {e}. "
-                        f"Retrying in {delay:.1f}s..."
+                        "Screenshot capture attempt %d/%d failed: %s. Retrying in %.1fs...",
+                        attempt + 1,
+                        max_attempts,
+                        e,
+                        delay,
                     )
                     await asyncio.sleep(delay)
                 else:
                     logger.warning(
-                        f"Screenshot capture failed after {max_attempts} attempts: {e}",
+                        "Screenshot capture failed after %d attempts: %s",
+                        max_attempts,
+                        e,
                         exc_info=True,
                     )
 
         # All attempts failed
         if last_exception:
             raise last_exception
-        raise RuntimeError(f"Screenshot capture failed after {max_attempts} attempts")
+        raise RuntimeError(f"Screenshot capture returned empty content after {max_attempts} attempts")
 
     async def start_periodic(self, interval: float | None = None) -> None:
         """Start background periodic capture."""
@@ -427,20 +489,28 @@ class ScreenshotCaptureService:
 class ScreenshotQueryService:
     """Read/query screenshot metadata and bytes for replay endpoints."""
 
-    def __init__(self, repository: ScreenshotRepository | None = None, mongodb=None) -> None:
+    def __init__(
+        self, repository: ScreenshotRepository | None = None, minio_storage: ScreenshotStorage | None = None
+    ) -> None:
         if repository is None:
             from app.infrastructure.repositories.mongo_screenshot_repository import MongoScreenshotRepository
 
             repository = MongoScreenshotRepository()
         self._repository = repository
-        if mongodb is None:
-            from app.infrastructure.storage.mongodb import get_mongodb
+        if minio_storage is None:
+            from app.infrastructure.storage.minio_storage import get_minio_storage
 
-            mongodb = get_mongodb()
-        self._mongodb = mongodb
+            minio_storage = get_minio_storage()
+        self._minio = minio_storage
 
     async def delete_by_session(self, session_id: str) -> int:
-        """Delete all screenshots for a session."""
+        """Delete all screenshots for a session (metadata + S3 objects)."""
+        # Delete S3 objects first
+        try:
+            await self._minio.delete_screenshots_by_session(session_id)
+        except Exception as e:
+            logger.warning("Failed to delete S3 screenshot objects for session %s: %s", session_id, e)
+        # Delete metadata
         return await self._repository.delete_by_session(session_id)
 
     async def list_by_session(self, session_id: str, limit: int, offset: int) -> tuple[list[SessionScreenshot], int]:
@@ -449,8 +519,8 @@ class ScreenshotQueryService:
         total = await self._repository.count_by_session(session_id)
         return screenshots, total
 
-    async def get_image_bytes(self, session_id: str, screenshot_id: str, thumbnail: bool) -> bytes | None:
-        """Fetch screenshot image bytes, or None when not found/mismatched."""
+    async def get_image_bytes(self, session_id: str, screenshot_id: str, thumbnail: bool) -> tuple[bytes | None, str]:
+        """Fetch screenshot image bytes and content type, or (None, '') when not found."""
         start_time = time.perf_counter()
         access = "thumbnail" if thumbnail else "full"
         status = "error"
@@ -458,18 +528,28 @@ class ScreenshotQueryService:
         try:
             screenshot = await self._repository.find_by_id(screenshot_id)
             if not screenshot or screenshot.session_id != session_id:
-                return None
+                return None, ""
 
-            file_id = (
-                screenshot.thumbnail_file_id
-                if thumbnail and screenshot.thumbnail_file_id
-                else screenshot.gridfs_file_id
-            )
-            image_data = await self._mongodb.get_screenshot(file_id)
-            if image_data:
+            if thumbnail and screenshot.thumbnail_storage_key:
+                data = await self._minio.get_thumbnail(screenshot.thumbnail_storage_key)
+                content_type = "image/webp" if screenshot.thumbnail_storage_key.endswith(".webp") else "image/jpeg"
+            else:
+                # For duplicates, fetch from original storage key
+                key = (
+                    (screenshot.original_storage_key or screenshot.storage_key)
+                    if screenshot.is_duplicate
+                    else screenshot.storage_key
+                )
+                data = await self._minio.get_screenshot(key)
+                content_type = "image/jpeg"
+
+            if data:
                 status = "success"
-                size_bytes = len(image_data)
-            return image_data
+                size_bytes = len(data)
+            return data, content_type
+        except Exception as e:
+            logger.warning("Failed to fetch screenshot %s: %s", screenshot_id, e)
+            return None, ""
         finally:
             record_screenshot_fetch(
                 access=access,

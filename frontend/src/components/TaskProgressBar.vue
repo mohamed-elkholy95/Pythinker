@@ -444,7 +444,7 @@ const currentToolDisplayName = computed(() => {
 
 const currentToolActionLabel = computed(() => {
   if (props.currentTool?.function) return props.currentTool.function
-  return isToolRunning.value ? 'Working' : 'Idle'
+  return isToolRunning.value ? 'processing' : 'idle'
 })
 
 // Get icon for current tool

@@ -32,13 +32,11 @@ def _import_metrics() -> None:
     global _metrics_imported, _update_token_budget
     if not _metrics_imported:
         try:
-            from app.domain.external.observability import get_null_metrics
-
-            # Get the metrics instance and create a wrapper function
-            _metrics_instance = get_null_metrics()
+            from app.domain.external.observability import get_metrics
 
             def _wrapper(session_id: str, used: int, remaining: int) -> None:
-                _metrics_instance.update_token_budget(used, remaining)
+                # Resolve metrics dynamically so later adapter injection is respected.
+                get_metrics().update_token_budget(used, remaining)
 
             _update_token_budget = _wrapper
         except ImportError:

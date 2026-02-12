@@ -14,7 +14,6 @@ class MongoDB:
     def __init__(self):
         self._client: AsyncIOMotorClient | None = None
         self._settings = get_settings()
-        self._screenshot_bucket: AsyncIOMotorGridFSBucket | None = None
         self._artifacts_bucket: AsyncIOMotorGridFSBucket | None = None
 
     async def initialize(self) -> None:
@@ -51,11 +50,10 @@ class MongoDB:
             await self._client.admin.command("ping")
             logger.info("Successfully connected to MongoDB")
 
-            # Initialize GridFS buckets for screenshot and artifact storage (Phase 2)
+            # Initialize GridFS bucket for artifact storage (screenshots migrated to MinIO S3)
             db = self._client[self._settings.mongodb_database]
-            self._screenshot_bucket = AsyncIOMotorGridFSBucket(db, bucket_name="screenshots")
             self._artifacts_bucket = AsyncIOMotorGridFSBucket(db, bucket_name="artifacts")
-            logger.info("Initialized GridFS buckets for screenshots and artifacts")
+            logger.info("Initialized GridFS bucket for artifacts")
         except ConnectionFailure as e:
             logger.error(f"Failed to connect to MongoDB: {e!s}")
             raise
@@ -88,36 +86,11 @@ class MongoDB:
         return self.client[self._settings.mongodb_database]
 
     @property
-    def screenshot_bucket(self) -> AsyncIOMotorGridFSBucket:
-        """Return GridFS bucket for screenshots"""
-        if self._screenshot_bucket is None:
-            raise RuntimeError("MongoDB not initialized. Call initialize() first.")
-        return self._screenshot_bucket
-
-    @property
     def artifacts_bucket(self) -> AsyncIOMotorGridFSBucket:
         """Return GridFS bucket for artifacts"""
         if self._artifacts_bucket is None:
             raise RuntimeError("MongoDB not initialized. Call initialize() first.")
         return self._artifacts_bucket
-
-    async def store_screenshot(
-        self,
-        image_data: bytes,
-        filename: str,
-        metadata: dict,
-    ) -> str:
-        """Store screenshot in GridFS and return file ID"""
-        file_id = await self.screenshot_bucket.upload_from_stream(filename, image_data, metadata=metadata)
-        logger.debug(f"Stored screenshot: {filename} (ID: {file_id})")
-        return str(file_id)
-
-    async def get_screenshot(self, file_id: str) -> bytes:
-        """Retrieve screenshot from GridFS"""
-        grid_out = await self.screenshot_bucket.open_download_stream(ObjectId(file_id))
-        image_data = await grid_out.read()
-        logger.debug(f"Retrieved screenshot: {file_id}")
-        return image_data
 
     async def store_artifact(
         self,

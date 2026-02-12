@@ -36,6 +36,41 @@ def _sanitize_model_key(model_name: str) -> str:
     return model_name.replace("/", "_").replace(".", "_")
 
 
+def _date_eq_or_legacy_string(day: date) -> list[dict[str, object]]:
+    """Match daily keys across date/string/datetime legacy storage."""
+    day_start_utc = datetime(day.year, day.month, day.day, tzinfo=UTC)
+    next_day_utc = day_start_utc + timedelta(days=1)
+    day_start_naive = datetime(day.year, day.month, day.day)
+    next_day_naive = day_start_naive + timedelta(days=1)
+    return [
+        {"date": day},
+        {"date": day.isoformat()},
+        {"date": {"$gte": day_start_utc, "$lt": next_day_utc}},
+        {"date": {"$gte": day_start_naive, "$lt": next_day_naive}},
+    ]
+
+
+def _date_gte_or_legacy_string(day: date) -> list[dict[str, dict[str, date | str | datetime]]]:
+    """Range-match date/string/datetime legacy storage."""
+    day_start_utc = datetime(day.year, day.month, day.day, tzinfo=UTC)
+    day_start_naive = datetime(day.year, day.month, day.day)
+    return [
+        {"date": {"$gte": day}},
+        {"date": {"$gte": day.isoformat()}},
+        {"date": {"$gte": day_start_utc}},
+        {"date": {"$gte": day_start_naive}},
+    ]
+
+
+def _coerce_doc_day(value: object) -> str:
+    """Normalize mixed day value types for deterministic sorting."""
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value)
+
+
 class UsageService:
     """Service for tracking and aggregating LLM usage."""
 
@@ -111,31 +146,42 @@ class UsageService:
         This increments tool call counters without token/cost tracking.
         """
         today = date.today()
+        usage_id = f"{user_id}_{today.isoformat()}"
 
-        # Update daily aggregate tool call count
-        doc = await DailyUsageDocument.find_one(
-            DailyUsageDocument.user_id == user_id,
-            DailyUsageDocument.date == today,
+        # Use atomic upsert to avoid duplicate docs under concurrency.
+        collection = DailyUsageDocument.get_pymongo_collection()
+        if collection is None:
+            logger.warning("DailyUsageDocument motor collection is None, skipping tool call aggregate update")
+            return
+
+        now = datetime.now(UTC)
+        # MongoDB cannot encode datetime.date — store as datetime at midnight UTC
+        today_dt = datetime(today.year, today.month, today.day, tzinfo=UTC)
+        await collection.find_one_and_update(
+            {"usage_id": usage_id},
+            {
+                "$inc": {"tool_call_count": 1},
+                "$addToSet": {"active_sessions": session_id},
+                "$set": {
+                    "user_id": user_id,
+                    "date": today_dt,
+                    "updated_at": now,
+                },
+                "$setOnInsert": {
+                    "usage_id": usage_id,
+                    "created_at": now,
+                    "session_count": 0,
+                    "llm_call_count": 0,
+                    "total_prompt_tokens": 0,
+                    "total_completion_tokens": 0,
+                    "total_cached_tokens": 0,
+                    "total_prompt_cost": 0.0,
+                    "total_completion_cost": 0.0,
+                    "total_cost": 0.0,
+                },
+            },
+            upsert=True,
         )
-
-        if doc:
-            await doc.update(
-                {
-                    "$inc": {"tool_call_count": 1},
-                    "$addToSet": {"active_sessions": session_id},
-                    "$set": {"updated_at": datetime.now(UTC)},
-                }
-            )
-        else:
-            # Create new daily aggregate with just tool call
-            doc = DailyUsageDocument(
-                usage_id=f"{user_id}_{today.isoformat()}",
-                user_id=user_id,
-                date=today,
-                tool_call_count=1,
-                active_sessions=[session_id],
-            )
-            await doc.save()
 
     async def _update_daily_aggregate(self, record: UsageRecord) -> None:
         """Update daily aggregate with new usage record.
@@ -156,8 +202,11 @@ class UsageService:
             logger.warning("DailyUsageDocument motor collection is None, skipping daily aggregate update")
             return
 
+        now = datetime.now(UTC)
+        # MongoDB cannot encode datetime.date — store as datetime at midnight UTC
+        today_dt = datetime(today.year, today.month, today.day, tzinfo=UTC)
         await collection.find_one_and_update(
-            {"user_id": record.user_id, "date": today.isoformat()},
+            {"usage_id": usage_id},
             {
                 "$inc": {
                     "total_prompt_tokens": record.prompt_tokens,
@@ -171,10 +220,14 @@ class UsageService:
                     f"cost_by_model.{safe_model_key}": record.total_cost,
                 },
                 "$addToSet": {"active_sessions": record.session_id},
-                "$set": {"updated_at": datetime.now(UTC)},
+                "$set": {
+                    "user_id": record.user_id,
+                    "date": today_dt,
+                    "updated_at": now,
+                },
                 "$setOnInsert": {
                     "usage_id": usage_id,
-                    "created_at": datetime.now(UTC),
+                    "created_at": now,
                     "tool_call_count": 0,
                     "session_count": 0,
                 },
@@ -267,14 +320,13 @@ class UsageService:
         """
         start_date = date.today() - timedelta(days=days - 1)
 
-        docs = (
-            await DailyUsageDocument.find(
-                DailyUsageDocument.user_id == user_id,
-                DailyUsageDocument.date >= start_date,
-            )
-            .sort("date")
-            .to_list()
-        )
+        docs = await DailyUsageDocument.find(
+            {
+                "user_id": user_id,
+                "$or": _date_gte_or_legacy_string(start_date),
+            }
+        ).to_list()
+        docs.sort(key=lambda doc: _coerce_doc_day(getattr(doc, "date", "")))
 
         return [doc.to_domain() for doc in docs]
 
@@ -298,8 +350,10 @@ class UsageService:
 
         # Get daily aggregates and roll up by month
         docs = await DailyUsageDocument.find(
-            DailyUsageDocument.user_id == user_id,
-            DailyUsageDocument.date >= start_date,
+            {
+                "user_id": user_id,
+                "$or": _date_gte_or_legacy_string(start_date),
+            }
         ).to_list()
 
         # Group by year-month
@@ -366,15 +420,19 @@ class UsageService:
         month_start = date(today.year, today.month, 1)
 
         # Get today's usage
-        today_doc = await DailyUsageDocument.find_one(
-            DailyUsageDocument.user_id == user_id,
-            DailyUsageDocument.date == today,
-        )
+        today_docs = await DailyUsageDocument.find(
+            {
+                "user_id": user_id,
+                "$or": _date_eq_or_legacy_string(today),
+            }
+        ).to_list()
 
         # Get this month's usage
         month_docs = await DailyUsageDocument.find(
-            DailyUsageDocument.user_id == user_id,
-            DailyUsageDocument.date >= month_start,
+            {
+                "user_id": user_id,
+                "$or": _date_gte_or_legacy_string(month_start),
+            }
         ).to_list()
 
         # Calculate monthly totals
@@ -383,6 +441,17 @@ class UsageService:
         month_llm_calls = 0
         month_tool_calls = 0
         month_sessions = set()
+
+        today_tokens = 0
+        today_cost = 0.0
+        today_llm_calls = 0
+        today_tool_calls = 0
+
+        for doc in today_docs:
+            today_tokens += doc.total_prompt_tokens + doc.total_completion_tokens
+            today_cost += doc.total_cost
+            today_llm_calls += doc.llm_call_count
+            today_tool_calls += doc.tool_call_count
 
         for doc in month_docs:
             month_tokens += doc.total_prompt_tokens + doc.total_completion_tokens
@@ -393,10 +462,10 @@ class UsageService:
 
         return {
             "today": {
-                "tokens": (today_doc.total_prompt_tokens + today_doc.total_completion_tokens) if today_doc else 0,
-                "cost": today_doc.total_cost if today_doc else 0.0,
-                "llm_calls": today_doc.llm_call_count if today_doc else 0,
-                "tool_calls": today_doc.tool_call_count if today_doc else 0,
+                "tokens": today_tokens,
+                "cost": today_cost,
+                "llm_calls": today_llm_calls,
+                "tool_calls": today_tool_calls,
             },
             "month": {
                 "tokens": month_tokens,

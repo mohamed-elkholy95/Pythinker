@@ -110,6 +110,18 @@
             />
           </div>
 
+          <!-- Replay mode loading: screenshots not yet fetched -->
+          <div
+            v-else-if="isReplayMode && !replayScreenshotUrl"
+            class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
+          >
+            <LoadingState
+              label="Loading replay"
+              :is-active="true"
+              animation="globe"
+            />
+          </div>
+
           <!-- VNC View (via backend proxy - works from browser) -->
           <div
             v-else-if="currentViewType === 'vnc'"
@@ -247,6 +259,7 @@
             :can-step-forward="!!timelineCanStepForward"
             :can-step-backward="!!timelineCanStepBackward"
             :show-timestamp-on-interact="true"
+            :screenshots="replayScreenshots"
             @jump-to-live="jumpToRealTime"
             @step-forward="handleStepForward"
             @step-backward="handleStepBackward"
@@ -322,6 +335,7 @@ const props = defineProps<{
   isReplayMode?: boolean;
   replayScreenshotUrl?: string;
   replayMetadata?: ScreenshotMetadata | null;
+  replayScreenshots?: ScreenshotMetadata[];
   summaryStreamText?: string;
   isSummaryStreaming?: boolean;
 }>();

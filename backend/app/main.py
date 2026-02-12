@@ -395,17 +395,16 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Stale session cleanup failed (non-critical): {e}")
 
-        # Initialize MinIO (if configured as file storage backend)
-        if settings.file_storage_backend == "minio":
-            try:
-                from app.infrastructure.storage.minio_storage import get_minio_storage
+        # Initialize MinIO (required for screenshot storage + optional file storage)
+        try:
+            from app.infrastructure.storage.minio_storage import get_minio_storage
 
-                await get_minio_storage().initialize()
-                _health_state["minio"] = True
-                logger.info("MinIO storage initialized")
-            except Exception as e:
-                logger.warning("MinIO initialization failed (graceful degradation): %s", e)
-                _health_state["minio"] = False
+            await get_minio_storage().initialize()
+            _health_state["minio"] = True
+            logger.info("MinIO storage initialized")
+        except Exception as e:
+            logger.warning("MinIO initialization failed (graceful degradation): %s", e)
+            _health_state["minio"] = False
 
         # Initialize Redis
         await get_redis().initialize()
@@ -666,7 +665,7 @@ async def lifespan(app: FastAPI):
             # --- Infrastructure disconnection (no more DB queries after this) ---
 
             # Disconnect from MinIO
-            if settings.file_storage_backend == "minio":
+            if _health_state.get("minio"):
                 try:
                     from app.infrastructure.storage.minio_storage import get_minio_storage
 

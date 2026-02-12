@@ -67,6 +67,16 @@
           >
             {{ formattedTimestamp }}
           </div>
+          <!-- Event Markers -->
+          <div
+            v-for="marker in eventMarkers"
+            :key="marker.index"
+            class="absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full pointer-events-none z-10"
+            :class="marker.trigger === 'tool_before' ? 'bg-blue-400' : 'bg-emerald-400'"
+            :style="{ left: `${marker.position}%` }"
+            :title="`${marker.toolName ?? marker.trigger}`"
+          />
+
           <!-- Progress Fill -->
           <div
             class="absolute h-full bg-blue-500 rounded-full transition-[width] duration-100"
@@ -101,6 +111,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { SkipBack, SkipForward, Play } from 'lucide-vue-next'
+import type { ScreenshotMetadata } from '../../types/screenshot'
 
 interface Props {
   progress: number
@@ -110,6 +121,7 @@ interface Props {
   canStepForward: boolean
   canStepBackward: boolean
   showTimestampOnInteract?: boolean
+  screenshots?: ScreenshotMetadata[]
 }
 
 const props = defineProps<Props>()
@@ -145,6 +157,22 @@ const showTimestamp = computed(() => {
   if (!props.currentTimestamp) return false
   if (props.showTimestampOnInteract) return isHovering.value || isDragging.value
   return true
+})
+
+// Event markers for tool triggers on the scrubber track
+const eventMarkers = computed(() => {
+  const list = props.screenshots ?? []
+  if (list.length <= 1) return []
+  const maxIdx = list.length - 1
+  return list
+    .map((s, i) => ({ ...s, index: i }))
+    .filter((s) => s.trigger === 'tool_before' || s.trigger === 'tool_after')
+    .map((s) => ({
+      index: s.index,
+      position: (s.index / maxIdx) * 100,
+      trigger: s.trigger,
+      toolName: s.tool_name,
+    }))
 })
 
 const handleMouseEnter = () => {
