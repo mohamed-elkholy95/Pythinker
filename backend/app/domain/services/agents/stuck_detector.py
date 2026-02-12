@@ -979,7 +979,19 @@ class StuckDetector:
         # Check if any single tool dominates the window
         for tool_name, count in tool_counts.items():
             if count >= threshold:
-                # Verify these are search/browser tools (not legitimate repeated file reads)
+                # File operations are never stuck - writing/reading multiple files is normal
+                non_stuck_tools = {
+                    "file_write",
+                    "file_read",
+                    "file_list_directory",
+                    "file_move",
+                    "file_copy",
+                    "message_notify_user",
+                }
+                if tool_name in non_stuck_tools:
+                    continue
+
+                # Only flag search/browser tools as potentially stuck
                 repetitive_tools = {
                     "info_search_web",
                     "wide_research",
