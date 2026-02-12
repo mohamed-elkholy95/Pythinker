@@ -1063,9 +1063,9 @@ class PlaywrightBrowser:
         Returns:
             bool: True if initialization succeeded, False otherwise
         """
-        max_retries = 2
-        retry_delay = 0.5  # Initial wait 500ms
-        cdp_connect_timeout_ms = 8000
+        max_retries = 3
+        retry_delay = 1.0  # Initial wait 1s
+        cdp_connect_timeout_ms = 15000
 
         for attempt in range(max_retries):
             try:
