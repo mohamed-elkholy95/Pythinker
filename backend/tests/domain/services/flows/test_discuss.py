@@ -1,5 +1,6 @@
 """Tests for the DiscussFlow service."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -278,6 +279,34 @@ class TestDiscussFlowSuggestionGeneration:
         # Verify prompt includes both messages
         assert user_msg in prompt_content
         assert assistant_msg in prompt_content
+
+    @pytest.mark.asyncio
+    async def test_discuss_suggestion_prompt_includes_recent_session_context(self, discuss_flow, mock_llm):
+        """Discuss fallback generation should include recent session transcript context."""
+        user_msg = "Can you expand on alert tuning?"
+        assistant_msg = "Tune threshold and duration to reduce noisy alerts."
+
+        discuss_flow._session_repository.find_by_id = AsyncMock(
+            return_value=SimpleNamespace(
+                events=[
+                    MessageEvent(message="Our alerts are too noisy", role="user"),
+                    MessageEvent(message="Let's tune thresholds and windows", role="assistant"),
+                ]
+            )
+        )
+
+        mock_llm.ask.return_value = {
+            "content": '["How should we tune thresholds?", "What windows should we use?", "How do we validate alert quality?"]'
+        }
+
+        await discuss_flow._generate_follow_up_suggestions(user_msg, assistant_msg)
+
+        call_args = mock_llm.ask.call_args
+        prompt_content = call_args[0][0][0]["content"]
+
+        assert "Recent session context:" in prompt_content
+        assert "alerts are too noisy" in prompt_content.lower()
+        assert "tune thresholds and windows" in prompt_content.lower()
 
     @pytest.mark.asyncio
     async def test_discuss_suggestion_prompt_includes_exchange_context(self, discuss_flow, mock_llm):

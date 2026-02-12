@@ -6,6 +6,7 @@ import pytest
 
 from app.domain.external.observability import get_null_metrics
 from app.domain.models.event import ErrorEvent, ReportEvent, SuggestionEvent
+from app.domain.models.memory import Memory
 from app.domain.services.agents import execution as execution_module
 from app.domain.services.agents.execution import ExecutionAgent
 
@@ -99,6 +100,33 @@ class TestExecutionAgentSuggestionGeneration:
         assert len(prompt_content) < len(long_content) + 500  # Reasonable overhead for prompt structure
 
     @pytest.mark.asyncio
+    async def test_suggestion_prompt_includes_recent_session_context(self, executor, mock_llm):
+        """Suggestion generation should include recent in-session transcript context."""
+        executor._user_request = "Improve API reliability"
+        executor.memory = Memory(
+            messages=[
+                {"role": "user", "content": "The retry logic seems flaky under load."},
+                {"role": "assistant", "content": "I added jitter and capped exponential backoff."},
+            ]
+        )
+
+        mock_llm.ask.return_value = {
+            "content": '{"suggestions": ["Should we tune retry caps?", "How do we test failure modes?", "Can we add circuit breakers?"]}'
+        }
+
+        await executor._generate_follow_up_suggestions(
+            title="Retry Strategy Updated",
+            content="Implemented capped retries and jittered backoff for transient failures.",
+        )
+
+        call_args = mock_llm.ask.call_args
+        prompt_content = call_args[0][0][0]["content"]
+
+        assert "Recent session context:" in prompt_content
+        assert "retry logic seems flaky" in prompt_content.lower()
+        assert "jitter" in prompt_content.lower()
+
+    @pytest.mark.asyncio
     async def test_summarize_emits_suggestion_event_with_metadata(self, executor, mock_llm):
         """Summarize should emit SuggestionEvent with source and anchor metadata."""
         executor._user_request = "Create documentation"
@@ -190,6 +218,29 @@ class TestExecutionAgentSuggestionAnchorExcerpt:
         assert excerpt is not None
         assert len(excerpt) <= 500  # Should be bounded to prevent bloat
         assert "test completion" in excerpt.lower()
+
+    @pytest.mark.asyncio
+    async def test_suggestion_anchor_links_to_message_event_when_no_report(self, executor, mock_llm):
+        """Suggestion anchor should point to MessageEvent ID when summarize emits message (not report)."""
+        executor._user_request = "Give me a quick status update"
+
+        async def mock_stream(*args, **kwargs):
+            yield "Quick status update complete."
+
+        mock_llm.ask_stream = mock_stream
+        mock_llm.ask.return_value = {"content": '["What should I check next?"]'}
+
+        # Force summarize to emit MessageEvent instead of ReportEvent
+        executor._extract_title = MagicMock(return_value="")
+
+        events = [event async for event in executor.summarize()]
+
+        message_events = [e for e in events if e.type == "message" and getattr(e, "role", "") == "assistant"]
+        suggestion_events = [e for e in events if isinstance(e, SuggestionEvent)]
+
+        assert len(message_events) == 1
+        assert len(suggestion_events) == 1
+        assert suggestion_events[0].anchor_event_id == message_events[0].id
 
 
 class TestExecutionAgentDeliveryIntegrityGate:

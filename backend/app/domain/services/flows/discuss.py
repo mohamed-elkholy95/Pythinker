@@ -18,6 +18,7 @@ from app.domain.models.event import (
     ErrorEvent,
     MessageEvent,
     ModeChangeEvent,
+    ReportEvent,
     SuggestionEvent,
     ToolEvent,
     ToolStatus,
@@ -171,6 +172,8 @@ class DiscussFlow(BaseFlow):
     async def _generate_follow_up_suggestions(self, user_message: str, assistant_message: str) -> list[str]:
         """Generate follow-up suggestions when the model omits suggestions JSON."""
         try:
+            recent_session_context = await self._build_recent_session_context_excerpt()
+            context_block = f"Recent session context:\n{recent_session_context}\n\n" if recent_session_context else ""
             suggestion_response = await self._llm.ask(
                 [
                     {
@@ -178,6 +181,7 @@ class DiscussFlow(BaseFlow):
                         "content": (
                             "Generate exactly 3 short follow-up questions (5-12 words each) that the user "
                             "might ask next based on this exchange.\n"
+                            f"{context_block}"
                             f'User message: "{user_message}"\n'
                             f'Assistant reply: "{assistant_message}"\n'
                             "Return ONLY valid JSON as an array of 3 strings."
@@ -210,11 +214,84 @@ class DiscussFlow(BaseFlow):
                 "How do pirates find treasure?",
             ]
 
+        topic_hint = self._extract_topic_hint(combined)
+        if topic_hint:
+            return [
+                f"Can you go deeper on {topic_hint}?",
+                f"What should I try next for {topic_hint}?",
+                f"Can you show a concrete example for {topic_hint}?",
+            ]
+
         return [
             "Can you explain that in more detail?",
             "Can you give me a practical example?",
             "What should I ask next about this?",
         ]
+
+    async def _build_recent_session_context_excerpt(self, max_messages: int = 6, max_chars: int = 900) -> str:
+        """Build a compact session transcript excerpt from persisted events."""
+        try:
+            session = await self._session_repository.find_by_id(self._session_id)
+        except Exception:
+            return ""
+
+        if not session or not session.events:
+            return ""
+
+        lines: list[str] = []
+        for event in reversed(session.events):
+            if isinstance(event, MessageEvent):
+                text = (event.message or "").strip()
+                if not text:
+                    continue
+                speaker = "User" if event.role == "user" else "Assistant"
+                lines.append(f"{speaker}: {text[:220]}")
+            elif isinstance(event, ReportEvent):
+                report_text = f"{event.title or ''} {event.content or ''}".strip()
+                if report_text:
+                    lines.append(f"Assistant report: {report_text[:220]}")
+
+            if len(lines) >= max_messages:
+                break
+
+        if not lines:
+            return ""
+
+        transcript = "\n".join(reversed(lines))
+        return transcript[:max_chars]
+
+    def _extract_topic_hint(self, text: str) -> str | None:
+        cleaned = re.sub(r"[^a-zA-Z0-9\s]", " ", text.lower())
+        tokens = [token for token in cleaned.split() if len(token) >= 4]
+        if not tokens:
+            return None
+
+        stopwords = {
+            "that",
+            "this",
+            "with",
+            "from",
+            "have",
+            "what",
+            "when",
+            "where",
+            "which",
+            "would",
+            "could",
+            "should",
+            "your",
+            "about",
+            "into",
+            "there",
+            "them",
+            "then",
+            "only",
+            "more",
+            "next",
+        }
+        filtered = [token for token in tokens if token not in stopwords]
+        candidates = filtered or tokens
+        return " ".join(candidates[:3]) if candidates else None
 
     async def run(self, message: Message) -> AsyncGenerator[BaseEvent, None]:
         """
