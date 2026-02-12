@@ -18,6 +18,35 @@ DOCUMENT_EXTENSIONS = {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"
 DATA_EXTENSIONS = {".csv", ".json", ".xml", ".yaml", ".yml"}
 
 
+def _dedup_leading_lines(content: str) -> str:
+    """Remove consecutive duplicate lines at the start of file content.
+
+    LLMs sometimes repeat the title/header line when generating file content.
+    This strips those duplicates while preserving the rest of the file.
+    """
+    if not content:
+        return content
+
+    lines = content.split("\n")
+    if len(lines) < 2:
+        return content
+
+    # Check how many leading lines are identical to the first line
+    first_line = lines[0].strip()
+    if not first_line:
+        return content
+
+    dedup_end = 1
+    while dedup_end < len(lines) and lines[dedup_end].strip() == first_line:
+        dedup_end += 1
+
+    if dedup_end > 1:
+        # Keep only the first occurrence
+        return "\n".join(lines[:1] + lines[dedup_end:])
+
+    return content
+
+
 class FileTool(BaseTool):
     """File tool class, providing file operation functions.
 
@@ -107,6 +136,12 @@ class FileTool(BaseTool):
         """
         # Prepare content
         final_content = content
+
+        # Dedup consecutive identical lines at the start of the file
+        # (common LLM artifact: repeating the title/header line)
+        if not append:
+            final_content = _dedup_leading_lines(final_content)
+
         if leading_newline:
             final_content = "\n" + final_content
         if trailing_newline:
