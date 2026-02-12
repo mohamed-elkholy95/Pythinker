@@ -1,4 +1,5 @@
 import logging
+import re
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime
@@ -585,18 +586,18 @@ class ExecutionAgent(BaseAgent):
                         f"CoVe refined output: {cove_result.claims_contradicted} claims corrected, "
                         f"new confidence: {cove_result.confidence_score:.2f}"
                     )
-
-            if len(message_content) > 200 and self._user_request:
-                # Emit progress event before Critic to prevent SSE timeout during review
                 yield StepEvent(
-                    status=StepStatus.RUNNING,
+                    status=StepStatus.COMPLETED,
                     step=Step(
-                        id="critic_review",
-                        description="Reviewing output quality...",
-                        status=ExecutionStatus.RUNNING,
+                        id="cove_verification", description="Factual claims verified", status=ExecutionStatus.COMPLETED
                     ),
                 )
-                message_content = await self._apply_critic_revision(message_content, [])
+
+            # Critic revision loop disabled — the 5-check framework produces
+            # unreliable results with the current LLM (unknown check names, excessive
+            # revision loops) and adds 30-60s latency. CoVe verification above
+            # already handles factual accuracy. Re-enable when the LLM supports
+            # reliable structured output for the 5-check framework.
 
             coverage_result = self._output_coverage_validator.validate(
                 output=message_content,
@@ -717,6 +718,7 @@ class ExecutionAgent(BaseAgent):
 
             # Track report event ID for suggestion anchoring
             report_event_id = None
+            message_event_id = None
             if is_substantial or has_title or is_report_structure:
                 title = message_title or "Summary"
                 sources = self.get_collected_sources() if self._collected_sources else None
@@ -729,7 +731,9 @@ class ExecutionAgent(BaseAgent):
                     sources=sources,
                 )
             else:
-                yield MessageEvent(message=message_content)
+                message_event = MessageEvent(message=message_content)
+                message_event_id = message_event.id
+                yield message_event
 
             suggestions = await self._generate_follow_up_suggestions(
                 title=message_title or "Summary",
@@ -741,7 +745,7 @@ class ExecutionAgent(BaseAgent):
                 yield SuggestionEvent(
                     suggestions=suggestions,
                     source="completion",
-                    anchor_event_id=report_event_id,
+                    anchor_event_id=report_event_id or message_event_id,
                     anchor_excerpt=content_excerpt,
                 )
 
@@ -992,6 +996,10 @@ class ExecutionAgent(BaseAgent):
             # Build session-contextual prompt
             user_request_context = f'User request: "{self._user_request}"\n' if self._user_request else ""
             content_excerpt = content[:500] + ("..." if len(content) > 500 else "")
+            recent_session_context = self._build_recent_memory_context_excerpt()
+            recent_context_block = (
+                f"Recent session context:\n{recent_session_context}\n\n" if recent_session_context else ""
+            )
 
             suggestion_response = await self.llm.ask(
                 [
@@ -999,6 +1007,7 @@ class ExecutionAgent(BaseAgent):
                         "role": "user",
                         "content": (
                             f"{user_request_context}"
+                            f"{recent_context_block}"
                             f'Completion title: "{title}"\n'
                             f"Summary excerpt: {content_excerpt}\n\n"
                             "Generate exactly 3 short follow-up questions (5-15 words each) that are grounded "
@@ -1035,11 +1044,95 @@ class ExecutionAgent(BaseAgent):
                 "How do pirates find treasure?",
             ]
 
+        topic_hint = self._extract_topic_hint(f"{self._user_request or ''} {title} {content}")
+        if topic_hint:
+            return [
+                f"Can you expand on {topic_hint} with a concrete example?",
+                f"What should I prioritize next for {topic_hint}?",
+                f"What risks should I watch for with {topic_hint}?",
+            ]
+
         return [
             "Can you summarize this in three key points?",
             "What should I prioritize as next steps?",
             "Can you provide a practical example for this?",
         ]
+
+    def _build_recent_memory_context_excerpt(self, max_messages: int = 6, max_chars: int = 900) -> str:
+        """Build a short user/assistant transcript excerpt from in-memory session messages."""
+        if not self.memory:
+            return ""
+
+        try:
+            messages = self.memory.get_messages()
+        except Exception:
+            return ""
+
+        if not messages:
+            return ""
+
+        lines: list[str] = []
+        for entry in reversed(messages):
+            if not isinstance(entry, dict):
+                continue
+
+            role = str(entry.get("role") or "").strip().lower()
+            if role not in {"user", "assistant"}:
+                continue
+
+            raw_content = entry.get("content")
+            if isinstance(raw_content, str):
+                text = raw_content.strip()
+            else:
+                text = str(raw_content).strip() if raw_content is not None else ""
+
+            if not text:
+                continue
+
+            speaker = "User" if role == "user" else "Assistant"
+            lines.append(f"{speaker}: {text[:220]}")
+            if len(lines) >= max_messages:
+                break
+
+        if not lines:
+            return ""
+
+        transcript = "\n".join(reversed(lines))
+        return transcript[:max_chars]
+
+    def _extract_topic_hint(self, text: str) -> str | None:
+        """Extract a compact topic hint from free text for fallback suggestion templates."""
+        cleaned = re.sub(r"[^a-zA-Z0-9\s]", " ", text.lower())
+        tokens = [token for token in cleaned.split() if len(token) >= 4]
+        if not tokens:
+            return None
+
+        stopwords = {
+            "that",
+            "this",
+            "with",
+            "from",
+            "have",
+            "what",
+            "when",
+            "where",
+            "which",
+            "would",
+            "could",
+            "should",
+            "your",
+            "about",
+            "into",
+            "there",
+            "them",
+            "then",
+            "only",
+            "more",
+            "next",
+        }
+        filtered = [token for token in tokens if token not in stopwords]
+        candidates = filtered or tokens
+        return " ".join(candidates[:3]) if candidates else None
 
     async def _apply_critic_revision(self, message_content: str, attachments: list[FileInfo]) -> str:
         """Apply critic review with actual revision support.

@@ -932,6 +932,90 @@ class PlanActFlow(BaseFlow):
             logger.debug("Failed to read agent progress file", exc_info=True)
         return None
 
+    def _assign_phases_to_plan(self) -> None:
+        """Assign phases to plan steps based on step descriptions.
+
+        Groups steps into logical phases (research, analysis, report, delivery)
+        for structured progress display in the frontend.
+        """
+        from app.domain.models.plan import Phase, PhaseType
+
+        if not self.plan or not self.plan.steps:
+            return
+
+        # For simple plans (<=3 steps), use a single execution phase
+        if len(self.plan.steps) <= 3:
+            self.plan.phases = [
+                Phase(
+                    phase_type=PhaseType.RESEARCH_FOUNDATION,
+                    label="Executing",
+                    description="Executing plan steps",
+                    order=0,
+                    step_ids=[s.id for s in self.plan.steps],
+                ),
+            ]
+            return
+
+        # For larger plans, group steps into phases heuristically
+        research_ids: list[str] = []
+        analysis_ids: list[str] = []
+        report_ids: list[str] = []
+
+        research_keywords = {"search", "find", "gather", "collect", "browse", "explore", "research", "investigate"}
+        report_keywords = {"write", "create", "compile", "draft", "generate", "report", "summarize", "compose"}
+
+        for step in self.plan.steps:
+            desc_lower = step.description.lower()
+            if any(kw in desc_lower for kw in research_keywords):
+                research_ids.append(step.id)
+            elif any(kw in desc_lower for kw in report_keywords):
+                report_ids.append(step.id)
+            else:
+                analysis_ids.append(step.id)
+
+        phases: list[Phase] = []
+        order = 0
+        if research_ids:
+            phases.append(Phase(
+                phase_type=PhaseType.RESEARCH_FOUNDATION,
+                label="Research",
+                description="Gathering information",
+                order=order,
+                step_ids=research_ids,
+            ))
+            order += 1
+        if analysis_ids:
+            phases.append(Phase(
+                phase_type=PhaseType.ANALYSIS_SYNTHESIS,
+                label="Analysis",
+                description="Analyzing findings",
+                order=order,
+                step_ids=analysis_ids,
+            ))
+            order += 1
+        if report_ids:
+            phases.append(Phase(
+                phase_type=PhaseType.REPORT_GENERATION,
+                label="Report",
+                description="Generating output",
+                order=order,
+                step_ids=report_ids,
+            ))
+
+        # Fallback: if all steps ended up in one bucket or none matched
+        if not phases:
+            phases = [
+                Phase(
+                    phase_type=PhaseType.RESEARCH_FOUNDATION,
+                    label="Executing",
+                    description="Executing plan steps",
+                    order=0,
+                    step_ids=[s.id for s in self.plan.steps],
+                ),
+            ]
+
+        self.plan.phases = phases
+
     def _transition_to(self, new_status: AgentStatus, *, force: bool = False, reason: str = "") -> None:
         """Transition to a new status with optional validation."""
         if self.status == new_status:
