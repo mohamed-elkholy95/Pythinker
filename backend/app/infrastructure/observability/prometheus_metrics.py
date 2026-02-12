@@ -36,14 +36,18 @@ class Counter:
     _values: dict[tuple, float] = field(default_factory=lambda: defaultdict(float))
     _lock: Lock = field(default_factory=Lock)
 
-    def inc(self, labels: dict[str, str], value: float = 1.0) -> None:
+    def inc(self, labels: dict[str, str] | None = None, value: float = 1.0) -> None:
         """Increment counter with given labels."""
+        if labels is None:
+            labels = {}
         label_tuple = tuple(labels.get(label, "") for label in self.labels)
         with self._lock:
             self._values[label_tuple] += value
 
-    def get(self, labels: dict[str, str]) -> float:
+    def get(self, labels: dict[str, str] | None = None) -> float:
         """Get counter value for given labels."""
+        if labels is None:
+            labels = {}
         label_tuple = tuple(labels.get(label, "") for label in self.labels)
         return self._values.get(label_tuple, 0.0)
 
@@ -74,26 +78,34 @@ class Gauge:
     _values: dict[tuple, float] = field(default_factory=lambda: defaultdict(float))
     _lock: Lock = field(default_factory=Lock)
 
-    def set(self, labels: dict[str, str], value: float) -> None:
+    def set(self, labels: dict[str, str] | None = None, value: float = 0.0) -> None:
         """Set gauge value for given labels."""
+        if labels is None:
+            labels = {}
         label_tuple = tuple(labels.get(label, "") for label in self.labels)
         with self._lock:
             self._values[label_tuple] = value
 
-    def inc(self, labels: dict[str, str], value: float = 1.0) -> None:
+    def inc(self, labels: dict[str, str] | None = None, value: float = 1.0) -> None:
         """Increment gauge value."""
+        if labels is None:
+            labels = {}
         label_tuple = tuple(labels.get(label, "") for label in self.labels)
         with self._lock:
             self._values[label_tuple] += value
 
-    def dec(self, labels: dict[str, str], value: float = 1.0) -> None:
+    def dec(self, labels: dict[str, str] | None = None, value: float = 1.0) -> None:
         """Decrement gauge value."""
+        if labels is None:
+            labels = {}
         label_tuple = tuple(labels.get(label, "") for label in self.labels)
         with self._lock:
             self._values[label_tuple] -= value
 
-    def get(self, labels: dict[str, str]) -> float:
+    def get(self, labels: dict[str, str] | None = None) -> float:
         """Get gauge value for given labels."""
+        if labels is None:
+            labels = {}
         label_tuple = tuple(labels.get(label, "") for label in self.labels)
         return self._values.get(label_tuple, 0.0)
 
@@ -125,8 +137,10 @@ class Histogram:
     _observations: dict[tuple, list[float]] = field(default_factory=lambda: defaultdict(list))
     _lock: Lock = field(default_factory=Lock)
 
-    def observe(self, labels: dict[str, str], value: float) -> None:
+    def observe(self, labels: dict[str, str] | None = None, value: float = 0.0) -> None:
         """Record an observation."""
+        if labels is None:
+            labels = {}
         label_tuple = tuple(labels.get(label, "") for label in self.labels)
         with self._lock:
             self._observations[label_tuple].append(value)
