@@ -1121,6 +1121,12 @@ const maybeAppendAssistantMessageToStep = (messageData: MessageEventData): boole
   const text = (messageData.content || '').trim();
   if (!text) return false;
 
+  // Long messages with markdown structure (bullets, bold) are standalone summaries,
+  // not step narrations — render them as top-level chat messages.
+  if (text.length > 200 && (text.includes('- **') || text.includes('* **'))) {
+    return false;
+  }
+
   const lastMessage = messages.value[messages.value.length - 1];
   if (!lastMessage || lastMessage.type !== 'step') return false;
 

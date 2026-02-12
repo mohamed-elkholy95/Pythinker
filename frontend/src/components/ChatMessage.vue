@@ -548,6 +548,27 @@ const renderMarkdown = (text: string): string => {
   font-weight: 400;
 }
 
+/* Markdown lists inside assistant messages */
+.assistant-message-text :deep(ul),
+.assistant-message-text :deep(ol) {
+  margin: 8px 0;
+  padding-left: 1.5em;
+}
+.assistant-message-text :deep(ul) {
+  list-style-type: disc;
+}
+.assistant-message-text :deep(ol) {
+  list-style-type: decimal;
+}
+.assistant-message-text :deep(li) {
+  margin: 4px 0;
+  line-height: 1.55;
+}
+.assistant-message-text :deep(li strong) {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
 /* ══════════════════════════════════════════════════
    Report Layout
    ══════════════════════════════════════════════════ */
