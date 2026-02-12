@@ -212,6 +212,29 @@ class TestExecutionAgent:
         error_events = [e for e in events if isinstance(e, ErrorEvent)]
         assert len(error_events) == 0
 
+    @pytest.mark.asyncio
+    async def test_execute_step_marks_invalid_payload_unsuccessful(
+        self, executor, simple_plan, mock_step, mock_message
+    ):
+        """Malformed step payloads should not be marked as successful."""
+        message = mock_message(message="Run task with malformed output")
+
+        executor.llm.ask = AsyncMock(
+            return_value={
+                "role": "assistant",
+                "content": "plain text response without expected schema",
+            }
+        )
+        executor.json_parser.parse = AsyncMock(return_value={})
+
+        events = [event async for event in executor.execute_step(simple_plan, mock_step, message)]
+
+        step_events = [e for e in events if isinstance(e, StepEvent)]
+        assert step_events
+        assert step_events[-1].step.success is False
+        assert step_events[-1].step.result == "plain text response without expected schema"
+        assert step_events[-1].step.error is not None
+
 
 class TestToolExecution:
     """Tests for tool execution behavior."""

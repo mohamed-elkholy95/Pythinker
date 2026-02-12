@@ -1,12 +1,17 @@
+import asyncio
 import logging
 import re
 import uuid
 from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional
 
+from pydantic import BaseModel, TypeAdapter, ValidationError
+
 from app.domain.external.llm import LLM
 from app.domain.external.observability import MetricsPort, get_null_metrics
+from app.domain.models.agent_response import ExecutionStepResult
 from app.domain.models.event import (
     BaseEvent,
     ErrorEvent,
@@ -62,6 +67,12 @@ if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
 
 logger = logging.getLogger(__name__)
+
+_SUGGESTION_LIST_ADAPTER = TypeAdapter(list[str])
+
+
+class _SuggestionPayload(BaseModel):
+    suggestions: list[str]
 
 
 class ExecutionAgent(BaseAgent):
@@ -352,17 +363,17 @@ class ExecutionAgent(BaseAgent):
                     yield StepEvent(status=StepStatus.FAILED, step=step)
                 elif isinstance(event, MessageEvent):
                     step.status = ExecutionStatus.COMPLETED
+                    parsed_response: Any = None
                     try:
                         parsed_response = await self.json_parser.parse(event.message)
-                        new_step = Step.model_validate(parsed_response)
-                        step.success = new_step.success
-                        step.result = new_step.result
-                        step.attachments = new_step.attachments
                     except Exception as parse_err:
                         logger.warning(f"Failed to parse step response as JSON: {parse_err}")
-                        # Treat raw message as the result
-                        step.success = True
-                        step.result = event.message
+
+                    # Validate structured output and degrade safely when malformed.
+                    if not self._apply_step_result_payload(
+                        step=step, parsed_response=parsed_response, raw_message=event.message
+                    ):
+                        logger.warning("Step response payload missing/invalid schema; marking step as unsuccessful")
 
                     # Apply CoVe on step results for factual content (step-level verification)
                     if step.result and self._cove_enabled and self._user_request:
@@ -511,10 +522,12 @@ class ExecutionAgent(BaseAgent):
                 stream_attempt += 1
                 attempt_text = ""
 
-                async for chunk in self.llm.ask_stream(stream_messages, tools=None, tool_choice=None):
-                    attempt_text += chunk
-                    accumulated_text += chunk
-                    yield StreamEvent(content=chunk, is_final=False, phase="summarizing")
+                stream_iter = self.llm.ask_stream(stream_messages, tools=None, tool_choice=None)
+                async with aclosing(stream_iter) as stream:
+                    async for chunk in stream:
+                        attempt_text += chunk
+                        accumulated_text += chunk
+                        yield StreamEvent(content=chunk, is_final=False, phase="summarizing")
 
                 stream_metadata = self._get_last_stream_metadata()
                 is_truncated_stream = (
@@ -749,6 +762,9 @@ class ExecutionAgent(BaseAgent):
                     anchor_excerpt=content_excerpt,
                 )
 
+        except asyncio.CancelledError:
+            logger.info("Summarization cancelled")
+            raise
         except Exception as e:
             logger.error(f"Error during summarization: {e}")
             yield ErrorEvent(error=f"Failed to generate summary: {e!s}")
@@ -1013,7 +1029,7 @@ class ExecutionAgent(BaseAgent):
                             "Generate exactly 3 short follow-up questions (5-15 words each) that are grounded "
                             "in the actual completion results and user's original request. "
                             "Suggestions should help the user explore next steps or dive deeper into specific aspects. "
-                            "Return ONLY a JSON array of 3 strings."
+                            'Return ONLY a JSON object in this format: {"suggestions": ["...", "...", "..."]}.'
                         ),
                     }
                 ],
@@ -1021,11 +1037,8 @@ class ExecutionAgent(BaseAgent):
                 response_format={"type": "json_object"},
                 tool_choice=None,
             )
-            import json
-
-            raw = suggestion_response.get("content", "[]")
-            parsed = json.loads(raw) if isinstance(raw, str) else raw
-            suggestions = parsed if isinstance(parsed, list) else parsed.get("suggestions", [])
+            raw = suggestion_response.get("content", {"suggestions": []})
+            suggestions = self._parse_suggestions_payload(raw)
             normalized = [str(s).strip() for s in suggestions if str(s).strip()]
             if normalized:
                 return normalized[:3]
@@ -1057,6 +1070,61 @@ class ExecutionAgent(BaseAgent):
             "What should I prioritize as next steps?",
             "Can you provide a practical example for this?",
         ]
+
+    def _parse_suggestions_payload(self, payload: Any) -> list[str]:
+        """Parse suggestion payload from LLM output using strict validation first."""
+        if isinstance(payload, str):
+            try:
+                return _SuggestionPayload.model_validate_json(payload).suggestions
+            except ValidationError:
+                return _SUGGESTION_LIST_ADAPTER.validate_json(payload)
+
+        if isinstance(payload, dict):
+            return _SuggestionPayload.model_validate(payload).suggestions
+
+        if isinstance(payload, list):
+            return _SUGGESTION_LIST_ADAPTER.validate_python(payload)
+
+        raise TypeError("Unsupported suggestion payload type")
+
+    def _apply_step_result_payload(self, step: Step, parsed_response: Any, raw_message: str) -> bool:
+        """Apply execution step payload with strict schema validation and safe fallback."""
+        try:
+            step_result = ExecutionStepResult.model_validate(parsed_response)
+            step.success = step_result.success
+            step.result = step_result.result or raw_message
+            step.attachments = list(step_result.attachments)
+            step.error = None if step_result.success else (step.error or "Step reported failure")
+            return True
+        except ValidationError as validation_err:
+            logger.warning(f"Step response validation failed: {validation_err}")
+
+        # Best-effort extraction for partially structured payloads.
+        if isinstance(parsed_response, dict) and any(
+            key in parsed_response for key in ("success", "result", "attachments")
+        ):
+            success_value = parsed_response.get("success")
+            step.success = success_value if isinstance(success_value, bool) else False
+
+            result_value = parsed_response.get("result")
+            step.result = str(result_value) if result_value is not None else raw_message
+
+            attachments_value = parsed_response.get("attachments")
+            if isinstance(attachments_value, list):
+                step.attachments = [str(item) for item in attachments_value]
+            else:
+                step.attachments = []
+
+            if not step.success:
+                error_value = parsed_response.get("error")
+                step.error = str(error_value) if error_value else "Step payload validation failed"
+            return False
+
+        step.success = False
+        step.result = raw_message
+        step.attachments = []
+        step.error = "Step response did not match expected JSON schema"
+        return False
 
     def _build_recent_memory_context_excerpt(self, max_messages: int = 6, max_chars: int = 900) -> str:
         """Build a short user/assistant transcript excerpt from in-memory session messages."""
