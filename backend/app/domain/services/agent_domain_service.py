@@ -463,6 +463,44 @@ class AgentDomainService:
 
         return resolved if resolved else None
 
+    async def _build_reactivation_context(self, session_id: str) -> str | None:
+        """Build a summary of recent session history for reactivation context."""
+        try:
+            event_count = await self._session_repository.get_event_count(session_id)
+            if event_count == 0:
+                return None
+            # Fetch last 10 events
+            offset = max(0, event_count - 10)
+            events = await self._session_repository.get_events_paginated(session_id, offset=offset, limit=10)
+            if not events:
+                return None
+
+            lines: list[str] = []
+            for evt in events:
+                if isinstance(evt, dict):
+                    etype = evt.get("type", "")
+                    if etype == "message":
+                        role = evt.get("role", "unknown")
+                        text = (evt.get("message", ""))[:200]
+                        lines.append(f"[{role}] {text}")
+                    elif etype == "report":
+                        title = evt.get("title", "Report")
+                        lines.append(f"[report] {title}")
+                else:
+                    if hasattr(evt, "type"):
+                        if evt.type == "message" and hasattr(evt, "message"):
+                            role = getattr(evt, "role", "unknown")
+                            lines.append(f"[{role}] {evt.message[:200]}")
+                        elif evt.type == "report" and hasattr(evt, "title"):
+                            lines.append(f"[report] {evt.title}")
+
+            if not lines:
+                return None
+            return "[Session history for context]\n" + "\n".join(lines)
+        except Exception as e:
+            logger.warning(f"Failed to build reactivation context: {e}")
+            return None
+
     async def _get_task(self, session: Session) -> Task | None:
         """Get a task for the given session"""
 
@@ -832,9 +870,31 @@ NOTE: The browser state may have changed. When you next use the browser:
                             task = await self._get_task(session)
 
                         if session and (session.status != SessionStatus.RUNNING or task is None):
+                            is_reactivation = session.status == SessionStatus.COMPLETED
                             task = await self._create_task(session, extra_mcp_configs=extra_mcp_configs)
                             if not task:
                                 raise RuntimeError("Failed to create task")
+
+                            # Inject session history context on reactivation
+                            if is_reactivation:
+                                logger.info(f"Session reactivation detected for {session_id}")
+                                try:
+                                    reactivation_ctx = await self._build_reactivation_context(session_id)
+                                    if reactivation_ctx:
+                                        from app.domain.models.event import MessageEvent as _MsgEvt
+
+                                        ctx_event = _MsgEvt(
+                                            role="assistant",
+                                            message=reactivation_ctx,
+                                        )
+                                        await self._session_repository.add_event(session_id, ctx_event)
+                                        logger.info(
+                                            "Injected reactivation context (%d chars) for session %s",
+                                            len(reactivation_ctx),
+                                            session_id,
+                                        )
+                                except Exception as e:
+                                    logger.warning(f"Reactivation context injection failed (non-fatal): {e}")
 
                             # Initialize workspace with template selection on first message
                             # (Phase 1: Multi-task workspace integration)
@@ -971,8 +1031,26 @@ NOTE: The browser state may have changed. When you next use the browser:
                     break
 
             # If the task completed without producing any events, emit a DoneEvent
-            # so the SSE client knows the stream completed normally and doesn't retry
+            # so the SSE client knows the stream completed normally and doesn't retry.
+            # For no-op reconnects (no message/input and no active task), end silently
+            # without forcing session completion.
             if not received_events:
+                has_message_content = bool(message and message.strip())
+                has_new_input = bool(
+                    has_message_content
+                    or attachments
+                    or skills
+                    or deep_research
+                    or follow_up_selected_suggestion
+                    or follow_up_anchor_event_id
+                    or follow_up_source
+                )
+                if task is None and not has_new_input:
+                    logger.info(
+                        f"Session {session_id} has no active task and no new input; ending stream without completion event"
+                    )
+                    return
+
                 logger.warning(f"Session {session_id} task completed without producing events")
                 session = await self._session_repository.find_by_id(session_id)
                 title = session.title if session else "Task completed"

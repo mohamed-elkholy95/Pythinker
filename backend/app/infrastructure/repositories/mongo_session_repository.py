@@ -243,3 +243,19 @@ class MongoSessionRepository(SessionRepository):
         if not results:
             return None
         return results[0].get("event")
+
+    async def get_event_by_id(self, session_id: str, event_id: str) -> BaseEvent | None:
+        """Get an event by its unique ID from the session's events array."""
+        pipeline = [
+            {"$match": {"session_id": session_id}},
+            {
+                "$project": {
+                    "event": {"$filter": {"input": "$events", "as": "e", "cond": {"$eq": ["$$e.id", event_id]}}}
+                }
+            },
+        ]
+        results = await SessionDocument.aggregate(pipeline).to_list()
+        if not results:
+            return None
+        events = results[0].get("event", [])
+        return events[0] if events else None
