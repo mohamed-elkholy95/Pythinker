@@ -2,7 +2,7 @@
   <SimpleBar ref="simpleBarRef" @scroll="handleScroll">
     <div id="manus-chat-box" ref="chatContainerRef" class="relative flex flex-col h-full flex-1 flex-shrink-0 min-w-0 bg-[var(--background-gray-main)]">
       <div ref="observerRef"
-        class="chat-header flex flex-row items-center pt-3 pb-1 gap-1 ps-[16px] pe-[24px] sticky top-0 z-10 flex-shrink-0 bg-[var(--background-gray-main)]">
+        class="chat-header flex flex-row items-center pt-3 pb-1 gap-1 ps-[8px] pe-[8px] sm:ps-[16px] sm:pe-[24px] sticky top-0 z-10 flex-shrink-0 bg-[var(--background-gray-main)]">
         <!-- Mobile sidebar toggle -->
         <button
           class="sm:hidden h-8 w-8 inline-flex items-center justify-center rounded-lg hover:bg-[var(--fill-tsp-gray-main)] transition-colors flex-shrink-0 mr-1"
