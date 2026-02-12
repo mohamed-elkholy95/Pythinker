@@ -1,6 +1,6 @@
 """Wide Research Flow for parallel multi-source research.
 
-Inspired by Manus AI's "Map" capability for dividing tasks into
+Inspired by Pythinker AI's "Map" capability for dividing tasks into
 homogeneous subtasks that execute concurrently and aggregate results.
 
 Features:
@@ -91,7 +91,7 @@ class WideResearchResult:
 class WideResearchFlow:
     """Executes parallel research across multiple sources with aggregation.
 
-    Inspired by Manus AI's "Map" capability - dividing research tasks into
+    Inspired by Pythinker AI's "Map" capability - dividing research tasks into
     homogeneous subtasks that execute concurrently.
 
     Usage:
@@ -688,7 +688,7 @@ async def create_wide_research_tool_handler(
         "name": "wide_research",
         "description": """Execute comprehensive parallel research across multiple sources.
 
-INSPIRED BY MANUS AI'S "MAP" CAPABILITY:
+INSPIRED BY PYTHINKER AI'S "MAP" CAPABILITY:
 Divides research into homogeneous subtasks executed concurrently,
 then aggregates and synthesizes results.
 

@@ -2,7 +2,7 @@
 
 This module provides prompts for the AI-assisted skill creation feature.
 The Skill Creator guides users through creating professional skills via conversation,
-following the Manus skill architecture patterns.
+following the Pythinker skill architecture patterns.
 """
 
 # =============================================================================

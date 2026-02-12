@@ -52,7 +52,7 @@ class ResourceThrottleLevel(str, Enum):
 class ParallelExecutorConfig:
     """Configuration for parallel executor.
 
-    Inspired by Manus AI's parallel processing capability.
+    Inspired by Pythinker AI's parallel processing capability.
     """
 
     max_concurrency: int = 5  # Increased from 3 for wider research
@@ -118,7 +118,7 @@ class ParallelExecutor:
     The executor analyzes step dependencies and executes independent
     steps concurrently while respecting the dependency DAG.
 
-    Inspired by Manus AI's parallel processing (Map) capability for
+    Inspired by Pythinker AI's parallel processing (Map) capability for
     dividing tasks into homogeneous subtasks.
 
     Args:
@@ -244,7 +244,7 @@ class ParallelExecutor:
         """Separate steps into parallelizable and sequential groups.
 
         Honors the step.parallel_processing flag if enable_step_parallel_flag is True.
-        Inspired by Manus's parallel_processing capability flag.
+        Inspired by Pythinker's parallel_processing capability flag.
 
         Args:
             ready_steps: Steps ready for execution
@@ -597,7 +597,7 @@ class ParallelExecutor:
         """Aggregate results from parallel step execution.
 
         Utility for combining results from concurrent operations,
-        inspired by Manus's result aggregation patterns.
+        inspired by Pythinker's result aggregation patterns.
 
         Args:
             results: List of step results to aggregate

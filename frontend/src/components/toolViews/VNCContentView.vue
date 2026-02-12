@@ -21,7 +21,7 @@
       />
     </div>
 
-    <!-- Inactive state when no session - Manus-style design -->
+    <!-- Inactive state when no session - Pythinker-style design -->
     <InactiveState
       v-else
       :message="inactiveMessage"

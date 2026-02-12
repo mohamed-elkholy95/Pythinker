@@ -1,6 +1,6 @@
 """Task Templates for Common Recurring Tasks.
 
-This module provides pre-built automation templates inspired by Manus's
+This module provides pre-built automation templates inspired by Pythinker's
 automation capabilities. Users can quickly set up common recurring tasks
 without manually configuring everything.
 

@@ -458,7 +458,7 @@ const isSearching = computed(() => {
 });
 
 /**
- * Tool subtitle - Manus-style standardized format: "Verb Resource"
+ * Tool subtitle - Pythinker-style standardized format: "Verb Resource"
  * @see docs/guides/TOOL_STANDARDIZATION.md
  */
 const toolSubtitle = computed(() => toolDisplay.value?.description || '');

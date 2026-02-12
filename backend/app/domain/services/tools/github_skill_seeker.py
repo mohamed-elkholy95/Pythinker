@@ -1,7 +1,7 @@
 """GitHub Skill Seeker Tool.
 
 This tool analyzes GitHub repositories and packages them as agent skills.
-Inspired by Manus github-gem-seeker pattern for discovering and extracting
+Inspired by Pythinker github-gem-seeker pattern for discovering and extracting
 reusable capabilities from open-source projects.
 
 Features:

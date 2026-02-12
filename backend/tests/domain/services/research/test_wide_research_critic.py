@@ -6,7 +6,7 @@ pattern:
 2. Critic reviews
 3. If not approved, revise and re-review (up to max_revisions)
 
-This implements Task 7.2 of the Manus AI Agent patterns.
+This implements Task 7.2 of the Pythinker AI Agent patterns.
 """
 
 from unittest.mock import AsyncMock

@@ -10,7 +10,22 @@ import ImageFilePreview from '../components/filePreviews/ImageFilePreview.vue';
 export interface FileType {
   icon: Component;
   preview: Component;
+  // Phase 5: Flag for interactive chart HTML (opens in new tab)
+  isInteractiveChart?: boolean;
 }
+
+/**
+ * Check if a file is an interactive Plotly chart based on metadata (Phase 5)
+ */
+export const isInteractiveChartFile = (metadata?: Record<string, any>): boolean => {
+  if (!metadata) return false;
+
+  // Only allow HTML files with explicit chart metadata
+  const isChart = metadata.is_comparison_chart === true;
+  const isPlotly = metadata.chart_engine === 'plotly';
+
+  return isChart && isPlotly;
+};
 
 const codeFileExtensions = [
   'py', 'js', 'ts', 'jsx', 'tsx', 'vue',
@@ -44,16 +59,25 @@ const archiveFileExtensions = [
   'zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'lzma',
 ];
 
-export const getFileType = (filename: string): FileType => {
+export const getFileType = (filename: string, metadata?: Record<string, any>): FileType => {
   const file_extension = filename.split('.').pop()?.toLowerCase();
-  
+
+  // Phase 5: Check for interactive chart HTML files FIRST (before generic HTML handling)
+  if (file_extension === 'html' && isInteractiveChartFile(metadata)) {
+    return {
+      icon: FileIcon,
+      preview: UnknownFilePreview, // Preview not used for charts (opens in new tab)
+      isInteractiveChart: true,
+    };
+  }
+
   if (file_extension === 'md') {
     return {
       icon: FileIcon,
       preview: MarkdownFilePreview,
     };
   }
-  
+
   if (file_extension && codeFileExtensions.includes(file_extension)) {
     return {
       icon: CodeFileIcon,
@@ -67,7 +91,7 @@ export const getFileType = (filename: string): FileType => {
       preview: ImageFilePreview,
     };
   }
-  
+
   return {
     icon: FileIcon,
     preview: UnknownFilePreview,
@@ -77,14 +101,20 @@ export const getFileType = (filename: string): FileType => {
 /**
  * Get file type text based on file extension
  * @param filename - The filename to analyze
+ * @param metadata - Optional file metadata (for detecting interactive charts)
  * @returns Localized description of file type
  */
-export const getFileTypeText = (filename: string): string => {
+export const getFileTypeText = (filename: string, metadata?: Record<string, any>): string => {
   const { t } = useI18n();
   const file_extension = filename.split('.').pop()?.toLowerCase();
-  
+
   if (!file_extension) {
     return t('File');
+  }
+
+  // Phase 5: Interactive chart HTML files
+  if (file_extension === 'html' && isInteractiveChartFile(metadata)) {
+    return t('Interactive Chart');
   }
 
   // Text files

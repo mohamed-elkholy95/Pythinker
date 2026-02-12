@@ -7,7 +7,7 @@ import { getToolDisplay, extractToolUrl, getFaviconUrl } from '@/utils/toolDispl
 export interface ToolInfo {
   icon: Component | null;
   name: string;
-  /** Full human-readable description (Manus-style) */
+  /** Full human-readable description (Pythinker-style) */
   description: string;
   /** @deprecated Use description instead */
   function: string;

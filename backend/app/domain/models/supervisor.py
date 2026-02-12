@@ -1,6 +1,6 @@
 """Supervisor model for hierarchical multi-agent system (HMAS).
 
-This module implements the Supervisor model that is part of Manus AI's
+This module implements the Supervisor model that is part of Pythinker AI's
 Hierarchical Multi-Agent System pattern. Supervisors are mid-level agents
 that manage specific domains, handle complex dependencies between sub-tasks,
 and coordinate worker agents within their domain.
@@ -82,7 +82,7 @@ class SubTask(BaseModel):
 class Supervisor(BaseModel):
     """A supervisor agent in the hierarchical multi-agent system.
 
-    Implements Manus AI's HMAS pattern for domain-specific task coordination.
+    Implements Pythinker AI's HMAS pattern for domain-specific task coordination.
     Supervisors sit between the top-level orchestrator and worker agents,
     managing the complexity of task decomposition and dependency resolution
     within their specialized domain.

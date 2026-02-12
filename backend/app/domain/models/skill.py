@@ -5,7 +5,7 @@ Inspired by Claude Code's skills architecture:
 - Meta-tool pattern for dynamic skill invocation
 - Support for both user-invoked and AI-invoked skills
 
-Enhanced with Manus AI's progressive disclosure pattern:
+Enhanced with Pythinker AI's progressive disclosure pattern:
 - Level 1: Metadata only (name, description)
 - Level 2: Metadata + body (full instructions)
 - Level 3: Everything including resources
@@ -81,7 +81,7 @@ class SkillResource(BaseModel):
 class SkillMetadata(BaseModel):
     """Skill metadata parsed from YAML frontmatter in SKILL.md files.
 
-    Follows Manus AI's skill file format:
+    Follows Pythinker AI's skill file format:
     ---
     name: skill-name
     description: What the skill does.
@@ -224,7 +224,7 @@ class Skill(BaseModel):
         description="Searchable tags for discovery",
     )
 
-    # Progressive Disclosure Fields (Manus AI pattern)
+    # Progressive Disclosure Fields (Pythinker AI pattern)
     body: str = Field(
         default="",
         description="Full instructions from SKILL.md (disclosed at level 2+)",
@@ -237,7 +237,7 @@ class Skill(BaseModel):
     def get_disclosure_level(self, level: int) -> dict[str, Any]:
         """Get skill data at the specified disclosure level.
 
-        Progressive disclosure pattern from Manus AI:
+        Progressive disclosure pattern from Pythinker AI:
         - Level 1: Metadata only (name, description, category, etc.)
         - Level 2: Metadata + body (full instructions)
         - Level 3: Everything including resources with content

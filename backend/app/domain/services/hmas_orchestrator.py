@@ -1,6 +1,6 @@
 """Hierarchical Multi-Agent System (HMAS) Orchestrator.
 
-This module implements the HMAS orchestrator pattern from Manus AI architecture.
+This module implements the HMAS orchestrator pattern from Pythinker AI architecture.
 The orchestrator sits at the top of the agent hierarchy and is responsible for:
 
 - Registering and managing domain-specific supervisors
@@ -55,7 +55,7 @@ class AgentFactoryProtocol(Protocol):
 class HMASOrchestrator:
     """Orchestrator for Hierarchical Multi-Agent System.
 
-    Implements Manus AI's HMAS pattern for coordinating multiple supervisors
+    Implements Pythinker AI's HMAS pattern for coordinating multiple supervisors
     and their worker agents. The orchestrator handles task routing, dependency
     management, and parallel execution across the agent hierarchy.
 

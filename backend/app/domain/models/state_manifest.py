@@ -1,6 +1,6 @@
 """State manifest for blackboard architecture.
 
-This module implements Manus AI's Blackboard Architecture pattern, where agents
+This module implements Pythinker AI's Blackboard Architecture pattern, where agents
 post results to a shared state manifest enabling asynchronous collaboration
 and "serendipitous" discovery during research.
 
@@ -45,7 +45,7 @@ class StateEntry(BaseModel):
 class StateManifest(BaseModel):
     """Shared state manifest for inter-agent communication.
 
-    Implements Manus AI's Blackboard Architecture pattern, providing a
+    Implements Pythinker AI's Blackboard Architecture pattern, providing a
     centralized place where agents can:
     - Post results and findings for other agents to discover
     - Query the current state of any key

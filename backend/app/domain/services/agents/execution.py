@@ -111,7 +111,7 @@ class ExecutionAgent(BaseAgent):
         # Initialize prompt adapter for dynamic context injection
         self._prompt_adapter = PromptAdapter()
 
-        # Attention injector for goal recitation (Manus AI pattern)
+        # Attention injector for goal recitation (Pythinker AI pattern)
         self._attention_injector = attention_injector or AttentionInjector()
         self.current_goal: str | None = None
         self.current_todo: list[str] = []
@@ -147,7 +147,7 @@ class ExecutionAgent(BaseAgent):
         self._seen_urls: set[str] = set()
 
         # Multimodal information persistence (P5.2)
-        # Per Manus pattern: persist key findings every 2 view operations
+        # Per Pythinker pattern: persist key findings every 2 view operations
         self._view_operation_count: int = 0
         self._multimodal_findings: list[dict] = []
         self._view_tools = {"file_view", "browser_view", "browser_get_content", "browser_agent_extract"}
@@ -405,7 +405,7 @@ class ExecutionAgent(BaseAgent):
                         # Track sources from tool events for report bibliography
                         self._track_sources_from_tool_event(event)
 
-                        # Track multimodal findings (P5.2 - Manus pattern)
+                        # Track multimodal findings (P5.2 - Pythinker pattern)
                         self._track_multimodal_findings(event)
 
                         # Track in context manager (Phase 1)
@@ -1538,11 +1538,11 @@ class ExecutionAgent(BaseAgent):
         self._multimodal_findings = []
         logger.debug("Cleared execution context")
 
-    # Attention Injection (Manus AI Pattern)
+    # Attention Injection (Pythinker AI Pattern)
     def _apply_attention(self, messages: list[dict]) -> list[dict]:
         """Apply attention injection to messages.
 
-        Implements Manus AI's attention manipulation pattern to
+        Implements Pythinker AI's attention manipulation pattern to
         prevent goal drift in long conversations.
 
         Args:
@@ -1557,11 +1557,11 @@ class ExecutionAgent(BaseAgent):
             todo=self.current_todo,
         )
 
-    # Multimodal Information Persistence (P5.2 - Manus Pattern)
+    # Multimodal Information Persistence (P5.2 - Pythinker Pattern)
     def _track_multimodal_findings(self, event: ToolEvent) -> None:
         """Track and persist key findings from view operations.
 
-        Per Manus pattern: save key findings every 2 view/browser operations.
+        Per Pythinker pattern: save key findings every 2 view/browser operations.
         This ensures important visual information is persisted and available
         for later reference even if context is compressed.
 
@@ -1582,7 +1582,7 @@ class ExecutionAgent(BaseAgent):
         if finding:
             self._multimodal_findings.append(finding)
 
-        # Persist every 2 operations (Manus pattern)
+        # Persist every 2 operations (Pythinker pattern)
         if self._view_operation_count >= 2:
             self._persist_key_findings()
             self._view_operation_count = 0

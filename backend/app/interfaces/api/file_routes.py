@@ -83,6 +83,20 @@ async def download_file_with_signature(
 
     headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"}
 
+    # Phase 1: Add CSP headers for HTML chart files (security hardening)
+    if file_info.content_type == "text/html" and file_info.metadata:
+        is_chart = file_info.metadata.get("is_comparison_chart") or file_info.metadata.get("chart_engine") == "plotly"
+        if is_chart:
+            headers["Content-Security-Policy"] = (
+                "default-src 'none'; "
+                "script-src https://cdn.plot.ly; "
+                "style-src 'unsafe-inline'; "
+                "img-src data:;"
+            )
+            headers["X-Content-Type-Options"] = "nosniff"
+            # Use 'inline' instead of 'attachment' for viewing in browser
+            headers["Content-Disposition"] = f"inline; filename*=UTF-8''{encoded_filename}'"
+
     return StreamingResponse(
         file_data, media_type=file_info.content_type or "application/octet-stream", headers=headers
     )
@@ -111,6 +125,20 @@ async def download_file(
     encoded_filename = urllib.parse.quote(file_info.filename, safe="")
 
     headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"}
+
+    # Phase 1: Add CSP headers for HTML chart files (security hardening)
+    if file_info.content_type == "text/html" and file_info.metadata:
+        is_chart = file_info.metadata.get("is_comparison_chart") or file_info.metadata.get("chart_engine") == "plotly"
+        if is_chart:
+            headers["Content-Security-Policy"] = (
+                "default-src 'none'; "
+                "script-src https://cdn.plot.ly; "
+                "style-src 'unsafe-inline'; "
+                "img-src data:;"
+            )
+            headers["X-Content-Type-Options"] = "nosniff"
+            # Use 'inline' instead of 'attachment' for viewing in browser
+            headers["Content-Disposition"] = f"inline; filename*=UTF-8''{encoded_filename}'"
 
     return StreamingResponse(
         file_data, media_type=file_info.content_type or "application/octet-stream", headers=headers

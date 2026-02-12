@@ -235,9 +235,9 @@
 
 ---
 
-## Comparison vs `system/tools.json` (Manus reference)
+## Comparison vs `system/tools.json` (Original Manus Reference Architecture)
 
-### Matching tools (26 of 29 Manus tools present)
+### Matching tools (26 of 29 original reference tools present)
 
 19 exact matches + 7 with enhanced descriptions:
 
@@ -270,7 +270,7 @@
 | `browser_scroll_down` | Enhanced description |
 | `idle` | Different description wording |
 
-### Missing from agent (3 Manus-platform tools)
+### Missing from agent (3 original platform-specific tools)
 
 | Tool | Description |
 |------|-------------|
@@ -278,6 +278,6 @@
 | `deploy_apply_deployment` | Deploy static/nextjs app to production |
 | `make_manus_page` | Make Manus Page from MDX file |
 
-### Pythinker-only tools (73 tools beyond Manus base)
+### Pythinker-only tools (73 tools beyond original reference base)
 
 All tools not in the matching list above are Pythinker-specific additions.

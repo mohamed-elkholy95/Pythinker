@@ -1,15 +1,15 @@
-"""Manus-style Agent Factory for creating agents with shared dependencies.
+"""Pythinker-style Agent Factory for creating agents with shared dependencies.
 
-This module implements a factory pattern for creating Manus AI-style agents
+This module implements a factory pattern for creating Pythinker AI-style agents
 with shared dependencies and per-session state management.
 
 The factory provides:
 - Centralized dependency injection for agents
 - Per-session caching of state manifests and context managers
-- Consistent agent creation with Manus patterns (blackboard, attention injection)
+- Consistent agent creation with Pythinker patterns (blackboard, attention injection)
 
 Usage:
-    factory = ManusAgentFactory(
+    factory = PythinkerAgentFactory(
         llm=llm_instance,
         sandbox=sandbox_instance,
         search_tool=search_tool_instance,
@@ -40,11 +40,11 @@ from app.domain.services.skill_loader import SkillLoader
 logger = logging.getLogger(__name__)
 
 
-class ManusAgentFactory:
-    """Factory for creating Manus-style agents with shared dependencies.
+class PythinkerAgentFactory:
+    """Factory for creating Pythinker-style agents with shared dependencies.
 
-    The ManusAgentFactory centralizes agent creation and dependency management,
-    implementing key Manus AI patterns:
+    The PythinkerAgentFactory centralizes agent creation and dependency management,
+    implementing key Pythinker AI patterns:
 
     - **Dependency Injection**: All agents receive properly configured dependencies
     - **State Manifest (Blackboard)**: Per-session shared state for inter-agent communication
@@ -52,7 +52,7 @@ class ManusAgentFactory:
     - **Attention Injection**: Shared attention injector to prevent "lost-in-the-middle"
 
     This factory ensures that all agents within a session share the same state
-    infrastructure, enabling the collaborative patterns found in Manus AI.
+    infrastructure, enabling the collaborative patterns found in Pythinker AI.
 
     Attributes:
         llm: Language model instance for agent operations.
@@ -61,7 +61,7 @@ class ManusAgentFactory:
         skill_loader: Optional skill loader for progressive skill disclosure.
 
     Example:
-        >>> factory = ManusAgentFactory(llm=llm, sandbox=sandbox, search_tool=search_tool)
+        >>> factory = PythinkerAgentFactory(llm=llm, sandbox=sandbox, search_tool=search_tool)
         >>> critic = factory.create_critic(session_id="sess_123")
         >>> orchestrator = factory.create_research_orchestrator(session_id="sess_123")
     """
@@ -73,7 +73,7 @@ class ManusAgentFactory:
         search_tool: Any,
         skill_loader: SkillLoader | None = None,
     ) -> None:
-        """Initialize the ManusAgentFactory.
+        """Initialize the PythinkerAgentFactory.
 
         Args:
             llm: Language model instance that implements chat() method.
@@ -92,7 +92,7 @@ class ManusAgentFactory:
         self._attention_injector: AttentionInjector | None = None
 
         logger.debug(
-            "ManusAgentFactory initialized",
+            "PythinkerAgentFactory initialized",
             extra={
                 "has_llm": llm is not None,
                 "has_sandbox": sandbox is not None,
@@ -176,7 +176,7 @@ class ManusAgentFactory:
     ) -> WideResearchOrchestrator:
         """Create a WideResearchOrchestrator for parallel research.
 
-        The orchestrator implements Manus AI's "Wide Research" pattern:
+        The orchestrator implements Pythinker AI's "Wide Research" pattern:
         - Decomposes research into independent sub-tasks
         - Executes sub-tasks in parallel with separate contexts
         - Synthesizes results with critic review
@@ -202,10 +202,10 @@ class ManusAgentFactory:
         return orchestrator
 
     def get_session_components(self, session_id: str) -> dict[str, Any]:
-        """Get all Manus-style components for a session.
+        """Get all Pythinker-style components for a session.
 
         Returns a dictionary with all the components needed for
-        Manus-style agent operation in a single session.
+        Pythinker-style agent operation in a single session.
 
         Args:
             session_id: The session identifier.

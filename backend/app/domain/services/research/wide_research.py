@@ -29,7 +29,7 @@ class WideResearchOrchestrator:
     """
     Orchestrates wide research using parallel sub-agents.
 
-    Implements Manus AI's "Wide Research" pattern:
+    Implements Pythinker AI's "Wide Research" pattern:
     - Decomposes research into independent sub-tasks
     - Executes sub-tasks in parallel with separate contexts
     - Ensures consistent quality across all items (100th = 1st)

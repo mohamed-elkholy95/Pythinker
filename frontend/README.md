@@ -1,4 +1,4 @@
-# AI Manus Frontend
+# AI Pythinker Frontend
 
 English | Chinese (README_zh.md)
 

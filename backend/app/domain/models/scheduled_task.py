@@ -2,7 +2,7 @@
 Scheduled Task Model
 Defines scheduled tasks for deferred or recurring agent execution.
 
-Enhanced with Manus-style scheduling capabilities:
+Enhanced with Pythinker-style scheduling capabilities:
 - Cron expression support
 - Timezone handling
 - Notification channels
@@ -121,7 +121,7 @@ class OutputConfig(BaseModel):
 class ScheduledTask(BaseModel):
     """Scheduled task model for deferred or recurring agent execution.
 
-    Enhanced with Manus-style scheduling capabilities:
+    Enhanced with Pythinker-style scheduling capabilities:
     - Multiple schedule types (cron, daily, weekly, monthly)
     - Timezone support
     - Notification channels

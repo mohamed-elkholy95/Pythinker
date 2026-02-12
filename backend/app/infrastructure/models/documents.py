@@ -308,7 +308,7 @@ class SkillDocument(BaseDocument[Skill], id_field="skill_id", domain_model_class
     supports_dynamic_context: bool = False  # !command substitution support
     trigger_patterns: list[str] = Field(default_factory=list)  # Auto-activation patterns
 
-    # Progressive Disclosure Fields (Manus AI pattern)
+    # Progressive Disclosure Fields (Pythinker AI pattern)
     body: str = ""  # Full instructions from SKILL.md (disclosed at level 2+)
     resources: list[dict] = Field(default_factory=list)  # Bundled resources (disclosed at level 3)
 
