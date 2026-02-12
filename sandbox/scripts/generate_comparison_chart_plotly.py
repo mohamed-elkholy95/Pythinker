@@ -39,12 +39,12 @@ from pathlib import Path
 
 
 def configure_kaleido():
-    """Configure Kaleido defaults for consistent output."""
-    import plotly.io as pio
+    """Configure Kaleido defaults for consistent output.
 
-    pio.kaleido.template.default_width = 1200
-    pio.kaleido.template.default_height = 800
-    pio.kaleido.template.default_scale = 2  # High-res PNG
+    Note: Kaleido template API was removed in newer versions.
+    Configuration is now passed directly to write_image().
+    """
+    pass  # No-op - configuration passed to write_image instead
 
 
 def generate_bar_chart(title: str, metric_name: str, points: list[dict], lower_is_better: bool):

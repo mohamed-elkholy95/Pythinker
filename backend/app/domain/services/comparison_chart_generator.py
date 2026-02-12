@@ -1,10 +1,19 @@
-"""Generate comparison chart SVG artifacts from markdown reports."""
+"""Generate comparison chart SVG artifacts from markdown reports.
+
+DEPRECATION NOTICE (Phase 6 - Plotly Migration):
+    - SVG generation methods (generate_chart, _render_bar_chart, _render_matrix_chart)
+      are DEPRECATED and will be removed in a future version.
+    - Use PlotlyChartOrchestrator for chart generation instead.
+    - Table extraction methods (_extract_tables, _select_best_table, etc.) are still
+      actively used by PlotlyChartOrchestrator and should NOT be removed.
+"""
 
 from __future__ import annotations
 
 import html
 import logging
 import re
+import warnings
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -87,7 +96,17 @@ class ComparisonChartGenerator:
         *,
         force_generation: bool = False,
     ) -> ChartGenerationResult | None:
-        """Return a chart if the report appears to be a comparison report."""
+        """Return a chart if the report appears to be a comparison report.
+
+        DEPRECATED: SVG chart generation is deprecated. Use PlotlyChartOrchestrator instead.
+        This method is kept for backward compatibility only.
+        """
+        warnings.warn(
+            "ComparisonChartGenerator.generate_chart() is deprecated. "
+            "Use PlotlyChartOrchestrator for Plotly-based chart generation.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if not markdown_content.strip():
             return None
 
@@ -127,6 +146,12 @@ class ComparisonChartGenerator:
             )
 
         return None
+
+    # ==================================================================================
+    # TABLE EXTRACTION METHODS (ACTIVELY USED BY PlotlyChartOrchestrator)
+    # These methods extract and analyze markdown tables for chart generation.
+    # DO NOT remove or deprecate these - they are core functionality.
+    # ==================================================================================
 
     def _extract_tables(self, markdown_content: str) -> list[_MarkdownTable]:
         lines = markdown_content.splitlines()
@@ -258,6 +283,12 @@ class ComparisonChartGenerator:
 
         title = table.heading or report_title or "Comparison Matrix"
         return _MatrixChartSpec(title=title, headers=headers, rows=rows)
+
+    # ==================================================================================
+    # SVG RENDERING METHODS (DEPRECATED - Phase 6)
+    # These methods generate SVG charts and are replaced by Plotly.
+    # Kept for backward compatibility only. Use PlotlyChartOrchestrator instead.
+    # ==================================================================================
 
     def _render_bar_chart(self, spec: _NumericChartSpec) -> tuple[str, int, int]:
         width = 1240

@@ -47,13 +47,9 @@ def main():
 
     # Test 3: Configure Kaleido defaults
     print("\n[3/5] Configuring Kaleido defaults...")
-    try:
-        pio.kaleido.template.default_width = 1200
-        pio.kaleido.template.default_height = 800
-        pio.kaleido.template.default_scale = 2  # High-res
-        print("  ✓ Kaleido defaults configured")
-    except Exception as e:
-        print(f"  ⚠ Warning: Could not configure Kaleido: {e}")
+    # Note: Kaleido template API was removed in newer versions
+    # Configuration is now passed directly to write_image()
+    print("  ✓ Kaleido configuration (passed to write_image calls)")
 
     # Test 4: Generate HTML (CDN mode)
     print("\n[4/5] Generating HTML chart (CDN mode)...")
