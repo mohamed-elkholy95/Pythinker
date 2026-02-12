@@ -981,6 +981,15 @@ class PlaywrightBrowser:
         except Exception as e:
             logger.warning(f"Failed to inject anti-detection scripts: {e}")
 
+    def _on_page_crash(self) -> None:
+        """Handle page crash event (Playwright best practice).
+
+        Called when the page crashes, typically due to excessive memory allocation.
+        Sets connection as unhealthy so the next operation triggers re-initialization.
+        """
+        logger.error(f"Page crash detected (CDP: {self.cdp_url}) - marking connection unhealthy")
+        self._connection_healthy = False
+
     async def _verify_connection_health(self) -> bool:
         """Verify the browser connection is healthy
 
@@ -1152,9 +1161,9 @@ class PlaywrightBrowser:
                             await cdp_session.send("Page.bringToFront")
                             await cdp_session.detach()
                             logger.info("Brought page to front via CDP for VNC visibility")
-                        except Exception as cdp_error:
+                        except (PlaywrightError, OSError) as cdp_error:
                             logger.debug(f"CDP bring_to_front: {cdp_error}")
-                    except Exception as e:
+                    except (PlaywrightError, OSError) as e:
                         logger.debug(f"Could not bring page to front: {e}")
                 else:
                     # No contexts exist yet - wait for Chrome to create default context
@@ -1204,6 +1213,9 @@ class PlaywrightBrowser:
 
                 # Set up automatic dialog/popup handlers
                 await self._setup_dialog_handlers(self.page)
+
+                # Register page crash handler (Playwright best practice)
+                self.page.on("crash", lambda: self._on_page_crash())
 
                 # Configure default timeouts
                 self.page.set_default_timeout(30000)  # 30 seconds for operations
