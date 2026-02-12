@@ -222,7 +222,7 @@ def is_video_url(url: str) -> bool:
             if pattern.search(url):
                 return True
 
-    except Exception:
+    except (ValueError, re.error):
         logger.debug("Failed to check if URL is video URL", exc_info=True)
 
     return False
@@ -635,7 +635,13 @@ class PlaywrightBrowser:
         """
         ctx = context or self.context
         if not ctx:
-            raise Exception("No browser context available for creating new page")
+            from app.domain.exceptions.browser import BrowserError, BrowserErrorCode
+
+            raise BrowserError(
+                message="No browser context available for creating new page",
+                code=BrowserErrorCode.BROWSER_CRASHED,
+                recoverable=True,
+            )
 
         page = await ctx.new_page()
         logger.info(f"Created new page (total pages in context: {len(ctx.pages)})")
@@ -1077,6 +1083,14 @@ class PlaywrightBrowser:
                     timeout=cdp_connect_timeout_ms,
                 )
 
+                # Register disconnected handler for crash detection (Playwright best practice)
+                self.browser.on(
+                    "disconnected",
+                    lambda: logger.warning(
+                        f"Browser disconnected (CDP: {self.cdp_url}) - may have crashed or been closed"
+                    ),
+                )
+
                 # Clear existing pages for fresh session
                 if clear_existing:
                     await asyncio.wait_for(self.clear_session(), timeout=5.0)
@@ -1114,7 +1128,7 @@ class PlaywrightBrowser:
                                         reuse_page = page
                                         logger.info("Reusing alternate existing page")
                                         break
-                                except Exception:
+                                except (PlaywrightError, OSError):
                                     logger.debug("Failed to check if page is closed", exc_info=True)
                                     continue
 
@@ -1198,7 +1212,13 @@ class PlaywrightBrowser:
                 # Verify connection is healthy
                 self._connection_healthy = await self._verify_connection_health()
                 if not self._connection_healthy:
-                    raise Exception("Connection health verification failed")
+                    from app.domain.exceptions.browser import BrowserError, BrowserErrorCode
+
+                    raise BrowserError(
+                        message="Connection health verification failed",
+                        code=BrowserErrorCode.CONNECTION_REFUSED,
+                        recoverable=True,
+                    )
 
                 logger.info(f"Browser initialized successfully (attempt {attempt + 1})")
                 return True
@@ -1291,7 +1311,13 @@ class PlaywrightBrowser:
                     return
 
             if not await self.initialize():
-                raise Exception("Unable to initialize browser resources")
+                from app.domain.exceptions.browser import BrowserError, BrowserErrorCode
+
+                raise BrowserError(
+                    message="Unable to initialize browser resources",
+                    code=BrowserErrorCode.CONNECTION_REFUSED,
+                    recoverable=False,
+                )
 
     async def _ensure_page(self) -> None:
         """Ensure page is available and switch to most recent tab if needed
@@ -1305,7 +1331,13 @@ class PlaywrightBrowser:
 
         if not self.page or self.page.is_closed():
             if not self.context:
-                raise Exception("No browser context available")
+                from app.domain.exceptions.browser import BrowserError, BrowserErrorCode
+
+                raise BrowserError(
+                    message="No browser context available",
+                    code=BrowserErrorCode.BROWSER_CRASHED,
+                    recoverable=True,
+                )
 
             # CRITICAL: Try to reuse any existing page before creating a new one
             # New pages create new windows which may shift in VNC display
@@ -1388,7 +1420,7 @@ class PlaywrightBrowser:
                 await self.page.evaluate("window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'})")
                 await asyncio.sleep(0.3)
                 await self.page.evaluate("window.scrollTo({top: 0, behavior: 'smooth'})")
-            except Exception:
+            except (PlaywrightError, PlaywrightTimeoutError, OSError):
                 logger.debug("Failed to perform fallback scroll", exc_info=True)
 
     async def wait_for_page_load(self, timeout: int = 15000, wait_until: str = "domcontentloaded") -> bool:  # noqa: ASYNC109
@@ -1889,7 +1921,7 @@ class PlaywrightBrowser:
                         browser_heavy_page_detections_total,
                     )
 
-                    browser_heavy_page_detections_total.labels(detection_method="proactive").inc()
+                    browser_heavy_page_detections_total.inc(labels={"detection_method": "proactive"})
 
             # AUTOMATIC BEHAVIOR: Smart scroll to load lazy content comprehensively
             # Priority 1: Skip smart scroll for Wikipedia and heavy pages to prevent crashes
@@ -1969,7 +2001,7 @@ class PlaywrightBrowser:
                             browser_memory_pressure_total,
                         )
 
-                        browser_memory_pressure_total.labels(level=pressure_level).inc()
+                        browser_memory_pressure_total.inc(labels={"level": pressure_level})
 
                         if pressure_level == "critical":
                             logger.warning("CRITICAL memory pressure - browser restart recommended on next navigation")
@@ -2009,13 +2041,13 @@ class PlaywrightBrowser:
                         title = await self.page.title()
                         result_data["content"] = content
                         result_data["title"] = title
-                    except Exception:
+                    except (PlaywrightError, PlaywrightTimeoutError, OSError):
                         logger.debug("Failed to extract content after partial page load", exc_info=True)
 
                 return ToolResult(
                     success=True, message="Navigation timed out but page partially loaded", data=result_data
                 )
-            except Exception:
+            except (PlaywrightError, OSError):
                 return ToolResult(success=False, message=f"Navigation to {url} timed out")
         except Exception as e:
             if self._is_crash_error(e):
@@ -2039,7 +2071,7 @@ class PlaywrightBrowser:
                             try:
                                 partial_data["title"] = await self.page.title()
                                 partial_data["url"] = self.page.url
-                            except Exception:
+                            except (PlaywrightError, OSError):
                                 logger.debug("Failed to get title/URL from page after crash", exc_info=True)
 
                         return ToolResult(
@@ -2173,7 +2205,7 @@ class PlaywrightBrowser:
                         "timed_out": True,
                     },
                 )
-            except Exception:
+            except (PlaywrightError, OSError):
                 return ToolResult(success=False, message=f"Fast navigation to {url} timed out")
 
         except Exception as e:
@@ -2220,7 +2252,7 @@ class PlaywrightBrowser:
                     cdp_session = await self.page.context.new_cdp_session(self.page)
                     await cdp_session.send("Page.bringToFront")
                     await cdp_session.detach()
-                except Exception:
+                except (PlaywrightError, OSError):
                     logger.debug("Failed to bring page to front via CDP", exc_info=True)
                 logger.debug(f"navigate_for_display: showed {url} on VNC")
                 self._display_failure_count = 0
@@ -2456,7 +2488,7 @@ class PlaywrightBrowser:
                         center_x = box["x"] + box["width"] / 2
                         center_y = box["y"] + box["height"] / 2
                         await self._show_cursor_click(center_x, center_y)
-                except Exception:
+                except (PlaywrightError, PlaywrightTimeoutError, OSError):
                     logger.debug("Failed to show cursor click animation", exc_info=True)
 
                 # Click with force option as fallback for tricky elements
@@ -2544,7 +2576,7 @@ class PlaywrightBrowser:
                         center_x = box["x"] + box["width"] / 2
                         center_y = box["y"] + box["height"] / 2
                         await self._show_cursor_click(center_x, center_y)
-                except Exception:
+                except (PlaywrightError, PlaywrightTimeoutError, OSError):
                     logger.debug("Failed to show cursor click animation for input", exc_info=True)
 
                 # Try fill() first (fastest and most reliable for input fields)
@@ -2552,7 +2584,7 @@ class PlaywrightBrowser:
                     if clear_first:
                         await element.fill("")
                     await element.fill(text)
-                except Exception:
+                except (PlaywrightError, PlaywrightTimeoutError):
                     # Fallback: click and type character by character
                     try:
                         await element.click()
@@ -2771,8 +2803,6 @@ class PlaywrightBrowser:
         if self.settings.browser_allow_dangerous_js:
             logger.warning("Dangerous JavaScript validation bypassed via settings")
             return True, ""
-
-        javascript.lower()
 
         for pattern, description in self._DANGEROUS_JS_PATTERNS:
             if re.search(pattern, javascript, re.IGNORECASE):
