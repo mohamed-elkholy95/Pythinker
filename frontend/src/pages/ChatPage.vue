@@ -5,6 +5,13 @@
         class="chat-header flex flex-row items-center pt-3 pb-1 gap-1 ps-[16px] pe-[24px] sticky top-0 z-10 flex-shrink-0 bg-[var(--background-gray-main)]">
         <!-- Left side - panel toggle -->
         <div class="flex items-center justify-start" style="width: calc((100% - min(768px, 100%)) / 2);">
+          <button
+            class="sm:hidden h-8 w-8 inline-flex items-center justify-center rounded-lg hover:bg-[var(--fill-tsp-gray-main)] transition-colors"
+            @click="toggleLeftPanel"
+            aria-label="Open sidebar"
+          >
+            <Menu :size="20" class="text-[var(--icon-secondary)]" />
+          </button>
         </div>
         <!-- Center content - matches chat content width -->
         <div class="max-w-full sm:max-w-[768px] sm:min-w-[400px] w-full flex items-center justify-between gap-3">
@@ -318,7 +325,7 @@ import {
 import type { DeepResearchContent } from '../types/message';
 import Suggestions from '../components/Suggestions.vue';
 import ToolPanel from '../components/ToolPanel.vue'
-import { ArrowDown, FileSearch, Lock, Globe, Link, Check, ChevronRight } from 'lucide-vue-next';
+import { ArrowDown, FileSearch, Lock, Globe, Link, Check, ChevronRight, Menu } from 'lucide-vue-next';
 import ShareIcon from '@/components/icons/ShareIcon.vue';
 import { showErrorToast, showSuccessToast, showInfoToast } from '../utils/toast';
 import type { FileInfo } from '../api/file';
@@ -351,7 +358,7 @@ import { shouldStopSessionOnExit } from '@/utils/sessionLifecycle';
 
 const router = useRouter()
 const { t } = useI18n()
-useLeftPanel()
+const { toggleLeftPanel } = useLeftPanel()
 const { showSessionFileList } = useSessionFileList()
 const { hideFilePanel } = useFilePanel()
 const { isReportModalOpen, currentReport, openReport, closeReport } = useReport()
