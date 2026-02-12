@@ -37,49 +37,84 @@
       </div>
     </div>
   </div>
-  <div
-    v-else-if="message.type === 'assistant'"
-    :class="[
-      'flex flex-col gap-1 w-full group',
-      props.showAssistantHeader === false ? 'mt-1' : 'mt-3'
-    ]"
-  >
-    <div v-if="props.showAssistantHeader !== false" class="assistant-header-row flex items-center justify-between group">
-      <div class="assistant-brand flex items-center">
-        <Bot :size="20" class="assistant-brand-icon text-[var(--text-primary)]" :stroke-width="1.8" />
-        <PythinkerTextIcon :width="94" :height="24" />
-      </div>
-      <div class="flex items-center gap-[2px]">
-        <div
-          class="assistant-time transition text-[11px] text-[var(--text-tertiary)]"
-          :title="formatTimestampTooltip(message.content.timestamp)"
-        >
-          {{ relativeTime(message.content.timestamp) }}
+  <template v-else-if="message.type === 'assistant'">
+    <div
+      v-if="props.renderAsSummaryCard"
+      class="assistant-summary-card-block flex flex-col gap-1 w-full group mt-3"
+    >
+      <div
+        v-if="props.showAssistantHeader !== false"
+        class="assistant-header-row assistant-header-summary flex items-center justify-between group"
+      >
+        <div class="assistant-brand flex items-center">
+          <Bot :size="20" class="assistant-brand-icon text-[var(--text-primary)]" :stroke-width="1.8" />
+          <PythinkerTextIcon :width="94" :height="24" />
+        </div>
+        <div class="flex items-center gap-[2px]">
+          <div
+            class="assistant-time transition text-[11px] text-[var(--text-tertiary)]"
+            :title="formatTimestampTooltip(message.content.timestamp)"
+          >
+            {{ relativeTime(message.content.timestamp) }}
+          </div>
         </div>
       </div>
+
+      <FinalSummaryCard :html-content="renderMarkdown(messageContent.content)" />
     </div>
     <div
-      class="assistant-message-content relative w-full max-w-full p-0 m-0 text-[15.5px] leading-[1.6] text-[var(--text-primary)] [&_pre:not(.shiki)]:!bg-[var(--fill-tsp-white-light)] [&_pre:not(.shiki)]:text-[var(--text-primary)]"
+      v-else
+      :class="[
+        'flex flex-col gap-1 w-full group',
+        isAssistantSummaryCompact ? 'assistant-summary-layout' : '',
+        props.showAssistantHeader === false ? 'mt-1' : 'mt-3'
+      ]"
     >
-      <div class="my-[1px]">
-        <div
-          class="message-markdown markdown-content assistant-message-text py-[3px] whitespace-pre-wrap break-words"
-          :class="{ 'message-markdown-collapsed': shouldCollapseMessageContent }"
-          v-html="renderMarkdown(messageContent.content)"
-        />
+      <div
+        v-if="props.showAssistantHeader !== false"
+        class="assistant-header-row flex items-center justify-between group"
+        :class="{ 'assistant-header-summary': isAssistantSummaryCompact }"
+      >
+        <div class="assistant-brand flex items-center">
+          <Bot :size="20" class="assistant-brand-icon text-[var(--text-primary)]" :stroke-width="1.8" />
+          <PythinkerTextIcon :width="94" :height="24" />
+        </div>
+        <div class="flex items-center gap-[2px]">
+          <div
+            class="assistant-time transition text-[11px] text-[var(--text-tertiary)]"
+            :title="formatTimestampTooltip(message.content.timestamp)"
+          >
+            {{ relativeTime(message.content.timestamp) }}
+          </div>
+        </div>
       </div>
-      <div v-if="showMessageExpandControl" class="message-collapse-overlay">
-        <button class="message-expand-btn" @click="toggleMessageExpand">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="m6 9 6 6 6-6"></path>
-          </svg>
-          <span>Expand</span>
-        </button>
+      <div
+        class="assistant-message-content relative w-full max-w-full p-0 m-0 text-[15.5px] leading-[1.6] text-[var(--text-primary)] [&_pre:not(.shiki)]:!bg-[var(--fill-tsp-white-light)] [&_pre:not(.shiki)]:text-[var(--text-primary)]"
+        :class="{ 'assistant-summary-shell': isAssistantSummaryCompact }"
+      >
+        <div class="my-[1px]">
+          <div
+            class="message-markdown markdown-content assistant-message-text py-[3px] whitespace-pre-wrap break-words"
+            :class="{
+              'message-markdown-collapsed': shouldCollapseMessageContent,
+              'assistant-summary-compact': isAssistantSummaryCompact,
+            }"
+            v-html="renderMarkdown(messageContent.content)"
+          />
+        </div>
+        <div v-if="showMessageExpandControl" class="message-collapse-overlay">
+          <button class="message-expand-btn" @click="toggleMessageExpand">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m6 9 6 6 6-6"></path>
+            </svg>
+            <span>Expand</span>
+          </button>
+        </div>
       </div>
+      <TaskCompletedFooter v-if="props.showAssistantCompletionFooter" :showRating="false" />
     </div>
-    <TaskCompletedFooter v-if="props.showAssistantCompletionFooter" :showRating="false" />
-  </div>
+  </template>
   <ToolUse v-else-if="message.type === 'tool'" :tool="toolContent" :is-active="true" @click="handleToolClick(toolContent)" />
   <div
     v-else-if="message.type === 'step'"
@@ -225,7 +260,7 @@ import { ToolContent, StepContent } from '../types/message';
 import { useRelativeTime } from '../composables/useTime';
 import { Bot } from 'lucide-vue-next';
 import AttachmentsMessage from './AttachmentsMessage.vue';
-import { ReportCard, AttachmentsInlineGrid, TaskCompletedFooter } from './report';
+import { ReportCard, AttachmentsInlineGrid, TaskCompletedFooter, FinalSummaryCard } from './report';
 import type { ReportData } from './report';
 import type { FileInfo } from '../api/file';
 import DeepResearchCard from './DeepResearchCard.vue';
@@ -233,6 +268,7 @@ import SkillDeliveryCard from './SkillDeliveryCard.vue';
 import ThinkingIndicator from './ui/ThinkingIndicator.vue';
 import { useShiki } from '@/composables/useShiki';
 import { copyToClipboard } from '../utils/dom';
+import { isStructuredSummaryAssistantMessage } from '@/utils/assistantMessageLayout';
 
 
 const props = defineProps<{
@@ -243,6 +279,7 @@ const props = defineProps<{
   showStepLeadingConnector?: boolean;
   showStepConnector?: boolean;
   showAssistantHeader?: boolean;
+  renderAsSummaryCard?: boolean;
   showAssistantCompletionFooter?: boolean;
 }>();
 
@@ -309,6 +346,11 @@ const showStepThinking = computed(() => {
   return stepContent.value.id === props.activeThinkingStepId;
 });
 
+const isAssistantSummaryCompact = computed(() => {
+  if (props.message.type !== 'assistant') return false;
+  return isStructuredSummaryAssistantMessage(messageContent.value?.content ?? '');
+});
+
 // Convert ReportContent to ReportData for the component
 const reportData = computed<ReportData>(() => {
   const content = reportContent.value;
@@ -342,7 +384,7 @@ const LONG_MESSAGE_CHAR_THRESHOLD = 700;
 const LONG_MESSAGE_LINE_THRESHOLD = 10;
 const isMessageExpanded = ref(true);
 const messageText = computed(() => {
-  if (props.message.type !== 'user' && props.message.type !== 'assistant') {
+  if (props.message.type !== 'user') {
     return '';
   }
   return messageContent.value?.content ?? '';
@@ -353,8 +395,8 @@ const isLongMessage = computed(() => {
   const lineCount = text.split(/\r?\n/).length;
   return text.length > LONG_MESSAGE_CHAR_THRESHOLD || lineCount > LONG_MESSAGE_LINE_THRESHOLD;
 });
-const shouldCollapseMessageContent = computed(() => isLongMessage.value && !isMessageExpanded.value);
-const showMessageExpandControl = computed(() => shouldCollapseMessageContent.value);
+const shouldCollapseMessageContent = computed(() => props.message.type === 'user' && isLongMessage.value && !isMessageExpanded.value);
+const showMessageExpandControl = computed(() => props.message.type === 'user' && shouldCollapseMessageContent.value);
 
 const { relativeTime } = useRelativeTime();
 
@@ -565,6 +607,64 @@ const renderMarkdown = (text: string): string => {
   line-height: 1.6;
   color: var(--text-primary);
   font-weight: 400;
+}
+
+.assistant-summary-layout {
+  gap: 0;
+}
+
+.assistant-summary-card-block {
+  max-width: 704px;
+}
+
+.assistant-header-summary,
+.assistant-summary-shell {
+  max-width: 704px;
+}
+
+.assistant-header-summary {
+  min-height: 28px;
+  margin-bottom: 0;
+}
+
+.assistant-header-summary .assistant-time {
+  opacity: 0.82;
+}
+
+.assistant-summary-compact {
+  font-size: 14.9px;
+  line-height: 1.22;
+  letter-spacing: -0.002em;
+  text-wrap: pretty;
+  white-space: normal !important;
+}
+
+.assistant-summary-compact :deep(p) {
+  margin: 0;
+}
+
+.assistant-summary-compact :deep(p + p) {
+  margin-top: 2px;
+}
+
+.assistant-summary-compact :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.assistant-summary-compact :deep(strong) {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.assistant-summary-compact :deep(ul),
+.assistant-summary-compact :deep(ol) {
+  margin: 1px 0;
+  padding-left: 1.2em;
+}
+
+.assistant-summary-compact :deep(li) {
+  margin: 0;
+  line-height: 1.2;
 }
 
 /* Markdown lists inside assistant messages */
