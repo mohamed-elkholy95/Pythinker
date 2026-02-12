@@ -36,6 +36,30 @@ class Counter:
     _values: dict[tuple, float] = field(default_factory=lambda: defaultdict(float))
     _lock: Lock = field(default_factory=Lock)
 
+    class _ValueCompat:
+        """Compatibility shim for tests expecting prometheus_client-style `_value.get(...)`."""
+
+        def __init__(self, values: dict[tuple, float]):
+            self._values = values
+
+        def get(self, key: Any, default: float = 0.0) -> float:
+            if isinstance(key, frozenset):
+                if not key:
+                    return self._values.get((), default)
+                try:
+                    normalized = tuple(value for _, value in sorted(key))
+                except Exception:
+                    return default
+                return self._values.get(normalized, default)
+            if key == ():
+                return self._values.get((), default)
+            return self._values.get(key, default)
+
+    @property
+    def _value(self) -> "Counter._ValueCompat":
+        """Backwards-compatible accessor for legacy tests."""
+        return Counter._ValueCompat(self._values)
+
     def inc(self, labels: dict[str, str] | None = None, value: float = 1.0) -> None:
         """Increment counter with given labels."""
         if labels is None:

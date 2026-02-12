@@ -21,7 +21,9 @@ tenacity>=8.2.0
 rich>=14.0.0
 markdownify>=1.2.0
 rapidfuzz>=3.9.0
-symspellpy>=6.7.8
+# 6.7.4+ currently pulls an editdistpy build path that fails in fresh CI images
+# with "ModuleNotFoundError: pkg_resources". Pin to known-good version.
+symspellpy==6.7.3
 
 # Browser automation
 playwright>=1.48.0

@@ -31,6 +31,10 @@ class MongoSessionRepository(SessionRepository):
         mongo_session = await SessionDocument.find_one(SessionDocument.session_id == session_id)
         return mongo_session.to_domain() if mongo_session else None
 
+    async def get_by_id(self, session_id: str) -> Session | None:
+        """Backward-compatible alias for find_by_id."""
+        return await self.find_by_id(session_id)
+
     async def find_by_user_id(self, user_id: str) -> list[Session]:
         """Find all sessions for a specific user"""
         mongo_sessions = (

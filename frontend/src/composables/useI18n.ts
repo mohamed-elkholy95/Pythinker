@@ -5,6 +5,12 @@ import type { Locale } from '../locales'
 
 const STORAGE_KEY = 'pythinker-locale'
 
+const canReadStorage = (): boolean =>
+  typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function'
+
+const canWriteStorage = (): boolean =>
+  typeof localStorage !== 'undefined' && typeof localStorage.setItem === 'function'
+
 // Get browser language and map to supported locale
 const getBrowserLocale = (): Locale => {
   // Currently only English is supported
@@ -15,6 +21,10 @@ const getBrowserLocale = (): Locale => {
 
 // Get current language from localStorage, default to browser language
 const getStoredLocale = (): Locale => {
+  if (!canReadStorage()) {
+    return getBrowserLocale()
+  }
+
   const storedLocale = localStorage.getItem(STORAGE_KEY)
   return (storedLocale as Locale) || getBrowserLocale()
 }
@@ -40,7 +50,9 @@ export function useLocale() {
   const setLocale = (locale: Locale) => {
     i18n.global.locale.value = locale
     currentLocale.value = locale
-    localStorage.setItem(STORAGE_KEY, locale)
+    if (canWriteStorage()) {
+      localStorage.setItem(STORAGE_KEY, locale)
+    }
     document.querySelector('html')?.setAttribute('lang', locale)
   }
 

@@ -94,22 +94,22 @@ class TestStepLimits:
     """Tests for step limit functions."""
 
     def test_simple_task_limits(self):
-        """Simple tasks should have 1-3 step limits."""
+        """Simple tasks should have 1-2 step limits."""
         min_steps, max_steps = get_step_limits("simple")
         assert min_steps == 1
-        assert max_steps == 3
+        assert max_steps == 2
 
     def test_medium_task_limits(self):
-        """Medium tasks should have 3-6 step limits."""
+        """Medium tasks should have 2-4 step limits."""
         min_steps, max_steps = get_step_limits("medium")
-        assert min_steps == 3
-        assert max_steps == 6
+        assert min_steps == 2
+        assert max_steps == 4
 
     def test_complex_task_limits(self):
-        """Complex tasks should have 5-12 step limits."""
+        """Complex tasks should have 3-6 step limits."""
         min_steps, max_steps = get_step_limits("complex")
-        assert min_steps == 5
-        assert max_steps == 12
+        assert min_steps == 3
+        assert max_steps == 6
 
     def test_unknown_complexity_uses_defaults(self):
         """Unknown complexity should use default limits."""

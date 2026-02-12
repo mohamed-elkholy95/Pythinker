@@ -134,6 +134,7 @@ class TokenManager:
         max_context_tokens: int | None = None,
         safety_margin: int | None = None,
         enable_cache: bool = True,
+        session_id: str | None = None,
     ):
         """
         Initialize the token manager.
@@ -143,6 +144,7 @@ class TokenManager:
             max_context_tokens: Override for max context tokens
             safety_margin: Override for safety margin
             enable_cache: Enable token count caching (default: True)
+            session_id: Optional session ID for logging/metrics context
         """
         self._model_name = model_name
         self._encoding = self._get_encoding(model_name)
@@ -153,9 +155,13 @@ class TokenManager:
         if safety_margin is None:
             from app.core.config import get_settings
 
-            safety_margin = get_settings().token_safety_margin
+            settings = get_settings()
+            configured_margin = getattr(settings, "token_safety_margin", self.SAFETY_MARGIN)
+            safety_margin = self.SAFETY_MARGIN if configured_margin is None else int(configured_margin)
         self._safety_margin = safety_margin
         self._effective_limit = self._max_tokens - self._safety_margin
+        # Backward-compatible alias used by some tests/callers.
+        self._max_effective_tokens = self._effective_limit
 
         # Token count cache (content_hash -> token_count)
         self._enable_cache = enable_cache
@@ -165,7 +171,7 @@ class TokenManager:
 
         # Phase 4 P1: Graceful compaction control
         self._compaction_allowed = True  # Gate for compaction timing
-        self._session_id: str | None = None  # For logging context
+        self._session_id: str | None = session_id  # For logging context
 
         # Predictive context management: growth rate tracking
         self._growth_history: list[tuple[float, int]] = []  # (timestamp, token_count)
@@ -650,15 +656,7 @@ class TokenManager:
         usage_ratio = current_tokens / self._effective_limit
         available = self._effective_limit - current_tokens
 
-        # Determine pressure level
-        if usage_ratio >= self.PRESSURE_THRESHOLDS["overflow"]:
-            level = PressureLevel.OVERFLOW
-        elif usage_ratio >= self.PRESSURE_THRESHOLDS["critical"]:
-            level = PressureLevel.CRITICAL
-        elif usage_ratio >= self.PRESSURE_THRESHOLDS["warning"]:
-            level = PressureLevel.WARNING
-        else:
-            level = PressureLevel.NORMAL
+        level = self._pressure_level_for_usage(usage_ratio)
 
         # Generate recommendations based on level
         recommendations = self._get_pressure_recommendations(level, usage_ratio)
@@ -671,6 +669,18 @@ class TokenManager:
             available_tokens=available,
             recommendations=recommendations,
         )
+
+    def _pressure_level_for_usage(self, usage_ratio: float) -> PressureLevel:
+        """Map a usage ratio to a canonical pressure level."""
+        if usage_ratio >= self.PRESSURE_THRESHOLDS["overflow"]:
+            return PressureLevel.OVERFLOW
+        if usage_ratio >= self.PRESSURE_THRESHOLDS["critical"]:
+            return PressureLevel.CRITICAL
+        if usage_ratio >= self.PRESSURE_THRESHOLDS["warning"]:
+            return PressureLevel.WARNING
+        if usage_ratio >= self.PRESSURE_THRESHOLDS["early_warning"]:
+            return PressureLevel.EARLY_WARNING
+        return PressureLevel.NORMAL
 
     def _get_pressure_recommendations(self, level: PressureLevel, usage_ratio: float) -> list[str]:
         """Generate recommendations based on pressure level"""
@@ -921,15 +931,20 @@ class TokenManager:
         """Set session ID for logging context (Phase 4 P1)."""
         self._session_id = session_id
 
-    def check_pressure(self, messages: list[dict[str, Any]]) -> PressureStatus:
+    def check_pressure(self, messages: list[dict[str, Any]] | int) -> PressureStatus | PressureLevel:
         """Check token pressure and log metrics (Phase 4 P1).
 
         Args:
-            messages: List of messages to check
+            messages: List of messages to check, or raw token count for compatibility
 
         Returns:
-            PressureStatus with current pressure information
+            PressureStatus with current pressure information, or PressureLevel when
+            called with a raw integer token count.
         """
+        if isinstance(messages, int):
+            usage_ratio = messages / self._effective_limit if self._effective_limit > 0 else 1.0
+            return self._pressure_level_for_usage(usage_ratio)
+
         status = self.get_context_pressure(messages)
 
         # Record metric via domain port

@@ -686,8 +686,6 @@ async def get_vnc_screenshot(
     """Get VNC screenshot from sandbox"""
     from fastapi.responses import Response
 
-    from app.infrastructure.external.http_pool import HTTPClientPool
-
     # Check if session exists and belongs to user
     session = await agent_service.get_session(session_id, current_user.id)
     if not session:
@@ -703,23 +701,10 @@ async def get_vnc_screenshot(
 
     # Fetch screenshot from sandbox with quality and scale parameters
     try:
-        import time
-
-        timestamp = int(time.time() * 1000)
-        logger.info(f"[VNC Screenshot] Fetching from sandbox {sandbox.base_url}, session={session_id}, ts={timestamp}")
-
-        client = await HTTPClientPool.get_client(
-            f"vnc-screenshot-{session.sandbox_id}", base_url=sandbox.base_url, timeout=10.0
-        )
-        response = await client.get(
-            "/api/v1/vnc/screenshot",
-            params={"quality": quality, "scale": scale, "format": "jpeg", "_t": timestamp},
-            headers={"Cache-Control": "no-cache, no-store"},
-        )
-        response.raise_for_status()
+        response = await sandbox.get_screenshot(quality=quality, scale=scale, format="jpeg")
 
         content_size = len(response.content)
-        logger.info(f"[VNC Screenshot] Received {content_size} bytes from sandbox")
+        logger.info("Fetched VNC screenshot for session %s (%d bytes)", session_id, content_size)
 
         return Response(
             content=response.content,
@@ -728,7 +713,6 @@ async def get_vnc_screenshot(
                 "Cache-Control": "no-cache, no-store, must-revalidate",
                 "Pragma": "no-cache",
                 "Expires": "0",
-                "X-Screenshot-Timestamp": str(timestamp),
                 "X-Screenshot-Size": str(content_size),
             },
         )
@@ -1000,11 +984,17 @@ async def get_screenshot_image(
     if not session:
         raise NotFoundError("Session not found")
 
-    image_data, content_type = await screenshot_query_service.get_image_bytes(
+    image_result = await screenshot_query_service.get_image_bytes(
         session_id=session_id,
         screenshot_id=screenshot_id,
         thumbnail=thumbnail,
     )
+    if isinstance(image_result, tuple):
+        image_data = image_result[0] if len(image_result) >= 1 else None
+        content_type = image_result[1] if len(image_result) >= 2 else "image/jpeg"
+    else:
+        image_data = image_result
+        content_type = "image/jpeg"
     if image_data is None:
         raise NotFoundError("Screenshot not found")
 
@@ -1067,11 +1057,17 @@ async def get_shared_screenshot_image(
     if not session:
         raise NotFoundError("Shared session not found")
 
-    image_data, content_type = await screenshot_query_service.get_image_bytes(
+    image_result = await screenshot_query_service.get_image_bytes(
         session_id=session_id,
         screenshot_id=screenshot_id,
         thumbnail=thumbnail,
     )
+    if isinstance(image_result, tuple):
+        image_data = image_result[0] if len(image_result) >= 1 else None
+        content_type = image_result[1] if len(image_result) >= 2 else "image/jpeg"
+    else:
+        image_data = image_result
+        content_type = "image/jpeg"
     if image_data is None:
         raise NotFoundError("Screenshot not found")
 

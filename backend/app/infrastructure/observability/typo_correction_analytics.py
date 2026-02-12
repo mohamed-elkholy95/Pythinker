@@ -128,8 +128,10 @@ def get_typo_correction_analytics() -> TypoCorrectionAnalytics:
         from app.core.config import get_settings
 
         settings = get_settings()
+        storage_path = getattr(settings, "typo_correction_feedback_store_path", "data/typo_correction_feedback.json")
+        min_feedback_occurrences = getattr(settings, "typo_correction_feedback_min_occurrences", 3)
         _typo_correction_analytics = TypoCorrectionAnalytics(
-            storage_path=Path(settings.typo_correction_feedback_store_path),
-            min_feedback_occurrences=settings.typo_correction_feedback_min_occurrences,
+            storage_path=Path(storage_path),
+            min_feedback_occurrences=min_feedback_occurrences,
         )
     return _typo_correction_analytics

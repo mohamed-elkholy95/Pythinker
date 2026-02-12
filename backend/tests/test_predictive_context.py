@@ -112,21 +112,21 @@ class TestPredictivePressure:
         """Test that predicted level escalates appropriately."""
         tm = TokenManager(max_context_tokens=32000)
 
-        # effective = 32000 - 4096 = 27904
+        # effective = 32000 - 2048 = 29952
         # Mock count_tokens to return a controlled value that lands in CRITICAL range
-        # CRITICAL range: 0.70 * 27904 = 19533 to 0.85 * 27904 = 23718
+        # CRITICAL threshold: >= 0.80 * 29952 = 23961.6
         messages = [{"role": "user", "content": "test message"}]
 
-        with patch.object(tm, "count_tokens", return_value=17000):
+        with patch.object(tm, "count_tokens", return_value=19000):
             # With 2000 tokens/step growth, 3 steps = +6000 tokens
-            # 17000 + 6000 = 23000, 23000/27904 ≈ 0.824 = CRITICAL
+            # 19000 + 6000 = 25000, 25000/29952 ≈ 0.835 = CRITICAL
             tm._default_growth_rate = 2000
 
             predicted = tm.predict_pressure(messages, steps_ahead=3)
 
-            # Predicted tokens should be approximately 17000 + 6000 = 23000
-            assert 22500 <= predicted.current_tokens <= 23500
-            # 23000 / effective_limit ≈ 0.824, within CRITICAL (0.70-0.85)
+            # Predicted tokens should be approximately 19000 + 6000 = 25000
+            assert 24500 <= predicted.current_tokens <= 25500
+            # 25000 / effective_limit ≈ 0.835, within CRITICAL (>=0.80)
             assert predicted.level == PressureLevel.CRITICAL
 
     def test_predict_pressure_recommendations(self):

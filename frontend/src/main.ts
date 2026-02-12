@@ -33,11 +33,14 @@ import ShareLayout from './pages/ShareLayout.vue';
 import SessionHistoryPage from './pages/SessionHistoryPage.vue';
 import CanvasPage from './pages/CanvasPage.vue'
 
-const storedTheme = localStorage.getItem('bolt_theme')
-const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches
+const canReadStorage = typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function'
+const storedTheme = canReadStorage ? localStorage.getItem('bolt_theme') : null
+const prefersDark = typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches
 const resolvedTheme = storedTheme ?? (prefersDark ? 'dark' : 'light')
-document.documentElement.setAttribute('data-theme', resolvedTheme)
-document.documentElement.classList.toggle('dark', resolvedTheme === 'dark')
+if (typeof document !== 'undefined') {
+  document.documentElement.setAttribute('data-theme', resolvedTheme)
+  document.documentElement.classList.toggle('dark', resolvedTheme === 'dark')
+}
 
 configure({
   tagId: 'G-XCRZ3HH31S' // Replace with your own Google Analytics tag ID

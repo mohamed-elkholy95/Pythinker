@@ -65,8 +65,9 @@ async def outbox_repo():
 @pytest.fixture(scope="function")
 async def memories_collection():
     """Get memories collection with cleanup."""
-    db = get_mongodb().database
-    collection = db.memories
+    mongodb = get_mongodb()
+    await mongodb.initialize()
+    collection = mongodb.database.memories
 
     yield collection
 
@@ -120,7 +121,7 @@ class TestFailedSyncRetry:
             "memory_type": "fact",
             "importance": "medium",
             "embedding": [0.1] * 1536,
-            "sparse_vector": {0: 0.5},
+            "sparse_vector": {"0": 0.5},
             "tags": [],
             "sync_state": "failed",
             "sync_attempts": 2,
@@ -232,7 +233,7 @@ class TestMissingVectorDetection:
             "memory_type": "fact",
             "importance": "medium",
             "embedding": [0.2] * 1536,
-            "sparse_vector": {0: 0.6},
+            "sparse_vector": {"0": 0.6},
             "tags": [],
             "sync_state": "synced",  # Marked as synced but vector missing
             "created_at": datetime.utcnow(),

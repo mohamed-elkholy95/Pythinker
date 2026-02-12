@@ -32,13 +32,14 @@ async def test_rating_requires_session_ownership():
     other_user_session = Session(
         id="session-123",
         user_id="user-2",  # Different user
+        agent_id="agent-2",
         prompt="test",
         status=SessionStatus.COMPLETED,
     )
 
     # Mock repository
     session_repository = Mock(spec=MongoSessionRepository)
-    session_repository.get_by_id = AsyncMock(return_value=other_user_session)
+    session_repository.find_by_id = AsyncMock(return_value=other_user_session)
 
     # Mock services
     rating_service = Mock(spec=RatingService)
@@ -77,13 +78,14 @@ async def test_rating_allowed_for_own_session():
     own_session = Session(
         id="session-123",
         user_id="user-1",  # Same user
+        agent_id="agent-1",
         prompt="test",
         status=SessionStatus.COMPLETED,
     )
 
     # Mock repository
     session_repository = Mock(spec=MongoSessionRepository)
-    session_repository.get_by_id = AsyncMock(return_value=own_session)
+    session_repository.find_by_id = AsyncMock(return_value=own_session)
 
     # Mock services
     rating_service = Mock(spec=RatingService)
@@ -126,7 +128,7 @@ async def test_rating_nonexistent_session_returns_404():
 
     # Mock repository returning None (session not found)
     session_repository = Mock(spec=MongoSessionRepository)
-    session_repository.get_by_id = AsyncMock(return_value=None)
+    session_repository.find_by_id = AsyncMock(return_value=None)
 
     # Mock services
     rating_service = Mock(spec=RatingService)
@@ -166,12 +168,13 @@ async def test_unauthorized_rating_increments_metric():
     other_user_session = Session(
         id="session-123",
         user_id="user-2",
+        agent_id="agent-2",
         prompt="test",
         status=SessionStatus.COMPLETED,
     )
 
     session_repository = Mock(spec=MongoSessionRepository)
-    session_repository.get_by_id = AsyncMock(return_value=other_user_session)
+    session_repository.find_by_id = AsyncMock(return_value=other_user_session)
 
     rating_service = Mock(spec=RatingService)
     email_service = Mock(spec=EmailService)
@@ -210,7 +213,7 @@ async def test_validation_error_on_repository_failure():
 
     # Mock repository raising an error
     session_repository = Mock(spec=MongoSessionRepository)
-    session_repository.get_by_id = AsyncMock(side_effect=Exception("Database error"))
+    session_repository.find_by_id = AsyncMock(side_effect=Exception("Database error"))
 
     rating_service = Mock(spec=RatingService)
     email_service = Mock(spec=EmailService)

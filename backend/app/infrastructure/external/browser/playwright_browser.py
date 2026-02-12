@@ -240,7 +240,7 @@ class PlaywrightBrowser:
 
     def __init__(
         self,
-        cdp_url: str,
+        cdp_url: str | None = None,
         block_resources: bool = False,
         blocked_types: set[str] | None = None,
         randomize_fingerprint: bool = True,
@@ -248,7 +248,8 @@ class PlaywrightBrowser:
         """Initialize PlaywrightBrowser
 
         Args:
-            cdp_url: Chrome DevTools Protocol URL for connection
+            cdp_url: Chrome DevTools Protocol URL for connection. If omitted,
+                falls back to configured default or localhost CDP.
             block_resources: Whether to block unnecessary resources (images, ads, etc.)
             blocked_types: Set of resource types to block (e.g., {"image", "font"})
             randomize_fingerprint: Whether to randomize browser fingerprint (default: True)
@@ -259,7 +260,8 @@ class PlaywrightBrowser:
         self.playwright = None
         self.llm = get_llm()
         self.settings = get_settings()
-        self.cdp_url = cdp_url
+        configured_cdp_url = getattr(self.settings, "browser_cdp_url", None)
+        self.cdp_url = cdp_url or configured_cdp_url or "ws://localhost:9222"
         self.block_resources = block_resources
         self.blocked_types = blocked_types or BLOCKABLE_RESOURCE_TYPES if block_resources else set()
         self._interactive_elements_cache: list[dict] = []
@@ -425,7 +427,7 @@ class PlaywrightBrowser:
             Dict with title, summary, url
         """
         if not self.page:
-            return {"title": "", "summary": "", "url": ""}
+            return {"title": "", "summary": "", "content": "", "text": "", "url": ""}
 
         try:
             summary_data = await self._evaluate_with_timeout(
@@ -460,13 +462,15 @@ class PlaywrightBrowser:
                 return {
                     "title": summary_data.get("title", ""),
                     "summary": summary_data.get("summary", ""),
+                    "content": summary_data.get("summary", ""),
+                    "text": summary_data.get("summary", ""),
                     "url": self.page.url,
                     "mode": "wikipedia_summary",
                 }
         except Exception as e:
             logger.warning(f"Wikipedia summary extraction failed: {e}")
 
-        return {"title": "", "summary": "", "url": self.page.url if self.page else ""}
+        return {"title": "", "summary": "", "content": "", "text": "", "url": self.page.url if self.page else ""}
 
     async def _check_memory_pressure(self) -> dict[str, Any] | None:
         """Check browser memory usage via CDP Performance.getMetrics().
@@ -1265,6 +1269,10 @@ class PlaywrightBrowser:
 
         return False
 
+    async def start(self, clear_existing: bool = False) -> bool:
+        """Backward-compatible alias for initialize()."""
+        return await self.initialize(clear_existing=clear_existing)
+
     async def cleanup(self):
         """Clean up Playwright resources safely
 
@@ -1320,6 +1328,10 @@ class PlaywrightBrowser:
             self.context = None
             self.browser = None
             self.playwright = None
+
+    async def close(self) -> None:
+        """Backward-compatible alias for cleanup()."""
+        await self.cleanup()
 
     async def _ensure_browser(self) -> None:
         """Ensure browser connection is active and healthy
@@ -1582,6 +1594,10 @@ class PlaywrightBrowser:
             )
 
         return content
+
+    async def _extract_page_content(self) -> str:
+        """Backward-compatible alias for page content extraction."""
+        return await self._extract_content()
 
     async def view_page(self, wait_for_load: bool = True) -> ToolResult:
         """View visible elements within the current page's viewport.
@@ -1883,7 +1899,7 @@ class PlaywrightBrowser:
         url: str,
         timeout: int | None = 30000,  # noqa: ASYNC109
         wait_until: str = "domcontentloaded",
-        auto_extract: bool = False,
+        auto_extract: bool = True,
     ) -> ToolResult:
         """Navigate to the specified URL with automatic content loading and extraction
 
@@ -1909,7 +1925,13 @@ class PlaywrightBrowser:
         async with self._navigation_lock:
             return await self._navigate_impl(url, timeout, wait_until, auto_extract)
 
-    async def _navigate_impl(self, url: str, timeout: int | None, wait_until: str, auto_extract: bool) -> ToolResult:  # noqa: ASYNC109
+    async def _navigate_impl(
+        self,
+        url: str,
+        timeout: int | None = 30000,  # noqa: ASYNC109
+        wait_until: str = "domcontentloaded",
+        auto_extract: bool = True,
+    ) -> ToolResult:
         """Internal navigate implementation (caller must hold _navigation_lock)."""
         await self._ensure_page()
 
@@ -1948,7 +1970,7 @@ class PlaywrightBrowser:
                         browser_heavy_page_detections_total,
                     )
 
-                    browser_heavy_page_detections_total.inc(labels={"detection_method": "proactive"})
+                    browser_heavy_page_detections_total.inc(labels={"detection_method": "quick_check"})
 
             # AUTOMATIC BEHAVIOR: Smart scroll to load lazy content comprehensively
             # Priority 1: Skip smart scroll for Wikipedia and heavy pages to prevent crashes
@@ -2003,7 +2025,7 @@ class PlaywrightBrowser:
                         logger.info(f"Wikipedia summary extracted ({len(result_data['content'])} chars) from {url}")
                     else:
                         # Extract content automatically
-                        content = await self._extract_content()
+                        content = await self._extract_page_content()
                         title = await self.page.title()
 
                         result_data["content"] = content
@@ -2064,7 +2086,7 @@ class PlaywrightBrowser:
                 # Try to extract content even after timeout
                 if auto_extract:
                     try:
-                        content = await self._extract_content()
+                        content = await self._extract_page_content()
                         title = await self.page.title()
                         result_data["content"] = content
                         result_data["title"] = title
@@ -2082,7 +2104,7 @@ class PlaywrightBrowser:
                 self._connection_healthy = False
 
                 # Priority 1: Graceful degradation - return partial result instead of failing
-                if settings.browser_graceful_degradation:
+                if settings.browser_graceful_degradation and auto_extract:
                     logger.info("Graceful degradation enabled - returning partial result instead of failure")
                     try:
                         # Try to get whatever info we can before crash
