@@ -461,7 +461,7 @@ class AgentDomainService:
             if result and (result.file_id or result.filename):
                 resolved.append(result)
 
-        return resolved if resolved else None
+        return resolved or None
 
     async def _build_reactivation_context(self, session_id: str) -> str | None:
         """Build a summary of recent session history for reactivation context."""
@@ -636,7 +636,7 @@ class AgentDomainService:
             context_message = MessageEvent(
                 message=f"""[User Browser Interaction]
 The user interacted with the browser directly.
-User's summary: {context_text if context_text else "No details provided."}
+User's summary: {context_text or "No details provided."}
 
 NOTE: The browser state may have changed. When you next use the browser:
 1. Take a fresh screenshot to see the current state

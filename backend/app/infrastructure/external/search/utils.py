@@ -75,7 +75,7 @@ def extract_text_from_tag(tag: Tag | None, strip: bool = True) -> str:
     if tag is None:
         return ""
     text = tag.get_text(strip=strip)
-    return text if text else ""
+    return text or ""
 
 
 def find_snippet_from_patterns(

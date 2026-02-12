@@ -433,7 +433,7 @@ class FileTool(BaseTool):
                     message=f"Failed to read data file: {read_result.message}",
                 )
 
-            content = read_result.data if read_result.data else ""
+            content = read_result.data or ""
             result_data["content_preview"] = content[:5000] if len(content) > 5000 else content
 
             extension = result_data["extension"]
@@ -516,7 +516,7 @@ class FileTool(BaseTool):
                     message=f"Failed to read file: {read_result.message}",
                 )
 
-            content = read_result.data if read_result.data else ""
+            content = read_result.data or ""
             result_data["content_preview"] = content[:5000]
             result_data["line_count"] = content.count("\n") + 1
 

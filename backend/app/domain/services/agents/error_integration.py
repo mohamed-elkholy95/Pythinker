@@ -241,7 +241,7 @@ class ErrorIntegrationBridge:
                     progress=None,
                     recent_actions=None,
                     stuck_analysis=self._stuck_detector.get_analysis() if self._stuck_detector else None,
-                    token_usage_pct=health.token_usage_pct if health.token_usage_pct else None,
+                    token_usage_pct=health.token_usage_pct or None,
                 )
                 health.predicted_failure = prediction.will_fail
                 health.failure_probability = prediction.probability

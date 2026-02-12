@@ -29,7 +29,7 @@ class PlanValidationReport:
         return not self.errors
 
     def to_summary(self, max_items: int = 5) -> str:
-        items = self.errors if self.errors else self.warnings
+        items = self.errors or self.warnings
         if not items:
             return "No issues detected."
         return "\n- " + "\n- ".join(items[:max_items])

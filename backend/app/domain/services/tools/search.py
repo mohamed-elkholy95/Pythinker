@@ -368,7 +368,7 @@ class SearchTool(BaseTool):
                 )
 
             # Extract content from browser view
-            content = view_result.message if view_result.message else ""
+            content = view_result.message or ""
 
             # Build result message
             message = "[BROWSER SEARCH - visible in sandbox]\n"

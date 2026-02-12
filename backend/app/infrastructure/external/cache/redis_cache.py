@@ -125,7 +125,7 @@ class RedisCache:
             await self._ensure_initialized()
 
             keys = await self.redis_client.client.keys(pattern)
-            return keys if keys else []
+            return keys or []
 
         except Exception as e:
             logger.error(f"Failed to get keys with pattern {pattern}: {e!s}")

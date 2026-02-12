@@ -173,7 +173,7 @@ IMPORTANT:
 5. Note any limitations or caveats
 
 Available Citations:
-{citation_context if citation_context else "No citations available - note this limitation"}
+{citation_context or "No citations available - note this limitation"}
 """
 
         user_prompt = f"""Generate a comprehensive {report_type} report based on this research:

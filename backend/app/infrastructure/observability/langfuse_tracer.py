@@ -131,7 +131,7 @@ class LangfuseTracer(LLMTracerInterface):
                 **metadata,
             },
             level="ERROR" if error else "DEFAULT",
-            status_message=error if error else None,
+            status_message=error or None,
         )
 
         # Calculate cost
@@ -212,7 +212,7 @@ class LangfuseTracer(LLMTracerInterface):
                 **metadata,
             },
             level="ERROR" if error else "DEFAULT",
-            status_message=error if error else None,
+            status_message=error or None,
         )
 
         # Build return trace

@@ -136,7 +136,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             status_code=504,
             content=APIResponse(
                 code=504,
-                msg=str(exc) if str(exc) else "Operation timed out",
+                msg=str(exc) or "Operation timed out",
                 data={"recoverable": True, "retry_after_seconds": 5},
             ).model_dump(),
             headers={"Retry-After": "5"},

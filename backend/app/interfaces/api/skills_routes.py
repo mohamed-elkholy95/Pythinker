@@ -725,7 +725,7 @@ async def update_custom_skill(
                 detail=f"Invalid invocation_type: {request.invocation_type}. Must be 'user', 'ai', or 'both'",
             ) from e
     if request.allowed_tools is not None:
-        skill.allowed_tools = request.allowed_tools if request.allowed_tools else None
+        skill.allowed_tools = request.allowed_tools or None
     if request.supports_dynamic_context is not None:
         skill.supports_dynamic_context = request.supports_dynamic_context
     if request.trigger_patterns is not None:

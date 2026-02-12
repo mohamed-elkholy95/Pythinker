@@ -71,6 +71,8 @@ ignore = [
     "S105",     # hardcoded-password-string (many false positives)
     "S106",     # hardcoded-password-func-arg
     "S108",     # hardcoded-temp-file (we use /tmp safely)
+    "ASYNC240", # async-path - using pathlib in async (requires extensive refactoring)
+    "ASYNC250", # async-blocking-call - blocking calls in async (requires extensive refactoring)
 ]
 
 # Allow fix for all enabled rules (when `--fix` is provided)
