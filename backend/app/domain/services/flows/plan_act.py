@@ -252,7 +252,7 @@ class PlanActFlow(BaseFlow):
         tools = [
             ShellTool(sandbox),
             BrowserTool(browser),
-            FileTool(sandbox),
+            FileTool(sandbox, session_id=session_id),
             CodeExecutorTool(sandbox=sandbox, session_id=session_id),
             MessageTool(),
             IdleTool(),

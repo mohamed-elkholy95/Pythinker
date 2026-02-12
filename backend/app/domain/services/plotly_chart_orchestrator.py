@@ -8,14 +8,20 @@ the Plotly chart generator script in the sandbox.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import uuid
 from dataclasses import dataclass
 
 from app.domain.external.sandbox import Sandbox
 from app.domain.services.comparison_chart_generator import ComparisonChartGenerator
 
 logger = logging.getLogger(__name__)
+
+# Sandbox venv python path (plotly is installed in the runtime venv)
+_VENV_PYTHON = "/opt/base-python-venv/bin/python3"
+_CHART_SCRIPT = "/app/scripts/generate_comparison_chart_plotly.py"
 
 
 @dataclass(frozen=True)
@@ -32,15 +38,23 @@ class PlotlyChartResult:
 
 
 class PlotlyChartOrchestrator:
-    """Orchestrates Plotly chart generation in the sandbox."""
+    """Orchestrates Plotly chart generation in the sandbox.
 
-    def __init__(self, sandbox: Sandbox):
+    Uses the sandbox ``exec_command`` API to:
+    1. Write the chart specification JSON to a temporary file in the sandbox.
+    2. Execute the Plotly generation script piping that file as stdin.
+    3. Parse the JSON result from the script's stdout.
+    """
+
+    def __init__(self, sandbox: Sandbox, session_id: str):
         """Initialize orchestrator.
 
         Args:
             sandbox: Sandbox instance for running chart generation script
+            session_id: Session ID for sandbox command execution
         """
         self._sandbox = sandbox
+        self._session_id = session_id
         # Reuse existing table detection logic
         self._legacy_generator = ComparisonChartGenerator()
 
@@ -104,22 +118,42 @@ class PlotlyChartOrchestrator:
 
         # Run Plotly chart generator script in sandbox
         try:
-            script_cmd = "python3 /app/scripts/generate_comparison_chart_plotly.py"
-            result = await self._sandbox.shell_exec(script_cmd, stdin_data=json.dumps(script_input))
-
-            if not result.success:
-                logger.error(f"Plotly chart generation script failed: {result.message}")
+            # Write chart input JSON to a temp file in the sandbox
+            tmp_input = f"/tmp/plotly_input_{uuid.uuid4().hex[:8]}.json"
+            write_result = await self._sandbox.file_write(
+                file=tmp_input,
+                content=json.dumps(script_input),
+            )
+            if not write_result.success:
+                logger.error("Failed to write Plotly input to sandbox: %s", write_result.message)
                 return None
 
-            # Parse JSON output from script
+            # Execute the chart generation script, piping the temp file as stdin
+            command = f"{_VENV_PYTHON} {_CHART_SCRIPT} < {tmp_input}"
+            result = await self._sandbox.exec_command(
+                session_id=self._session_id,
+                exec_dir="/home/ubuntu",
+                command=command,
+            )
+
+            # Clean up temp file (best-effort)
+            with contextlib.suppress(Exception):
+                await self._sandbox.file_delete(path=tmp_input)
+
+            if not result.success:
+                logger.error("Plotly chart generation script failed: %s", result.message)
+                return None
+
+            # Parse JSON output from script stdout
+            raw_output = (result.data if isinstance(result.data, str) else result.message) or ""
             try:
-                output = json.loads(result.result.strip())
+                output = json.loads(raw_output.strip())
             except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse Plotly script output: {e}\nOutput: {result.result}")
+                logger.error("Failed to parse Plotly script output: %s\nOutput: %s", e, raw_output[:500])
                 return None
 
             if not output.get("success"):
-                logger.error(f"Plotly script reported failure: {output.get('error')}")
+                logger.error("Plotly script reported failure: %s", output.get("error"))
                 return None
 
             return PlotlyChartResult(
@@ -132,6 +166,6 @@ class PlotlyChartOrchestrator:
                 chart_kind="bar",
             )
 
-        except Exception as e:
-            logger.exception(f"Plotly chart orchestration failed: {e}")
+        except Exception:
+            logger.exception("Plotly chart orchestration failed")
             return None

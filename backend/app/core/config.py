@@ -87,9 +87,10 @@ class Settings(BaseSettings):
     redis_retry_on_timeout: bool = True  # Retry on timeout
 
     # MinIO S3 Object Storage configuration
+    # Credentials MUST be provided via environment variables (no hardcoded secrets)
     minio_endpoint: str = "minio:9000"
-    minio_access_key: str = "pythinker"
-    minio_secret_key: str = "pythinker123"
+    minio_access_key: str  # Required: set MINIO_ACCESS_KEY in .env
+    minio_secret_key: str  # Required: set MINIO_SECRET_KEY in .env
     minio_bucket_name: str = "pythinker"
     minio_use_ssl: bool = False
     minio_region: str = "us-east-1"

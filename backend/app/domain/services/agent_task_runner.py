@@ -245,7 +245,7 @@ class AgentTaskRunner(TaskRunner):
         self._tool_event_handler = ToolEventHandler()
         self._comparison_chart_generator = ComparisonChartGenerator()
         # Phase 4: Plotly chart orchestrator (feature-flagged)
-        self._plotly_chart_orchestrator = PlotlyChartOrchestrator(sandbox=self._sandbox)
+        self._plotly_chart_orchestrator = PlotlyChartOrchestrator(sandbox=self._sandbox, session_id=session_id)
 
         # Initialize flows based on mode
         self._plan_act_flow: PlanActFlow | None = None
