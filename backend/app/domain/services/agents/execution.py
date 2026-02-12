@@ -44,6 +44,7 @@ from app.domain.services.agents.reward_scoring import RewardScorer
 from app.domain.services.agents.task_state_manager import get_task_state_manager
 from app.domain.services.attention_injector import AttentionInjector
 from app.domain.services.prompts.execution import (
+    CONFIRMATION_SUMMARY_PROMPT,
     EXECUTION_SYSTEM_PROMPT,
     STREAMING_SUMMARIZE_PROMPT,
     build_execution_prompt,
@@ -735,6 +736,12 @@ class ExecutionAgent(BaseAgent):
             if is_substantial or has_title or is_report_structure:
                 title = message_title or "Summary"
                 sources = self.get_collected_sources() if self._collected_sources else None
+
+                # Emit confirmation summary above the report preview
+                confirmation = await self._generate_confirmation_summary(message_content, message_title)
+                if confirmation:
+                    yield MessageEvent(message=confirmation)
+
                 report_event_id = str(uuid.uuid4())
                 yield ReportEvent(
                     id=report_event_id,
@@ -992,6 +999,28 @@ class ExecutionAgent(BaseAgent):
                 return clean[:80] + ("..." if len(clean) > 80 else "")
 
         return "Task Report"
+
+    async def _generate_confirmation_summary(self, report_content: str, title: str | None) -> str | None:
+        """Generate a brief confirmation message summarizing key findings.
+
+        Emitted as a MessageEvent before the ReportEvent so the user sees
+        a quick overview above the full report preview.
+        """
+        try:
+            # Use first ~2000 chars to keep the prompt small
+            excerpt = report_content[:2000]
+            prompt = CONFIRMATION_SUMMARY_PROMPT.format(report_content=excerpt)
+            response = await self.llm.ask(
+                [{"role": "user", "content": prompt}],
+                tools=None,
+                tool_choice=None,
+            )
+            confirmation = response.get("content", "")
+            if isinstance(confirmation, str) and len(confirmation.strip()) > 30:
+                return confirmation.strip()
+        except Exception as e:
+            logger.debug(f"Confirmation summary generation failed: {e}")
+        return None
 
     async def _generate_follow_up_suggestions(self, title: str, content: str) -> list[str]:
         """Generate follow-up suggestions grounded in session context.

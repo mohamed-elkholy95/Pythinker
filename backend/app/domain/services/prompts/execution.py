@@ -1236,6 +1236,26 @@ FORBIDDEN:
 IMPORTANT: Write ONLY the Markdown report. No JSON wrapping, no prose before or after. Start directly with the # title heading.
 """
 
+# Confirmation summary prompt - emitted as a MessageEvent before the ReportEvent
+CONFIRMATION_SUMMARY_PROMPT = """Given this completed report, write a brief confirmation message for the user.
+
+FORMAT (follow exactly):
+1. Opening sentence: "I have completed [what was done]." — confident, conversational tone
+2. "The [report/guide/analysis] covers:" followed by 3-5 bullet points
+3. Each bullet: "- **Bold Key Topic**: one-sentence description"
+4. Closing line: "You can find the detailed report below."
+
+RULES:
+- Be specific — reference actual topics and findings from the report
+- Keep each bullet to ONE sentence
+- No disclaimers, caveats, or meta-commentary
+- Total length: 80-150 words
+- Write ONLY the confirmation text, no JSON or markdown code fences
+
+REPORT CONTENT:
+{report_content}
+"""
+
 # ============================================================================
 # BUILDER FUNCTION
 # ============================================================================
