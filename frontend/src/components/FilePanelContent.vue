@@ -15,6 +15,18 @@
           </div>
           <div class="flex items-center justify-between gap-2 w-full py-3 md:w-auto md:py-0 select-none">
             <div class="flex items-center gap-2">
+              <!-- Phase 5: Open interactive chart button -->
+              <div
+                v-if="fileType.isInteractiveChart"
+                @click="openInteractiveChart"
+                class="flex h-7 px-3 items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)] rounded-md gap-1"
+                :title="'Open Interactive Chart'"
+              >
+                <svg class="size-[16px] text-[var(--icon-secondary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+                <span class="text-xs font-medium text-[var(--text-secondary)]">Open Chart</span>
+              </div>
               <div @click="download"
                 class="flex h-7 w-7 items-center justify-center cursor-pointer hover:bg-[var(--fill-tsp-gray-main)] rounded-md"
                 aria-expanded="false" aria-haspopup="dialog">
@@ -53,10 +65,17 @@ const hide = () => {
 };
 
 const fileType = computed(() => {
-  return getFileType(props.file.filename);
+  // Phase 5: Pass metadata to detect interactive charts
+  return getFileType(props.file.filename, props.file.metadata);
 });
 
 const download = async () => {
+  const url = await getFileDownloadUrl(props.file);
+  window.open(url, '_blank');
+};
+
+// Phase 5: Open interactive chart in new tab
+const openInteractiveChart = async () => {
   const url = await getFileDownloadUrl(props.file);
   window.open(url, '_blank');
 };
