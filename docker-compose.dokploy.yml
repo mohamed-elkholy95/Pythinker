@@ -251,7 +251,7 @@ services:
       start_period: 15s
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2026-02-07T07-43-34Z
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -280,13 +280,13 @@ services:
       - pythinker-network
 
   redis:
-    image: redis:7.0
+    image: redis:7-alpine
     restart: unless-stopped
     networks:
       - pythinker-network
 
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.16.3
     ports:
       - "6333:6333"
       - "6334:6334"
@@ -308,7 +308,7 @@ services:
   # ============================================================================
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.9.1
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
@@ -332,7 +332,7 @@ services:
       retries: 3
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:12.4.0
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
@@ -360,7 +360,7 @@ services:
       retries: 3
 
   loki:
-    image: grafana/loki:3.5.4
+    image: grafana/loki:3.6.5
     command: ["-config.file=/etc/loki/config.yml"]
     volumes:
       - ./loki/config.yml:/etc/loki/config.yml:ro
@@ -377,7 +377,7 @@ services:
       retries: 3
 
   promtail:
-    image: grafana/promtail:3.5.4
+    image: grafana/promtail:3.6.5
     command: ["-config.file=/etc/promtail/config.yml"]
     volumes:
       - ./promtail/config.yml:/etc/promtail/config.yml:ro
