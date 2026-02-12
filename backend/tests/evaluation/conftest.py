@@ -3,9 +3,12 @@
 Provides shared fixtures and configuration for Phase 0-5 evaluation tests.
 """
 
-from typing import Any  # noqa: I001
+from typing import Any
 
 import pytest
+
+# Base URL for API testing (must be consistent with root conftest.py)
+BASE_URL = "http://localhost:8000/api/v1"
 
 
 # =============================================================================
