@@ -553,7 +553,7 @@ const hasAgentStartedResponding = computed(() =>
 );
 
 const shouldPinComposerToBottom = computed(() =>
-  isLoading.value || hasAgentStartedResponding.value
+  isLoading.value || hasAgentStartedResponding.value || messages.value.length > 0
 );
 
 const updateChatBottomDockStyle = () => {
