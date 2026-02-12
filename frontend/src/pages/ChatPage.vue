@@ -518,6 +518,25 @@ interface PendingSessionCreateState {
   files?: FileInfo[];
 }
 
+interface SessionTitleHintDetail {
+  sessionId: string;
+  title: string;
+  status?: SessionStatus;
+}
+
+const emitSessionTitleHint = (detail: SessionTitleHintDetail) => {
+  const normalizedTitle = detail.title?.trim();
+  if (!detail.sessionId || !normalizedTitle) return;
+
+  window.dispatchEvent(new CustomEvent<SessionTitleHintDetail>('pythinker:session-title-hint', {
+    detail: {
+      sessionId: detail.sessionId,
+      title: normalizedTitle,
+      status: detail.status,
+    },
+  }));
+}
+
 const hasUserMessages = computed(() =>
   messages.value.some((message) => message.type === 'user')
 );
@@ -641,6 +660,13 @@ const initializePendingSession = async () => {
   try {
     const session = await agentApi.createSession(mode);
     sessionId.value = session.session_id;
+    if (pendingMessage) {
+      emitSessionTitleHint({
+        sessionId: session.session_id,
+        title: pendingMessage,
+        status: session.status,
+      });
+    }
 
     skipNextRouteReset.value = true;
     await router.replace({ path: `/chat/${session.session_id}` });
@@ -1230,23 +1256,90 @@ const handleToolEvent = (toolData: ToolEventData) => {
   }
 }
 
+// Handle phase event - creates/updates phase message groups
+const handlePhaseEvent = (phaseData: import('../types/event').AgentPhaseEventData) => {
+  if (phaseData.status === 'started') {
+    messages.value.push({
+      id: generateMessageId(),
+      type: 'phase',
+      content: {
+        phase_id: phaseData.phase_id,
+        phase_type: phaseData.phase_type,
+        label: phaseData.label,
+        status: phaseData.status,
+        order: phaseData.order,
+        icon: phaseData.icon,
+        color: phaseData.color,
+        total_phases: phaseData.total_phases,
+        steps: [],
+        timestamp: phaseData.timestamp || Date.now(),
+      } as import('../types/message').PhaseContent,
+    })
+  } else if (phaseData.status === 'completed' || phaseData.status === 'skipped') {
+    // Find and update the phase message
+    for (let i = messages.value.length - 1; i >= 0; i--) {
+      const msg = messages.value[i]
+      if (msg.type === 'phase') {
+        const pc = msg.content as import('../types/message').PhaseContent
+        if (pc.phase_id === phaseData.phase_id) {
+          pc.status = phaseData.status
+          if (phaseData.skip_reason) pc.skip_reason = phaseData.skip_reason
+          break
+        }
+      }
+    }
+  }
+}
+
+// Find the current active phase message (if any)
+const findActivePhaseMessage = (phaseId: string | undefined) => {
+  if (!phaseId) return null
+  for (let i = messages.value.length - 1; i >= 0; i--) {
+    const msg = messages.value[i]
+    if (msg.type === 'phase') {
+      const pc = msg.content as import('../types/message').PhaseContent
+      if (pc.phase_id === phaseId) return pc
+    }
+  }
+  return null
+}
+
 // Handle step event
 const handleStepEvent = (stepData: StepEventData) => {
   const lastStep = getLastStep();
   if (stepData.status === 'running') {
     isThinking.value = true;
+    const stepContent: StepContent = {
+      ...stepData,
+      tools: [],
+      phase_id: stepData.phase_id,
+      step_type: stepData.step_type,
+    }
+
+    // Try to nest step inside its phase group
+    const phaseContent = findActivePhaseMessage(stepData.phase_id)
+    if (phaseContent) {
+      phaseContent.steps.push(stepContent)
+    }
+
+    // Always push as top-level message too (for timeline rendering)
     messages.value.push({
       id: generateMessageId(),
       type: 'step',
-      content: {
-        ...stepData,
-        tools: []
-      } as StepContent,
+      content: stepContent,
     });
   } else if (stepData.status === 'completed') {
     isThinking.value = false;
     if (lastStep) {
       lastStep.status = stepData.status;
+    }
+    // Also update in phase
+    if (stepData.phase_id) {
+      const phaseContent = findActivePhaseMessage(stepData.phase_id)
+      if (phaseContent) {
+        const phaseStep = phaseContent.steps.find(s => s.id === stepData.id)
+        if (phaseStep) phaseStep.status = stepData.status
+      }
     }
   } else if (stepData.status === 'failed') {
     isThinking.value = false;
@@ -1279,6 +1372,13 @@ const handleErrorEvent = (errorData: ErrorEventData) => {
 // Handle title event
 const handleTitleEvent = (titleData: TitleEventData) => {
   title.value = titleData.title;
+  if (sessionId.value && titleData.title?.trim()) {
+    emitSessionTitleHint({
+      sessionId: sessionId.value,
+      title: titleData.title,
+      status: sessionStatus.value,
+    });
+  }
 }
 
 // Handle plan event
@@ -1745,6 +1845,8 @@ const processEvent = (event: AgentSSEEvent) => {
     handleToolEvent(event.data as ToolEventData);
   } else if (event.event === 'step') {
     handleStepEvent(event.data as StepEventData);
+  } else if (event.event === 'phase') {
+    handlePhaseEvent(event.data as import('../types/event').AgentPhaseEventData);
   } else if (event.event === 'done') {
     ensureCompletionSuggestions();
     isResponseSettled.value = true;

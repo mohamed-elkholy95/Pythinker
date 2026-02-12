@@ -285,9 +285,9 @@ class SandboxFilesTool(SandboxToolsBase):
             replacement_line = content.split(old_str)[0].count("\n")
             start_line = max(0, replacement_line - self.SNIPPET_LINES)
             end_line = replacement_line + self.SNIPPET_LINES + new_str.count("\n")
-            snippet = "\n".join(new_content.split("\n")[start_line : end_line + 1])
+            "\n".join(new_content.split("\n")[start_line : end_line + 1])
 
-            message = f"Replacement successful."
+            message = "Replacement successful."
 
             return self.success_response(message)
 

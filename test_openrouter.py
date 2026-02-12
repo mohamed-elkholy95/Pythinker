@@ -36,7 +36,7 @@ def test_openrouter_config():
         print(f"⚠️  WARNING: Model name doesn't contain 'nemotron', got '{settings.model_name}'")
 
     if not settings.api_key or not settings.api_key.startswith("sk-or-v1-"):
-        print(f"❌ ERROR: OpenRouter API key should start with 'sk-or-v1-'")
+        print("❌ ERROR: OpenRouter API key should start with 'sk-or-v1-'")
         return False
 
     print("✅ OpenRouter configuration is correct!")

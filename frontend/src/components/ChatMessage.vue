@@ -170,6 +170,13 @@
     </div>
     
   </div>
+  <PhaseGroup
+    v-else-if="message.type === 'phase'"
+    :phase="message.content as import('../types/message').PhaseContent"
+    :activeThinkingStepId="activeThinkingStepId"
+    :isLoading="isLoading"
+    @toolClick="handleToolClick"
+  />
   <AttachmentsMessage v-else-if="message.type === 'attachments'" :content="attachmentsContent" @fileClick="handleReportFileOpen"/>
   <div v-else-if="message.type === 'report'" class="report-message-layout flex flex-col w-full mt-3">
     <!-- Main Report Card -->
@@ -208,6 +215,7 @@
 import PythinkerTextIcon from './icons/PythinkerTextIcon.vue';
 import { Message, MessageContent, AttachmentsContent, ReportContent, DeepResearchContent, SkillDeliveryContent } from '../types/message';
 import ToolUse from './ToolUse.vue';
+import PhaseGroup from './PhaseGroup.vue';
 import { marked, Renderer } from 'marked';
 import DOMPurify from 'dompurify';
 import { CheckIcon, Copy, Check } from 'lucide-vue-next';

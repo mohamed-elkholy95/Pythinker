@@ -92,7 +92,7 @@ class SearchResponse(ToolResult):
         if self.metadata:
             result_text.extend(
                 [
-                    f"\nMetadata:",
+                    "\nMetadata:",
                     f"- Total results: {self.metadata.total_results}",
                     f"- Language: {self.metadata.language}",
                     f"- Country: {self.metadata.country}",

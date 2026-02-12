@@ -141,7 +141,7 @@ async def run(message: str, session_id: str) -> AsyncGenerator[tuple[str, dict],
         "tool_call_id": tc2, "name": "shell_exec", "status": "called",
         "function": "shell_exec",
         "args": {"command": f"python -c 'import py_compile; py_compile.compile(\"/workspace/{filename}\", doraise=True)'"},
-        "content": {"console": [{"ps1": "user@sandbox:~$", "command": f"python -c '...'", "output": ""}], "stdout": "", "exit_code": 0},
+        "content": {"console": [{"ps1": "user@sandbox:~$", "command": "python -c '...'", "output": ""}], "stdout": "", "exit_code": 0},
         "stdout": "", "exit_code": 0,
     }
     await delay(0.3)

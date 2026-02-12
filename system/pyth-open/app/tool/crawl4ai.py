@@ -208,7 +208,7 @@ class Crawl4aiTool(BaseTool):
                         failed_count += 1
 
             # Format output
-            output_lines = [f"🕷️ Crawl4AI Results Summary:"]
+            output_lines = ["🕷️ Crawl4AI Results Summary:"]
             output_lines.append(f"📊 Total URLs: {len(valid_urls)}")
             output_lines.append(f"✅ Successful: {successful_count}")
             output_lines.append(f"❌ Failed: {failed_count}")
@@ -240,7 +240,7 @@ class Crawl4aiTool(BaseTool):
                             f"   ⏱️ Time: {result['execution_time']:.2f}s"
                         )
                 else:
-                    output_lines.append(f"   ❌ Status: Failed")
+                    output_lines.append("   ❌ Status: Failed")
                     if result.get("error_message"):
                         output_lines.append(f"   🚫 Error: {result['error_message']}")
 

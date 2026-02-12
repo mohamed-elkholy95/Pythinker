@@ -3,7 +3,6 @@ import requests
 from bs4 import BeautifulSoup
 from collections import Counter
 import re
-import markdown
 
 def get_html_content(url):
     """Fetches HTML content from a given URL."""

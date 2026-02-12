@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, UploadFile, File, Form, Request
+from fastapi import APIRouter, UploadFile, File, Form
 from pydantic import BaseModel
 from stores import file_store
 
@@ -56,7 +56,8 @@ class BatchDownloadRequest(BaseModel):
 async def batch_download(req: BatchDownloadRequest):
     # Return a mock zip file
     from fastapi.responses import Response
-    import io, zipfile
+    import io
+    import zipfile
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         for fid in req.file_ids:
