@@ -5,9 +5,18 @@
       <!-- Minimal header - logo and user avatar, blended into background -->
       <div class="w-full pt-4 pb-4 px-5 sticky top-0 z-10">
         <div class="flex justify-between items-center w-full">
-          <div v-if="!isLeftPanelShow" class="h-8 relative z-20 overflow-hidden flex gap-2 items-center flex-shrink-0">
-            <Bot :size="20" class="logo-robot" :stroke-width="2.2" />
-            <PythinkerLogoTextIcon />
+          <div class="flex items-center gap-1 flex-shrink-0">
+            <button
+              class="sm:hidden h-8 w-8 inline-flex items-center justify-center rounded-lg hover:bg-[var(--fill-tsp-gray-main)] transition-colors"
+              @click="toggleLeftPanel"
+              aria-label="Open sidebar"
+            >
+              <Menu :size="20" class="text-[var(--icon-secondary)]" />
+            </button>
+            <div v-if="!isLeftPanelShow" class="h-8 relative z-20 overflow-hidden flex gap-2 items-center">
+              <Bot :size="20" class="logo-robot" :stroke-width="2.2" />
+              <PythinkerLogoTextIcon />
+            </div>
           </div>
           <div class="flex items-center gap-2 ml-auto">
             <div class="relative flex items-center" aria-expanded="false" aria-haspopup="dialog"
@@ -109,7 +118,7 @@ import { useRouter } from 'vue-router';
 import ChatBox from '../components/ChatBox.vue';
 import type { AgentMode } from '../api/agent';
 import {
-  Search, Palette, Bot,
+  Search, Palette, Bot, Menu,
   Calendar, Table2, BarChart3, Video, AudioLines, MessageSquare, BookOpen
 } from 'lucide-vue-next';
 import PythinkerLogoTextIcon from '../components/icons/PythinkerLogoTextIcon.vue';
@@ -137,7 +146,7 @@ const attachments = ref<FileInfo[]>([]);
 const pendingSkillId = ref<string | null>(null);
 const { hideFilePanel } = useFilePanel();
 const { currentUser } = useAuth();
-const { isLeftPanelShow } = useLeftPanel();
+const { isLeftPanelShow, toggleLeftPanel } = useLeftPanel();
 
 // Visible feature buttons
 const visibleFeatures: Feature[] = [
