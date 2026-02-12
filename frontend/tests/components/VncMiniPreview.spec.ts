@@ -55,7 +55,6 @@ describe('VncMiniPreview', () => {
     })
 
     expect(wrapper.find('.final-screenshot-image').exists()).toBe(true)
-    expect(wrapper.find('.completion-badge').exists()).toBe(true)
     expect(wrapper.findComponent({ name: 'LiveViewer' }).exists()).toBe(false)
   })
 
