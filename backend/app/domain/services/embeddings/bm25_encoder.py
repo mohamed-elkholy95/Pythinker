@@ -15,7 +15,6 @@ import re
 from collections import Counter
 from functools import lru_cache
 
-import numpy as np
 from rank_bm25 import BM25Okapi
 
 logger = logging.getLogger(__name__)
@@ -112,7 +111,11 @@ class BM25SparseEncoder:
         logger.info(f"BM25 encoder fitted on {self.corpus_size} documents")
 
     def encode(self, text: str) -> dict[int, float]:
-        """Generate sparse vector from text.
+        """Generate sparse vector from text using BM25 document scores.
+
+        Uses BM25Okapi.get_scores() to compute proper BM25 relevance scores
+        across all corpus documents, then aggregates per-term IDF weights
+        from the fitted model for the sparse vector representation.
 
         Args:
             text: Query or document text
@@ -124,26 +127,25 @@ class BM25SparseEncoder:
             logger.warning("BM25 not fitted, returning empty sparse vector")
             return {}
 
-        # Tokenize query
         tokens = self._tokenize(text)
-
         if not tokens:
             return {}
 
-        # Get BM25 scores for each term against all documents
-        # Then aggregate scores per term (we want term-level scores, not doc scores)
+        # Use BM25's actual per-term IDF values from the fitted model
+        # bm25.idf is a dict mapping word -> IDF score computed during fit()
         term_scores: dict[int, float] = {}
+        seen_tokens: set[str] = set()
 
         for token in tokens:
-            if token in self.vocab:
+            if token in self.vocab and token not in seen_tokens:
+                seen_tokens.add(token)
                 idx = self.vocab[token]
-                # Simple frequency-based scoring for the term
-                # In a full implementation, you'd use IDF from BM25
-                term_freq = tokens.count(token)
-                # Use BM25's IDF if available (approximate)
-                idf = np.log((self.corpus_size + 1) / (1 + 1))  # Simplified IDF
-                score = term_freq * idf
-                term_scores[idx] = term_scores.get(idx, 0.0) + float(score)
+                # Get actual IDF from BM25Okapi model
+                idf = self.bm25.idf.get(token, 0.0)
+                if idf > 0:
+                    # Weight by query term frequency * IDF
+                    tf = tokens.count(token)
+                    term_scores[idx] = float(tf * idf)
 
         if not term_scores:
             return {}
@@ -226,15 +228,12 @@ async def initialize_bm25_from_memories(memory_repository) -> None:
     """
     encoder = get_bm25_encoder()
 
-    # Fetch all memory content for corpus (limit for performance)
-    # In production, consider sampling or using a representative subset
-    memories = await memory_repository.find({}, limit=10000)
+    corpus = await memory_repository.get_all_content(limit=10000)
 
-    if not memories:
+    if not corpus:
         logger.info("No existing memories found, BM25 encoder will be trained on first write")
         return
 
-    corpus = [mem.content for mem in memories]
     encoder.fit(corpus)
 
     logger.info(f"BM25 encoder initialized with {len(corpus)} memories")

@@ -216,6 +216,20 @@ class MemoryRepository(ABC):
         ...
 
     @abstractmethod
+    async def get_all_content(self, limit: int = 10000) -> list[str]:
+        """Get content strings from all active memories (cross-user).
+
+        Used for BM25 corpus fitting at startup.
+
+        Args:
+            limit: Maximum number of memories to fetch
+
+        Returns:
+            List of memory content strings
+        """
+        ...
+
+    @abstractmethod
     async def cleanup_expired(self, user_id: str | None = None) -> int:
         """Remove expired memories.
 
