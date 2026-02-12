@@ -17,7 +17,7 @@ from app.application.services.token_service import TokenService
 from app.core.config import get_settings
 from app.core.deep_research_manager import get_deep_research_manager
 from app.domain.external.sandbox import Sandbox
-from app.domain.models.event import PlanningPhase, ProgressEvent
+from app.domain.models.event import DoneEvent, ErrorEvent, PlanningPhase, ProgressEvent
 from app.domain.models.file import FileInfo
 from app.domain.models.user import User
 from app.interfaces.dependencies import (
@@ -348,12 +348,30 @@ async def chat(
     if not session:
         raise NotFoundError("Session not found")
 
-    # Graceful shutdown: don't start full stream for already-completed sessions
-    if session.status in ("completed", "failed"):
-        logger.info(f"Session {session_id} already {session.status}, emitting done event without streaming")
+    # Short-circuit for completed/failed sessions ONLY when there is no fresh user
+    # input (pure reconnect / page-refresh).  When the request carries a message,
+    # attachments, skills, follow-up context, or deep-research flag the call must
+    # reach agent_service.chat() so the domain-level reactivation path can create a
+    # new task and re-initialise the sandbox.
+    has_fresh_input = bool(
+        (request.message and request.message.strip())
+        or request.attachments
+        or request.skills
+        or request.deep_research
+        or request.follow_up
+    )
+    if session.status in ("completed", "failed") and not has_fresh_input:
+        logger.info(f"Session {session_id} already {session.status} with no new input, emitting done event")
+
+        done_event = DoneEvent(title=session.title or "Task completed")
+        sse_done = await EventMapper.event_to_sse_event(done_event)
 
         async def completed_generator() -> AsyncGenerator[ServerSentEvent, None]:
-            yield ServerSentEvent(event="done", data='{"message": "Session already completed"}')
+            if sse_done:
+                yield ServerSentEvent(
+                    event=sse_done.event,
+                    data=sse_done.data.model_dump_json() if sse_done.data else None,
+                )
 
         return EventSourceResponse(completed_generator())
 
@@ -429,8 +447,15 @@ async def chat(
             raise
         except Exception as e:
             logger.error(f"Error in chat stream for session {session_id}: {e}")
-            # Yield error event before closing
-            yield ServerSentEvent(event="error", data=f'{{"message": "Stream error: {str(e)[:100]}"}}')
+            # Yield schema-compliant error event before closing so frontend
+            # ErrorEventData handler receives the expected `error` field.
+            error_event = ErrorEvent(error=f"Stream error: {str(e)[:100]}")
+            sse_err = await EventMapper.event_to_sse_event(error_event)
+            if sse_err:
+                yield ServerSentEvent(
+                    event=sse_err.event,
+                    data=sse_err.data.model_dump_json() if sse_err.data else None,
+                )
 
     return EventSourceResponse(event_generator())
 

@@ -1,6 +1,6 @@
 <template>
   <SimpleBar ref="simpleBarRef" @scroll="handleScroll">
-    <div id="manus-chat-box" ref="chatContainerRef" class="relative flex flex-col h-full flex-1 flex-shrink-0 min-w-0 bg-[var(--background-gray-main)]">
+    <div id="pythinker-chat-box" ref="chatContainerRef" class="relative flex flex-col h-full flex-1 flex-shrink-0 min-w-0 bg-[var(--background-gray-main)]">
       <div ref="observerRef"
         class="chat-header flex flex-row items-center pt-3 pb-1 gap-1 ps-[8px] pe-[8px] sm:ps-[16px] sm:pe-[24px] sticky top-0 z-10 flex-shrink-0 bg-[var(--background-gray-main)]">
         <!-- Mobile sidebar toggle -->
@@ -197,13 +197,6 @@
           :class="{ 'chat-bottom-dock-fixed': shouldPinComposerToBottom }"
           :style="chatBottomDockStyle"
         >
-          <button
-            @click="handleFollow"
-            v-if="!follow"
-            class="flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[var(--background-menu-white)] hover:bg-[var(--background-gray-main)] clickable border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)] absolute -top-[56px] max-sm:top-[48px] end-0 z-30"
-          >
-            <ArrowDown class="text-[var(--icon-primary)]" :size="20" />
-          </button>
           <!-- Planning Progress Indicator - shows instant feedback before plan is ready -->
           <div
             v-if="!showSessionWarmupMessage && !isToolPanelOpen && planningProgress && (!plan || plan.steps.length === 0)"
@@ -222,25 +215,36 @@
             </div>
           </div>
 
-          <!-- Task Progress Bar - shown above ChatBox when ToolPanel is closed -->
-          <TaskProgressBar
-            v-if="showTaskProgressBar"
-            :plan="plan"
-            :isLoading="isLoading"
-            :isThinking="isThinking"
-            :showThumbnail="shouldShowThumbnail"
-            :sessionId="sessionId"
-            :currentTool="currentToolInfo"
-            :toolContent="lastNoMessageTool"
-            :isInitializing="isInitializing || isSandboxInitializing"
-            :isSummaryStreaming="isSummaryStreaming"
-            :summaryStreamText="summaryStreamText"
-            :isSessionComplete="isSessionComplete"
-            :replayScreenshotUrl="replay.currentScreenshotUrl.value"
-            @openPanel="handleOpenPanel"
-            @requestRefresh="handleThumbnailRefresh"
-            class="mb-2"
-          />
+          <!-- Task Progress Bar Container - shown above ChatBox when ToolPanel is closed -->
+          <div v-if="showTaskProgressBar" class="relative mb-2">
+            <!-- Scroll to bottom button - positioned above progress bar -->
+            <button
+              @click="handleFollow"
+              v-if="!follow"
+              class="flex items-center justify-center w-[36px] h-[36px] rounded-full bg-[var(--background-menu-white)] hover:bg-[var(--background-gray-main)] clickable border border-[var(--border-main)] shadow-[0px_5px_16px_0px_var(--shadow-S),0px_0px_1.25px_0px_var(--shadow-S)] absolute end-0 z-30"
+              style="top: calc(-48px + 1.5in - 1cm)"
+            >
+              <ArrowDown class="text-[var(--icon-primary)]" :size="20" />
+            </button>
+
+            <!-- Task Progress Bar -->
+            <TaskProgressBar
+              :plan="plan"
+              :isLoading="isLoading"
+              :isThinking="isThinking"
+              :showThumbnail="shouldShowThumbnail"
+              :sessionId="sessionId"
+              :currentTool="currentToolInfo"
+              :toolContent="lastNoMessageTool"
+              :isInitializing="isInitializing || isSandboxInitializing"
+              :isSummaryStreaming="isSummaryStreaming"
+              :summaryStreamText="summaryStreamText"
+              :isSessionComplete="isSessionComplete"
+              :replayScreenshotUrl="replay.currentScreenshotUrl.value"
+              @openPanel="handleOpenPanel"
+              @requestRefresh="handleThumbnailRefresh"
+            />
+          </div>
           <ChatBox
             v-model="inputMessage"
             :rows="1"
@@ -1408,11 +1412,16 @@ const handleStepEvent = (stepData: StepEventData) => {
 const handleErrorEvent = (errorData: ErrorEventData) => {
   isLoading.value = false;
   isThinking.value = false;
+  // Accept both schema-compliant `error` field and legacy `message` fallback
+  // so the handler is resilient to either payload shape.
+  const errorText = errorData.error
+    || (errorData as unknown as { message?: string }).message
+    || 'An unexpected error occurred';
   messages.value.push({
     id: generateMessageId(),
     type: 'assistant',
     content: {
-      content: errorData.error,
+      content: errorText,
       timestamp: errorData.timestamp
     } as MessageContent,
   });
@@ -2149,6 +2158,22 @@ const chat = async (
     cancelCurrentChat.value = null;
   }
 
+  // Session reactivation: when sending a new message to a completed/failed
+  // session, reset completion state so the UI shows the initializing spinner
+  // instead of stale "completed" chrome.  Clear lastEventId so the backend
+  // streams from the beginning of the new task rather than trying to resume
+  // from the previous task's event cursor.
+  if (isSessionComplete.value && normalizedMessage) {
+    sessionStatus.value = SessionStatus.RUNNING;
+    isInitializing.value = true;
+    shortPathActivated.value = false;
+    lastEventId.value = '';
+    if (sessionId.value) {
+      sessionStorage.removeItem(`pythinker-last-event-${sessionId.value}`);
+      emitStatusChange(sessionId.value, SessionStatus.RUNNING);
+    }
+  }
+
   // Automatically enable follow mode when sending message
   follow.value = true;
 
@@ -2212,6 +2237,8 @@ const chat = async (
           }
           // Note: Status change is handled by DoneEvent (line 1662)
           // Don't set COMPLETED here - onClose fires for stops, errors, and refreshes too
+          // Ensure follow-up suggestions are visible so the user has a clear next action
+          ensureCompletionSuggestions();
         },
         onError: () => {
           isResponseSettled.value = true;
@@ -2228,6 +2255,8 @@ const chat = async (
           if (cancelCurrentChat.value) {
             cancelCurrentChat.value = null;
           }
+          // Ensure follow-up suggestions are visible so the user has a clear next action
+          ensureCompletionSuggestions();
           // Notify sidebar that session is no longer running
           if (sessionId.value) {
             emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
@@ -2524,7 +2553,7 @@ const handleScroll = (_: Event) => {
   follow.value = simpleBarRef.value?.isScrolledToBottom() ?? false;
 }
 
-const handleStop = () => {
+const handleStop = async () => {
   // Cancel the SSE stream FIRST to prevent any reconnect/resume logic
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value();
@@ -2536,7 +2565,13 @@ const handleStop = () => {
     // Mark this session as manually stopped to prevent auto-resume on page refresh
     // Set AFTER cleanup so the flag isn't immediately removed
     sessionStorage.setItem(`pythinker-stopped-${sessionId.value}`, JSON.stringify({ timestamp: Date.now() }));
-    agentApi.stopSession(sessionId.value);
+    // Await the stop request so backend teardown completes before the user
+    // can trigger a new message (prevents stop/chat race condition).
+    try {
+      await agentApi.stopSession(sessionId.value);
+    } catch {
+      // Non-critical — backend safety net will clean up
+    }
     // Notify sidebar that session is no longer running
     emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
   }
@@ -2552,6 +2587,9 @@ const handleStop = () => {
   isInitializing.value = false;
   planningProgress.value = null;
   stopPlanningMessageCycle();
+  // Ensure follow-up suggestions are visible so the user has a clear next action
+  ensureCompletionSuggestions();
+  sessionStatus.value = SessionStatus.COMPLETED;
 }
 
 const handleFileListShow = () => {
