@@ -95,6 +95,7 @@ export default {
   'Preview': 'Preview',
   'Copy link': 'Copy link',
   'Download all': 'Download all',
+  'Open Chart': 'Open Chart',
   // File Preview
   'This format cannot be previewed': 'This format cannot be previewed',
   'Please download the file to view its content': 'Please download the file to view its content',
@@ -110,6 +111,7 @@ export default {
   'Markdown': 'Markdown',
   'Code': 'Code',
   'Image': 'Image',
+  'Interactive Chart': 'Interactive Chart',
   'PDF': 'PDF',
   'Word': 'Word',
   'Excel': 'Excel',

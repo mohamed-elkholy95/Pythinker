@@ -62,7 +62,7 @@
 
             <!-- File Preview -->
             <div v-if="previewFile" class="flex-1 min-h-0 overflow-hidden flex flex-col">
-                <component :is="getPreviewComponent(previewFile.filename)" :file="previewFile" class="flex-1 min-h-0" />
+                <component :is="getPreviewComponent(previewFile)" :file="previewFile" class="flex-1 min-h-0" />
             </div>
 
             <!-- Filter Tabs -->
@@ -129,6 +129,17 @@
                                             </button>
                                         </PopoverTrigger>
                                         <PopoverContent class="w-48 p-1" align="end">
+                                            <!-- Phase 5: Open interactive chart button -->
+                                            <button
+                                                v-if="isInteractiveChartFile(file.metadata)"
+                                                class="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-md"
+                                                @click="openFileDownload(file)"
+                                            >
+                                                <svg class="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                                </svg>
+                                                {{ $t('Open Chart') }}
+                                            </button>
                                             <button
                                                 class="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--fill-tsp-gray-main)] rounded-md"
                                                 @click="openPreview(file)"
@@ -185,7 +196,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { showSuccessToast, showErrorToast } from '../utils/toast';
-import { getFileType } from '../utils/fileType';
+import { getFileType, isInteractiveChartFile } from '../utils/fileType';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -454,8 +465,8 @@ const closePreview = () => {
     previewFile.value = null;
 };
 
-const getPreviewComponent = (filename: string) => {
-    return getFileType(filename).preview;
+const getPreviewComponent = (file: FileInfo) => {
+    return getFileType(file.filename, file.metadata).preview;
 };
 
 const showFile = (file: FileInfo) => {
