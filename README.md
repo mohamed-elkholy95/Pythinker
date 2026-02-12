@@ -137,6 +137,43 @@ Development ports:
 - 8080: Sandbox API
 - 5902: Sandbox VNC
 
+### Run GitHub Tests Locally (Exact Workflow Replica)
+
+Use the local CI harness to run the same `.github/workflows/test-and-lint.yml` jobs via `act`.
+
+Prerequisites:
+- Docker Desktop running
+- `act` installed (example: `brew install act`)
+
+Commands:
+
+```bash
+# Dry-run: list jobs that will run
+scripts/run_github_tests_local.sh --list-jobs --dry-run
+
+# Full push-equivalent workflow
+scripts/run_github_tests_local.sh --event push
+
+# Full pull_request-equivalent workflow
+scripts/run_github_tests_local.sh --event pull_request
+
+# Cached local run (no forced image pull)
+scripts/run_github_tests_local.sh --event push --no-pull --reuse
+
+# Single job only
+scripts/run_github_tests_local.sh --job frontend-test
+
+# Override Python tool-cache path for local runners if needed
+scripts/run_github_tests_local.sh --job backend-lint --runner-tool-cache /tmp/act-toolcache
+```
+
+Notes:
+- Default image is `ghcr.io/catthehacker/ubuntu:full-latest` for high-fidelity CI parity.
+- Default architecture is `linux/amd64` to match GitHub-hosted runners.
+- Use `--no-pull` when you want to reuse local cached images and avoid long pull phases.
+- Local runs export `RUNNER_TOOL_CACHE` and `AGENT_TOOLSDIRECTORY` to a writable path for `actions/setup-python` compatibility.
+- First run can take longer due image pulls.
+
 ## Architecture
 
 **When a user initiates a conversation:**
