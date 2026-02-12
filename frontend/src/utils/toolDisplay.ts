@@ -1,4 +1,5 @@
 import {
+  FUNCTION_ICON_MAP,
   TOOL_FUNCTION_ARG_MAP,
   TOOL_FUNCTION_MAP,
   TOOL_ICON_MAP,
@@ -244,7 +245,7 @@ export function getToolDisplay(input: ToolDisplayInput): ToolDisplayInfo {
   const rawDescription = input.display_command;
   const description = normalizeToolDescription(actionLabel, resourceLabel, rawDescription);
 
-  const icon = TOOL_ICON_MAP[toolKey] || TOOL_ICON_MAP[input.name || ''] || TOOL_ICON_MAP['idle'] || null;
+  const icon = FUNCTION_ICON_MAP[functionName] || TOOL_ICON_MAP[toolKey] || TOOL_ICON_MAP[input.name || ''] || TOOL_ICON_MAP['idle'] || null;
 
   return {
     toolKey,

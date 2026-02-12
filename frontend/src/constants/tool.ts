@@ -425,12 +425,11 @@ export const TOOL_NAME_MAP: {[key: string]: string} = {
 import type { Component } from 'vue';
 import SearchIcon from '../components/icons/SearchIcon.vue';
 import EditIcon from '../components/icons/EditIcon.vue';
-import BrowserIcon from '../components/icons/BrowserIcon.vue';
 import ShellIcon from '../components/icons/ShellIcon.vue';
 import GlobeIcon from '../components/icons/GlobeIcon.vue';
 import IdleIcon from '../components/icons/IdleIcon.vue';
 import AgentModeIcon from '../components/icons/AgentModeIcon.vue';
-import { GitBranch, Play, Download, Presentation, FolderTree, Calendar, Scan, Wand2, FileCode, Map, Wrench, MessageCircle, TestTube, Terminal, Palette } from 'lucide-vue-next';
+import { GitBranch, Play, Download, Presentation, FolderTree, Calendar, Scan, Wand2, FileCode, Map, Wrench, MessageCircle, TestTube, Terminal, Palette, MousePointerClick, Eye } from 'lucide-vue-next';
 
 /**
  * Tool icon mapping - Consistent visual identity for each tool
@@ -445,9 +444,9 @@ export const TOOL_ICON_MAP: Record<string, Component> = {
   // === CORE TOOLS ===
   "shell": ShellIcon,
   "file": EditIcon,
-  "browser": BrowserIcon,
+  "browser": GlobeIcon,
   "browser_agent": GlobeIcon,
-  "playwright": BrowserIcon,
+  "playwright": GlobeIcon,
 
   // === SEARCH ===
   "search": SearchIcon,
@@ -496,6 +495,20 @@ export const TOOL_ICON_MAP: Record<string, Component> = {
   "repo_map": Map,
   "message": MessageCircle,
   "idle": IdleIcon
+};
+
+/**
+ * Function-level icon overrides - takes priority over TOOL_ICON_MAP.
+ * Used when a specific function needs a different icon than its parent tool.
+ */
+export const FUNCTION_ICON_MAP: Record<string, Component> = {
+  // Clicking actions → mouse pointer
+  "browser_click": MousePointerClick,
+  "click_element": MousePointerClick,
+  "playwright_click": MousePointerClick,
+  // Viewing actions → eye
+  "browser_view": Eye,
+  "browser_console_view": Eye,
 };
 
 /**
