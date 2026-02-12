@@ -41,6 +41,7 @@ vi.mock('@/constants/tool', () => ({
     file_write: 'path',
     file_list_directory: 'path',
   },
+  FUNCTION_ICON_MAP: {},
 }))
 
 describe('useToolInfo', () => {
