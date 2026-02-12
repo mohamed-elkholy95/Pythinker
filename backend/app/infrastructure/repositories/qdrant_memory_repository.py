@@ -62,7 +62,7 @@ class QdrantMemoryRepository(VectorMemoryRepository):
         memory_type: str,
         importance: str,
         tags: list[str] | None = None,
-        sparse_vector: dict[int, float] | None = None,
+        sparse_vector: dict[int, float] | dict[str, float] | None = None,
         session_id: str | None = None,
         created_at: datetime | None = None,
     ) -> None:
@@ -75,7 +75,7 @@ class QdrantMemoryRepository(VectorMemoryRepository):
             memory_type: Type of memory (fact, preference, etc.)
             importance: Importance level (critical, high, medium, low)
             tags: Optional tags for filtering
-            sparse_vector: Optional BM25 sparse vector {index: score}
+            sparse_vector: Optional BM25 sparse vector {index: score} (keys may be str from MongoDB)
             session_id: Optional session ID for filtering
             created_at: Optional creation timestamp for temporal filtering
         """
@@ -83,9 +83,9 @@ class QdrantMemoryRepository(VectorMemoryRepository):
         vectors = {"dense": embedding}
 
         if sparse_vector:
-            # Convert dict to Qdrant SparseVector format
+            # Convert dict to Qdrant SparseVector format (keys may be str from MongoDB)
             vectors["sparse"] = models.SparseVector(
-                indices=list(sparse_vector.keys()),
+                indices=[int(k) for k in sparse_vector],
                 values=list(sparse_vector.values()),
             )
 
@@ -138,7 +138,7 @@ class QdrantMemoryRepository(VectorMemoryRepository):
             sparse = mem.get("sparse_vector")
             if sparse:
                 vectors["sparse"] = models.SparseVector(
-                    indices=list(sparse.keys()),
+                    indices=[int(k) for k in sparse],
                     values=list(sparse.values()),
                 )
 
@@ -267,7 +267,7 @@ class QdrantMemoryRepository(VectorMemoryRepository):
         user_id: str,
         query_text: str,
         dense_vector: list[float],
-        sparse_vector: dict[int, float],
+        sparse_vector: dict[int, float] | dict[str, float],
         limit: int = 10,
         min_score: float = 0.3,
         memory_types: list[MemoryType] | None = None,
@@ -282,7 +282,7 @@ class QdrantMemoryRepository(VectorMemoryRepository):
             user_id: Filter to this user's memories
             query_text: Original query text (for logging)
             dense_vector: Dense semantic embedding
-            sparse_vector: BM25 sparse vector {index: score}
+            sparse_vector: BM25 sparse vector {index: score} (keys may be str from MongoDB)
             limit: Maximum results to return
             min_score: Minimum similarity score (0-1)
             memory_types: Optional filter by memory types
@@ -322,9 +322,9 @@ class QdrantMemoryRepository(VectorMemoryRepository):
                 )
             )
 
-        # Convert sparse dict to SparseVector
+        # Convert sparse dict to SparseVector (keys may be str from MongoDB)
         sparse_vec = models.SparseVector(
-            indices=list(sparse_vector.keys()),
+            indices=[int(k) for k in sparse_vector],
             values=list(sparse_vector.values()),
         )
 

@@ -36,6 +36,7 @@ from app.interfaces.schemas.file import FileViewRequest, FileViewResponse
 from app.interfaces.schemas.resource import AccessTokenRequest, SignedUrlResponse
 from app.interfaces.schemas.screenshot import ScreenshotListResponse, ScreenshotMetadataResponse
 from app.interfaces.schemas.session import (
+    ActiveSessionResponse,
     BrowseUrlRequest,
     ChatRequest,
     ConfirmActionRequest,
@@ -48,6 +49,7 @@ from app.interfaces.schemas.session import (
     ListSessionResponse,
     ResumeSessionRequest,
     SandboxInfo,
+    SessionStatusResponse,
     SharedSessionResponse,
     ShareSessionResponse,
     ShellViewRequest,
@@ -131,6 +133,55 @@ async def get_session(
             status=session.status,
             events=await EventMapper.events_to_sse_events(session.events),
             is_shared=session.is_shared,
+        )
+    )
+
+
+@router.get("/{session_id}/status", response_model=APIResponse[SessionStatusResponse])
+async def get_session_status(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service),
+) -> APIResponse[SessionStatusResponse]:
+    """Lightweight session status check for frontend polling."""
+    session = await agent_service.get_session(session_id, current_user.id)
+    if not session:
+        raise NotFoundError("Session not found")
+    return APIResponse.success(
+        SessionStatusResponse(
+            session_id=session.id,
+            status=session.status,
+            sandbox_id=session.sandbox_id,
+            created_at=session.created_at.timestamp() if session.created_at else None,
+        )
+    )
+
+
+@router.get("/active/current", response_model=APIResponse[ActiveSessionResponse])
+async def get_active_session(
+    current_user: User = Depends(get_current_user),
+    agent_service: AgentService = Depends(get_agent_service),
+) -> APIResponse[ActiveSessionResponse]:
+    """Get the currently active (RUNNING/INITIALIZING) session for the user.
+
+    Returns null session if no active session exists.
+    """
+    sessions = await agent_service.get_all_sessions(current_user.id)
+    active_statuses = {"running", "initializing", "pending"}
+    active = next(
+        (s for s in sessions if s.status in active_statuses),
+        None,
+    )
+    if not active:
+        return APIResponse.success(ActiveSessionResponse(session=None))
+    return APIResponse.success(
+        ActiveSessionResponse(
+            session=SessionStatusResponse(
+                session_id=active.id,
+                status=active.status,
+                sandbox_id=active.sandbox_id,
+                created_at=active.created_at.timestamp() if active.created_at else None,
+            )
         )
     )
 
@@ -296,6 +347,15 @@ async def chat(
     session = await agent_service.get_session(session_id, current_user.id)
     if not session:
         raise NotFoundError("Session not found")
+
+    # Graceful shutdown: don't start full stream for already-completed sessions
+    if session.status in ("completed", "failed"):
+        logger.info(f"Session {session_id} already {session.status}, emitting done event without streaming")
+
+        async def completed_generator() -> AsyncGenerator[ServerSentEvent, None]:
+            yield ServerSentEvent(event="done", data='{"message": "Session already completed"}')
+
+        return EventSourceResponse(completed_generator())
 
     settings = get_settings()
     use_sse_v2 = settings.feature_sse_v2
@@ -556,6 +616,9 @@ async def vnc_websocket(
         if "Session has no sandbox environment" in error_text:
             logger.info(f"VNC WebSocket rejected: {error_text}")
             await _safe_ws_close(websocket, code=1008, reason=error_text)
+        elif "No such container" in error_text or "404 Client Error" in error_text:
+            logger.warning(f"VNC WebSocket: sandbox container no longer exists: {error_text}")
+            await _safe_ws_close(websocket, code=1001, reason="Sandbox container terminated")
         else:
             logger.error(f"WebSocket error: {error_text}")
             await _safe_ws_close(websocket, code=1011, reason=f"WebSocket error: {error_text}")
@@ -621,8 +684,9 @@ async def get_vnc_screenshot(
     sandbox_cls: type[Sandbox] = Depends(get_sandbox_cls),
 ):
     """Get VNC screenshot from sandbox"""
-    import httpx
     from fastapi.responses import Response
+
+    from app.infrastructure.external.http_pool import HTTPClientPool
 
     # Check if session exists and belongs to user
     session = await agent_service.get_session(session_id, current_user.id)
@@ -644,29 +708,30 @@ async def get_vnc_screenshot(
         timestamp = int(time.time() * 1000)
         logger.info(f"[VNC Screenshot] Fetching from sandbox {sandbox.base_url}, session={session_id}, ts={timestamp}")
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            sandbox_url = f"{sandbox.base_url}/api/v1/vnc/screenshot"
-            response = await client.get(
-                sandbox_url,
-                params={"quality": quality, "scale": scale, "format": "jpeg", "_t": timestamp},
-                headers={"Cache-Control": "no-cache, no-store"},
-            )
-            response.raise_for_status()
+        client = await HTTPClientPool.get_client(
+            f"vnc-screenshot-{session.sandbox_id}", base_url=sandbox.base_url, timeout=10.0
+        )
+        response = await client.get(
+            "/api/v1/vnc/screenshot",
+            params={"quality": quality, "scale": scale, "format": "jpeg", "_t": timestamp},
+            headers={"Cache-Control": "no-cache, no-store"},
+        )
+        response.raise_for_status()
 
-            content_size = len(response.content)
-            logger.info(f"[VNC Screenshot] Received {content_size} bytes from sandbox")
+        content_size = len(response.content)
+        logger.info(f"[VNC Screenshot] Received {content_size} bytes from sandbox")
 
-            return Response(
-                content=response.content,
-                media_type="image/jpeg",
-                headers={
-                    "Cache-Control": "no-cache, no-store, must-revalidate",
-                    "Pragma": "no-cache",
-                    "Expires": "0",
-                    "X-Screenshot-Timestamp": str(timestamp),
-                    "X-Screenshot-Size": str(content_size),
-                },
-            )
+        return Response(
+            content=response.content,
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+                "X-Screenshot-Timestamp": str(timestamp),
+                "X-Screenshot-Size": str(content_size),
+            },
+        )
     except Exception as e:
         error_text = _safe_exc_text(e)
         logger.error(f"Failed to fetch VNC screenshot: {error_text}")
@@ -775,12 +840,18 @@ async def screencast_websocket(
 
     except (ConnectionError, websockets.exceptions.WebSocketException) as e:
         error_text = _safe_exc_text(e)
-        logger.error(f"Unable to connect to screencast: {error_text}")
+        if "No such container" in error_text or "404 Client Error" in error_text:
+            logger.warning(f"Screencast: sandbox container no longer exists: {error_text}")
+        else:
+            logger.error(f"Unable to connect to screencast: {error_text}")
         with contextlib.suppress(Exception):
             await websocket.close(code=1011, reason=f"Unable to connect to sandbox: {error_text}")
     except Exception as e:
         error_text = _safe_exc_text(e)
-        logger.error(f"Screencast WebSocket error: {error_text}")
+        if "No such container" in error_text or "404 Client Error" in error_text:
+            logger.warning(f"Screencast: sandbox container no longer exists: {error_text}")
+        else:
+            logger.error(f"Screencast WebSocket error: {error_text}")
         with contextlib.suppress(Exception):
             await websocket.close(code=1011, reason=f"Screencast error: {error_text}")
 
@@ -856,12 +927,18 @@ async def input_websocket(
 
     except ConnectionError as e:
         error_text = _safe_exc_text(e)
-        logger.error(f"Unable to connect to sandbox input: {error_text}")
+        if "No such container" in error_text or "404 Client Error" in error_text:
+            logger.warning(f"Input WS: sandbox container no longer exists: {error_text}")
+        else:
+            logger.error(f"Unable to connect to sandbox input: {error_text}")
         with contextlib.suppress(Exception):
             await websocket.close(code=1011, reason=f"Unable to connect to sandbox: {error_text}")
     except Exception as e:
         error_text = _safe_exc_text(e)
-        logger.error(f"Input WebSocket error: {error_text}")
+        if "No such container" in error_text or "404 Client Error" in error_text:
+            logger.warning(f"Input WS: sandbox container no longer exists: {error_text}")
+        else:
+            logger.error(f"Input WebSocket error: {error_text}")
         with contextlib.suppress(Exception):
             await websocket.close(code=1011, reason=f"Input error: {error_text}")
 
@@ -899,7 +976,7 @@ async def list_screenshots(
             function_name=s.function_name,
             action_type=s.action_type,
             size_bytes=s.size_bytes,
-            has_thumbnail=s.thumbnail_file_id is not None,
+            has_thumbnail=s.thumbnail_storage_key is not None,
         )
         for s in screenshots
     ]
@@ -923,7 +1000,7 @@ async def get_screenshot_image(
     if not session:
         raise NotFoundError("Session not found")
 
-    image_data = await screenshot_query_service.get_image_bytes(
+    image_data, content_type = await screenshot_query_service.get_image_bytes(
         session_id=session_id,
         screenshot_id=screenshot_id,
         thumbnail=thumbnail,
@@ -933,7 +1010,7 @@ async def get_screenshot_image(
 
     return Response(
         content=image_data,
-        media_type="image/jpeg",
+        media_type=content_type or "image/jpeg",
         headers={
             "Cache-Control": "public, max-age=31536000, immutable",
         },
@@ -967,7 +1044,7 @@ async def list_shared_screenshots(
             function_name=s.function_name,
             action_type=s.action_type,
             size_bytes=s.size_bytes,
-            has_thumbnail=s.thumbnail_file_id is not None,
+            has_thumbnail=s.thumbnail_storage_key is not None,
         )
         for s in screenshots
     ]
@@ -990,7 +1067,7 @@ async def get_shared_screenshot_image(
     if not session:
         raise NotFoundError("Shared session not found")
 
-    image_data = await screenshot_query_service.get_image_bytes(
+    image_data, content_type = await screenshot_query_service.get_image_bytes(
         session_id=session_id,
         screenshot_id=screenshot_id,
         thumbnail=thumbnail,
@@ -1000,7 +1077,7 @@ async def get_shared_screenshot_image(
 
     return Response(
         content=image_data,
-        media_type="image/jpeg",
+        media_type=content_type or "image/jpeg",
         headers={
             "Cache-Control": "public, max-age=31536000, immutable",
         },

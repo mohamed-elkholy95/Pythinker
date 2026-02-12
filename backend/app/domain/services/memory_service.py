@@ -1320,7 +1320,7 @@ Provide a concise summary (max 200 words)."""
         # Note: Uses 1536 dimensions to match vector store collection config
         return self._compute_simple_embedding(text, dim=1536)
 
-    def _generate_sparse_vector(self, text: str) -> dict[int, float]:
+    def _generate_sparse_vector(self, text: str) -> dict[str, float]:
         """Generate BM25 sparse vector for text.
 
         Phase 1: Uses self-hosted BM25 encoder for keyword search.
@@ -1329,7 +1329,8 @@ Provide a concise summary (max 200 words)."""
             text: Text to generate sparse vector for
 
         Returns:
-            Sparse vector as {index: score} dict
+            Sparse vector as {str_index: score} dict with string keys
+            (MongoDB requires string keys in documents)
         """
         from app.domain.services.embeddings.bm25_encoder import get_bm25_encoder
 
@@ -1341,7 +1342,9 @@ Provide a concise summary (max 200 words)."""
             logger.info("BM25 encoder not fitted yet, using dense-only search for now")
             return {}
 
-        return encoder.encode(text)
+        raw = encoder.encode(text)
+        # MongoDB requires string keys in documents - convert int keys to strings
+        return {str(k): v for k, v in raw.items()}
 
     def _compute_simple_embedding(self, text: str, dim: int = 256) -> list[float]:
         """Compute a simple hash-based embedding for fallback.
