@@ -121,6 +121,7 @@
             :showStepLeadingConnector="shouldShowStepLeadingConnector(index)"
             :showStepConnector="shouldShowStepConnector(index)"
             :showAssistantHeader="shouldShowAssistantHeader(index)"
+            :renderAsSummaryCard="shouldRenderSummaryCard(index)"
             :showAssistantCompletionFooter="assistantCompletionFooterIds.has(message.id)"
             @toolClick="handleToolClick"
             @reportOpen="handleReportOpen"
@@ -379,6 +380,11 @@ import ConnectorsDialog from '@/components/connectors/ConnectorsDialog.vue';
 import { useConnectorDialog } from '@/composables/useConnectorDialog';
 import { useScreenshotReplay } from '@/composables/useScreenshotReplay';
 import { shouldStopSessionOnExit } from '@/utils/sessionLifecycle';
+import {
+  isStructuredSummaryAssistantMessage,
+  shouldNestAssistantMessageInStep,
+  shouldShowAssistantHeaderForMessage,
+} from '@/utils/assistantMessageLayout';
 
 const router = useRouter()
 const { t } = useI18n()
@@ -422,6 +428,7 @@ const createInitialState = () => ({
   isThinkingStreaming: false, // True when streaming thinking is in progress
   summaryStreamText: '', // Accumulated streaming summary text
   isSummaryStreaming: false, // True when summary is streaming live
+  allowStandaloneSummaryOnNextAssistant: false, // One-shot flag: render only the final summary assistant block outside step timeline
   lastEventTime: 0, // Timestamp of last received event (for stale detection)
   isStale: false, // True when agent appears unresponsive (no events for 60s)
   filePreviewOpen: false,
@@ -471,6 +478,7 @@ const {
   isThinkingStreaming,
   summaryStreamText,
   isSummaryStreaming,
+  allowStandaloneSummaryOnNextAssistant,
   lastEventTime,
   isStale,
   filePreviewOpen,
@@ -949,17 +957,18 @@ const shouldShowStepLeadingConnector = (messageIndex: number): boolean => {
 };
 
 const shouldShowAssistantHeader = (messageIndex: number): boolean => {
+  return shouldShowAssistantHeaderForMessage(messages.value, messageIndex);
+};
+
+const shouldRenderSummaryCard = (messageIndex: number): boolean => {
   const currentMessage = messages.value[messageIndex];
   if (!currentMessage || currentMessage.type !== 'assistant') return false;
 
-  const previousMessage = messages.value[messageIndex - 1];
-  if (!previousMessage) return true;
+  const nextMessage = messages.value[messageIndex + 1];
+  if (!nextMessage || nextMessage.type !== 'report') return false;
 
-  if (previousMessage.type === 'assistant' || previousMessage.type === 'tool' || previousMessage.type === 'step') {
-    return false;
-  }
-
-  return true;
+  const assistantText = ((currentMessage.content as MessageContent).content || '').trim();
+  return isStructuredSummaryAssistantMessage(assistantText);
 };
 
 const addOptimisticUserMessage = (message: string, files: FileInfo[] = []) => {
@@ -1165,33 +1174,41 @@ const upsertToolTimeline = (toolContent: ToolContent) => {
   toolTimeline.value.push(toolContent);
 };
 
-const maybeAppendAssistantMessageToStep = (messageData: MessageEventData): boolean => {
+const maybeAppendAssistantMessageToStep = (
+  messageData: MessageEventData,
+  allowStandaloneSummary = false,
+): boolean => {
   if (messageData.role !== 'assistant') return false;
 
   const text = (messageData.content || '').trim();
   if (!text) return false;
 
-  // Long messages with markdown structure (bullets, bold) are standalone summaries,
-  // not step narrations — render them as top-level chat messages.
-  if (text.length > 200 && (text.includes('- **') || text.includes('* **'))) {
+  let targetStep: StepContent | undefined;
+  for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+    const candidate = messages.value[i];
+    const candidateType = candidate.type as string;
+    if (candidateType === 'step') {
+      targetStep = candidate.content as StepContent;
+      break;
+    }
+    // Stop if we hit another top-level conversational block.
+    if (!['tool', 'attachments', 'thought', 'phase'].includes(candidateType)) {
+      return false;
+    }
+  }
+  if (!targetStep) return false;
+
+  if (!shouldNestAssistantMessageInStep(text, targetStep, { allowStandaloneSummary })) {
     return false;
   }
 
-  const lastMessage = messages.value[messages.value.length - 1];
-  if (!lastMessage || lastMessage.type !== 'step') return false;
-
-  const lastStep = lastMessage.content as StepContent;
-  if (!lastStep || (lastStep.status !== 'running' && lastStep.status !== 'completed')) {
-    return false;
-  }
-
-  const lastTool = lastStep.tools[lastStep.tools.length - 1];
+  const lastTool = targetStep.tools[targetStep.tools.length - 1];
   if (lastTool?.name === 'message' && String(lastTool.args?.text || '') === text) {
     return true;
   }
 
-  lastStep.tools.push({
-    tool_call_id: `inline-message-${messageData.timestamp}-${lastStep.tools.length}`,
+  targetStep.tools.push({
+    tool_call_id: `inline-message-${messageData.timestamp}-${targetStep.tools.length}`,
     name: 'message',
     function: 'message',
     args: { text },
@@ -1204,6 +1221,8 @@ const maybeAppendAssistantMessageToStep = (messageData: MessageEventData): boole
 
 // Handle message event
 const handleMessageEvent = (messageData: MessageEventData) => {
+  const allowStandaloneSummary = messageData.role === 'assistant' && allowStandaloneSummaryOnNextAssistant.value;
+
   // Assistant message means agent finished thinking
   if (messageData.role === 'assistant') {
     isThinking.value = false;
@@ -1216,7 +1235,10 @@ const handleMessageEvent = (messageData: MessageEventData) => {
   isSummaryStreaming.value = false;
 
   // Keep per-step narration nested inside the active step thread.
-  if (maybeAppendAssistantMessageToStep(messageData)) {
+  if (maybeAppendAssistantMessageToStep(messageData, allowStandaloneSummary)) {
+    if (messageData.role === 'assistant') {
+      allowStandaloneSummaryOnNextAssistant.value = false;
+    }
     return;
   }
 
@@ -1258,6 +1280,10 @@ const handleMessageEvent = (messageData: MessageEventData) => {
       ...messageData
     } as MessageContent,
   });
+
+  if (messageData.role === 'assistant') {
+    allowStandaloneSummaryOnNextAssistant.value = false;
+  }
 
   if (messageData.attachments?.length > 0) {
     messages.value.push({
@@ -1471,12 +1497,15 @@ const handleStreamEvent = (streamData: StreamEventData) => {
   const phase = streamData.phase || 'thinking';
 
   if (phase === 'summarizing') {
+    if (streamData.content) {
+      summaryStreamText.value += streamData.content;
+    }
     if (streamData.is_final) {
       isSummaryStreaming.value = false;
+      allowStandaloneSummaryOnNextAssistant.value = summaryStreamText.value.trim().length > 0;
       // Keep text visible briefly — cleared when ReportEvent arrives
     } else {
       isSummaryStreaming.value = true;
-      summaryStreamText.value += streamData.content;
     }
     return;
   }
@@ -1726,6 +1755,7 @@ const handleReportEvent = (reportData: ReportEventData) => {
   // Clear summary streaming overlay — report card takes over
   summaryStreamText.value = '';
   isSummaryStreaming.value = false;
+  allowStandaloneSummaryOnNextAssistant.value = false;
 
   // Track anchor event ID for follow-up suggestions
   followUpAnchorEventId.value = reportData.event_id;
@@ -2237,6 +2267,7 @@ const chat = async (
           isThinkingStreaming.value = false;
           summaryStreamText.value = '';
           isSummaryStreaming.value = false;
+          allowStandaloneSummaryOnNextAssistant.value = false;
           isInitializing.value = false;
           planningProgress.value = null;
           stopPlanningMessageCycle();
@@ -2257,6 +2288,7 @@ const chat = async (
           isThinkingStreaming.value = false;
           summaryStreamText.value = '';
           isSummaryStreaming.value = false;
+          allowStandaloneSummaryOnNextAssistant.value = false;
           isInitializing.value = false;
           planningProgress.value = null;
           stopPlanningMessageCycle();
@@ -2605,6 +2637,7 @@ const handleStop = async () => {
   isThinkingStreaming.value = false;
   summaryStreamText.value = '';
   isSummaryStreaming.value = false;
+  allowStandaloneSummaryOnNextAssistant.value = false;
   isInitializing.value = false;
   planningProgress.value = null;
   stopPlanningMessageCycle();

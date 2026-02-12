@@ -13,6 +13,20 @@ import {
   mockStepMessage,
 } from '../mocks/api'
 
+const structuredSummaryText = `I have completed a comprehensive comparison of GLM-5 against Claude Sonnet 4.5 and Opus 4.6.
+
+The report covers:
+
+**Model Specifications:** Architecture details, parameter counts, context windows, and licensing differences.
+
+**Performance Benchmarks:** Intelligence Index rankings, SWE-bench, and Terminal-Bench comparisons.
+
+**Pricing Analysis:** Cost structures for deployment and API pricing tiers.
+
+**Use Case Recommendations:** When to choose each model for customization, multimodal capabilities, and reasoning tasks.
+
+You can find the detailed report below.`
+
 // Mock marked library
 vi.mock('marked', () => ({
   marked: (text: string) => text,
@@ -67,6 +81,11 @@ vi.mock('@/components/report', () => ({
   TaskCompletedFooter: {
     name: 'TaskCompletedFooter',
     template: '<div class="mock-footer"><slot /></div>',
+  },
+  FinalSummaryCard: {
+    name: 'FinalSummaryCard',
+    template: '<div class="final-summary-card"><slot /></div>',
+    props: ['htmlContent'],
   },
 }))
 
@@ -232,7 +251,7 @@ describe('ChatMessage', () => {
       expect(wrapper.text()).toContain('doing well')
     })
 
-    it('should show expand control for long assistant messages', () => {
+    it('should not show expand control for long assistant messages', () => {
       const longAssistantMessage = {
         ...mockAssistantMessage,
         id: 'long-assistant-message',
@@ -255,9 +274,8 @@ describe('ChatMessage', () => {
       })
 
       const expandButton = wrapper.find('.message-expand-btn')
-      expect(expandButton.exists()).toBe(true)
-      expect(expandButton.text()).toContain('Expand')
-      expect(wrapper.find('.message-markdown').classes()).toContain('message-markdown-collapsed')
+      expect(expandButton.exists()).toBe(false)
+      expect(wrapper.find('.message-markdown').classes()).not.toContain('message-markdown-collapsed')
     })
 
     it('should not show expand control for short assistant messages', () => {
@@ -274,6 +292,64 @@ describe('ChatMessage', () => {
       })
 
       expect(wrapper.find('.message-expand-btn').exists()).toBe(false)
+    })
+
+    it('should use compact spacing for structured final summaries', () => {
+      const summaryMessage = {
+        ...mockAssistantMessage,
+        id: 'assistant-summary-message',
+        content: {
+          ...mockAssistantMessage.content,
+          content: structuredSummaryText,
+        },
+      }
+
+      const wrapper = mount(ChatMessage, {
+        props: {
+          message: summaryMessage,
+          showAssistantHeader: true,
+        },
+        global: {
+          stubs: {
+            Bot: true,
+            PythinkerTextIcon: true,
+          },
+        },
+      })
+
+      expect(wrapper.find('.assistant-summary-compact').exists()).toBe(true)
+      expect(wrapper.find('.assistant-summary-shell').exists()).toBe(true)
+      expect(wrapper.find('.assistant-header-summary').exists()).toBe(true)
+    })
+
+    it('should render dedicated final summary card when requested', () => {
+      const summaryMessage = {
+        ...mockAssistantMessage,
+        id: 'assistant-summary-card-message',
+        content: {
+          ...mockAssistantMessage.content,
+          content: structuredSummaryText,
+        },
+      }
+
+      const wrapper = mount(ChatMessage, {
+        props: {
+          message: summaryMessage,
+          renderAsSummaryCard: true,
+          showAssistantHeader: true,
+        },
+        global: {
+          stubs: {
+            Bot: true,
+            PythinkerTextIcon: true,
+          },
+        },
+      })
+
+      expect(wrapper.find('.final-summary-card').exists()).toBe(true)
+      expect(wrapper.find('.assistant-summary-card-block').exists()).toBe(true)
+      expect(wrapper.find('.assistant-header-row').exists()).toBe(true)
+      expect(wrapper.find('.assistant-message-content').exists()).toBe(false)
     })
   })
 
