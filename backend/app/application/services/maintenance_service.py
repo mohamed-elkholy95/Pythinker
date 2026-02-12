@@ -117,7 +117,7 @@ class MaintenanceService:
                                 "original_count": len(attachments),
                                 "valid_count": len(valid_attachments),
                                 "invalid_count": invalid_count,
-                                "valid_attachments": valid_attachments if valid_attachments else None,
+                                "valid_attachments": valid_attachments or None,
                             }
                         )
                         session_attachments_removed += invalid_count
