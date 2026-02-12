@@ -1,0 +1,17 @@
+{
+  "pull_request": {
+    "number": 1,
+    "title": "Local CI replica test",
+    "head": {
+      "ref": "feature/local-ci-replica"
+    },
+    "base": {
+      "ref": "main"
+    }
+  },
+  "repository": {
+    "name": "Pythinker",
+    "full_name": "Planko123/Pythinker",
+    "default_branch": "main"
+  }
+}
