@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class SearchType(str, Enum):
-    """Search intent types inspired by Manus AI.
+    """Search intent types inspired by Pythinker AI.
 
     Different search types route to optimized backends and apply
     appropriate filtering and formatting for each use case.
@@ -212,7 +212,7 @@ RESEARCH_KEYWORDS = ["best", "compare", "vs", "versus", "review", "recommend", "
 class QueryExpander:
     """Expands queries into multiple variants for comprehensive search.
 
-    Inspired by Manus's query expansion which processes up to 3 variants
+    Inspired by Pythinker's query expansion which processes up to 3 variants
     to improve result relevance.
     """
 
@@ -522,7 +522,7 @@ class SearchTool(BaseTool):
     ) -> ToolResult:
         """Execute search with query expansion for comprehensive coverage.
 
-        Inspired by Manus's query expansion which processes up to 3 variants
+        Inspired by Pythinker's query expansion which processes up to 3 variants
         to improve result relevance.
 
         Args:

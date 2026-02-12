@@ -2,7 +2,7 @@
 
 > Generated: 2026-02-11
 > Total Files: ~299
-> Progress: 101/299 files reviewed (33.8%)
+> Progress: 156/299 files reviewed (52.2%)
 
 ## Review Criteria
 
@@ -1354,7 +1354,7 @@ class UserConnector(BaseModel):
 
 ### 12. `backend/app/domain/models/context_memory.py`
 
-**Purpose:** Context memory model for file-system-as-context pattern (Manus AI architecture)
+**Purpose:** Context memory model for file-system-as-context pattern (Pythinker AI architecture)
 
 **Current Setup:**
 - `ContextType` enum for different context types (GOAL, TODO, STATE, KNOWLEDGE, RESEARCH)
@@ -3859,12 +3859,12 @@ class Skill(BaseModel):
 **Current Setup:**
 - `SkillPackageType` enum for package complexity
 - Multiple nested models: `SkillFeatureMapping`, `SkillFeatureCategory`, `SkillWorkflowStep`, `SkillExample`, `SkillImplementationLayer`, `SkillPackageFile`, `SkillPackageMetadata`
-- `SkillPackage` model with file management and Manus-style format
+- `SkillPackage` model with file management and Pythinker-style format
 
 **Strengths:**
 - EXCELLENT - Comprehensive skill package system
 - Uses UTC correctly: `datetime.now(UTC)` (Lines 173-174)
-- Manus-style four-layer implementation pattern
+- Pythinker-style four-layer implementation pattern
 - File type detection in `SkillPackageFile.from_content()`
 - Directory-based file organization with helper methods
 - `summary` property for package overview
@@ -3937,7 +3937,7 @@ class SkillPackage(BaseModel):
 
 2. **UTC Timezone**: All files correctly use `datetime.now(UTC)`.
 
-3. **Progressive Disclosure**: Both `skill.py` and `skill_package.py` implement the Manus-style progressive disclosure pattern.
+3. **Progressive Disclosure**: Both `skill.py` and `skill_package.py` implement the Pythinker-style progressive disclosure pattern.
 
 4. **Scheduling**: `scheduled_task.py` implements a complete scheduling system with multiple schedule types and execution history.
 
@@ -4276,7 +4276,7 @@ class SourceFilterConfig(BaseModel):
 
 ### 45. `backend/app/domain/models/state_manifest.py`
 
-**Purpose:** State manifest for blackboard architecture - implements Manus AI's pattern for inter-agent communication
+**Purpose:** State manifest for blackboard architecture - implements Pythinker AI's pattern for inter-agent communication
 
 **Current Setup:**
 - `StateEntry` for individual posted entries
@@ -4516,7 +4516,7 @@ class CitedResponse(BaseModel):
 
 ### 48. `backend/app/domain/models/supervisor.py`
 
-**Purpose:** Supervisor model for hierarchical multi-agent system (HMAS) - implements Manus AI's pattern
+**Purpose:** Supervisor model for hierarchical multi-agent system (HMAS) - implements Pythinker AI's pattern
 
 **Current Setup:**
 - `SupervisorDomain` enum (RESEARCH, CODE, DATA, BROWSER, GENERAL)
@@ -4752,7 +4752,7 @@ class ThoughtChain(BaseModel):
 
 2. **Structured Outputs**: `structured_outputs.py` demonstrates exemplary Pydantic v2 usage with comprehensive validation for LLM outputs.
 
-3. **HMAS Pattern**: `supervisor.py` implements Manus AI's hierarchical multi-agent system pattern with proper UTC timezone handling.
+3. **HMAS Pattern**: `supervisor.py` implements Pythinker AI's hierarchical multi-agent system pattern with proper UTC timezone handling.
 
 4. **Outbox Pattern**: `sync_outbox.py` has good design but uses deprecated `datetime.utcnow()` and legacy `class Config`.
 
@@ -6952,7 +6952,7 @@ With Batch 15, all domain models (62 files) and domain repositories (14 files) h
 - Security assessor for risk evaluation
 - Hallucination detector for tool name validation
 - Blackboard architecture via `StateManifest`
-- Context manager for Manus-style attention manipulation
+- Context manager for Pythinker-style attention manipulation
 - Tool usage tracking for dynamic toolset prioritization
 
 **Issues:**
@@ -6978,7 +6978,7 @@ With Batch 15, all domain models (62 files) and domain repositories (14 files) h
 - Critic revision support
 - Delivery integrity gate with truncation detection
 - Source citation tracking
-- Multimodal findings persistence (P5.2 - Manus pattern)
+- Multimodal findings persistence (P5.2 - Pythinker pattern)
 - Response compression and coverage validation
 - Memory service integration
 
@@ -7574,7 +7574,7 @@ class ToolActionRecord:
 
 **Strengths:**
 - EXCELLENT - Comprehensive task state management
-- Manus-style recitation for goal focus
+- Pythinker-style recitation for goal focus
 - Visited URLs and search queries tracking to survive token trimming
 - AsyncIO lock (`_write_lock`) for concurrent write safety
 - Progress metrics integration with `ProgressMetrics`
@@ -7726,7 +7726,7 @@ class ToolActionRecord:
 
 ### Key Findings
 
-1. **Task State Management**: `task_state_manager.py` implements Manus-style recitation with async write safety.
+1. **Task State Management**: `task_state_manager.py` implements Pythinker-style recitation with async write safety.
 
 2. **DecomP Pattern**: `task_decomposer.py` implements recursive task decomposition with dependency detection.
 
@@ -7951,4 +7951,2080 @@ class ToolActionRecord:
 
 ---
 
-*Review will continue with Batch 21 (files 101-105) upon next iteration.*
+## Batch 21: Agent Services - Error Patterns & Compression (Files 101-105)
+
+### 101. `backend/app/domain/services/agents/error_pattern_analyzer.py` (546 lines)
+
+**Purpose:** Error pattern detection and analysis for proactive guidance
+
+**Current Setup:**
+- `PatternType` enum (TIMEOUT_REPEATED, JSON_PARSE_LOOP, TOOL_FAILURE_STREAK, etc.)
+- `DetectedPattern` and `ToolErrorRecord` dataclasses
+- `ErrorPatternAnalyzer` class with cross-session learning
+- Pattern persistence to long-term memory
+
+**Strengths:**
+- EXCELLENT - Comprehensive error pattern detection
+- Multiple pattern types (timeout, JSON parse, failure streak, rate limit)
+- Cross-session learning via memory service integration
+- Proactive warning signals before execution
+- Tool inference from step descriptions
+- Context signal generation for prompt injection
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 36, 57 | Low | `DetectedPattern`, `ToolErrorRecord` use `@dataclass` |
+| datetime.now() | Lines 64, 120, 137, etc. | Low | Should use `datetime.now(UTC)` |
+| TYPE_CHECKING import | Line 20 | Info | Memory service import via TYPE_CHECKING |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 102. `backend/app/domain/services/agents/response_recovery.py` (309 lines)
+
+**Purpose:** Response recovery policy for malformed LLM responses
+
+**Current Setup:**
+- `ResponseRecoveryPolicy` class with recovery strategies
+- `REFUSAL_PATTERNS` for detecting refusals
+- Integration with domain models from `recovery.py`
+- Metrics tracking via infrastructure observability
+
+**Strengths:**
+- EXCELLENT - Clean recovery policy implementation
+- Correctly uses `datetime.now(UTC)` (Line 10 imports UTC)
+- Refusal pattern detection with 10+ patterns
+- Recovery budget enforcement
+- Strategy selection (ROLLBACK_RETRY, SIMPLIFIED_PROMPT, TERMINAL_ERROR)
+- Metrics tracking for observability
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No dataclass usage | N/A | N/A | Uses domain models |
+| Direct infrastructure import | Lines 20-25 | Low | Imports from `app.infrastructure.observability` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 103. `backend/app/domain/services/agents/prompt_compressor.py` (521 lines)
+
+**Purpose:** Smart prompt compression for token efficiency
+
+**Current Setup:**
+- `CompressionLevel` enum (NONE, LIGHT, MODERATE, AGGRESSIVE)
+- `CompressionResult` dataclass
+- `PromptCompressor` class with multiple strategies
+- `REDUCIBLE_PATTERNS` for pattern-based compression
+
+**Strengths:**
+- EXCELLENT - Comprehensive prompt compression
+- Multiple compression levels
+- Pattern-based compression (timestamps, stack traces, UUIDs)
+- Important marker detection for preservation
+- Tool output compression with token limits
+- Message history compression with system preservation
+- Context compression with section awareness
+- Rolling average statistics tracking
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Line 31 | Low | `CompressionResult` uses `@dataclass` |
+| Callable in patterns | Line 77 | Info | Lambda function in `REDUCIBLE_PATTERNS` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 104. `backend/app/domain/services/agents/benchmarks.py` (852 lines)
+
+**Purpose:** LLM Agent performance benchmarks
+
+**Current Setup:**
+- `BenchmarkCategory` enum (TOKEN_EFFICIENCY, LATENCY, CACHE_PERFORMANCE, etc.)
+- `BenchmarkResult` and `BenchmarkSuite` dataclasses
+- `AgentBenchmarks` class with comprehensive benchmark suite
+- Categories: Token efficiency, cache performance, tool selection, hallucination, memory
+
+**Strengths:**
+- EXCELLENT - Comprehensive benchmark suite
+- 14+ benchmark tests across 5 categories
+- Dynamic toolset token reduction benchmarks
+- L1/L2 cache performance benchmarks
+- Hallucination detection accuracy benchmarks
+- Memory pressure detection benchmarks
+- Markdown report generation
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 35, 49 | Low | `BenchmarkResult`, `BenchmarkSuite` use `@dataclass` |
+| datetime.now() | Lines 46, 55, 138 | Low | Should use `datetime.now(UTC)` |
+| Large file | Global | Low | 852 lines |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 105. `backend/app/domain/services/agents/autonomy_config.py` (593 lines)
+
+**Purpose:** Autonomy configuration system for agent operations
+
+**Current Setup:**
+- `AutonomyLevel` enum (SUPERVISED, GUIDED, AUTONOMOUS, UNRESTRICTED)
+- `ActionCategory` enum for permission checking
+- `PermissionFlags`, `SafetyLimits`, `ApprovalRequest` dataclasses
+- `AutonomyConfig` class with approval workflow
+- `CONFIRMATION_REQUIRED` mapping per autonomy level
+
+**Strengths:**
+- EXCELLENT - Comprehensive autonomy configuration
+- 4 autonomy levels with clear permission boundaries
+- Fine-grained permission flags (domain/path restrictions)
+- Safety limits (iterations, tool calls, time, tokens, cost)
+- Approval callback integration
+- Tool categorization for permission checking
+- Blocked domains/paths for security
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 67, 148, 286 | Medium | `PermissionFlags`, `SafetyLimits`, `ApprovalRequest` use `@dataclass` |
+| datetime.now() | Lines 174, 241, 295 | Low | Should use `datetime.now(UTC)` |
+| callable type hint | Line 339 | Low | Should use `Callable[..., Awaitable[bool]]` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+## Batch 21 Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| Files Reviewed | 5 |
+| Total Lines | ~2,800 |
+| Total Issues Found | 14 |
+| Critical | 0 |
+| Medium | 1 |
+| Low | 13 |
+
+### Key Findings
+
+1. **Error Pattern Analysis**: `error_pattern_analyzer.py` implements cross-session learning with memory service integration.
+
+2. **Response Recovery**: `response_recovery.py` correctly uses `datetime.now(UTC)` for timestamps.
+
+3. **Prompt Compression**: `prompt_compressor.py` implements 4 compression levels with pattern-based reduction.
+
+4. **Benchmarks**: `benchmarks.py` provides 14+ benchmark tests across 5 categories.
+
+5. **Autonomy Config**: `autonomy_config.py` implements 4 autonomy levels with fine-grained permissions.
+
+### Priority Fixes
+
+1. **Medium**: Convert dataclasses to Pydantic `BaseModel` in `PermissionFlags`, `SafetyLimits`, `ApprovalRequest`
+2. **Low**: Fix `datetime.now()` to `datetime.now(UTC)` in error_pattern_analyzer, benchmarks, autonomy_config
+3. **Low**: Use proper `Callable` type hint instead of `callable` in autonomy_config
+
+---
+
+## Progress Update
+
+| Category | Files Reviewed | Total |
+|----------|---------------|-------|
+| Domain Models | 62 | 62 |
+| Domain Repositories | 14 | 14 |
+| Agent Services | 30 | 82 |
+| **Total So Far** | **106** | **299** |
+| **Progress** | **35.5%** | - |
+
+---
+
+## Batch 22: Agent Services - Verification & Memory (Files 106-110)
+
+### 106. `backend/app/domain/services/agents/url_verification.py` (427 lines)
+
+**Purpose:** URL verification for hallucination prevention
+
+**Current Setup:**
+- `URLVerificationService` class with placeholder detection
+- `PLACEHOLDER_PATTERNS` with 13+ regex patterns
+- `SUSPICIOUS_TLDS` for fake URL detection
+- Batch verification with asyncio semaphore
+
+**Strengths:**
+- EXCELLENT - Comprehensive URL verification
+- 13+ placeholder patterns (example.com, localhost, [URL], etc.)
+- Suspicious TLD detection (.invalid, .test, .example)
+- HTTP HEAD/GET verification with timeout
+- Session URL tracking for visited verification
+- URL normalization for comparison
+- Batch verification with concurrency control
+- URL extraction from text
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No dataclass usage | N/A | N/A | Uses domain models |
+| httpx sync client | N/A | Info | Uses async client correctly |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 107. `backend/app/domain/services/agents/chain_of_verification.py` (539 lines)
+
+**Purpose:** Chain-of-Verification (CoVe) implementation (Meta AI research)
+
+**Current Setup:**
+- `VerificationStatus` enum (VERIFIED, CONTRADICTED, UNCERTAIN, NOT_CHECKED)
+- `VerificationQuestion` and `CoVeResult` dataclasses
+- `ChainOfVerification` class with 4-step process
+- Parallel and sequential verification modes
+
+**Strengths:**
+- EXCELLENT - Implements Meta AI's CoVe pattern
+- Research-based approach (Dhuliawala et al., 2023)
+- 4-step process: plan, verify independently, calculate metrics, refine
+- Independent verification (crucial to avoid confirmation bias)
+- Parallel verification for speed
+- Claim status determination logic
+- Verified response generation
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 52, 63 | Low | `VerificationQuestion`, `CoVeResult` use `@dataclass` |
+| Response format | Lines 340, 377 | Info | Uses `response_format={"type": "json_object"}` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 108. `backend/app/domain/services/agents/memory_manager.py` (958 lines)
+
+**Purpose:** Coordinated memory management with smart compaction
+
+**Current Setup:**
+- `PressureStatus`, `CompactedMessage`, `ExtractionResult`, `ContextOptimizationReport` dataclasses
+- `MemoryManager` class with Phase 3 enhancements
+- Semantic and temporal compressors integration
+- Archive integration for persisting compacted content
+
+**Strengths:**
+- EXCELLENT - Comprehensive memory management
+- Phase 3 enhancements: proactive compaction, LLM extraction, archive integration
+- Tool-specific extraction (browser, shell, file, search)
+- Pressure status tracking with context signals
+- Proactive compaction triggers (5 rules)
+- Archive with FIFO cleanup and size limits
+- LLM-based extraction for unknown tools
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 34, 52, 67, 80 | Medium | 4 dataclasses |
+| datetime.now() | Lines 525, 774 | Low | Should use `datetime.now(UTC)` |
+| Large file | Global | Low | 958 lines |
+| Circular import | Line 211 | Info | Imports ToolResult inside method |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 109. `backend/app/domain/services/agents/duplicate_query_policy.py` (225 lines)
+
+**Purpose:** Duplicate query suppression policy
+
+**Current Setup:**
+- `QueryResult` and `QueryCache` dataclasses
+- `DuplicateQueryPolicy` class with time-windowed detection
+- SHA256 signature generation for queries
+- Quality-aware override logic
+
+**Strengths:**
+- EXCELLENT - Clean duplicate query policy
+- Time-windowed duplicate detection
+- Quality-aware override (retries allowed for low-quality results)
+- Explicit retry support
+- Metrics tracking via infrastructure observability
+- Automatic cache cleanup
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 21, 32 | Low | `QueryResult`, `QueryCache` use `@dataclass` |
+| Direct infrastructure import | Lines 12-16 | Low | Imports from `app.infrastructure.observability` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 110. `backend/app/domain/services/agents/failure_snapshot_service.py` (177 lines)
+
+**Purpose:** Failure snapshot generation for retry quality improvement
+
+**Current Setup:**
+- `FailureSnapshotService` class with adaptive generation
+- Token budget enforcement
+- Context pressure awareness
+- Metrics tracking
+
+**Strengths:**
+- EXCELLENT - Clean failure snapshot service
+- Adaptive truncation based on context pressure
+- Token budget enforcement
+- Retry context injection
+- Should-generate decision logic
+- Minimal vs full snapshot generation
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No dataclass usage | N/A | N/A | Uses domain models |
+| Direct infrastructure import | Lines 9-15 | Low | Imports from `app.infrastructure.observability` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+## Batch 22 Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| Files Reviewed | 5 |
+| Total Lines | ~2,300 |
+| Total Issues Found | 9 |
+| Critical | 0 |
+| Medium | 1 |
+| Low | 8 |
+
+### Key Findings
+
+1. **URL Verification**: `url_verification.py` implements 13+ placeholder patterns with HTTP verification.
+
+2. **Chain-of-Verification**: `chain_of_verification.py` implements Meta AI's CoVe pattern with independent verification.
+
+3. **Memory Manager**: `memory_manager.py` implements Phase 3 enhancements with proactive compaction.
+
+4. **Duplicate Query Policy**: `duplicate_query_policy.py` implements quality-aware suppression.
+
+5. **Failure Snapshot**: `failure_snapshot_service.py` implements adaptive snapshot generation.
+
+### Priority Fixes
+
+1. **Medium**: Convert dataclasses to Pydantic `BaseModel` in `PressureStatus`, `CompactedMessage`, `ExtractionResult`, `ContextOptimizationReport`
+2. **Low**: Fix `datetime.now()` to `datetime.now(UTC)` in memory_manager
+3. **Low**: Consider splitting memory_manager.py (958 lines)
+
+---
+
+## Progress Update
+
+| Category | Files Reviewed | Total |
+|----------|---------------|-------|
+| Domain Models | 62 | 62 |
+| Domain Repositories | 14 | 14 |
+| Agent Services | 35 | 82 |
+| **Total So Far** | **111** | **299** |
+| **Progress** | **37.1%** | - |
+
+---
+
+## Batch 23: Agent Services - Response & Security (Files 111-115)
+
+### 111. `backend/app/domain/services/agents/response_compressor.py` (79 lines)
+
+**Purpose:** Deterministic response compressor used after quality checks
+
+**Current Setup:**
+- `ResponseCompressor` class with markdown-aware compression
+- Regex patterns for caveats, actions, and artifacts
+- VerbosityMode-aware compression
+
+**Strengths:**
+- GOOD - Clean, focused compression logic
+- Pattern-based extraction (caveats, actions, artifacts)
+- File path detection with extensions
+- Preserves heading blocks
+- Max char limit enforcement
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No dataclass usage | N/A | N/A | Simple class without dataclasses |
+| Import from local | Line 5 | Info | Imports `VerbosityMode` from response_policy |
+
+**Overall Rating:** ✅ Good
+
+---
+
+### 112. `backend/app/domain/services/agents/response_policy.py` (201 lines)
+
+**Purpose:** Adaptive response policy for concise, high-quality outputs
+
+**Current Setup:**
+- `VerbosityMode` enum (CONCISE, STANDARD, DETAILED)
+- `TaskAssessment` and `ResponsePolicy` dataclasses with `slots=True`
+- `ResponsePolicyEngine` class with keyword-based assessment
+
+**Strengths:**
+- EXCELLENT - Clean response policy implementation
+- Uses `@dataclass(slots=True)` for performance
+- High-risk keyword detection (production, security, payment, etc.)
+- Ambiguity detection with clarification questions
+- Evidence need scoring
+- Adaptive mode selection based on task characteristics
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 17, 30 | Low | `TaskAssessment`, `ResponsePolicy` use `@dataclass(slots=True)` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 113. `backend/app/domain/services/agents/intent_classifier.py` (437 lines)
+
+**Purpose:** Intent classifier for agent mode selection
+
+**Current Setup:**
+- `ClassificationContext` and `ClassificationResult` dataclasses
+- `IntentClassifier` class with context-aware classification
+- Greeting, acknowledgment, and task indicator patterns
+- Direct response pattern detection
+
+**Strengths:**
+- EXCELLENT - Comprehensive intent classification
+- Context-aware classification with attachments, URLs, skills
+- 20+ task indicators for execution detection
+- Greeting and acknowledgment patterns
+- Continuation phrase detection for follow-ups
+- URL extraction support
+- Multiple classification confidence levels
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 23, 76 | Low | `ClassificationContext`, `ClassificationResult` use `@dataclass` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 114. `backend/app/domain/services/agents/research_agent.py` (159 lines)
+
+**Purpose:** Research sub-agent for wide research pattern
+
+**Current Setup:**
+- `SearchToolProtocol` and `LLMProtocol` with `@runtime_checkable`
+- `ResearchSubAgent` class with isolated context per instance
+- System prompt for research synthesis
+
+**Strengths:**
+- EXCELLENT - Clean research sub-agent implementation
+- Uses `Protocol` for type safety with `@runtime_checkable`
+- Isolated context per instance (prevents parallel task interference)
+- Search result extraction from multiple formats
+- MAX_SEARCH_RESULTS limit (5)
+- Handles both object and string LLM responses
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No dataclass usage | N/A | N/A | Uses Protocol pattern |
+| Uses domain model | Line 11 | Info | Imports `ResearchTask` from domain |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 115. `backend/app/domain/services/agents/security_critic.py` (407 lines)
+
+**Purpose:** Security critic for code execution safety review
+
+**Current Setup:**
+- `RiskLevel` enum (LOW, MEDIUM, HIGH, CRITICAL)
+- `SecurityResult` Pydantic `BaseModel`
+- `SecurityCritic` class with static and LLM-based analysis
+- `DANGEROUS_PATTERNS` for Python and Bash
+
+**Strengths:**
+- EXCELLENT - Comprehensive security critic
+- Uses Pydantic `BaseModel` for `SecurityResult` ✅
+- Static pattern detection + optional LLM semantic analysis
+- 12 Python patterns (os.system, eval, exec, hardcoded secrets)
+- 10 Bash patterns (rm -rf /, curl|bash, fork bombs)
+- Risk escalation logic for critical patterns
+- JSON parsing with markdown code block handling
+- Fallback to pattern-only mode without LLM
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Pydantic usage | Line 43 | Good | Uses `BaseModel` correctly |
+| No dataclass usage | N/A | N/A | Uses Pydantic |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+## Batch 23 Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| Files Reviewed | 5 |
+| Total Lines | ~1,280 |
+| Total Issues Found | 3 |
+| Critical | 0 |
+| Medium | 0 |
+| Low | 3 |
+
+### Key Findings
+
+1. **Response Compressor**: `response_compressor.py` implements pattern-based compression with artifact detection.
+
+2. **Response Policy**: `response_policy.py` uses `@dataclass(slots=True)` for performance.
+
+3. **Intent Classifier**: `intent_classifier.py` implements context-aware classification with 20+ task indicators.
+
+4. **Research Agent**: `research_agent.py` uses Protocol pattern with `@runtime_checkable` for type safety.
+
+5. **Security Critic**: `security_critic.py` correctly uses Pydantic `BaseModel` and implements 22 dangerous patterns.
+
+### Priority Fixes
+
+1. **Low**: Convert dataclasses to Pydantic `BaseModel` in `TaskAssessment`, `ResponsePolicy`, `ClassificationContext`, `ClassificationResult`
+
+---
+
+## Progress Update
+
+| Category | Files Reviewed | Total |
+|----------|---------------|-------|
+| Domain Models | 62 | 62 |
+| Domain Repositories | 14 | 14 |
+| Agent Services | 40 | 82 |
+| **Total So Far** | **116** | **299** |
+| **Progress** | **38.8%** | - |
+
+---
+
+## Batch 24: Agent Services - Critic & Recovery (Files 116-120)
+
+### 116. `backend/app/domain/services/agents/critic_agent.py` (311 lines)
+
+**Purpose:** Critic agent for quality gate pattern
+
+**Current Setup:**
+- `CriticResult` Pydantic `BaseModel` with approval status
+- `CriticAgent` class with LLM-based review
+- Batch review support
+- JSON parsing with markdown handling
+
+**Strengths:**
+- EXCELLENT - Clean critic agent implementation
+- Uses Pydantic `BaseModel` for `CriticResult` ✅
+- Quality Gate Pattern implementation
+- Batch review support
+- JSON parsing with fallback to sentiment analysis
+- Positive/negative indicator detection for fallback
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Pydantic usage | Line 35 | Good | Uses `BaseModel` correctly |
+| No dataclass usage | N/A | N/A | Uses Pydantic |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 117. `backend/app/domain/services/agents/prompt_adapter.py` (277 lines)
+
+**Purpose:** Dynamic prompt adaptation based on execution context
+
+**Current Setup:**
+- `ContextType` enum (BROWSER, SHELL, FILE, SEARCH, MCP, MESSAGE, GENERAL)
+- `ExecutionContext` dataclass for tracking
+- `PromptAdapter` class with tool-to-context mapping
+- Context-specific guidance and iteration warnings
+
+**Strengths:**
+- EXCELLENT - Clean prompt adaptation
+- 6 context types with specific guidance
+- Tool-to-context mapping (11 tools)
+- Iteration threshold warnings (10, 20, 30)
+- Error awareness injection
+- MCP tool prefix handling
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Line 28 | Low | `ExecutionContext` uses `@dataclass` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 118. `backend/app/domain/services/agents/reward_scoring.py` (62 lines)
+
+**Purpose:** Reward scoring with gaming detection
+
+**Current Setup:**
+- `RewardScore` dataclass with gaming signals
+- `RewardScorer` class with severity-based scoring
+- Integration with GamingDetector
+
+**Strengths:**
+- GOOD - Clean reward scoring implementation
+- Severity-based scoring (high: -0.4, medium: -0.2, low: -0.1)
+- Subscore tracking (correctness, reasoning, completeness, presentation)
+- Violation detection for high-severity signals
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Line 11 | Low | `RewardScore` uses `@dataclass` |
+| from __future__ | Line 3 | Info | Uses `from __future__ import annotations` |
+
+**Overall Rating:** ✅ Good
+
+---
+
+### 119. `backend/app/domain/services/agents/gaming_detector.py` (141 lines)
+
+**Purpose:** Detect potential reward hacking and gaming patterns
+
+**Current Setup:**
+- `GamingSignal` dataclass with severity levels
+- `GamingDetector` class with heuristic detection
+- Configurable thresholds
+
+**Strengths:**
+- EXCELLENT - Clean gaming detection
+- 5 signal types detected:
+  - Repetitive tool calls (3+ same tool)
+  - Random tool exploration (high diversity)
+  - High failure rate (>60%)
+  - Answer without tool usage
+  - Parameter injection attempts
+- Configurable thresholds
+- Injection pattern detection (6 patterns)
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Line 9 | Low | `GamingSignal` uses `@dataclass` |
+| from __future__ | Line 3 | Info | Uses `from __future__ import annotations` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 120. `backend/app/domain/services/agents/self_healing_loop.py` (597 lines)
+
+**Purpose:** Self-healing agent loop with automatic recovery
+
+**Current Setup:**
+- `RecoveryStrategy` enum (9 strategies)
+- `RecoveryAttempt`, `SelfReflectionResult`, `HealingLoopConfig` dataclasses
+- `SelfHealingLoop` class with error pattern learning
+- `ERROR_STRATEGY_MAP` and `TOOL_ALTERNATIVES` mappings
+
+**Strengths:**
+- EXCELLENT - Comprehensive self-healing implementation
+- 9 recovery strategies (RETRY, RETRY_WITH_CONTEXT, ALTERNATIVE_TOOL, etc.)
+- Error-type to strategy mapping
+- Tool alternatives mapping (6 tools)
+- Error pattern tracking and learning
+- Self-reflection cycles with strategy effectiveness analysis
+- Recovery prompt generation per strategy
+- Statistics tracking
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 42, 67, 560 | Medium | 3 dataclasses |
+| datetime.now() | Lines 49, 77, 358, 397 | Low | Should use `datetime.now(UTC)` |
+| Large file | Global | Low | 597 lines |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+## Batch 24 Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| Files Reviewed | 5 |
+| Total Lines | ~1,390 |
+| Total Issues Found | 8 |
+| Critical | 0 |
+| Medium | 1 |
+| Low | 7 |
+
+### Key Findings
+
+1. **Critic Agent**: `critic_agent.py` correctly uses Pydantic `BaseModel` for `CriticResult`.
+
+2. **Prompt Adapter**: `prompt_adapter.py` implements 6 context types with iteration warnings.
+
+3. **Reward Scoring**: `reward_scoring.py` implements severity-based scoring with subscores.
+
+4. **Gaming Detector**: `gaming_detector.py` detects 5 signal types including injection attempts.
+
+5. **Self-Healing Loop**: `self_healing_loop.py` implements 9 recovery strategies with learning.
+
+### Priority Fixes
+
+1. **Medium**: Convert dataclasses to Pydantic `BaseModel` in `RecoveryAttempt`, `SelfReflectionResult`, `HealingLoopConfig`
+2. **Low**: Fix `datetime.now()` to `datetime.now(UTC)` in self_healing_loop
+3. **Low**: Convert `ExecutionContext`, `RewardScore`, `GamingSignal` to Pydantic
+
+---
+
+## Progress Update
+
+| Category | Files Reviewed | Total |
+|----------|---------------|-------|
+| Domain Models | 62 | 62 |
+| Domain Repositories | 14 | 14 |
+| Agent Services | 45 | 82 |
+| **Total So Far** | **121** | **299** |
+| **Progress** | **40.5%** | - |
+
+---
+
+## Batch 25: Agent Services - Security & Caching (Files 121-125)
+
+### 121. `backend/app/domain/services/agents/security_assessor.py` (94 lines)
+
+**Purpose:** Security assessor for evaluating agent action risks
+
+**Current Setup:**
+- `ActionSecurityRisk` enum (LOW, MEDIUM, HIGH, CRITICAL)
+- `SecurityAssessment` dataclass with `__post_init__`
+- `SecurityAssessor` class with configurable permissions
+
+**Strengths:**
+- GOOD - Simple security assessment
+- Configurable autonomy levels
+- Note about sandbox isolation (security boundary)
+- Blocked/high-risk action tracking
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Line 19 | Low | `SecurityAssessment` uses `@dataclass` |
+| None default | Line 27 | Low | `list = None` should use `field(default_factory=list)` |
+| Simplified logic | Line 74 | Info | Currently allows all actions (sandbox-based) |
+
+**Overall Rating:** ✅ Good
+
+---
+
+### 122. `backend/app/domain/services/agents/prompt_cache_manager.py` (643 lines)
+
+**Purpose:** Prompt cache management for KV-cache optimization
+
+**Current Setup:**
+- `LLMProvider` enum (OPENAI, ANTHROPIC, UNKNOWN)
+- `CacheMetrics`, `PromptSection`, `CachedResponse` dataclasses
+- `PromptCacheManager` class with provider-specific caching
+- `SemanticResponseCache` class with Jaccard similarity
+
+**Strengths:**
+- EXCELLENT - Comprehensive caching implementation
+- Dual caching: KV-cache (prompt) + semantic response cache
+- Provider-specific handling (OpenAI auto, Anthropic cache_control)
+- 90% token cost reduction on repeated prompts
+- Semantic matching with Jaccard similarity (85% threshold)
+- LRU eviction with TTL support
+- 57+ stop words for semantic key extraction
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 25, 50, 299 | Medium | 3 dataclasses |
+| Large file | Global | Low | 643 lines |
+| time.time() | Lines 503, 550, 562 | Info | Uses `time.time()` for timestamps |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 123. `backend/app/domain/services/agents/requirement_extractor.py` (386 lines)
+
+**Purpose:** User requirement extraction from prompts
+
+**Current Setup:**
+- `RequirementPriority` enum (MUST_HAVE, SHOULD_HAVE, NICE_TO_HAVE)
+- `Requirement` and `RequirementSet` dataclasses
+- `RequirementExtractor` class with regex patterns
+- Coverage tracking and matching
+
+**Strengths:**
+- EXCELLENT - Comprehensive requirement extraction
+- Numbered/bullet list extraction
+- Conjunction-based extraction (X and Y and Z)
+- Priority determination from language indicators
+- Coverage percentage calculation
+- Unaddressed requirement reminders
+- Jaccard similarity for step matching
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 32, 49 | Low | `Requirement`, `RequirementSet` use `@dataclass` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 124. `backend/app/domain/services/agents/metrics.py` (439 lines)
+
+**Purpose:** Agent performance metrics collection
+
+**Current Setup:**
+- `MetricType` enum (TOKEN_USAGE, CACHE_HIT, TOOL_EXECUTION, etc.)
+- `MetricEvent`, `TokenMetrics`, `CacheMetrics`, `ToolMetrics`, `LatencyMetrics` dataclasses
+- `MetricsCollector` class with thread-safe singleton
+- Time-series data with 1-minute buckets
+
+**Strengths:**
+- EXCELLENT - Comprehensive metrics collection
+- Thread-safe singleton pattern
+- Time-series storage (60 1-minute buckets)
+- Percentile latency tracking (p50, p95, p99)
+- Dynamic toolset reduction tracking
+- Prometheus export format
+- Hallucination tracking
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 37, 47, 58, 86, 106 | Medium | 5 dataclasses |
+| datetime.now() | Lines 43, 168, 179, etc. | Low | Should use `datetime.now(UTC)` |
+| Mutable default | Line 117 | Low | `_samples: list[float] = field(default_factory=list)` - correct |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 125. `backend/app/domain/services/agents/model_router.py` (343 lines)
+
+**Purpose:** Model router for complexity-based model selection
+
+**Current Setup:**
+- `TaskComplexity` enum (SIMPLE, MEDIUM, COMPLEX)
+- `ModelTier` enum (FAST, BALANCED, POWERFUL)
+- `ModelConfig` dataclass
+- `ModelRouter` class with complexity analysis
+- `MODEL_CONFIGS` for OpenAI, Anthropic, DeepSeek
+
+**Strengths:**
+- EXCELLENT - Comprehensive model routing
+- 60-70% latency reduction on simple tasks
+- 3 providers with tier-specific configs
+- 18 simple task indicators
+- 26 complex task indicators
+- Complexity pattern regex detection
+- Routing statistics tracking
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Line 36 | Low | `ModelConfig` uses `@dataclass` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+## Batch 25 Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| Files Reviewed | 5 |
+| Total Lines | ~1,900 |
+| Total Issues Found | 11 |
+| Critical | 0 |
+| Medium | 2 |
+| Low | 9 |
+
+### Key Findings
+
+1. **Security Assessor**: `security_assessor.py` is simplified (sandbox-based security).
+
+2. **Prompt Cache Manager**: `prompt_cache_manager.py` implements dual caching with 90% cost reduction.
+
+3. **Requirement Extractor**: `requirement_extractor.py` extracts numbered/bullet lists with coverage tracking.
+
+4. **Metrics Collector**: `metrics.py` implements thread-safe metrics with Prometheus export.
+
+5. **Model Router**: `model_router.py` implements complexity-based routing with 60-70% latency savings.
+
+### Priority Fixes
+
+1. **Medium**: Convert dataclasses to Pydantic `BaseModel` in `CacheMetrics`, `PromptSection`, `CachedResponse`, `TokenMetrics`, `ToolMetrics`, `LatencyMetrics`
+2. **Low**: Fix `datetime.now()` to `datetime.now(UTC)` in metrics.py
+3. **Low**: Fix `list = None` to `field(default_factory=list)` in security_assessor.py
+
+---
+
+## Progress Update
+
+| Category | Files Reviewed | Total |
+|----------|---------------|-------|
+| Domain Models | 62 | 62 |
+| Domain Repositories | 14 | 14 |
+| Agent Services | 50 | 82 |
+| **Total So Far** | **126** | **299** |
+| **Progress** | **42.1%** | - |
+
+---
+
+## Batch 26: Agent Services - Compliance, Spawner, Memory (Files 126-130)
+
+### 126. `backend/app/domain/services/agents/compliance_gates.py` (323 lines)
+
+**Purpose:** Output compliance gates for quality assurance
+
+**Current Setup:**
+- `GateStatus` enum (PASSED, FAILED, WARNING, SKIPPED)
+- `GateResult` and `ComplianceReport` dataclasses
+- `ComplianceGates` class with 4 gate checks
+- Strict mode support
+
+**Strengths:**
+- EXCELLENT - Clean compliance gates implementation
+- 4 gate types: artifact_hygiene, command_context, source_labeling, content_completeness
+- Strict mode (warnings become failures)
+- Blocking vs non-blocking issues tracking
+- Official domain detection for sources
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 26, 40 | Low | `GateResult`, `ComplianceReport` use `@dataclass` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 127. `backend/app/domain/services/agents/spawner.py` (549 lines)
+
+**Purpose:** Dynamic agent spawning based on task requirements
+
+**Current Setup:**
+- `SpawnTrigger` enum (7 triggers: COMPLEXITY_THRESHOLD, TOOL_REQUIREMENTS, etc.)
+- `SpawnedAgentConfig` and `SpawnDecision` classes (no dataclass)
+- `AgentSpawner` class with registry/protocol integration
+- 6 capability-to-agent mappings
+
+**Strengths:**
+- EXCELLENT - Comprehensive agent spawning
+- 7 spawn triggers
+- Max 5 concurrent spawned agents
+- Integration with AgentRegistry and CommunicationProtocol
+- Parallel agent spawning support
+- Idle agent cleanup
+- Category inference from task descriptions
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No dataclass usage | N/A | Info | Uses regular classes |
+| datetime.now() | Lines 77, 337, 341 | Low | Should use `datetime.now(UTC)` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 128. `backend/app/domain/services/agents/memory/importance_analyzer.py` (66 lines)
+
+**Purpose:** Importance scoring for context optimization
+
+**Current Setup:**
+- `ImportanceScore` dataclass with score and reasons
+- `ImportanceAnalyzer` class with role-based scoring
+- 11 high-signal keywords
+
+**Strengths:**
+- GOOD - Simple importance analysis
+- Role-based scoring (system: 0.9, user: 0.85, assistant: 0.6, tool: 0.3)
+- Recent message preservation
+- 11 high-signal keywords (decision, plan, goal, error, etc.)
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Line 9 | Low | `ImportanceScore` uses `@dataclass` |
+| from __future__ | Line 3 | Info | Uses `from __future__ import annotations` |
+
+**Overall Rating:** ✅ Good
+
+---
+
+### 129. `backend/app/domain/services/agents/memory/semantic_compressor.py` (96 lines)
+
+**Purpose:** Semantic compression for deduplicating similar tool outputs
+
+**Current Setup:**
+- `SemanticCompressionStats` dataclass
+- `SemanticCompressor` class with fingerprinting
+- Integration with ImportanceAnalyzer
+
+**Strengths:**
+- EXCELLENT - Clean semantic compression
+- Content fingerprinting with normalization
+- Duplicate suppression with summary
+- Integration with ToolResult model
+- Importance-aware compression
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Line 14 | Low | `SemanticCompressionStats` uses `@dataclass` |
+| from __future__ | Line 3 | Info | Uses `from __future__ import annotations` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 130. `backend/app/domain/services/agents/memory/temporal_compressor.py` (112 lines)
+
+**Purpose:** Temporal compression for older, low-importance messages
+
+**Current Setup:**
+- `TemporalCompressionStats` dataclass
+- `TemporalCompressor` class with role-specific limits
+- Configurable max chars (tool: 800, assistant: 600)
+
+**Strengths:**
+- EXCELLENT - Clean temporal compression
+- Role-specific compression limits
+- Integration with ImportanceAnalyzer
+- Truncation marking for transparency
+- Tracks tool and assistant compaction separately
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Line 13 | Low | `TemporalCompressionStats` uses `@dataclass` |
+| from __future__ | Line 3 | Info | Uses `from __future__ import annotations` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+## Batch 26 Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| Files Reviewed | 5 |
+| Total Lines | ~1,150 |
+| Total Issues Found | 7 |
+| Critical | 0 |
+| Medium | 0 |
+| Low | 7 |
+
+### Key Findings
+
+1. **Compliance Gates**: `compliance_gates.py` implements 4 gate types with strict mode.
+
+2. **Agent Spawner**: `spawner.py` implements 7 spawn triggers with parallel execution.
+
+3. **Importance Analyzer**: `importance_analyzer.py` implements role-based scoring with 11 keywords.
+
+4. **Semantic Compressor**: `semantic_compressor.py` implements fingerprint-based deduplication.
+
+5. **Temporal Compressor**: `temporal_compressor.py` implements role-specific compression limits.
+
+### Priority Fixes
+
+1. **Low**: Convert dataclasses to Pydantic `BaseModel` in `GateResult`, `ComplianceReport`, `ImportanceScore`, `SemanticCompressionStats`, `TemporalCompressionStats`
+2. **Low**: Fix `datetime.now()` to `datetime.now(UTC)` in spawner.py
+
+---
+
+## Progress Update
+
+| Category | Files Reviewed | Total |
+|----------|---------------|-------|
+| Domain Models | 62 | 62 |
+| Domain Repositories | 14 | 14 |
+| Agent Services | 55 | 82 |
+| **Total So Far** | **131** | **299** |
+| **Progress** | **43.8%** | - |
+
+---
+
+## Batch 27: Agent Services - Registry, Reasoning, Caching (Files 131-135)
+
+### 131. `backend/app/domain/services/agents/registry/capability_registry.py` (439 lines)
+
+**Purpose:** Agent capability registry for task routing
+
+**Current Setup:**
+- 5 default agent profiles (planner, executor, critic, verifier, reflection)
+- `AgentRegistry` class with capability-based routing
+- Integration with domain models (AgentProfile, AgentCapability, etc.)
+
+**Strengths:**
+- EXCELLENT - Comprehensive capability registry
+- 5 default agent profiles with specific capabilities
+- Task routing based on requirements
+- Suitability scoring (1.1 bonus for matching level)
+- Load tracking and performance metrics
+- Exponential moving average for success rate (alpha=0.1)
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| datetime.now() | Lines 316, 350 | Low | Should use `datetime.now(UTC)` |
+| No dataclass usage | N/A | Info | Uses domain models |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 132. `backend/app/domain/services/agents/reasoning/thought_chain.py` (482 lines)
+
+**Purpose:** Thought chain builder for structured reasoning
+
+**Current Setup:**
+- 8 thought type patterns (OBSERVATION, ANALYSIS, HYPOTHESIS, etc.)
+- `ThoughtChainBuilder` class with pattern-based parsing
+- Quality assessment with HIGH/LOW quality indicators
+
+**Strengths:**
+- EXCELLENT - Comprehensive thought chain builder
+- 8 thought types with regex patterns
+- Quality assessment from content indicators
+- Confidence estimation (0.1-0.9 range)
+- Decision extraction with rationale
+- Section splitting with multiple patterns
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| datetime.now() | Line 228 | Low | Should use `datetime.now(UTC)` |
+| Uses domain models | N/A | Info | Uses Thought, ThoughtChain, Decision |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 133. `backend/app/domain/services/agents/reasoning/meta_cognition.py` (551 lines)
+
+**Purpose:** Meta-cognitive awareness for knowledge boundary detection
+
+**Current Setup:**
+- 8 uncertainty patterns, 4 knowledge patterns
+- 3 known domains (programming, general_knowledge, technical_writing)
+- 5 capability categories
+- `MetaCognitionModule` class with gap detection
+
+**Strengths:**
+- EXCELLENT - "Knowing what it doesn't know" capability
+- 8 uncertainty patterns for gap detection
+- 3 knowledge domains with known/unknown topics
+- Gap severity classification (CRITICAL, HIGH, MEDIUM, LOW)
+- Information request generation
+- Workaround suggestions for missing capabilities
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No dataclass usage | N/A | Info | Uses domain models |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 134. `backend/app/domain/services/agents/caching/result_cache.py` (353 lines)
+
+**Purpose:** Intelligent result caching for tool results and LLM responses
+
+**Current Setup:**
+- `CachedResult` and `CacheStatistics` dataclasses
+- Tool-specific TTLs (6 categories)
+- `ResultCache` class with LRU eviction
+
+**Strengths:**
+- EXCELLENT - Comprehensive result caching
+- 6 TTL categories (search: 5m, file_read: 1h, etc.)
+- Content-based deduplication
+- LRU eviction policy
+- Hit rate tracking
+- Pattern-based invalidation
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 28, 56 | Low | `CachedResult`, `CacheStatistics` use `@dataclass` |
+| datetime.now() | Lines 36, 37, 53, etc. | Low | Should use `datetime.now(UTC)` |
+| MD5 for hashing | Line 292 | Info | Uses MD5 (with noqa comment) |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 135. `backend/app/domain/services/agents/caching/reasoning_cache.py` (379 lines)
+
+**Purpose:** Caching for successful reasoning patterns
+
+**Current Setup:**
+- `CachedReasoning` and `ReasoningMatch` dataclasses
+- `ReasoningCache` class with similarity matching
+- Success rate tracking per pattern
+
+**Strengths:**
+- EXCELLENT - Reasoning pattern caching
+- Jaccard similarity for problem matching
+- Reliability threshold (min 3 uses, 60% success rate)
+- Confidence calculation (similarity × success_rate)
+- Low-performing pattern cleanup
+- 500 max entries, 0.6 min similarity
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 19, 61 | Low | `CachedReasoning`, `ReasoningMatch` use `@dataclass` |
+| datetime.now() | Lines 30, 32, 45, etc. | Low | Should use `datetime.now(UTC)` |
+| MD5 for hashing | Line 318 | Info | Uses MD5 (with noqa comment) |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+## Batch 27 Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| Files Reviewed | 5 |
+| Total Lines | ~2,200 |
+| Total Issues Found | 8 |
+| Critical | 0 |
+| Medium | 0 |
+| Low | 8 |
+
+### Key Findings
+
+1. **Capability Registry**: `capability_registry.py` implements 5 agent profiles with task routing.
+
+2. **Thought Chain**: `thought_chain.py` implements 8 thought types with pattern-based parsing.
+
+3. **Meta-Cognition**: `meta_cognition.py` implements "knowing what it doesn't know" capability.
+
+4. **Result Cache**: `result_cache.py` implements tool-specific TTL caching.
+
+5. **Reasoning Cache**: `reasoning_cache.py` implements pattern-based reasoning caching.
+
+### Priority Fixes
+
+1. **Low**: Convert dataclasses to Pydantic `BaseModel` in `CachedResult`, `CacheStatistics`, `CachedReasoning`, `ReasoningMatch`
+2. **Low**: Fix `datetime.now()` to `datetime.now(UTC)` across all 5 files
+
+---
+
+## Progress Update
+
+| Category | Files Reviewed | Total |
+|----------|---------------|-------|
+| Domain Models | 62 | 62 |
+| Domain Repositories | 14 | 14 |
+| Agent Services | 60 | 82 |
+| **Total So Far** | **136** | **299** |
+| **Progress** | **45.5%** | - |
+
+---
+
+## Batch 28: Collaboration & Flow Services (Files 136-140)
+
+### 136. `backend/app/domain/services/agents/collaboration/patterns.py` (620 lines)
+
+**Purpose:** Multi-agent collaboration patterns
+
+**Current Setup:**
+- `PatternType` enum (DEBATE, ASSEMBLY_LINE, SWARM, MENTOR_STUDENT)
+- `CollaborationContext` and `CollaborationResult` dataclasses
+- 4 collaboration pattern classes
+- `PatternExecutor` for pattern selection
+
+**Strengths:**
+- EXCELLENT - Comprehensive collaboration patterns
+- 4 distinct patterns with different use cases
+- ABC pattern for extensibility
+- Pattern suggestion based on task characteristics
+- Protocol integration for agent communication
+- Duration tracking and confidence scoring
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 42, 54 | Low | `CollaborationContext`, `CollaborationResult` use `@dataclass` |
+| datetime.now() | Lines 50, 112, etc. | Low | Should use `datetime.now(UTC)` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 137. `backend/app/domain/services/flows/plan_act.py` (Large file - ~123KB)
+
+**Purpose:** Plan-Act flow for complex multi-step tasks
+
+**Current Setup:**
+- Full planning and execution workflow
+- Integration with multiple tools and agents
+- Streaming events support
+
+**Strengths:**
+- EXCELLENT - Core flow implementation
+- Comprehensive planning workflow
+- Multi-step execution with reflection
+- Event streaming for real-time feedback
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Large file | Global | Low | ~123KB - should be split |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 138. `backend/app/domain/services/flows/fast_path.py` (846 lines)
+
+**Purpose:** Fast-path routing for simple queries
+
+**Current Setup:**
+- `QueryIntent` enum (GREETING, DIRECT_BROWSE, WEB_SEARCH, KNOWLEDGE, TASK)
+- `FastPathRouter` class with pattern-based classification
+- 58 URL knowledge base entries
+- 30+ greeting/acknowledgment patterns
+
+**Strengths:**
+- EXCELLENT - Comprehensive fast-path routing
+- 5 query intents with specific handlers
+- 58 pre-mapped URLs for common targets
+- 30+ greeting patterns with regional variations
+- Browser health checking with timeout
+- Search result caching (1 hour TTL)
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| ClassVar for cache | Line 212 | Info | Uses ClassVar for mutable cache (thread safety concern) |
+| time.time() | Line 528 | Info | Uses `time.time()` for cache timestamps |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 139. `backend/app/domain/services/flows/discuss.py` (393 lines)
+
+**Purpose:** Discuss flow for simple Q&A conversations
+
+**Current Setup:**
+- `DiscussStatus` enum (IDLE, RESPONDING, MODE_SWITCHING, etc.)
+- `DiscussAgent` and `DiscussFlow` classes
+- Limited tools (search, mode switching)
+- Suggestion extraction from responses
+
+**Strengths:**
+- EXCELLENT - Clean discuss flow
+- Mode switching to Agent for complex tasks
+- Suggestion extraction from JSON blocks
+- Fallback suggestion generation
+- Session context building
+- Stopword filtering for topic hints
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No dataclass usage | N/A | Info | Uses Enum and classes |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 140. `backend/app/domain/services/flows/wide_research.py` (735 lines)
+
+**Purpose:** Wide research flow for parallel multi-source research
+
+**Current Setup:**
+- `AggregationStrategy` enum (MERGE, SYNTHESIZE, COMPARE, VALIDATE)
+- `WideResearchConfig`, `ResearchSource`, `WideResearchResult` dataclasses
+- `WideResearchFlow` class with parallel execution
+- Query expansion and relevance scoring
+
+**Strengths:**
+- EXCELLENT - Comprehensive research flow (inspired by Pythinker AI)
+- 4 aggregation strategies
+- Parallel search with semaphore limiting
+- URL deduplication
+- Deep-dive content extraction
+- Cross-validation of facts
+- Streaming progress events
+- Citation generation
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 43, 59, 73 | Low | 3 dataclasses |
+| datetime.now() | Lines 144, 188, 225, etc. | Low | Should use `datetime.now(UTC)` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+## Batch 28 Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| Files Reviewed | 5 |
+| Total Lines | ~3,600+ |
+| Total Issues Found | 8 |
+| Critical | 0 |
+| Medium | 0 |
+| Low | 8 |
+
+### Key Findings
+
+1. **Collaboration Patterns**: `patterns.py` implements 4 agent collaboration patterns.
+
+2. **Plan-Act Flow**: `plan_act.py` is the core complex task flow (~123KB).
+
+3. **Fast Path Router**: `fast_path.py` implements 5 query intents with 58 pre-mapped URLs.
+
+4. **Discuss Flow**: `discuss.py` implements simple Q&A with mode switching.
+
+5. **Wide Research Flow**: `wide_research.py` implements parallel multi-source research.
+
+### Priority Fixes
+
+1. **Low**: Convert dataclasses to Pydantic `BaseModel` in collaboration patterns and wide research
+2. **Low**: Fix `datetime.now()` to `datetime.now(UTC)` across files
+
+---
+
+## Progress Update
+
+| Category | Files Reviewed | Total |
+|----------|---------------|-------|
+| Domain Models | 62 | 62 |
+| Domain Repositories | 14 | 14 |
+| Agent Services | 61 | 82 |
+| Flow Services | 5 | ~15 |
+| **Total So Far** | **141** | **299** |
+| **Progress** | **47.2%** | - |
+
+---
+
+## Batch 29: Flow Services - Workflow, Research (Files 141-145)
+
+### 141. `backend/app/domain/services/flows/workflow_graph.py` (451 lines)
+
+**Purpose:** Graph-based workflow engine for declarative agent orchestration
+
+**Current Setup:**
+- `NodeStatus` enum (PENDING, RUNNING, COMPLETED, FAILED, SKIPPED)
+- `WorkflowState`, `Node`, `Edge`, `ConditionalEdge`, `NodeExecution` dataclasses
+- `WorkflowGraph` and `WorkflowBuilder` classes
+- START/END special nodes
+
+**Strengths:**
+- EXCELLENT - Comprehensive workflow graph implementation
+- Declarative node and edge definitions
+- Conditional routing based on state
+- State checkpointing for recovery
+- Event streaming from node execution
+- Fluent builder pattern
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 60, 91, 100, 109, 118 | Low | 5 dataclasses |
+| time.time() | Lines 322, 343 | Info | Uses `time.time()` for timing |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 142. `backend/app/domain/services/flows/phase_registry.py` (273 lines)
+
+**Purpose:** Phase registry for structured 6-phase agent flow
+
+**Current Setup:**
+- 6 phase templates (ALIGNMENT, RESEARCH_FOUNDATION, ANALYSIS_SYNTHESIS, etc.)
+- Complexity-based phase selection
+- Keyword pattern matching for step assignment
+- Step-to-phase linking
+
+**Strengths:**
+- EXCELLENT - Clean phase registry implementation
+- 6 well-defined phases with icons and colors
+- Complexity threshold filtering
+- 50+ keyword patterns for phase assignment
+- Proportional position fallback
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses dict constants | Global | Info | PHASE_TEMPLATES uses plain dicts |
+| from __future__ | Line 6 | Info | Uses `from __future__ import annotations` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 143. `backend/app/domain/services/flows/path_explorer.py` (287 lines)
+
+**Purpose:** Path explorer for managing multiple exploration paths in Tree-of-Thoughts
+
+**Current Setup:**
+- `PathExplorer` class with path lifecycle management
+- Integration with PlannerAgent and ExecutionAgent
+- Token budget management
+- Early abandonment based on scoring
+
+**Strengths:**
+- EXCELLENT - Comprehensive path exploration
+- Sequential/parallel exploration support
+- Early abandonment with score threshold
+- Token budget tracking
+- Path state tracking (created, exploring, completed, abandoned, failed)
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| TYPE_CHECKING | Line 28 | Info | Uses TYPE_CHECKING for PathScorer import |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 144. `backend/app/domain/services/flows/deep_research.py` (542 lines)
+
+**Purpose:** Deep research flow for parallel search execution
+
+**Current Setup:**
+- `DeepResearchFlow` class with parallel execution
+- User approval workflow
+- Skip functionality for long-running searches
+- Real-time SSE progress updates
+
+**Strengths:**
+- EXCELLENT - Comprehensive deep research flow
+- Parallel query execution with semaphore
+- User approval workflow (5 min timeout)
+- Skip signals per query
+- Research JSON compilation
+- Markdown summary generation
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| datetime.now() | Lines 157, 182, 191, etc. | Low | Should use `datetime.now(UTC)` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 145. `backend/app/domain/services/flows/enhanced_research.py` (316 lines)
+
+**Purpose:** Enhanced research flow integrating all four improvements
+
+**Current Setup:**
+- `EnhancedResearchFlow` class
+- Integration with SourceFilterService, BenchmarkExtractor, CitationValidator, ReportGenerator
+- 6-step research process
+
+**Strengths:**
+- EXCELLENT - Clean enhanced research flow
+- 6-step process (search, filter, extract, cite, report, validate)
+- Source quality filtering
+- Benchmark extraction
+- Citation validation
+- Structured report generation
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| datetime.utcnow() | Lines 62, 168, 280 | Info | Uses `datetime.utcnow()` (deprecated) |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+## Batch 29 Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| Files Reviewed | 5 |
+| Total Lines | ~1,900 |
+| Total Issues Found | 9 |
+| Critical | 0 |
+| Medium | 0 |
+| Low | 9 |
+
+### Key Findings
+
+1. **Workflow Graph**: `workflow_graph.py` implements declarative graph-based workflows.
+
+2. **Phase Registry**: `phase_registry.py` implements 6 phases with complexity-based selection.
+
+3. **Path Explorer**: `path_explorer.py` implements Tree-of-Thoughts path management.
+
+4. **Deep Research Flow**: `deep_research.py` implements parallel research with approval workflow.
+
+5. **Enhanced Research Flow**: `enhanced_research.py` integrates all research improvements.
+
+### Priority Fixes
+
+1. **Low**: Convert dataclasses to Pydantic `BaseModel` in workflow_graph.py
+2. **Low**: Fix `datetime.now()` to `datetime.now(UTC)` in deep_research.py
+3. **Info**: Replace `datetime.utcnow()` with `datetime.now(UTC)` in enhanced_research.py
+
+---
+
+## Progress Update
+
+| Category | Files Reviewed | Total |
+|----------|---------------|-------|
+| Domain Models | 62 | 62 |
+| Domain Repositories | 14 | 14 |
+| Agent Services | 61 | 82 |
+| Flow Services | 10 | ~15 |
+| **Total So Far** | **146** | **299** |
+| **Progress** | **48.8%** | - |
+
+---
+
+## Batch 30: Tools Services - Core Tools (Files 146-150)
+
+### 146. `backend/app/domain/services/tools/base.py` (693 lines)
+
+**Purpose:** Base tool class with common functionality
+
+**Current Setup:**
+- `ToolSchema` and `ToolProgress` dataclasses
+- `ProgressCallback` Protocol
+- `BaseTool` class with observation limiting and caching
+- Validation utilities (URL, path, params)
+- Error handling decorator
+
+**Strengths:**
+- EXCELLENT - Comprehensive base tool implementation
+- Progress tracking with checkpointing
+- Observation limiting with intelligent truncation
+- Result caching integration
+- Tool decorator for schema registration
+- Path traversal prevention
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 18, 54 | Low | `ToolSchema`, `ToolProgress` use `@dataclass` |
+| time.time() | Lines 65, 89, etc. | Info | Uses `time.time()` for timing |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 147. `backend/app/domain/services/tools/search.py` (957 lines)
+
+**Purpose:** Search tool with query expansion and multiple search types
+
+**Current Setup:**
+- `SearchType` enum (INFO, NEWS, IMAGE, ACADEMIC, API, DATA, TOOL)
+- `QueryExpander` class with synonym expansion
+- `SearchTool` class with LRU caching
+- 110 stopwords for normalization
+
+**Strengths:**
+- EXCELLENT - Comprehensive search implementation
+- 7 search types with optimized configurations
+- Query expansion (3 variants max)
+- LRU cache with O(1) eviction
+- Browser-based search fallback
+- Verification guidance for research queries
+- Semantic query deduplication
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| time.time() | Lines 444, 458 | Info | Uses `time.time()` for cache timestamps |
+| ClassVar for cache | Line 277 | Info | ClassVar for `_background_tasks` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 148. `backend/app/domain/services/tools/file.py` (568 lines)
+
+**Purpose:** File tool with multimodal viewing capabilities
+
+**Current Setup:**
+- `FileTool` class with sandbox integration
+- Multimodal file viewing (images, PDFs, data files)
+- 7 image extensions, 6 document extensions, 5 data extensions
+
+**Strengths:**
+- EXCELLENT - Comprehensive file tool
+- Multimodal viewing (images, PDFs, CSV, JSON)
+- Leading line deduplication for LLM artifacts
+- Base64 encoding for vision models
+- PDF text extraction via pdftotext
+- Page range parsing
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| contextlib.suppress | Lines 557, 562 | Info | Uses `contextlib.suppress(ValueError)` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 149. `backend/app/domain/services/tools/browser.py` (847 lines)
+
+**Purpose:** Browser tool with intent-based browsing and paywall detection
+
+**Current Setup:**
+- `BrowserIntent` enum (NAVIGATIONAL, INFORMATIONAL, TRANSACTIONAL)
+- 23 open access domains
+- HTTP session pooling with aiohttp
+- HTML-to-text conversion
+- URL caching with visit tracking
+
+**Strengths:**
+- EXCELLENT - Comprehensive browser tool
+- 3 browser intents with configurations
+- Fast HTTP fetch with browser fallback
+- Paywall detection integration
+- URL cache with 5 min TTL
+- Repeated visit detection (3+ times)
+- HTML-to-text with markdown preservation
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Global state | Lines 86, 98 | Info | `_paywall_detector`, `_http_session` globals |
+| time.time() | Lines 349, 415 | Info | Uses `time.time()` for cache |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 150. `backend/app/domain/services/tools/canvas.py` (484 lines)
+
+**Purpose:** Canvas tool for agent-driven visual design creation
+
+**Current Setup:**
+- `CanvasTool` class with CanvasService integration
+- 8 canvas operations (create, get_state, add, modify, delete, generate, arrange, export)
+- 5 element types (rectangle, ellipse, text, image, line)
+
+**Strengths:**
+- EXCELLENT - Comprehensive canvas tool
+- 8 canvas operations
+- AI image generation integration
+- Element layering support
+- JSON/PNG export
+- Active project tracking
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| from __future__ | Line 3 | Info | Uses `from __future__ import annotations` |
+| TYPE_CHECKING | Line 11 | Info | Uses TYPE_CHECKING for CanvasService import |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+## Batch 30 Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| Files Reviewed | 5 |
+| Total Lines | ~3,550 |
+| Total Issues Found | 10 |
+| Critical | 0 |
+| Medium | 0 |
+| Low | 10 |
+
+### Key Findings
+
+1. **Base Tool**: `base.py` implements comprehensive tool infrastructure with progress tracking.
+
+2. **Search Tool**: `search.py` implements 7 search types with query expansion and LRU caching.
+
+3. **File Tool**: `file.py` implements multimodal viewing with PDF extraction and vision support.
+
+4. **Browser Tool**: `browser.py` implements intent-based browsing with paywall detection.
+
+5. **Canvas Tool**: `canvas.py` implements 8 canvas operations with AI image generation.
+
+### Priority Fixes
+
+1. **Low**: Convert `ToolSchema` and `ToolProgress` dataclasses to Pydantic `BaseModel`
+2. **Info**: Consider replacing `time.time()` with monotonic clocks for timing
+
+---
+
+## Progress Update
+
+| Category | Files Reviewed | Total |
+|----------|---------------|-------|
+| Domain Models | 62 | 62 |
+| Domain Repositories | 14 | 14 |
+| Agent Services | 61 | 82 |
+| Flow Services | 10 | ~15 |
+| Tools Services | 5 | ~20 |
+| **Total So Far** | **151** | **299** |
+| **Progress** | **50.5%** | - |
+
+---
+
+## Batch 31: Tools Services - Extended Tools (Files 151-155)
+
+### 151. `backend/app/domain/services/tools/shell.py` (140 lines)
+
+**Purpose:** Shell tool for executing commands in sandbox
+
+**Current Setup:**
+- `ShellTool` class with sandbox integration
+- 5 shell operations (exec, view, wait, write_to_process, kill_process)
+- 50KB output truncation limit
+
+**Strengths:**
+- EXCELLENT - Clean shell tool implementation
+- Output truncation to prevent context window exhaustion
+- 300s max wait time for long-running processes
+- Interactive process support (write to stdin)
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| None | N/A | N/A | No issues found |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 152. `backend/app/domain/services/tools/mcp.py` (1620 lines)
+
+**Purpose:** MCP client manager with health checking and resource support
+
+**Current Setup:**
+- `ServerHealth`, `CachedToolSchema`, `ToolUsageStats` dataclasses
+- `MCPClientManager` class with multi-transport support
+- `MCPHealthMonitor` for proactive health monitoring
+- `MCPTool` class for tool invocation
+
+**Strengths:**
+- EXCELLENT - Comprehensive MCP implementation
+- 3 transport types (stdio, HTTP/SSE, streamable-http)
+- TTL-based tool schema caching (5 min)
+- Health checking with reliability scoring
+- Resource management (list, read, subscribe)
+- Lazy initialization support
+- 120s timeout per tool call
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 33, 118, 132 | Low | 3 dataclasses |
+| datetime.now() | Lines 39, 123, etc. | Low | Should use `datetime.now(UTC)` |
+| time.time() | Lines 751, 960, etc. | Info | Uses `time.time()` for timing |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 153. `backend/app/domain/services/tools/agent_mode.py` (92 lines)
+
+**Purpose:** Agent mode tool for switching from Discuss to Agent mode
+
+**Current Setup:**
+- `AgentModeTool` class with mode switch functionality
+- `agent_start_task` tool for automatic activation
+
+**Strengths:**
+- EXCELLENT - Clean agent mode tool
+- Automatic activation for complex tasks
+- Seamless mode switching
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| None | N/A | N/A | No issues found |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 154. `backend/app/domain/services/tools/cache_layer.py` (586 lines)
+
+**Purpose:** Multi-tier caching layer for tool execution results
+
+**Current Setup:**
+- `L1CacheEntry` and `ToolCacheConfig` dataclasses
+- `L1Cache` class for in-memory caching
+- `ToolCacheStats` class for statistics
+- `cacheable_tool` decorator for multi-tier caching
+
+**Strengths:**
+- EXCELLENT - Comprehensive caching implementation
+- L1 (in-memory) + L2 (Redis) multi-tier caching
+- LRU-style eviction
+- Configurable TTL per tool type
+- 18 excluded tools (write operations)
+- Cache promotion from L2 to L1
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Lines 27, 149 | Low | 2 dataclasses |
+| time.time() | Lines 36, 96, etc. | Info | Uses `time.time()` for timestamps |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 155. `backend/app/domain/services/tools/paywall_detector.py` (317 lines)
+
+**Purpose:** Paywall detection service for web pages
+
+**Current Setup:**
+- 25 paywall text patterns with weights
+- 16 CSS patterns for paywall detection
+- `PaywallDetectionResult` dataclass
+- `PaywallDetector` class with multi-strategy detection
+
+**Strengths:**
+- EXCELLENT - Comprehensive paywall detection
+- 25 text patterns with confidence weights
+- 16 CSS class/ID patterns
+- Content truncation detection
+- Domain-specific patterns (Medium, Substack, news sites)
+- Diminishing returns for multiple indicators
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses @dataclass | Line 80 | Low | `PaywallDetectionResult` uses `@dataclass` |
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+## Batch 31 Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| Files Reviewed | 5 |
+| Total Lines | ~2,755 |
+| Total Issues Found | 8 |
+| Critical | 0 |
+| Medium | 0 |
+| Low | 8 |
+
+### Key Findings
+
+1. **Shell Tool**: `shell.py` implements 5 shell operations with output truncation.
+
+2. **MCP Tool**: `mcp.py` implements comprehensive MCP client with 3 transports.
+
+3. **Agent Mode Tool**: `agent_mode.py` implements seamless mode switching.
+
+4. **Cache Layer**: `cache_layer.py` implements L1+L2 multi-tier caching.
+
+5. **Paywall Detector**: `paywall_detector.py` implements 25+ detection patterns.
+
+### Priority Fixes
+
+1. **Low**: Convert dataclasses to Pydantic `BaseModel` across tools
+2. **Low**: Fix `datetime.now()` to `datetime.now(UTC)` in mcp.py
+
+---
+
+## Progress Update
+
+| Category | Files Reviewed | Total |
+|----------|---------------|-------|
+| Domain Models | 62 | 62 |
+| Domain Repositories | 14 | 14 |
+| Agent Services | 61 | 82 |
+| Flow Services | 10 | ~15 |
+| Tools Services | 10 | ~20 |
+| **Total So Far** | **156** | **299** |
+| **Progress** | **52.2%** | - |
+
+---
+
+*Review will continue with Batch 32 (files 156-160) upon next iteration.*

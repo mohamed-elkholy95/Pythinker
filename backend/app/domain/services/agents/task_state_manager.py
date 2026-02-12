@@ -3,7 +3,7 @@ Task state management for todo recitation and progress tracking.
 
 Maintains a persistent task_state.md file in the sandbox to keep
 objectives and progress in the agent's recent attention span.
-Based on Manus's recitation approach for improved goal focus.
+Based on Pythinker's recitation approach for improved goal focus.
 
 Enhanced with ProgressMetrics integration for reflection system (Phase 2).
 """

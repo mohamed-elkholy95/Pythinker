@@ -1,6 +1,6 @@
 """Tests for SkillLoader with progressive disclosure.
 
-Tests the context-efficient skill loading that implements Manus AI's
+Tests the context-efficient skill loading that implements Pythinker AI's
 progressive disclosure pattern:
 - Level 1: Metadata only (name, description)
 - Level 2: Metadata + body (full instructions)

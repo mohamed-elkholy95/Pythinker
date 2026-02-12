@@ -3,7 +3,7 @@
 This service creates skill packages - ZIP archives containing skill definitions
 with supporting files (scripts, references, templates).
 
-Implements Manus-style SKILL.md format with:
+Implements Pythinker-style SKILL.md format with:
 - YAML frontmatter parsing
 - Goal and Core Principle sections
 - Feature ↔ User Value mappings
@@ -38,7 +38,7 @@ from app.domain.models.skill_package import (
 class SkillPackager:
     """Service for creating and packaging skills.
 
-    Supports both simple skill creation and full Manus-style SKILL.md
+    Supports both simple skill creation and full Pythinker-style SKILL.md
     parsing and generation.
     """
 
@@ -53,7 +53,7 @@ class SkillPackager:
         pass
 
     def parse_skill_md(self, content: str) -> SkillPackageMetadata:
-        """Parse a Manus-style SKILL.md file.
+        """Parse a Pythinker-style SKILL.md file.
 
         Args:
             content: The raw SKILL.md content
@@ -99,7 +99,7 @@ class SkillPackager:
         if "Core Principle" in sections:
             metadata.core_principle = sections["Core Principle"].strip()
 
-        # Extract Feature Categories (Manus-style tables)
+        # Extract Feature Categories (Pythinker-style tables)
         metadata.feature_categories = self._parse_feature_categories(body)
 
         # Extract Workflow Steps
@@ -146,7 +146,7 @@ class SkillPackager:
         return sections
 
     def _parse_feature_categories(self, body: str) -> list[SkillFeatureCategory]:
-        """Parse Manus-style feature category tables.
+        """Parse Pythinker-style feature category tables.
 
         Looks for sections like "Help Users「Understand Data」" with tables.
         """
@@ -238,10 +238,10 @@ class SkillPackager:
         return steps
 
     def _parse_implementation_layers(self, sections: dict[str, str]) -> list[SkillImplementationLayer]:
-        """Parse Manus-style four-layer implementation sections."""
+        """Parse Pythinker-style four-layer implementation sections."""
         layers: list[SkillImplementationLayer] = []
 
-        # Standard Manus layer names
+        # Standard Pythinker layer names
         layer_names = ["Structure", "Information", "Visual", "Interaction"]
 
         for name in layer_names:
@@ -310,7 +310,7 @@ class SkillPackager:
     ) -> str:
         """Generate SKILL.md with YAML frontmatter.
 
-        Generates a full Manus-style SKILL.md with all sections.
+        Generates a full Pythinker-style SKILL.md with all sections.
 
         Args:
             metadata: Skill metadata for frontmatter
@@ -372,7 +372,7 @@ class SkillPackager:
         # Overview section
         content_parts.append(f"## Overview\n\n{metadata.description}\n")
 
-        # Feature Categories section (Manus-style)
+        # Feature Categories section (Pythinker-style)
         if metadata.feature_categories:
             content_parts.append("## Features\n")
             for category in metadata.feature_categories:
@@ -396,7 +396,7 @@ class SkillPackager:
         elif workflow_content:
             content_parts.append(f"## Workflow\n\n{workflow_content}\n")
 
-        # Implementation Layers section (Manus-style)
+        # Implementation Layers section (Pythinker-style)
         if metadata.implementation_layers:
             content_parts.append("## Implementation\n")
             for layer in metadata.implementation_layers:
@@ -509,7 +509,7 @@ class SkillPackager:
         Returns:
             Appropriate package type
         """
-        # Advanced: has implementation layers (Manus-style) or custom tools
+        # Advanced: has implementation layers (Pythinker-style) or custom tools
         if metadata.implementation_layers or has_custom_tools:
             return SkillPackageType.ADVANCED
 
@@ -534,7 +534,7 @@ class SkillPackager:
     ) -> SkillPackage:
         """Create a complete skill package.
 
-        Supports full Manus-style packages with all optional directories.
+        Supports full Pythinker-style packages with all optional directories.
 
         Args:
             metadata: Skill metadata

@@ -79,6 +79,8 @@ services:
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
+      # Phase 2: Kaleido v1 requires system Chromium via BROWSER_PATH
+      - BROWSER_PATH=/usr/bin/chromium-browser
     ports:
       - "8083:8080"  # Sandbox API
       - "8082:8082"  # Sandbox framework API
@@ -145,6 +147,8 @@ services:
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
+      # Phase 2: Kaleido v1 requires system Chromium via BROWSER_PATH
+      - BROWSER_PATH=/usr/bin/chromium-browser
     ports:
       - "8084:8080"  # Sandbox API
       - "8085:8082"  # Sandbox framework API

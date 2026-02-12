@@ -1,6 +1,6 @@
 """Tests for Supervisor model in hierarchical multi-agent system (HMAS).
 
-Tests the Supervisor model that implements Manus AI's HMAS pattern,
+Tests the Supervisor model that implements Pythinker AI's HMAS pattern,
 including domain management, task assignment, dependency resolution,
 and task completion tracking.
 """

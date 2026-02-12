@@ -1,4 +1,4 @@
-"""Human-readable command formatting for tool calls (Manus-style).
+"""Human-readable command formatting for tool calls (Pythinker-style).
 
 Generates full, descriptive sentences for tool operations that clearly
 explain what the agent is doing. This improves user understanding of
@@ -45,7 +45,7 @@ def _format_file_path(path: str) -> str:
 class CommandFormatter:
     """Formats tool calls as human-readable descriptions for UI display.
 
-    Generates Manus-style full sentences that clearly describe what
+    Generates Pythinker-style full sentences that clearly describe what
     the agent is doing, improving user understanding and trust.
     """
 

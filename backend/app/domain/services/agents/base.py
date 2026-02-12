@@ -177,7 +177,7 @@ class BaseAgent:
             allow_destructive_operations=False,
         )
 
-        # Context manager for Manus-style attention manipulation (optional)
+        # Context manager for Pythinker-style attention manipulation (optional)
         self.context_manager: SandboxContextManager | None = None
 
         # State manifest for blackboard architecture (optional)
@@ -292,7 +292,7 @@ class BaseAgent:
     async def _get_attention_context(self) -> str:
         """Get attention context for prompt injection.
 
-        Implements Manus-style attention manipulation to prevent
+        Implements Pythinker-style attention manipulation to prevent
         goal drift in long conversations. The context manager
         provides goal/todo context that should be periodically
         recited to keep the agent focused.
@@ -426,7 +426,7 @@ class BaseAgent:
             command_category = "other"
             command_summary = function_name
 
-        # Populate tool_content for search tools (Manus-style search results display)
+        # Populate tool_content for search tools (Pythinker-style search results display)
         tool_content = kwargs.pop("tool_content", None)
         search_functions = {"info_search_web", "web_search", "wide_research", "search"}
         if tool_content is None and status == ToolStatus.CALLED and function_name in search_functions:

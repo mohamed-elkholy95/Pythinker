@@ -1,6 +1,6 @@
 """Skill loader with progressive disclosure.
 
-Implements Manus AI's context-efficient skill loading pattern:
+Implements Pythinker AI's context-efficient skill loading pattern:
 - Discovers skills by scanning directories
 - Loads only what's needed at each disclosure level
 - Caches loaded skills to avoid redundant I/O
@@ -55,7 +55,7 @@ class SkillLoaderProtocol(Protocol):
 class SkillLoader:
     """Loads skills with progressive disclosure.
 
-    Implements Manus AI's context-efficient skill loading:
+    Implements Pythinker AI's context-efficient skill loading:
     - Discovers skills by scanning directories
     - Loads only what's needed at each disclosure level
     - Caches loaded skills to avoid redundant I/O

@@ -1,7 +1,7 @@
-"""Tests for ManusAgentFactory integration in AgentTaskRunner.
+"""Tests for PythinkerAgentFactory integration in AgentTaskRunner.
 
-These tests verify that AgentTaskRunner correctly integrates with ManusAgentFactory
-for Manus AI-style context management and attention manipulation.
+These tests verify that AgentTaskRunner correctly integrates with PythinkerAgentFactory
+for Pythinker AI-style context management and attention manipulation.
 """
 
 from unittest.mock import AsyncMock, MagicMock
@@ -107,7 +107,7 @@ def runner_deps(
 
 @pytest.fixture
 def mock_agent_factory() -> MagicMock:
-    """Create mock ManusAgentFactory."""
+    """Create mock PythinkerAgentFactory."""
     factory = MagicMock()
 
     # Mock context manager with async set_goal
@@ -129,7 +129,7 @@ def mock_agent_factory() -> MagicMock:
 
 
 class TestAgentTaskRunnerManusIntegration:
-    """Test suite for ManusAgentFactory integration in AgentTaskRunner."""
+    """Test suite for PythinkerAgentFactory integration in AgentTaskRunner."""
 
     def test_init_accepts_agent_factory(self, runner_deps: dict, mock_agent_factory: MagicMock) -> None:
         """Test that AgentTaskRunner accepts agent_factory parameter."""
@@ -251,10 +251,10 @@ class TestAgentTaskRunnerManusIntegration:
 
 
 class TestAgentTaskRunnerManusState:
-    """Test suite for Manus component state management."""
+    """Test suite for Pythinker component state management."""
 
     def test_manus_component_attributes_default_to_none(self, runner_deps: dict) -> None:
-        """Test that Manus component attributes default to None."""
+        """Test that Pythinker component attributes default to None."""
         from app.domain.services.agent_task_runner import AgentTaskRunner
 
         runner = AgentTaskRunner(**runner_deps)

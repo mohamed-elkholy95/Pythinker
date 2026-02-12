@@ -1,6 +1,6 @@
-"""Context manager for file-system-as-context pattern (Manus-style).
+"""Context manager for file-system-as-context pattern (Pythinker-style).
 
-This module implements the "File-System-as-Context" pattern from Manus AI architecture,
+This module implements the "File-System-as-Context" pattern from Pythinker AI architecture,
 where the sandbox file system serves as externalized memory for the agent.
 
 Key benefits:
@@ -62,7 +62,7 @@ class SandboxProtocol(Protocol):
 class SandboxContextManager:
     """Manages externalized context in sandbox file system.
 
-    Implements Manus AI's "File-System-as-Context" pattern:
+    Implements Pythinker AI's "File-System-as-Context" pattern:
     - Uses sandbox storage as unlimited, persistent memory
     - Periodic "recitation" of goals prevents attention drift
     - todo.md pattern keeps current objectives in focus

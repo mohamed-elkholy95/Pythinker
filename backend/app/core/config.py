@@ -437,6 +437,9 @@ class Settings(BaseSettings):
     feature_reject_ungrounded_reports: bool = False  # Start permissive, can enable later
     feature_delivery_integrity_gate: bool = True  # Enforce truncation/completeness gate before delivery
 
+    # Chart Generation (Plotly Migration Phase 4)
+    feature_plotly_charts_enabled: bool = True  # Use Plotly charts instead of SVG (Phase 4)
+
     # Autonomy Configuration (Enhancement Phase 1)
     autonomy_level: str = "guided"  # supervised, guided, autonomous, unrestricted
     allow_credential_access: bool = True

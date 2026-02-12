@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document defines the standardized display format for all tool operations in Pythinker, following Manus AI's design patterns.
+This document defines the standardized display format for all tool operations in Pythinker, following Pythinker AI's design patterns.
 
 ## Display Format
 

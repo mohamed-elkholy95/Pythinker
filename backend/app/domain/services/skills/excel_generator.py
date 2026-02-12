@@ -1,8 +1,8 @@
 """Excel Generator Skill.
 
-Built-in skill for professional Excel spreadsheet creation based on Manus SKILL.md.
+Built-in skill for professional Excel spreadsheet creation based on Pythinker SKILL.md.
 
-Features from Manus four-layer implementation:
+Features from Pythinker four-layer implementation:
 1. Structure Layer - Logical organization, easy navigation
 2. Information Layer - Accurate, complete, insightful content
 3. Visual Layer - Professional appearance, meaningful visuals
@@ -63,7 +63,7 @@ class ThemeConfig:
         return self.light
 
 
-# Theme configurations from Manus SKILL.md
+# Theme configurations from Pythinker SKILL.md
 THEMES: dict[ExcelTheme, ThemeConfig] = {
     ExcelTheme.ELEGANT_BLACK: ThemeConfig(
         primary="2D2D2D",
@@ -195,7 +195,7 @@ class ExcelGeneratorSkill:
     purposeful—serving the content, not decorating it.
     """
 
-    # Feature categories from Manus SKILL.md
+    # Feature categories from Pythinker SKILL.md
     FEATURE_CATEGORIES: ClassVar[dict[str, list[FeatureMapping]]] = {
         "understand_data": [
             FeatureMapping("Bar/Column Chart", "See comparisons at a glance", "Comparing values across categories"),

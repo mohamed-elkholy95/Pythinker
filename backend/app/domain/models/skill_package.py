@@ -3,7 +3,7 @@
 This module defines models for skill packages - deliverable artifacts that
 contain skill definitions with supporting files (scripts, references, templates).
 
-Implements Manus-style SKILL.md format with:
+Implements Pythinker-style SKILL.md format with:
 - YAML frontmatter (name, description, category, required_tools)
 - Goal section
 - Workflow section
@@ -24,11 +24,11 @@ class SkillPackageType(str, Enum):
 
     SIMPLE = "simple"  # Basic skill with just prompt
     STANDARD = "standard"  # Standard with workflow
-    ADVANCED = "advanced"  # Full Manus-style with layers
+    ADVANCED = "advanced"  # Full Pythinker-style with layers
 
 
 class SkillFeatureMapping(BaseModel):
-    """Feature to User Value mapping from Manus SKILL.md format."""
+    """Feature to User Value mapping from Pythinker SKILL.md format."""
 
     feature: str  # e.g., "Bar/Column Chart"
     user_value: str  # e.g., "See comparisons at a glance"
@@ -61,7 +61,7 @@ class SkillExample(BaseModel):
 
 
 class SkillImplementationLayer(BaseModel):
-    """Implementation layer from Manus four-layer structure."""
+    """Implementation layer from Pythinker four-layer structure."""
 
     name: str  # e.g., "Structure", "Information", "Visual", "Interaction"
     goal: str  # Layer goal
@@ -102,7 +102,7 @@ class SkillPackageFile(BaseModel):
 class SkillPackageMetadata(BaseModel):
     """Metadata extracted from SKILL.md YAML frontmatter.
 
-    Supports Manus-style SKILL.md format with extended fields.
+    Supports Pythinker-style SKILL.md format with extended fields.
     """
 
     name: str
@@ -114,7 +114,7 @@ class SkillPackageMetadata(BaseModel):
     required_tools: list[str] = Field(default_factory=list)
     optional_tools: list[str] = Field(default_factory=list)
 
-    # Manus-style extended fields
+    # Pythinker-style extended fields
     goal: str | None = None  # Primary goal of the skill
     core_principle: str | None = None  # Core design principle
     tags: list[str] = Field(default_factory=list)
@@ -123,13 +123,13 @@ class SkillPackageMetadata(BaseModel):
     python_dependencies: list[str] = Field(default_factory=list)  # pip packages
     system_dependencies: list[str] = Field(default_factory=list)  # System tools
 
-    # Feature categories (Manus-style "Help Users X" sections)
+    # Feature categories (Pythinker-style "Help Users X" sections)
     feature_categories: list[SkillFeatureCategory] = Field(default_factory=list)
 
     # Workflow steps
     workflow_steps: list[SkillWorkflowStep] = Field(default_factory=list)
 
-    # Implementation layers (Manus four-layer pattern)
+    # Implementation layers (Pythinker four-layer pattern)
     implementation_layers: list[SkillImplementationLayer] = Field(default_factory=list)
 
     # Examples
@@ -148,7 +148,7 @@ class SkillPackage(BaseModel):
     - tools/: Custom tool implementations (optional)
     - examples/: Usage examples (optional)
 
-    Implements Manus-style SKILL.md format.
+    Implements Pythinker-style SKILL.md format.
     """
 
     id: str  # Package ID (UUID)

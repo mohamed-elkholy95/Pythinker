@@ -1,7 +1,7 @@
 # backend/tests/domain/services/agents/test_base_context.py
 """Tests for BaseAgent context manager integration.
 
-These tests verify the Manus-style attention manipulation pattern
+These tests verify the Pythinker-style attention manipulation pattern
 where the context manager provides goal/todo context to agents.
 """
 
@@ -61,7 +61,7 @@ async def test_agent_injects_attention_context(
 ):
     """Agent should inject attention context into prompts.
 
-    This tests the attention manipulation pattern from Manus AI architecture.
+    This tests the attention manipulation pattern from Pythinker AI architecture.
     The context manager provides goal/todo context that should be injected
     into agent prompts to prevent goal drift in long conversations.
     """

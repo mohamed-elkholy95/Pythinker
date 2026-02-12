@@ -289,7 +289,7 @@ According to the official documentation [1], the API supports rate limiting...
 """
 
 # ============================================================================
-# INTENT-AWARE TOOL GUIDANCE (Manus-inspired)
+# INTENT-AWARE TOOL GUIDANCE (Pythinker-style)
 # ============================================================================
 
 INTENT_ANALYSIS_SIGNAL = """
@@ -339,7 +339,7 @@ Match your search type to the information need:
 | **DATA** | Structured datasets, statistics | "population data by country 2026" |
 | **TOOL** | Software tools, libraries | "best Python testing frameworks" |
 
-**Query Expansion Strategy** (per Manus pattern):
+**Query Expansion Strategy** (per Pythinker pattern):
 - Generate 2-3 query variants for comprehensive coverage
 - Use different phrasings to capture diverse results
 - Example for "AI agent frameworks":
@@ -1290,7 +1290,7 @@ def build_execution_prompt(
         enable_cot: Enable Chain-of-Thought for complex tasks (default: True)
         include_current_date: Include current date context (default: True)
         enable_source_attribution: Enable source attribution signal for research tasks (default: True)
-        enable_intent_guidance: Enable Manus-style intent analysis guidance (default: True)
+        enable_intent_guidance: Enable Pythinker-style intent analysis guidance (default: True)
         enable_anti_hallucination: Enable anti-hallucination signals (default: True)
 
     Returns:
@@ -1344,7 +1344,7 @@ def build_execution_prompt(
     if enable_source_attribution and is_research_task(step):
         prompt = SOURCE_ATTRIBUTION_SIGNAL + prompt
 
-    # Inject intent-aware guidance signals (Manus-inspired)
+    # Inject intent-aware guidance signals (Pythinker-style)
     if enable_intent_guidance:
         # Inject cross-validation signal for tasks requiring accuracy
         if requires_validation(step):

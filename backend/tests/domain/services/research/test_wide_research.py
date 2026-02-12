@@ -1,6 +1,6 @@
 """Tests for Wide Research Orchestrator.
 
-Tests the WideResearchOrchestrator class implementing Manus AI's
+Tests the WideResearchOrchestrator class implementing Pythinker AI's
 "Wide Research" pattern:
 - Research decomposition into independent sub-tasks
 - Parallel execution with separate contexts

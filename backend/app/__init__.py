@@ -1,3 +1,3 @@
 """
-Manus AI Agent Backend
+Pythinker AI Agent Backend
 """

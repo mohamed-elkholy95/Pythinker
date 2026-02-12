@@ -50,7 +50,7 @@ def _dedup_leading_lines(content: str) -> str:
 class FileTool(BaseTool):
     """File tool class, providing file operation functions.
 
-    Enhanced with multimodal file viewing capabilities per Manus pattern.
+    Enhanced with multimodal file viewing capabilities per Pythinker pattern.
     """
 
     name: str = "file"

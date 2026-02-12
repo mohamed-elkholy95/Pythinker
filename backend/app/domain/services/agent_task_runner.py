@@ -46,6 +46,7 @@ from app.domain.repositories.mcp_repository import MCPRepository
 from app.domain.repositories.session_repository import SessionRepository
 from app.domain.services.agents.usage_context import UsageContextManager
 from app.domain.services.comparison_chart_generator import ComparisonChartGenerator
+from app.domain.services.plotly_chart_orchestrator import PlotlyChartOrchestrator  # Phase 4
 from app.domain.services.flows.base import BaseFlow
 from app.domain.services.flows.discuss import DiscussFlow
 from app.domain.services.flows.plan_act import PlanActFlow
@@ -62,7 +63,7 @@ from app.domain.utils.json_parser import JsonParser
 if TYPE_CHECKING:
     from app.application.services.screenshot_service import ScreenshotCaptureService
     from app.domain.models.state_manifest import StateManifest
-    from app.domain.services.agent_factory import ManusAgentFactory
+    from app.domain.services.agent_factory import PythinkerAgentFactory
     from app.domain.services.attention_injector import AttentionInjector
     from app.domain.services.context_manager import SandboxContextManager
     from app.domain.services.memory_service import MemoryService
@@ -178,7 +179,7 @@ class AgentTaskRunner(TaskRunner):
         memory_service: Optional["MemoryService"] = None,
         flow_mode: FlowMode = FlowMode.PLAN_ACT,
         mongodb_db: Any | None = None,  # MongoDB database for workflow checkpointing
-        agent_factory: Optional["ManusAgentFactory"] = None,
+        agent_factory: Optional["PythinkerAgentFactory"] = None,
         usage_recorder: Callable[..., Coroutine[Any, Any, None]] | None = None,
         extra_mcp_configs: dict[str, Any] | None = None,
     ):
@@ -221,8 +222,8 @@ class AgentTaskRunner(TaskRunner):
         # MongoDB database for workflow checkpointing
         self._mongodb_db = mongodb_db
 
-        # Manus-style agent factory and components
-        self._agent_factory: ManusAgentFactory | None = agent_factory
+        # Pythinker-style agent factory and components
+        self._agent_factory: PythinkerAgentFactory | None = agent_factory
         self._manifest: StateManifest | None = None
         self._context_manager: SandboxContextManager | None = None
         self._attention_injector: AttentionInjector | None = None
@@ -243,6 +244,8 @@ class AgentTaskRunner(TaskRunner):
         # Tool event handler for action/observation metadata enrichment
         self._tool_event_handler = ToolEventHandler()
         self._comparison_chart_generator = ComparisonChartGenerator()
+        # Phase 4: Plotly chart orchestrator (feature-flagged)
+        self._plotly_chart_orchestrator = PlotlyChartOrchestrator(sandbox=self._sandbox)
 
         # Initialize flows based on mode
         self._plan_act_flow: PlanActFlow | None = None
@@ -390,11 +393,11 @@ class AgentTaskRunner(TaskRunner):
             logger.debug(f"Initialized DiscussFlow for agent {self._agent_id}")
 
     async def initialize(self) -> None:
-        """Initialize Manus-style components from the agent factory.
+        """Initialize Pythinker-style components from the agent factory.
 
         This method should be called before running tasks to set up
         the state manifest, context manager, and attention injector
-        for Manus-style context management.
+        for Pythinker-style context management.
 
         If no agent_factory was provided, this method is a no-op.
         The method is idempotent - calling it multiple times has no effect.
@@ -403,7 +406,7 @@ class AgentTaskRunner(TaskRunner):
             return
 
         if self._agent_factory is None:
-            logger.debug(f"Agent {self._agent_id}: No agent factory provided, skipping Manus initialization")
+            logger.debug(f"Agent {self._agent_id}: No agent factory provided, skipping Pythinker initialization")
             return
 
         components = self._agent_factory.get_session_components(self._session_id)
@@ -412,7 +415,7 @@ class AgentTaskRunner(TaskRunner):
         self._attention_injector = components.get("attention_injector")
         self._initialized = True
 
-        logger.info(f"Agent {self._agent_id}: Initialized Manus components for session {self._session_id}")
+        logger.info(f"Agent {self._agent_id}: Initialized Pythinker components for session {self._session_id}")
 
     async def _set_current_task(self, task_description: str) -> None:
         """Set the current task description for attention manipulation.
@@ -465,20 +468,62 @@ class AgentTaskRunner(TaskRunner):
         event.id = event_id
         return event
 
-    async def _sync_file_to_storage(self, file_path: str) -> FileInfo | None:
+    # Extension-based MIME type fallback map (Phase 1: MIME hardening)
+    _EXTENSION_MIME_MAP = {
+        ".html": "text/html",
+        ".png": "image/png",
+        ".svg": "image/svg+xml",
+        ".pdf": "application/pdf",
+        ".md": "text/markdown",
+        ".json": "application/json",
+        ".csv": "text/csv",
+        ".txt": "text/plain",
+        ".xml": "application/xml",
+        ".yaml": "application/x-yaml",
+        ".yml": "application/x-yaml",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".ico": "image/x-icon",
+    }
+
+    def _infer_content_type(self, file_path: str, existing_content_type: str | None = None) -> str | None:
         """
-        Download a file from the sandbox and upload it to GridFS storage.
+        Infer MIME type from file extension if not already known.
+
+        Args:
+            file_path: Path to file
+            existing_content_type: Already-known content type (from FileInfo metadata)
+
+        Returns:
+            Content type string, or None if cannot be determined
+        """
+        if existing_content_type:
+            return existing_content_type
+
+        # Try extension-based fallback
+        import os
+
+        _, ext = os.path.splitext(file_path.lower())
+        return self._EXTENSION_MIME_MAP.get(ext)
+
+    async def _sync_file_to_storage(self, file_path: str, content_type: str | None = None) -> FileInfo | None:
+        """
+        Download a file from the sandbox and upload it to storage (MinIO/GridFS).
 
         This method:
         1. Validates the file_path is not empty
         2. Downloads the file content from the sandbox
         3. Validates the content is not empty
         4. Removes any existing file with the same path (to handle updates)
-        5. Uploads to GridFS and registers with the session
-        6. Returns a fully populated FileInfo with file_id
+        5. Infers content_type from extension if not provided (Phase 1: MIME hardening)
+        6. Uploads to storage with correct MIME type and registers with the session
+        7. Returns a fully populated FileInfo with file_id
 
         Args:
             file_path: The path to the file in the sandbox (e.g., /home/ubuntu/report.md)
+            content_type: Optional MIME type (if known from FileInfo metadata)
 
         Returns:
             FileInfo with valid file_id if successful, None if sync fails
@@ -520,8 +565,17 @@ class AgentTaskRunner(TaskRunner):
                     f"Agent {self._agent_id}: Could not extract filename from '{file_path}', using '{file_name}'"
                 )
 
-            # Upload to GridFS storage
-            file_info = await self._file_storage.upload_file(file_data, file_name, self._user_id)
+            # Infer content type if not provided (Phase 1: MIME hardening)
+            resolved_content_type = self._infer_content_type(file_path, content_type)
+            if resolved_content_type:
+                logger.debug(
+                    f"Agent {self._agent_id}: Uploading '{file_name}' with content_type='{resolved_content_type}'"
+                )
+
+            # Upload to storage with MIME type (Phase 1: MIME hardening fix)
+            file_info = await self._file_storage.upload_file(
+                file_data, file_name, self._user_id, content_type=resolved_content_type
+            )
 
             # Validate upload result
             if not file_info:
@@ -686,8 +740,11 @@ class AgentTaskRunner(TaskRunner):
                 f"for {event_type} event to storage"
             )
 
-            # Sync all valid attachments concurrently
-            sync_tasks = [self._sync_file_to_storage(attachment.file_path) for attachment in valid_attachments]
+            # Sync all valid attachments concurrently (Phase 1: pass content_type from metadata)
+            sync_tasks = [
+                self._sync_file_to_storage(attachment.file_path, content_type=attachment.content_type)
+                for attachment in valid_attachments
+            ]
             results = await asyncio.gather(*sync_tasks, return_exceptions=True)
 
             # Process results, collecting successfully synced attachments
@@ -787,7 +844,111 @@ class AgentTaskRunner(TaskRunner):
         force_generation: bool,
         generation_mode: str,
     ) -> list[FileInfo]:
-        """Generate and attach a comparison chart SVG when report content contains comparison data."""
+        """Generate and attach comparison chart(s) when report content contains comparison data.
+
+        Phase 4: Uses Plotly (HTML+PNG) if feature flag enabled, otherwise uses legacy SVG.
+        """
+        settings = get_settings()
+
+        # Phase 4: Use Plotly if feature flag enabled
+        if settings.feature_plotly_charts_enabled:
+            return await self._ensure_plotly_chart_files(event, attachments, force_generation, generation_mode)
+
+        # Legacy SVG path (Phase 6 will remove this)
+        return await self._ensure_legacy_svg_chart(event, attachments, force_generation, generation_mode)
+
+    async def _ensure_plotly_chart_files(
+        self,
+        event: ReportEvent,
+        attachments: list[FileInfo],
+        force_generation: bool,
+        generation_mode: str,
+    ) -> list[FileInfo]:
+        """Generate Plotly HTML+PNG chart files (Phase 4)."""
+        html_name = f"comparison-chart-{event.id}.html"
+        png_name = f"comparison-chart-{event.id}.png"
+
+        # Check if already generated
+        if self._has_attachment(attachments, html_name) or self._has_attachment(attachments, png_name):
+            return attachments
+
+        # Run Plotly chart orchestrator
+        chart_result = await self._plotly_chart_orchestrator.generate_chart(
+            report_title=event.title, markdown_content=event.content, report_id=event.id, force_generation=force_generation
+        )
+
+        if chart_result is None:
+            if force_generation:
+                logger.info(
+                    "Plotly chart forced but no chartable table found for report_id=%s session=%s",
+                    event.id,
+                    self._session_id,
+                )
+            return attachments
+
+        # Create FileInfo for HTML
+        html_info = FileInfo(
+            filename=html_name,
+            file_path=chart_result.html_path,
+            size=chart_result.html_size,
+            content_type="text/html",
+            user_id=self._user_id,
+            metadata={
+                "is_comparison_chart": True,
+                "chart_engine": "plotly",
+                "chart_format": "plotly_html_png",
+                "chart_kind": chart_result.chart_kind,
+                "metric_name": chart_result.metric_name,
+                "source_report_id": event.id,
+                "source_report_title": event.title,
+                "data_points": chart_result.data_points,
+                "generation_mode": generation_mode,
+                "generated_at_unix_ms": int(time.time() * 1000),
+            },
+        )
+
+        # Create FileInfo for PNG
+        png_info = FileInfo(
+            filename=png_name,
+            file_path=chart_result.png_path,
+            size=chart_result.png_size,
+            content_type="image/png",
+            user_id=self._user_id,
+            metadata={
+                "is_comparison_chart": True,
+                "chart_engine": "plotly",
+                "chart_format": "plotly_html_png",
+                "chart_kind": chart_result.chart_kind,
+                "metric_name": chart_result.metric_name,
+                "source_report_id": event.id,
+                "source_report_title": event.title,
+                "data_points": chart_result.data_points,
+                "generation_mode": generation_mode,
+                "generated_at_unix_ms": int(time.time() * 1000),
+            },
+        )
+
+        logger.info(
+            "Plotly chart generated: session=%s report_id=%s mode=%s kind=%s metric=%s points=%s html=%s png=%s",
+            self._session_id,
+            event.id,
+            generation_mode,
+            chart_result.chart_kind,
+            chart_result.metric_name or "n/a",
+            chart_result.data_points,
+            chart_result.html_size,
+            chart_result.png_size,
+        )
+        return [*attachments, html_info, png_info]
+
+    async def _ensure_legacy_svg_chart(
+        self,
+        event: ReportEvent,
+        attachments: list[FileInfo],
+        force_generation: bool,
+        generation_mode: str,
+    ) -> list[FileInfo]:
+        """Generate legacy SVG chart (Phase 6 will remove this)."""
         chart_name = f"comparison-chart-{event.id}.svg"
         if self._has_attachment(attachments, chart_name):
             return attachments
@@ -1493,7 +1654,7 @@ class AgentTaskRunner(TaskRunner):
                     deep_research=event.deep_research or False,
                 )
 
-                # Set current task for attention manipulation (Manus pattern)
+                # Set current task for attention manipulation (Pythinker pattern)
                 if message:
                     await self._set_current_task(message)
 
@@ -1656,9 +1817,9 @@ class AgentTaskRunner(TaskRunner):
             except Exception as e:
                 logger.warning(f"Background task cleanup failed for Agent {self._agent_id}: {e}")
 
-        # Cleanup Manus agent factory session if available
+        # Cleanup Pythinker agent factory session if available
         if self._agent_factory:
-            logger.debug(f"Cleaning up Agent {self._agent_id}'s Manus factory session")
+            logger.debug(f"Cleaning up Agent {self._agent_id}'s Pythinker factory session")
             self._agent_factory.cleanup_session(self._session_id)
 
         # Shutdown coordinator flow if used

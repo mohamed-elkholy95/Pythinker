@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class BrowserIntent(str, Enum):
-    """Browser interaction intent types inspired by Manus AI.
+    """Browser interaction intent types inspired by Pythinker AI.
 
     Different intents optimize the browser's approach to page interaction:
     - NAVIGATIONAL: General browsing, exploring pages
@@ -210,7 +210,7 @@ class BrowserTool(BaseTool):
     def _extract_focused_content(self, text: str, focus: str | None, max_length: int = 50000) -> str:
         """Extract content relevant to the focus area.
 
-        Inspired by Manus's focus parameter for informational browsing.
+        Inspired by Pythinker's focus parameter for informational browsing.
         When a focus is specified, prioritize content matching that focus.
 
         Args:

@@ -23,11 +23,12 @@ export default {
   'Thursday': 'Thu',
   'Friday': 'Fri',
   'Saturday': 'Sat',
-  'Manus Computer': 'Pythinker Computer',
-  'Manus is using': 'Pythinker is using',
+  "Pythinker's computer": "Pythinker's computer",
+  'Pythinker Computer': 'Pythinker Computer',
+  'Pythinker is using': 'Pythinker is using',
   'Jump to live': 'Jump to live',
   'Failed to load file content': 'Failed to load file content',
-  'Give Manus a task to work on...': 'Give Pythinker a task to work on...',
+  'Give Pythinker a task to work on...': 'Give Pythinker a task to work on...',
   // Shell tools
   'Executing command': 'Executing command',
   'Viewing command output': 'Viewing command output',
@@ -118,8 +119,8 @@ export default {
   'Audio': 'Audio',
   'Archive': 'Archive',
   // Login/Register Page
-  'Login to Manus': 'Login to Pythinker',
-  'Register to Manus': 'Register to Pythinker',
+  'Login to Pythinker': 'Login to Pythinker',
+  'Register to Pythinker': 'Register to Pythinker',
   'Full Name': 'Full Name',
   'Email': 'Email',
   'Password': 'Password',
@@ -133,7 +134,7 @@ export default {
   'Already have an account?': 'Already have an account?',
   'Don\'t have an account?': 'Don\'t have an account?',
   'Login successful! Welcome back': 'Login successful! Welcome back',
-  'Registration successful! Welcome to Manus': 'Registration successful! Welcome to Pythinker',
+  'Registration successful! Welcome to Pythinker': 'Registration successful! Welcome to Pythinker',
   'Authentication failed, please try again': 'Authentication failed, please try again',
   'Passwords do not match': 'Passwords do not match',
   // Validation error messages
@@ -233,5 +234,5 @@ export default {
   'Link Copied': 'Link Copied',
   'Link copied to clipboard': 'Link copied to clipboard',
   'Failed to copy link': 'Failed to copy link',
-  'You are viewing a completed Manus task. Replay will start automatically in {countdown} seconds.': 'You are viewing a completed Pythinker task. Replay will start automatically in {countdown} seconds.',
+  'You are viewing a completed Pythinker task. Replay will start automatically in {countdown} seconds.': 'You are viewing a completed Pythinker task. Replay will start automatically in {countdown} seconds.',
 } 

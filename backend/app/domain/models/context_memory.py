@@ -1,6 +1,6 @@
 """Context memory model for file-system-as-context pattern.
 
-This module implements the externalized memory pattern from Manus AI architecture,
+This module implements the externalized memory pattern from Pythinker AI architecture,
 where the sandbox file system serves as the agent's working memory.
 
 This pattern enables:

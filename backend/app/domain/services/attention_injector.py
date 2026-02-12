@@ -1,7 +1,7 @@
 # backend/app/domain/services/attention_injector.py
 """Attention injector for goal recitation pattern.
 
-This module implements Manus AI's attention manipulation pattern to prevent
+This module implements Pythinker AI's attention manipulation pattern to prevent
 "lost-in-the-middle" issues by periodically injecting goal context into
 the conversation history.
 """
@@ -16,7 +16,7 @@ class AttentionInjector:
     """
     Injects attention context into message history.
 
-    Implements Manus AI's attention manipulation pattern:
+    Implements Pythinker AI's attention manipulation pattern:
     - Periodically "recites" goals into the context
     - Prevents "lost-in-the-middle" issues
     - Keeps objectives in the model's recent attention span

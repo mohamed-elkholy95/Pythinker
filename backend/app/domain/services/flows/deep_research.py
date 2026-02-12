@@ -401,7 +401,7 @@ class DeepResearchFlow:
 
         Returns:
             Dictionary containing all research results in a structured format
-            similar to Manus's research.json output
+            similar to Pythinker's research.json output
         """
         if not self._session:
             return {}

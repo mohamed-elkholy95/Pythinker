@@ -1,7 +1,7 @@
 """Presentation/Slides Generator Tool.
 
 This tool generates professional presentations from Markdown content.
-Inspired by Manus's two-mode slide generation:
+Inspired by Pythinker's two-mode slide generation:
 1. HTML mode - reveal.js based, editable, charts via Chart.js
 2. Image mode - AI-generated visual slides
 

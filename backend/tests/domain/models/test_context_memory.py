@@ -1,7 +1,7 @@
 # backend/tests/domain/models/test_context_memory.py
 """Tests for ContextMemory model.
 
-Tests the file-system-as-context pattern from Manus AI architecture.
+Tests the file-system-as-context pattern from Pythinker AI architecture.
 """
 
 from datetime import datetime

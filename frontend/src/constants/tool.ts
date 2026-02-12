@@ -1,5 +1,5 @@
 /**
- * Tool function mapping - Manus-style verb labels
+ * Tool function mapping - Pythinker-style verb labels
  *
  * STANDARDIZATION RULES:
  * - All verbs use present continuous tense (-ing)

@@ -112,7 +112,7 @@
           </div>
           <div class="meta-item">
             <span class="meta-label">Author:</span>
-            <span class="meta-value">{{ report.author || 'Manus AI' }}</span>
+            <span class="meta-value">{{ report.author || 'Pythinker' }}</span>
           </div>
         </div>
       </div>

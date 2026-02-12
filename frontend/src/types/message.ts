@@ -53,7 +53,7 @@ export interface ToolContent extends BaseContent {
   args: Record<string, unknown>;
   content?: ToolContentPayload;
   status: "calling" | "called";
-  // Display metadata (Manus-style human-readable descriptions)
+  // Display metadata (Pythinker-style human-readable descriptions)
   display_command?: string;      // Full human-readable description: "Search for OpenRouter free tier LLM models"
   command_category?: string;     // Category: "search", "browse", "file", "shell", etc.
   command_summary?: string;      // Short summary for badges
@@ -80,7 +80,7 @@ export interface StepContent extends BaseContent {
   description: string;
   status: 'pending' | 'running' | 'completed' | 'failed';
   tools: ToolContent[];
-  items?: StepItem[];  // Interleaved tools + thoughts for Manus-style rendering
+  items?: StepItem[];  // Interleaved tools + thoughts for Pythinker-style rendering
 }
 
 export interface AttachmentsContent extends BaseContent {

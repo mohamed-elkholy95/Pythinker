@@ -3,7 +3,7 @@
   <p v-if="isInlineMessageTool && tool.args?.text" class="inline-message-text whitespace-pre-wrap break-words">
     {{ tool.args.text }}
   </p>
-  <!-- Standard tool display (rendered as interactive chip - Manus-style) -->
+  <!-- Standard tool display (rendered as interactive chip - Pythinker-style) -->
   <div v-else-if="toolInfo" class="flex w-full items-start group gap-1.5 max-w-full">
     <div class="flex-1 min-w-0">
       <div

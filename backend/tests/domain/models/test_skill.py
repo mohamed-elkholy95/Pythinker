@@ -1,6 +1,6 @@
 """Tests for Skill model with progressive disclosure pattern.
 
-Tests the enhancement of the Skill model with Manus AI's progressive disclosure pattern,
+Tests the enhancement of the Skill model with Pythinker AI's progressive disclosure pattern,
 including SkillMetadata parsing, SkillResource bundling, and disclosure levels.
 """
 
