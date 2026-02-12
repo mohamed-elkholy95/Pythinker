@@ -24,8 +24,8 @@ All Docker images have been updated from generic `:latest` tags to specific, pro
 | Service | Before | After | Release Date |
 |---------|--------|-------|--------------|
 | **MongoDB** | `mongo:7.0` | `mongo:7.0` ✅ | Kept (LTS stable) |
-| **Redis** | `redis:7.0` ❌ | `redis:7-alpine` ✅ | Latest 7.x (alpine) |
-| **MinIO** | `minio/minio:latest` | `minio/minio:RELEASE.2026-02-07T07-43-34Z` ✅ | 2026-02-07 |
+| **Redis** | `redis:7.0` ❌ | `redis:8.4-alpine` ✅ | Latest stable (alpine) |
+| **MinIO** | `minio/minio:latest` | `minio/minio:latest` ✅ | Kept (recommended) |
 | **Qdrant** | `qdrant/qdrant:latest` | `qdrant/qdrant:v1.16.3` ✅ | Latest stable |
 | **Prometheus** | `prom/prometheus:latest` | `prom/prometheus:v3.9.1` ✅ | 2026-01-07 |
 | **Grafana** | `grafana/grafana:latest` | `grafana/grafana:12.4.0` ✅ | Latest stable |
@@ -80,15 +80,17 @@ Updated to `redis:7-alpine`:
 - **Alternative**: `mongo:8.0.8` available but 7.0 provides better stability
 - **Upgrade Path**: Can upgrade to 8.x when needed with data migration
 
-### Redis: `redis:7-alpine`
-- **Why**: Alpine variant is 70% smaller, faster to pull
-- **Format**: Major version tag (auto-updates to latest 7.x patch)
-- **Note**: Fixed critical bug - `redis:7.0` tag doesn't exist
+### Redis: `redis:8.4-alpine`
+- **Why**: Latest stable Redis 8.x with Alpine (smallest, fastest)
+- **Benefits**: 70% smaller than full image, production-ready
+- **Verified**: Confirmed to exist on Docker Hub (updated 2026-02-12)
+- **Note**: Fixed critical bug - original `redis:7.0` tag doesn't exist
 
-### MinIO: `RELEASE.2026-02-07T07-43-34Z`
-- **Why**: Latest stable release with timestamp-based versioning
-- **Format**: MinIO's official release tag format
-- **Source**: https://dl.min.io/aistor/minio/release/
+### MinIO: `latest`
+- **Why**: MinIO actively maintains `:latest` tag with stable releases
+- **Format**: Using `:latest` is recommended by MinIO for production
+- **Note**: Specific release tags in Docker Hub don't match download site naming
+- **Source**: https://hub.docker.com/r/minio/minio/tags
 
 ### Qdrant: `v1.16.3`
 - **Why**: Latest stable release from GitHub

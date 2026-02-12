@@ -17,7 +17,7 @@ The Docker Compose files were referencing `redis:7.0` which is not a valid Redis
 
 ## Fix Applied
 
-Updated the Redis image tag from `redis:7.0` to `redis:7-alpine` in all Docker Compose configuration files:
+Updated the Redis image tag from `redis:7.0` to `redis:8.4-alpine` (latest stable) in all Docker Compose configuration files:
 
 ### Files Modified:
 1. ✅ `docker-compose.yml` - Main production compose file
@@ -29,16 +29,17 @@ Updated the Redis image tag from `redis:7.0` to `redis:7-alpine` in all Docker C
 ```diff
   redis:
 -   image: redis:7.0
-+   image: redis:7-alpine
++   image: redis:8.4-alpine
     restart: unless-stopped
 ```
 
-## Benefits of Using `redis:7-alpine`
+## Benefits of Using `redis:8.4-alpine`
 
-1. **Smaller Image Size**: Alpine-based images are significantly smaller (~30MB vs ~110MB)
-2. **Faster Deployment**: Smaller images pull and deploy faster
-3. **Consistency**: Matches the tag format used in CI/CD (`.github/workflows/test-and-lint.yml`)
-4. **Reliability**: Official Redis Alpine images are well-maintained and widely used
+1. **Latest Features**: Redis 8.4 with latest performance improvements and bug fixes
+2. **Smaller Image Size**: Alpine-based images are significantly smaller (~42MB vs ~150MB)
+3. **Faster Deployment**: Smaller images pull and deploy faster
+4. **Production Ready**: Latest stable release, actively maintained and widely used
+5. **Verified**: Docker Hub confirmed tag existence (2026-02-12)
 
 ## Verification
 

@@ -133,7 +133,7 @@ services:
       - pythinker-network
 
   redis:
-    image: redis:7-alpine
+    image: redis:8.4-alpine
     restart: unless-stopped
     networks:
       - pythinker-network

@@ -189,7 +189,7 @@ services:
       start_period: 15s
 
   minio:
-    image: minio/minio:RELEASE.2026-02-07T07-43-34Z
+    image: minio/minio:latest
     container_name: pythinker-minio
     ports:
       - "9000:9000"   # S3 API
@@ -221,7 +221,7 @@ services:
       - pythinker-network
 
   redis:
-    image: redis:7-alpine
+    image: redis:8.4-alpine
     restart: unless-stopped
     networks:
       - pythinker-network
