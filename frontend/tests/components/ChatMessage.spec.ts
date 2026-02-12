@@ -141,6 +141,25 @@ describe('ChatMessage', () => {
       expect(wrapper.text()).toContain('just now')
     })
 
+    it('should keep user message actions visible on touch/mobile', () => {
+      const wrapper = mount(ChatMessage, {
+        props: {
+          message: mockUserMessage,
+        },
+        global: {
+          stubs: {
+            Bot: true,
+            CheckIcon: true,
+          },
+        },
+      })
+
+      const actions = wrapper.find('.user-message-actions')
+      expect(actions.classes()).toContain('visible')
+      expect(actions.classes()).toContain('sm:invisible')
+      expect(actions.classes()).toContain('sm:group-hover:visible')
+    })
+
     it('should show expand control for long user messages', async () => {
       const longUserMessage = {
         ...mockUserMessage,

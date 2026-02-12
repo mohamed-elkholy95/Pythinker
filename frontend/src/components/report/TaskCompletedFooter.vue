@@ -6,7 +6,7 @@
         <span class="status-text">{{ $t('Task completed') }}</span>
       </div>
 
-      <div class="rating-panel">
+      <div v-if="props.showRating" class="rating-panel">
         <span class="rating-title">{{ $t('How was this result?') }}</span>
         <div class="rating-stars">
           <button
@@ -33,6 +33,15 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { Check, Star } from 'lucide-vue-next';
+
+const props = withDefaults(
+  defineProps<{
+    showRating?: boolean;
+  }>(),
+  {
+    showRating: true,
+  },
+);
 
 const emit = defineEmits<{
   (e: 'rate', rating: number, feedback?: string): void;

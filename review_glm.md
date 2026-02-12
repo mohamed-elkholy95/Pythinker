@@ -3953,4 +3953,1640 @@ class SkillPackage(BaseModel):
 
 ---
 
-*Review will continue with Batch 9 (files 41-45) upon next iteration.*
+## Batch 9: Domain Models (Files 41-45)
+
+### 41. `backend/app/domain/models/snapshot.py`
+
+**Purpose:** State snapshot models for timeline reconstruction - captures point-in-time state for various resources
+
+**Current Setup:**
+- `SnapshotType` enum for different snapshot categories (FILE_SYSTEM, BROWSER_STATE, TERMINAL_STATE, etc.)
+- Multiple snapshot models: `FileSnapshot`, `FileSystemSnapshot`, `BrowserSnapshot`, `TerminalSnapshot`, `EditorSnapshot`, `PlanSnapshot`
+- `StateSnapshot` aggregate with factory methods for creating typed snapshots
+- Uses `datetime.now()` without UTC in defaults and factory methods
+
+**Strengths:**
+- Comprehensive snapshot types covering all sandbox resources
+- Factory methods (`create_file_snapshot`, `create_browser_snapshot`, `create_terminal_snapshot`) for clean construction
+- Compression tracking with `is_compressed` and `compressed_size_bytes`
+- Sequence number for timeline ordering
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No UTC timezone | Lines 29, 96, 134 | High | Uses `datetime.now()` without UTC - inconsistent timestamps |
+| No model_config | All classes | Medium | Missing `ConfigDict` with strict settings |
+| Mutable list default | Line 36 | Medium | `files: list[FileSnapshot] = []` - should use `Field(default_factory=list)` |
+| No ID prefix | Line 90 | Low | `str(uuid.uuid4())` lacks prefix for identification |
+| No bounds on lists | Lines 36, 80 | Low | `files`, `completed_steps` have no max limits |
+
+**Enhancement Suggestions:**
+
+```python
+import uuid
+from datetime import UTC, datetime
+from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class FileSnapshot(BaseModel):
+    """Snapshot of a single file."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    path: str = Field(..., max_length=1000)
+    content: str = Field(..., max_length=10_000_000)  # 10MB limit
+    size_bytes: int = Field(..., ge=0)
+    modified_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    is_binary: bool = False
+
+
+class StateSnapshot(BaseModel):
+    """Point-in-time state snapshot for timeline reconstruction."""
+
+    model_config = ConfigDict(strict=True)
+
+    id: str = Field(default_factory=lambda: f"snap_{uuid.uuid4().hex}")
+    session_id: str = Field(..., min_length=1)
+    action_id: str | None = None
+    sequence_number: int = Field(..., ge=0)
+
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    snapshot_type: SnapshotType
+    resource_path: str | None = Field(default=None, max_length=2000)
+
+    file_system: FileSystemSnapshot | None = None
+    file_content: FileSnapshot | None = None
+    browser: BrowserSnapshot | None = None
+    terminal: TerminalSnapshot | None = None
+    editor: EditorSnapshot | None = None
+    plan: PlanSnapshot | None = None
+    full_state: dict[str, Any] | None = None
+
+    is_compressed: bool = False
+    compressed_size_bytes: int | None = Field(default=None, ge=0)
+```
+
+**Overall Rating:** ⚠️ Needs Work
+
+---
+
+### 42. `backend/app/domain/models/source_attribution.py`
+
+**Purpose:** Source attribution model for tracking claim provenance - prevents hallucinations and ensures proper attribution
+
+**Current Setup:**
+- `SourceType` enum (DIRECT_CONTENT, INFERRED, UNAVAILABLE)
+- `AccessStatus` enum (FULL, PARTIAL, PAYWALL, LOGIN_REQUIRED, ERROR)
+- `SourceAttribution` with verification and caveat logic
+- `ContentAccessResult` for access tracking
+- `AttributionSummary` with reliability scoring
+
+**Strengths:**
+- EXCELLENT - Comprehensive attribution tracking system
+- `is_verified()` and `requires_caveat()` methods for claim validation
+- `get_attribution_prefix()` for presenting claims with context
+- `AttributionSummary.get_reliability_score()` with weighted scoring
+- Proper `Field(ge=0.0, le=1.0)` constraints on confidence scores
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No model_config | All classes | Medium | Missing `ConfigDict` with strict settings |
+| Mutable list default | Line 108, 137 | Medium | `default_factory=list` used but lists can grow unbounded |
+| No URL validation | Line 51 | Low | `source_url` has no format validation |
+| No bounds on attributions | Line 137 | Low | `attributions` list has no max |
+
+**Enhancement Suggestions:**
+
+```python
+from enum import Enum
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class SourceAttribution(BaseModel):
+    """Attribution for a single claim or piece of information."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    claim: str = Field(..., min_length=1, max_length=10000, description="The claim or piece of information")
+    source_type: SourceType = Field(..., description="How this information was obtained")
+    source_url: str | None = Field(default=None, max_length=2000, description="URL of the source")
+    access_status: AccessStatus = Field(default=AccessStatus.FULL, description="Access status when retrieving")
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="Confidence in this attribution")
+    raw_excerpt: str | None = Field(default=None, max_length=5000, description="Actual text excerpt from source")
+
+    @field_validator("source_url")
+    @classmethod
+    def validate_url(cls, v: str | None) -> str | None:
+        """Validate URL format if provided."""
+        if v is not None and not v.startswith(("http://", "https://")):
+            raise ValueError("source_url must start with http:// or https://")
+        return v
+
+
+class AttributionSummary(BaseModel):
+    """Summary of attributions for an output."""
+
+    model_config = ConfigDict(strict=True)
+
+    total_claims: int = Field(default=0, ge=0)
+    verified_claims: int = Field(default=0, ge=0)
+    inferred_claims: int = Field(default=0, ge=0)
+    unavailable_claims: int = Field(default=0, ge=0)
+    average_confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    has_paywall_sources: bool = False
+    attributions: list[SourceAttribution] = Field(default_factory=list, max_length=1000)
+```
+
+**Overall Rating:** ✅ Good
+
+---
+
+### 43. `backend/app/domain/models/source_citation.py`
+
+**Purpose:** Source citation model for tracking references in reports
+
+**Current Setup:**
+- Simple `SourceCitation` model with URL, title, snippet, access_time
+- Uses `Literal["search", "browser", "file"]` for source type
+- Legacy `class Config` with `json_encoders`
+
+**Strengths:**
+- Clean, minimal model for citation tracking
+- `Literal` type for source_type is type-safe
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Legacy Config class | Lines 26-27 | High | Uses `class Config` instead of `model_config = ConfigDict(...)` |
+| No UTC timezone | Line 23 | Medium | Uses `datetime` without UTC specification |
+| No model_config | Global | Medium | Missing `ConfigDict` with strict settings |
+| No URL validation | Line 20 | Medium | `url` has no format validation |
+| No Field constraints | All fields | Low | Missing min_length, max_length constraints |
+
+**Enhancement Suggestions:**
+
+```python
+from datetime import UTC, datetime
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class SourceCitation(BaseModel):
+    """Represents a source citation for report bibliography."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    url: str = Field(..., min_length=1, max_length=2000)
+    title: str = Field(..., min_length=1, max_length=500)
+    snippet: str | None = Field(default=None, max_length=2000)
+    access_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    source_type: Literal["search", "browser", "file"] = "search"
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        """Validate URL format."""
+        if not v.startswith(("http://", "https://", "file://")):
+            raise ValueError("url must be a valid URL")
+        return v
+```
+
+**Overall Rating:** ⚠️ Needs Work
+
+---
+
+### 44. `backend/app/domain/models/source_quality.py`
+
+**Purpose:** Source quality assessment and filtering models
+
+**Current Setup:**
+- `SourceReliability` and `ContentFreshness` enums
+- `SourceQualityScore` with composite scoring algorithm
+- `SourceFilterConfig` with domain tier lists
+- `FilteredSourceResult` with acceptance rate tracking
+
+**Strengths:**
+- EXCELLENT - Comprehensive source quality system
+- `composite_score` property with documented weights (reliability 35%, relevance 30%, freshness 20%, depth 15%)
+- `passes_threshold` property for filtering decisions
+- Well-organized domain tier lists (high_reliability_domains, medium_reliability_domains)
+- `FilteredSourceResult.get_summary()` for human-readable output
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No UTC timezone | Line 43 | Medium | `publication_date: datetime` without UTC |
+| No model_config | All classes | Medium | Missing `ConfigDict` with strict settings |
+| No URL validation | Line 31-32 | Low | `url` and `domain` have no format validation |
+| Mutable list defaults | Lines 82-83, 131-133 | Low | Lists use `default_factory` but no bounds |
+| Lambda in Field default | Lines 91, 113 | Low | Uses lambda for list defaults (correct but verbose) |
+
+**Enhancement Suggestions:**
+
+```python
+from datetime import UTC, datetime
+from enum import Enum
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class SourceQualityScore(BaseModel):
+    """Comprehensive source quality assessment."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    url: str = Field(..., max_length=2000)
+    domain: str = Field(..., max_length=200)
+
+    reliability_score: float = Field(default=0.5, ge=0.0, le=1.0)
+    relevance_score: float = Field(default=0.5, ge=0.0, le=1.0)
+    freshness_score: float = Field(default=0.5, ge=0.0, le=1.0)
+    content_depth_score: float = Field(default=0.5, ge=0.0, le=1.0)
+
+    reliability_tier: SourceReliability = SourceReliability.UNKNOWN
+    freshness_category: ContentFreshness = ContentFreshness.UNKNOWN
+    publication_date: datetime | None = None
+
+    is_primary_source: bool = False
+    has_citations: bool = False
+    is_paywalled: bool = False
+    requires_login: bool = False
+
+    @property
+    def composite_score(self) -> float:
+        """Weighted composite quality score.
+
+        Weights: reliability 35%, relevance 30%, freshness 20%, depth 15%
+        """
+        return (
+            self.reliability_score * 0.35
+            + self.relevance_score * 0.30
+            + self.freshness_score * 0.20
+            + self.content_depth_score * 0.15
+        )
+
+
+# Predefined domain lists as module constants
+HIGH_RELIABILITY_DOMAINS = [
+    "arxiv.org", "github.com", "docs.python.org", "pytorch.org",
+    "tensorflow.org", "huggingface.co", "openai.com", "anthropic.com",
+    "nature.com", "acm.org", "ieee.org", "research.google",
+]
+
+MEDIUM_RELIABILITY_DOMAINS = [
+    "medium.com", "dev.to", "stackoverflow.com", "techcrunch.com",
+]
+
+
+class SourceFilterConfig(BaseModel):
+    """Configuration for source filtering."""
+
+    model_config = ConfigDict(strict=True)
+
+    min_composite_score: float = Field(default=0.4, ge=0.0, le=1.0)
+    min_reliability_score: float = Field(default=0.3, ge=0.0, le=1.0)
+    min_relevance_score: float = Field(default=0.5, ge=0.0, le=1.0)
+    max_age_days: int | None = Field(default=730, ge=1)
+
+    allowed_domains: list[str] = Field(default_factory=list, max_length=1000)
+    blocked_domains: list[str] = Field(default_factory=list, max_length=1000)
+    high_reliability_domains: list[str] = Field(
+        default_factory=lambda: HIGH_RELIABILITY_DOMAINS.copy(),
+        max_length=500,
+    )
+    medium_reliability_domains: list[str] = Field(
+        default_factory=lambda: MEDIUM_RELIABILITY_DOMAINS.copy(),
+        max_length=500,
+    )
+```
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 45. `backend/app/domain/models/state_manifest.py`
+
+**Purpose:** State manifest for blackboard architecture - implements Manus AI's pattern for inter-agent communication
+
+**Current Setup:**
+- `StateEntry` for individual posted entries
+- `StateManifest` with indexing for efficient lookups
+- Methods: `post()`, `get()`, `get_history()`, `get_by_agent()`, `get_recent()`
+- `to_context_string()` for LLM context formatting
+- Serialization via `to_dict()` and `from_dict()`
+- Uses `datetime.now(UTC)` correctly
+
+**Strengths:**
+- EXCELLENT - Well-implemented blackboard pattern
+- Uses UTC correctly: `datetime.now(UTC)` throughout
+- Private attribute `_index` for O(1) key lookups
+- `model_post_init` for index rebuilding after deserialization
+- Comprehensive docstrings with examples
+- `to_context_string()` truncates long values for LLM context
+- Clean serialization/deserialization pattern
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No model_config | Lines 23, 45 | Medium | Missing `ConfigDict` with strict settings |
+| Unbounded entries | Line 82 | Medium | `entries` list grows without cleanup |
+| No bounds on index | Line 85 | Low | Private `_index` has no size limit |
+| Any type for value | Line 39 | Low | `value: Any` is not type-safe |
+
+**Enhancement Suggestions:**
+
+```python
+import logging
+from datetime import UTC, datetime
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+
+logger = logging.getLogger(__name__)
+
+MAX_ENTRIES = 10000
+
+
+class StateEntry(BaseModel):
+    """An entry in the state manifest."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    key: str = Field(..., min_length=1, max_length=200)
+    value: Any  # Cannot constrain further due to flexible nature
+    posted_by: str = Field(..., min_length=1, max_length=100)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    metadata: dict[str, Any] = Field(default_factory=dict, max_length=50)
+
+
+class StateManifest(BaseModel):
+    """Shared state manifest for inter-agent communication."""
+
+    model_config = ConfigDict(strict=True)
+
+    session_id: str = Field(..., min_length=1)
+    entries: list[StateEntry] = Field(default_factory=list, max_length=MAX_ENTRIES)
+    max_entries: int = Field(default=MAX_ENTRIES, ge=100, le=100000)
+
+    _index: dict[str, list[int]] = PrivateAttr(default_factory=dict)
+
+    def post(self, entry: StateEntry) -> None:
+        """Post an entry to the blackboard with bounds checking."""
+        # Enforce max entries limit
+        if len(self.entries) >= self.max_entries:
+            # Remove oldest entries to make room
+            overflow = len(self.entries) - self.max_entries + 1
+            self.entries = self.entries[overflow:]
+            self._rebuild_index()
+            logger.warning(
+                "State manifest reached max entries, pruned oldest",
+                extra={"session_id": self.session_id, "pruned": overflow},
+            )
+
+        index = len(self.entries)
+        self.entries.append(entry)
+
+        if entry.key not in self._index:
+            self._index[entry.key] = []
+        self._index[entry.key].append(index)
+```
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+## Batch 9 Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| Files Reviewed | 5 |
+| Total Issues Found | 20 |
+| Critical | 0 |
+| Medium | 11 |
+| Low | 9 |
+
+### Key Findings
+
+1. **Blackboard Architecture**: `state_manifest.py` implements an excellent blackboard pattern with efficient indexing and comprehensive documentation.
+
+2. **Source Quality System**: Both `source_attribution.py` and `source_quality.py` provide robust quality assessment with weighted scoring.
+
+3. **UTC Inconsistency**: `snapshot.py` and `source_citation.py` use `datetime.now()` without UTC, while `state_manifest.py` correctly uses `datetime.now(UTC)`.
+
+4. **Legacy Config**: `source_citation.py` still uses legacy `class Config` pattern instead of Pydantic v2 `model_config`.
+
+5. **Snapshot System**: Comprehensive snapshot types covering file system, browser, terminal, editor, and plan states.
+
+### Priority Fixes
+
+1. **High**: Fix `datetime.now()` to `datetime.now(UTC)` in `snapshot.py` (Lines 29, 96, 134)
+2. **High**: Replace legacy `class Config` with `model_config = ConfigDict(...)` in `source_citation.py`
+3. **Medium**: Add `model_config = ConfigDict(...)` to all model classes across all files
+4. **Medium**: Add bounds to unbounded lists (`entries`, `attributions`, `files`)
+5. **Low**: Add URL validation to `source_url` and `url` fields
+
+---
+
+## Batch 10: Domain Models (Files 46-50)
+
+### 46. `backend/app/domain/models/state_model.py`
+
+**Purpose:** Unified state transition validation for agent workflows
+
+**Current Setup:**
+- `AgentStatus` enum for PlanActFlow states (IDLE, PLANNING, VERIFYING, EXECUTING, etc.)
+- `VALID_TRANSITIONS` dict defining allowed state transitions
+- `StateTransitionError` exception for invalid transitions
+- Helper functions: `validate_transition()`, `get_valid_transitions()`, `is_terminal_status()`, `is_error_status()`, `get_recovery_paths()`
+- `StatusTransitionGuard` context manager for guarded transitions
+
+**Strengths:**
+- EXCELLENT - Well-designed state machine with clear transition rules
+- `StatusTransitionGuard` context manager for safe transitions with automatic error handling
+- Comprehensive transition validation
+- `get_recovery_paths()` for error recovery strategies
+- Clear documentation and usage examples
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No Pydantic model | Global | Low | File contains enums and functions only, no Pydantic models |
+| StatusTransitionGuard untyped | Line 158 | Low | `flow` parameter lacks type annotation |
+
+**Enhancement Suggestions:**
+
+```python
+from typing import Protocol
+
+class FlowProtocol(Protocol):
+    """Protocol for flow objects with status."""
+    status: AgentStatus
+
+
+class StatusTransitionGuard:
+    """Context manager for guarded state transitions."""
+
+    def __init__(self, flow: FlowProtocol, target_status: AgentStatus, validate: bool = True):
+        self.flow = flow
+        self.target_status = target_status
+        self.validate = validate
+        self.original_status: AgentStatus | None = None
+```
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 47. `backend/app/domain/models/structured_outputs.py`
+
+**Purpose:** Structured output models for zero-hallucination defense - provides type-safe LLM response schemas
+
+**Current Setup:**
+- `SourceType` enum for citation types (WEB, TOOL_RESULT, MEMORY, INFERENCE, etc.)
+- `Citation` model with URL validation
+- `CitedResponse` with grounding validation
+- `StepDescription`, `PlanOutput`, `PlanUpdateOutput` for plan structures
+- `ToolCallOutput`, `ReflectionOutput`, `VerificationOutput` for agent outputs
+- `ErrorAnalysisOutput`, `SummaryOutput` for results
+- Utility functions: `validate_llm_output()`, `build_validation_feedback()`
+
+**Strengths:**
+- EXCELLENT - Comprehensive structured output system
+- `@field_validator` with `@classmethod` - Pydantic v2 compliant
+- `HttpUrl` type for proper URL validation
+- Placeholder detection in `validate_description()`
+- `is_well_grounded` property for grounding validation
+- Clear `__all__` exports for public API
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No model_config | All classes | Medium | Missing `ConfigDict` with strict settings |
+| Duplicate ValidationResult | Lines 292-298 | Low | Same name as in thought.py - potential confusion |
+| HttpUrl may be strict | Line 54 | Low | `HttpUrl` type is strict - may reject valid URLs with unusual formats |
+
+**Enhancement Suggestions:**
+
+```python
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+
+
+class Citation(BaseModel):
+    """A citation for a piece of information."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    text: str = Field(..., min_length=1, max_length=10000, description="The text being cited or supported")
+    source_type: SourceType = Field(..., description="Type of source")
+    url: HttpUrl | None = Field(default=None, description="URL if from web source")
+    source_id: str | None = Field(default=None, max_length=200, description="ID of source document/tool result")
+    excerpt: str | None = Field(default=None, max_length=5000, description="Relevant excerpt from source")
+    page_number: int | None = Field(default=None, ge=1, description="Page number if from document")
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0, description="Confidence in citation")
+
+
+class CitedResponse(BaseModel):
+    """A response with citations for source attribution."""
+
+    model_config = ConfigDict(strict=True)
+
+    content: str = Field(..., min_length=1, max_length=100000, description="The response content")
+    citations: list[Citation] = Field(default_factory=list, max_length=100, description="Citations for claims")
+    confidence: float = Field(default=0.7, ge=0.0, le=1.0, description="Overall confidence")
+    grounding_score: float | None = Field(default=None, ge=0.0, le=1.0, description="Score from grounding validation")
+    warning: str | None = Field(default=None, max_length=2000, description="Any caveats or warnings")
+```
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 48. `backend/app/domain/models/supervisor.py`
+
+**Purpose:** Supervisor model for hierarchical multi-agent system (HMAS) - implements Manus AI's pattern
+
+**Current Setup:**
+- `SupervisorDomain` enum (RESEARCH, CODE, DATA, BROWSER, GENERAL)
+- `SubTaskStatus` enum for task lifecycle
+- `SubTask` model with dependency tracking
+- `Supervisor` model with task assignment and dependency resolution
+- Uses `datetime.now(UTC)` correctly
+
+**Strengths:**
+- EXCELLENT - Well-implemented HMAS pattern
+- Uses UTC correctly: `datetime.now(UTC)`
+- `get_ready_tasks()` for dependency-aware task scheduling
+- Comprehensive docstrings with examples
+- Clean domain-driven design
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No model_config | Lines 56, 82 | Medium | Missing `ConfigDict` with strict settings |
+| No bounds on lists | Lines 78, 113-114 | Low | `dependencies`, `tasks`, `worker_agents` have no max |
+| Any type for result | Line 77 | Low | `result: Any = None` is not type-safe |
+
+**Enhancement Suggestions:**
+
+```python
+from datetime import UTC, datetime
+from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class SubTask(BaseModel):
+    """A sub-task managed by a supervisor."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: str = Field(..., min_length=1, max_length=100)
+    description: str = Field(..., min_length=1, max_length=5000)
+    assigned_agent: str | None = Field(default=None, max_length=100)
+    status: SubTaskStatus = SubTaskStatus.PENDING
+    result: Any = None
+    dependencies: list[str] = Field(default_factory=list, max_length=50)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class Supervisor(BaseModel):
+    """A supervisor agent in the hierarchical multi-agent system."""
+
+    model_config = ConfigDict(strict=True)
+
+    name: str = Field(..., min_length=1, max_length=100)
+    domain: SupervisorDomain
+    description: str = Field(default="", max_length=2000)
+    tasks: list[SubTask] = Field(default_factory=list, max_length=1000)
+    worker_agents: list[str] = Field(default_factory=list, max_length=100)
+```
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 49. `backend/app/domain/models/sync_outbox.py`
+
+**Purpose:** Domain models for sync outbox pattern - ensures reliable MongoDB to Qdrant synchronization
+
+**Current Setup:**
+- `OutboxOperation` enum (UPSERT, DELETE, BATCH_UPSERT, BATCH_DELETE)
+- `OutboxStatus` enum (PENDING, PROCESSING, COMPLETED, FAILED)
+- `OutboxEntry` with retry logic and exponential backoff
+- `DeadLetterEntry` for permanently failed operations
+- `OutboxCreate` and `OutboxUpdate` schemas
+- Uses `datetime.utcnow()` (deprecated)
+
+**Strengths:**
+- EXCELLENT - Well-designed outbox pattern for reliable sync
+- Exponential backoff in `calculate_next_retry()` with max 32s
+- `can_retry()` method for retry eligibility
+- Dead-letter queue for failed operations
+- Clear state machine: PENDING -> PROCESSING -> COMPLETED/FAILED
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Deprecated datetime.utcnow() | Lines 53-54, 66, 74, 79, 84-85, 92-93, 119-120 | High | Uses `datetime.utcnow()` instead of `datetime.now(UTC)` |
+| Legacy Config class | Lines 57-58, 122-123, 145-146 | High | Uses `class Config` instead of `model_config = ConfigDict(...)` |
+| No model_config | All classes | Medium | Missing `ConfigDict` with strict settings |
+| No bounds on lists | Lines 117, 131 | Low | `error_history`, `payload` dict have no bounds |
+
+**Enhancement Suggestions:**
+
+```python
+from datetime import UTC, datetime, timedelta
+from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class OutboxEntry(BaseModel):
+    """Outbox entry for reliable sync operations."""
+
+    model_config = ConfigDict(strict=True, use_enum_values=True)
+
+    id: str | None = None
+    operation: OutboxOperation
+    collection_name: str = Field(..., min_length=1, max_length=100)
+    payload: dict[str, Any] = Field(default_factory=dict, max_length=100)
+
+    status: OutboxStatus = OutboxStatus.PENDING
+    retry_count: int = Field(default=0, ge=0)
+    max_retries: int = Field(default=6, ge=1, le=20)
+    next_retry_at: datetime | None = None
+
+    error_message: str | None = Field(default=None, max_length=5000)
+    last_error_at: datetime | None = None
+
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    completed_at: datetime | None = None
+
+    def can_retry(self) -> bool:
+        """Check if this entry can be retried."""
+        if self.status == OutboxStatus.FAILED:
+            return False
+        if self.retry_count >= self.max_retries:
+            return False
+        return not (self.next_retry_at and self.next_retry_at > datetime.now(UTC))
+
+    def calculate_next_retry(self) -> datetime:
+        """Calculate next retry time with exponential backoff (max 32s)."""
+        delay_seconds = min(2**self.retry_count, 32)
+        return datetime.now(UTC) + timedelta(seconds=delay_seconds)
+```
+
+**Overall Rating:** ⚠️ Needs Work (due to deprecated datetime.utcnow)
+
+---
+
+### 50. `backend/app/domain/models/thought.py`
+
+**Purpose:** Thought domain models for Chain-of-Thought reasoning
+
+**Current Setup:**
+- `ThoughtType` enum (OBSERVATION, ANALYSIS, HYPOTHESIS, INFERENCE, EVALUATION, DECISION, REFLECTION, UNCERTAINTY)
+- `ThoughtQuality` enum (HIGH, MEDIUM, LOW, UNCERTAIN)
+- `Thought` model with evidence tracking
+- `ReasoningStep` for grouping thoughts
+- `ThoughtChain` for complete reasoning process
+- `Decision` for actionable outcomes
+- `ValidationResult` for chain validation
+- Uses `datetime.now()` without UTC
+
+**Strengths:**
+- Comprehensive CoT reasoning system
+- `supporting_evidence` and `contradicting_evidence` for balanced reasoning
+- `has_high_uncertainty()` for uncertainty detection
+- `get_summary()` for human-readable output
+- `requires_verification()` and `requires_user_confirmation()` for decision confidence
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Weak ID generation | Lines 44, 74, 103, 178 | High | Uses `datetime.now().timestamp()` - not unique, potential collisions |
+| No UTC timezone | Lines 44, 53, 74, 103, 109, 119-120 | High | Uses `datetime.now()` without UTC |
+| No model_config | All classes | Medium | Missing `ConfigDict` with strict settings |
+| Duplicate ValidationResult | Lines 209-216 | Low | Same name as in structured_outputs.py |
+
+**Enhancement Suggestions:**
+
+```python
+import uuid
+from datetime import UTC, datetime
+from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class Thought(BaseModel):
+    """A single thought in a reasoning chain."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: str = Field(default_factory=lambda: f"thought_{uuid.uuid4().hex}")
+    type: ThoughtType
+    content: str = Field(..., min_length=1, max_length=10000)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    quality: ThoughtQuality = ThoughtQuality.MEDIUM
+    supporting_evidence: list[str] = Field(default_factory=list, max_length=50)
+    contradicting_evidence: list[str] = Field(default_factory=list, max_length=50)
+    dependencies: list[str] = Field(default_factory=list, max_length=50)
+    metadata: dict[str, Any] = Field(default_factory=dict, max_length=20)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class ThoughtChain(BaseModel):
+    """A complete chain of reasoning for a problem."""
+
+    model_config = ConfigDict(strict=True)
+
+    id: str = Field(default_factory=lambda: f"chain_{uuid.uuid4().hex}")
+    problem: str = Field(..., min_length=1, max_length=10000)
+    context: dict[str, Any] = Field(default_factory=dict, max_length=50)
+    steps: list[ReasoningStep] = Field(default_factory=list, max_length=100)
+    final_decision: str | None = Field(default=None, max_length=10000)
+    overall_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    completed_at: datetime | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict, max_length=20)
+```
+
+**Overall Rating:** ⚠️ Needs Work
+
+---
+
+## Batch 10 Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| Files Reviewed | 5 |
+| Total Issues Found | 19 |
+| Critical | 0 |
+| Medium | 6 |
+| Low | 13 |
+
+### Key Findings
+
+1. **State Machine Design**: `state_model.py` provides an excellent state machine implementation with `StatusTransitionGuard` context manager for safe transitions.
+
+2. **Structured Outputs**: `structured_outputs.py` demonstrates exemplary Pydantic v2 usage with comprehensive validation for LLM outputs.
+
+3. **HMAS Pattern**: `supervisor.py` implements Manus AI's hierarchical multi-agent system pattern with proper UTC timezone handling.
+
+4. **Outbox Pattern**: `sync_outbox.py` has good design but uses deprecated `datetime.utcnow()` and legacy `class Config`.
+
+5. **CoT Reasoning**: `thought.py` provides comprehensive chain-of-thought reasoning models but has weak ID generation and missing UTC.
+
+### Priority Fixes
+
+1. **High**: Replace `datetime.utcnow()` with `datetime.now(UTC)` in `sync_outbox.py` (Lines 53-54, 66, 74, 79, 84-85, 92-93, 119-120)
+2. **High**: Replace `datetime.now()` with `datetime.now(UTC)` in `thought.py` (Lines 44, 53, 74, 103, 109)
+3. **High**: Fix weak ID generation using `timestamp()` in `thought.py` - use `uuid.uuid4().hex` instead
+4. **Medium**: Replace legacy `class Config` with `model_config = ConfigDict(...)` in `sync_outbox.py`
+5. **Low**: Add type annotation to `StatusTransitionGuard.flow` parameter
+
+---
+
+## Batch 11: Domain Models (Files 51-55)
+
+### 51. `backend/app/domain/models/timeline.py`
+
+**Purpose:** Timeline models for action recording and replay
+
+**Current Setup:**
+- `ActionType` enum for various action types (FILE_*, BROWSER_*, TERMINAL_*, etc.)
+- `ActionStatus` enum (PENDING, EXECUTING, COMPLETED, FAILED)
+- Nested models: `FileChange`, `BrowserAction`, `TerminalCommand`, `ActionMetadata`
+- `TimelineAction` with duration tracking
+- Uses `datetime.now()` without UTC
+
+**Strengths:**
+- Comprehensive action types covering all sandbox operations
+- `ActionMetadata` with rich nested models for different action types
+- Duration calculation in `mark_completed()` and `mark_failed()`
+- Sequence number for timeline ordering
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No UTC timezone | Lines 108-109, 132, 141 | High | Uses `datetime.now()` without UTC |
+| No model_config | All classes | Medium | Missing `ConfigDict` with strict settings |
+| No ID prefix | Line 103 | Low | `str(uuid.uuid4())` lacks prefix for identification |
+| No bounds on lists | Lines 90-92 | Low | `file_changes`, `browser_actions`, `terminal_commands` have no max |
+| Mutable dict default | Line 121 | Low | `function_args: dict | None` pattern inconsistent |
+
+**Enhancement Suggestions:**
+
+```python
+import uuid
+from datetime import UTC, datetime
+from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class TimelineAction(BaseModel):
+    """Represents a single action in the timeline."""
+
+    model_config = ConfigDict(strict=True)
+
+    id: str = Field(default_factory=lambda: f"action_{uuid.uuid4().hex}")
+    session_id: str = Field(..., min_length=1)
+    sequence_number: int = Field(..., ge=0)
+
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    completed_at: datetime | None = None
+    duration_ms: int | None = Field(default=None, ge=0)
+
+    action_type: ActionType
+    status: ActionStatus = ActionStatus.PENDING
+
+    tool_name: str | None = Field(default=None, max_length=100)
+    tool_call_id: str | None = Field(default=None, max_length=100)
+    function_name: str | None = Field(default=None, max_length=200)
+    function_args: dict[str, Any] | None = None
+    function_result: Any = None
+
+    metadata: ActionMetadata = Field(default_factory=ActionMetadata)
+    event_id: str | None = Field(default=None, max_length=100)
+
+    def mark_completed(self, result: Any = None) -> None:
+        """Mark this action as completed and calculate duration."""
+        self.completed_at = datetime.now(UTC)
+        self.status = ActionStatus.COMPLETED
+        self.function_result = result
+        if self.started_at:
+            delta = self.completed_at - self.started_at
+            self.duration_ms = int(delta.total_seconds() * 1000)
+```
+
+**Overall Rating:** ⚠️ Needs Work
+
+---
+
+### 52. `backend/app/domain/models/tool_call.py`
+
+**Purpose:** Standardized tool call envelope for consistent tool execution tracking
+
+**Current Setup:**
+- `ToolCallStatus` enum (PENDING, RUNNING, COMPLETED, FAILED, BLOCKED)
+- `ToolCallEnvelope` with lifecycle methods
+- Uses `time.time()` for epoch timestamps
+- `to_log_dict()` for structured logging
+
+**Strengths:**
+- EXCELLENT - Clean envelope pattern for tool execution
+- `BLOCKED` status for security blocks
+- Duration calculation in milliseconds
+- Message truncation in `mark_completed()` (200 chars) and `mark_failed()` (500 chars)
+- `to_log_dict()` for structured logging
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No model_config | Line 26 | Medium | Missing `ConfigDict` with strict settings |
+| No bounds on arguments | Line 46 | Low | `arguments` dict has no size limit |
+| Epoch time vs datetime | Lines 48-49, 58, 63, 72 | Low | Uses `time.time()` instead of datetime - inconsistent with other models |
+
+**Enhancement Suggestions:**
+
+```python
+import time
+from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class ToolCallEnvelope(BaseModel):
+    """Envelope wrapping every tool call with standardized metadata."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    tool_call_id: str = Field(..., min_length=1, max_length=100)
+    tool_name: str = Field(..., min_length=1, max_length=100)
+    function_name: str = Field(..., min_length=1, max_length=200)
+    arguments: dict[str, Any] = Field(default_factory=dict, max_length=100)
+    status: ToolCallStatus = ToolCallStatus.PENDING
+    started_at: float | None = Field(default=None, ge=0)
+    completed_at: float | None = Field(default=None, ge=0)
+    duration_ms: float | None = Field(default=None, ge=0)
+    success: bool | None = None
+    error: str | None = Field(default=None, max_length=500)
+    result_summary: str | None = Field(default=None, max_length=200)
+```
+
+**Overall Rating:** ✅ Good
+
+---
+
+### 53. `backend/app/domain/models/tool_result.py`
+
+**Purpose:** Generic result wrapper for tool execution
+
+**Current Setup:**
+- `ToolResult` generic class with `T` type variable
+- Factory methods: `ok()` and `error()`
+- Minimal fields: `success`, `message`, `data`
+
+**Strengths:**
+- EXCELLENT - Clean, minimal generic result pattern
+- `Generic[T]` for type-safe data handling
+- Factory methods `ok()` and `error()` for clean construction
+- `Self` return type for proper type inference
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No model_config | Line 8 | Medium | Missing `ConfigDict` with strict settings |
+| No message constraints | Line 18 | Low | `message` has no max_length |
+
+**Enhancement Suggestions:**
+
+```python
+from typing import Generic, Self, TypeVar
+
+from pydantic import BaseModel, ConfigDict, Field
+
+T = TypeVar("T")
+
+
+class ToolResult(BaseModel, Generic[T]):
+    """Result of a tool execution."""
+
+    model_config = ConfigDict(strict=True)
+
+    success: bool
+    message: str | None = Field(default=None, max_length=10000)
+    data: T | None = None
+
+    @classmethod
+    def ok(cls, message: str | None = None, data: T | None = None) -> Self:
+        """Create a successful result."""
+        return cls(success=True, message=message, data=data)
+
+    @classmethod
+    def error(cls, message: str, data: T | None = None) -> Self:
+        """Create an error result."""
+        return cls(success=False, message=message, data=data)
+```
+
+**Overall Rating:** ✅ Excellent
+
+---
+
+### 54. `backend/app/domain/models/url_verification.py`
+
+**Purpose:** URL verification models for hallucination prevention
+
+**Current Setup:**
+- `URLVerificationStatus` enum (VERIFIED, EXISTS_NOT_VISITED, NOT_FOUND, PLACEHOLDER, TIMEOUT, ERROR)
+- `URLVerificationResult` dataclass
+- `BatchURLVerificationResult` dataclass with aggregation
+- Uses `@dataclass` instead of Pydantic `BaseModel`
+- Uses `datetime.utcnow()` (deprecated)
+
+**Strengths:**
+- Comprehensive URL verification statuses
+- `is_valid_citation` and `is_suspicious` properties
+- `get_warning_message()` with status-specific messages
+- Batch verification with summary statistics
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Uses dataclass instead of Pydantic | Lines 23, 63 | High | Should use Pydantic `BaseModel` for consistency and validation |
+| Deprecated datetime.utcnow() | Lines 35, 75 | High | Uses `datetime.utcnow()` instead of `datetime.now(UTC)` |
+| No URL validation | Line 27 | Medium | `url: str` has no format validation |
+| No bounds on dicts/lists | Lines 67, 155 | Low | `results` dict and `active_sessions` list have no bounds |
+
+**Enhancement Suggestions:**
+
+```python
+from datetime import UTC, datetime
+from enum import Enum
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class URLVerificationResult(BaseModel):
+    """Result of verifying a single URL."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    url: str = Field(..., max_length=2000)
+    status: URLVerificationStatus
+    exists: bool = False
+    was_visited: bool = False
+    http_status: int | None = Field(default=None, ge=100, le=599)
+    redirect_url: str | None = Field(default=None, max_length=2000)
+    verification_time_ms: float = Field(default=0.0, ge=0)
+    error: str | None = Field(default=None, max_length=1000)
+    verified_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        """Validate URL format."""
+        if not v.startswith(("http://", "https://")):
+            raise ValueError("URL must start with http:// or https://")
+        return v
+
+    @property
+    def is_valid_citation(self) -> bool:
+        """Check if this URL is valid for use as a citation."""
+        return self.status == URLVerificationStatus.VERIFIED
+
+
+class BatchURLVerificationResult(BaseModel):
+    """Result of verifying multiple URLs."""
+
+    model_config = ConfigDict(strict=True)
+
+    results: dict[str, URLVerificationResult] = Field(default_factory=dict, max_length=1000)
+    total_urls: int = Field(default=0, ge=0)
+    verified_count: int = Field(default=0, ge=0)
+    not_visited_count: int = Field(default=0, ge=0)
+    not_found_count: int = Field(default=0, ge=0)
+    placeholder_count: int = Field(default=0, ge=0)
+    error_count: int = Field(default=0, ge=0)
+    verification_time_ms: float = Field(default=0.0, ge=0)
+    verified_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+```
+
+**Overall Rating:** ⚠️ Needs Work
+
+---
+
+### 55. `backend/app/domain/models/usage.py`
+
+**Purpose:** Usage tracking domain models for token consumption and cost tracking
+
+**Current Setup:**
+- `UsageType` enum (LLM_CALL, TOOL_CALL, EMBEDDING)
+- `UsageRecord` for individual LLM calls
+- `SessionUsage` for session aggregation
+- `SessionMetrics` for enhanced monitoring
+- `DailyUsageAggregate` and `MonthlyUsageSummary` for reporting
+- Uses `datetime.now(UTC)` correctly
+
+**Strengths:**
+- EXCELLENT - Comprehensive usage tracking system
+- Uses UTC correctly: `datetime.now(UTC)`
+- Multiple aggregation levels (session, daily, monthly)
+- Model breakdown tracking (`tokens_by_model`, `cost_by_model`)
+- Budget tracking in `SessionMetrics`
+- Proper UUID with truncation for IDs
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No model_config | All classes | Medium | Missing `ConfigDict` with strict settings |
+| Truncated UUID | Lines 24, 131 | Medium | `uuid.uuid4().hex[:16]` - only 16 hex chars |
+| Mutable dict defaults | Lines 71-72, 99, 151-152, 184 | Medium | Uses `{}` instead of `Field(default_factory=dict)` |
+| No bounds on dicts/lists | Lines 71-72, 155 | Low | `tokens_by_model`, `active_sessions` have no bounds |
+
+**Enhancement Suggestions:**
+
+```python
+import uuid
+from datetime import UTC, date, datetime
+from enum import Enum
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class UsageRecord(BaseModel):
+    """Individual LLM call usage record."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: str = Field(default_factory=lambda: f"usage_{uuid.uuid4().hex}")
+    user_id: str = Field(..., min_length=1)
+    session_id: str = Field(..., min_length=1)
+
+    model: str = Field(..., min_length=1, max_length=100)
+    provider: str = Field(..., min_length=1, max_length=50)
+
+    prompt_tokens: int = Field(default=0, ge=0)
+    completion_tokens: int = Field(default=0, ge=0)
+    cached_tokens: int = Field(default=0, ge=0)
+
+    prompt_cost: float = Field(default=0.0, ge=0)
+    completion_cost: float = Field(default=0.0, ge=0)
+    total_cost: float = Field(default=0.0, ge=0)
+
+    usage_type: UsageType = UsageType.LLM_CALL
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class SessionUsage(BaseModel):
+    """Aggregated usage for a single session."""
+
+    model_config = ConfigDict(strict=True)
+
+    session_id: str = Field(..., min_length=1)
+    user_id: str = Field(..., min_length=1)
+
+    total_prompt_tokens: int = Field(default=0, ge=0)
+    total_completion_tokens: int = Field(default=0, ge=0)
+    total_cached_tokens: int = Field(default=0, ge=0)
+
+    total_prompt_cost: float = Field(default=0.0, ge=0)
+    total_completion_cost: float = Field(default=0.0, ge=0)
+    total_cost: float = Field(default=0.0, ge=0)
+
+    llm_call_count: int = Field(default=0, ge=0)
+    tool_call_count: int = Field(default=0, ge=0)
+
+    tokens_by_model: dict[str, int] = Field(default_factory=dict, max_length=100)
+    cost_by_model: dict[str, float] = Field(default_factory=dict, max_length=100)
+
+    first_activity: datetime | None = None
+    last_activity: datetime | None = None
+```
+
+**Overall Rating:** ✅ Good
+
+---
+
+## Batch 11 Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| Files Reviewed | 5 |
+| Total Issues Found | 19 |
+| Critical | 0 |
+| Medium | 9 |
+| Low | 10 |
+
+### Key Findings
+
+1. **Tool Result Pattern**: `tool_result.py` demonstrates an excellent minimal generic result pattern with `Generic[T]` and factory methods.
+
+2. **Tool Call Envelope**: `tool_call.py` provides a clean envelope pattern with `BLOCKED` status for security and proper logging support.
+
+3. **Dataclass vs Pydantic**: `url_verification.py` uses `@dataclass` instead of Pydantic `BaseModel`, which is inconsistent with the codebase.
+
+4. **UTC Usage**: `usage.py` correctly uses `datetime.now(UTC)`, but `timeline.py` and `url_verification.py` have issues.
+
+5. **Usage Tracking**: Comprehensive multi-level aggregation (session, daily, monthly) for billing and monitoring.
+
+### Priority Fixes
+
+1. **High**: Replace `@dataclass` with Pydantic `BaseModel` in `url_verification.py`
+2. **High**: Replace `datetime.utcnow()` with `datetime.now(UTC)` in `url_verification.py` (Lines 35, 75)
+3. **High**: Replace `datetime.now()` with `datetime.now(UTC)` in `timeline.py` (Lines 108-109, 132, 141)
+4. **Medium**: Fix mutable dict defaults `{}` to `Field(default_factory=dict)` in `usage.py`
+5. **Medium**: Add `model_config = ConfigDict(...)` to all model classes
+
+---
+
+## Batch 12: Domain Models (Files 56-60)
+
+### 56. `backend/app/domain/models/user.py`
+
+**Purpose:** User domain model for authentication and user management
+
+**Current Setup:**
+- `UserRole` enum (ADMIN, USER)
+- `User` model with email validation
+- Domain methods: `update_last_login()`, `deactivate()`, `activate()`
+- Uses `datetime.now(UTC)` correctly
+- Pydantic v2 compliant `@field_validator` with `@classmethod`
+
+**Strengths:**
+- EXCELLENT - Clean user model with domain methods
+- Uses UTC correctly: `datetime.now(UTC)`
+- Pydantic v2 compliant validators
+- Email validation with normalization (lowercase, strip)
+- Fullname validation with minimum length
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No model_config | Line 12 | Medium | Missing `ConfigDict` with strict settings |
+| Datetime not in Field | Lines 21-22 | Medium | `datetime.now(UTC)` not wrapped in `Field(default_factory=...)` |
+| No Field constraints | Lines 15-18 | Low | Missing min_length, max_length on string fields |
+
+**Enhancement Suggestions:**
+
+```python
+from datetime import UTC, datetime
+from enum import Enum
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class User(BaseModel):
+    """User domain model."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: str = Field(..., min_length=1, max_length=100)
+    fullname: str = Field(..., min_length=2, max_length=200)
+    email: str = Field(..., min_length=3, max_length=200)
+    password_hash: str | None = Field(default=None, max_length=200)
+    role: UserRole = UserRole.USER
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_login_at: datetime | None = None
+
+    @field_validator("fullname")
+    @classmethod
+    def validate_fullname(cls, v: str) -> str:
+        if not v or len(v.strip()) < 2:
+            raise ValueError("Full name must be at least 2 characters long")
+        return v.strip()
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        if not v or "@" not in v:
+            raise ValueError("Valid email is required")
+        return v.strip().lower()
+```
+
+**Overall Rating:** ✅ Good
+
+---
+
+### 57. `backend/app/domain/models/user_preference.py`
+
+**Purpose:** User preference domain models for learning and applying user-specific preferences
+
+**Current Setup:**
+- Multiple enums: `PreferenceCategory`, `CommunicationStyle`, `RiskTolerance`, `OutputFormat`
+- `UserPreference` for individual preferences
+- `UserPreferenceProfile` for complete user profile
+- `PreferenceInferenceResult` for inference results
+- Uses `datetime.now()` without UTC
+
+**Strengths:**
+- Comprehensive preference categories and styles
+- `to_prompt_context()` for LLM context generation
+- `infer_preference()` with confidence-based updates
+- `get_high_confidence_preferences()` for filtering
+- `verbosity_level` with bounds (1-5)
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Weak ID generation | Line 55 | High | Uses `datetime.now().timestamp()` - not unique |
+| No UTC timezone | Lines 55, 61-62, 69, 94-95 | High | Uses `datetime.now()` without UTC |
+| No model_config | All classes | Medium | Missing `ConfigDict` with strict settings |
+| Any type for value | Line 58 | Low | `value: Any` is not type-safe |
+| No bounds on lists | Lines 77, 86-87, 194-196 | Low | Multiple lists have no max |
+
+**Enhancement Suggestions:**
+
+```python
+import uuid
+from datetime import UTC, datetime
+from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class UserPreference(BaseModel):
+    """A single user preference setting."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    preference_id: str = Field(default_factory=lambda: f"pref_{uuid.uuid4().hex}")
+    category: PreferenceCategory
+    name: str = Field(..., min_length=1, max_length=100)
+    value: Any
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    source: str = Field(default="inferred", max_length=20)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    usage_count: int = Field(default=0, ge=0)
+
+    def update_value(self, new_value: Any, confidence_boost: float = 0.1) -> None:
+        """Update the preference value."""
+        self.value = new_value
+        self.confidence = min(1.0, self.confidence + confidence_boost)
+        self.updated_at = datetime.now(UTC)
+        self.usage_count += 1
+
+
+class UserPreferenceProfile(BaseModel):
+    """Complete preference profile for a user."""
+
+    model_config = ConfigDict(strict=True)
+
+    user_id: str = Field(..., min_length=1)
+    preferences: list[UserPreference] = Field(default_factory=list, max_length=1000)
+
+    communication_style: CommunicationStyle = CommunicationStyle.DETAILED
+    risk_tolerance: RiskTolerance = RiskTolerance.MODERATE
+    output_format: OutputFormat = OutputFormat.MARKDOWN
+    verbosity_level: int = Field(default=3, ge=1, le=5)
+
+    preferred_tools: list[str] = Field(default_factory=list, max_length=50)
+    avoided_tools: list[str] = Field(default_factory=list, max_length=50)
+
+    prefers_confirmations: bool = True
+    prefers_explanations: bool = True
+    prefers_suggestions: bool = True
+
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_active: datetime = Field(default_factory=lambda: datetime.now(UTC))
+```
+
+**Overall Rating:** ⚠️ Needs Work
+
+---
+
+### 58. `backend/app/domain/models/user_settings.py`
+
+**Purpose:** User settings domain model for LLM, search, and browser agent configuration
+
+**Current Setup:**
+- `UserSettings` with provider settings (LLM, search, browser)
+- Skills configuration with `enabled_skills` and `skill_configs`
+- `update()` method for batch updates
+- Uses `datetime.now(UTC)` correctly
+
+**Strengths:**
+- Uses UTC correctly: `datetime.now(UTC)`
+- Clean update method
+- Comprehensive settings for all providers
+- Skills configuration support
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No model_config | Line 7 | Medium | Missing `ConfigDict` with strict settings |
+| Datetime not in Field | Lines 42-43 | Medium | `datetime.now(UTC)` not wrapped in `Field(default_factory=...)` |
+| No Field constraints | Lines 14-17 | Low | Missing validation on provider names, temperature range |
+| No bounds on lists/dicts | Lines 32-39 | Low | `enabled_skills`, `skill_configs` have no bounds |
+
+**Enhancement Suggestions:**
+
+```python
+from datetime import UTC, datetime
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class UserSettings(BaseModel):
+    """User settings domain model."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: str = Field(..., min_length=1)
+    user_id: str = Field(..., min_length=1)
+
+    llm_provider: str = Field(default="openai", max_length=50)
+    model_name: str = Field(default="gpt-4", max_length=100)
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=8000, ge=1, le=1000000)
+
+    search_provider: str = Field(default="duckduckgo", max_length=50)
+
+    browser_agent_max_steps: int = Field(default=25, ge=1, le=100)
+    browser_agent_timeout: int = Field(default=300, ge=10, le=3600)
+    browser_agent_use_vision: bool = True
+    response_verbosity_preference: str = Field(default="adaptive", max_length=20)
+    clarification_policy: str = Field(default="auto", max_length=20)
+    quality_floor_enforced: bool = True
+    skill_auto_trigger_enabled: bool = False
+
+    enabled_skills: list[str] = Field(default_factory=list, max_length=100)
+    skill_configs: dict[str, dict[str, Any]] = Field(default_factory=dict, max_length=100)
+
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @field_validator("temperature")
+    @classmethod
+    def validate_temperature(cls, v: float) -> float:
+        if not 0 <= v <= 2.0:
+            raise ValueError("Temperature must be between 0 and 2.0")
+        return v
+```
+
+**Overall Rating:** ✅ Good
+
+---
+
+### 59. `backend/app/domain/models/visited_source.py`
+
+**Purpose:** Visited source model for provenance tracking with content hashing
+
+**Current Setup:**
+- `ContentAccessMethod` enum (BROWSER_NAVIGATE, HTTP_FETCH, SEARCH_SNIPPET, etc.)
+- `VisitedSource` with content hashing (SHA-256)
+- Methods: `content_contains()`, `content_contains_number()`, `get_excerpt_containing()`
+- Private attribute `_full_content` for lazy loading
+- Uses `datetime.utcnow()` (deprecated)
+
+**Strengths:**
+- EXCELLENT - Comprehensive provenance tracking
+- SHA-256 content hashing for verification
+- `content_contains_number()` with tolerance for numeric verification
+- `get_excerpt_containing()` for context extraction
+- `is_fully_accessible` and `is_search_snippet_only` properties
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| Deprecated datetime.utcnow() | Lines 56, 73 | High | Uses `datetime.utcnow()` instead of `datetime.now(UTC)` |
+| No model_config | Line 26 | Medium | Missing `ConfigDict` with strict settings |
+| No URL validation | Line 53 | Medium | `url` has no format validation |
+| Private attribute pattern | Line 77 | Low | `_full_content` uses private attribute - consider using `PrivateAttr` |
+
+**Enhancement Suggestions:**
+
+```python
+import hashlib
+import uuid
+from datetime import UTC, datetime
+from enum import Enum
+
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
+
+
+class VisitedSource(BaseModel):
+    """Persistent record of a URL actually visited during a session."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    id: str = Field(default_factory=lambda: f"source_{uuid.uuid4().hex}")
+    session_id: str = Field(..., min_length=1)
+    tool_event_id: str = Field(..., min_length=1)
+
+    url: str = Field(..., max_length=2000)
+    final_url: str | None = Field(default=None, max_length=2000)
+    access_method: ContentAccessMethod
+    access_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    content_hash: str = Field(..., min_length=64, max_length=64)  # SHA-256 hex
+    content_length: int = Field(..., ge=0)
+    content_preview: str = Field(default="", max_length=2000)
+
+    page_title: str | None = Field(default=None, max_length=500)
+    meta_description: str | None = Field(default=None, max_length=1000)
+    last_modified: datetime | None = None
+
+    access_status: str = Field(default="full", max_length=20)
+    paywall_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    extracted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    extraction_method: str = Field(default="html_to_text", max_length=50)
+
+    _full_content: str | None = PrivateAttr(default=None)
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        if not v.startswith(("http://", "https://", "file://")):
+            raise ValueError("URL must start with http://, https://, or file://")
+        return v
+```
+
+**Overall Rating:** ⚠️ Needs Work (due to deprecated datetime.utcnow)
+
+---
+
+### 60. `backend/app/domain/models/sandbox/file.py`
+
+**Purpose:** File operation related models for sandbox operations
+
+**Current Setup:**
+- Multiple result models: `FileReadResult`, `FileWriteResult`, `FileReplaceResult`, `FileSearchResult`, `FileFindResult`, `FileUploadResult`
+- Simple, focused models for each operation type
+- Uses `Field(..., description=...)` for documentation
+
+**Strengths:**
+- Clean separation of concerns - one model per operation type
+- Good use of `Field(description=...)` for documentation
+- Simple, minimal models
+
+**Issues:**
+
+| Issue | Location | Severity | Description |
+|-------|----------|----------|-------------|
+| No model_config | All classes | Medium | Missing `ConfigDict` with strict settings |
+| Mutable list defaults | Lines 33-34, 41 | Medium | Uses `Field([])` instead of `Field(default_factory=list)` |
+| No Field constraints | All fields | Low | Missing max_length, ge/le constraints |
+| Missing bytes_written default | Line 19 | Low | `bytes_written` could have `ge=0` constraint |
+
+**Enhancement Suggestions:**
+
+```python
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class FileReadResult(BaseModel):
+    """File read result."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    content: str = Field(..., max_length=100_000_000, description="File content")
+    file: str = Field(..., max_length=2000, description="Path of the read file")
+
+
+class FileWriteResult(BaseModel):
+    """File write result."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    file: str = Field(..., max_length=2000, description="Path of the written file")
+    bytes_written: int | None = Field(default=None, ge=0, description="Number of bytes written")
+
+
+class FileSearchResult(BaseModel):
+    """File content search result."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    file: str = Field(..., max_length=2000, description="Path of the searched file")
+    matches: list[str] = Field(default_factory=list, max_length=1000, description="List of matched content")
+    line_numbers: list[int] = Field(default_factory=list, max_length=1000, description="List of matched line numbers")
+
+
+class FileUploadResult(BaseModel):
+    """File upload result."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    file_path: str = Field(..., max_length=2000, description="Path of the uploaded file")
+    file_size: int = Field(..., ge=0, description="Size of the uploaded file in bytes")
+    success: bool = Field(..., description="Whether upload was successful")
+```
+
+**Overall Rating:** ⚠️ Needs Work
+
+---
+
+## Batch 12 Summary Statistics
+
+| Metric | Count |
+|--------|-------|
+| Files Reviewed | 5 |
+| Total Issues Found | 23 |
+| Critical | 0 |
+| Medium | 13 |
+| Low | 10 |
+
+### Key Findings
+
+1. **UTC Compliance**: `user.py`, `user_settings.py` use UTC correctly, but `user_preference.py` and `visited_source.py` have issues.
+
+2. **Weak ID Generation**: `user_preference.py` uses `datetime.now().timestamp()` for IDs instead of UUIDs.
+
+3. **Private Attributes**: `visited_source.py` uses private attribute `_full_content` but should use `PrivateAttr` from Pydantic.
+
+4. **Provenance Tracking**: `visited_source.py` provides excellent content hashing and verification with SHA-256.
+
+5. **Simple File Models**: `sandbox/file.py` has clean, minimal models but lacks proper Field defaults and constraints.
+
+### Priority Fixes
+
+1. **High**: Replace `datetime.utcnow()` with `datetime.now(UTC)` in `visited_source.py` (Lines 56, 73)
+2. **High**: Replace `datetime.now()` with `datetime.now(UTC)` in `user_preference.py` (Lines 55, 61-62, 69, 94-95)
+3. **High**: Fix weak ID generation in `user_preference.py` - use `uuid.uuid4().hex` instead of `timestamp()`
+4. **Medium**: Fix mutable list defaults `Field([])` to `Field(default_factory=list)` in `sandbox/file.py`
+5. **Medium**: Add `model_config = ConfigDict(...)` to all model classes
+
+---
+
+*Review will continue with Batch 13 (files 61-65) upon next iteration.*

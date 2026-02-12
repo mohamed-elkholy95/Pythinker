@@ -4,6 +4,7 @@
             class="min-w-max inline-block transition-[transform,opacity,scale] duration-150 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 data-[starting-style]:-translate-y-2 data-[ending-style]:-translate-y-2"
             tabindex="-1" data-floating-ui-focusable="" role="dialog" :style="{
                 position: 'absolute',
+                zIndex: 80,
                 left: calculatedPosition.x + 'px',
                 top: calculatedPosition.y + 'px',
                 '--available-width': '554px',

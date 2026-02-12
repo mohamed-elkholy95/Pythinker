@@ -128,7 +128,7 @@ async def test_chat_without_follow_up_maintains_backwards_compatibility():
                 service.chat(
                     session_id="session-2",
                     user_id="user-2",
-                    message="hello",
+                    message="please analyze this request",
                 )
             ),
             timeout=0.5,
