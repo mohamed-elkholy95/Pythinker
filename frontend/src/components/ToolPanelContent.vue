@@ -99,9 +99,9 @@
             :is-final="!isSummaryStreaming"
           />
 
-          <!-- Replay mode: static screenshots -->
+          <!-- Replay mode: static screenshots (only when no richer tool view is available) -->
           <div
-            v-else-if="isReplayMode && !!replayScreenshotUrl"
+            v-else-if="isReplayMode && !!replayScreenshotUrl && !hasRichToolView"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
             <ScreenshotReplayViewer
@@ -110,9 +110,9 @@
             />
           </div>
 
-          <!-- Replay mode loading: screenshots not yet fetched -->
+          <!-- Replay mode loading: screenshots not yet fetched (only when no richer tool view) -->
           <div
-            v-else-if="isReplayMode && !replayScreenshotUrl"
+            v-else-if="isReplayMode && !replayScreenshotUrl && !hasRichToolView"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
             <LoadingState
@@ -122,9 +122,9 @@
             />
           </div>
 
-          <!-- VNC View (via backend proxy - works from browser) -->
+          <!-- VNC View (via backend proxy - works from browser) — skip for completed sessions -->
           <div
-            v-else-if="currentViewType === 'vnc'"
+            v-else-if="currentViewType === 'vnc' && !isReplayMode"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
             <!-- Placeholder for loading/text-only operations -->
@@ -222,9 +222,9 @@
             :always-show="true"
           />
 
-          <!-- VNC fallback when session exists but no dedicated view -->
+          <!-- VNC fallback when session exists but no dedicated view — skip for completed sessions -->
           <div
-            v-else-if="sessionId"
+            v-else-if="sessionId && !isReplayMode"
             class="absolute inset-0 bg-[var(--background-white-main)] overflow-hidden"
           >
             <LiveViewer
@@ -541,6 +541,13 @@ const vncPlaceholderAnimation = computed<'globe' | 'check' | 'spinner'>(() => {
 
 const vncEnabled = computed(() => {
   return !!props.sessionId && !showVncPlaceholder.value;
+});
+
+// Whether the current tool has a rich native view (editor, terminal, search)
+// that is more informative than a VNC screenshot replay
+const hasRichToolView = computed(() => {
+  const vt = currentViewType.value;
+  return vt === 'editor' || vt === 'terminal' || vt === 'search' || vt === 'wide_research';
 });
 
 // ============ VNC URL Bar Overlay ============

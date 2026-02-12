@@ -300,6 +300,11 @@ const shouldShowLiveVnc = computed(() => {
     return false;
   }
 
+  // Never show live VNC for completed sessions — use final screenshot instead
+  if (props.isSessionComplete && !props.isActive) {
+    return false;
+  }
+
   // Avoid opening a live VNC feed before the agent emits any concrete tool context.
   if (!effectiveToolContent.value) {
     return false;
