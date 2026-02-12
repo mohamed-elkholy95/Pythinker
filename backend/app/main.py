@@ -432,6 +432,18 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Qdrant initialization failed (graceful degradation): {e}")
             _health_state["qdrant"] = False
 
+        # Initialize BM25 encoder from existing memories (for hybrid search)
+        try:
+            from app.domain.services.embeddings.bm25_encoder import initialize_bm25_from_memories
+            from app.infrastructure.repositories.mongo_memory_repository import MongoMemoryRepository
+
+            db = get_mongodb().client[settings.mongodb_database]
+            memory_repo = MongoMemoryRepository(database=db)
+            logger.info("Initializing BM25 encoder from stored memories...")
+            await initialize_bm25_from_memories(memory_repo)
+        except Exception as e:
+            logger.warning(f"BM25 encoder initialization failed (non-critical): {e}")
+
         # Initialize Sandbox Pool (Phase 3: Pre-warming) if enabled.
         # In static dev sandbox mode (SANDBOX_ADDRESS configured), pooling can
         # create contention against shared CDP endpoints across sessions.

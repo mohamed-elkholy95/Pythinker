@@ -412,6 +412,11 @@ class MongoMemoryRepository(MemoryRepository):
 
         return [self._from_document(doc) async for doc in cursor]
 
+    async def get_all_content(self, limit: int = 10000) -> list[str]:
+        """Get content strings from all active memories for BM25 corpus fitting."""
+        cursor = self._collection.find({"is_active": True}, {"content": 1}).limit(limit)
+        return [doc["content"] async for doc in cursor if doc.get("content")]
+
     async def get_stats(self, user_id: str) -> MemoryStats:
         """Get memory statistics for a user."""
         pipeline = [
