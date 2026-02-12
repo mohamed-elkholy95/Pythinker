@@ -2,8 +2,12 @@
   <div ref="wrapperRef" class="vnc-wrapper">
     <!-- Loading state -->
     <div v-if="isLoading" class="vnc-loading">
-      <div class="vnc-loading-spinner"></div>
-      <span class="vnc-loading-text">{{ statusText }}</span>
+      <LoadingState
+        label="Connecting to screen"
+        :detail="statusText"
+        :is-active="true"
+        animation="globe"
+      />
     </div>
     <!-- VNC renders inside this container -->
     <div ref="vncContainer" class="vnc-screen"></div>
@@ -13,6 +17,7 @@
 <script setup lang="ts">
 import { ref, onBeforeUnmount, watch, onMounted } from 'vue';
 import { getVNCUrl } from '@/api/agent';
+import LoadingState from '@/components/toolViews/shared/LoadingState.vue';
 import { getPreconnectedVNCUrl, cacheVNCUrl } from '@/composables/useVNCPreconnect';
 
 const props = defineProps<{
@@ -234,29 +239,6 @@ defineExpose({
   left: 0;
   right: 0;
   bottom: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  background: #282828;
   z-index: 10;
-}
-
-.vnc-loading-spinner {
-  width: 12px;
-  height: 12px;
-  border: 2px solid #666;
-  border-top-color: #3b82f6;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-.vnc-loading-text {
-  color: #999;
-  font-size: 14px;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 </style>
