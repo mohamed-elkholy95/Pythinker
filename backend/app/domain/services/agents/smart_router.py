@@ -66,7 +66,7 @@ class SmartRouter:
         r"^(thanks|thank you|thx)[\s!.]*$": "You're welcome! Is there anything else I can help with?",
         r"^(bye|goodbye|see you)[\s!.]*$": "Goodbye! Feel free to return if you need assistance.",
         # Identity questions (use configured identity)
-        r"^who\s+(are|r)\s+you[\s?]*$": "I am Pythinker, an AI assistant created by the Pythinker Team.",
+        r"^who\s+(are|r)\s+you[\s?]*$": "I am Pythinker, an AI assistant created by the Pythinker Team and Mohamed Elkholy.",
         r"^what\s+(are|r)\s+you[\s?]*$": "I am Pythinker, an AI assistant that helps with research, coding, and problem-solving.",
     }
 
