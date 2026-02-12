@@ -158,10 +158,6 @@
         <Monitor class="placeholder-icon" />
         <span class="placeholder-text">Session Complete</span>
       </div>
-      <div class="completion-badge">
-        <Check class="badge-icon" />
-        <span class="badge-text">Complete</span>
-      </div>
     </div>
 
     <!-- Generic tool indicator (fallback when no session or unknown tool) -->
@@ -187,7 +183,7 @@
 
 <script setup lang="ts">
 import { computed, ref, toRef, watch } from 'vue';
-import { Monitor, Check, Terminal, FileText, Globe, Code, Wrench, Search, GitBranch, TestTube, Wand2, Download, Presentation, FolderTree, Calendar, Scan } from 'lucide-vue-next';
+import { Monitor, Terminal, FileText, Globe, Code, Wrench, Search, GitBranch, TestTube, Wand2, Download, Presentation, FolderTree, Calendar, Scan } from 'lucide-vue-next';
 import LiveViewer from '@/components/LiveViewer.vue';
 import WideResearchMiniPreview from '@/components/WideResearchMiniPreview.vue';
 import { useContentConfig } from '@/composables/useContentConfig';
@@ -519,32 +515,6 @@ const sizeClass = computed(() => {
   font-size: 8px;
   font-weight: 600;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.completion-badge {
-  position: absolute;
-  right: 6px;
-  bottom: 6px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 5px;
-  border-radius: 999px;
-  background: rgba(34, 197, 94, 0.9);
-  color: #fff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
-}
-
-.badge-icon {
-  width: 9px;
-  height: 9px;
-}
-
-.badge-text {
-  font-size: 8px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
   text-transform: uppercase;
 }
 

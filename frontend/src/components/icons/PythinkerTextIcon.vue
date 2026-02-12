@@ -10,7 +10,7 @@
             font-weight="600"
             :font-size="fontSize"
             letter-spacing="-0.01em"
-        >pythinker</text>
+        >Pythinker</text>
     </svg>
 </template>
 <script setup lang="ts">
