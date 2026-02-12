@@ -1330,7 +1330,15 @@ const handleStepEvent = (stepData: StepEventData) => {
     });
   } else if (stepData.status === 'completed') {
     isThinking.value = false;
-    if (lastStep) {
+    // Find the matching step by ID and update its status
+    const matchingStep = messages.value
+      .filter(m => m.type === 'step')
+      .map(m => m.content as StepContent)
+      .find(s => s.id === stepData.id);
+    if (matchingStep) {
+      matchingStep.status = stepData.status;
+    } else if (lastStep) {
+      // Fallback: update last step if no ID match
       lastStep.status = stepData.status;
     }
     // Also update in phase
@@ -1494,29 +1502,76 @@ const handleModeChangeEvent = (modeData: ModeChangeEventData) => {
 // Handle suggestion event
 const handleSuggestionEvent = (suggestionData: SuggestionEventData) => {
   suggestions.value = suggestionData.suggestions;
+  if (suggestionData.anchor_event_id) {
+    followUpAnchorEventId.value = suggestionData.anchor_event_id;
+  }
 }
 
+const SUGGESTION_STOPWORDS = new Set([
+  'about', 'after', 'again', 'also', 'been', 'before', 'being', 'between', 'could', 'does',
+  'from', 'have', 'into', 'just', 'make', 'more', 'most', 'only', 'over', 'same',
+  'that', 'than', 'their', 'them', 'then', 'there', 'they', 'this', 'what', 'when',
+  'where', 'which', 'while', 'will', 'with', 'would', 'your'
+]);
+
+const extractTopicHint = (text: string): string | null => {
+  const cleaned = text
+    .toLowerCase()
+    .replace(/[`*_#>[\](){}.,!?;:"']/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleaned) return null;
+
+  const tokens = cleaned
+    .split(' ')
+    .filter(token => token.length >= 4 && !SUGGESTION_STOPWORDS.has(token));
+
+  if (tokens.length === 0) return null;
+  return tokens.slice(0, 3).join(' ');
+};
+
 const buildCompletionFallbackSuggestions = (): string[] => {
-  let contextText = '';
+  let assistantContext = '';
+  let latestUserMessage = '';
 
   for (let i = messages.value.length - 1; i >= 0; i--) {
     const message = messages.value[i];
     if (message.type === 'assistant') {
-      contextText = ((message.content as MessageContent).content || '').toLowerCase();
-      break;
+      if (!assistantContext) {
+        assistantContext = (message.content as MessageContent).content || '';
+      }
+      continue;
     }
     if (message.type === 'report') {
-      const reportContent = message.content as ReportContent;
-      contextText = `${reportContent.title || ''} ${reportContent.content || ''}`.toLowerCase();
+      if (!assistantContext) {
+        const reportContent = message.content as ReportContent;
+        assistantContext = `${reportContent.title || ''} ${reportContent.content || ''}`;
+      }
+      continue;
+    }
+    if (message.type === 'user') {
+      latestUserMessage = ((message.content as MessageContent).content || '').trim();
       break;
     }
   }
+
+  const contextText = `${latestUserMessage} ${assistantContext}`.toLowerCase();
+  const topicHint = extractTopicHint(`${latestUserMessage} ${assistantContext}`);
 
   if (contextText.includes('pirate') || /\barrr+\b/.test(contextText)) {
     return [
       "Tell me a pirate story.",
       "What's your favorite pirate saying?",
       "How do pirates find treasure?",
+    ];
+  }
+
+  if (topicHint) {
+    return [
+      `Can you expand on ${topicHint} with an example?`,
+      `What are the best next steps for ${topicHint}?`,
+      `What trade-offs should I consider for ${topicHint}?`,
     ];
   }
 
