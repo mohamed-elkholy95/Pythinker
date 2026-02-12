@@ -1,10 +1,27 @@
 """Unit tests for browser memory pressure monitoring (Priority 1)."""
 
+import socket
 from unittest.mock import patch
 
 import pytest
 
 from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
+
+
+def _is_cdp_available() -> bool:
+    """Check if a local Chrome CDP endpoint is reachable."""
+    for port in (9222, 8222):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(0.5)
+            if sock.connect_ex(("127.0.0.1", port)) == 0:
+                return True
+    return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _is_cdp_available(),
+    reason="Browser CDP endpoint not available for browser integration-style tests",
+)
 
 
 @pytest.mark.asyncio

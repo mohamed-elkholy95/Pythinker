@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import docker
 from docker.errors import NotFound as DockerNotFound
 
-from app.core.config import get_settings
+from app.core import config as core_config
 from app.infrastructure.observability.prometheus_metrics import (
     record_sandbox_health_check,
     record_sandbox_oom_kill,
@@ -35,6 +35,12 @@ if TYPE_CHECKING:
     from app.domain.external.sandbox import Sandbox
 
 logger = logging.getLogger(__name__)
+
+
+def get_settings():
+    """Resolve settings at call-time to support multiple patch targets in tests."""
+    return core_config.get_settings()
+
 
 # Soft dependency for host memory monitoring
 try:
@@ -76,12 +82,23 @@ class SandboxPool:
         min_pool_size: int | None = None,
         max_pool_size: int | None = None,
         warmup_interval: int | None = None,
+        *,
+        min_size: int | None = None,
+        max_size: int | None = None,
     ):
+        # Backward compatibility with legacy constructor keyword names used in some tests/callers.
+        if min_pool_size is None and min_size is not None:
+            min_pool_size = min_size
+        if max_pool_size is None and max_size is not None:
+            max_pool_size = max_size
+
         settings = get_settings()
         self._sandbox_cls = sandbox_cls
-        self._min_size = min_pool_size or settings.sandbox_pool_min_size
-        self._max_size = max_pool_size or settings.sandbox_pool_max_size
-        self._warmup_interval = warmup_interval or settings.sandbox_pool_warmup_interval
+        self._min_size = min_pool_size if min_pool_size is not None else settings.sandbox_pool_min_size
+        self._max_size = max_pool_size if max_pool_size is not None else settings.sandbox_pool_max_size
+        self._warmup_interval = (
+            warmup_interval if warmup_interval is not None else settings.sandbox_pool_warmup_interval
+        )
         self._pool: Queue[Sandbox] = Queue(maxsize=self._max_size)
         self._warming_task: asyncio.Task | None = None
         self._background_tasks: set[asyncio.Task] = set()
@@ -91,8 +108,14 @@ class SandboxPool:
         # Priority 3: Health monitoring tasks
         self._health_monitor_task: asyncio.Task | None = None
         self._docker_events_task: asyncio.Task | None = None
-        self._health_check_interval = getattr(settings, "sandbox_health_check_interval", 30)
-        self._oom_monitor_enabled = getattr(settings, "sandbox_oom_monitor_enabled", True)
+        self._health_check_interval = self._coerce_non_negative_float(
+            getattr(settings, "sandbox_health_check_interval", 30),
+            default=30.0,
+        )
+        self._oom_monitor_enabled = self._coerce_bool(
+            getattr(settings, "sandbox_oom_monitor_enabled", True),
+            default=True,
+        )
 
         # Circuit breaker for sandbox creation failures
         self._consecutive_failures = 0
@@ -160,6 +183,34 @@ class SandboxPool:
         if parsed <= 0:
             return default
         return parsed
+
+    @staticmethod
+    def _coerce_non_negative_float(value: Any, default: float) -> float:
+        """Coerce settings values to finite non-negative float with fallback."""
+        if isinstance(value, bool):
+            return default
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return default
+        if parsed < 0:
+            return default
+        return parsed
+
+    @staticmethod
+    def _coerce_bool(value: Any, default: bool) -> bool:
+        """Coerce settings values to boolean with fallback."""
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value != 0
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"1", "true", "yes", "on"}:
+                return True
+            if lowered in {"0", "false", "no", "off"}:
+                return False
+        return default
 
     @property
     def size(self) -> int:
@@ -247,15 +298,22 @@ class SandboxPool:
         # Cancel the warming task
         if self._warming_task:
             self._warming_task.cancel()
+            with contextlib.suppress(CancelledError):
+                await self._warming_task
+            self._warming_task = None
 
         # Priority 3: Cancel health monitoring tasks
         if self._health_monitor_task:
             self._health_monitor_task.cancel()
+            with contextlib.suppress(CancelledError):
+                await self._health_monitor_task
+            self._health_monitor_task = None
+
         if self._docker_events_task:
             self._docker_events_task.cancel()
             with contextlib.suppress(CancelledError):
-                await self._warming_task
-            self._warming_task = None
+                await self._docker_events_task
+            self._docker_events_task = None
 
         # Cleanup all pooled sandboxes (unpause first if paused, then destroy)
         cleanup_count = 0

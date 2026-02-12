@@ -11,12 +11,13 @@ from pydantic import BaseModel, Field
 from app.application.services.email_service import EmailService
 from app.application.services.rating_service import RatingService
 from app.domain.models.user import User
-from app.infrastructure.repositories.mongo_session_repository import MongoSessionRepository
+from app.domain.repositories.session_repository import SessionRepository
 from app.interfaces.dependencies import (
     get_current_user,
     get_email_service,
     get_rating_service,
     get_session_repository,
+    increment_rating_unauthorized_attempts,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,7 @@ async def submit_rating(
     current_user: User = Depends(get_current_user),
     email_service: EmailService = Depends(get_email_service),
     rating_service: RatingService = Depends(get_rating_service),
-    session_repository: MongoSessionRepository = Depends(get_session_repository),
+    session_repository: SessionRepository = Depends(get_session_repository),
 ) -> RatingResponse:
     """Submit a rating for a report. Saves to DB and sends email notification.
 
@@ -65,14 +66,10 @@ async def submit_rating(
 
     # Priority 6: Validate session ownership
     try:
-        session = await session_repository.get_by_id(request.session_id)
+        session = await session_repository.find_by_id(request.session_id)
         if not session:
             logger.warning(f"Rating attempt for non-existent session {request.session_id} by user {current_user.id}")
-            from app.infrastructure.observability.prometheus_metrics import (
-                rating_unauthorized_attempts_total,
-            )
-
-            rating_unauthorized_attempts_total.inc({})
+            increment_rating_unauthorized_attempts()
             raise HTTPException(
                 status_code=404,
                 detail=f"Session {request.session_id} not found",
@@ -84,11 +81,7 @@ async def submit_rating(
                 f"Unauthorized rating attempt: user {current_user.id} tried to rate "
                 f"session {request.session_id} owned by user {session.user_id}"
             )
-            from app.infrastructure.observability.prometheus_metrics import (
-                rating_unauthorized_attempts_total,
-            )
-
-            rating_unauthorized_attempts_total.inc({})
+            increment_rating_unauthorized_attempts()
             raise HTTPException(
                 status_code=403,
                 detail="You can only rate your own sessions",

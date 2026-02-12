@@ -38,6 +38,11 @@ def _make_mock_settings(
     settings.sandbox_pool_min_size = min_size
     settings.sandbox_pool_max_size = max_size
     settings.sandbox_pool_warmup_interval = warmup_interval
+    settings.sandbox_health_check_interval = 0
+    settings.sandbox_oom_monitor_enabled = False
+    settings.sandbox_pool_pause_idle = False
+    settings.sandbox_image = None
+    settings.sandbox_name_prefix = None
     return settings
 
 

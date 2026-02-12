@@ -12,17 +12,18 @@ from app.domain.services.agents.token_manager import TokenManager
 
 
 class TestCompactionThresholds:
-    """Test that compaction thresholds are properly lowered."""
+    """Test that compaction thresholds match current optimization values."""
 
     def test_pressure_thresholds_lowered(self):
-        """Verify critical threshold is now 70%, not 85%."""
-        assert TokenManager.PRESSURE_THRESHOLDS["warning"] == 0.60
-        assert TokenManager.PRESSURE_THRESHOLDS["critical"] == 0.70
-        assert TokenManager.PRESSURE_THRESHOLDS["overflow"] == 0.85
+        """Verify current thresholds (60/70/80/90) are configured."""
+        assert TokenManager.PRESSURE_THRESHOLDS["early_warning"] == 0.60
+        assert TokenManager.PRESSURE_THRESHOLDS["warning"] == 0.70
+        assert TokenManager.PRESSURE_THRESHOLDS["critical"] == 0.80
+        assert TokenManager.PRESSURE_THRESHOLDS["overflow"] == 0.90
 
     def test_safety_margin_increased(self):
-        """Verify safety margin is 4096 for completion buffer."""
-        assert TokenManager.SAFETY_MARGIN == 4096
+        """Verify safety margin is 2048 for improved context utilization."""
+        assert TokenManager.SAFETY_MARGIN == 2048
 
     def test_compaction_triggers_at_critical_threshold(self):
         """Verify compaction triggers when tokens exceed critical threshold."""

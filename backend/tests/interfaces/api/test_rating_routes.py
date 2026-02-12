@@ -5,8 +5,14 @@ from unittest.mock import AsyncMock
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.domain.models.session import Session, SessionStatus
 from app.domain.models.user import User
-from app.interfaces.dependencies import get_current_user, get_email_service, get_rating_service
+from app.interfaces.dependencies import (
+    get_current_user,
+    get_email_service,
+    get_rating_service,
+    get_session_repository,
+)
 from app.main import app
 
 
@@ -26,20 +32,36 @@ def _mock_rating_service() -> AsyncMock:
     return svc
 
 
+def _mock_session_repository(user_id: str) -> AsyncMock:
+    repo = AsyncMock()
+    repo.find_by_id = AsyncMock(
+        return_value=Session(
+            id="test-session-123",
+            user_id=user_id,
+            agent_id="agent-test",
+            status=SessionStatus.COMPLETED,
+        )
+    )
+    return repo
+
+
 @pytest.fixture()
 def _override_deps():
     """Override auth and email deps for rating tests."""
     user = _make_test_user()
     email_svc = _mock_email_service()
     rating_svc = _mock_rating_service()
+    session_repo = _mock_session_repository(user.id)
 
     app.dependency_overrides[get_current_user] = lambda: user
     app.dependency_overrides[get_email_service] = lambda: email_svc
     app.dependency_overrides[get_rating_service] = lambda: rating_svc
+    app.dependency_overrides[get_session_repository] = lambda: session_repo
     yield
     app.dependency_overrides.pop(get_current_user, None)
     app.dependency_overrides.pop(get_email_service, None)
     app.dependency_overrides.pop(get_rating_service, None)
+    app.dependency_overrides.pop(get_session_repository, None)
 
 
 @pytest.mark.asyncio

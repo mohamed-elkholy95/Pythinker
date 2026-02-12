@@ -230,6 +230,13 @@ def get_session_repository() -> MongoSessionRepository:
     return MongoSessionRepository()
 
 
+def increment_rating_unauthorized_attempts() -> None:
+    """Record unauthorized rating attempts via observability adapter."""
+    from app.infrastructure.observability.prometheus_metrics import rating_unauthorized_attempts_total
+
+    rating_unauthorized_attempts_total.inc({})
+
+
 async def get_current_user(
     bearer_credentials: HTTPAuthorizationCredentials | None = Depends(security_bearer),
     auth_service: AuthService = Depends(get_auth_service),

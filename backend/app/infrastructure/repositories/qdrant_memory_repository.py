@@ -155,6 +155,8 @@ class QdrantMemoryRepository(VectorMemoryRepository):
                 payload["session_id"] = session_id
 
             created_at = mem.get("created_at")
+            if isinstance(created_at, str):
+                created_at = datetime.fromisoformat(created_at)
             if created_at:
                 payload["created_at"] = int(created_at.timestamp())
 

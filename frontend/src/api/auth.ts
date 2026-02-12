@@ -277,11 +277,23 @@ export function clearAuthToken(): void {
   delete apiClient.defaults.headers.Authorization;
 }
 
+const canReadStorage = (): boolean =>
+  typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function';
+
+const canWriteStorage = (): boolean =>
+  typeof localStorage !== 'undefined' &&
+  typeof localStorage.setItem === 'function' &&
+  typeof localStorage.removeItem === 'function';
+
 /**
  * Get stored authentication token from localStorage
  * @returns Stored token or null
  */
 export function getStoredToken(): string | null {
+  if (!canReadStorage()) {
+    return null;
+  }
+
   return localStorage.getItem('access_token');
 }
 
@@ -290,6 +302,10 @@ export function getStoredToken(): string | null {
  * @param token Token to store
  */
 export function storeToken(token: string): void {
+  if (!canWriteStorage()) {
+    return;
+  }
+
   localStorage.setItem('access_token', token);
 }
 
@@ -298,6 +314,10 @@ export function storeToken(token: string): void {
  * @param refreshToken Refresh token to store
  */
 export function storeRefreshToken(refreshToken: string): void {
+  if (!canWriteStorage()) {
+    return;
+  }
+
   localStorage.setItem('refresh_token', refreshToken);
 }
 
@@ -306,6 +326,10 @@ export function storeRefreshToken(refreshToken: string): void {
  * @returns Stored refresh token or null
  */
 export function getStoredRefreshToken(): string | null {
+  if (!canReadStorage()) {
+    return null;
+  }
+
   return localStorage.getItem('refresh_token');
 }
 
@@ -313,6 +337,10 @@ export function getStoredRefreshToken(): string | null {
  * Clear stored tokens from localStorage
  */
 export function clearStoredTokens(): void {
+  if (!canWriteStorage()) {
+    return;
+  }
+
   localStorage.removeItem('access_token');
   localStorage.removeItem('refresh_token');
 }

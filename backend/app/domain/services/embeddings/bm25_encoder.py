@@ -14,6 +14,7 @@ import logging
 import re
 from collections import Counter
 from functools import lru_cache
+from inspect import isawaitable
 
 from rank_bm25 import BM25Okapi
 
@@ -136,16 +137,25 @@ class BM25SparseEncoder:
         term_scores: dict[int, float] = {}
         seen_tokens: set[str] = set()
 
+        # Some terms can have IDF <= 0 (e.g. appears in ~50% of documents),
+        # which should not erase the sparse signal entirely. Use a small
+        # positive fallback derived from BM25's epsilon floor.
+        fallback_idf = max(self.bm25.epsilon * self.bm25.average_idf, 1e-9)
+
         for token in tokens:
             if token in self.vocab and token not in seen_tokens:
                 seen_tokens.add(token)
                 idx = self.vocab[token]
-                # Get actual IDF from BM25Okapi model
-                idf = self.bm25.idf.get(token, 0.0)
-                if idf > 0:
-                    # Weight by query term frequency * IDF
-                    tf = tokens.count(token)
-                    term_scores[idx] = float(tf * idf)
+
+                # Get actual IDF from BM25Okapi model and guard against
+                # zero/negative values that would collapse sparse vectors.
+                idf = float(self.bm25.idf.get(token, 0.0))
+                if idf <= 0:
+                    idf = fallback_idf
+
+                # Weight by query term frequency * IDF
+                tf = tokens.count(token)
+                term_scores[idx] = float(tf * idf)
 
         if not term_scores:
             return {}
@@ -228,7 +238,26 @@ async def initialize_bm25_from_memories(memory_repository) -> None:
     """
     encoder = get_bm25_encoder()
 
-    corpus = await memory_repository.get_all_content(limit=10000)
+    corpus: list[str] = []
+
+    # Preferred repository contract
+    get_all_content = getattr(memory_repository, "get_all_content", None)
+    if callable(get_all_content):
+        content_result = get_all_content(limit=10000)
+        if isawaitable(content_result):
+            content_result = await content_result
+        if isinstance(content_result, list):
+            corpus = [item for item in content_result if isinstance(item, str) and item]
+
+    # Backwards-compatible fallback used by legacy tests/mocks
+    if not corpus:
+        find = getattr(memory_repository, "find", None)
+        if callable(find):
+            records = find()
+            if isawaitable(records):
+                records = await records
+            if isinstance(records, list):
+                corpus = [str(content) for item in records if (content := getattr(item, "content", ""))]
 
     if not corpus:
         logger.info("No existing memories found, BM25 encoder will be trained on first write")

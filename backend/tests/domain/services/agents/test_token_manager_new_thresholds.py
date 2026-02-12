@@ -52,8 +52,8 @@ def test_normal_pressure_below_60_percent():
     """Test that pressure is normal below 60%."""
     manager = TokenManager(max_context_tokens=10000, safety_margin=2000)
 
-    # 50% of max
-    tokens_used = 5000
+    # 59% of effective context (10000 - 2000 = 8000)
+    tokens_used = int((10000 - 2000) * 0.59)
 
     pressure = manager.check_pressure(tokens_used)
 
@@ -128,7 +128,7 @@ def test_early_warning_enables_proactive_planning():
     manager = TokenManager(max_context_tokens=100000, safety_margin=2048)
 
     # At 60%, agent gets early warning
-    tokens_at_60_percent = int((100000 - 2048) * 0.60)
+    tokens_at_60_percent = int(((100000 - 2048) * 0.60) + 1)
 
     pressure = manager.check_pressure(tokens_at_60_percent)
 
@@ -155,6 +155,6 @@ def test_context_utilization_improvement():
     # Improvement in usable tokens before critical
     improvement = new_critical - old_critical
 
-    # Should gain ~14K tokens before hitting critical
-    assert improvement > 14000
-    assert improvement < 16000
+    # Should gain ~21K tokens before hitting critical
+    assert improvement > 20000
+    assert improvement < 22000

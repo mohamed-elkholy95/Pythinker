@@ -273,10 +273,13 @@ class ReconciliationJob:
 
         sync_states = {}
         memories_collection = await self._get_memories_collection()
-        async for doc in memories_collection.aggregate(pipeline):
-            state = doc["_id"] or "unknown"
-            count = doc["count"]
-            sync_states[state] = count
+        try:
+            async for doc in memories_collection.aggregate(pipeline):
+                state = doc["_id"] or "unknown"
+                count = doc["count"]
+                sync_states[state] = count
+        except Exception as exc:
+            logger.warning("Failed to aggregate memory sync states: %s", exc)
 
         # Get outbox stats
         outbox_stats = await self.outbox_repo.get_stats()

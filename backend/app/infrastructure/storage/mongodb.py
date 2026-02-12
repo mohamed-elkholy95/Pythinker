@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from functools import lru_cache
 
@@ -13,39 +14,63 @@ logger = logging.getLogger(__name__)
 class MongoDB:
     def __init__(self):
         self._client: AsyncIOMotorClient | None = None
+        self._client_loop: asyncio.AbstractEventLoop | None = None
         self._settings = get_settings()
         self._artifacts_bucket: AsyncIOMotorGridFSBucket | None = None
+
+    def _build_client(self) -> AsyncIOMotorClient:
+        """Create a Motor client bound to the current asyncio loop."""
+        connection_params = {
+            "maxPoolSize": self._settings.mongodb_max_pool_size,
+            "minPoolSize": self._settings.mongodb_min_pool_size,
+            "maxIdleTimeMS": self._settings.mongodb_max_idle_time_ms,
+            "connectTimeoutMS": self._settings.mongodb_connect_timeout_ms,
+            "serverSelectionTimeoutMS": self._settings.mongodb_server_selection_timeout_ms,
+            "socketTimeoutMS": self._settings.mongodb_socket_timeout_ms,
+        }
+
+        if self._settings.mongodb_username and self._settings.mongodb_password:
+            return AsyncIOMotorClient(
+                self._settings.mongodb_uri,
+                username=self._settings.mongodb_username,
+                password=self._settings.mongodb_password,
+                **connection_params,
+            )
+        return AsyncIOMotorClient(
+            self._settings.mongodb_uri,
+            **connection_params,
+        )
+
+    def _refresh_client_for_current_loop(self) -> None:
+        """Recreate client when asyncio loop changes or closes."""
+        if self._client is None:
+            return
+
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No active loop (e.g. sync context). Keep existing client.
+            return
+
+        if self._client_loop is current_loop and not current_loop.is_closed():
+            return
+
+        logger.warning("MongoDB client loop changed or closed; recreating client for active loop")
+        self._client.close()
+        self._client = self._build_client()
+        self._client_loop = current_loop
+        db = self._client[self._settings.mongodb_database]
+        self._artifacts_bucket = AsyncIOMotorGridFSBucket(db, bucket_name="artifacts")
 
     async def initialize(self) -> None:
         """Initialize MongoDB connection and Beanie ODM."""
         if self._client is not None:
+            self._refresh_client_for_current_loop()
             return
 
         try:
-            # Connect to MongoDB with connection pooling and timeout settings
-            connection_params = {
-                "maxPoolSize": self._settings.mongodb_max_pool_size,
-                "minPoolSize": self._settings.mongodb_min_pool_size,
-                "maxIdleTimeMS": self._settings.mongodb_max_idle_time_ms,
-                "connectTimeoutMS": self._settings.mongodb_connect_timeout_ms,
-                "serverSelectionTimeoutMS": self._settings.mongodb_server_selection_timeout_ms,
-                "socketTimeoutMS": self._settings.mongodb_socket_timeout_ms,
-            }
-
-            if self._settings.mongodb_username and self._settings.mongodb_password:
-                # Use authenticated connection if username and password are configured
-                self._client = AsyncIOMotorClient(
-                    self._settings.mongodb_uri,
-                    username=self._settings.mongodb_username,
-                    password=self._settings.mongodb_password,
-                    **connection_params,
-                )
-            else:
-                # Use unauthenticated connection if no credentials are provided
-                self._client = AsyncIOMotorClient(
-                    self._settings.mongodb_uri,
-                    **connection_params,
-                )
+            self._client = self._build_client()
+            self._client_loop = asyncio.get_running_loop()
             # Verify the connection
             await self._client.admin.command("ping")
             logger.info("Successfully connected to MongoDB")
@@ -66,6 +91,7 @@ class MongoDB:
         if self._client is not None:
             self._client.close()
             self._client = None
+            self._client_loop = None
             logger.info("Disconnected from MongoDB")
             # Clear cache for this module
         get_mongodb.cache_clear()
@@ -73,6 +99,7 @@ class MongoDB:
     @property
     def client(self) -> AsyncIOMotorClient:
         """Return initialized MongoDB client"""
+        self._refresh_client_for_current_loop()
         if self._client is None:
             raise RuntimeError("MongoDB client not initialized. Call initialize() first.")
         return self._client

@@ -55,7 +55,7 @@ class SyncOutboxRepository:
             max_retries=entry.max_retries,
         )
 
-        doc = outbox_entry.model_dump(exclude={"id"})
+        doc = self._normalize_for_mongodb(outbox_entry.model_dump(exclude={"id"}))
         result = await collection.insert_one(doc)
 
         outbox_entry.id = str(result.inserted_id)
@@ -96,7 +96,7 @@ class SyncOutboxRepository:
     async def update(self, entry_id: str, update: OutboxUpdate) -> bool:
         """Update an outbox entry."""
         collection, _ = await self._ensure_collections()
-        update_data = dict(update.model_dump(exclude_none=True))
+        update_data = self._normalize_for_mongodb(dict(update.model_dump(exclude_none=True)))
         update_data["updated_at"] = datetime.utcnow()
 
         result = await collection.update_one(
@@ -154,6 +154,7 @@ class SyncOutboxRepository:
         )
 
         doc = dlq_entry.model_dump(exclude={"id"})
+        doc = self._normalize_for_mongodb(doc)
         result = await dlq_collection.insert_one(doc)
         dlq_entry.id = str(result.inserted_id)
 
@@ -180,13 +181,20 @@ class SyncOutboxRepository:
             "failed": 0,
         }
 
-        async for doc in collection.aggregate(pipeline):
-            status = doc["_id"]
-            count = doc["count"]
-            stats[status] = count
+        try:
+            async for doc in collection.aggregate(pipeline):
+                status = doc["_id"]
+                count = doc["count"]
+                stats[status] = count
+        except Exception as exc:
+            logger.warning("Failed to aggregate outbox stats: %s", exc)
 
         # DLQ stats
-        dlq_count = await dlq_collection.count_documents({})
+        try:
+            dlq_count = await dlq_collection.count_documents({})
+        except Exception as exc:
+            logger.warning("Failed to count DLQ documents: %s", exc)
+            dlq_count = 0
         stats["dead_letter_queue"] = dlq_count
 
         return stats
@@ -221,3 +229,18 @@ class SyncOutboxRepository:
         from bson import ObjectId
 
         return ObjectId(id_str)
+
+    def _normalize_for_mongodb(self, value: Any) -> Any:
+        """Recursively normalize values for BSON serialization.
+
+        MongoDB requires document keys to be strings. Some payload producers
+        (for example sparse vectors) use integer keys, so normalize nested
+        mapping keys to strings before writes.
+        """
+        if isinstance(value, dict):
+            return {str(key): self._normalize_for_mongodb(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [self._normalize_for_mongodb(item) for item in value]
+        if isinstance(value, tuple):
+            return [self._normalize_for_mongodb(item) for item in value]
+        return value

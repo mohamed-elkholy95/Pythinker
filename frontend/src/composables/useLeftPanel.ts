@@ -4,9 +4,19 @@ import type { LeftPanelState } from '../types/panel'
 // Local storage key for left panel state
 const LEFT_PANEL_STATE_KEY = 'pythinker-left-panel-state'
 
+const canReadStorage = (): boolean =>
+  typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function'
+
+const canWriteStorage = (): boolean =>
+  typeof localStorage !== 'undefined' && typeof localStorage.setItem === 'function'
+
 // Read initial state from localStorage
 const getInitialLeftPanelState = (): boolean => {
   try {
+    if (!canReadStorage()) {
+      return false
+    }
+
     const saved = localStorage.getItem(LEFT_PANEL_STATE_KEY)
     return saved ? JSON.parse(saved) : false
   } catch (error) {
@@ -21,6 +31,10 @@ const isLeftPanelShow = ref(getInitialLeftPanelState())
 // Save left panel state to localStorage
 const saveLeftPanelState = (state: boolean) => {
   try {
+    if (!canWriteStorage()) {
+      return
+    }
+
     localStorage.setItem(LEFT_PANEL_STATE_KEY, JSON.stringify(state))
   } catch (error) {
     console.error('Failed to save left panel state to localStorage:', error)
