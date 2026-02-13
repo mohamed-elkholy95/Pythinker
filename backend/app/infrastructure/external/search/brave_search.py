@@ -183,7 +183,9 @@ class BraveSearchEngine(SearchEngineBase):
         # Get healthy key from pool
         key = await self.api_key
         if not key:
-            return self._create_error_result(query, date_range, f"All {len(self._key_pool.keys)} Brave API keys exhausted")
+            return self._create_error_result(
+                query, date_range, f"All {len(self._key_pool.keys)} Brave API keys exhausted"
+            )
 
         try:
             client = await self._get_client()

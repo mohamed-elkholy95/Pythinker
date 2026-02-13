@@ -5,8 +5,8 @@ This module sets up automated cleanup jobs using APScheduler.
 Integrates with FastAPI lifespan for automatic startup/shutdown.
 """
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -40,9 +40,7 @@ class CleanupScheduler:
         self.scheduler = AsyncIOScheduler()
 
         # Get cleanup interval from settings (default: 5 minutes)
-        self.cleanup_interval_minutes = getattr(
-            self.settings, "cleanup_interval_minutes", 5
-        )
+        self.cleanup_interval_minutes = getattr(self.settings, "cleanup_interval_minutes", 5)
 
         # Create cleanup service
         self.cleanup_service = OrphanedTaskCleanupService(redis_client, self.settings)

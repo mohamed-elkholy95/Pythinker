@@ -7,7 +7,7 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from openai import AuthenticationError, RateLimitError
+from openai import RateLimitError
 
 from app.infrastructure.external.llm.openai_llm import OpenAILLM
 
@@ -91,7 +91,9 @@ class TestOpenAILLMRateLimitRotation:
         mock_completion = MagicMock()
         mock_completion.choices = [MagicMock()]
         mock_completion.choices[0].message = MagicMock()
-        mock_completion.choices[0].message.model_dump = MagicMock(return_value={"role": "assistant", "content": "success"})
+        mock_completion.choices[0].message.model_dump = MagicMock(
+            return_value={"role": "assistant", "content": "success"}
+        )
         mock_completion.choices[0].finish_reason = "stop"
         mock_completion.usage = None
         clients[1].chat.completions.create = AsyncMock(return_value=mock_completion)
@@ -191,7 +193,9 @@ class TestOpenAILLMAuthenticationRotation:
         mock_completion = MagicMock()
         mock_completion.choices = [MagicMock()]
         mock_completion.choices[0].message = MagicMock()
-        mock_completion.choices[0].message.model_dump = MagicMock(return_value={"role": "assistant", "content": "success"})
+        mock_completion.choices[0].message.model_dump = MagicMock(
+            return_value={"role": "assistant", "content": "success"}
+        )
         mock_completion.choices[0].finish_reason = "stop"
         mock_completion.usage = None
         clients[1].chat.completions.create = AsyncMock(return_value=mock_completion)

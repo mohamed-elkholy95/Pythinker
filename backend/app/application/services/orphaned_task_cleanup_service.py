@@ -8,17 +8,15 @@ Scheduled via APScheduler or system cron.
 """
 
 import asyncio
-import contextlib
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from redis.asyncio import Redis
 from structlog import get_logger
 
 from app.core.config import get_settings
-from app.infrastructure.external.message_queue.redis_stream_queue import RedisStreamQueue
 
 logger = get_logger(__name__)
 
@@ -78,12 +76,8 @@ class OrphanedTaskCleanupService:
         self.settings = settings or get_settings()
 
         # Cleanup thresholds (configurable via settings)
-        self.orphaned_stream_age_seconds = getattr(
-            self.settings, "orphaned_stream_age_seconds", 300
-        )  # 5 minutes
-        self.zombie_session_age_seconds = getattr(
-            self.settings, "zombie_session_age_seconds", 900
-        )  # 15 minutes
+        self.orphaned_stream_age_seconds = getattr(self.settings, "orphaned_stream_age_seconds", 300)  # 5 minutes
+        self.zombie_session_age_seconds = getattr(self.settings, "zombie_session_age_seconds", 900)  # 15 minutes
         self.stale_cancel_event_age_seconds = getattr(
             self.settings, "stale_cancel_event_age_seconds", 600
         )  # 10 minutes
@@ -156,9 +150,7 @@ class OrphanedTaskCleanupService:
             pattern = "task:*"
 
             while True:
-                cursor, keys = await self.redis.scan(
-                    cursor=cursor, match=pattern, count=100
-                )
+                cursor, keys = await self.redis.scan(cursor=cursor, match=pattern, count=100)
 
                 for key in keys:
                     key_str = key.decode("utf-8") if isinstance(key, bytes) else key
@@ -266,18 +258,16 @@ class OrphanedTaskCleanupService:
         This prevents sessions from staying in RUNNING state forever.
         """
         try:
+            from app.domain.models.session import SessionStatus
             from app.infrastructure.repositories.mongo_session_repository import (
                 MongoSessionRepository,
             )
-            from app.domain.models.session import SessionStatus
 
             # Import here to avoid circular dependencies
             repo = MongoSessionRepository()
 
             # Find sessions in RUNNING/PENDING state older than threshold
-            cutoff_time = datetime.now(timezone.utc) - timedelta(
-                seconds=self.zombie_session_age_seconds
-            )
+            cutoff_time = datetime.now(UTC) - timedelta(seconds=self.zombie_session_age_seconds)
 
             # Query for zombie sessions
             zombie_candidates = await repo.collection.find(
@@ -311,7 +301,7 @@ class OrphanedTaskCleanupService:
                             "$set": {
                                 "status": SessionStatus.FAILED.value,
                                 "error": "Session cleaned up as zombie (no activity detected)",
-                                "updated_at": datetime.now(timezone.utc),
+                                "updated_at": datetime.now(UTC),
                             }
                         },
                     )
@@ -349,9 +339,7 @@ class OrphanedTaskCleanupService:
 
             async with aiodocker.Docker() as docker:
                 # List all pythinker sandbox containers
-                containers = await docker.containers.list(
-                    filters={"name": "pythinker-sandbox-"}
-                )
+                containers = await docker.containers.list(filters={"name": "pythinker-sandbox-"})
 
                 for container in containers:
                     try:
@@ -370,17 +358,15 @@ class OrphanedTaskCleanupService:
                             continue
 
                         # Parse ISO timestamp
-                        started_time = datetime.fromisoformat(
-                            started_at.replace("Z", "+00:00")
-                        )
-                        age = datetime.now(timezone.utc) - started_time
+                        started_time = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+                        age = datetime.now(UTC) - started_time
 
                         # Check if container is old and potentially abandoned
                         if age.total_seconds() > self.zombie_session_age_seconds:
                             # TODO: Cross-reference with active sessions
                             # For safety, only log for now (don't auto-delete)
                             logger.warning(
-                                f"Found potentially abandoned sandbox container",
+                                "Found potentially abandoned sandbox container",
                                 container_name=container_name,
                                 age_seconds=age.total_seconds(),
                             )
@@ -454,8 +440,9 @@ async def main() -> None:
     Or via docker exec:
         */5 * * * * docker exec pythinker-backend-1 python -m app.application.services.orphaned_task_cleanup_service
     """
-    from app.core.config import get_settings
     from redis.asyncio import Redis as AsyncRedis
+
+    from app.core.config import get_settings
 
     settings = get_settings()
 

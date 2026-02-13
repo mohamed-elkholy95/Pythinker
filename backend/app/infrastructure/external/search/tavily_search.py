@@ -146,6 +146,11 @@ class TavilySearchEngine(SearchEngineBase):
 
         return results, len(results)
 
+    def _parse_response(self, response: httpx.Response) -> tuple[list[SearchResultItem], int]:
+        """Parse Tavily API HTTP response to satisfy SearchEngineBase contract."""
+        data = response.json()
+        return self._parse_response_data(data)
+
     async def search(
         self,
         query: str,

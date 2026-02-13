@@ -569,9 +569,8 @@ class AgentDomainService:
         if task:
             task.cancel()
 
-        # Update status BEFORE sandbox destruction so frontend sees COMPLETED immediately
-        # This prevents the race condition where page refresh sees RUNNING status
-        # while sandbox is being asynchronously torn down
+        # Update status BEFORE sandbox destruction so frontend sees terminal state
+        # immediately and does not observe stale in-flight status during teardown.
         target_session.task_id = None
         if status is not None:
             target_session.status = status
@@ -811,7 +810,7 @@ NOTE: The browser state may have changed. When you next use the browser:
                     await self._teardown_session_runtime(
                         session_id,
                         session=session,
-                        status=SessionStatus.COMPLETED,
+                        status=SessionStatus.FAILED,
                         destroy_sandbox=False,
                     )
                 logger.info("Cancellation requested before processing session %s", session_id)
@@ -1114,9 +1113,7 @@ NOTE: The browser state may have changed. When you next use the browser:
                 # Check for cancellation (SSE disconnect)
                 if cancel_token.is_cancelled():
                     task.cancel()
-                    await self._teardown_session_runtime(
-                        session_id, status=SessionStatus.COMPLETED, destroy_sandbox=False
-                    )
+                    await self._teardown_session_runtime(session_id, status=SessionStatus.FAILED, destroy_sandbox=False)
                     logger.info("Session %s cancelled during event loop", session_id)
                     return
 
