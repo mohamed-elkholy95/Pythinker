@@ -90,7 +90,7 @@ services:
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
-      - BROWSER_PATH=/usr/bin/chromium-browser
+      - BROWSER_PATH=/opt/playwright-browsers/chromium-1187/chrome-linux/chrome  # Playwright Chromium (USE_CHROMIUM=1)
     ports:
       - "8083:8080"  # Sandbox API
       - "8082:8082"  # Sandbox framework API
@@ -155,7 +155,7 @@ services:
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
-      - BROWSER_PATH=/usr/bin/chromium-browser
+      - BROWSER_PATH=/opt/playwright-browsers/chromium-1187/chrome-linux/chrome  # Playwright Chromium (USE_CHROMIUM=1)
     ports:
       - "8084:8080"  # Sandbox API
       - "8085:8082"  # Sandbox framework API
