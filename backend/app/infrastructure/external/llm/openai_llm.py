@@ -1507,7 +1507,9 @@ To extract data from a webpage:
                         request_messages = recovered_messages
                         if enable_caching and self._cache_manager:
                             request_messages = self._cache_manager.prepare_messages_for_caching(request_messages)
-                        logger.warning("ask_stream retrying once with simplified transcript after schema validation error")
+                        logger.warning(
+                            "ask_stream retrying once with simplified transcript after schema validation error"
+                        )
                         continue
 
                 self._last_stream_metadata = {

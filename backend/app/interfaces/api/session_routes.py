@@ -731,7 +731,9 @@ async def chat(
         except asyncio.CancelledError:
             # Client disconnected - log and gracefully terminate
             # #region agent log
-            logger.info("[DEBUG-SSE] CancelledError caught - stream_iter.aclose() NOT called yet session=%s", session_id)
+            logger.info(
+                "[DEBUG-SSE] CancelledError caught - stream_iter.aclose() NOT called yet session=%s", session_id
+            )
             # CRITICAL FIX: Close the stream_iter to clean up orphaned agent_service.chat()
             with contextlib.suppress(Exception):
                 await stream_iter.aclose()
@@ -799,7 +801,14 @@ async def chat(
             if close_reason == "unknown":
                 close_reason = "completed_without_explicit_reason"
             # #region agent log
-            logger.info("[DEBUG-SSE-FINALLY] session=%s close_reason=%s elapsed=%.1f events=%d will_defer=%s", session_id, close_reason, elapsed_seconds, stream_event_count, close_reason in {"client_disconnected", "generator_cancelled"})
+            logger.info(
+                "[DEBUG-SSE-FINALLY] session=%s close_reason=%s elapsed=%.1f events=%d will_defer=%s",
+                session_id,
+                close_reason,
+                elapsed_seconds,
+                stream_event_count,
+                close_reason in {"client_disconnected", "generator_cancelled"},
+            )
             # #endregion
             if close_reason in {"client_disconnected", "generator_cancelled"}:
                 stream_metrics.record_cancellation()
