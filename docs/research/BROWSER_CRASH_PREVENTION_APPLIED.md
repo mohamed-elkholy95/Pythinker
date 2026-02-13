@@ -200,7 +200,7 @@ docker-compose.yml:164:    shm_size: '2g'           # sandbox2
 
 5. **Verify Chrome args:**
    ```bash
-   docker exec pythinker-sandbox-1 ps aux | grep chrome | grep -o "\-\-no-zygote"
+   docker exec pythinker-sandbox-1 ps aux | grep chrome | grep -o "\--no-zygote"
    # Should output: --no-zygote
    docker exec pythinker-sandbox-1 ps aux | grep chrome | grep -o "max-old-space-size=512"
    # Should output: max-old-space-size=512
@@ -277,6 +277,32 @@ Additional optimizations from research (not critical):
 - Playwright Python API: https://playwright.dev/python/docs/api/class-browser
 - Production war stories: Medium "8GB Was a Lie: Playwright in Production"
 - Chromium bug tracker: https://bugs.chromium.org/p/chromium/issues/detail?id=1085829
+
+---
+
+---
+
+## Post-Deployment Fix: Uvicorn Command Issue (2026-02-13)
+
+**Problem:** After applying crash prevention fixes and rebuilding, container became unhealthy with errors:
+```
+services:app FATAL can't find command 'uvicorn'
+services:framework FATAL can't find command 'uvicorn'
+```
+
+**Root Cause:** Multi-stage Docker build copies Python libraries but not executable scripts from `/usr/local/bin/`. Supervisord was calling `uvicorn` directly instead of via Python module.
+
+**Fix Applied:**
+```diff
+# sandbox/supervisord.conf
+-command=uvicorn app.main:app --host 0.0.0.0 --port 8080 %(ENV_UVI_ARGS)s
++command=python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8080 %(ENV_UVI_ARGS)s
+
+-command=uvicorn app.framework.main:app --host 0.0.0.0 --port 8082 %(ENV_FRAMEWORK_UVI_ARGS)s
++command=python3 -m uvicorn app.framework.main:app --host 0.0.0.0 --port 8082 %(ENV_FRAMEWORK_UVI_ARGS)s
+```
+
+**Impact:** Using `python3 -m uvicorn` is more portable and works correctly in multi-stage builds without copying `/usr/local/bin/`.
 
 ---
 

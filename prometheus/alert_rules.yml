@@ -294,3 +294,69 @@ groups:
         annotations:
           summary: "Fast acknowledgment timeout spike detected"
           description: "More than 10 timeout fallbacks occurred in the last 10 minutes."
+
+  - name: pythinker_redis
+    interval: 30s
+    rules:
+      - alert: RedisExporterDown
+        expr: up{job="redis-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: redis
+        annotations:
+          summary: "Redis exporter is down"
+          description: "Prometheus cannot scrape redis_exporter for more than 2 minutes."
+
+      - alert: RedisCacheExporterDown
+        expr: up{job="redis-cache-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: redis_cache
+        annotations:
+          summary: "Redis cache exporter is down"
+          description: "Prometheus cannot scrape redis-cache-exporter for more than 2 minutes."
+
+      - alert: RedisHighMemoryUsage
+        expr: |
+          redis_config_maxmemory > 0
+          and
+          (redis_memory_used_bytes / redis_config_maxmemory) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: redis
+        annotations:
+          summary: "Redis memory usage above 80%"
+          description: "Redis is using more than 80% of configured maxmemory for over 5 minutes."
+
+      - alert: RedisEvictionSpike
+        expr: increase(redis_evicted_keys_total[10m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: redis
+        annotations:
+          summary: "Redis evictions spiking"
+          description: "More than 100 keys were evicted in the last 10 minutes."
+
+      - alert: RedisOperationFailures
+        expr: increase(pythinker_redis_operation_failures_total[10m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+          component: redis
+        annotations:
+          summary: "Redis operation failures detected"
+          description: "Redis operations are failing after retries (more than 5 in 10 minutes)."
+
+      - alert: RateLimitFallbackActive
+        expr: increase(pythinker_rate_limit_fallback_total[10m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "Rate-limit fallback mode active"
+          description: "API rate limiting switched to in-memory fallback due to Redis unavailability."

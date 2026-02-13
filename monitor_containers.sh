@@ -3,6 +3,8 @@
 # Pythinker Container Monitoring Script
 # Provides various log monitoring options
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 show_help() {
     cat << 'HELP'
 ╔════════════════════════════════════════════════════════════════╗
@@ -23,6 +25,7 @@ OPTIONS:
   tail <container>  Tail logs for specific container
   errors            Show only error messages from all containers
   context           Monitor context generation specifically
+  watchdog          Run backend uptime watchdog (auto-recover)
   help              Show this help message
 
 EXAMPLES:
@@ -33,6 +36,7 @@ EXAMPLES:
   ./monitor_containers.sh logs backend  # Show backend logs
   ./monitor_containers.sh tail sandbox  # Tail sandbox logs
   ./monitor_containers.sh context       # Monitor context generation
+  ./monitor_containers.sh watchdog      # Auto-recover backend if it stops
 
 KEYBOARD SHORTCUTS:
   Ctrl+C            Stop monitoring
@@ -161,6 +165,19 @@ tail_logs() {
     docker logs -f --tail=50 pythinker-${container}-1
 }
 
+run_backend_watchdog() {
+    echo "╔════════════════════════════════════════════════════════════════╗"
+    echo "║             BACKEND UPTIME WATCHDOG (AUTO-RECOVER)            ║"
+    echo "╚════════════════════════════════════════════════════════════════╝"
+    echo ""
+    echo "Watching: pythinker-backend-1"
+    echo "Behavior: auto-start/restart backend on repeated health failures"
+    echo "Stop with: Ctrl+C"
+    echo ""
+
+    "${SCRIPT_DIR}/scripts/backend_watchdog.sh"
+}
+
 # Main script logic
 case "${1:-all}" in
     all)
@@ -189,6 +206,9 @@ case "${1:-all}" in
         ;;
     context)
         monitor_context
+        ;;
+    watchdog)
+        run_backend_watchdog
         ;;
     logs)
         show_logs "$2"
