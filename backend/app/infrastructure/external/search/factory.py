@@ -10,6 +10,8 @@ from typing import ClassVar
 
 from app.core.config import get_settings
 from app.domain.external.search import SearchEngine
+from app.domain.models.search import SearchResults
+from app.domain.models.tool_result import ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +76,120 @@ class SearchProviderRegistry:
         return list(cls._providers.keys())
 
 
+class FallbackSearchEngine:
+    """Search engine wrapper with provider-level fallback.
+
+    Tries providers in order until one returns success=True.
+    """
+
+    def __init__(self, providers: list[tuple[str, SearchEngine]]):
+        self._providers = providers
+        chain = " -> ".join(name for name, _ in providers)
+        logger.info(f"Search fallback chain enabled: {chain}")
+
+    async def search(self, query: str, date_range: str | None = None) -> ToolResult[SearchResults]:
+        errors: list[str] = []
+
+        for index, (provider_name, engine) in enumerate(self._providers):
+            try:
+                result = await engine.search(query, date_range)
+            except Exception as e:
+                errors.append(f"{provider_name}: {e}")
+                logger.warning(f"Search provider {provider_name} raised exception, trying next: {e}")
+                continue
+
+            if result.success:
+                if index > 0 and errors:
+                    logger.warning(
+                        "Search fallback recovered with provider %s after failures: %s",
+                        provider_name,
+                        "; ".join(errors),
+                    )
+                return result
+
+            error_message = result.message or "unknown error"
+            errors.append(f"{provider_name}: {error_message}")
+            logger.warning(f"Search provider {provider_name} failed, trying next: {error_message}")
+
+        chain = " -> ".join(name for name, _ in self._providers)
+        final_error = f"All search providers failed ({chain}): {'; '.join(errors) if errors else 'unknown error'}"
+        return ToolResult.error(
+            message=final_error,
+            data=SearchResults(
+                query=query,
+                date_range=date_range,
+                total_results=0,
+                results=[],
+            ),
+        )
+
+
+def _provider_kwargs(provider: str, redis_client=None) -> dict | None:
+    """Build provider-specific kwargs from settings.
+
+    Returns None when a provider is not sufficiently configured.
+    """
+    settings = get_settings()
+
+    if provider == "google":
+        if not settings.google_search_api_key or not settings.google_search_engine_id:
+            logger.warning("Google Search not configured: missing API key or engine ID")
+            return None
+        return {"api_key": settings.google_search_api_key, "cx": settings.google_search_engine_id}
+
+    if provider == "brave":
+        if not settings.brave_search_api_key:
+            logger.warning("Brave Search not configured: missing API key")
+            return None
+        return {"api_key": settings.brave_search_api_key}
+
+    if provider == "tavily":
+        if not settings.tavily_api_key:
+            logger.warning("Tavily Search not configured: missing API key")
+            return None
+        kwargs: dict = {"api_key": settings.tavily_api_key}
+        fallback_keys = [
+            key
+            for key in [
+                settings.tavily_api_key_2,
+                settings.tavily_api_key_3,
+                settings.tavily_api_key_4,
+                settings.tavily_api_key_5,
+                settings.tavily_api_key_6,
+                settings.tavily_api_key_7,
+                settings.tavily_api_key_8,
+                settings.tavily_api_key_9,
+            ]
+            if key
+        ]
+        if fallback_keys:
+            kwargs["fallback_api_keys"] = fallback_keys
+        return kwargs
+
+    if provider == "serper":
+        if not settings.serper_api_key:
+            logger.warning("Serper Search not configured: missing API key")
+            return None
+        kwargs = {"api_key": settings.serper_api_key}
+        fallback_keys = [key for key in [settings.serper_api_key_2, settings.serper_api_key_3] if key]
+        if fallback_keys:
+            kwargs["fallback_api_keys"] = fallback_keys
+        if redis_client:
+            kwargs["redis_client"] = redis_client
+        return kwargs
+
+    # Providers without required API key config (duckduckgo, bing, etc.)
+    return {}
+
+
+def _create_provider_engine(provider: str, redis_client=None) -> SearchEngine | None:
+    """Instantiate a provider if configured."""
+    kwargs = _provider_kwargs(provider, redis_client=redis_client)
+    if kwargs is None:
+        return None
+    return SearchProviderRegistry.get(provider, **kwargs)
+
+
 def get_search_engine_from_factory() -> SearchEngine | None:
     """Get search engine instance based on configuration.
 
@@ -127,57 +243,48 @@ def get_search_engine_from_factory() -> SearchEngine | None:
         logger.warning("Baidu provider has been removed; falling back to duckduckgo")
         provider = "duckduckgo"
 
-    # Build provider-specific kwargs
-    kwargs = {}
+    # Get Redis client for API key pool coordination
+    redis_client = None
+    try:
+        from app.infrastructure.storage.redis import get_redis
+        redis_client = get_redis()
+    except Exception as e:
+        logger.warning(f"Failed to get Redis client for search engine key pool: {e}")
 
-    if provider == "google":
-        if not settings.google_search_api_key or not settings.google_search_engine_id:
-            logger.warning("Google Search not configured: missing API key or engine ID")
-            return None
-        kwargs["api_key"] = settings.google_search_api_key
-        kwargs["cx"] = settings.google_search_engine_id
-
-    elif provider == "brave":
-        if not settings.brave_search_api_key:
-            logger.warning("Brave Search not configured: missing API key")
-            return None
-        kwargs["api_key"] = settings.brave_search_api_key
-
-    elif provider == "tavily":
-        if not settings.tavily_api_key:
-            logger.warning("Tavily Search not configured: missing API key")
-            return None
-        kwargs["api_key"] = settings.tavily_api_key
-        # Collect fallback keys for auto-rotation on quota/billing errors
-        fallback_keys = [
-            k
-            for k in [
-                settings.tavily_api_key_2,
-                settings.tavily_api_key_3,
-                settings.tavily_api_key_4,
-                settings.tavily_api_key_5,
-                settings.tavily_api_key_6,
-                settings.tavily_api_key_7,
-                settings.tavily_api_key_8,
-                settings.tavily_api_key_9,
-            ]
-            if k
-        ]
-        if fallback_keys:
-            kwargs["fallback_api_keys"] = fallback_keys
-
+    # Provider-level failover chain for API-backed search reliability.
+    # Each provider still does its own API key rotation internally.
+    provider_chain: list[str]
+    if provider == "tavily":
+        provider_chain = ["tavily", "serper", "duckduckgo"]
     elif provider == "serper":
-        if not settings.serper_api_key:
-            logger.warning("Serper Search not configured: missing API key")
-            return None
-        kwargs["api_key"] = settings.serper_api_key
-        # Collect fallback keys for auto-rotation on quota/billing errors
-        fallback_keys = [k for k in [settings.serper_api_key_2, settings.serper_api_key_3] if k]
-        if fallback_keys:
-            kwargs["fallback_api_keys"] = fallback_keys
+        provider_chain = ["serper", "tavily", "duckduckgo"]
+    else:
+        provider_chain = [provider]
 
-    logger.info(f"Initializing search engine: {provider}")
-    return SearchProviderRegistry.get(provider, **kwargs)
+    unique_chain: list[str] = []
+    for candidate in provider_chain:
+        if candidate not in unique_chain:
+            unique_chain.append(candidate)
+
+    engines: list[tuple[str, SearchEngine]] = []
+    for candidate in unique_chain:
+        engine = _create_provider_engine(candidate, redis_client=redis_client)
+        if engine is not None:
+            engines.append((candidate, engine))
+
+    if not engines:
+        logger.warning("No search engines available after evaluating provider chain: %s", " -> ".join(unique_chain))
+        return None
+
+    if len(engines) == 1:
+        logger.info("Initializing search engine: %s", engines[0][0])
+        return engines[0][1]
+
+    logger.info(
+        "Initializing search engines with fallback chain: %s",
+        " -> ".join(name for name, _ in engines),
+    )
+    return FallbackSearchEngine(engines)
 
 
 # Register built-in providers
