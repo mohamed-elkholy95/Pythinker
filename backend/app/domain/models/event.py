@@ -481,6 +481,7 @@ class PlanningPhase(str, Enum):
     ANALYZING = "analyzing"  # Analyzing task complexity
     PLANNING = "planning"  # Generating plan with LLM
     FINALIZING = "finalizing"  # Parsing and validating plan
+    HEARTBEAT = "heartbeat"  # Keep-alive during long agent operations (no UI change)
 
 
 class ProgressEvent(BaseEvent):

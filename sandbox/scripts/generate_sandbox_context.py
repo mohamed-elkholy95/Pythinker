@@ -202,16 +202,27 @@ class EnvironmentScanner:
         """Scan browser automation capabilities"""
         browser_info = {
             "chromium": {},
+            "chrome_for_testing": {},
             "playwright": {},
         }
 
-        # Check Chromium
+        # Check Chrome for Testing 128.0.6613.137 (primary sandbox browser)
+        cft_path = "/opt/chrome-for-testing/chrome"
+        cft_version = self.run_command(f"{cft_path} --version 2>/dev/null")
+        if cft_version:
+            browser_info["chrome_for_testing"] = {
+                "available": True,
+                "version": cft_version.strip(),
+                "path": cft_path,
+            }
+
+        # Check Chromium (fallback for Playwright scripts)
         chromium_version = self.run_command("chromium --version")
         if chromium_version:
             browser_info["chromium"] = {
                 "available": True,
                 "version": chromium_version,
-                "path": self.run_command("which chromium")
+                "path": self.run_command("which chromium"),
             }
 
         # Check Playwright browsers
@@ -672,6 +683,10 @@ class EnvironmentScanner:
 ## Browser Automation
 
 """
+        cft = env["browser"].get("chrome_for_testing", {})
+        if cft.get("available"):
+            md += f"- **Chrome for Testing:** {cft.get('version', '128.0.6613.137')}\n"
+
         chromium = env["browser"].get("chromium", {})
         if chromium.get("available"):
             md += f"- **Chromium:** {chromium.get('version', 'Available')}\n"

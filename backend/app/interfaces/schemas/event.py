@@ -11,6 +11,7 @@ from app.domain.models.event import (
     PlanEvent,
     ProgressEvent,
     ReportEvent,
+    SearchToolContent,
     SkillActivationEvent,
     SkillDeliveryEvent,
     StepEvent,
@@ -22,6 +23,7 @@ from app.domain.models.event import (
     WideResearchEvent,
 )
 from app.domain.models.plan import ExecutionStatus
+from app.domain.models.search import SearchResultItem
 from app.interfaces.schemas.file import FileInfoResponse
 
 
@@ -119,12 +121,75 @@ class ToolEventData(BaseEventData):
     confirmation_state: str | None = None
 
 
+def _derive_search_content(event: ToolEvent) -> SearchToolContent | None:
+    """Derive SearchToolContent from function_result when tool_content is missing.
+
+    Ensures frontend receives search results even when tool_content was not populated
+    (e.g. some execution paths only set function_result).
+    """
+    if event.tool_content is not None:
+        return event.tool_content
+    if event.status != ToolStatus.CALLED or event.function_result is None:
+        return None
+    func = (event.function_name or "").lower()
+    if func not in ("info_search_web", "web_search", "search"):
+        return None
+    fr = event.function_result
+
+    # ToolResult object (agent path)
+    success = getattr(fr, "success", None)
+    data = getattr(fr, "data", None)
+    # Plain dict (fast_path style, e.g. {"success": True, "results": [...]})
+    if success is None and isinstance(fr, dict):
+        success = fr.get("success", False)
+        data = fr.get("data") or fr  # data may be nested or the dict itself
+
+    if not success:
+        return None
+
+    results_list: list[SearchResultItem] = []
+    # data from ToolResult (SearchResults model or dict)
+    if data is not None:
+        if hasattr(data, "results") and data.results:
+            results_list = [
+                SearchResultItem(
+                    title=getattr(r, "title", None) or "No title",
+                    link=getattr(r, "link", None) or "",
+                    snippet=getattr(r, "snippet", None) or "",
+                )
+                for r in data.results[:5]
+            ]
+        elif isinstance(data, dict):
+            if data.get("results"):
+                for r in data["results"][:5]:
+                    t = r.get("title", "No title") if isinstance(r, dict) else (getattr(r, "title", None) or "No title")
+                    lnk = r.get("link", "") if isinstance(r, dict) else (getattr(r, "link", None) or "")
+                    snip = r.get("snippet", "") if isinstance(r, dict) else (getattr(r, "snippet", None) or "")
+                    results_list.append(SearchResultItem(title=t, link=lnk, snippet=snip))
+            elif data.get("sources"):
+                for s in data["sources"][:5]:
+                    results_list.append(
+                        SearchResultItem(
+                            title=s.get("title", "No title"),
+                            link=s.get("url", s.get("link", "")),
+                            snippet=s.get("snippet", ""),
+                        )
+                    )
+
+    if not results_list:
+        return None
+    return SearchToolContent(results=results_list)
+
+
 class ToolSSEEvent(BaseSSEEvent):
     event: Literal["tool"] = "tool"
     data: ToolEventData
 
     @classmethod
     async def from_event_async(cls, event: ToolEvent) -> Self:
+        content: ToolContent | None = event.tool_content
+        if content is None:
+            content = _derive_search_content(event)
         return cls(
             data=ToolEventData(
                 **BaseEventData.base_event_data(event),
@@ -133,7 +198,7 @@ class ToolSSEEvent(BaseSSEEvent):
                 status=event.status,
                 function=event.function_name,
                 args=event.function_args,
-                content=event.tool_content,
+                content=content,
                 action_type=event.action_type,
                 observation_type=event.observation_type,
                 command=event.command,

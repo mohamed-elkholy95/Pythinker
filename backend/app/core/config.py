@@ -215,6 +215,10 @@ class Settings(BaseSettings):
     browser_ignore_https_errors: bool | None = None  # None = auto (True in dev, False in prod)
     browser_allow_dangerous_js: bool = False  # Allow dangerous JavaScript execution (SECURITY RISK)
 
+    # Chrome for Testing (sandbox uses 128.0.6613.137 on Ubuntu 22.04)
+    browser_chrome_executable_path: str | None = None  # Override path (default: /opt/chrome-for-testing/chrome in sandbox)
+    browser_chrome_version: str = "128.0.6613.137"  # Matches Chrome for Testing in sandbox Dockerfile
+
     # Browser Hardening Configuration
     browser_skip_video_urls: bool = True  # Skip video sites (YouTube, Vimeo, etc.)
     browser_auto_dismiss_dialogs: bool = True  # Auto-dismiss popups, alerts, confirms

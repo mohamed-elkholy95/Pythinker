@@ -152,6 +152,8 @@ services:
     ports:
       - "8084:8080"  # Sandbox API
       - "8085:8082"  # Sandbox framework API
+      - "5904:5900"  # VNC native port
+      - "5903:5901"  # VNC WebSocket port
     shm_size: '1gb'
     security_opt:
       - no-new-privileges:true

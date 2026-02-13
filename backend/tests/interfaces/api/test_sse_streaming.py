@@ -484,3 +484,66 @@ class TestEventSerialization:
 
         assert hasattr(stream_event, "type")
         assert hasattr(tool_event, "type")
+
+    @pytest.mark.asyncio
+    async def test_search_tool_content_derived_from_function_result(self):
+        """When tool_content is None, derive SearchToolContent from function_result.
+
+        Ensures frontend receives search results when execution paths only set
+        function_result (e.g. agent_task_runner, fast_path empty-result branch).
+        """
+        from app.domain.models.search import SearchResultItem, SearchResults
+        from app.domain.models.tool_result import ToolResult
+        from app.interfaces.schemas.event import ToolSSEEvent
+
+        # ToolResult style (agent path)
+        tool_event = ToolEvent(
+            tool_call_id="call-1",
+            tool_name="search",
+            function_name="info_search_web",
+            function_args={"query": "claude code docs"},
+            status=ToolStatus.CALLED,
+            tool_content=None,
+            function_result=ToolResult(
+                success=True,
+                data=SearchResults(
+                    query="claude code docs",
+                    results=[
+                        SearchResultItem(title="Claude Code overview", link="https://code.claude.com", snippet="docs"),
+                    ],
+                ),
+            ),
+        )
+        sse = await ToolSSEEvent.from_event_async(tool_event)
+        assert sse.data.content is not None
+        assert hasattr(sse.data.content, "results")
+        assert len(sse.data.content.results) == 1
+        assert sse.data.content.results[0].title == "Claude Code overview"
+
+        # Dict style (fast_path)
+        tool_event_dict = ToolEvent(
+            tool_call_id="call-2",
+            tool_name="search",
+            function_name="info_search_web",
+            function_args={"query": "test"},
+            status=ToolStatus.CALLED,
+            tool_content=None,
+            function_result={"success": True, "results": [{"title": "A", "link": "https://a.com", "snippet": "x"}]},
+        )
+        sse_dict = await ToolSSEEvent.from_event_async(tool_event_dict)
+        assert sse_dict.data.content is not None
+        assert len(sse_dict.data.content.results) == 1
+        assert sse_dict.data.content.results[0].title == "A"
+
+        # Empty results: do not derive
+        tool_event_empty = ToolEvent(
+            tool_call_id="call-3",
+            tool_name="search",
+            function_name="info_search_web",
+            function_args={"query": "x"},
+            status=ToolStatus.CALLED,
+            tool_content=None,
+            function_result={"success": True, "results": []},
+        )
+        sse_empty = await ToolSSEEvent.from_event_async(tool_event_empty)
+        assert sse_empty.data.content is None

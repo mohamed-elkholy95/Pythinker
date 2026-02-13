@@ -381,6 +381,9 @@ async def chat(
     # SSE send timeout (Phase 3: prevents hanging on slow clients)
     send_timeout = 30.0 if use_sse_v2 else None
 
+    # Heartbeat interval: keep connection alive and prevent "stuck" feeling during long ops
+    heartbeat_interval_seconds = 15.0
+
     async def event_generator() -> AsyncGenerator[ServerSentEvent, None]:
         try:
             # INSTANT FEEDBACK: Emit ProgressEvent immediately (<100ms)
@@ -406,7 +409,23 @@ async def chat(
                     "source": request.follow_up.source,
                 }
 
-            async for event in agent_service.chat(
+            # Heartbeat: send keep-alive events during long agent operations
+            # Prevents frontend "stale" detection and proxy/timeout disconnects (SSE best practice)
+            heartbeat = ProgressEvent(
+                phase=PlanningPhase.HEARTBEAT,
+                message="",
+                progress_percent=None,
+            )
+            sse_heartbeat = await EventMapper.event_to_sse_event(heartbeat)
+            if sse_heartbeat:
+                heartbeat_sse = ServerSentEvent(
+                    event=sse_heartbeat.event,
+                    data=sse_heartbeat.data.model_dump_json() if sse_heartbeat.data else None,
+                )
+            else:
+                heartbeat_sse = None
+
+            chat_stream = agent_service.chat(
                 session_id=session_id,
                 user_id=current_user.id,
                 message=request.message,
@@ -416,31 +435,81 @@ async def chat(
                 skills=request.skills,
                 deep_research=request.deep_research,
                 follow_up=follow_up_dict,
-            ):
+            )
+            stream_iter = chat_stream.__aiter__()
+            next_event_task: asyncio.Task | None = asyncio.create_task(
+                stream_iter.__anext__()
+            )
+            heartbeat_task: asyncio.Task | None = asyncio.create_task(
+                asyncio.sleep(heartbeat_interval_seconds)
+            )
+            stream_exhausted = False
+
+            while not stream_exhausted:
                 # Phase 3: Check for client disconnect before sending
                 if use_sse_v2 and await http_request.is_disconnected():
                     logger.info(f"Client disconnected during chat stream: {session_id}")
                     break
 
-                logger.debug(f"Received event from chat: {event}")
-                sse_event = await EventMapper.event_to_sse_event(event)
-                logger.debug(f"Received event: {sse_event}")
-                if sse_event:
-                    # Phase 3: Use timeout for send operations
-                    if send_timeout:
-                        try:
-                            async with asyncio.timeout(send_timeout):
-                                yield ServerSentEvent(
-                                    event=sse_event.event,
-                                    data=sse_event.data.model_dump_json() if sse_event.data else None,
-                                )
-                        except TimeoutError:
-                            logger.warning(f"SSE send timeout for session {session_id}")
-                            break
-                    else:
-                        yield ServerSentEvent(
-                            event=sse_event.event, data=sse_event.data.model_dump_json() if sse_event.data else None
-                        )
+                done: set[asyncio.Task] = set()
+                pending: set[asyncio.Task] = set()
+                done, pending = await asyncio.wait(
+                    {t for t in (next_event_task, heartbeat_task) if t is not None},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+
+                if heartbeat_task in done:
+                    # Heartbeat fired: send keep-alive, reset heartbeat timer
+                    # Do NOT cancel next_event_task - it is still waiting for the real event
+                    heartbeat_task = None
+                    if heartbeat_sse:
+                        yield heartbeat_sse
+                    heartbeat_task = asyncio.create_task(
+                        asyncio.sleep(heartbeat_interval_seconds)
+                    )
+                    # next_event_task unchanged - still waiting for real event
+                else:
+                    # Real event arrived
+                    for t in pending:
+                        t.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await t
+                    heartbeat_task = None
+
+                    try:
+                        event = next_event_task.result()
+                    except StopAsyncIteration:
+                        stream_exhausted = True
+                        break
+
+                    logger.debug(f"Received event from chat: {event}")
+                    sse_event = await EventMapper.event_to_sse_event(event)
+                    logger.debug(f"Received event: {sse_event}")
+                    if sse_event:
+                        event_data = sse_event.data.model_dump_json() if sse_event.data else None
+                        event_id_val = getattr(sse_event.data, "event_id", None) if sse_event.data else None
+                        sse_kwargs: dict = {"event": sse_event.event, "data": event_data}
+                        if event_id_val:
+                            sse_kwargs["id"] = str(event_id_val)
+                        sse_payload = ServerSentEvent(**sse_kwargs)
+                        if send_timeout:
+                            try:
+                                async with asyncio.timeout(send_timeout):
+                                    yield sse_payload
+                            except TimeoutError:
+                                logger.warning(f"SSE send timeout for session {session_id}")
+                                break
+                        else:
+                            yield sse_payload
+
+                    next_event_task = asyncio.create_task(stream_iter.__anext__())
+                    heartbeat_task = asyncio.create_task(
+                        asyncio.sleep(heartbeat_interval_seconds)
+                    )
+
+            # Cleanup stream
+            with contextlib.suppress(Exception):
+                await stream_iter.aclose()
         except asyncio.CancelledError:
             # Client disconnected - log and gracefully terminate
             logger.warning(f"Chat stream cancelled for session {session_id} (client disconnected)")
