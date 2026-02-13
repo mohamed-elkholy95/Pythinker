@@ -109,9 +109,37 @@ class CircuitBreaker:
 class RedisClient:
     """Redis client with circuit breaker, auto-reconnection, and connection health monitoring."""
 
-    def __init__(self):
+    def __init__(self, role: str = "runtime"):
+        if role not in {"runtime", "cache"}:
+            raise ValueError(f"Unsupported Redis client role: {role}")
+        self._role = role
         self._client: Redis | None = None
         self._settings = get_settings()
+        self._host = (
+            getattr(self._settings, "redis_cache_host", self._settings.redis_host)
+            if self._role == "cache"
+            else self._settings.redis_host
+        )
+        self._port = (
+            getattr(self._settings, "redis_cache_port", self._settings.redis_port)
+            if self._role == "cache"
+            else self._settings.redis_port
+        )
+        self._db = (
+            getattr(self._settings, "redis_cache_db", self._settings.redis_db)
+            if self._role == "cache"
+            else self._settings.redis_db
+        )
+        self._password = (
+            getattr(self._settings, "redis_cache_password", self._settings.redis_password)
+            if self._role == "cache"
+            else self._settings.redis_password
+        )
+        self._max_connections = (
+            getattr(self._settings, "redis_cache_max_connections", self._settings.redis_max_connections)
+            if self._role == "cache"
+            else self._settings.redis_max_connections
+        )
         self._circuit_breaker = CircuitBreaker(
             failure_threshold=getattr(self._settings, "redis_circuit_breaker_threshold", 5),
             recovery_timeout=getattr(self._settings, "redis_circuit_breaker_recovery_timeout", 30.0),
@@ -143,12 +171,12 @@ class RedisClient:
 
         try:
             self._client = Redis(
-                host=self._settings.redis_host,
-                port=self._settings.redis_port,
-                db=self._settings.redis_db,
-                password=self._settings.redis_password,
+                host=self._host,
+                port=self._port,
+                db=self._db,
+                password=self._password,
                 decode_responses=True,
-                max_connections=self._settings.redis_max_connections,
+                max_connections=self._max_connections,
                 socket_timeout=self._settings.redis_socket_timeout,
                 socket_connect_timeout=self._settings.redis_socket_connect_timeout,
                 health_check_interval=self._settings.redis_health_check_interval,
@@ -157,10 +185,16 @@ class RedisClient:
             await self._client.ping()
             await self._circuit_breaker.record_success()
             self._last_health_check = datetime.now()
-            logger.info("Successfully connected to Redis")
+            logger.info(
+                "Successfully connected to Redis (%s) at %s:%s/%s",
+                self._role,
+                self._host,
+                self._port,
+                self._db,
+            )
         except Exception as e:
             await self._circuit_breaker.record_failure()
-            logger.error(f"Failed to connect to Redis: {e!s}")
+            logger.error("Failed to connect to Redis (%s): %s", self._role, e)
             raise
 
     async def _is_healthy(self) -> bool:
@@ -194,8 +228,11 @@ class RedisClient:
         """Shutdown Redis connection."""
         async with self._connection_lock:
             await self._close_client()
-            logger.info("Disconnected from Redis")
-        get_redis.cache_clear()
+            logger.info("Disconnected from Redis (%s)", self._role)
+        if self._role == "cache":
+            get_cache_redis.cache_clear()
+        else:
+            get_redis.cache_clear()
 
     @property
     def client(self) -> Redis:
@@ -204,11 +241,40 @@ class RedisClient:
             raise RuntimeError("Redis client not initialized. Call initialize() first.")
         return self._client
 
+    @property
+    def role(self) -> str:
+        """Redis client role (`runtime` or `cache`)."""
+        return self._role
+
+    async def call(
+        self,
+        method_name: str,
+        *args: Any,
+        max_retries: int = 3,
+        **kwargs: Any,
+    ) -> Any:
+        """Execute a Redis command method with retry and reconnection.
+
+        Example:
+            await get_redis().call("setex", key, ttl, value)
+        """
+
+        async def _operation() -> Any:
+            method = getattr(self.client, method_name)
+            return await method(*args, **kwargs)
+
+        return await self.execute_with_retry(
+            _operation,
+            max_retries=max_retries,
+            operation_name=method_name.lower(),
+        )
+
     async def execute_with_retry(
         self,
         operation: Callable[..., Any],
         *args: Any,
         max_retries: int = 3,
+        operation_name: str = "unknown",
         **kwargs: Any,
     ) -> T:
         """Execute a Redis operation with automatic retry and reconnection.
@@ -241,16 +307,33 @@ class RedisClient:
             except (RedisConnectionError, RedisTimeoutError, OSError) as e:
                 last_error = e
                 await self._circuit_breaker.record_failure()
+                try:
+                    from app.infrastructure.observability.prometheus_metrics import redis_operation_retries_total
+
+                    redis_operation_retries_total.inc({"role": self._role, "operation": operation_name})
+                except Exception:
+                    logger.debug("Failed to emit redis retry metric", exc_info=True)
 
                 if attempt < max_retries - 1:
                     backoff = 0.1 * (2**attempt)  # Exponential backoff: 0.1, 0.2, 0.4s
                     logger.warning(
-                        f"Redis operation failed (attempt {attempt + 1}/{max_retries}), retrying in {backoff}s: {e}"
+                        "Redis operation '%s' failed (attempt %s/%s), retrying in %ss: %s",
+                        operation_name,
+                        attempt + 1,
+                        max_retries,
+                        backoff,
+                        e,
                     )
                     await self._close_client()  # Force reconnection on next attempt
                     await asyncio.sleep(backoff)
                 else:
-                    logger.error(f"Redis operation failed after {max_retries} attempts: {e}")
+                    logger.error("Redis operation '%s' failed after %s attempts: %s", operation_name, max_retries, e)
+                    try:
+                        from app.infrastructure.observability.prometheus_metrics import redis_operation_failures_total
+
+                        redis_operation_failures_total.inc({"role": self._role, "error_type": type(e).__name__})
+                    except Exception:
+                        logger.debug("Failed to emit redis failure metric", exc_info=True)
 
             except Exception as e:
                 # Non-connection errors don't trigger circuit breaker
@@ -267,4 +350,10 @@ class RedisClient:
 @lru_cache
 def get_redis() -> RedisClient:
     """Get the Redis client singleton instance."""
-    return RedisClient()
+    return RedisClient(role="runtime")
+
+
+@lru_cache
+def get_cache_redis() -> RedisClient:
+    """Get the cache Redis client singleton instance."""
+    return RedisClient(role="cache")
