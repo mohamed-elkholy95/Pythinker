@@ -437,12 +437,8 @@ async def chat(
                 follow_up=follow_up_dict,
             )
             stream_iter = chat_stream.__aiter__()
-            next_event_task: asyncio.Task | None = asyncio.create_task(
-                stream_iter.__anext__()
-            )
-            heartbeat_task: asyncio.Task | None = asyncio.create_task(
-                asyncio.sleep(heartbeat_interval_seconds)
-            )
+            next_event_task: asyncio.Task | None = asyncio.create_task(stream_iter.__anext__())
+            heartbeat_task: asyncio.Task | None = asyncio.create_task(asyncio.sleep(heartbeat_interval_seconds))
             stream_exhausted = False
 
             while not stream_exhausted:
@@ -464,9 +460,7 @@ async def chat(
                     heartbeat_task = None
                     if heartbeat_sse:
                         yield heartbeat_sse
-                    heartbeat_task = asyncio.create_task(
-                        asyncio.sleep(heartbeat_interval_seconds)
-                    )
+                    heartbeat_task = asyncio.create_task(asyncio.sleep(heartbeat_interval_seconds))
                     # next_event_task unchanged - still waiting for real event
                 else:
                     # Real event arrived
@@ -503,9 +497,7 @@ async def chat(
                             yield sse_payload
 
                     next_event_task = asyncio.create_task(stream_iter.__anext__())
-                    heartbeat_task = asyncio.create_task(
-                        asyncio.sleep(heartbeat_interval_seconds)
-                    )
+                    heartbeat_task = asyncio.create_task(asyncio.sleep(heartbeat_interval_seconds))
 
             # Cleanup stream
             with contextlib.suppress(Exception):
