@@ -8,6 +8,7 @@ import asyncio
 import inspect
 import json
 import logging
+import re
 from collections.abc import AsyncGenerator
 from typing import Any, TypeVar
 
@@ -18,6 +19,11 @@ from app.domain.external.llm import LLM
 from app.domain.services.agents.error_handler import TokenLimitExceededError
 from app.domain.services.agents.token_manager import TokenManager
 from app.domain.services.agents.usage_context import get_usage_context
+from app.infrastructure.external.key_pool import (
+    APIKeyConfig,
+    APIKeyPool,
+    RotationStrategy,
+)
 from app.infrastructure.external.llm.factory import LLMProviderRegistry
 
 T = TypeVar("T", bound=BaseModel)
@@ -45,14 +51,18 @@ class AnthropicLLM(LLM):
     def __init__(
         self,
         api_key: str | None = None,
+        fallback_api_keys: list[str] | None = None,
+        redis_client=None,
         model_name: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
     ):
-        """Initialize Anthropic LLM.
+        """Initialize Anthropic LLM with multi-key failover support.
 
         Args:
-            api_key: Anthropic API key (defaults to settings)
+            api_key: Primary Anthropic API key (defaults to settings)
+            fallback_api_keys: Optional fallback keys (up to 2 fallbacks = 3 total)
+            redis_client: Redis client for distributed key coordination
             model_name: Model name (defaults to settings)
             temperature: Sampling temperature (defaults to settings)
             max_tokens: Maximum tokens in response (defaults to settings)
@@ -62,18 +72,77 @@ class AnthropicLLM(LLM):
 
         settings = get_settings()
 
-        self._api_key = api_key or settings.anthropic_api_key
-        if not self._api_key:
+        # Build key configs (primary + fallbacks)
+        primary_key = api_key or settings.anthropic_api_key
+        if not primary_key:
             raise ValueError("Anthropic API key is required")
 
+        all_keys = [primary_key]
+        if fallback_api_keys:
+            all_keys.extend(fallback_api_keys)
+
+        key_configs = [APIKeyConfig(key=k, priority=i) for i, k in enumerate(all_keys) if k and k.strip()]
+
+        # FAILOVER strategy to preserve prompt caching benefits
+        # Cache is tied to API key - switching keys loses cache (~90% cost increase)
+        # FAILOVER keeps using primary key until exhausted, maximizing cache hits
+        self._key_pool = APIKeyPool(
+            provider="anthropic",
+            keys=key_configs,
+            redis_client=redis_client,
+            strategy=RotationStrategy.FAILOVER,  # Cache-aware strategy
+        )
+
+        self._max_retries = len(key_configs)
         self._model_name = model_name or settings.anthropic_model_name
         self._temperature = temperature if temperature is not None else settings.temperature
         self._max_tokens = max_tokens if max_tokens is not None else settings.max_tokens
         self._last_stream_metadata: dict[str, Any] | None = None
 
-        self.client = anthropic.AsyncAnthropic(api_key=self._api_key)
+        # Client will be created with active key on-demand
+        self.client: Any = None
 
-        logger.info(f"Initialized Anthropic LLM with model: {self._model_name}")
+        logger.info(
+            f"Initialized Anthropic LLM with {len(key_configs)} API key(s) "
+            f"using FAILOVER strategy (cache-aware), model: {self._model_name}"
+        )
+
+    async def get_api_key(self) -> str | None:
+        """Get currently active API key from pool."""
+        return await self._key_pool.get_healthy_key()
+
+    async def _get_client(self) -> Any:
+        """Get Anthropic client with current active key."""
+        key = await self.get_api_key()
+        if not key:
+            raise RuntimeError(f"All {len(self._key_pool.keys)} Anthropic API keys exhausted")
+
+        # Create new client with active key
+        return anthropic.AsyncAnthropic(api_key=key)
+
+    def _parse_anthropic_rate_limit(self, error: Exception) -> int:
+        """Parse Anthropic rate limit error for TTL.
+
+        Anthropic includes anthropic-ratelimit-tokens-reset header.
+
+        Args:
+            error: Exception from Anthropic SDK
+
+        Returns:
+            TTL in seconds (default: 60)
+        """
+        # Try to extract reset time from error message
+        error_str = str(error)
+        if "retry after" in error_str.lower():
+            try:
+                # Extract seconds from error message
+                match = re.search(r"retry after (\d+)", error_str, re.IGNORECASE)
+                if match:
+                    return int(match.group(1))
+            except ValueError:
+                pass
+
+        return 60  # Default: 1 minute TTL
 
     @property
     def model_name(self) -> str:
@@ -340,8 +409,9 @@ class AnthropicLLM(LLM):
         response_format: dict[str, Any] | None = None,
         tool_choice: str | None = None,
         enable_caching: bool = True,
+        _attempt: int = 0,
     ) -> dict[str, Any]:
-        """Send chat request to Anthropic API.
+        """Send chat request to Anthropic API with automatic key rotation.
 
         Args:
             messages: List of messages in OpenAI format
@@ -349,83 +419,97 @@ class AnthropicLLM(LLM):
             response_format: Optional response format (limited support)
             tool_choice: Optional tool choice configuration
             enable_caching: Whether to enable prompt caching (up to 90% token savings)
+            _attempt: Internal retry counter
 
         Returns:
             Response message in OpenAI format
         """
-        max_retries = 3
-        base_delay = 1.0
+        # Check retry limit to prevent infinite recursion
+        if _attempt >= self._max_retries:
+            raise RuntimeError(f"All {len(self._key_pool.keys)} Anthropic API keys exhausted after {_attempt} attempts")
 
-        for attempt in range(max_retries + 1):
-            try:
-                if attempt > 0:
-                    delay = base_delay * (2 ** (attempt - 1))
-                    logger.info(f"Retrying Anthropic request (attempt {attempt + 1}/{max_retries + 1})")
-                    await asyncio.sleep(delay)
+        # Get healthy key and create client
+        try:
+            client = await self._get_client()
+        except RuntimeError as e:
+            # All keys exhausted
+            raise RuntimeError(str(e)) from e
 
-                # Convert messages to Anthropic format
-                system_prompt, anthropic_messages = self._convert_openai_messages_to_anthropic(messages)
+        try:
+            # Convert messages to Anthropic format
+            system_prompt, anthropic_messages = self._convert_openai_messages_to_anthropic(messages)
 
-                # Build request parameters
-                # ORDER MATTERS FOR CACHE OPTIMIZATION:
-                # 1. system prompt (cached via _prepare_system_with_caching)
-                # 2. tools (cached via cache_control on last tool)
-                # 3. messages (dynamic, never cached)
-                # This order maximizes Anthropic's prefix cache hit rate (ArXiv 2601.06007)
-                params = {
-                    "model": self._model_name,
-                    "max_tokens": self._max_tokens,
-                    "messages": anthropic_messages,
-                }
+            # Build request parameters
+            # ORDER MATTERS FOR CACHE OPTIMIZATION:
+            # 1. system prompt (cached via _prepare_system_with_caching)
+            # 2. tools (cached via cache_control on last tool)
+            # 3. messages (dynamic, never cached)
+            # This order maximizes Anthropic's prefix cache hit rate (ArXiv 2601.06007)
+            params = {
+                "model": self._model_name,
+                "max_tokens": self._max_tokens,
+                "messages": anthropic_messages,
+            }
 
-                # Anthropic uses temperature differently - 0 to 1
-                if self._temperature is not None:
-                    params["temperature"] = min(1.0, max(0.0, self._temperature))
+            # Anthropic uses temperature differently - 0 to 1
+            if self._temperature is not None:
+                params["temperature"] = min(1.0, max(0.0, self._temperature))
 
-                # Apply cache control to system prompt for token savings
-                if system_prompt:
-                    params["system"] = self._prepare_system_with_caching(system_prompt, enable_caching)
+            # Apply cache control to system prompt for token savings
+            if system_prompt:
+                params["system"] = self._prepare_system_with_caching(system_prompt, enable_caching)
 
-                if tools:
-                    params["tools"] = self._convert_openai_tools_to_anthropic(tools, enable_caching=enable_caching)
+            if tools:
+                params["tools"] = self._convert_openai_tools_to_anthropic(tools, enable_caching=enable_caching)
 
-                    # Handle tool_choice
-                    if tool_choice == "required":
-                        params["tool_choice"] = {"type": "any"}
-                    elif tool_choice == "none":
-                        params["tool_choice"] = {"type": "none"}
-                    # "auto" is the default
+                # Handle tool_choice
+                if tool_choice == "required":
+                    params["tool_choice"] = {"type": "any"}
+                elif tool_choice == "none":
+                    params["tool_choice"] = {"type": "none"}
+                # "auto" is the default
 
-                # Explicitly disable extended thinking to avoid reasoning_content errors
-                # When thinking is enabled, all assistant messages must include thinking blocks
-                params["thinking"] = {"type": "disabled"}
+            # Explicitly disable extended thinking to avoid reasoning_content errors
+            # When thinking is enabled, all assistant messages must include thinking blocks
+            params["thinking"] = {"type": "disabled"}
 
-                response = await self.client.messages.create(**params)
+            response = await client.messages.create(**params)
 
-                # Track usage if context is set
-                await self._record_usage(response)
+            # Track usage if context is set
+            await self._record_usage(response)
 
-                return self._convert_anthropic_response_to_openai(response)
+            return self._convert_anthropic_response_to_openai(response)
 
-            except anthropic.RateLimitError as e:
-                logger.warning(f"Anthropic rate limit on attempt {attempt + 1}: {e}")
-                if attempt == max_retries:
-                    raise
-                # Rate limit delay (replaces standard backoff at loop top for this attempt)
-                continue  # Loop-top backoff will handle the delay
+        except anthropic.RateLimitError as e:
+            # Parse rate limit TTL and mark key exhausted
+            key = await self.get_api_key()
+            if key:
+                ttl = self._parse_anthropic_rate_limit(e)
+                await self._key_pool.mark_exhausted(key, ttl_seconds=ttl)
+                logger.warning(f"Anthropic rate limit hit, rotating to next key (attempt {_attempt + 1}/{self._max_retries})")
+                # Retry with next key
+                return await self.ask(messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1)
+            raise
 
-            except anthropic.BadRequestError as e:
-                error_msg = str(e).lower()
-                if "token" in error_msg or "context" in error_msg:
-                    raise TokenLimitExceededError(str(e)) from e
-                raise
+        except anthropic.AuthenticationError:
+            # Invalid API key - mark as invalid and rotate
+            key = await self.get_api_key()
+            if key:
+                await self._key_pool.mark_invalid(key)
+                logger.error(f"Anthropic authentication error, rotating to next key (attempt {_attempt + 1}/{self._max_retries})")
+                # Retry with next key
+                return await self.ask(messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1)
+            raise
 
-            except Exception as e:
-                logger.error(f"Anthropic API error on attempt {attempt + 1}: {e}")
-                if attempt == max_retries:
-                    raise
+        except anthropic.BadRequestError as e:
+            error_msg = str(e).lower()
+            if "token" in error_msg or "context" in error_msg:
+                raise TokenLimitExceededError(str(e)) from e
+            raise
 
-        raise RuntimeError("Failed to get response after all retries")
+        except Exception as e:
+            logger.error(f"Anthropic API error on attempt {_attempt + 1}: {e}")
+            raise
 
     async def ask_structured(
         self,
@@ -525,8 +609,9 @@ class AnthropicLLM(LLM):
         response_format: dict[str, Any] | None = None,
         tool_choice: str | None = None,
         enable_caching: bool = True,
+        _attempt: int = 0,
     ) -> AsyncGenerator[str, None]:
-        """Stream chat response from Anthropic API.
+        """Stream chat response from Anthropic API with automatic key rotation.
 
         Args:
             messages: List of messages
@@ -534,11 +619,35 @@ class AnthropicLLM(LLM):
             response_format: Optional response format
             tool_choice: Optional tool choice
             enable_caching: Whether to use prompt caching
+            _attempt: Internal retry counter
 
         Yields:
             Content chunks as strings
         """
+        # Check retry limit
+        if _attempt >= self._max_retries:
+            self._last_stream_metadata = {
+                "finish_reason": "error",
+                "truncated": False,
+                "provider": "anthropic",
+                "error": "all_keys_exhausted",
+            }
+            raise RuntimeError(f"All {len(self._key_pool.keys)} Anthropic API keys exhausted after {_attempt} attempts")
+
         self._last_stream_metadata = None
+
+        # Get healthy key and create client
+        try:
+            client = await self._get_client()
+        except RuntimeError as e:
+            # All keys exhausted
+            self._last_stream_metadata = {
+                "finish_reason": "error",
+                "truncated": False,
+                "provider": "anthropic",
+                "error": "all_keys_exhausted",
+            }
+            raise RuntimeError(str(e)) from e
 
         # Convert messages to Anthropic format
         system_prompt, anthropic_messages = self._convert_openai_messages_to_anthropic(messages)
@@ -562,80 +671,103 @@ class AnthropicLLM(LLM):
         # Explicitly disable extended thinking for streaming
         params["thinking"] = {"type": "disabled"}
 
-        max_retries = 2
-        base_delay = 1.0
+        completion_parts: list[str] = []
 
-        for attempt in range(max_retries + 1):
-            completion_parts: list[str] = []
+        try:
+            async with client.messages.stream(**params) as stream:
+                async for text in stream.text_stream:
+                    completion_parts.append(text)
+                    yield text
 
-            try:
-                if attempt > 0:
-                    delay = base_delay * (2 ** (attempt - 1))
-                    logger.info(f"Retrying Anthropic stream (attempt {attempt + 1}/{max_retries + 1})")
-                    await asyncio.sleep(delay)
+                stop_reason = None
+                final_message_getter = getattr(stream, "get_final_message", None)
+                if callable(final_message_getter):
+                    final_message = final_message_getter()
+                    if inspect.isawaitable(final_message):
+                        final_message = await final_message
+                    stop_reason = getattr(final_message, "stop_reason", None)
 
-                async with self.client.messages.stream(**params) as stream:
-                    async for text in stream.text_stream:
-                        completion_parts.append(text)
-                        yield text
+            if completion_parts:
+                await self._record_stream_usage(messages, "".join(completion_parts), tools=tools)
+            else:
+                await self._record_stream_usage(messages, "", tools=tools)
 
-                    stop_reason = None
-                    final_message_getter = getattr(stream, "get_final_message", None)
-                    if callable(final_message_getter):
-                        final_message = final_message_getter()
-                        if inspect.isawaitable(final_message):
-                            final_message = await final_message
-                        stop_reason = getattr(final_message, "stop_reason", None)
+            normalized_finish_reason = "length" if stop_reason == "max_tokens" else (stop_reason or "stop")
+            self._last_stream_metadata = {
+                "finish_reason": normalized_finish_reason,
+                "truncated": normalized_finish_reason == "length",
+                "provider": "anthropic",
+            }
+            if normalized_finish_reason == "length":
+                logger.warning("Anthropic streaming response truncated (stop_reason=max_tokens)")
+            return  # Success
 
-                if completion_parts:
-                    await self._record_stream_usage(messages, "".join(completion_parts), tools=tools)
-                else:
-                    await self._record_stream_usage(messages, "", tools=tools)
+        except anthropic.BadRequestError as e:
+            self._last_stream_metadata = {
+                "finish_reason": "error",
+                "truncated": False,
+                "provider": "anthropic",
+                "error": "bad_request",
+            }
+            error_msg = str(e).lower()
+            if "token" in error_msg or "context" in error_msg:
+                raise TokenLimitExceededError(str(e)) from e
+            raise
 
-                normalized_finish_reason = "length" if stop_reason == "max_tokens" else (stop_reason or "stop")
-                self._last_stream_metadata = {
-                    "finish_reason": normalized_finish_reason,
-                    "truncated": normalized_finish_reason == "length",
-                    "provider": "anthropic",
-                }
-                if normalized_finish_reason == "length":
-                    logger.warning("Anthropic streaming response truncated (stop_reason=max_tokens)")
-                return  # Success
+        except anthropic.RateLimitError as e:
+            self._last_stream_metadata = {
+                "finish_reason": "error",
+                "truncated": False,
+                "provider": "anthropic",
+                "error": "rate_limit",
+            }
+            # Parse rate limit TTL and mark key exhausted
+            key = await self.get_api_key()
+            if key:
+                ttl = self._parse_anthropic_rate_limit(e)
+                await self._key_pool.mark_exhausted(key, ttl_seconds=ttl)
+                logger.warning(
+                    f"Anthropic stream rate limit hit, rotating to next key (attempt {_attempt + 1}/{self._max_retries})"
+                )
+                # Retry with next key (recursively yield from new attempt)
+                async for chunk in self.ask_stream(
+                    messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1
+                ):
+                    yield chunk
+                return
+            raise
 
-            except anthropic.BadRequestError as e:
-                self._last_stream_metadata = {
-                    "finish_reason": "error",
-                    "truncated": False,
-                    "provider": "anthropic",
-                    "error": "bad_request",
-                }
-                error_msg = str(e).lower()
-                if "token" in error_msg or "context" in error_msg:
-                    raise TokenLimitExceededError(str(e)) from e
-                raise
+        except anthropic.AuthenticationError:
+            self._last_stream_metadata = {
+                "finish_reason": "error",
+                "truncated": False,
+                "provider": "anthropic",
+                "error": "authentication_error",
+            }
+            # Invalid API key - mark as invalid and rotate
+            key = await self.get_api_key()
+            if key:
+                await self._key_pool.mark_invalid(key)
+                logger.error(
+                    f"Anthropic stream authentication error, rotating to next key (attempt {_attempt + 1}/{self._max_retries})"
+                )
+                # Retry with next key (recursively yield from new attempt)
+                async for chunk in self.ask_stream(
+                    messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1
+                ):
+                    yield chunk
+                return
+            raise
 
-            except (anthropic.APIConnectionError, anthropic.InternalServerError) as e:
-                self._last_stream_metadata = {
-                    "finish_reason": "error",
-                    "truncated": False,
-                    "provider": "anthropic",
-                    "error": type(e).__name__,
-                }
-                logger.warning(f"Anthropic stream transient error on attempt {attempt + 1}: {e}")
-                if attempt == max_retries:
-                    raise
-
-            except anthropic.RateLimitError as e:
-                self._last_stream_metadata = {
-                    "finish_reason": "error",
-                    "truncated": False,
-                    "provider": "anthropic",
-                    "error": "rate_limit",
-                }
-                logger.warning(f"Anthropic stream rate limit on attempt {attempt + 1}: {e}")
-                if attempt == max_retries:
-                    raise
-                await asyncio.sleep(base_delay * (2**attempt))
+        except (anthropic.APIConnectionError, anthropic.InternalServerError) as e:
+            self._last_stream_metadata = {
+                "finish_reason": "error",
+                "truncated": False,
+                "provider": "anthropic",
+                "error": type(e).__name__,
+            }
+            logger.error(f"Anthropic stream error on attempt {_attempt + 1}: {e}")
+            raise
 
 
 # Test function
