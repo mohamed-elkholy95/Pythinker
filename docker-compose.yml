@@ -1,13 +1,13 @@
 services:
   frontend:
     image: ${IMAGE_REGISTRY:-pythinker}/pythinker-frontend:${IMAGE_TAG:-latest}
+    platform: linux/amd64
     build:
       context: ./frontend
       dockerfile: Dockerfile
       x-bake:
         platforms:
           - linux/amd64
-          - linux/arm64
     ports:
       - "5174:80"
     depends_on:
@@ -24,13 +24,13 @@ services:
 
   backend:
     image: ${IMAGE_REGISTRY:-pythinker}/pythinker-backend:${IMAGE_TAG:-latest}
+    platform: linux/amd64
     build:
       context: ./backend
       dockerfile: Dockerfile
       x-bake:
         platforms:
           - linux/amd64
-          - linux/arm64
     depends_on:
       sandbox:
         condition: service_started
@@ -53,6 +53,8 @@ services:
     env_file:
       - .env
     environment:
+      - SANDBOX_LIFECYCLE_MODE=${SANDBOX_LIFECYCLE_MODE:-static}
+      - SANDBOX_ADDRESS=${SANDBOX_ADDRESS:-sandbox}
       - GRPC_ENABLE_FORK_SUPPORT=0  # Suppress gRPC fork warning from qdrant-client
       - NODE_OPTIONS=--no-deprecation  # Suppress Playwright url.parse() deprecation
     healthcheck:
@@ -64,13 +66,13 @@ services:
 
   sandbox:
     image: ${IMAGE_REGISTRY:-pythinker}/pythinker-sandbox:${IMAGE_TAG:-latest}
+    platform: linux/amd64  # Chrome for Testing linux64; VPS Ubuntu is amd64
     build:
       context: ./sandbox
       dockerfile: Dockerfile
       x-bake:
         platforms:
-          - linux/amd64
-          - linux/arm64
+          - linux/amd64  # Chrome for Testing 128.0.6613.137 linux64 only; no linux-arm64
     hostname: sandbox
     restart: unless-stopped
     volumes:
@@ -79,15 +81,14 @@ services:
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
-      # Phase 2: Kaleido v1 requires system Chromium via BROWSER_PATH
-      - BROWSER_PATH=/usr/bin/chromium
+      - BROWSER_PATH=/opt/chrome-for-testing/chrome
     ports:
       - "8083:8080"  # Sandbox API
       - "8082:8082"  # Sandbox framework API
       - "5902:5900"  # VNC
       - "5901:5901"  # VNC WebSocket
-    # Shared memory for Chrome browser stability (512MB-1GB recommended for headless)
-    shm_size: '1gb'
+    # Shared memory: 2GB per Playwright Docker docs prevents Chromium /dev/shm OOM (Context7)
+    shm_size: '2gb'
     # Security hardening
     security_opt:
       - no-new-privileges:true
@@ -102,7 +103,8 @@ services:
       - SYS_CHROOT
     # Temp filesystem - sandbox needs exec capability for code execution
     tmpfs:
-      - /run:size=50M,nosuid,nodev
+      - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
+      - /run/user/1000:size=10M,nosuid,nodev,uid=1000,gid=1000,mode=0700
       - /tmp:size=300M,nosuid,nodev
       - /home/ubuntu/.cache:size=150M,nosuid,nodev,uid=1000,gid=1000,mode=0700
     # File descriptor limits for browser and node processes
@@ -133,13 +135,13 @@ services:
 
   sandbox2:
     image: ${IMAGE_REGISTRY:-pythinker}/pythinker-sandbox:${IMAGE_TAG:-latest}
+    platform: linux/amd64
     build:
       context: ./sandbox
       dockerfile: Dockerfile
       x-bake:
         platforms:
           - linux/amd64
-          - linux/arm64
     hostname: sandbox2
     restart: unless-stopped
     volumes:
@@ -147,14 +149,13 @@ services:
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
-      # Phase 2: Kaleido v1 requires system Chromium via BROWSER_PATH
-      - BROWSER_PATH=/usr/bin/chromium
+      - BROWSER_PATH=/opt/chrome-for-testing/chrome
     ports:
       - "8084:8080"  # Sandbox API
       - "8085:8082"  # Sandbox framework API
       - "5904:5900"  # VNC native port
       - "5903:5901"  # VNC WebSocket port
-    shm_size: '1gb'
+    shm_size: '2gb'
     security_opt:
       - no-new-privileges:true
       - seccomp:./sandbox/seccomp-sandbox.json
@@ -167,7 +168,8 @@ services:
       - NET_BIND_SERVICE
       - SYS_CHROOT
     tmpfs:
-      - /run:size=50M,nosuid,nodev
+      - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
+      - /run/user/1000:size=10M,nosuid,nodev,uid=1000,gid=1000,mode=0700
       - /tmp:size=300M,nosuid,nodev
       - /home/ubuntu/.cache:size=150M,nosuid,nodev,uid=1000,gid=1000,mode=0700
     ulimits:

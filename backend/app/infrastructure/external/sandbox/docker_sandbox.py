@@ -15,6 +15,7 @@ from app.core.config import get_settings
 from app.domain.external.browser import Browser
 from app.domain.external.sandbox import Sandbox
 from app.domain.models.tool_result import ToolResult
+from app.domain.services.sandbox_security_policy_service import get_sandbox_security_policy
 from app.infrastructure.external.browser.connection_pool import BrowserConnectionPool
 from app.infrastructure.external.browser.playwright_browser import PlaywrightBrowser
 from app.infrastructure.observability.prometheus_metrics import (
@@ -200,6 +201,22 @@ class DockerSandbox(Sandbox):
             # Create Docker client
             docker_client = docker.from_env()
 
+            # Resolve security policy from centralized contract
+            policy = get_sandbox_security_policy()
+
+            # Build tmpfs dict from policy (append nosuid,nodev for hardening)
+            tmpfs_dict: dict[str, str] = {}
+            for mount_spec in policy.tmpfs_mounts:
+                if ":" in mount_spec:
+                    path, opts = mount_spec.split(":", 1)
+                    tmpfs_dict[path.strip()] = f"{opts.strip()},nosuid,nodev"
+                else:
+                    tmpfs_dict[mount_spec.strip()] = "nosuid,nodev"
+
+            security_opt = ["no-new-privileges:true"]
+            if policy.require_custom_seccomp and policy.seccomp_profile_path:
+                security_opt.append(f"seccomp={policy.seccomp_profile_path}")
+
             # Prepare container configuration
             container_config = {
                 "image": image,
@@ -213,25 +230,17 @@ class DockerSandbox(Sandbox):
                     "HTTP_PROXY": settings.sandbox_http_proxy,
                     "NO_PROXY": settings.sandbox_no_proxy,
                 },
-                # Security hardening (aligned with docker-compose defaults)
-                "security_opt": ["no-new-privileges:true"],
-                "cap_drop": ["ALL"],
-                "cap_add": ["CHOWN", "SETGID", "SETUID", "NET_BIND_SERVICE", "SYS_CHROOT"],
-                "tmpfs": {
-                    "/run": "size=50M,nosuid,nodev",
-                    "/tmp": "size=300M,nosuid,nodev",
-                    "/home/ubuntu/.cache": "size=150M,nosuid,nodev",
-                },
+                # Security hardening from centralized policy contract
+                "security_opt": security_opt,
+                "cap_drop": policy.cap_drop,
+                "cap_add": policy.cap_add_allowlist,
+                "tmpfs": tmpfs_dict,
                 "ulimits": [Ulimit(name="nofile", soft=65536, hard=65536), Ulimit(name="nproc", soft=4096, hard=8192)],
                 "shm_size": settings.sandbox_shm_size,
                 "mem_limit": settings.sandbox_mem_limit,
                 "nano_cpus": int((settings.sandbox_cpu_limit or 2.0) * 1_000_000_000),
                 "pids_limit": settings.sandbox_pids_limit,
             }
-
-            # Optional seccomp profile (host path)
-            if settings.sandbox_seccomp_profile:
-                container_config["security_opt"].append(f"seccomp={settings.sandbox_seccomp_profile}")
 
             # Add network to container config if configured
             if settings.sandbox_network:

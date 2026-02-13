@@ -69,12 +69,17 @@ uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
 
 ### Docker Deployment
 
+The sandbox uses a **multi-stage hardened build** (2026-02-13):
+
+- **Builder stage**: Python 3.11, Node.js, Chrome for Testing, Playwright browsers, dev tools (build only)
+- **Runtime stage**: Non-root (`USER ubuntu`), `tini` as PID 1, no dev tools, reference packages (poppler-utils, graphviz, mysql-client, etc.)
+
 ```bash
 # Build the image
-docker build -t manus-sandbox .
+docker build -t pythinker-sandbox .
 
-# Run the container
-docker run -p 8080:8080 -p 8082:8082 -p 9222:9222 -p 5900:5900 -p 5901:5901 manus-sandbox
+# Run the container (use compose for proper tmpfs/security opts)
+docker run -p 8080:8080 -p 8082:8082 -p 9222:9222 -p 5900:5900 -p 5901:5901 pythinker-sandbox
 ```
 
 ## Port Information

@@ -95,8 +95,8 @@ def main():
         print(f"  ✗ PNG generation failed: {e}")
         print("\nTroubleshooting:")
         print("- Ensure Kaleido is installed: pip install 'kaleido>=1.0.0'")
-        print("- Verify BROWSER_PATH points to Chromium: echo $BROWSER_PATH")
-        print("- Check Chromium exists: ls -la /usr/bin/chromium-browser")
+        print("- Verify BROWSER_PATH points to Chrome: echo $BROWSER_PATH")
+        print("- Check Chrome for Testing: ls -la /opt/chrome-for-testing/chrome")
         return 3
 
     # Success!

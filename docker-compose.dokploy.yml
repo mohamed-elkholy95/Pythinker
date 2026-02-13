@@ -7,6 +7,7 @@ version: '3.8'
 services:
   frontend:
     image: ${IMAGE_REGISTRY:-pythinker}/pythinker-frontend:${IMAGE_TAG:-latest}
+    platform: linux/amd64
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -25,6 +26,7 @@ services:
 
   backend:
     image: ${IMAGE_REGISTRY:-pythinker}/pythinker-backend:${IMAGE_TAG:-latest}
+    platform: linux/amd64
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -140,9 +142,12 @@ services:
 
   sandbox:
     image: ${IMAGE_REGISTRY:-pythinker}/pythinker-sandbox:${IMAGE_TAG:-latest}
+    platform: linux/amd64  # Chrome for Testing 128.0.6613.137 linux64; VPS Ubuntu amd64
     build:
       context: ./sandbox
       dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
     hostname: sandbox
     restart: unless-stopped
     volumes:
@@ -150,12 +155,13 @@ services:
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
+      - BROWSER_PATH=/opt/chrome-for-testing/chrome
     ports:
       - "8083:8080"
       - "8082:8082"
       - "5902:5900"
       - "5901:5901"
-    shm_size: '1gb'
+    shm_size: '2gb'
     security_opt:
       - no-new-privileges:true
       - seccomp:./sandbox/seccomp-sandbox.json
@@ -168,7 +174,8 @@ services:
       - NET_BIND_SERVICE
       - SYS_CHROOT
     tmpfs:
-      - /run:size=50M,nosuid,nodev
+      - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
+      - /run/user/1000:size=10M,nosuid,nodev,uid=1000,gid=1000,mode=0700
       - /tmp:size=300M,nosuid,nodev
       - /home/ubuntu/.cache:size=150M,nosuid,nodev,uid=1000,gid=1000,mode=0700
     ulimits:
@@ -197,9 +204,12 @@ services:
 
   sandbox2:
     image: ${IMAGE_REGISTRY:-pythinker}/pythinker-sandbox:${IMAGE_TAG:-latest}
+    platform: linux/amd64
     build:
       context: ./sandbox
       dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
     hostname: sandbox2
     restart: unless-stopped
     volumes:
@@ -207,10 +217,11 @@ services:
     environment:
       - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
+      - BROWSER_PATH=/opt/chrome-for-testing/chrome
     ports:
       - "8084:8080"
       - "8085:8082"
-    shm_size: '1gb'
+    shm_size: '2gb'
     security_opt:
       - no-new-privileges:true
       - seccomp:./sandbox/seccomp-sandbox.json
@@ -223,7 +234,8 @@ services:
       - NET_BIND_SERVICE
       - SYS_CHROOT
     tmpfs:
-      - /run:size=50M,nosuid,nodev
+      - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
+      - /run/user/1000:size=10M,nosuid,nodev,uid=1000,gid=1000,mode=0700
       - /tmp:size=300M,nosuid,nodev
       - /home/ubuntu/.cache:size=150M,nosuid,nodev,uid=1000,gid=1000,mode=0700
     ulimits:

@@ -118,14 +118,15 @@ class Settings(BaseSettings):
     sandbox_address: str | None = None
     sandbox_image: str | None = None
     sandbox_name_prefix: str | None = None
-    sandbox_ttl_minutes: int | None = 30
+    sandbox_ttl_minutes: int | None = 60  # Extended session: 60 min for long-running tasks
     sandbox_network: str | None = None  # Docker network bridge name
     sandbox_chrome_args: str | None = ""
     sandbox_https_proxy: str | None = None
     sandbox_http_proxy: str | None = None
     sandbox_no_proxy: str | None = None
     sandbox_seccomp_profile: str | None = None
-    sandbox_shm_size: str | None = "1g"  # Chrome headless needs 512MB-1GB (reduced from 2g)
+    sandbox_seccomp_profile_mode: str = "compat"  # compat | hardened; default compat (Phase A)
+    sandbox_shm_size: str | None = "2g"  # Playwright/Selenium: 2GB prevents Chrome /dev/shm OOM (Context7)
     sandbox_mem_limit: str | None = "4g"  # Increased from 3g to reduce OOM kills (Priority 3)
     sandbox_cpu_limit: float | None = 1.5  # 2 containers x 1.5 CPU = 3 cores, leaves room for services
     sandbox_pids_limit: int | None = 300  # Sufficient for Chrome + Node + Python + supervisor

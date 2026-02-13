@@ -69,3 +69,22 @@ async def test_stop_session_cancels_warmup_before_domain_stop():
 
     service._cancel_sandbox_warmup_task.assert_awaited_once_with("session-2")
     service._agent_domain_service.stop_session.assert_awaited_once_with("session-2")
+
+
+@pytest.mark.asyncio
+async def test_warmup_cancelled_cleanly_when_stop_before_complete():
+    """Stopping session while warmup in progress must cancel warmup and not orphan connections."""
+    session = Session(id="session-warmup-cancel", user_id="user-1", agent_id="agent-1")
+    service = _build_service(session)
+    service._agent_domain_service.stop_session = AsyncMock()
+
+    # Start a long-running warmup
+    warmup_task = asyncio.create_task(asyncio.sleep(60))
+    service._register_sandbox_warmup_task(session.id, warmup_task)
+
+    # Stop before warmup completes
+    await service.stop_session(session.id, "user-1")
+
+    # Warmup must be cancelled
+    assert warmup_task.cancelled()
+    assert session.id not in service._sandbox_warm_tasks
