@@ -386,6 +386,14 @@ async def chat(
 
     settings = get_settings()
     use_sse_v2 = settings.feature_sse_v2
+    sse_diag_enabled = settings.debug or _is_truthy_header(http_request.headers.get("X-Pythinker-SSE-Debug"))
+
+    def log_sse_diag(stage: str, **details: object) -> None:
+        if not sse_diag_enabled:
+            return
+        detail_parts = [f"{key}={details[key]!r}" for key in sorted(details)]
+        detail_suffix = f" {' '.join(detail_parts)}" if detail_parts else ""
+        logger.info("[SSE-DIAG] stage=%s session_id=%s%s", stage, session_id, detail_suffix)
 
     # SSE send timeout (Phase 3: prevents hanging on slow clients)
     send_timeout = 60.0 if use_sse_v2 else None  # 60s for slow networks
@@ -393,8 +401,22 @@ async def chat(
     # Heartbeat interval: keep connection alive and prevent "stuck" feeling during long ops
     # Set to 30s to prevent SSE timeout during browser recovery (can take >120s)
     heartbeat_interval_seconds = 30.0
+    log_sse_diag(
+        "stream_config",
+        use_sse_v2=use_sse_v2,
+        send_timeout=send_timeout,
+        heartbeat_interval_seconds=heartbeat_interval_seconds,
+        resume_event_id=request.event_id,
+        has_message=bool(request.message and request.message.strip()),
+    )
 
     async def event_generator() -> AsyncGenerator[ServerSentEvent, None]:
+        stream_started_at = asyncio.get_running_loop().time()
+        stream_event_count = 0
+        heartbeat_count = 0
+        close_reason = "unknown"
+        last_emitted_event_id = request.event_id
+
         try:
             # INSTANT FEEDBACK: Emit ProgressEvent immediately (<100ms)
             # This gives users visual feedback before any processing begins
@@ -405,10 +427,16 @@ async def chat(
             )
             sse_event = await EventMapper.event_to_sse_event(instant_ack)
             if sse_event:
-                yield ServerSentEvent(
+                payload = ServerSentEvent(
                     event=sse_event.event,
                     data=sse_event.data.model_dump_json() if sse_event.data else None,
                 )
+                yield payload
+                stream_event_count += 1
+                ack_event_id = getattr(sse_event.data, "event_id", None) if sse_event.data else None
+                if ack_event_id:
+                    last_emitted_event_id = str(ack_event_id)
+                log_sse_diag("instant_ack_sent", event=sse_event.event, event_id=ack_event_id)
 
             # Convert FollowUpContext to dict for service layer
             follow_up_dict = None
@@ -455,6 +483,8 @@ async def chat(
                 # Phase 3: Check for client disconnect before sending
                 if use_sse_v2 and await http_request.is_disconnected():
                     logger.info(f"Client disconnected during chat stream: {session_id}")
+                    close_reason = "client_disconnected"
+                    log_sse_diag("disconnect_detected", event_count=stream_event_count, heartbeat_count=heartbeat_count)
                     break
 
                 done: set[asyncio.Task] = set()
@@ -472,6 +502,14 @@ async def chat(
                         yield heartbeat_sse
                     else:
                         yield ServerSentEvent(comment="heartbeat")
+                    heartbeat_count += 1
+                    stream_event_count += 1
+                    log_sse_diag(
+                        "heartbeat_sent",
+                        heartbeat_count=heartbeat_count,
+                        stream_event_count=stream_event_count,
+                        last_event_id=last_emitted_event_id,
+                    )
                     heartbeat_task = asyncio.create_task(asyncio.sleep(heartbeat_interval_seconds))
                     # next_event_task unchanged - still waiting for real event
                 else:
@@ -486,6 +524,12 @@ async def chat(
                         event = next_event_task.result()
                     except StopAsyncIteration:
                         stream_exhausted = True
+                        close_reason = "stream_exhausted"
+                        log_sse_diag(
+                            "stream_exhausted",
+                            event_count=stream_event_count,
+                            heartbeat_count=heartbeat_count,
+                        )
                         break
 
                     logger.debug(f"Received event from chat: {event}")
@@ -494,6 +538,14 @@ async def chat(
                     if sse_event:
                         event_data = sse_event.data.model_dump_json() if sse_event.data else None
                         event_id_val = getattr(sse_event.data, "event_id", None) if sse_event.data else None
+                        if event_id_val:
+                            last_emitted_event_id = str(event_id_val)
+                        log_sse_diag(
+                            "event_ready",
+                            event=sse_event.event,
+                            event_id=event_id_val,
+                            send_timeout=send_timeout,
+                        )
                         sse_kwargs: dict = {"event": sse_event.event, "data": event_data}
                         if event_id_val:
                             sse_kwargs["id"] = str(event_id_val)
@@ -502,11 +554,21 @@ async def chat(
                             try:
                                 async with asyncio.timeout(send_timeout):
                                     yield sse_payload
+                                stream_event_count += 1
                             except TimeoutError:
                                 logger.warning(f"SSE send timeout for session {session_id}")
+                                close_reason = "send_timeout"
+                                log_sse_diag(
+                                    "send_timeout",
+                                    event=sse_event.event,
+                                    event_id=event_id_val,
+                                    event_count=stream_event_count,
+                                    heartbeat_count=heartbeat_count,
+                                )
                                 break
                         else:
                             yield sse_payload
+                            stream_event_count += 1
 
                     next_event_task = asyncio.create_task(stream_iter.__anext__())
                     heartbeat_task = asyncio.create_task(asyncio.sleep(heartbeat_interval_seconds))
@@ -517,9 +579,19 @@ async def chat(
         except asyncio.CancelledError:
             # Client disconnected - log and gracefully terminate
             logger.warning(f"Chat stream cancelled for session {session_id} (client disconnected)")
+            close_reason = "generator_cancelled"
+            log_sse_diag("generator_cancelled", event_count=stream_event_count, heartbeat_count=heartbeat_count)
             raise
         except Exception as e:
             logger.error(f"Error in chat stream for session {session_id}: {e}")
+            close_reason = "stream_exception"
+            log_sse_diag(
+                "stream_exception",
+                error_type=type(e).__name__,
+                error=str(e),
+                event_count=stream_event_count,
+                heartbeat_count=heartbeat_count,
+            )
             # Yield schema-compliant error event before closing so frontend
             # ErrorEventData handler receives the expected `error` field.
             error_event = ErrorEvent(error=f"Stream error: {str(e)[:100]}")
@@ -529,7 +601,19 @@ async def chat(
                     event=sse_err.event,
                     data=sse_err.data.model_dump_json() if sse_err.data else None,
                 )
+                stream_event_count += 1
         finally:
+            elapsed_seconds = asyncio.get_running_loop().time() - stream_started_at
+            if close_reason == "unknown":
+                close_reason = "completed_without_explicit_reason"
+            log_sse_diag(
+                "stream_closed",
+                close_reason=close_reason,
+                elapsed_seconds=round(elapsed_seconds, 3),
+                event_count=stream_event_count,
+                heartbeat_count=heartbeat_count,
+                last_event_id=last_emitted_event_id,
+            )
             # Signal cancellation so agent service can stop background work
             get_agent_service().request_cancellation(session_id)
 
