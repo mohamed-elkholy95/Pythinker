@@ -243,6 +243,7 @@ export interface SSECallbacks<T = unknown> {
   onMessage?: (event: { event: string; data: T }) => void;
   onClose?: () => void;
   onError?: (error: Error) => void;
+  onRetry?: (attempt: number, maxAttempts: number) => void;
 }
 
 export interface SSEOptions {
@@ -291,7 +292,7 @@ export const createSSEConnection = async <T = unknown>(
   options: SSEOptions = {},
   callbacks: SSECallbacks<T> = {}
 ): Promise<() => void> => {
-  const { onOpen, onMessage, onClose, onError } = callbacks;
+  const { onOpen, onMessage, onClose, onError, onRetry } = callbacks;
   const {
     method = 'GET',
     body,
@@ -479,8 +480,10 @@ export const createSSEConnection = async <T = unknown>(
 
           // Attempt reconnection if not manually aborted
           if (!abortController.signal.aborted && retryCount < maxRetries) {
+            const attempt = retryCount + 1;
+            if (onRetry) onRetry(attempt, maxRetries);
             const delay = getRetryDelay(retryCount);
-            console.log(`SSE connection closed. Reconnecting in ${Math.round(delay / 1000)}s... (attempt ${retryCount + 1}/${maxRetries})`);
+            console.log(`SSE connection closed. Reconnecting in ${Math.round(delay / 1000)}s... (attempt ${attempt}/${maxRetries})`);
             retryCount++;
 
             reconnectTimeout = setTimeout(() => {
@@ -499,8 +502,10 @@ export const createSSEConnection = async <T = unknown>(
 
           // Attempt reconnection on network errors if not manually aborted
           if (!abortController.signal.aborted && retryCount < maxRetries) {
+            const attempt = retryCount + 1;
+            if (onRetry) onRetry(attempt, maxRetries);
             const delay = getRetryDelay(retryCount);
-            console.log(`SSE connection error. Retrying in ${Math.round(delay / 1000)}s... (attempt ${retryCount + 1}/${maxRetries})`);
+            console.log(`SSE connection error. Retrying in ${Math.round(delay / 1000)}s... (attempt ${attempt}/${maxRetries})`);
             retryCount++;
 
             reconnectTimeout = setTimeout(() => {

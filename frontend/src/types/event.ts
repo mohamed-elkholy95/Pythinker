@@ -107,6 +107,9 @@ export interface MessageEventData extends BaseEventData {
 
 export interface ErrorEventData extends BaseEventData {
   error: string;
+  error_type?: string;     // "timeout" | "token_limit" | "tool_execution" | "llm_api"
+  recoverable?: boolean;   // Whether retry makes sense
+  retry_hint?: string;     // User-facing recovery guidance
 }
 
 export interface DoneEventData extends BaseEventData {
