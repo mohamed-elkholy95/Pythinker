@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-02-13T20:33:32.666243",
+  "generated_at": "2026-02-13T22:49:21.479302",
   "version": "1.0.0",
   "environment": {
     "os": {
@@ -806,7 +806,7 @@
       "disk": {
         "total": "79G",
         "used": "48G",
-        "available": "27G",
+        "available": "28G",
         "use_percent": "64%"
       }
     }

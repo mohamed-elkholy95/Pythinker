@@ -252,13 +252,15 @@ def get_search_engine_from_factory() -> SearchEngine | None:
         provider = "duckduckgo"
 
     # Get Redis client for API key pool coordination
+    # FIXME: RedisClient wrapper doesn't expose .exists() method needed by APIKeyPool
+    # Passing None uses in-memory mode (graceful degradation, no Redis coordination)
+    # Proper fix: Pass get_redis().client after ensuring initialization, or refactor APIKeyPool
     redis_client = None
-    try:
-        from app.infrastructure.storage.redis import get_redis
-
-        redis_client = get_redis()
-    except Exception as e:
-        logger.warning(f"Failed to get Redis client for search engine key pool: {e}")
+    # try:
+    #     from app.infrastructure.storage.redis import get_redis
+    #     redis_client = get_redis()  # ❌ Type mismatch: wrapper vs raw client
+    # except Exception as e:
+    #     logger.warning(f"Failed to get Redis client for search engine key pool: {e}")
 
     # Provider-level failover chain for API-backed search reliability.
     # Each provider still does its own API key rotation internally.

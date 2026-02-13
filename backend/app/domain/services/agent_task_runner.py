@@ -1825,6 +1825,21 @@ class AgentTaskRunner(TaskRunner):
                     exc_info=True,
                 )
 
+        # ORPHANED TASK FIX: Cancel all background tasks (fire-and-forget tasks)
+        # Prevents orphaned tasks from continuing after session ends
+        if self._background_tasks:
+            logger.debug(f"Cancelling {len(self._background_tasks)} background tasks for session {self._session_id}")
+            for task in list(self._background_tasks):
+                if not task.done():
+                    task.cancel()
+                    try:
+                        await asyncio.wait_for(task, timeout=2.0)
+                    except (asyncio.CancelledError, asyncio.TimeoutError):
+                        pass  # Expected - task was cancelled
+                    except Exception as e:
+                        logger.warning(f"Background task cleanup raised exception: {e}")
+            self._background_tasks.clear()
+
         # Cleanup background tasks on the execution agent (e.g. background memory saves)
         agent = self._get_tool_execution_agent()
         if agent and hasattr(agent, "cleanup_background_tasks"):

@@ -16,6 +16,11 @@ from app.domain.services.agents.error_handler import TokenLimitExceededError
 from app.domain.services.agents.prompt_cache_manager import get_prompt_cache_manager
 from app.domain.services.agents.token_manager import TokenManager
 from app.domain.services.agents.usage_context import get_usage_context
+from app.infrastructure.external.key_pool import (
+    APIKeyConfig,
+    APIKeyPool,
+    RotationStrategy,
+)
 from app.infrastructure.external.llm.factory import LLMProviderRegistry
 
 T = TypeVar("T", bound=BaseModel)
@@ -26,6 +31,12 @@ logger = logging.getLogger(__name__)
 
 @LLMProviderRegistry.register("openai")
 class OpenAILLM(LLM):
+    """OpenAI-compatible LLM implementation with multi-key failover support.
+
+    Supports OpenAI, OpenRouter, DeepSeek, and other OpenAI-compatible APIs.
+    Uses FAILOVER strategy for automatic key rotation on rate limits (429) and auth errors (401).
+    """
+
     _MESSAGE_VALIDATION_ERROR_TERMS = (
         "'1214'",
         "invalid messages",
@@ -37,29 +48,54 @@ class OpenAILLM(LLM):
         "messages parameter is illegal",
     )
 
-    def __init__(self):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        fallback_api_keys: list[str] | None = None,
+        redis_client=None,
+        model_name: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        api_base: str | None = None,
+    ):
+        """Initialize OpenAI-compatible LLM with multi-key failover support.
+
+        Args:
+            api_key: Primary API key (defaults to settings)
+            fallback_api_keys: Optional fallback keys (up to 2 fallbacks = 3 total)
+            redis_client: Redis client for distributed key coordination
+            model_name: Model name (defaults to settings)
+            temperature: Sampling temperature (defaults to settings)
+            max_tokens: Maximum tokens in response (defaults to settings)
+            api_base: API base URL (defaults to settings)
+        """
         settings = get_settings()
 
-        # Detect if using Kimi Code API and add required headers
-        default_headers = None
-        if settings.api_base and "kimi.com" in settings.api_base:
-            # Kimi Code API requires User-Agent from recognized coding agents
-            default_headers = {
-                "User-Agent": "claude-code/1.0",
-                "X-Client-Name": "claude-code",
-            }
-            logger.info("Detected Kimi Code API, adding required headers")
+        # Build key configs (primary + fallbacks)
+        primary_key = api_key or settings.api_key
+        if not primary_key:
+            raise ValueError("OpenAI/OpenRouter API key is required")
 
-        self.client = AsyncOpenAI(
-            api_key=settings.api_key,
-            base_url=settings.api_base,
-            default_headers=default_headers,
+        all_keys = [primary_key]
+        if fallback_api_keys:
+            all_keys.extend(fallback_api_keys)
+
+        key_configs = [APIKeyConfig(key=k, priority=i) for i, k in enumerate(all_keys) if k and k.strip()]
+
+        # FAILOVER strategy for priority-based rotation
+        # Keeps using primary key until exhausted, then rotates to fallbacks
+        self._key_pool = APIKeyPool(
+            provider="openai",
+            keys=key_configs,
+            redis_client=redis_client,
+            strategy=RotationStrategy.FAILOVER,
         )
 
-        self._model_name = settings.model_name
-        self._temperature = settings.temperature
-        self._max_tokens = settings.max_tokens
-        self._api_base = settings.api_base
+        self._max_retries = len(key_configs)
+        self._model_name = model_name or settings.model_name
+        self._temperature = temperature if temperature is not None else settings.temperature
+        self._max_tokens = max_tokens if max_tokens is not None else settings.max_tokens
+        self._api_base = api_base or settings.api_base
         self._supports_stream_usage = self._detect_stream_usage_support()
         self._last_stream_metadata: dict[str, Any] | None = None
 
@@ -72,10 +108,78 @@ class OpenAILLM(LLM):
         # Initialize prompt cache manager for KV-cache optimization
         self._cache_manager = get_prompt_cache_manager(self._model_name)
 
+        # Client will be created with active key on-demand
+        self.client: AsyncOpenAI | None = None
+
         logger.info(
-            f"Initialized OpenAI LLM with model: {self._model_name}, "
-            f"MLX mode: {self._is_mlx_mode}, thinking API: {self._is_thinking_api}"
+            f"Initialized OpenAI LLM with {len(key_configs)} API key(s) "
+            f"using FAILOVER strategy, model: {self._model_name}"
         )
+
+    async def get_api_key(self) -> str | None:
+        """Get currently active API key from pool."""
+        return await self._key_pool.get_healthy_key()
+
+    async def _get_client(self) -> AsyncOpenAI:
+        """Get OpenAI client with current active key."""
+        key = await self.get_api_key()
+        if not key:
+            raise RuntimeError(f"All {len(self._key_pool.keys)} OpenAI/OpenRouter API keys exhausted")
+
+        # Detect if using Kimi Code API and add required headers
+        default_headers = None
+        if self._api_base and "kimi.com" in self._api_base:
+            # Kimi Code API requires User-Agent from recognized coding agents
+            default_headers = {
+                "User-Agent": "claude-code/1.0",
+                "X-Client-Name": "claude-code",
+            }
+            logger.debug("Using Kimi Code API headers")
+
+        return AsyncOpenAI(
+            api_key=key,
+            base_url=self._api_base,
+            default_headers=default_headers,
+        )
+
+    def _parse_openai_rate_limit(self, error: Exception) -> int:
+        """Parse OpenAI rate limit error for TTL.
+
+        OpenAI includes x-ratelimit-reset-requests header with Unix timestamp.
+
+        Args:
+            error: Exception from OpenAI SDK
+
+        Returns:
+            TTL in seconds (default: 60)
+        """
+        # Try to extract reset time from error response headers
+        if hasattr(error, "response") and error.response is not None:
+            headers = getattr(error.response, "headers", None)
+            if headers:
+                # OpenAI uses x-ratelimit-reset-requests (Unix timestamp)
+                reset_header = headers.get("x-ratelimit-reset-requests") or headers.get("X-RateLimit-Reset-Requests")
+                if reset_header:
+                    try:
+                        import time
+
+                        reset_time = float(reset_header)
+                        ttl = max(1, int(reset_time - time.time()))
+                        return ttl
+                    except (ValueError, TypeError):
+                        pass
+
+        # Fallback: try to extract from error message
+        error_str = str(error)
+        if "retry after" in error_str.lower():
+            try:
+                match = re.search(r"retry after (\d+)", error_str, re.IGNORECASE)
+                if match:
+                    return int(match.group(1))
+            except ValueError:
+                pass
+
+        return 60  # Default: 1 minute TTL
 
     def _detect_stream_usage_support(self) -> bool:
         """Detect whether streaming usage metadata is supported by the API base."""
@@ -798,12 +902,32 @@ To extract data from a webpage:
         response_format: dict[str, Any] | None = None,
         tool_choice: str | None = None,
         enable_caching: bool = True,
+        _attempt: int = 0,
     ) -> dict[str, Any]:
-        """Send chat request to OpenAI API with retry mechanism and caching support.
+        """Send chat request to OpenAI API with automatic key rotation and retry.
 
-        For MLX models (local server), tools are converted to text-based format
-        since MLX doesn't support OpenAI's native tool calling API.
+        Args:
+            messages: List of messages in OpenAI format
+            tools: Optional list of tools
+            response_format: Optional response format
+            tool_choice: Optional tool choice configuration
+            enable_caching: Whether to enable prompt caching
+            _attempt: Internal retry counter for key rotation
+
+        Returns:
+            Response message in OpenAI format
         """
+        # Check retry limit to prevent infinite recursion
+        if _attempt >= self._max_retries:
+            raise RuntimeError(f"All {len(self._key_pool.keys)} OpenAI/OpenRouter API keys exhausted after {_attempt} attempts")
+
+        # Get healthy key and create client
+        try:
+            client = await self._get_client()
+        except RuntimeError as e:
+            # All keys exhausted
+            raise RuntimeError(str(e)) from e
+
         # Validate and fix message sequence before sending
         base_messages = self._validate_and_fix_messages(messages)
 
@@ -861,7 +985,7 @@ To extract data from a webpage:
                     # Some providers (DeepSeek, etc.) don't support response_format with tools
                     # Only pass response_format for official OpenAI endpoints
                     use_response_format = response_format if self._supports_response_format_with_tools() else None
-                    response = await self.client.chat.completions.create(
+                    response = await client.chat.completions.create(
                         **params,
                         tools=request_tools,
                         response_format=use_response_format,
@@ -873,7 +997,7 @@ To extract data from a webpage:
                     logger.debug(
                         f"Sending request without native tools, model: {self._model_name}, MLX mode: {self._is_mlx_mode}, attempt: {attempt + 1}"
                     )
-                    response = await self.client.chat.completions.create(
+                    response = await client.chat.completions.create(
                         **params,
                         response_format=response_format if not self._is_mlx_mode else None,
                     )
@@ -911,24 +1035,27 @@ To extract data from a webpage:
                 return result
 
             except RateLimitError as e:
-                retry_after = None
-                if hasattr(e, "response") and e.response is not None:
-                    retry_after_header = e.response.headers.get("Retry-After") or e.response.headers.get("retry-after")
-                    if retry_after_header:
-                        with contextlib.suppress(ValueError, TypeError):
-                            retry_after = float(retry_after_header)
-                if retry_after is None:
-                    retry_after = min(base_delay * (2**attempt), 60.0)
-                logger.warning(
-                    f"OpenAI rate limit hit on attempt {attempt + 1}/{max_retries + 1}, "
-                    f"retrying after {retry_after:.1f}s"
-                )
-                if attempt == max_retries:
-                    raise
-                await asyncio.sleep(retry_after)
-                continue
+                # Parse rate limit TTL and mark key exhausted
+                key = await self.get_api_key()
+                if key:
+                    ttl = self._parse_openai_rate_limit(e)
+                    await self._key_pool.mark_exhausted(key, ttl_seconds=ttl)
+                    logger.warning(f"OpenAI rate limit hit, rotating to next key (attempt {_attempt + 1}/{self._max_retries})")
+                    # Retry with next key
+                    return await self.ask(messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1)
+                raise
 
             except Exception as e:
+                # Check for authentication errors (401) and rotate keys
+                error_msg = str(e).lower()
+                if "401" in error_msg or "unauthorized" in error_msg or "authentication" in error_msg:
+                    key = await self.get_api_key()
+                    if key:
+                        await self._key_pool.mark_invalid(key)
+                        logger.error(f"OpenAI authentication error, rotating to next key (attempt {_attempt + 1}/{self._max_retries})")
+                        # Retry with next key
+                        return await self.ask(messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1)
+                    raise
                 error_msg = str(e).lower()
 
                 # Check for MLX-specific content type error
@@ -1073,6 +1200,9 @@ To extract data from a webpage:
         Uses OpenAI's native JSON schema support for type-safe responses.
         Falls back to json_object mode + Pydantic validation for compatibility.
 
+        Note: Multi-key rotation not implemented for structured output.
+        Uses the primary key only.
+
         Args:
             messages: List of messages
             response_model: Pydantic model class for response validation
@@ -1083,6 +1213,8 @@ To extract data from a webpage:
         Returns:
             Validated Pydantic model instance
         """
+        # Get client with current active key
+        client = await self._get_client()
         # Validate and fix message sequence
         base_messages = self._validate_and_fix_messages(messages)
 
@@ -1161,7 +1293,7 @@ To extract data from a webpage:
                     params["tool_choice"] = tool_choice
                     params["parallel_tool_calls"] = False
 
-                response = await self.client.chat.completions.create(**params)
+                response = await client.chat.completions.create(**params)
 
                 # Record usage for structured requests
                 await self._record_usage(response)
@@ -1355,10 +1487,9 @@ To extract data from a webpage:
         response_format: dict[str, Any] | None = None,
         tool_choice: str | None = None,
         enable_caching: bool = True,
+        _attempt: int = 0,
     ) -> AsyncGenerator[str, None]:
-        """Stream chat response from OpenAI API.
-
-        Yields content chunks as they arrive for better perceived latency.
+        """Stream chat response from OpenAI API with automatic key rotation.
 
         Args:
             messages: List of messages
@@ -1366,18 +1497,42 @@ To extract data from a webpage:
             response_format: Optional response format
             tool_choice: Optional tool choice
             enable_caching: Whether to use prompt caching
+            _attempt: Internal retry counter for key rotation
 
         Yields:
             Content chunks as strings
         """
+        # Check retry limit
+        if _attempt >= self._max_retries:
+            self._last_stream_metadata = {
+                "finish_reason": "error",
+                "truncated": False,
+                "provider": "openai",
+                "error": "all_keys_exhausted",
+            }
+            raise RuntimeError(f"All {len(self._key_pool.keys)} OpenAI/OpenRouter API keys exhausted after {_attempt} attempts")
+
         self._last_stream_metadata = None
+
+        # Get healthy key and create client
+        try:
+            client = await self._get_client()
+        except RuntimeError as e:
+            # All keys exhausted
+            self._last_stream_metadata = {
+                "finish_reason": "error",
+                "truncated": False,
+                "provider": "openai",
+                "error": "all_keys_exhausted",
+            }
+            raise RuntimeError(str(e)) from e
 
         # Validate and fix message sequence
         base_messages = self._validate_and_fix_messages(messages)
 
         # MLX mode doesn't support streaming well, fall back to regular ask
         if self._is_mlx_mode:
-            result = await self.ask(base_messages, tools, response_format, tool_choice, enable_caching)
+            result = await self.ask(base_messages, tools, response_format, tool_choice, enable_caching, _attempt)
             content = result.get("content", "")
             finish_reason = result.get("_finish_reason")
             self._last_stream_metadata = {
@@ -1429,7 +1584,7 @@ To extract data from a webpage:
             finish_reason: str | None = None
 
             try:
-                stream = await self.client.chat.completions.create(**params)
+                stream = await client.chat.completions.create(**params)
 
                 async for chunk in stream:
                     if getattr(chunk, "usage", None):
@@ -1486,19 +1641,46 @@ To extract data from a webpage:
                     "provider": "openai",
                     "error": "rate_limit",
                 }
-                retry_after = None
-                if hasattr(e, "response") and e.response is not None:
-                    retry_after_header = e.response.headers.get("Retry-After") or e.response.headers.get("retry-after")
-                    if retry_after_header:
-                        with contextlib.suppress(ValueError, TypeError):
-                            retry_after = float(retry_after_header)
-                if retry_after is None:
-                    retry_after = min(4.0, 60.0)  # Single retry for streaming
-                logger.warning(f"OpenAI rate limit hit during streaming, retrying after {retry_after:.1f}s")
-                await asyncio.sleep(retry_after)
-                # Re-raise to let caller retry the entire stream
+                # Parse rate limit TTL and mark key exhausted
+                key = await self.get_api_key()
+                if key:
+                    ttl = self._parse_openai_rate_limit(e)
+                    await self._key_pool.mark_exhausted(key, ttl_seconds=ttl)
+                    logger.warning(
+                        f"OpenAI stream rate limit hit, rotating to next key (attempt {_attempt + 1}/{self._max_retries})"
+                    )
+                    # Retry with next key (recursively yield from new attempt)
+                    async for chunk in self.ask_stream(
+                        messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1
+                    ):
+                        yield chunk
+                    return
                 raise
             except Exception as e:
+                error_msg = str(e).lower()
+
+                # Check for authentication errors (401) and rotate keys
+                if "401" in error_msg or "unauthorized" in error_msg or "authentication" in error_msg:
+                    self._last_stream_metadata = {
+                        "finish_reason": "error",
+                        "truncated": False,
+                        "provider": "openai",
+                        "error": "authentication_error",
+                    }
+                    key = await self.get_api_key()
+                    if key:
+                        await self._key_pool.mark_invalid(key)
+                        logger.error(
+                            f"OpenAI stream authentication error, rotating to next key (attempt {_attempt + 1}/{self._max_retries})"
+                        )
+                        # Retry with next key (recursively yield from new attempt)
+                        async for chunk in self.ask_stream(
+                            messages, tools, response_format, tool_choice, enable_caching, _attempt=_attempt + 1
+                        ):
+                            yield chunk
+                        return
+                    raise
+
                 if self._is_message_validation_error(e) and not validation_recovery_attempted and not completion_parts:
                     recovered_messages = self._build_validation_recovery_messages(base_messages)
                     if recovered_messages != base_messages:
@@ -1518,7 +1700,6 @@ To extract data from a webpage:
                     "provider": "openai",
                     "error": type(e).__name__,
                 }
-                error_msg = str(e).lower()
                 if any(
                     term in error_msg
                     for term in [

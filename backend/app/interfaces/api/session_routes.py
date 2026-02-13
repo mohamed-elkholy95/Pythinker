@@ -88,32 +88,18 @@ _pending_disconnect_cancellations: dict[str, asyncio.Task[None]] = {}
 
 
 def _cancel_pending_disconnect_cancellation(session_id: str) -> None:
-    # #region agent log
-    _has = session_id in _pending_disconnect_cancellations
-    logger.info("[DEBUG-CANCEL] cancel_pending called session=%s has_pending=%s", session_id, _has)
-    # #endregion
     pending_task = _pending_disconnect_cancellations.pop(session_id, None)
     if pending_task and not pending_task.done():
         pending_task.cancel()
-        # #region agent log
-        logger.info("[DEBUG-CANCEL] deferred cancellation task CANCELLED for session=%s", session_id)
-        # #endregion
 
 
 def _schedule_disconnect_cancellation(session_id: str, agent_service: AgentService, grace_seconds: float) -> None:
-    # #region agent log
-    logger.info("[DEBUG-CANCEL] scheduling deferred cancellation session=%s grace=%.1f", session_id, grace_seconds)
-    # #endregion
     _cancel_pending_disconnect_cancellation(session_id)
 
     async def _deferred_cancel() -> None:
         try:
             await asyncio.sleep(max(0.0, grace_seconds))
-            active = await has_active_stream(session_id=session_id, endpoint="chat")
-            # #region agent log
-            logger.info("[DEBUG-CANCEL] deferred FIRED session=%s has_active_stream=%s", session_id, active)
-            # #endregion
-            if active:
+            if await has_active_stream(session_id=session_id, endpoint="chat"):
                 logger.info(
                     "Skipping deferred cancellation for session %s: active chat stream detected",
                     session_id,
@@ -121,15 +107,9 @@ def _schedule_disconnect_cancellation(session_id: str, agent_service: AgentServi
                 return
             request_cancellation = getattr(agent_service, "request_cancellation", None)
             if callable(request_cancellation):
-                # #region agent log
-                logger.info("[DEBUG-CANCEL] EXECUTING request_cancellation from deferred session=%s", session_id)
-                # #endregion
                 with contextlib.suppress(Exception):
                     request_cancellation(session_id)
         except asyncio.CancelledError:
-            # #region agent log
-            logger.info("[DEBUG-CANCEL] deferred CANCELLED (reconnection happened) session=%s", session_id)
-            # #endregion
             logger.debug("Deferred disconnect cancellation cancelled for session %s", session_id)
             raise
 
@@ -730,15 +710,9 @@ async def chat(
                 await stream_iter.aclose()
         except asyncio.CancelledError:
             # Client disconnected - log and gracefully terminate
-            # #region agent log
-            logger.info(
-                "[DEBUG-SSE] CancelledError caught - stream_iter.aclose() NOT called yet session=%s", session_id
-            )
             # CRITICAL FIX: Close the stream_iter to clean up orphaned agent_service.chat()
             with contextlib.suppress(Exception):
                 await stream_iter.aclose()
-            logger.info("[DEBUG-SSE] stream_iter.aclose() called after CancelledError session=%s", session_id)
-            # #endregion
             logger.warning(f"Chat stream cancelled for session {session_id} (client disconnected)")
             disconnect_event.set()
             close_reason = "generator_cancelled"
@@ -800,16 +774,6 @@ async def chat(
             elapsed_seconds = asyncio.get_running_loop().time() - stream_started_at
             if close_reason == "unknown":
                 close_reason = "completed_without_explicit_reason"
-            # #region agent log
-            logger.info(
-                "[DEBUG-SSE-FINALLY] session=%s close_reason=%s elapsed=%.1f events=%d will_defer=%s",
-                session_id,
-                close_reason,
-                elapsed_seconds,
-                stream_event_count,
-                close_reason in {"client_disconnected", "generator_cancelled"},
-            )
-            # #endregion
             if close_reason in {"client_disconnected", "generator_cancelled"}:
                 stream_metrics.record_cancellation()
             with contextlib.suppress(Exception):
@@ -831,11 +795,18 @@ async def chat(
             # Use the request-scoped dependency instance; tolerate lightweight mocks.
             request_cancellation = getattr(agent_service, "request_cancellation", None)
             if callable(request_cancellation):
-                if close_reason in {"client_disconnected", "generator_cancelled"}:
+                if close_reason == "client_disconnected":
+                    # ORPHANED TASK FIX: Immediate cancellation when client disconnects
+                    # User is gone - no point in grace period, stop immediately
+                    with contextlib.suppress(Exception):
+                        request_cancellation(session_id)
+                elif close_reason == "generator_cancelled":
+                    # Short grace period (5s) for legitimate reconnection attempts
+                    # Reduced from 45s to prevent orphaned background tasks
                     _schedule_disconnect_cancellation(
                         session_id=session_id,
                         agent_service=agent_service,
-                        grace_seconds=disconnect_cancellation_grace_seconds,
+                        grace_seconds=5.0,  # Reduced from 45s
                     )
                 else:
                     # Ensure stale deferred cancellations don't race with a successful completion path.

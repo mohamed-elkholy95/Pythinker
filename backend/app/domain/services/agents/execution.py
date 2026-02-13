@@ -98,6 +98,7 @@ class ExecutionAgent(BaseAgent):
         attention_injector: AttentionInjector | None = None,
         circuit_breaker=None,
         feature_flags: dict[str, bool] | None = None,
+        cancel_token: "CancellationToken | None" = None,
     ):
         super().__init__(
             agent_id=agent_id,
@@ -107,6 +108,7 @@ class ExecutionAgent(BaseAgent):
             tools=tools,
             circuit_breaker=circuit_breaker,
             feature_flags=feature_flags,
+            cancel_token=cancel_token,
         )
         # Initialize prompt adapter for dynamic context injection
         self._prompt_adapter = PromptAdapter()

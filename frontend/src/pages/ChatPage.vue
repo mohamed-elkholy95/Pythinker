@@ -2864,9 +2864,14 @@ onBeforeRouteUpdate(async (to, from, next) => {
     return;
   }
 
-  // Stop the current session if it's still running to release sandbox/browser resources
+  // Only reset state when actually switching to a different session
+  // This prevents cancelling the active chat on same-session route updates
   const prevSessionId = from.params.sessionId as string | undefined;
-  if (prevSessionId && shouldStopSessionOnExit(sessionStatus.value)) {
+  const nextSessionId = to.params.sessionId as string | undefined;
+  const isSwitchingSession = prevSessionId !== nextSessionId;
+
+  // Stop the current session if it's still running AND we're switching sessions
+  if (isSwitchingSession && prevSessionId && shouldStopSessionOnExit(sessionStatus.value)) {
     try {
       await agentApi.stopSession(prevSessionId);
       emitStatusChange(prevSessionId, SessionStatus.COMPLETED);
@@ -2875,13 +2880,16 @@ onBeforeRouteUpdate(async (to, from, next) => {
     }
   }
 
-  toolPanel.value?.clearContent();  // Clear tool panel content when switching sessions
-  hideFilePanel();
-  resetState();
-  if (to.params.sessionId) {
-    messages.value = [];
-    sessionId.value = String(to.params.sessionId) as string;
-    restoreSession();
+  // Only reset state and clear UI when actually switching sessions
+  if (isSwitchingSession) {
+    toolPanel.value?.clearContent();  // Clear tool panel content when switching sessions
+    hideFilePanel();
+    resetState();  // This cancels the chat - only do it when switching sessions
+    if (nextSessionId) {
+      messages.value = [];
+      sessionId.value = nextSessionId;
+      restoreSession();
+    }
   }
   next();
 })

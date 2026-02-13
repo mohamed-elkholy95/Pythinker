@@ -635,6 +635,32 @@ sse_stream_active = Gauge(
     labels=["endpoint"],
 )
 
+# Orphaned Task Cleanup Metrics
+orphaned_task_cleanup_runs_total = Counter(
+    name="pythinker_orphaned_task_cleanup_runs_total",
+    help_text="Total orphaned task cleanup runs",
+    labels=["status"],  # success, error
+)
+
+orphaned_redis_streams_cleaned_total = Counter(
+    name="pythinker_orphaned_redis_streams_cleaned_total",
+    help_text="Total orphaned Redis streams cleaned up",
+    labels=[],
+)
+
+zombie_sessions_cleaned_total = Counter(
+    name="pythinker_zombie_sessions_cleaned_total",
+    help_text="Total zombie sessions marked as FAILED",
+    labels=[],
+)
+
+orphaned_task_cleanup_duration_seconds = Histogram(
+    name="pythinker_orphaned_task_cleanup_duration_seconds",
+    help_text="Orphaned task cleanup operation duration",
+    labels=[],
+    buckets=[0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0],
+)
+
 
 # Registry of all metrics
 _metrics_registry = [
@@ -692,6 +718,11 @@ _metrics_registry = [
     sse_stream_retry_suggested_total,
     sse_stream_duration_seconds,
     sse_stream_active,
+    # Orphaned Task Cleanup
+    orphaned_task_cleanup_runs_total,
+    orphaned_redis_streams_cleaned_total,
+    zombie_sessions_cleaned_total,
+    orphaned_task_cleanup_duration_seconds,
 ]
 
 # Workflow Phase Metrics (Monitoring Enhancement)
@@ -1439,6 +1470,37 @@ def record_sse_stream_retry_suggestion(endpoint: str = "chat", reason: str = "un
     normalized_endpoint = (endpoint or "").strip().lower() or "unknown"
     normalized_reason = (reason or "").strip().lower() or "unknown"
     sse_stream_retry_suggested_total.inc({"endpoint": normalized_endpoint, "reason": normalized_reason})
+
+
+# Orphaned Task Cleanup Metric Functions
+def record_orphaned_task_cleanup(
+    orphaned_streams: int = 0,
+    zombie_sessions: int = 0,
+    duration_ms: float = 0.0,
+    status: str = "success",
+) -> None:
+    """Record orphaned task cleanup operation metrics.
+
+    Args:
+        orphaned_streams: Number of orphaned Redis streams cleaned
+        zombie_sessions: Number of zombie sessions marked as FAILED
+        duration_ms: Cleanup operation duration in milliseconds
+        status: Cleanup status ("success" or "error")
+    """
+    # Record cleanup run
+    normalized_status = (status or "").strip().lower() or "unknown"
+    orphaned_task_cleanup_runs_total.inc({"status": normalized_status})
+
+    # Record cleaned resources
+    if orphaned_streams > 0:
+        orphaned_redis_streams_cleaned_total.inc({}, orphaned_streams)
+
+    if zombie_sessions > 0:
+        zombie_sessions_cleaned_total.inc({}, zombie_sessions)
+
+    # Record duration
+    if duration_ms > 0:
+        orphaned_task_cleanup_duration_seconds.observe({}, duration_ms / 1000.0)
 
 
 # Phase 6: Circuit Breaker Metric Functions

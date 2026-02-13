@@ -15,6 +15,8 @@ export interface FileInfo {
   file_url?: string;
 }
 
+const encodeFileId = (fileId: string): string => encodeURIComponent(fileId);
+
 
 
 /**
@@ -45,7 +47,7 @@ export async function uploadFile(file: File, metadata?: Record<string, any>): Pr
  * @returns File download result
  */
 export async function downloadFile(fileId: string): Promise<Blob> {
-  const response = await apiClient.get(`/files/${fileId}/download`, {
+  const response = await apiClient.get(`/files/${encodeFileId(fileId)}/download`, {
     responseType: 'blob',
   });
   
@@ -59,7 +61,7 @@ export async function downloadFile(fileId: string): Promise<Blob> {
  */
 export async function deleteFile(fileId: string): Promise<boolean> {
   try {
-    await apiClient.delete<ApiResponse<void>>(`/files/${fileId}`);
+    await apiClient.delete<ApiResponse<void>>(`/files/${encodeFileId(fileId)}`);
     return true;
   } catch (error) {
     console.error('Failed to delete file:', error);
@@ -74,7 +76,7 @@ export async function deleteFile(fileId: string): Promise<boolean> {
  */
 export async function getFileInfo(fileId: string): Promise<FileInfo | null> {
   try {
-    const response = await apiClient.get<ApiResponse<FileInfo>>(`/files/${fileId}`);
+    const response = await apiClient.get<ApiResponse<FileInfo>>(`/files/${encodeFileId(fileId)}/info`);
     return response.data.data;
   } catch (error) {
     console.error('Failed to get file info:', error);
@@ -89,7 +91,7 @@ export async function getFileInfo(fileId: string): Promise<FileInfo | null> {
  * @returns Signed URL response for file download
  */
 export async function createFileSignedUrl(fileId: string, expireMinutes: number = 15): Promise<SignedUrlResponse> {
-  const response = await apiClient.post<ApiResponse<SignedUrlResponse>>(`/files/${fileId}/signed-url`, {
+  const response = await apiClient.post<ApiResponse<SignedUrlResponse>>(`/files/${encodeFileId(fileId)}/signed-url`, {
     expire_minutes: expireMinutes
   });
   return response.data.data;

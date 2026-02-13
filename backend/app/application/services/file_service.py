@@ -120,7 +120,9 @@ class FileService:
             raise FileNotFoundError("File not found")
 
         # Create signed URL for file download
-        base_url = f"/api/v1/files/{file_id}"
+        # Use explicit signed-download route so MinIO object keys containing '/'
+        # are handled via FastAPI's {file_id:path} converter.
+        base_url = f"/api/v1/files/signed-download/{file_id}"
         signed_url = self._token_service.create_signed_url(base_url=base_url, expire_minutes=expire_minutes)
 
         logger.info(f"Created signed URL for file download for user {user_id}, file {file_id}")
