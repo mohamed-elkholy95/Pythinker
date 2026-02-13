@@ -3,10 +3,10 @@
 import logging
 from typing import Any
 
-import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.core.config import get_settings
+from app.infrastructure.external.http_pool import HTTPClientPool, ManagedHTTPClient
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +25,14 @@ class ImageGenerationService:
 
     def __init__(self, api_key: str | None = None) -> None:
         self._api_key = api_key or get_settings().fal_api_key
-        self._client: httpx.AsyncClient | None = None
+        self._client: ManagedHTTPClient | None = None
 
-    @property
-    def client(self) -> httpx.AsyncClient:
+    async def _get_client(self) -> ManagedHTTPClient:
+        """Get or create the pool-managed HTTP client for fal.ai."""
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(120.0, connect=10.0),
+            self._client = await HTTPClientPool.get_client(
+                name="fal-image-generation",
+                timeout=120.0,
                 headers={"Authorization": f"Key {self._api_key}"},
             )
         return self._client
@@ -41,9 +42,8 @@ class ImageGenerationService:
         return bool(self._api_key)
 
     async def close(self) -> None:
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()
-            self._client = None
+        await HTTPClientPool.close_client("fal-image-generation")
+        self._client = None
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=10))
     async def _submit_and_poll(self, model_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -51,9 +51,11 @@ class ImageGenerationService:
         if not self._api_key:
             raise ValueError("fal.ai API key not configured (FAL_API_KEY)")
 
+        client = await self._get_client()
+
         # Submit to queue
         submit_url = f"{FAL_QUEUE_URL}/{model_id}"
-        resp = await self.client.post(submit_url, json=payload)
+        resp = await client.post(submit_url, json=payload)
         resp.raise_for_status()
         submit_data = resp.json()
 
@@ -68,14 +70,14 @@ class ImageGenerationService:
 
             await asyncio.sleep(1)
 
-            status_resp = await self.client.get(status_url)
+            status_resp = await client.get(status_url)
             status_resp.raise_for_status()
             status_data = status_resp.json()
             status = status_data.get("status")
 
             if status == "COMPLETED":
                 result_url = f"{FAL_RESULT_URL}/{model_id}/requests/{request_id}"
-                result_resp = await self.client.get(result_url)
+                result_resp = await client.get(result_url)
                 result_resp.raise_for_status()
                 return result_resp.json()
             if status in ("FAILED", "CANCELLED"):
