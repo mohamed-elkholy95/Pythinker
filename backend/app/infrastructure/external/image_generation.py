@@ -3,9 +3,8 @@
 import logging
 from typing import Any
 
-from tenacity import retry, stop_after_attempt, wait_exponential
-
 from app.core.config import get_settings
+from app.core.retry import http_retry
 from app.infrastructure.external.http_pool import HTTPClientPool, ManagedHTTPClient
 
 logger = logging.getLogger(__name__)
@@ -45,7 +44,7 @@ class ImageGenerationService:
         await HTTPClientPool.close_client("fal-image-generation")
         self._client = None
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=10))
+    @http_retry
     async def _submit_and_poll(self, model_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Submit a job to fal.ai queue and poll for result."""
         if not self._api_key:

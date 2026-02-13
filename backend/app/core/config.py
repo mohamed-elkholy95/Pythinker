@@ -450,6 +450,21 @@ class Settings(BaseSettings):
     # When True: run policy engine, log proposed mode/clarification, but skip clarification gate and use standard output
     feature_adaptive_verbosity_shadow: bool = False
 
+    # --- Agent Robustness Feature Flags (2026-02-13 plan) ---
+    # Phase 0: Wire OutputGuardrails into PlanActFlow SUMMARIZING
+    enable_output_guardrails_in_flow: bool = False
+    # Phase 1: Extract RequestContract at ingress
+    enable_request_contract: bool = False
+    # Phase 2: Use structured Step fields instead of free-form
+    enable_structured_step_model: bool = False
+    # Phase 3: Entity/relevance fidelity in delivery gate
+    enable_delivery_fidelity_v2: bool = False
+    delivery_fidelity_mode: str = "shadow"  # "shadow" | "warn" | "enforce"
+    # Phase 4: Entity fidelity in search queries
+    enable_search_fidelity_guardrail: bool = False
+    # Phase 5: Contradictory prompt detection
+    enable_contradiction_clarification: bool = False
+
     # Chart Generation (Plotly Migration Phase 4)
     feature_plotly_charts_enabled: bool = True  # Use Plotly charts instead of SVG (Phase 4)
 

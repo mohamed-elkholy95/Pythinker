@@ -457,6 +457,45 @@ sandbox_runtime_crashes_total = Counter(
     labels=[],
 )
 
+# Agent Robustness Metrics (2026-02-13 plan)
+entity_drift_detected_total = Counter(
+    name="pythinker_entity_drift_detected_total",
+    help_text="Entity drift detected in output (phase: summarize|execute|route)",
+    labels=["phase"],
+)
+output_relevance_failures_total = Counter(
+    name="pythinker_output_relevance_failures_total",
+    help_text="Output relevance check failures",
+    labels=["severity"],  # low, medium, high
+)
+step_name_quality_violations_total = Counter(
+    name="pythinker_step_name_quality_violations_total",
+    help_text="Step naming quality violations",
+    labels=["violation"],  # empty_verb, empty_target, banned_verb
+)
+guardrail_tripwire_total = Counter(
+    name="pythinker_guardrail_tripwire_total",
+    help_text="Guardrail tripwire events",
+    labels=["guardrail"],  # fidelity, relevance, consistency, contradiction
+)
+delivery_fidelity_blocks_total = Counter(
+    name="pythinker_delivery_fidelity_blocks_total",
+    help_text="Delivery blocked by fidelity checks",
+    labels=["mode"],  # shadow, warn, enforce
+)
+guardrail_latency_seconds = Histogram(
+    name="pythinker_guardrail_latency_seconds",
+    help_text="Guardrail execution latency in seconds",
+    labels=["phase"],  # extract, validate, fidelity, relevance
+    buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0],
+)
+output_relevance_score = Histogram(
+    name="pythinker_output_relevance_score",
+    help_text="Output relevance score distribution (0-1)",
+    labels=[],
+    buckets=[0.1, 0.3, 0.5, 0.7, 0.9, 1.0],
+)
+
 # Security Gate Metrics (Task 7: mandatory execution gate)
 security_gate_blocks_total = Counter(
     name="pythinker_security_gate_blocks_total",
@@ -1019,6 +1058,14 @@ _metrics_registry.extend(
         # Security Gate (Task 7)
         security_gate_blocks_total,
         security_gate_overrides_total,
+        # Agent Robustness (2026-02-13 plan)
+        entity_drift_detected_total,
+        output_relevance_failures_total,
+        step_name_quality_violations_total,
+        guardrail_tripwire_total,
+        delivery_fidelity_blocks_total,
+        guardrail_latency_seconds,
+        output_relevance_score,
     ]
 )
 

@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, ClassVar
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 
 class PhaseType(str, Enum):
@@ -148,6 +148,21 @@ class Step(BaseModel):
     expected_output: str | None = None  # Description of what this step should produce
     retry_policy: RetryPolicy = Field(default_factory=RetryPolicy)  # Per-step retry config
     budget_tokens: int | None = None  # Max tokens allocated for this step
+    # Structured naming fields (Phase 2: 2026-02-13 plan)
+    action_verb: str | None = None  # e.g., "Search", "Browse", "Analyze", "Write"
+    target_object: str | None = None  # e.g., "Python 3.12 release notes"
+    tool_hint: str | None = None  # e.g., "web_search", "browser", "file"
+
+    @computed_field
+    @property
+    def display_label(self) -> str:
+        """Generate deterministic display label from structured fields."""
+        if self.action_verb and self.target_object:
+            parts = [self.action_verb, self.target_object]
+            if self.tool_hint:
+                parts.append(f"via {self.tool_hint}")
+            return " ".join(parts)
+        return self.description  # Fallback to free-form
 
     def is_done(self) -> bool:
         """Check if step has reached a terminal state."""
