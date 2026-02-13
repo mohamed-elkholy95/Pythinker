@@ -89,6 +89,26 @@ services:
     networks:
       - pythinker-network
 
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.66.0
+    container_name: pythinker-redis-exporter
+    command:
+      - '--redis.addr=redis://redis:6379'
+      - '--web.listen-address=:9121'
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+
+  redis-cache-exporter:
+    image: oliver006/redis_exporter:v1.66.0
+    container_name: pythinker-redis-cache-exporter
+    command:
+      - '--redis.addr=redis://redis-cache:6379'
+      - '--web.listen-address=:9121'
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+
 volumes:
   prometheus_data:
     name: pythinker-prometheus-data
