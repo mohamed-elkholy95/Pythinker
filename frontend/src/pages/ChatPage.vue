@@ -142,21 +142,21 @@
           <div v-if="showFloatingThinkingIndicator" class="flex items-center gap-2 pl-1">
             <ThinkingIndicator :showText="true" />
           </div>
-          <LoadingIndicator v-else-if="!showSessionWarmupMessage && isLoading && !activeThinkingStepId && !hasRunningStep" :text="$t('Loading')" />
+          <LoadingIndicator v-else-if="!showSessionWarmupMessage && isLoading && !activeThinkingStepId && !hasRunningStep" :text="$t('Loading')" :pulse="isReceivingHeartbeats" />
 
           <!-- Waiting for user reply indicator -->
           <WaitingForReply v-if="isWaitingForReply" />
 
-          <!-- Long-running task notice - reassuring, not alarming -->
+          <!-- Still working notice - heartbeats arriving but no real events -->
           <div
-            v-if="isStale"
-            class="stale-notice flex items-center gap-3 px-4 py-3 mx-4 mb-2 rounded-xl border transition-all duration-300"
+            v-if="isStale && isLoading"
+            class="stale-notice flex items-center gap-3 px-4 py-3 mx-4 mb-2 rounded-xl border border-blue-200 dark:border-blue-800/40 bg-blue-50 dark:bg-blue-950/20 transition-all duration-300"
             role="status"
           >
-            <div class="stale-pulse w-2.5 h-2.5 rounded-full flex-shrink-0" aria-hidden="true"></div>
+            <div class="stale-pulse w-2.5 h-2.5 rounded-full bg-blue-400 dark:bg-blue-500 flex-shrink-0 animate-pulse" aria-hidden="true"></div>
             <div class="flex-1 min-w-0">
-              <span class="text-sm font-medium">
-                {{ $t('Taking longer than usual...') }}
+              <span class="text-sm font-medium text-blue-800 dark:text-blue-300">
+                {{ isReceivingHeartbeats ? $t('Still working on your request...') : $t('Connection may be unstable...') }}
               </span>
               <span v-if="currentToolInfo" class="text-xs opacity-80 ml-1.5">
                 ({{ currentToolInfo.name }})
@@ -164,23 +164,44 @@
             </div>
             <button
               @click="handleStop"
-              class="stale-stop-btn flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
+              class="stale-stop-btn flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
             >
               {{ $t('Stop') }}
             </button>
           </div>
 
+          <!-- Connection interrupted - SSE closed without completion -->
+          <div
+            v-if="responsePhase === 'timed_out'"
+            class="timeout-notice flex items-center gap-3 px-4 py-3 mx-4 mb-2 rounded-xl border border-amber-200 dark:border-amber-800/40 bg-amber-50 dark:bg-amber-950/20 transition-all duration-300"
+            role="status"
+          >
+            <div class="w-2.5 h-2.5 rounded-full bg-amber-400 dark:bg-amber-500 flex-shrink-0 animate-pulse" aria-hidden="true"></div>
+            <div class="flex-1 min-w-0">
+              <span class="text-sm font-medium text-amber-800 dark:text-amber-300">
+                {{ $t('Connection interrupted. The agent may still be working.') }}
+              </span>
+            </div>
+            <button
+              @click="handleRetryConnection"
+              class="flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/50 transition-colors"
+            >
+              {{ $t('Retry') }}
+            </button>
+          </div>
+
           <!-- Task completed - green checkmark above suggestions when response is done -->
           <TaskCompletedFooter
-            v-if="suggestions.length > 0 && isResponseSettled && !isLoading && !isThinking && !isSummaryStreaming"
+            v-if="canShowSuggestions"
             :showRating="false"
             class="mt-3 mb-1"
           />
-          <!-- Suggestions - show in dedicated area after response is complete -->
+          <!-- Suggestions - show in dedicated area after response is settled -->
           <Suggestions
-            v-if="suggestions.length > 0 && isResponseSettled && !isLoading && !isThinking && !isSummaryStreaming"
+            v-if="canShowSuggestions"
             :suggestions="suggestions"
             @select="handleSuggestionSelect"
+            class="suggestions-enter"
           />
 
           <div
@@ -512,7 +533,6 @@ const {
 // Response lifecycle: derived from responsePhase
 const isLoading = computed(() => ['connecting', 'streaming', 'completing'].includes(responsePhase.value))
 const isThinking = computed(() => responsePhase.value === 'connecting')
-const isResponseSettled = computed(() => responsePhase.value === 'settled')
 const canShowSuggestions = computed(() =>
   responsePhase.value === 'settled' && suggestions.value.length > 0 && !isSummaryStreaming.value
 )
@@ -906,9 +926,16 @@ watch(filePreviewOpen, (isOpen) => {
 });
 
 // ===== Agent Connection Health Monitoring =====
-const STALE_TIMEOUT_MS = 120000; // 2 minutes without events = taking longer than usual
-const STALE_CHECK_INTERVAL_MS = 10000; // Check every 10 seconds
+const STALE_TIMEOUT_MS = 30000; // 30s without heartbeat = possibly unstable
+const HEARTBEAT_LIVENESS_MS = 20000; // Expect heartbeat every ~15s, allow 20s grace
+const STALE_CHECK_INTERVAL_MS = 5000; // Check every 5 seconds
 let staleCheckInterval: ReturnType<typeof setInterval> | null = null;
+
+// Track whether we're receiving heartbeats (backend alive)
+const isReceivingHeartbeats = computed(() => {
+  if (lastHeartbeatAt.value === 0) return false;
+  return (Date.now() - lastHeartbeatAt.value) < HEARTBEAT_LIVENESS_MS;
+})
 
 // Update last event time when any event is received
 const updateLastEventTime = () => {
@@ -924,7 +951,11 @@ const checkStaleConnection = () => {
   }
 
   const timeSinceLastEvent = Date.now() - lastEventTime.value;
-  if (timeSinceLastEvent > STALE_TIMEOUT_MS && lastEventTime.value > 0) {
+  const timeSinceHeartbeat = lastHeartbeatAt.value > 0 ? Date.now() - lastHeartbeatAt.value : Infinity;
+
+  // If heartbeats are arriving but no real events, we're alive but working
+  // Only mark stale if BOTH real events AND heartbeats are missing
+  if (timeSinceLastEvent > STALE_TIMEOUT_MS && timeSinceHeartbeat > STALE_TIMEOUT_MS && lastEventTime.value > 0) {
     isStale.value = true;
   }
 };
@@ -1590,8 +1621,9 @@ const currentPlanningMessage = computed(() => {
 
 // Handle progress event (instant feedback during planning)
 const handleProgressEvent = (progressData: ProgressEventData) => {
-  // Heartbeat: keep-alive only, no UI change (updateLastEventTime already called in processEvent)
+  // Heartbeat: update timestamp for liveness tracking
   if (progressData.phase === 'heartbeat') {
+    lastHeartbeatAt.value = Date.now();
     return;
   }
 
@@ -1675,6 +1707,15 @@ const buildCompletionFallbackSuggestions = (): string[] => {
     if (message.type === 'user') {
       latestUserMessage = ((message.content as MessageContent).content || '').trim();
       break;
+    }
+  }
+
+  // Skip suggestions for greeting/trivial responses
+  const combined = `${latestUserMessage} ${assistantContext}`.trim().toLowerCase();
+  if (combined.length < 80 && !assistantContext.includes('```') && !assistantContext.includes('#')) {
+    const greetingPatterns = /^(hi|hello|hey|good\s*(morning|afternoon|evening)|thanks|thank\s*you|ok|sure|yes|no|bye|goodbye|welcome)\b/i;
+    if (greetingPatterns.test(latestUserMessage.trim()) || greetingPatterns.test(assistantContext.trim())) {
+      return []; // No suggestions for greetings
     }
   }
 
@@ -2255,6 +2296,7 @@ const chat = async (
   clearSelectedSkills();
   suggestions.value = [];
   receivedDoneEvent.value = false;
+  lastHeartbeatAt.value = 0;
   isWaitingForReply.value = false;
   transitionTo('connecting')
 
@@ -2368,6 +2410,8 @@ const restoreSession = async () => {
     await waitForSessionIfInitializing();
   }
   if (sessionStatus.value === SessionStatus.RUNNING || sessionStatus.value === SessionStatus.PENDING) {
+    transitionTo('connecting') // Will transition to 'streaming' on first event
+    receivedDoneEvent.value = false;
     // Defense-in-depth: if event replay already set status to COMPLETED (via DoneEvent
     // handler), the condition above will be false and we skip auto-resume. But if the
     // server returned "running" AND events didn't include a DoneEvent (edge case),
@@ -2670,6 +2714,70 @@ const handleStop = async () => {
   stopPlanningMessageCycle();
   // NO ensureCompletionSuggestions() — user intentionally stopped
   sessionStatus.value = SessionStatus.COMPLETED;
+}
+
+const handleRetryConnection = async () => {
+  if (!sessionId.value) return;
+  if (cancelCurrentChat.value) {
+    cancelCurrentChat.value();
+    cancelCurrentChat.value = null;
+  }
+  receivedDoneEvent.value = false;
+  lastHeartbeatAt.value = 0;
+  transitionTo('connecting')
+  try {
+    cancelCurrentChat.value = await agentApi.chatWithSession(
+      sessionId.value,
+      '', // empty message — just reconnect
+      lastEventId.value,
+      [],
+      [],
+      undefined,
+      {
+        onOpen: () => {},
+        onMessage: ({ event, data }) => {
+          handleEvent({
+            event: event as AgentSSEEvent['event'],
+            data: data as AgentSSEEvent['data']
+          });
+        },
+        onClose: () => {
+          if (!receivedDoneEvent.value && responsePhase.value !== 'settled' && responsePhase.value !== 'error' && responsePhase.value !== 'stopped') {
+            transitionTo('timed_out')
+          }
+          thinkingText.value = '';
+          isThinkingStreaming.value = false;
+          summaryStreamText.value = '';
+          isSummaryStreaming.value = false;
+          allowStandaloneSummaryOnNextAssistant.value = false;
+          isInitializing.value = false;
+          planningProgress.value = null;
+          stopPlanningMessageCycle();
+          if (cancelCurrentChat.value) {
+            cancelCurrentChat.value = null;
+          }
+        },
+        onError: () => {
+          if (responsePhase.value !== 'settled' && responsePhase.value !== 'stopped') {
+            transitionTo('error')
+          }
+          thinkingText.value = '';
+          isThinkingStreaming.value = false;
+          summaryStreamText.value = '';
+          isSummaryStreaming.value = false;
+          allowStandaloneSummaryOnNextAssistant.value = false;
+          isInitializing.value = false;
+          planningProgress.value = null;
+          stopPlanningMessageCycle();
+          if (cancelCurrentChat.value) {
+            cancelCurrentChat.value = null;
+          }
+        },
+      }
+    );
+  } catch {
+    transitionTo('error')
+  }
 }
 
 const handleFileListShow = () => {
