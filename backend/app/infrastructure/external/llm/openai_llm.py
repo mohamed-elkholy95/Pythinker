@@ -134,7 +134,7 @@ class OpenAILLM(LLM):
 
     async def get_api_key(self) -> str | None:
         """Get currently active API key from pool."""
-        if not hasattr(self, '_key_pool'):
+        if not hasattr(self, "_key_pool"):
             # Instance created improperly (e.g., with __new__() bypassing __init__)
             return None
         return await self._key_pool.get_healthy_key()
@@ -142,12 +142,12 @@ class OpenAILLM(LLM):
     async def _get_client(self) -> AsyncOpenAI:
         """Get OpenAI client with current active key."""
         # If client already set (e.g., by tests), return it
-        if hasattr(self, 'client') and self.client is not None:
+        if hasattr(self, "client") and self.client is not None:
             return self.client
 
         key = await self.get_api_key()
         if not key:
-            key_count = len(self._key_pool.keys) if hasattr(self, '_key_pool') else 1
+            key_count = len(self._key_pool.keys) if hasattr(self, "_key_pool") else 1
             raise RuntimeError(f"All {key_count} OpenAI/OpenRouter API keys exhausted")
 
         # Detect if using Kimi Code API and add required headers
@@ -941,12 +941,10 @@ To extract data from a webpage:
             Response message in OpenAI format
         """
         # Check retry limit to prevent infinite recursion
-        max_retries = getattr(self, '_max_retries', 3)  # Default to 3 if not set
+        max_retries = getattr(self, "_max_retries", 3)  # Default to 3 if not set
         if _attempt >= max_retries:
-            key_count = len(self._key_pool.keys) if hasattr(self, '_key_pool') else 1
-            raise RuntimeError(
-                f"All {key_count} OpenAI/OpenRouter API keys exhausted after {_attempt} attempts"
-            )
+            key_count = len(self._key_pool.keys) if hasattr(self, "_key_pool") else 1
+            raise RuntimeError(f"All {key_count} OpenAI/OpenRouter API keys exhausted after {_attempt} attempts")
 
         # Get healthy key and create client
         try:
@@ -1067,7 +1065,7 @@ To extract data from a webpage:
                 if key:
                     ttl = self._parse_openai_rate_limit(e)
                     await self._key_pool.mark_exhausted(key, ttl_seconds=ttl)
-                    max_retries = getattr(self, '_max_retries', 3)
+                    max_retries = getattr(self, "_max_retries", 3)
                     logger.warning(
                         f"OpenAI rate limit hit, rotating to next key (attempt {_attempt + 1}/{max_retries})"
                     )
@@ -1084,7 +1082,7 @@ To extract data from a webpage:
                     key = await self.get_api_key()
                     if key:
                         await self._key_pool.mark_invalid(key)
-                        max_retries = getattr(self, '_max_retries', 3)
+                        max_retries = getattr(self, "_max_retries", 3)
                         logger.error(
                             f"OpenAI authentication error, rotating to next key (attempt {_attempt + 1}/{max_retries})"
                         )
@@ -1540,7 +1538,7 @@ To extract data from a webpage:
             Content chunks as strings
         """
         # Check retry limit
-        max_retries = getattr(self, '_max_retries', 3)
+        max_retries = getattr(self, "_max_retries", 3)
         if _attempt >= max_retries:
             self._last_stream_metadata = {
                 "finish_reason": "error",
@@ -1548,10 +1546,8 @@ To extract data from a webpage:
                 "provider": "openai",
                 "error": "all_keys_exhausted",
             }
-            key_count = len(self._key_pool.keys) if hasattr(self, '_key_pool') else 1
-            raise RuntimeError(
-                f"All {key_count} OpenAI/OpenRouter API keys exhausted after {_attempt} attempts"
-            )
+            key_count = len(self._key_pool.keys) if hasattr(self, "_key_pool") else 1
+            raise RuntimeError(f"All {key_count} OpenAI/OpenRouter API keys exhausted after {_attempt} attempts")
 
         self._last_stream_metadata = None
 
@@ -1687,7 +1683,7 @@ To extract data from a webpage:
                 if key:
                     ttl = self._parse_openai_rate_limit(e)
                     await self._key_pool.mark_exhausted(key, ttl_seconds=ttl)
-                    max_retries = getattr(self, '_max_retries', 3)
+                    max_retries = getattr(self, "_max_retries", 3)
                     logger.warning(
                         f"OpenAI stream rate limit hit, rotating to next key (attempt {_attempt + 1}/{max_retries})"
                     )
@@ -1712,7 +1708,7 @@ To extract data from a webpage:
                     key = await self.get_api_key()
                     if key:
                         await self._key_pool.mark_invalid(key)
-                        max_retries = getattr(self, '_max_retries', 3)
+                        max_retries = getattr(self, "_max_retries", 3)
                         logger.error(
                             f"OpenAI stream authentication error, rotating to next key (attempt {_attempt + 1}/{max_retries})"
                         )
