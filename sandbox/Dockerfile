@@ -1,7 +1,9 @@
 # ============================================================
 # Stage 1: BUILDER — heavy installs, dev tools, Playwright
 # ============================================================
+# USE_CHROMIUM=1: Use apt chromium-browser (lighter, ~2G vs ~3G per sandbox)
 FROM ubuntu:22.04 AS builder
+ARG USE_CHROMIUM=0
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
@@ -47,11 +49,11 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | \
     > /etc/apt/sources.list.d/github-cli.list && \
     apt-get update && apt-get install -y gh && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Chrome for Testing (amd64)
+# Chrome for Testing (amd64) — skipped when USE_CHROMIUM=1 (production uses apt chromium)
 ARG TARGETARCH
 ENV CHROME_FOR_TESTING_PATH=/opt/chrome-for-testing
 RUN mkdir -p ${CHROME_FOR_TESTING_PATH} && \
-    if [ "$TARGETARCH" != "arm64" ]; then \
+    if [ "$USE_CHROMIUM" != "1" ] && [ "$TARGETARCH" != "arm64" ]; then \
         apt-get update && apt-get install -y --no-install-recommends unzip && \
         CHROME_VER=128.0.6613.137 && \
         curl -fsSL "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VER}/linux64/chrome-linux64.zip" \
@@ -84,7 +86,7 @@ RUN python3 -m pip install --no-cache-dir playwright playwright-stealth && \
     python3 -m playwright install --with-deps chromium firefox webkit && \
     chown -R ubuntu:ubuntu /opt/playwright-browsers 2>/dev/null || true
 
-RUN if [ "$TARGETARCH" = "arm64" ]; then \
+RUN if [ "$TARGETARCH" = "arm64" ] && [ "$USE_CHROMIUM" != "1" ]; then \
     PW_CHROME=$(find /opt/playwright-browsers -name chrome -path '*chrome-linux*' -type f 2>/dev/null | head -1) && \
     [ -n "$PW_CHROME" ] && ln -sf "$PW_CHROME" ${CHROME_FOR_TESTING_PATH}/chrome && ln -sf "$PW_CHROME" /usr/local/bin/chrome-for-testing || exit 1; \
     chown -R ubuntu:ubuntu ${CHROME_FOR_TESTING_PATH} /opt/playwright-browsers 2>/dev/null || true; \
@@ -122,7 +124,10 @@ RUN apt-get update && apt-get purge -y --auto-remove software-properties-common 
 # ============================================================
 # Stage 2: RUNTIME — production sandbox image
 # ============================================================
+ARG USE_CHROMIUM=0
+
 FROM ubuntu:22.04 AS runtime
+ARG USE_CHROMIUM=0
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
@@ -144,11 +149,12 @@ RUN apt-get update && apt-get install -y \
     && locale-gen en_US.UTF-8 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Playwright/Chromium runtime libs
+# Playwright/Chromium runtime libs; when USE_CHROMIUM=1 add chromium-browser (lighter than Chrome for Testing)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libdbus-1-3 \
     libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
     libpango-1.0-0 libcairo2 libxshmfence1 \
+    && if [ "$USE_CHROMIUM" = "1" ]; then apt-get install -y --no-install-recommends chromium-browser; fi \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Create ubuntu user — no NOPASSWD (removed for hardened non-root runtime)
@@ -157,7 +163,7 @@ RUN useradd -m -d /home/ubuntu -s /bin/bash ubuntu
 RUN mkdir -p /home/ubuntu/.vnc /home/ubuntu/.config/openbox /run/user/1000 && \
     chown -R ubuntu:ubuntu /home/ubuntu /run/user/1000
 
-# Copy from builder (no dev tools)
+# Copy from builder (no dev tools); chrome-for-testing empty when USE_CHROMIUM=1
 COPY --from=builder /opt/chrome-for-testing /opt/chrome-for-testing
 COPY --from=builder /opt/base-python-venv /opt/base-python-venv
 COPY --from=builder /opt/playwright-browsers /opt/playwright-browsers
@@ -191,6 +197,8 @@ RUN mkdir -p /home/ubuntu/.config/openbox && cp /app/openbox-rc.xml /home/ubuntu
 COPY supervisord.conf /etc/supervisor/conf.d/app.conf
 
 ENV UVI_ARGS="" FRAMEWORK_UVI_ARGS="" CHROME_ARGS="" DISPLAY=:1
+# BROWSER_PATH: default Chrome for Testing; override to /usr/bin/chromium-browser when USE_CHROMIUM=1
+ENV BROWSER_PATH=/opt/chrome-for-testing/chrome
 ENV CHROME_BIN="/opt/chrome-for-testing/chrome"
 
 RUN chown -R ubuntu:ubuntu /home/ubuntu && chmod 750 /home/ubuntu && \

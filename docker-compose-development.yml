@@ -114,8 +114,8 @@ services:
       - "5901:5901"         # VNC WebSocket port (noVNC browser access)
       - "8083:8080"         # Sandbox API
       - "8082:8082"         # Framework API
-    # Shared memory for Chrome: 3GB reduces Mojo data pipe / page crash on heavy sites (Context7)
-    shm_size: '3gb'
+    # Shared memory for Chrome: 4GB for Mojo data pipes (avoids "Failed to create Mojo data pipe" on heavy sites)
+    shm_size: '4gb'
     # Temp filesystem - improves I/O performance for browser temp files
     tmpfs:
       - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
@@ -130,21 +130,21 @@ services:
       nproc:
         soft: 4096
         hard: 8192
-    # Resource limits - 4G memory reduces page crashes on heavy sites (anthropic.com, etc.)
+    # Resource limits - 6G memory + 4G shm reduces Mojo data pipe / page crashes on heavy sites
     deploy:
       resources:
         limits:
-          memory: 4G
-          cpus: '1.5'
+          memory: 6G
+          cpus: '2'
           pids: 300
         reservations:
-          memory: 768M
+          memory: 1G
     environment:
       - UVI_ARGS="--reload"
       - FRAMEWORK_UVI_ARGS="--reload"
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
       - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
-      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --renderer-process-limit=2 --disable-features=CalculateNativeWinOcclusion --disable-gpu-memory-buffer-compositor-resources --disable-gpu-memory-buffer-video-frames
+      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --renderer-process-limit=2 --disable-features=CalculateNativeWinOcclusion --disable-gpu-memory-buffer-compositor-resources --disable-gpu-memory-buffer-video-frames --js-flags=--max-old-space-size=512
       - BROWSER_PATH=/opt/chrome-for-testing/chrome
     restart: unless-stopped
     networks:
