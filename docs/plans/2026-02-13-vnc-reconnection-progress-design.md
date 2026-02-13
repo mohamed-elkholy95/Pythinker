@@ -1,8 +1,14 @@
 # VNC Reconnection Progress Indicators - Design Document
 
 **Date:** 2026-02-13
-**Status:** Approved
-**Implementation:** Phase 1 (Core) + Phase 2 (Tests)
+**Status:** ✅ Implemented (Phase 1 + Phase 2 Complete)
+**Implementation:** Phase 1 (Core) + Phase 2 (Tests) - BOTH COMPLETE
+
+**Implementation Commits:**
+- `5d80f2c` - feat(vnc): add reconnectAttempt prop to VNCViewer
+- `f6d0d84` - feat(vnc): add statusText watcher for reconnection progress
+- `1087a44` - feat(vnc): pass reconnectAttempt from LiveViewer to VNCViewer
+- `3a5fcdf` - test(vnc): add comprehensive testing results for reconnection progress
 
 ---
 
