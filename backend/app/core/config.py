@@ -216,7 +216,9 @@ class Settings(BaseSettings):
     browser_allow_dangerous_js: bool = False  # Allow dangerous JavaScript execution (SECURITY RISK)
 
     # Chrome for Testing (sandbox uses 128.0.6613.137 on Ubuntu 22.04)
-    browser_chrome_executable_path: str | None = None  # Override path (default: /opt/chrome-for-testing/chrome in sandbox)
+    browser_chrome_executable_path: str | None = (
+        None  # Override path (default: /opt/chrome-for-testing/chrome in sandbox)
+    )
     browser_chrome_version: str = "128.0.6613.137"  # Matches Chrome for Testing in sandbox Dockerfile
 
     # Browser Hardening Configuration

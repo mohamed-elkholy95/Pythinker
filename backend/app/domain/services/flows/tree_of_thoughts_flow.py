@@ -96,7 +96,14 @@ class TreeOfThoughtsFlow(BaseFlow):
         self.config = config or TreeOfThoughtsConfig()
 
         # Build tools
-        tools = [ShellTool(sandbox), BrowserTool(browser), FileTool(sandbox, session_id=session_id), MessageTool(), IdleTool(), mcp_tool]
+        tools = [
+            ShellTool(sandbox),
+            BrowserTool(browser),
+            FileTool(sandbox, session_id=session_id),
+            MessageTool(),
+            IdleTool(),
+            mcp_tool,
+        ]
 
         # Pass browser to SearchTool for visual search when search_prefer_browser is enabled
         if search_engine:
