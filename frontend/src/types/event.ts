@@ -93,6 +93,8 @@ export interface StepEventData extends BaseEventData {
   status: "pending" | "running" | "completed" | "failed"
   id: string
   description: string
+  phase_id?: string | null  // Parent phase ID; when set, step is in plan-act flow (hide fast-search UI)
+  step_type?: string | null
 }
 
 export interface MessageEventData extends BaseEventData {
