@@ -14,6 +14,23 @@ export interface SessionReadyResult {
   timedOut: boolean
 }
 
+/** Extract Retry-After from 429 response (Context7: FastAPI-Limiter convention) */
+function getRetryAfterMs(error: unknown): number | null {
+  if (error && typeof error === 'object' && 'response' in error) {
+    const res = (error as { response?: { status?: number; headers?: Record<string, string>; data?: unknown } })
+      .response
+    if (res?.status === 429) {
+      const retryAfter = res.headers?.['retry-after'] ?? (res.data as { retry_after?: number })?.retry_after
+      if (typeof retryAfter === 'string') {
+        const sec = parseInt(retryAfter, 10)
+        return Number.isNaN(sec) ? null : sec * 1000
+      }
+      if (typeof retryAfter === 'number') return retryAfter * 1000
+    }
+  }
+  return null
+}
+
 export async function waitForSessionReady(
   sessionId: string,
   getSessionFn: (sessionId: string) => Promise<SessionStatusResponse>,
@@ -29,14 +46,24 @@ export async function waitForSessionReady(
       return { status: lastStatus, timedOut: true }
     }
 
-    const session = await getSessionFn(sessionId)
-    lastStatus = session.status
-    if (session.status !== SessionStatus.INITIALIZING) {
-      return { status: session.status, timedOut: false }
+    try {
+      const session = await getSessionFn(sessionId)
+      lastStatus = session.status
+      if (session.status !== SessionStatus.INITIALIZING) {
+        return { status: session.status, timedOut: false }
+      }
+    } catch (err) {
+      const retryAfterMs = getRetryAfterMs(err)
+      if (retryAfterMs !== null) {
+        await new Promise((resolve) => setTimeout(resolve, retryAfterMs))
+        elapsedMs += retryAfterMs
+        continue
+      }
+      throw err
     }
 
     if (maxWaitMs !== undefined && elapsedMs >= maxWaitMs) {
-      return { status: session.status, timedOut: true }
+      return { status: lastStatus ?? SessionStatus.INITIALIZING, timedOut: true }
     }
 
     const waitMs = maxWaitMs !== undefined

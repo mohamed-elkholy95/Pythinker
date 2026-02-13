@@ -1,6 +1,12 @@
+from app.core.config import get_settings
 from app.domain.external.sandbox import Sandbox
 from app.domain.models.tool_result import ToolResult
+from app.domain.services.agents.security_critic import RiskLevel, SecurityCritic
 from app.domain.services.tools.base import BaseTool, tool
+from app.infrastructure.observability.prometheus_metrics import (
+    record_security_gate_block,
+    record_security_gate_override,
+)
 
 # Maximum shell output size in characters to prevent context window exhaustion
 MAX_SHELL_OUTPUT_CHARS = 50_000
@@ -11,15 +17,22 @@ class ShellTool(BaseTool):
 
     name: str = "shell"
 
-    def __init__(self, sandbox: Sandbox, max_observe: int | None = None):
+    def __init__(
+        self,
+        sandbox: Sandbox,
+        max_observe: int | None = None,
+        security_critic: SecurityCritic | None = None,
+    ):
         """Initialize Shell tool class
 
         Args:
             sandbox: Sandbox service
             max_observe: Optional custom observation limit (default: 5000)
+            security_critic: Optional security critic for command validation
         """
         super().__init__(max_observe=max_observe)
         self.sandbox = sandbox
+        self.security_critic = security_critic or SecurityCritic()
 
     @staticmethod
     def _truncate_output(result: ToolResult) -> ToolResult:
@@ -53,6 +66,21 @@ class ShellTool(BaseTool):
         Returns:
             Command execution result
         """
+        review = await self.security_critic.review_code(command, "bash")
+        if not review.safe:
+            allow_medium = get_settings().security_critic_allow_medium_risk
+            if review.risk_level == RiskLevel.MEDIUM and allow_medium:
+                record_security_gate_override(override_reason="medium_risk_dev")
+            else:
+                record_security_gate_block(
+                    risk_level=review.risk_level.value,
+                    pattern_type="static" if review.patterns_detected else "llm",
+                )
+                issues_str = ", ".join(review.issues) if review.issues else "Security review failed"
+                return ToolResult(
+                    success=False,
+                    message=f"Shell command blocked by security review: {issues_str}",
+                )
         result = await self.sandbox.exec_command(id, exec_dir, command)
         return self._truncate_output(result)
 

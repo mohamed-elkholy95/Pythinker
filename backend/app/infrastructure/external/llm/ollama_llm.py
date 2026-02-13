@@ -15,10 +15,12 @@ import httpx
 from pydantic import BaseModel
 
 from app.core.config import get_settings
+from app.core.retry import RetryConfig, calculate_delay, llm_retry
 from app.domain.external.llm import LLM
 from app.domain.services.agents.error_handler import TokenLimitExceededError
 from app.domain.services.agents.token_manager import TokenManager
 from app.domain.services.agents.usage_context import get_usage_context
+from app.infrastructure.external.http_pool import HTTPClientPool
 from app.infrastructure.external.llm.factory import LLMProviderRegistry
 
 T = TypeVar("T", bound=BaseModel)
@@ -261,6 +263,7 @@ Do not include any text before or after the JSON when calling a tool.
 
         return None
 
+    @llm_retry
     async def ask(
         self,
         messages: list[dict[str, str]],
@@ -270,6 +273,10 @@ Do not include any text before or after the JSON when calling a tool.
         enable_caching: bool = True,
     ) -> dict[str, Any]:
         """Send chat request to Ollama API.
+
+        Uses @llm_retry (3 attempts, 2-30s exponential backoff) for transient
+        network failures (TimeoutError, ConnectionError, ConnectionResetError).
+        Non-transient errors like TokenLimitExceededError propagate immediately.
 
         Args:
             messages: List of messages in OpenAI format
@@ -281,9 +288,6 @@ Do not include any text before or after the JSON when calling a tool.
         Returns:
             Response message in OpenAI format
         """
-        max_retries = 3
-        base_delay = 1.0
-
         # Convert messages for Ollama
         ollama_messages = self._convert_messages_for_ollama(messages)
 
@@ -291,58 +295,42 @@ Do not include any text before or after the JSON when calling a tool.
         if tools:
             ollama_messages = self._inject_tools_into_messages(ollama_messages, tools)
 
-        for attempt in range(max_retries + 1):
-            try:
-                if attempt > 0:
-                    delay = base_delay * (2 ** (attempt - 1))
-                    logger.info(f"Retrying Ollama request (attempt {attempt + 1}/{max_retries + 1})")
-                    await asyncio.sleep(delay)
+        try:
+            client = await HTTPClientPool.get_client(
+                name="ollama",
+                base_url=self._api_url,
+                timeout=120.0,
+            )
+            response = await client.post(
+                "/chat",
+                json={
+                    "model": self._model_name,
+                    "messages": ollama_messages,
+                    "stream": False,
+                    "options": {
+                        "temperature": self._temperature,
+                        "num_predict": self._max_tokens,
+                    },
+                },
+            )
+            response.raise_for_status()
 
-                async with httpx.AsyncClient(timeout=120.0) as client:
-                    response = await client.post(
-                        f"{self._api_url}/chat",
-                        json={
-                            "model": self._model_name,
-                            "messages": ollama_messages,
-                            "stream": False,
-                            "options": {
-                                "temperature": self._temperature,
-                                "num_predict": self._max_tokens,
-                            },
-                        },
-                    )
-                    response.raise_for_status()
+            data = response.json()
+            content = data.get("message", {}).get("content", "")
 
-                    data = response.json()
-                    content = data.get("message", {}).get("content", "")
+            # Try to parse tool call from response
+            if tools:
+                parsed_tool_call = self._parse_tool_call_from_text(content)
+                if parsed_tool_call:
+                    return parsed_tool_call
 
-                    # Try to parse tool call from response
-                    if tools:
-                        parsed_tool_call = self._parse_tool_call_from_text(content)
-                        if parsed_tool_call:
-                            return parsed_tool_call
+            return {"role": "assistant", "content": content, "tool_calls": None}
 
-                    return {"role": "assistant", "content": content, "tool_calls": None}
-
-            except httpx.TimeoutException as e:
-                logger.warning(f"Ollama timeout on attempt {attempt + 1}: {e}")
-                if attempt == max_retries:
-                    raise
-
-            except httpx.HTTPStatusError as e:
-                error_msg = str(e).lower()
-                if "context" in error_msg or "token" in error_msg:
-                    raise TokenLimitExceededError(str(e)) from e
-                logger.error(f"Ollama HTTP error on attempt {attempt + 1}: {e}")
-                if attempt == max_retries:
-                    raise
-
-            except Exception as e:
-                logger.error(f"Ollama error on attempt {attempt + 1}: {e}")
-                if attempt == max_retries:
-                    raise
-
-        raise RuntimeError("Failed to get response after all retries")
+        except httpx.HTTPStatusError as e:
+            error_msg = str(e).lower()
+            if "context" in error_msg or "token" in error_msg:
+                raise TokenLimitExceededError(str(e)) from e
+            raise
 
     async def ask_structured(
         self,
@@ -403,6 +391,59 @@ Respond ONLY with the JSON object, no other text.""",
 
         raise ValueError("Failed to get structured response after all retries")
 
+    async def _stream_ollama_response(
+        self,
+        ollama_messages: list[dict[str, Any]],
+        metadata: dict[str, Any],
+    ) -> AsyncGenerator[str, None]:
+        """Stream Ollama chat response. Updates metadata with usage_counts and finish_reason."""
+        managed_client = await HTTPClientPool.get_client(
+            name="ollama-stream",
+            base_url=self._api_url,
+            timeout=120.0,
+        )
+        async with managed_client.client.stream(
+            "POST",
+            "/chat",
+            json={
+                "model": self._model_name,
+                "messages": ollama_messages,
+                "stream": True,
+                "options": {
+                    "temperature": self._temperature,
+                    "num_predict": self._max_tokens,
+                },
+            },
+        ) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if line:
+                    try:
+                        data = json.loads(line)
+                        if data.get("done") is True:
+                            metadata["finish_reason"] = data.get("done_reason") or metadata.get("finish_reason")
+                        prompt_eval = data.get("prompt_eval_count")
+                        eval_count = data.get("eval_count")
+                        if prompt_eval is not None or eval_count is not None:
+                            metadata["usage_counts"] = {
+                                "prompt_tokens": prompt_eval or 0,
+                                "completion_tokens": eval_count or 0,
+                            }
+                        if data.get("message", {}).get("content"):
+                            yield data["message"]["content"]
+                    except json.JSONDecodeError:
+                        continue
+
+    # Transient exceptions for stream retry (same as llm_retry)
+    _STREAM_RETRY_EXCEPTIONS = (
+        TimeoutError,
+        ConnectionError,
+        ConnectionResetError,
+        ConnectionRefusedError,
+        BrokenPipeError,
+        OSError,
+    )
+
     async def ask_stream(
         self,
         messages: list[dict[str, str]],
@@ -412,6 +453,9 @@ Respond ONLY with the JSON object, no other text.""",
         enable_caching: bool = True,
     ) -> AsyncGenerator[str, None]:
         """Stream chat response from Ollama API.
+
+        Uses inline retry (3 attempts, 2-30s backoff) for transient connection
+        failures on stream establishment. Non-transient errors propagate immediately.
 
         Args:
             messages: List of messages
@@ -434,67 +478,66 @@ Respond ONLY with the JSON object, no other text.""",
         completion_parts: list[str] = []
         usage_counts: dict[str, int] | None = None
         finish_reason: str | None = None
+        stream_retry_config = RetryConfig(
+            max_attempts=3,
+            base_delay=2.0,
+            max_delay=30.0,
+            exponential_base=2.0,
+            jitter=True,
+        )
 
+        metadata: dict[str, Any] = {"usage_counts": None, "finish_reason": None}
         try:
-            async with (
-                httpx.AsyncClient(timeout=120.0) as client,
-                client.stream(
-                    "POST",
-                    f"{self._api_url}/chat",
-                    json={
-                        "model": self._model_name,
-                        "messages": ollama_messages,
-                        "stream": True,
-                        "options": {
-                            "temperature": self._temperature,
-                            "num_predict": self._max_tokens,
-                        },
-                    },
-                ) as response,
-            ):
-                response.raise_for_status()
+            for attempt in range(1, stream_retry_config.max_attempts + 1):
+                try:
+                    async for content in self._stream_ollama_response(ollama_messages, metadata):
+                        completion_parts.append(content)
+                        yield content
 
-                async for line in response.aiter_lines():
-                    if line:
-                        try:
-                            data = json.loads(line)
-                            if data.get("done") is True:
-                                finish_reason = data.get("done_reason") or finish_reason
-                            # Ollama may include usage counts on final chunks
-                            prompt_eval = data.get("prompt_eval_count")
-                            eval_count = data.get("eval_count")
-                            if prompt_eval is not None or eval_count is not None:
-                                usage_counts = {
-                                    "prompt_tokens": prompt_eval or 0,
-                                    "completion_tokens": eval_count or 0,
-                                }
-                            if data.get("message", {}).get("content"):
-                                content = data["message"]["content"]
-                                completion_parts.append(content)
-                                yield content
-                        except json.JSONDecodeError:
-                            continue
+                    usage_counts = metadata["usage_counts"]
+                    finish_reason = metadata["finish_reason"]
 
-            if usage_counts:
-                await self._record_usage_counts(
-                    prompt_tokens=usage_counts["prompt_tokens"],
-                    completion_tokens=usage_counts["completion_tokens"],
-                    cached_tokens=0,
-                )
-            else:
-                await self._record_stream_usage(messages, "".join(completion_parts), tools=tools)
+                    # Stream completed successfully - record usage and set metadata
+                    if usage_counts:
+                        await self._record_usage_counts(
+                            prompt_tokens=usage_counts["prompt_tokens"],
+                            completion_tokens=usage_counts["completion_tokens"],
+                            cached_tokens=0,
+                        )
+                    else:
+                        await self._record_stream_usage(messages, "".join(completion_parts), tools=tools)
 
-            normalized_finish_reason = finish_reason or "stop"
-            if normalized_finish_reason in {"max_tokens", "length"}:
-                normalized_finish_reason = "length"
-            self._last_stream_metadata = {
-                "finish_reason": normalized_finish_reason,
-                "truncated": normalized_finish_reason == "length",
-                "provider": "ollama",
-            }
-            if normalized_finish_reason == "length":
-                logger.warning("Ollama streaming response truncated (done_reason indicates length)")
+                    normalized_finish_reason = finish_reason or "stop"
+                    if normalized_finish_reason in {"max_tokens", "length"}:
+                        normalized_finish_reason = "length"
+                    self._last_stream_metadata = {
+                        "finish_reason": normalized_finish_reason,
+                        "truncated": normalized_finish_reason == "length",
+                        "provider": "ollama",
+                    }
+                    if normalized_finish_reason == "length":
+                        logger.warning("Ollama streaming response truncated (done_reason indicates length)")
+                    break  # Success - exit retry loop
 
+                except self._STREAM_RETRY_EXCEPTIONS as e:
+                    if attempt >= stream_retry_config.max_attempts:
+                        logger.error(
+                            "Ollama stream failed after %d attempts: %s",
+                            attempt,
+                            e,
+                        )
+                        raise
+                    delay = calculate_delay(attempt, stream_retry_config)
+                    logger.warning(
+                        "Ollama stream attempt %d/%d failed, retrying in %.2fs: %s",
+                        attempt,
+                        stream_retry_config.max_attempts,
+                        delay,
+                        e,
+                    )
+                    await asyncio.sleep(delay)
+                except httpx.HTTPStatusError:
+                    raise  # Do not retry HTTP status errors
         except httpx.HTTPStatusError as e:
             self._last_stream_metadata = {
                 "finish_reason": "error",

@@ -290,15 +290,25 @@ class EnhancedPromptQuickValidator:
         self._symspell_provider = symspell_provider
         self._correction_event_sink = correction_event_sink
         self._feedback_lookup = feedback_lookup
+        self._locked_entities: frozenset[str] = frozenset()
 
-    def validate(self, text: str) -> str:
-        """Return a cleaned prompt for downstream planning/analysis."""
+    def validate(self, text: str, locked_entities: list[str] | None = None) -> str:
+        """Return a cleaned prompt for downstream planning/analysis.
+
+        Args:
+            text: User prompt to validate.
+            locked_entities: Optional list of entity strings that must not be
+                corrected (Phase 1 RequestContract). Tokens matching these are
+                skipped by fuzzy correction.
+        """
         if not text:
             return text
 
         cleaned = text.strip()
         if not cleaned or not self._enabled:
             return cleaned
+
+        self._locked_entities = frozenset(e.lower() for e in (locked_entities or []))
 
         cleaned = re.sub(r"\s+", " ", cleaned)
 
@@ -350,6 +360,16 @@ class EnhancedPromptQuickValidator:
 
     def _correct_word(self, token: str) -> tuple[str, float, str]:
         token_lower = token.lower()
+
+        # Phase 1: Skip correction for tokens that match locked entities
+        if self._locked_entities:
+            for entity in self._locked_entities:
+                el = entity.lower()
+                if token_lower == el:
+                    return token, 1.0, "locked"
+                # Token is a word within a multi-word locked entity
+                if token_lower in el.split():
+                    return token, 1.0, "locked"
 
         if token_lower in self._TECHNICAL_TERMS:
             return token, 1.0, "technical"

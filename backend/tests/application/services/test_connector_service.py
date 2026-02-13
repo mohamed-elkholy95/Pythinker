@@ -695,15 +695,14 @@ class TestTestConnection:
         mock_response = AsyncMock()
         mock_response.status_code = 200
 
-        with patch("app.application.services.connector_service.httpx", create=True) as mock_httpx_mod:
-            # httpx is imported inside the method; we mock at module level
-            mock_client = AsyncMock()
-            mock_client.get.return_value = mock_response
-            mock_httpx_mod.AsyncClient.return_value.__aenter__.return_value = mock_client
+        mock_managed_client = AsyncMock()
+        mock_managed_client.get.return_value = mock_response
 
-            # We need to patch the import inside the function
-            with patch.dict("sys.modules", {"httpx": mock_httpx_mod}):
-                result = await service.test_connection("user-1", "uc-1")
+        with patch(
+            "app.infrastructure.external.http_pool.HTTPClientPool.get_client",
+            return_value=mock_managed_client,
+        ):
+            result = await service.test_connection("user-1", "uc-1")
 
         assert result["ok"] is True
         assert "200" in result["message"]
@@ -747,8 +746,10 @@ class TestTestConnection:
         )
         user_connector_repo.get_by_id.return_value = uc
 
-        with patch.dict("sys.modules", {"httpx": None}):
-            # Force an import error to trigger the except branch
+        with patch(
+            "app.infrastructure.external.http_pool.HTTPClientPool.get_client",
+            side_effect=ConnectionError("Connection refused"),
+        ):
             result = await service.test_connection("user-1", "uc-1")
 
         assert result["ok"] is False

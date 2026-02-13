@@ -44,6 +44,8 @@ export interface BaseContent {
 
 export interface MessageContent extends BaseContent {
   content: string;
+  /** When true, user upgraded this message via "Use Agent Mode" CTA; show compact badge */
+  agentModeUpgrade?: boolean;
 }
 
 export interface ToolContent extends BaseContent {

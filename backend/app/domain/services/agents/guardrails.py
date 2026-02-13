@@ -715,32 +715,61 @@ class OutputGuardrails:
         return issues
 
     def _check_consistency(self, text: str) -> list[OutputIssue]:
-        """Check for internal contradictions."""
+        """Check for structural contradictions (Phase 5: enhanced patterns).
+
+        Detects: mutually exclusive constraints, impossible numerics,
+        self-referential loops. Avoids false positives from legitimate
+        contrasts (e.g. "X is fast but Y is not").
+        """
         issues = []
+        text_lower = text.lower()
 
-        # Simple check for contradiction patterns
-        contradiction_patterns = [
-            (r"\bis\b", r"\bis\s+not\b"),
-            (r"\bcan\b", r"\bcannot\b"),
-            (r"\bwill\b", r"\bwill\s+not\b"),
-            (r"\btrue\b", r"\bfalse\b"),
-        ]
-
-        for pos_pattern, neg_pattern in contradiction_patterns:
-            has_positive = bool(re.search(pos_pattern, text, re.IGNORECASE))
-            has_negative = bool(re.search(neg_pattern, text, re.IGNORECASE))
-
-            if has_positive and has_negative:
-                # Could be a legitimate contrast, so low severity
-                issues.append(
-                    OutputIssue(
-                        issue_type=OutputIssueType.CONTRADICTORY,
-                        description="Output may contain contradictory statements",
-                        severity=0.3,
-                        fix_suggestion="Review for clarity and consistency",
-                    )
+        # Mutually exclusive: "find X but not X"
+        if re.search(r"(\b\w+(?:\s+\w+)*)\s+but\s+not\s+\1", text_lower):
+            issues.append(
+                OutputIssue(
+                    issue_type=OutputIssueType.CONTRADICTORY,
+                    description="Request appears self-contradictory: same thing required and forbidden",
+                    severity=0.6,
+                    fix_suggestion="Clarify the intended constraint",
                 )
-                break  # Only report once
+            )
+            return issues
+
+        # Impossible numeric: "top 0", "between 100 and 50"
+        if re.search(r"top\s+0\b", text_lower):
+            issues.append(
+                OutputIssue(
+                    issue_type=OutputIssueType.CONTRADICTORY,
+                    description="Impossible numeric constraint: 'top 0'",
+                    severity=0.7,
+                    fix_suggestion="Specify a positive number for top results",
+                )
+            )
+        if re.search(r"between\s+(\d+)\s+and\s+(\d+)", text_lower):
+            match = re.search(r"between\s+(\d+)\s+and\s+(\d+)", text_lower)
+            if match:
+                a, b = int(match.group(1)), int(match.group(2))
+                if a > b:
+                    issues.append(
+                        OutputIssue(
+                            issue_type=OutputIssueType.CONTRADICTORY,
+                            description=f"Impossible range: {a} > {b}",
+                            severity=0.7,
+                            fix_suggestion="Specify range with smaller value first",
+                        )
+                    )
+
+        # Self-referential loop: "summarize the summary of the summary"
+        if re.search(r"(\b\w+)\s+(?:the\s+)?\1\s+(?:of\s+the\s+)?\1", text_lower):
+            issues.append(
+                OutputIssue(
+                    issue_type=OutputIssueType.CONTRADICTORY,
+                    description="Potentially circular or redundant request",
+                    severity=0.3,
+                    fix_suggestion="Clarify the intended scope",
+                )
+            )
 
         return issues
 

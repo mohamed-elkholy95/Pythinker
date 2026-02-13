@@ -32,6 +32,10 @@ class FakeSessionRepository:
     async def find_by_id(self, session_id: str) -> Session | None:
         return self._sessions.get(session_id)
 
+    async def find_by_id_and_user_id(self, session_id: str, user_id: str) -> Session | None:
+        s = self._sessions.get(session_id)
+        return s if s and s.user_id == user_id else None
+
     async def find_by_user_id(self, user_id: str) -> list[Session]:
         return [s for s in self._sessions.values() if s.user_id == user_id]
 
@@ -267,3 +271,28 @@ async def test_warm_sandbox_bypasses_pool_for_ephemeral_lifecycle_mode(monkeypat
     sandbox_cls.create.assert_awaited_once()
     created_sandbox.ensure_sandbox.assert_awaited_once()
     prewarm_browser.assert_awaited_once_with(created_sandbox, session.id)
+
+
+@pytest.mark.asyncio
+async def test_stop_session_double_stop_does_not_raise():
+    """Double-stop on same session must complete without raising."""
+    session = Session(
+        id="session-double-stop",
+        user_id="user-1",
+        agent_id="agent-1",
+        status=SessionStatus.RUNNING,
+        sandbox_id="sb-1",
+        sandbox_owned=True,
+    )
+    session_repository = FakeSessionRepository([session])
+    sandbox_cls = MagicMock()
+
+    service = _build_service(session_repository, sandbox_cls)
+    service._cancel_sandbox_warmup_task = AsyncMock()
+    service._agent_domain_service.stop_session = AsyncMock()
+
+    await service.stop_session("session-double-stop", "user-1")
+    await service.stop_session("session-double-stop", "user-1")
+
+    # Second stop must not raise; idempotent at application layer
+    assert service._agent_domain_service.stop_session.await_count == 2
