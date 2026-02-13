@@ -25,6 +25,8 @@ from app.infrastructure.external.llm.factory import LLMProviderRegistry
 
 T = TypeVar("T", bound=BaseModel)
 
+# Sentinel value to distinguish "not provided" from "explicitly None"
+_NOT_PROVIDED = object()
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +52,7 @@ class OpenAILLM(LLM):
 
     def __init__(
         self,
-        api_key: str | None = None,
+        api_key: str | None | object = _NOT_PROVIDED,
         fallback_api_keys: list[str] | None = None,
         redis_client=None,
         model_name: str | None = None,
@@ -61,7 +63,7 @@ class OpenAILLM(LLM):
         """Initialize OpenAI-compatible LLM with multi-key failover support.
 
         Args:
-            api_key: Primary API key (defaults to settings)
+            api_key: Primary API key (defaults to settings if not provided, raises if explicitly None)
             fallback_api_keys: Optional fallback keys (up to 2 fallbacks = 3 total)
             redis_client: Redis client for distributed key coordination
             model_name: Model name (defaults to settings)
@@ -72,7 +74,17 @@ class OpenAILLM(LLM):
         settings = get_settings()
 
         # Build key configs (primary + fallbacks)
-        primary_key = api_key or settings.api_key
+        # Use sentinel to distinguish "not provided" from "explicitly None"
+        if api_key is _NOT_PROVIDED:
+            # Not provided - fall back to settings
+            primary_key = settings.api_key
+        elif api_key is None or (isinstance(api_key, str) and not api_key.strip()):
+            # Explicitly None or empty string - error
+            raise ValueError("OpenAI/OpenRouter API key is required")
+        else:
+            # Provided with value
+            primary_key = api_key
+
         if not primary_key:
             raise ValueError("OpenAI/OpenRouter API key is required")
 
@@ -122,13 +134,21 @@ class OpenAILLM(LLM):
 
     async def get_api_key(self) -> str | None:
         """Get currently active API key from pool."""
+        if not hasattr(self, '_key_pool'):
+            # Instance created improperly (e.g., with __new__() bypassing __init__)
+            return None
         return await self._key_pool.get_healthy_key()
 
     async def _get_client(self) -> AsyncOpenAI:
         """Get OpenAI client with current active key."""
+        # If client already set (e.g., by tests), return it
+        if hasattr(self, 'client') and self.client is not None:
+            return self.client
+
         key = await self.get_api_key()
         if not key:
-            raise RuntimeError(f"All {len(self._key_pool.keys)} OpenAI/OpenRouter API keys exhausted")
+            key_count = len(self._key_pool.keys) if hasattr(self, '_key_pool') else 1
+            raise RuntimeError(f"All {key_count} OpenAI/OpenRouter API keys exhausted")
 
         # Detect if using Kimi Code API and add required headers
         default_headers = None
