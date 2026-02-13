@@ -4,7 +4,6 @@ Provides integration with Ollama for running local LLMs.
 Supports all Ollama-compatible models including Llama, Mistral, Phi, etc.
 """
 
-import asyncio
 import contextlib
 import json
 import logging
@@ -15,6 +14,7 @@ import httpx
 from pydantic import BaseModel
 
 from app.core.config import get_settings
+from app.core.retry import llm_retry
 from app.domain.external.llm import LLM
 from app.domain.services.agents.error_handler import TokenLimitExceededError
 from app.domain.services.agents.token_manager import TokenManager
