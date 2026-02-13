@@ -3,7 +3,8 @@ import json
 import logging
 from typing import Any
 
-from app.infrastructure.storage.redis import get_redis
+from app.core.config import get_settings
+from app.infrastructure.storage.redis import get_cache_redis
 
 logger = logging.getLogger(__name__)
 
@@ -16,9 +17,14 @@ class RedisCache:
     """
 
     def __init__(self):
-        self.redis_client = get_redis()
+        self.redis_client = get_cache_redis()
         self._initialized = False
         self._init_lock = asyncio.Lock()
+        try:
+            settings = get_settings()
+            self._scan_count = max(1, settings.redis_scan_count)
+        except Exception:
+            self._scan_count = 1000
 
     async def _ensure_initialized(self) -> None:
         """Ensure Redis is initialized (lazy, thread-safe).
@@ -43,9 +49,9 @@ class RedisCache:
             serialized_value = json.dumps(value)
 
             if ttl is not None:
-                result = await self.redis_client.client.setex(key, ttl, serialized_value)
+                result = await self.redis_client.call("setex", key, ttl, serialized_value)
             else:
-                result = await self.redis_client.client.set(key, serialized_value)
+                result = await self.redis_client.call("set", key, serialized_value)
 
             return result is not None
 
@@ -60,7 +66,7 @@ class RedisCache:
         try:
             await self._ensure_initialized()
 
-            value = await self.redis_client.client.get(key)
+            value = await self.redis_client.call("get", key)
             if value is None:
                 return None
 
@@ -80,7 +86,7 @@ class RedisCache:
         try:
             await self._ensure_initialized()
 
-            result = await self.redis_client.client.delete(key)
+            result = await self.redis_client.call("delete", key)
             return result > 0
 
         except Exception as e:
@@ -93,7 +99,7 @@ class RedisCache:
         try:
             await self._ensure_initialized()
 
-            result = await self.redis_client.client.exists(key)
+            result = await self.redis_client.call("exists", key)
             return result > 0
 
         except Exception as e:
@@ -106,7 +112,7 @@ class RedisCache:
         try:
             await self._ensure_initialized()
 
-            ttl = await self.redis_client.client.ttl(key)
+            ttl = await self.redis_client.call("ttl", key)
 
             if ttl == -2:
                 return None  # Key doesn't exist
@@ -120,12 +126,25 @@ class RedisCache:
             return None
 
     async def keys(self, pattern: str) -> list[str]:
-        """Get all keys matching a pattern."""
+        """Get all keys matching a pattern using SCAN (non-blocking)."""
         try:
             await self._ensure_initialized()
 
-            keys = await self.redis_client.client.keys(pattern)
-            return keys or []
+            cursor: int | str = 0
+            matched_keys: list[str] = []
+            while True:
+                cursor, batch = await self.redis_client.call(
+                    "scan",
+                    cursor=cursor,
+                    match=pattern,
+                    count=self._scan_count,
+                )
+                if batch:
+                    matched_keys.extend(batch)
+                if cursor in (0, "0"):
+                    break
+
+            return matched_keys
 
         except Exception as e:
             logger.error(f"Failed to get keys with pattern {pattern}: {e!s}")
@@ -133,15 +152,30 @@ class RedisCache:
             return []
 
     async def clear_pattern(self, pattern: str) -> int:
-        """Clear all keys matching a pattern."""
+        """Clear all keys matching a pattern using SCAN + UNLINK/DEL."""
         try:
             await self._ensure_initialized()
 
-            keys = await self.keys(pattern)
-            if not keys:
-                return 0
+            cursor: int | str = 0
+            deleted_total = 0
 
-            return await self.redis_client.client.delete(*keys)
+            while True:
+                cursor, batch = await self.redis_client.call(
+                    "scan",
+                    cursor=cursor,
+                    match=pattern,
+                    count=self._scan_count,
+                )
+                if batch:
+                    try:
+                        deleted_total += await self.redis_client.call("unlink", *batch)
+                    except Exception:
+                        # Fallback for Redis builds/ACLs where UNLINK is unavailable.
+                        deleted_total += await self.redis_client.call("delete", *batch)
+                if cursor in (0, "0"):
+                    break
+
+            return deleted_total
 
         except Exception as e:
             logger.error(f"Failed to clear keys with pattern {pattern}: {e!s}")
