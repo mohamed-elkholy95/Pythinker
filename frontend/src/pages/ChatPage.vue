@@ -438,6 +438,8 @@ import {
   shouldNestAssistantMessageInStep,
   shouldShowAssistantHeaderForMessage,
 } from '@/utils/assistantMessageLayout';
+import { useResponsePhase } from '@/composables/useResponsePhase';
+import { useSSEConnection } from '@/composables/useSSEConnection';
 
 const router = useRouter()
 const { t } = useI18n()
@@ -456,7 +458,29 @@ useConnectorDialog()
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- wired for future error banner UI
 const { lastCapturedError, clearError } = useErrorBoundary()
 
-type ResponsePhase = 'idle' | 'connecting' | 'streaming' | 'completing' | 'settled' | 'timed_out' | 'error' | 'stopped'
+// Response phase state machine
+const {
+  phase: responsePhase,
+  isLoading,
+  isThinking,
+  isSettled,
+  isError,
+  isTimedOut,
+  transitionTo,
+  reset: resetResponsePhase,
+} = useResponsePhase()
+
+// SSE connection management
+const {
+  connectionState,
+  lastEventTime,
+  lastEventId,
+  updateLastEventTime,
+  isConnectionStale,
+  persistEventId,
+  getPersistedEventId,
+  cleanupSessionStorage,
+} = useSSEConnection()
 
 // Create initial state factory
 const createInitialState = () => ({
@@ -471,14 +495,12 @@ const createInitialState = () => ({
   lastNoMessageTool: undefined as ToolContent | undefined,
   lastMessageTool: undefined as ToolContent | undefined,
   lastTool: undefined as ToolContent | undefined,
-  lastEventId: undefined as string | undefined,
   cancelCurrentChat: null as (() => void) | null,
   attachments: [] as FileInfo[],
   shareMode: 'private' as 'private' | 'public', // Default to private mode
   linkCopied: false,
   sharingLoading: false, // Loading state for share operations
   suggestions: [] as string[], // End-of-response suggestions
-  responsePhase: 'idle' as ResponsePhase,
   receivedDoneEvent: false,
   lastHeartbeatAt: 0,
   agentMode: 'discuss' as 'discuss' | 'agent', // Current agent mode
@@ -488,7 +510,6 @@ const createInitialState = () => ({
   summaryStreamText: '', // Accumulated streaming summary text
   isSummaryStreaming: false, // True when summary is streaming live
   allowStandaloneSummaryOnNextAssistant: false, // One-shot flag: render only the final summary assistant block outside step timeline
-  lastEventTime: 0, // Timestamp of last received event (for stale detection)
   isStale: false, // True when agent appears unresponsive (no events for 60s)
   filePreviewOpen: false,
   filePreviewFile: null as FileInfo | null,
@@ -524,14 +545,12 @@ const {
   plan,
   lastNoMessageTool,
   lastTool,
-  lastEventId,
   cancelCurrentChat,
   attachments,
   shareMode,
   linkCopied,
   sharingLoading,
   suggestions,
-  responsePhase,
   receivedDoneEvent,
   lastHeartbeatAt,
   agentMode,
@@ -541,7 +560,6 @@ const {
   summaryStreamText,
   isSummaryStreaming,
   allowStandaloneSummaryOnNextAssistant,
-  lastEventTime,
   isStale,
   filePreviewOpen,
   filePreviewFile,
@@ -562,60 +580,10 @@ const {
   autoRetryTimer,
 } = toRefs(state);
 
-// Response lifecycle: derived from responsePhase
-const isLoading = computed(() => ['connecting', 'streaming', 'completing'].includes(responsePhase.value))
-const isThinking = computed(() => responsePhase.value === 'connecting')
+// Response lifecycle: derived from responsePhase (isLoading and isThinking now from useResponsePhase)
 const canShowSuggestions = computed(() =>
-  responsePhase.value === 'settled' && suggestions.value.length > 0 && !isSummaryStreaming.value
+  isSettled.value && suggestions.value.length > 0 && !isSummaryStreaming.value
 )
-
-const VALID_TRANSITIONS: Record<ResponsePhase, ResponsePhase[]> = {
-  idle: ['connecting'],
-  connecting: ['streaming', 'completing', 'settled', 'timed_out', 'error', 'stopped'],
-  streaming: ['completing', 'settled', 'timed_out', 'error', 'stopped'],
-  completing: ['settled'],
-  settled: ['connecting', 'idle'],
-  timed_out: ['connecting', 'completing', 'settled', 'error', 'stopped'],
-  error: ['connecting', 'idle'],
-  stopped: ['connecting', 'idle'],
-}
-
-/** Transition the response lifecycle to a new phase. Centralizes all state changes. */
-const transitionTo = (phase: ResponsePhase) => {
-  const prev = responsePhase.value
-
-  // Self-transition: no-op
-  if (prev === phase) return
-
-  // Validate transition
-  const allowed = VALID_TRANSITIONS[prev]
-  if (allowed && !allowed.includes(phase)) {
-    console.warn(`[ResponsePhase] BLOCKED: ${prev} → ${phase} (allowed: ${allowed.join(', ')})`)
-    return
-  }
-
-  responsePhase.value = phase
-
-  // Reset lastError on non-error transitions
-  if (phase !== 'error') {
-    lastError.value = null
-  }
-  // Reset autoRetryCount when entering streaming
-  if (phase === 'streaming') {
-    autoRetryCount.value = 0
-  }
-
-  // Auto-transition: COMPLETING → SETTLED after 300ms
-  if (phase === 'completing') {
-    setTimeout(() => {
-      if (responsePhase.value === 'completing') {
-        responsePhase.value = 'settled'
-      }
-    }, 300)
-  }
-
-  console.debug(`[ResponsePhase] ${prev} → ${phase}`)
-}
 
 // Screenshot replay for completed sessions.
 // Must be initialized after sessionId ref is created to avoid TDZ runtime errors.
@@ -1029,10 +997,11 @@ const isReceivingHeartbeats = computed(() => {
 })
 
 // Update last event time when any event is received
-const updateLastEventTime = () => {
-  lastEventTime.value = Date.now();
-  isStale.value = false;
-};
+// Wrapper to update event time and reset stale flag
+const updateEventTimeAndResetStale = () => {
+  updateLastEventTime()
+  isStale.value = false
+}
 
 // Check if connection appears stale
 const checkStaleConnection = () => {
@@ -1062,7 +1031,7 @@ const handleThumbnailRefresh = () => {
 // Start stale detection when loading starts
 watch(isLoading, (loading) => {
   if (loading) {
-    updateLastEventTime();
+    updateEventTimeAndResetStale();
     if (!staleCheckInterval) {
       staleCheckInterval = setInterval(checkStaleConnection, STALE_CHECK_INTERVAL_MS);
     }
@@ -2217,7 +2186,7 @@ const processEvent = (event: AgentSSEEvent) => {
   }
 
   // Update last event time for stale connection detection
-  updateLastEventTime();
+  updateEventTimeAndResetStale();
 
   // Transition to streaming on first real event
   if (responsePhase.value === 'connecting') {
