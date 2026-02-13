@@ -112,6 +112,13 @@ export interface ErrorEventData extends BaseEventData {
   error_type?: string;     // "timeout" | "token_limit" | "tool_execution" | "llm_api"
   recoverable?: boolean;   // Whether retry makes sense
   retry_hint?: string;     // User-facing recovery guidance
+  error_code?: string;     // Stable machine-readable code
+  error_category?: string; // transport | timeout | validation | auth | upstream | domain
+  severity?: 'info' | 'warning' | 'error' | 'critical' | string;
+  retry_after_ms?: number;
+  can_resume?: boolean;
+  checkpoint_event_id?: string;
+  details?: Record<string, unknown>;
 }
 
 export interface DoneEventData extends BaseEventData {

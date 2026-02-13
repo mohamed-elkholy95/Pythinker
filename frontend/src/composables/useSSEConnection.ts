@@ -1,33 +1,73 @@
-import { ref } from 'vue'
+import { ref, computed, onUnmounted, getCurrentInstance } from 'vue'
 
-export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'failed'
+export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'failed' | 'degraded'
 
 export interface SSEConnectionConfig {
   staleThresholdMs?: number
+  degradedThresholdMs?: number // Time without real events before considering degraded
   onStaleDetected?: () => void
+  onDegradedDetected?: () => void
+}
+
+export interface StreamHealthMetrics {
+  /** Total events received (excluding heartbeats) */
+  totalEvents: number
+  /** Total heartbeats received */
+  totalHeartbeats: number
+  /** Events per second rate */
+  eventRate: number
+  /** Time since last real event in ms */
+  timeSinceLastEvent: number
+  /** Time since last heartbeat in ms */
+  timeSinceLastHeartbeat: number
+  /** Whether only receiving heartbeats */
+  isHeartbeatOnly: boolean
+  /** Connection duration in ms */
+  connectionDuration: number
 }
 
 export function useSSEConnection(config: SSEConnectionConfig = {}) {
   const {
     staleThresholdMs = 60000, // 60 seconds default
-    onStaleDetected
+    degradedThresholdMs = 60000, // 60 seconds without real events
+    onStaleDetected,
+    onDegradedDetected
   } = config
 
   const connectionState = ref<ConnectionState>('disconnected')
   const lastEventTime = ref(0)
+  const lastRealEventTime = ref(0) // Track real events separately
   const lastHeartbeatTime = ref(0)
   const lastEventId = ref<string | undefined>(undefined)
   const retryCount = ref(0)
 
+  // Enhanced tracking for stream health
+  const totalEvents = ref(0)
+  const totalHeartbeats = ref(0)
+  const connectionStartTime = ref<number | null>(null)
+
   let staleCheckInterval: NodeJS.Timeout | null = null
   let heartbeatEventHandler: ((event: Event) => void) | null = null
+  let degradedEmitted = false
 
   function updateLastEventTime() {
     lastEventTime.value = Date.now()
   }
 
+  function updateLastRealEventTime() {
+    lastRealEventTime.value = Date.now()
+    lastEventTime.value = Date.now()
+    totalEvents.value += 1
+    // Reset degraded flag when we get a real event
+    degradedEmitted = false
+    if (connectionState.value === 'degraded') {
+      connectionState.value = 'connected'
+    }
+  }
+
   function updateLastHeartbeatTime() {
     lastHeartbeatTime.value = Date.now()
+    totalHeartbeats.value += 1
     // Heartbeat also counts as an event for general staleness
     updateLastEventTime()
   }
@@ -42,12 +82,66 @@ export function useSSEConnection(config: SSEConnectionConfig = {}) {
     return Date.now() - lastHeartbeatTime.value > thresholdMs
   }
 
+  /**
+   * Check if we're only receiving heartbeats (no real events)
+   * This indicates the backend may be stuck but connection is still alive
+   */
+  function isReceivingOnlyHeartbeats(thresholdMs: number = degradedThresholdMs): boolean {
+    // If we've never received a real event, not degraded yet
+    if (lastRealEventTime.value === 0) return false
+    // If we've never received a heartbeat, can't determine
+    if (lastHeartbeatTime.value === 0) return false
+    // Degraded if heartbeats are recent but real events are old
+    const heartbeatRecent = Date.now() - lastHeartbeatTime.value <= thresholdMs
+    const realEventsStale = Date.now() - lastRealEventTime.value >= thresholdMs
+    return heartbeatRecent && realEventsStale
+  }
+
+  /**
+   * Calculate events per second rate
+   */
+  const eventRate = computed((): number => {
+    if (connectionStartTime.value === null) return 0
+    const durationMs = Date.now() - connectionStartTime.value
+    if (durationMs === 0) return 0
+    const durationSeconds = durationMs / 1000
+    return totalEvents.value / durationSeconds
+  })
+
+  /**
+   * Get comprehensive stream health metrics
+   */
+  const healthMetrics = computed((): StreamHealthMetrics => {
+    const now = Date.now()
+    return {
+      totalEvents: totalEvents.value,
+      totalHeartbeats: totalHeartbeats.value,
+      eventRate: eventRate.value,
+      timeSinceLastEvent: lastEventTime.value ? now - lastEventTime.value : 0,
+      timeSinceLastHeartbeat: lastHeartbeatTime.value ? now - lastHeartbeatTime.value : 0,
+      isHeartbeatOnly: isReceivingOnlyHeartbeats(),
+      connectionDuration: connectionStartTime.value !== null ? now - connectionStartTime.value : 0,
+    }
+  })
+
   function checkStaleConnection() {
     // Only check if connected and we've received at least one event
     if (connectionState.value !== 'connected' || lastEventTime.value === 0) {
       return
     }
 
+    // Check for degraded state (heartbeats only)
+    if (isReceivingOnlyHeartbeats() && !degradedEmitted) {
+      connectionState.value = 'degraded'
+      console.warn(`[SSE] Stream degraded - only receiving heartbeats, no real events for ${degradedThresholdMs}ms`)
+      degradedEmitted = true
+      if (onDegradedDetected) {
+        onDegradedDetected()
+      }
+      return
+    }
+
+    // Check for fully stale connection
     if (isConnectionStale(staleThresholdMs)) {
       console.warn(`[SSE] Connection stale - no events for ${staleThresholdMs}ms`)
       if (onStaleDetected) {
@@ -68,6 +162,16 @@ export function useSSEConnection(config: SSEConnectionConfig = {}) {
   function startStaleDetection() {
     if (staleCheckInterval) return
 
+    connectionState.value = 'connected'
+
+    // Track connection start time
+    connectionStartTime.value = Date.now()
+
+    // Reset counters
+    totalEvents.value = 0
+    totalHeartbeats.value = 0
+    degradedEmitted = false
+
     // Set up heartbeat event listener if not already set
     if (!heartbeatEventHandler) {
       heartbeatEventHandler = handleHeartbeatEvent
@@ -76,8 +180,12 @@ export function useSSEConnection(config: SSEConnectionConfig = {}) {
       }
     }
 
-    // Check every 10 seconds for stale connection
-    staleCheckInterval = setInterval(checkStaleConnection, 10000)
+    // Check frequently enough to detect degraded mode before crossing stale thresholds.
+    const checkIntervalMs = Math.max(
+      1000,
+      Math.min(10000, Math.floor(Math.min(staleThresholdMs, degradedThresholdMs) / 2)),
+    )
+    staleCheckInterval = setInterval(checkStaleConnection, checkIntervalMs)
   }
 
   function stopStaleDetection() {
@@ -114,21 +222,51 @@ export function useSSEConnection(config: SSEConnectionConfig = {}) {
     retryCount.value = 0
   }
 
+  function reset() {
+    connectionState.value = 'disconnected'
+    lastEventTime.value = 0
+    lastRealEventTime.value = 0
+    lastHeartbeatTime.value = 0
+    lastEventId.value = undefined
+    retryCount.value = 0
+    totalEvents.value = 0
+    totalHeartbeats.value = 0
+    connectionStartTime.value = null
+    degradedEmitted = false
+    stopStaleDetection()
+  }
+
+  // Cleanup on unmount only when running inside component setup.
+  if (getCurrentInstance()) {
+    onUnmounted(() => {
+      stopStaleDetection()
+    })
+  }
+
   return {
     connectionState,
     lastEventTime,
+    lastRealEventTime,
     lastHeartbeatTime,
     lastEventId,
     retryCount,
+    totalEvents,
+    totalHeartbeats,
+    connectionStartTime,
+    eventRate,
+    healthMetrics,
     updateLastEventTime,
+    updateLastRealEventTime,
     updateLastHeartbeatTime,
     isConnectionStale,
     isHeartbeatStale,
+    isReceivingOnlyHeartbeats,
     startStaleDetection,
     stopStaleDetection,
     persistEventId,
     getPersistedEventId,
     cleanupSessionStorage,
     resetRetryCount,
+    reset,
   }
 }
