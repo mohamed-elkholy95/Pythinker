@@ -48,6 +48,19 @@ const vncContainer = ref<HTMLDivElement | null>(null);
 const isLoading = ref(false);
 const statusText = ref('Connecting...');
 
+// Update statusText based on reconnection attempts
+watch(
+  () => props.reconnectAttempt,
+  (attempt) => {
+    if (attempt && attempt > 0) {
+      statusText.value = `Reconnecting (attempt ${attempt}/30)...`;
+    } else {
+      statusText.value = 'Connecting...';
+    }
+  },
+  { immediate: true }
+);
+
 let rfb: any = null;
 let RFBClass: any = null;
 let isConnecting = false;
