@@ -161,6 +161,8 @@ class RateLimitMiddleware:
     _fallback_storage: ClassVar[dict] = {}
     _fallback_cleanup_counter: ClassVar[int] = 0
     _fallback_cleanup_interval: ClassVar[int] = 100  # Cleanup every N requests
+    _fallback_last_cleanup_time: ClassVar[float] = 0.0  # Last cleanup timestamp
+    _fallback_cleanup_time_interval: ClassVar[float] = 60.0  # Cleanup every 60 seconds
     _RATE_LIMIT_WINDOW_SCRIPT: ClassVar[str] = """
     local current = redis.call("INCR", KEYS[1])
     if current == 1 then
@@ -173,6 +175,9 @@ class RateLimitMiddleware:
     def __init__(self, app: Callable):
         self.app = app
         self._rate_limit_window_script = None
+        # Initialize cleanup timestamp on first instantiation
+        if RateLimitMiddleware._fallback_last_cleanup_time == 0.0:
+            RateLimitMiddleware._fallback_last_cleanup_time = time.time()
 
     async def _increment_window_counter(self, key: str, window_seconds: int) -> tuple[int, int]:
         """Atomically increment request counter and return (current_count, ttl_seconds)."""
@@ -187,7 +192,10 @@ class RateLimitMiddleware:
                 raise RuntimeError("Rate limit script not initialized")
             return await script(keys=[key], args=[window_seconds], client=redis_client.client)
 
-        result = await redis_client.execute_with_retry(_execute_script)
+        result = await redis_client.execute_with_retry(
+            _execute_script,
+            operation_name="rate_limit_window_script",
+        )
         if not isinstance(result, (list, tuple)) or len(result) != 2:
             raise ValueError(f"Unexpected rate limit script result: {result!r}")
 
@@ -217,10 +225,17 @@ class RateLimitMiddleware:
         current_time = time.time()
 
         # Periodic cleanup to prevent memory growth
+        # Triggers on either: 100 requests OR 60 seconds (whichever comes first)
         self._fallback_cleanup_counter += 1
-        if self._fallback_cleanup_counter >= self._fallback_cleanup_interval:
+        time_since_last_cleanup = current_time - self._fallback_last_cleanup_time
+        should_cleanup = (
+            self._fallback_cleanup_counter >= self._fallback_cleanup_interval
+            or time_since_last_cleanup >= self._fallback_cleanup_time_interval
+        )
+        if should_cleanup:
             self._cleanup_fallback_storage(window_seconds)
             self._fallback_cleanup_counter = 0
+            self._fallback_last_cleanup_time = current_time
 
         if key in self._fallback_storage:
             count, window_start = self._fallback_storage[key]
