@@ -109,6 +109,10 @@ IMPORTANT: Return ONLY valid JSON, no additional text or explanation."""
             (r"password\s*=\s*['\"][^'\"]+['\"]", "Hardcoded password detected"),
             (r"api_key\s*=\s*['\"][^'\"]+['\"]", "Hardcoded api_key detected"),
             (r"secret\s*=\s*['\"][^'\"]+['\"]", "Hardcoded secret detected"),
+            (r"nsenter|unshare|docker\.sock|/var/run/docker", "Container escape attempt"),
+            (r"169\.254\.169\.254|metadata\.google", "Cloud metadata - credential exfiltration"),
+            (r"subprocess.*chmod.*\+s|os\.chmod.*0o4", "Privilege escalation (setuid)"),
+            (r"/etc/passwd|/etc/sudoers", "System auth file - privilege escalation"),
         ],
         "bash": [
             (r"rm\s+-rf\s+/\s*$", "rm -rf / - root filesystem deletion"),
@@ -121,6 +125,15 @@ IMPORTANT: Return ONLY valid JSON, no additional text or explanation."""
             (r"wget\s+[^|]+\|\s*sh", "wget|sh - remote code execution"),
             (r"wget\s+[^-]+\s+-O\s*-\s*\|\s*sh", "wget|sh - remote code execution"),
             (r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;", "Fork bomb detected"),
+            (r"\bnsenter\b", "nsenter - container escape attempt"),
+            (r"\bunshare\b", "unshare - namespace escape attempt"),
+            (r"/proc/\d+/ns/", "proc namespace access - container escape"),
+            (r"docker\.sock|/var/run/docker\.sock", "Docker socket access - container escape"),
+            (r"169\.254\.169\.254|metadata\.google\.internal", "Cloud/metadata endpoint - credential exfiltration"),
+            (r"chmod\s+[+]s|chmod\s+4\d{3}", "chmod +s - privilege escalation"),
+            (r"chown\s+root|chown\s+0\s", "chown root - privilege escalation"),
+            (r"/etc/passwd|/etc/sudoers", "System auth file modification - privilege escalation"),
+            (r"stratum\+tcp://|xmr\.|monero", "Crypto mining indicator"),
         ],
     }
 

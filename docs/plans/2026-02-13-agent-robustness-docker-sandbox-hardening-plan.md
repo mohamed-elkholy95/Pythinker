@@ -14,6 +14,14 @@
 
 **Task 6 Status:** ✅ Completed 2026-02-13. Idempotent teardown early-exit; fire-and-forget task cleanup tests; double-stop and warmup-cancellation tests; `find_by_id_and_user_id` in FakeSessionRepository.
 
+**Task 7 Status:** ✅ Completed 2026-02-13. Security critic as mandatory gate for code_executor and shell; new patterns (nsenter, unshare, docker.sock, 169.254.169.254, privilege escalation, crypto mining); SECURITY_CRITIC_ALLOW_MEDIUM_RISK; metrics `security_gate_blocks_total`, `security_gate_overrides_total`; test_execution_security_gate.py.
+
+**Task 8 Status:** ✅ Completed 2026-02-13. `docs/guides/DOCKER_ROOTLESS_USERNS_PLAYBOOK.md`.
+
+**Task 9 Status:** ✅ Completed 2026-02-13. Security gate metrics; hardening alerts (SandboxCreationFailureBurst, SecurityBlockRatioRising); MONITORING.md update.
+
+**Task 10 Status:** ✅ Completed 2026-02-13. `docs/reports/2026-02-13-hardening-verification-report.md`.
+
 **Goal:** Harden agent execution and sandbox isolation while improving failure recovery, deterministic teardown, and runtime safety for Docker-based development deployments.
 
 **Architecture:** Treat hardening as three coupled layers: (1) container/runtime isolation, (2) sandbox lifecycle and execution safety controls, and (3) agent orchestration robustness and guardrails. Implement each layer behind explicit config flags, add failing tests first, and ship with measurable security/reliability SLO gates.

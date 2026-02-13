@@ -457,6 +457,18 @@ sandbox_runtime_crashes_total = Counter(
     labels=[],
 )
 
+# Security Gate Metrics (Task 7: mandatory execution gate)
+security_gate_blocks_total = Counter(
+    name="pythinker_security_gate_blocks_total",
+    help_text="Total security gate blocks (CRITICAL/HIGH/MEDIUM risk)",
+    labels=["risk_level", "pattern_type"],
+)
+security_gate_overrides_total = Counter(
+    name="pythinker_security_gate_overrides_total",
+    help_text="Total security gate overrides (MEDIUM allowed via config)",
+    labels=["override_reason"],
+)
+
 # Token Management Metrics (Priority 4)
 token_pressure_level = Gauge(
     name="pythinker_token_pressure_level",
@@ -1004,6 +1016,9 @@ _metrics_registry.extend(
         session_duration_seconds,
         qdrant_disk_usage_bytes,
         qdrant_query_duration_seconds,
+        # Security Gate (Task 7)
+        security_gate_blocks_total,
+        security_gate_overrides_total,
     ]
 )
 
@@ -1129,6 +1144,22 @@ def record_sandbox_oom_kill() -> None:
     Priority 3: Sandbox Health Monitoring
     """
     sandbox_oom_kills_total.inc({})
+
+
+def record_security_gate_block(risk_level: str, pattern_type: str = "static") -> None:
+    """Record security gate block (execution blocked).
+    Args:
+        risk_level: critical, high, or medium
+        pattern_type: static or llm
+    """
+    security_gate_blocks_total.inc(
+        {"risk_level": (risk_level or "unknown").lower(), "pattern_type": pattern_type or "static"}
+    )
+
+
+def record_security_gate_override(override_reason: str = "medium_risk_dev") -> None:
+    """Record security gate override (MEDIUM allowed via config)."""
+    security_gate_overrides_total.inc({"override_reason": override_reason or "unknown"})
 
 
 def record_sandbox_runtime_crash() -> None:

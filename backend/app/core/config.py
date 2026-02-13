@@ -126,6 +126,7 @@ class Settings(BaseSettings):
     sandbox_no_proxy: str | None = None
     sandbox_seccomp_profile: str | None = None
     sandbox_seccomp_profile_mode: str = "compat"  # compat | hardened; default compat (Phase A)
+    security_critic_allow_medium_risk: bool = False  # Allow MEDIUM risk in dev; default block
     sandbox_shm_size: str | None = "2g"  # Playwright/Selenium: 2GB prevents Chrome /dev/shm OOM (Context7)
     sandbox_mem_limit: str | None = "4g"  # Increased from 3g to reduce OOM kills (Priority 3)
     sandbox_cpu_limit: float | None = 1.5  # 2 containers x 1.5 CPU = 3 cores, leaves room for services
