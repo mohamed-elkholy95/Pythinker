@@ -20,6 +20,18 @@ from app.domain.external.sandbox import Sandbox
 from app.domain.models.event import DoneEvent, ErrorEvent, PlanningPhase, ProgressEvent
 from app.domain.models.file import FileInfo
 from app.domain.models.user import User
+from app.domain.services.stream_guard import (
+    StreamErrorCategory,
+    StreamErrorCode,
+    StreamGuard,
+    has_active_stream,
+    record_stream_metrics,
+    record_stream_reconnection,
+    register_active_stream,
+    unregister_active_stream,
+)
+from app.domain.utils.cancellation import CancellationToken
+from app.infrastructure.observability import prometheus_metrics as pm
 from app.interfaces.dependencies import (
     get_agent_service,
     get_current_user,
@@ -63,8 +75,53 @@ SANDBOX_WS_CONNECT_KWARGS = {
     "ping_interval": None,
     "max_size": None,
 }
+SSE_PROTOCOL_VERSION = "2"
+SSE_RETRY_MAX_ATTEMPTS = 7
+SSE_RETRY_BASE_DELAY_MS = 1000
+SSE_RETRY_MAX_DELAY_MS = 45000
+SSE_RETRY_JITTER_RATIO = 0.25
+SSE_HEARTBEAT_INTERVAL_SECONDS = 30.0
+SSE_DISCONNECT_CANCELLATION_GRACE_SECONDS = 45.0
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+_pending_disconnect_cancellations: dict[str, asyncio.Task[None]] = {}
+
+
+def _cancel_pending_disconnect_cancellation(session_id: str) -> None:
+    pending_task = _pending_disconnect_cancellations.pop(session_id, None)
+    if pending_task and not pending_task.done():
+        pending_task.cancel()
+
+
+def _schedule_disconnect_cancellation(session_id: str, agent_service: AgentService, grace_seconds: float) -> None:
+    _cancel_pending_disconnect_cancellation(session_id)
+
+    async def _deferred_cancel() -> None:
+        try:
+            await asyncio.sleep(max(0.0, grace_seconds))
+            if await has_active_stream(session_id=session_id, endpoint="chat"):
+                logger.info(
+                    "Skipping deferred cancellation for session %s: active chat stream detected",
+                    session_id,
+                )
+                return
+            request_cancellation = getattr(agent_service, "request_cancellation", None)
+            if callable(request_cancellation):
+                with contextlib.suppress(Exception):
+                    request_cancellation(session_id)
+        except asyncio.CancelledError:
+            logger.debug("Deferred disconnect cancellation cancelled for session %s", session_id)
+            raise
+
+    task = asyncio.create_task(_deferred_cancel())
+    _pending_disconnect_cancellations[session_id] = task
+
+    def _cleanup(completed_task: asyncio.Task[None]) -> None:
+        current = _pending_disconnect_cancellations.get(session_id)
+        if current is completed_task:
+            _pending_disconnect_cancellations.pop(session_id, None)
+
+    task.add_done_callback(_cleanup)
 
 
 def _safe_exc_text(exc: BaseException) -> str:
@@ -81,10 +138,34 @@ def _safe_exc_text(exc: BaseException) -> str:
     return message[:240]
 
 
-def _is_truthy_header(value: str | None) -> bool:
+def _is_truthy_header(value: object | None) -> bool:
     if value is None:
         return False
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _build_sse_protocol_headers(heartbeat_interval_seconds: float = SSE_HEARTBEAT_INTERVAL_SECONDS) -> dict[str, str]:
+    """Build protocol headers so clients can adapt retry and liveness policies."""
+    expose_headers = [
+        "X-Pythinker-SSE-Protocol-Version",
+        "X-Pythinker-SSE-Heartbeat-Interval-Seconds",
+        "X-Pythinker-SSE-Retry-Max-Attempts",
+        "X-Pythinker-SSE-Retry-Base-Delay-Ms",
+        "X-Pythinker-SSE-Retry-Max-Delay-Ms",
+        "X-Pythinker-SSE-Retry-Jitter-Ratio",
+    ]
+    return {
+        "X-Pythinker-SSE-Protocol-Version": SSE_PROTOCOL_VERSION,
+        "X-Pythinker-SSE-Heartbeat-Interval-Seconds": str(heartbeat_interval_seconds),
+        "X-Pythinker-SSE-Retry-Max-Attempts": str(SSE_RETRY_MAX_ATTEMPTS),
+        "X-Pythinker-SSE-Retry-Base-Delay-Ms": str(SSE_RETRY_BASE_DELAY_MS),
+        "X-Pythinker-SSE-Retry-Max-Delay-Ms": str(SSE_RETRY_MAX_DELAY_MS),
+        "X-Pythinker-SSE-Retry-Jitter-Ratio": str(SSE_RETRY_JITTER_RATIO),
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "X-Accel-Buffering": "no",
+        "Access-Control-Expose-Headers": ", ".join(expose_headers),
+    }
 
 
 async def _safe_ws_close(websocket: WebSocket, code: int, reason: str) -> None:
@@ -307,6 +388,10 @@ async def stream_sessions(
 ) -> EventSourceResponse:
     async def event_generator() -> AsyncGenerator[ServerSentEvent, None]:
         last_hash: str | None = None
+        stream_key = await register_active_stream(
+            session_id=f"user:{current_user.id}",
+            endpoint="stream_sessions",
+        )
         try:
             while True:
                 sessions = await agent_service.get_all_sessions(current_user.id)
@@ -330,10 +415,15 @@ async def stream_sessions(
                 if current_hash != last_hash:
                     yield ServerSentEvent(event="sessions", data=data)
                     last_hash = current_hash
+                else:
+                    # Keep-alive frame so proxies don't time out idle streams.
+                    yield ServerSentEvent(comment="heartbeat")
                 await asyncio.sleep(SESSION_POLL_INTERVAL)
         except asyncio.CancelledError:
             logger.debug("Session SSE stream cancelled")
             return
+        finally:
+            await unregister_active_stream(stream_key)
 
     return EventSourceResponse(event_generator())
 
@@ -356,6 +446,10 @@ async def chat(
     session = await agent_service.get_session(session_id, current_user.id)
     if not session:
         raise NotFoundError("Session not found")
+    # New stream means client is connected again; cancel any pending disconnect teardown.
+    _cancel_pending_disconnect_cancellation(session_id)
+    heartbeat_interval_seconds = SSE_HEARTBEAT_INTERVAL_SECONDS
+    protocol_headers = _build_sse_protocol_headers(heartbeat_interval_seconds=heartbeat_interval_seconds)
 
     # Short-circuit for completed/failed sessions ONLY when there is no fresh user
     # input (pure reconnect / page-refresh).  When the request carries a message,
@@ -382,11 +476,24 @@ async def chat(
                     data=sse_done.data.model_dump_json() if sse_done.data else None,
                 )
 
-        return EventSourceResponse(completed_generator())
+        return EventSourceResponse(completed_generator(), headers=protocol_headers)
 
     settings = get_settings()
     use_sse_v2 = settings.feature_sse_v2
-    sse_diag_enabled = settings.debug or _is_truthy_header(http_request.headers.get("X-Pythinker-SSE-Debug"))
+    disconnect_cancellation_grace_seconds = SSE_DISCONNECT_CANCELLATION_GRACE_SECONDS
+    with contextlib.suppress(Exception):
+        disconnect_cancellation_grace_seconds = float(
+            getattr(
+                settings,
+                "sse_disconnect_cancellation_grace_seconds",
+                SSE_DISCONNECT_CANCELLATION_GRACE_SECONDS,
+            )
+        )
+    disconnect_cancellation_grace_seconds = max(0.0, disconnect_cancellation_grace_seconds)
+    raw_diag_header = None
+    with contextlib.suppress(Exception):
+        raw_diag_header = http_request.headers.get("X-Pythinker-SSE-Debug")
+    sse_diag_enabled = bool(getattr(settings, "debug", False)) or _is_truthy_header(raw_diag_header)
 
     def log_sse_diag(stage: str, **details: object) -> None:
         if not sse_diag_enabled:
@@ -400,7 +507,7 @@ async def chat(
 
     # Heartbeat interval: keep connection alive and prevent "stuck" feeling during long ops
     # Set to 30s to prevent SSE timeout during browser recovery (can take >120s)
-    heartbeat_interval_seconds = 30.0
+    heartbeat_interval_seconds = SSE_HEARTBEAT_INTERVAL_SECONDS
     log_sse_diag(
         "stream_config",
         use_sse_v2=use_sse_v2,
@@ -409,6 +516,10 @@ async def chat(
         resume_event_id=request.event_id,
         has_message=bool(request.message and request.message.strip()),
     )
+    resume_cursor = request.event_id or http_request.headers.get("Last-Event-ID")
+    if resume_cursor:
+        await record_stream_reconnection(session_id=session_id, endpoint="chat")
+        log_sse_diag("resume_cursor_detected", resume_cursor=resume_cursor)
 
     async def event_generator() -> AsyncGenerator[ServerSentEvent, None]:
         stream_started_at = asyncio.get_running_loop().time()
@@ -416,6 +527,15 @@ async def chat(
         heartbeat_count = 0
         close_reason = "unknown"
         last_emitted_event_id = request.event_id
+        disconnect_event = asyncio.Event()
+        cancel_token = CancellationToken(event=disconnect_event, session_id=session_id)
+        guard = StreamGuard(
+            session_id=session_id,
+            endpoint="chat",
+            cancel_token=cancel_token,
+        )
+        stream_metrics = guard.get_metrics()
+        pm.record_sse_stream_open(endpoint="chat")
 
         try:
             # INSTANT FEEDBACK: Emit ProgressEvent immediately (<100ms)
@@ -433,6 +553,7 @@ async def chat(
                 )
                 yield payload
                 stream_event_count += 1
+                stream_metrics.record_event(instant_ack)
                 ack_event_id = getattr(sse_event.data, "event_id", None) if sse_event.data else None
                 if ack_event_id:
                     last_emitted_event_id = str(ack_event_id)
@@ -474,7 +595,7 @@ async def chat(
                 deep_research=request.deep_research,
                 follow_up=follow_up_dict,
             )
-            stream_iter = chat_stream.__aiter__()
+            stream_iter = guard.wrap(chat_stream).__aiter__()
             next_event_task: asyncio.Task | None = asyncio.create_task(stream_iter.__anext__())
             heartbeat_task: asyncio.Task | None = asyncio.create_task(asyncio.sleep(heartbeat_interval_seconds))
             stream_exhausted = False
@@ -483,6 +604,7 @@ async def chat(
                 # Phase 3: Check for client disconnect before sending
                 if use_sse_v2 and await http_request.is_disconnected():
                     logger.info(f"Client disconnected during chat stream: {session_id}")
+                    disconnect_event.set()
                     close_reason = "client_disconnected"
                     log_sse_diag("disconnect_detected", event_count=stream_event_count, heartbeat_count=heartbeat_count)
                     break
@@ -504,6 +626,8 @@ async def chat(
                         yield ServerSentEvent(comment="heartbeat")
                     heartbeat_count += 1
                     stream_event_count += 1
+                    stream_metrics.record_event(heartbeat)
+                    pm.record_sse_stream_heartbeat(endpoint="chat")
                     log_sse_diag(
                         "heartbeat_sent",
                         heartbeat_count=heartbeat_count,
@@ -558,6 +682,14 @@ async def chat(
                             except TimeoutError:
                                 logger.warning(f"SSE send timeout for session {session_id}")
                                 close_reason = "send_timeout"
+                                stream_metrics.record_error(
+                                    StreamErrorCode.STREAM_TIMEOUT,
+                                    StreamErrorCategory.TIMEOUT,
+                                    recoverable=True,
+                                    message="SSE send timeout",
+                                )
+                                pm.record_sse_stream_error(endpoint="chat", error_type="send_timeout")
+                                pm.record_sse_stream_retry_suggestion(endpoint="chat", reason="send_timeout")
                                 log_sse_diag(
                                     "send_timeout",
                                     event=sse_event.event,
@@ -579,12 +711,31 @@ async def chat(
         except asyncio.CancelledError:
             # Client disconnected - log and gracefully terminate
             logger.warning(f"Chat stream cancelled for session {session_id} (client disconnected)")
+            disconnect_event.set()
             close_reason = "generator_cancelled"
+            stream_metrics.record_cancellation()
+            stream_metrics.record_error(
+                StreamErrorCode.CANCELLED,
+                StreamErrorCategory.TRANSPORT,
+                recoverable=True,
+                message="Chat stream generator cancelled by client disconnect",
+            )
             log_sse_diag("generator_cancelled", event_count=stream_event_count, heartbeat_count=heartbeat_count)
             raise
         except Exception as e:
             logger.error(f"Error in chat stream for session {session_id}: {e}")
+            disconnect_event.set()
             close_reason = "stream_exception"
+            safe_error_text = _safe_exc_text(e)
+            normalized_error_type = type(e).__name__.lower()
+            stream_metrics.record_error(
+                StreamErrorCode.INTERNAL_ERROR,
+                StreamErrorCategory.INTERNAL,
+                recoverable=True,
+                message=safe_error_text,
+            )
+            pm.record_sse_stream_error(endpoint="chat", error_type=normalized_error_type)
+            pm.record_sse_stream_retry_suggestion(endpoint="chat", reason="stream_exception")
             log_sse_diag(
                 "stream_exception",
                 error_type=type(e).__name__,
@@ -594,7 +745,19 @@ async def chat(
             )
             # Yield schema-compliant error event before closing so frontend
             # ErrorEventData handler receives the expected `error` field.
-            error_event = ErrorEvent(error=f"Stream error: {str(e)[:100]}")
+            error_event = ErrorEvent(
+                error=f"Stream error: {safe_error_text}",
+                error_type=normalized_error_type,
+                error_code="stream_exception",
+                error_category="transport",
+                severity="error",
+                recoverable=True,
+                retry_hint="Connection interrupted. Reconnecting may resume progress.",
+                retry_after_ms=1500,
+                can_resume=True,
+                checkpoint_event_id=last_emitted_event_id,
+                details={"session_id": session_id},
+            )
             sse_err = await EventMapper.event_to_sse_event(error_event)
             if sse_err:
                 yield ServerSentEvent(
@@ -602,10 +765,21 @@ async def chat(
                     data=sse_err.data.model_dump_json() if sse_err.data else None,
                 )
                 stream_event_count += 1
+                stream_metrics.record_event(error_event)
         finally:
+            disconnect_event.set()
             elapsed_seconds = asyncio.get_running_loop().time() - stream_started_at
             if close_reason == "unknown":
                 close_reason = "completed_without_explicit_reason"
+            if close_reason in {"client_disconnected", "generator_cancelled"}:
+                stream_metrics.record_cancellation()
+            with contextlib.suppress(Exception):
+                await record_stream_metrics(stream_metrics)
+            pm.record_sse_stream_close(
+                endpoint="chat",
+                reason=close_reason,
+                duration_seconds=max(0.0, elapsed_seconds),
+            )
             log_sse_diag(
                 "stream_closed",
                 close_reason=close_reason,
@@ -614,10 +788,23 @@ async def chat(
                 heartbeat_count=heartbeat_count,
                 last_event_id=last_emitted_event_id,
             )
-            # Signal cancellation so agent service can stop background work
-            get_agent_service().request_cancellation(session_id)
+            # Signal cancellation so agent service can stop background work.
+            # Use the request-scoped dependency instance; tolerate lightweight mocks.
+            request_cancellation = getattr(agent_service, "request_cancellation", None)
+            if callable(request_cancellation):
+                if close_reason in {"client_disconnected", "generator_cancelled"}:
+                    _schedule_disconnect_cancellation(
+                        session_id=session_id,
+                        agent_service=agent_service,
+                        grace_seconds=disconnect_cancellation_grace_seconds,
+                    )
+                else:
+                    # Ensure stale deferred cancellations don't race with a successful completion path.
+                    _cancel_pending_disconnect_cancellation(session_id)
+                    with contextlib.suppress(Exception):
+                        request_cancellation(session_id)
 
-    return EventSourceResponse(event_generator())
+    return EventSourceResponse(event_generator(), headers=protocol_headers)
 
 
 @router.post("/{session_id}/shell")
@@ -668,6 +855,7 @@ async def view_file(
 async def browse_url(
     session_id: str,
     request: BrowseUrlRequest,
+    http_request: Request,
     current_user: User = Depends(get_current_user),
     agent_service: AgentService = Depends(get_agent_service),
 ) -> EventSourceResponse:
@@ -688,13 +876,50 @@ async def browse_url(
     """
 
     async def event_generator() -> AsyncGenerator[ServerSentEvent, None]:
-        async for event in agent_service.browse_url(session_id=session_id, user_id=current_user.id, url=request.url):
-            logger.debug(f"Received browse event: {event}")
-            sse_event = await EventMapper.event_to_sse_event(event)
-            if sse_event:
+        disconnect_event = asyncio.Event()
+        guard = StreamGuard(
+            session_id=session_id,
+            endpoint="browse",
+            cancel_token=CancellationToken(event=disconnect_event, session_id=session_id),
+        )
+        try:
+            raw_stream = agent_service.browse_url(session_id=session_id, user_id=current_user.id, url=request.url)
+            async for event in guard.wrap(raw_stream):
+                if await http_request.is_disconnected():
+                    disconnect_event.set()
+                    logger.info("Browse URL client disconnected for session %s", session_id)
+                    break
+                logger.debug(f"Received browse event: {event}")
+                sse_event = await EventMapper.event_to_sse_event(event)
+                if sse_event:
+                    yield ServerSentEvent(
+                        event=sse_event.event, data=sse_event.data.model_dump_json() if sse_event.data else None
+                    )
+        except asyncio.CancelledError:
+            disconnect_event.set()
+            logger.info("Browse URL stream cancelled for session %s", session_id)
+            raise
+        except Exception as e:
+            disconnect_event.set()
+            logger.error("Browse URL error for session %s: %s", session_id, e)
+            # Yield structured error event before closing
+            error_event = ErrorEvent(
+                error=f"Navigation failed: {str(e)[:100]}",
+                error_type="navigation",
+                error_code="browse_url_failed",
+                error_category="transport",
+                recoverable=True,
+                retry_hint="Retry the navigation request.",
+            )
+            sse_err = await EventMapper.event_to_sse_event(error_event)
+            if sse_err:
                 yield ServerSentEvent(
-                    event=sse_event.event, data=sse_event.data.model_dump_json() if sse_event.data else None
+                    event=sse_err.event, data=sse_err.data.model_dump_json() if sse_err.data else None
                 )
+        finally:
+            disconnect_event.set()
+            with contextlib.suppress(Exception):
+                await record_stream_metrics(guard.get_metrics())
 
     return EventSourceResponse(event_generator())
 
