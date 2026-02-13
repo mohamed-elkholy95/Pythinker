@@ -112,5 +112,25 @@ def get_llm_from_factory() -> LLM | None:
         kwargs["base_url"] = getattr(settings, "ollama_base_url", "http://localhost:11434")
         kwargs["model_name"] = getattr(settings, "ollama_model", "llama3.2")
 
+    if provider == "anthropic":
+        # Collect fallback Anthropic keys
+        fallback_keys = []
+        if settings.anthropic_api_key_2:
+            fallback_keys.append(settings.anthropic_api_key_2)
+        if settings.anthropic_api_key_3:
+            fallback_keys.append(settings.anthropic_api_key_3)
+
+        if fallback_keys:
+            kwargs["fallback_api_keys"] = fallback_keys
+
+        # Get Redis client for distributed coordination
+        try:
+            from app.infrastructure.persistence.redis_client import get_redis
+
+            redis_client = get_redis()
+            kwargs["redis_client"] = redis_client
+        except Exception as e:
+            logger.warning(f"Failed to get Redis client for Anthropic LLM: {e}")
+
     logger.info(f"Initializing LLM: {provider}")
     return LLMProviderRegistry.get(provider, **kwargs)

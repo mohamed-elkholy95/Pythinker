@@ -54,6 +54,8 @@ class Settings(BaseSettings):
 
     # Anthropic configuration (when LLM_PROVIDER=anthropic)
     anthropic_api_key: str | None = None
+    anthropic_api_key_2: str | None = None  # Fallback Anthropic key #1
+    anthropic_api_key_3: str | None = None  # Fallback Anthropic key #2
     anthropic_model_name: str = "claude-sonnet-4-20250514"
 
     # Embedding configuration (separate from chat model)
