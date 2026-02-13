@@ -33,6 +33,17 @@ Pythinker is an AI Agent system that runs tools (browser, terminal, files, searc
 - **Python Environment**: Always `conda activate pythinker` before running tests
 - **Plan Execution**: Complete ALL phases - priorities indicate order, not optional phases
 
+### Multi-API Key Management
+
+- **Always use APIKeyPool** for external API providers (search, LLM, embedding)
+- **Never create direct API clients** without key pool integration
+- **Strategy Selection:**
+  - FAILOVER: Search engines, LLMs (preserves caching)
+  - ROUND_ROBIN: Embeddings (load distribution)
+- **Redis Required:** For multi-instance coordination (graceful degradation to in-memory)
+- **TTL Recovery:** Keys auto-recover after quota reset (hourly/daily)
+- **Comprehensive docs:** See `docs/architecture/MULTI_API_KEY_MANAGEMENT.md`
+
 ## Communication & Accuracy Standards
 
 - **Absolute Status Accuracy Rule**: When creating summaries or status reports, maintain 100% factual accuracy. Never mark a task as "Completed" if it is only partially done or if only foundational code is in place. Always clearly distinguish "Completed", "In Progress", and "Not Started".
@@ -261,3 +272,20 @@ sparse = encoder.encode("query text")  # Returns {index: score} dict
 - Copy `.env.example` to `.env` for local runs
 - MCP integration via `mcp.json.example`
 - Docker socket mount: `-v /var/run/docker.sock:/var/run/docker.sock`
+
+### API Key Configuration
+
+**Multi-Key Support:**
+- Search engines: Up to 3-9 keys (Serper: 3, Tavily: 9, Brave: 3)
+- LLMs: Up to 3 keys (Anthropic, OpenAI)
+- Embeddings: Up to 3 keys (OpenAI)
+
+**Environment Variables:**
+- Primary: `SERPER_API_KEY`, `ANTHROPIC_API_KEY`, `EMBEDDING_API_KEY`
+- Fallbacks: `*_API_KEY_2`, `*_API_KEY_3`, etc.
+- See `.env.example` for complete multi-key configuration
+
+**Automatic Rotation:**
+- HTTP 401/429 → Rotate to next healthy key
+- TTL-based recovery (keys auto-recover after quota reset)
+- Prometheus metrics for observability
