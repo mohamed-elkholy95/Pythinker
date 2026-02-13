@@ -38,6 +38,8 @@ services:
         condition: service_started
       redis:
         condition: service_started
+      redis-cache:
+        condition: service_started
       qdrant:
         condition: service_started
       minio:
@@ -72,7 +74,7 @@ services:
       dockerfile: Dockerfile
       args:
         USE_CHROMIUM: "1"
-        ENABLE_SANDBOX_ADDONS: "1"  # Enable screenshot tools (xwd, imagemagick)
+        ENABLE_SANDBOX_ADDONS: "${ENABLE_SANDBOX_ADDONS:-0}"  # Keep minimal profile by default
       x-bake:
         platforms:
           - linux/amd64
@@ -145,7 +147,7 @@ services:
       dockerfile: Dockerfile
       args:
         USE_CHROMIUM: "1"
-        ENABLE_SANDBOX_ADDONS: "1"  # Enable screenshot tools (xwd, imagemagick)
+        ENABLE_SANDBOX_ADDONS: "${ENABLE_SANDBOX_ADDONS:-0}"  # Keep minimal profile by default
       x-bake:
         platforms:
           - linux/amd64
@@ -238,9 +240,67 @@ services:
 
   redis:
     image: redis:8.4-alpine
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --aof-use-rdb-preamble
+      - "yes"
+      - --loglevel
+      - warning
+      - --timeout
+      - "0"
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-512mb}
+      - --maxmemory-policy
+      - ${REDIS_MAXMEMORY_POLICY:-volatile-lfu}
+      - --lazyfree-lazy-eviction
+      - "yes"
+      - --latency-monitor-threshold
+      - "100"
+    volumes:
+      - redis_runtime_data:/data
     restart: unless-stopped
     networks:
       - pythinker-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  redis-cache:
+    image: redis:8.4-alpine
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --loglevel
+      - warning
+      - --timeout
+      - "0"
+      - --maxmemory
+      - ${REDIS_CACHE_MAXMEMORY:-512mb}
+      - --maxmemory-policy
+      - ${REDIS_CACHE_MAXMEMORY_POLICY:-allkeys-lfu}
+      - --lazyfree-lazy-eviction
+      - "yes"
+      - --latency-monitor-threshold
+      - "100"
+    restart: unless-stopped
+    networks:
+      - pythinker-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   qdrant:
     image: qdrant/qdrant:v1.16.3
@@ -264,6 +324,8 @@ services:
 volumes:
   mongodb_data:
     name: pythinker-mongodb-data
+  redis_runtime_data:
+    name: pythinker-redis-runtime-data
   qdrant_data:
     name: pythinker-qdrant-data
   minio_data:
