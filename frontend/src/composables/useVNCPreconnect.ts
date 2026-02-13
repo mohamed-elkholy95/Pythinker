@@ -35,11 +35,15 @@ async function preloadRFBModule(): Promise<boolean> {
     try {
       // Dynamic import with type assertion for noVNC module
       const module = await import('@novnc/novnc/lib/rfb') as { default?: unknown; RFB?: unknown };
-      console.log('[VNC Preconnect] RFB module loaded from npm');
+      if (import.meta.env.DEV) {
+        console.log('[VNC Preconnect] RFB module loaded from npm');
+      }
       return module.default || module.RFB || module;
     } catch {
       // Fallback: module will be loaded when VNCViewer connects
-      console.warn('[VNC Preconnect] npm import failed, will load on demand');
+      if (import.meta.env.DEV) {
+        console.warn('[VNC Preconnect] npm import failed, will load on demand');
+      }
       return null;
     }
   })();
@@ -114,7 +118,9 @@ export function useVNCPreconnect(options: UseVNCPreconnectOptions): UseVNCPrecon
             urlCache.set(sid, url);
             state.value.cachedUrl = url;
             state.value.isFetched = true;
-            console.log(`[VNC Preconnect] URL cached for session ${sid}`);
+            if (import.meta.env.DEV) {
+              console.log(`[VNC Preconnect] URL cached for session ${sid}`);
+            }
             return url;
           });
 
@@ -126,7 +132,9 @@ export function useVNCPreconnect(options: UseVNCPreconnectOptions): UseVNCPrecon
       await Promise.all([urlPromise, modulePromise]);
 
       isReady.value = state.value.isFetched && state.value.isModuleLoaded;
-      console.log(`[VNC Preconnect] Ready for session ${sid}: url=${state.value.isFetched}, module=${state.value.isModuleLoaded}`);
+      if (import.meta.env.DEV) {
+        console.log(`[VNC Preconnect] Ready for session ${sid}: url=${state.value.isFetched}, module=${state.value.isModuleLoaded}`);
+      }
 
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Unknown error';
@@ -150,7 +158,9 @@ export function useVNCPreconnect(options: UseVNCPreconnectOptions): UseVNCPrecon
       // 1. Session changes to PENDING status (sandbox ready)
       // 2. Or when a new session ID is set
       if (sid && (status === SessionStatus.PENDING || (sid !== oldSid && status))) {
-        console.log(`[VNC Preconnect] Triggering for session ${sid} (status: ${status})`);
+        if (import.meta.env.DEV) {
+          console.log(`[VNC Preconnect] Triggering for session ${sid} (status: ${status})`);
+        }
         preconnect();
       }
     },
