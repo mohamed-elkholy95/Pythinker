@@ -464,21 +464,21 @@ const {
   isLoading,
   isThinking,
   isSettled,
-  isError,
-  isTimedOut,
+  isError: _isError,
+  isTimedOut: _isTimedOut,
   transitionTo,
-  reset: resetResponsePhase,
+  reset: _resetResponsePhase,
 } = useResponsePhase()
 
 // SSE connection management
 const {
-  connectionState,
+  connectionState: _connectionState,
   lastEventTime,
   lastEventId,
   updateLastEventTime,
-  isConnectionStale,
-  persistEventId,
-  getPersistedEventId,
+  isConnectionStale: _isConnectionStale,
+  persistEventId: _persistEventId,
+  getPersistedEventId: _getPersistedEventId,
   cleanupSessionStorage,
 } = useSSEConnection()
 
