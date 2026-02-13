@@ -37,7 +37,7 @@ from app.infrastructure.models.documents import (
 )
 from app.infrastructure.storage.mongodb import get_mongodb
 from app.infrastructure.storage.qdrant import get_qdrant
-from app.infrastructure.storage.redis import get_redis
+from app.infrastructure.storage.redis import get_cache_redis, get_redis
 from app.infrastructure.structured_logging import (
     get_logger,
     set_request_id,
@@ -159,25 +159,56 @@ class RateLimitMiddleware:
 
     # In-memory fallback storage: {key: (count, window_start_time)}
     _fallback_storage: ClassVar[dict] = {}
-    _fallback_window_seconds: ClassVar[int] = 60
     _fallback_cleanup_counter: ClassVar[int] = 0
     _fallback_cleanup_interval: ClassVar[int] = 100  # Cleanup every N requests
+    _RATE_LIMIT_WINDOW_SCRIPT: ClassVar[str] = """
+    local current = redis.call("INCR", KEYS[1])
+    if current == 1 then
+        redis.call("EXPIRE", KEYS[1], tonumber(ARGV[1]))
+    end
+    local ttl = redis.call("TTL", KEYS[1])
+    return {current, ttl}
+    """
 
     def __init__(self, app: Callable):
         self.app = app
+        self._rate_limit_window_script = None
 
-    def _cleanup_fallback_storage(self) -> None:
+    async def _increment_window_counter(self, key: str, window_seconds: int) -> tuple[int, int]:
+        """Atomically increment request counter and return (current_count, ttl_seconds)."""
+        redis_client = get_redis()
+        await redis_client.initialize()
+        if self._rate_limit_window_script is None:
+            self._rate_limit_window_script = redis_client.client.register_script(self._RATE_LIMIT_WINDOW_SCRIPT)
+
+        async def _execute_script():
+            script = self._rate_limit_window_script
+            if script is None:
+                raise RuntimeError("Rate limit script not initialized")
+            return await script(keys=[key], args=[window_seconds], client=redis_client.client)
+
+        result = await redis_client.execute_with_retry(_execute_script)
+        if not isinstance(result, (list, tuple)) or len(result) != 2:
+            raise ValueError(f"Unexpected rate limit script result: {result!r}")
+
+        current = int(result[0])
+        ttl = int(result[1]) if result[1] is not None else window_seconds
+        if ttl <= 0:
+            ttl = window_seconds
+        return current, ttl
+
+    def _cleanup_fallback_storage(self, window_seconds: int) -> None:
         """Remove expired entries from fallback storage to prevent memory growth."""
         current_time = time.time()
         expired_keys = [
             key
             for key, (_, window_start) in self._fallback_storage.items()
-            if current_time - window_start > self._fallback_window_seconds
+            if current_time - window_start > window_seconds
         ]
         for key in expired_keys:
             del self._fallback_storage[key]
 
-    def _fallback_rate_limit(self, key: str, max_requests: int) -> tuple[bool, int]:
+    def _fallback_rate_limit(self, key: str, max_requests: int, window_seconds: int) -> tuple[bool, int]:
         """In-memory rate limiting fallback when Redis is unavailable.
 
         Returns:
@@ -188,14 +219,14 @@ class RateLimitMiddleware:
         # Periodic cleanup to prevent memory growth
         self._fallback_cleanup_counter += 1
         if self._fallback_cleanup_counter >= self._fallback_cleanup_interval:
-            self._cleanup_fallback_storage()
+            self._cleanup_fallback_storage(window_seconds)
             self._fallback_cleanup_counter = 0
 
         if key in self._fallback_storage:
             count, window_start = self._fallback_storage[key]
 
             # Check if window has expired
-            if current_time - window_start > self._fallback_window_seconds:
+            if current_time - window_start > window_seconds:
                 # Start new window
                 self._fallback_storage[key] = (1, current_time)
                 return True, 1
@@ -254,37 +285,37 @@ class RateLimitMiddleware:
 
         rate_limit_exceeded = False
         using_fallback = False
-        retry_after_seconds = 60  # Default per FastAPI-Limiter convention (Context7)
+        window_seconds = max(1, settings.rate_limit_window_seconds)
+        retry_after_seconds = window_seconds
 
         try:
-            redis = get_redis().client
-
-            # Increment request count
-            current = await redis.incr(key)
-
-            # Set expiry on first request
-            if current == 1:
-                await redis.expire(key, 60)  # 1 minute window
+            # Atomically increment counter and preserve TTL window.
+            # Context7/Redis docs recommend this pattern to avoid INCR/EXPIRE race windows.
+            current, ttl = await self._increment_window_counter(key, window_seconds)
 
             # Check if rate limit exceeded
             if current > max_requests:
                 rate_limit_exceeded = True
-                # Accurate Retry-After from Redis TTL (Context7: FastAPI-Limiter best practice)
-                ttl = await redis.ttl(key)
-                retry_after_seconds = max(1, ttl) if ttl > 0 else 60
+                retry_after_seconds = max(1, ttl)
 
         except Exception as e:
             # SECURITY FIX: Fall back to in-memory rate limiting instead of allowing all requests
             logger.warning(f"Redis unavailable for rate limiting, using in-memory fallback: {e}")
             using_fallback = True
+            try:
+                from app.infrastructure.observability.prometheus_metrics import rate_limit_fallback_total
 
-            is_allowed, current = self._fallback_rate_limit(key, max_requests)
+                rate_limit_fallback_total.inc({"reason": "redis_unavailable"})
+            except Exception:
+                logger.debug("Failed to emit rate-limit fallback metric", exc_info=True)
+
+            is_allowed, current = self._fallback_rate_limit(key, max_requests, window_seconds)
             if not is_allowed:
                 rate_limit_exceeded = True
                 # In-memory: estimate remaining from window
                 if key in self._fallback_storage:
                     _, window_start = self._fallback_storage[key]
-                    retry_after_seconds = max(1, int(self._fallback_window_seconds - (time.time() - window_start)))
+                    retry_after_seconds = max(1, int(window_seconds - (time.time() - window_start)))
 
         if rate_limit_exceeded:
             logger.warning(
@@ -344,6 +375,7 @@ def _initialize_observability() -> None:
 _health_state = {
     "mongodb": False,
     "redis": False,
+    "redis_cache": False,
     "qdrant": False,
     "sandbox_pool": False,
     "ready": False,
@@ -456,6 +488,12 @@ async def lifespan(app: FastAPI):
         # Initialize Redis
         await get_redis().initialize()
         _health_state["redis"] = True
+        try:
+            await get_cache_redis().initialize()
+            _health_state["redis_cache"] = True
+        except Exception as e:
+            logger.warning("Cache Redis initialization failed (graceful degradation): %s", e)
+            _health_state["redis_cache"] = False
 
         # Initialize Qdrant (optional, graceful degradation if unavailable)
         try:
@@ -635,11 +673,11 @@ async def lifespan(app: FastAPI):
             )
             if sandbox_pool_enabled:
                 try:
-                    await asyncio.wait_for(stop_sandbox_pool(), timeout=30.0)
+                    await asyncio.wait_for(stop_sandbox_pool(), timeout=90.0)
                     _health_state["sandbox_pool"] = False
                     logger.info("Sandbox pool shutdown completed")
                 except TimeoutError:
-                    logger.warning("Sandbox pool shutdown timed out")
+                    logger.warning("Sandbox pool shutdown timed out after 90 seconds")
                 except Exception as e:
                     logger.error(f"Sandbox pool shutdown error: {e}")
 
@@ -660,10 +698,10 @@ async def lifespan(app: FastAPI):
             if get_agent_service.cache_info().currsize > 0:
                 logger.info("Cleaning up AgentService instance")
                 try:
-                    await asyncio.wait_for(get_agent_service().shutdown(), timeout=30.0)
+                    await asyncio.wait_for(get_agent_service().shutdown(), timeout=90.0)
                     logger.info("AgentService shutdown completed successfully")
                 except TimeoutError:
-                    logger.warning("AgentService shutdown timed out after 30 seconds")
+                    logger.warning("AgentService shutdown timed out after 90 seconds - some tasks may not have completed gracefully")
                 except Exception as e:
                     logger.error(f"Error during AgentService cleanup: {e!s}")
             else:
@@ -744,6 +782,15 @@ async def lifespan(app: FastAPI):
                 logger.warning("Redis shutdown timed out")
             except Exception as e:
                 logger.error(f"Redis shutdown error: {e}")
+
+            # Disconnect from cache Redis
+            try:
+                await asyncio.wait_for(get_cache_redis().shutdown(), timeout=10.0)
+                _health_state["redis_cache"] = False
+            except TimeoutError:
+                logger.warning("Cache Redis shutdown timed out")
+            except Exception as e:
+                logger.error(f"Cache Redis shutdown error: {e}")
 
             # Disconnect from Qdrant
             try:
