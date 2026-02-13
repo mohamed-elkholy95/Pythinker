@@ -194,14 +194,17 @@ async def delete_session(
     screenshot_query_service: ScreenshotQueryService = Depends(get_screenshot_query_service),
 ) -> APIResponse[None]:
     await agent_service.delete_session(session_id, current_user.id)
-    # Clean up screenshots for the deleted session (fire-and-forget)
+    cleanup_warnings: list[str] = []
     try:
         deleted = await screenshot_query_service.delete_by_session(session_id)
         if deleted:
             logger.info("Deleted %d screenshots for session %s", deleted, session_id)
     except Exception as e:
+        warning_msg = f"Screenshot cleanup failed: {e}"
+        cleanup_warnings.append(warning_msg)
         logger.warning("Failed to cleanup screenshots for session %s: %s", session_id, e)
-    return APIResponse.success()
+
+    return APIResponse.success(data={"warnings": cleanup_warnings} if cleanup_warnings else None)
 
 
 @router.post("/{session_id}/stop", response_model=APIResponse[None])
@@ -455,11 +458,13 @@ async def chat(
                 )
 
                 if heartbeat_task in done:
-                    # Heartbeat fired: send keep-alive, reset heartbeat timer
+                    # Heartbeat fired: send keep-alive (SSE comment) to prevent proxy timeouts
                     # Do NOT cancel next_event_task - it is still waiting for the real event
                     heartbeat_task = None
                     if heartbeat_sse:
                         yield heartbeat_sse
+                    else:
+                        yield ServerSentEvent(comment="heartbeat")
                     heartbeat_task = asyncio.create_task(asyncio.sleep(heartbeat_interval_seconds))
                     # next_event_task unchanged - still waiting for real event
                 else:
@@ -517,6 +522,9 @@ async def chat(
                     event=sse_err.event,
                     data=sse_err.data.model_dump_json() if sse_err.data else None,
                 )
+        finally:
+            # Signal cancellation so agent service can stop background work
+            get_agent_service().request_cancellation(session_id)
 
     return EventSourceResponse(event_generator())
 

@@ -150,11 +150,11 @@ services:
     networks:
       - pythinker-network
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
-      interval: 15s
-      timeout: 5s
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
       retries: 3
-      start_period: 15s
 
   mongodb:
     image: mongo:7.0
