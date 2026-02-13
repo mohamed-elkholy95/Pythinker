@@ -6,13 +6,13 @@ describe('shouldStopSessionOnExit', () => {
   it.each([
     SessionStatus.INITIALIZING,
     SessionStatus.PENDING,
-    SessionStatus.RUNNING,
-    SessionStatus.WAITING,
   ])('returns true for %s', (status) => {
     expect(shouldStopSessionOnExit(status)).toBe(true)
   })
 
   it.each([
+    SessionStatus.RUNNING,
+    SessionStatus.WAITING,
     SessionStatus.COMPLETED,
     SessionStatus.FAILED,
     undefined,

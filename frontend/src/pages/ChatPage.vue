@@ -179,12 +179,31 @@
             <div class="w-2.5 h-2.5 rounded-full bg-amber-400 dark:bg-amber-500 flex-shrink-0 animate-pulse" aria-hidden="true"></div>
             <div class="flex-1 min-w-0">
               <span class="text-sm font-medium text-amber-800 dark:text-amber-300">
-                {{ $t('Connection interrupted. The agent may still be working.') }}
+                {{ autoRetryCount < 3 ? $t('Connection interrupted. Reconnecting automatically...') : $t('Connection interrupted. The agent may still be working.') }}
               </span>
             </div>
             <button
               @click="handleRetryConnection"
               class="flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/50 transition-colors"
+            >
+              {{ $t('Retry') }}
+            </button>
+          </div>
+
+          <!-- Error notice - structured error with recovery hint -->
+          <div
+            v-if="responsePhase === 'error' && lastError"
+            class="error-notice flex items-center gap-3 px-4 py-3 mx-4 mb-2 rounded-xl border border-red-200 dark:border-red-800/40 bg-red-50 dark:bg-red-950/20 transition-all duration-300"
+            role="alert"
+          >
+            <div class="flex-1 min-w-0">
+              <span class="text-sm font-medium text-red-800 dark:text-red-300">{{ lastError.message }}</span>
+              <span v-if="lastError.hint" class="block mt-1 text-xs text-red-600 dark:text-red-400">{{ lastError.hint }}</span>
+            </div>
+            <button
+              v-if="lastError.recoverable"
+              @click="handleRetryConnection"
+              class="flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
             >
               {{ $t('Retry') }}
             </button>
@@ -478,6 +497,9 @@ const createInitialState = () => ({
   showAgentGuidanceCta: false, // Whether to show "Use Agent Mode" CTA
   agentGuidancePrompt: undefined as string | undefined, // Prompt to replay with explicit agent guidance
   bypassShortPathLockOnce: false, // One-shot bypass when user explicitly clicks "Use Agent Mode"
+  lastError: null as { message: string; type: string | null; recoverable: boolean; hint: string | null } | null,
+  autoRetryCount: 0,
+  autoRetryTimer: null as ReturnType<typeof setTimeout> | null,
 });
 
 // Create reactive state
@@ -528,6 +550,9 @@ const {
   showAgentGuidanceCta,
   agentGuidancePrompt,
   bypassShortPathLockOnce,
+  lastError,
+  autoRetryCount,
+  autoRetryTimer,
 } = toRefs(state);
 
 // Response lifecycle: derived from responsePhase
@@ -537,10 +562,41 @@ const canShowSuggestions = computed(() =>
   responsePhase.value === 'settled' && suggestions.value.length > 0 && !isSummaryStreaming.value
 )
 
+const VALID_TRANSITIONS: Record<ResponsePhase, ResponsePhase[]> = {
+  idle: ['connecting'],
+  connecting: ['streaming', 'completing', 'settled', 'timed_out', 'error', 'stopped'],
+  streaming: ['completing', 'settled', 'timed_out', 'error', 'stopped'],
+  completing: ['settled'],
+  settled: ['connecting', 'idle'],
+  timed_out: ['connecting', 'completing', 'settled', 'error', 'stopped'],
+  error: ['connecting', 'idle'],
+  stopped: ['connecting', 'idle'],
+}
+
 /** Transition the response lifecycle to a new phase. Centralizes all state changes. */
 const transitionTo = (phase: ResponsePhase) => {
   const prev = responsePhase.value
+
+  // Self-transition: no-op
+  if (prev === phase) return
+
+  // Validate transition
+  const allowed = VALID_TRANSITIONS[prev]
+  if (allowed && !allowed.includes(phase)) {
+    console.warn(`[ResponsePhase] BLOCKED: ${prev} → ${phase} (allowed: ${allowed.join(', ')})`)
+    return
+  }
+
   responsePhase.value = phase
+
+  // Reset lastError on non-error transitions
+  if (phase !== 'error') {
+    lastError.value = null
+  }
+  // Reset autoRetryCount when entering streaming
+  if (phase === 'streaming') {
+    autoRetryCount.value = 0
+  }
 
   // Auto-transition: COMPLETING → SETTLED after 300ms
   if (phase === 'completing') {
@@ -856,6 +912,35 @@ watch(sessionId, async (newSessionId) => {
   await waitForSessionIfInitializing();
 }, { immediate: true });
 
+/** Set lastError from SSE transport errors (client-side, not backend event). */
+const setLastErrorFromTransportError = (error: Error) => {
+  const msg = error.message ?? String(error);
+  if (msg.includes('Max reconnection') || msg.includes('reconnection attempts')) {
+    lastError.value = { message: msg, type: 'max_retries', recoverable: true, hint: 'Refresh the page' };
+  } else if (msg.toLowerCase().includes('rate limit')) {
+    lastError.value = { message: msg, type: 'rate_limit', recoverable: false, hint: 'Wait a minute' };
+  } else if (msg.toLowerCase().includes('validation failed')) {
+    lastError.value = { message: msg, type: 'validation', recoverable: false, hint: null };
+  } else {
+    lastError.value = { message: msg, type: null, recoverable: true, hint: null };
+  }
+};
+
+/** Deduplicated cleanup of streaming/thinking state. Use on SSE close/error. */
+const cleanupStreamingState = () => {
+  thinkingText.value = '';
+  isThinkingStreaming.value = false;
+  summaryStreamText.value = '';
+  isSummaryStreaming.value = false;
+  allowStandaloneSummaryOnNextAssistant.value = false;
+  isInitializing.value = false;
+  planningProgress.value = null;
+  stopPlanningMessageCycle();
+  if (cancelCurrentChat.value) {
+    cancelCurrentChat.value = null;
+  }
+};
+
 // Centralized sessionStorage cleanup for session-specific data
 const cleanupSessionStorage = (sessionId: string) => {
   sessionStorage.removeItem(`pythinker-last-event-${sessionId}`);
@@ -869,10 +954,9 @@ const resetState = () => {
     cancelCurrentChat.value();
   }
 
-  // Clean up sessionStorage for old session
-  if (sessionId.value) {
-    cleanupSessionStorage(sessionId.value);
-  }
+  // Do NOT cleanup sessionStorage here — event resume data persists across navigation
+  // so returning to a session resumes from the correct position. Cleanup only in
+  // handleStop, done handler, or explicit session deletion.
 
   researchWorkflow.reset();
 
@@ -984,11 +1068,28 @@ watch(isLoading, (loading) => {
   }
 });
 
+// Auto-retry after timeout: progressive backoff (5s, 15s, 45s), max 3 attempts
+const AUTO_RETRY_DELAYS_MS = [5000, 15000, 45000];
+watch(responsePhase, (phase) => {
+  if (phase !== 'timed_out') return;
+  if (autoRetryCount.value >= 3) return;
+  const delay = AUTO_RETRY_DELAYS_MS[Math.min(autoRetryCount.value, AUTO_RETRY_DELAYS_MS.length - 1)];
+  autoRetryTimer.value = setTimeout(() => {
+    autoRetryTimer.value = null;
+    autoRetryCount.value += 1;
+    handleRetryConnection();
+  }, delay);
+});
+
 // Cleanup on unmount
 onUnmounted(() => {
   if (staleCheckInterval) {
     clearInterval(staleCheckInterval);
     staleCheckInterval = null;
+  }
+  if (autoRetryTimer.value) {
+    clearTimeout(autoRetryTimer.value);
+    autoRetryTimer.value = null;
   }
   stopPlanningMessageCycle();
 });
@@ -1501,13 +1602,16 @@ const handleStepEvent = (stepData: StepEventData) => {
   }
 }
 
-// Handle error event
+// Handle error event (backend-sent error with structured data)
 const handleErrorEvent = (errorData: ErrorEventData) => {
+  lastError.value = {
+    message: errorData.error || (errorData as unknown as { message?: string }).message || 'An unexpected error occurred',
+    type: errorData.error_type ?? null,
+    recoverable: errorData.recoverable ?? true,
+    hint: errorData.retry_hint ?? null,
+  };
   // Accept both schema-compliant `error` field and legacy `message` fallback
-  // so the handler is resilient to either payload shape.
-  const errorText = errorData.error
-    || (errorData as unknown as { message?: string }).message
-    || 'An unexpected error occurred';
+  const errorText = lastError.value.message;
   messages.value.push({
     id: generateMessageId(),
     type: 'assistant',
@@ -2132,6 +2236,7 @@ const processEvent = (event: AgentSSEEvent) => {
     // Notify sidebar that session is no longer running
     if (sessionId.value) {
       emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
+      cleanupSessionStorage(sessionId.value);
     }
     // Load screenshots for replay mode (seamless live → replay transition)
     sessionStatus.value = SessionStatus.COMPLETED;
@@ -2338,40 +2443,16 @@ const chat = async (
             // SSE closed without a done event — timeout or disconnect
             transitionTo('timed_out')
           }
-          // Clean up streaming state regardless
-          thinkingText.value = '';
-          isThinkingStreaming.value = false;
-          summaryStreamText.value = '';
-          isSummaryStreaming.value = false;
-          allowStandaloneSummaryOnNextAssistant.value = false;
-          isInitializing.value = false;
-          planningProgress.value = null;
-          stopPlanningMessageCycle();
-          if (cancelCurrentChat.value) {
-            cancelCurrentChat.value = null;
-          }
+          cleanupStreamingState();
           // NO ensureCompletionSuggestions() here — suggestions only on 'done'
         },
-        onError: () => {
+        onError: (err: Error) => {
           if (responsePhase.value !== 'settled' && responsePhase.value !== 'stopped') {
+            setLastErrorFromTransportError(err);
             transitionTo('error')
           }
-          // Clean up streaming state
-          thinkingText.value = '';
-          isThinkingStreaming.value = false;
-          summaryStreamText.value = '';
-          isSummaryStreaming.value = false;
-          allowStandaloneSummaryOnNextAssistant.value = false;
-          isInitializing.value = false;
-          planningProgress.value = null;
-          stopPlanningMessageCycle();
-          if (cancelCurrentChat.value) {
-            cancelCurrentChat.value = null;
-          }
-          // NO ensureCompletionSuggestions() here
-          if (sessionId.value) {
-            emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
-          }
+          cleanupStreamingState();
+          // NO ensureCompletionSuggestions() here — transient SSE errors don't mean session ended
         }
       },
       followUp
@@ -2704,26 +2785,39 @@ const handleStop = async () => {
   transitionTo('stopped')
   isStale.value = false;
   isWaitingForReply.value = false;
-  thinkingText.value = '';
-  isThinkingStreaming.value = false;
-  summaryStreamText.value = '';
-  isSummaryStreaming.value = false;
-  allowStandaloneSummaryOnNextAssistant.value = false;
-  isInitializing.value = false;
-  planningProgress.value = null;
-  stopPlanningMessageCycle();
+  cleanupStreamingState();
   // NO ensureCompletionSuggestions() — user intentionally stopped
   sessionStatus.value = SessionStatus.COMPLETED;
 }
 
 const handleRetryConnection = async () => {
   if (!sessionId.value) return;
+  if (autoRetryTimer.value) {
+    clearTimeout(autoRetryTimer.value);
+    autoRetryTimer.value = null;
+  }
   if (cancelCurrentChat.value) {
     cancelCurrentChat.value();
     cancelCurrentChat.value = null;
   }
   receivedDoneEvent.value = false;
   lastHeartbeatAt.value = 0;
+
+  // Status reconciliation: if session already completed/failed, skip SSE and settle
+  try {
+    const statusResp = await agentApi.getSessionStatus(sessionId.value);
+    const status = statusResp.status as SessionStatus;
+    if (status === SessionStatus.COMPLETED || status === SessionStatus.FAILED) {
+      sessionStatus.value = status;
+      emitStatusChange(sessionId.value, status);
+      transitionTo('completing');
+      await replay.loadScreenshots();
+      return;
+    }
+  } catch {
+    // Network error — fall through to SSE reconnect (which has its own retry logic)
+  }
+
   transitionTo('connecting')
   try {
     cancelCurrentChat.value = await agentApi.chatWithSession(
@@ -2745,33 +2839,14 @@ const handleRetryConnection = async () => {
           if (!receivedDoneEvent.value && responsePhase.value !== 'settled' && responsePhase.value !== 'error' && responsePhase.value !== 'stopped') {
             transitionTo('timed_out')
           }
-          thinkingText.value = '';
-          isThinkingStreaming.value = false;
-          summaryStreamText.value = '';
-          isSummaryStreaming.value = false;
-          allowStandaloneSummaryOnNextAssistant.value = false;
-          isInitializing.value = false;
-          planningProgress.value = null;
-          stopPlanningMessageCycle();
-          if (cancelCurrentChat.value) {
-            cancelCurrentChat.value = null;
-          }
+          cleanupStreamingState();
         },
-        onError: () => {
+        onError: (err: Error) => {
           if (responsePhase.value !== 'settled' && responsePhase.value !== 'stopped') {
+            setLastErrorFromTransportError(err);
             transitionTo('error')
           }
-          thinkingText.value = '';
-          isThinkingStreaming.value = false;
-          summaryStreamText.value = '';
-          isSummaryStreaming.value = false;
-          allowStandaloneSummaryOnNextAssistant.value = false;
-          isInitializing.value = false;
-          planningProgress.value = null;
-          stopPlanningMessageCycle();
-          if (cancelCurrentChat.value) {
-            cancelCurrentChat.value = null;
-          }
+          cleanupStreamingState();
         },
       }
     );
