@@ -409,10 +409,11 @@ const researchWorkflow = useResearchWorkflow()
 // ConnectorDialog composable — dialog manages its own visibility
 useConnectorDialog()
 
+type ResponsePhase = 'idle' | 'connecting' | 'streaming' | 'completing' | 'settled' | 'timed_out' | 'error' | 'stopped'
+
 // Create initial state factory
 const createInitialState = () => ({
   inputMessage: '',
-  isLoading: false,
   sessionId: undefined as string | undefined,
   messages: [] as Message[],
   toolPanelSize: 0,
@@ -430,9 +431,10 @@ const createInitialState = () => ({
   linkCopied: false,
   sharingLoading: false, // Loading state for share operations
   suggestions: [] as string[], // End-of-response suggestions
-  isResponseSettled: false, // True only after done/wait/error (response lifecycle ended)
+  responsePhase: 'idle' as ResponsePhase,
+  receivedDoneEvent: false,
+  lastHeartbeatAt: 0,
   agentMode: 'discuss' as 'discuss' | 'agent', // Current agent mode
-  isThinking: false, // True when agent is actively thinking/processing
   seenEventIds: new Set<string>(), // Track seen event IDs to prevent duplicates
   thinkingText: '', // Accumulated streaming thinking text
   isThinkingStreaming: false, // True when streaming thinking is in progress
@@ -463,7 +465,6 @@ const state = reactive(createInitialState());
 // Destructure refs from reactive state
 const {
   inputMessage,
-  isLoading,
   sessionId,
   messages,
   toolPanelSize,
@@ -480,9 +481,10 @@ const {
   linkCopied,
   sharingLoading,
   suggestions,
-  isResponseSettled,
+  responsePhase,
+  receivedDoneEvent,
+  lastHeartbeatAt,
   agentMode,
-  isThinking,
   seenEventIds,
   thinkingText,
   isThinkingStreaming,
@@ -506,6 +508,31 @@ const {
   agentGuidancePrompt,
   bypassShortPathLockOnce,
 } = toRefs(state);
+
+// Response lifecycle: derived from responsePhase
+const isLoading = computed(() => ['connecting', 'streaming', 'completing'].includes(responsePhase.value))
+const isThinking = computed(() => responsePhase.value === 'connecting')
+const isResponseSettled = computed(() => responsePhase.value === 'settled')
+const canShowSuggestions = computed(() =>
+  responsePhase.value === 'settled' && suggestions.value.length > 0 && !isSummaryStreaming.value
+)
+
+/** Transition the response lifecycle to a new phase. Centralizes all state changes. */
+const transitionTo = (phase: ResponsePhase) => {
+  const prev = responsePhase.value
+  responsePhase.value = phase
+
+  // Auto-transition: COMPLETING → SETTLED after 300ms
+  if (phase === 'completing') {
+    setTimeout(() => {
+      if (responsePhase.value === 'completing') {
+        responsePhase.value = 'settled'
+      }
+    }, 300)
+  }
+
+  console.debug(`[ResponsePhase] ${prev} → ${phase}`)
+}
 
 // Screenshot replay for completed sessions.
 // Must be initialized after sessionId ref is created to avoid TDZ runtime errors.
@@ -723,8 +750,7 @@ const initializePendingSession = async () => {
   if (pendingMessage || pendingFiles.length > 0) {
     addOptimisticUserMessage(pendingMessage, pendingFiles);
     isInitializing.value = true;
-    isLoading.value = true;
-    isResponseSettled.value = false;
+    transitionTo('connecting')
   }
 
   try {
@@ -755,7 +781,7 @@ const initializePendingSession = async () => {
       await restoreSession();
     }
   } catch {
-    isLoading.value = false;
+    transitionTo('error')
     isInitializing.value = false;
     pendingInitialMessage.value = null;
     showErrorToast(t('Failed to create session, please try again later'));
@@ -1235,7 +1261,6 @@ const handleMessageEvent = (messageData: MessageEventData) => {
 
   // Assistant message means agent finished thinking
   if (messageData.role === 'assistant') {
-    isThinking.value = false;
     // Track anchor event ID for follow-up suggestions
     followUpAnchorEventId.value = messageData.event_id;
   }
@@ -1308,11 +1333,6 @@ const handleMessageEvent = (messageData: MessageEventData) => {
 
 // Handle tool event
 const handleToolEvent = (toolData: ToolEventData) => {
-  // Tool being called means agent is actively working
-  if (toolData.status === 'calling' || toolData.status === 'running') {
-    isThinking.value = true;
-  }
-
   const lastStep = getLastStep();
   const toolContent: ToolContent = {
     ...toolData
@@ -1402,7 +1422,6 @@ const findActivePhaseMessage = (phaseId: string | undefined) => {
 const handleStepEvent = (stepData: StepEventData) => {
   const lastStep = getLastStep();
   if (stepData.status === 'running') {
-    isThinking.value = true;
     const stepContent: StepContent = {
       ...stepData,
       tools: [],
@@ -1423,7 +1442,6 @@ const handleStepEvent = (stepData: StepEventData) => {
       content: stepContent,
     });
   } else if (stepData.status === 'completed') {
-    isThinking.value = false;
     // Find the matching step by ID and update its status
     const matchingStep = messages.value
       .filter(m => m.type === 'step')
@@ -1444,8 +1462,7 @@ const handleStepEvent = (stepData: StepEventData) => {
       }
     }
   } else if (stepData.status === 'failed') {
-    isThinking.value = false;
-    isLoading.value = false;
+    transitionTo('error')
     // Notify sidebar that session is no longer running
     if (sessionId.value) {
       emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
@@ -1455,8 +1472,6 @@ const handleStepEvent = (stepData: StepEventData) => {
 
 // Handle error event
 const handleErrorEvent = (errorData: ErrorEventData) => {
-  isLoading.value = false;
-  isThinking.value = false;
   // Accept both schema-compliant `error` field and legacy `message` fallback
   // so the handler is resilient to either payload shape.
   const errorText = errorData.error
@@ -2052,6 +2067,11 @@ const processEvent = (event: AgentSSEEvent) => {
   // Update last event time for stale connection detection
   updateLastEventTime();
 
+  // Transition to streaming on first real event
+  if (responsePhase.value === 'connecting') {
+    transitionTo('streaming')
+  }
+
   if (event.event === 'message') {
     handleMessageEvent(event.data as MessageEventData);
     // Clear suggestions when new message arrives
@@ -2063,12 +2083,11 @@ const processEvent = (event: AgentSSEEvent) => {
   } else if (event.event === 'phase') {
     handlePhaseEvent(event.data as import('../types/event').AgentPhaseEventData);
   } else if (event.event === 'done') {
+    receivedDoneEvent.value = true;
     ensureCompletionSuggestions();
     markShortAssistantCompletion();
-    isResponseSettled.value = true;
-    isLoading.value = false;
-    isThinking.value = false;
     isWaitingForReply.value = false;
+    transitionTo('completing') // → auto-settles to 'settled' after 300ms
     // Notify sidebar that session is no longer running
     if (sessionId.value) {
       emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
@@ -2077,13 +2096,11 @@ const processEvent = (event: AgentSSEEvent) => {
     sessionStatus.value = SessionStatus.COMPLETED;
     replay.loadScreenshots();
   } else if (event.event === 'wait') {
-    isResponseSettled.value = true;
     // Agent is waiting for user input - show waiting indicator
     isWaitingForReply.value = true;
-    isLoading.value = false;
-    isThinking.value = false;
+    transitionTo('settled')
   } else if (event.event === 'error') {
-    isResponseSettled.value = true;
+    transitionTo('error')
     handleErrorEvent(event.data as ErrorEventData);
   } else if (event.event === 'title') {
     handleTitleEvent(event.data as TitleEventData);
@@ -2185,10 +2202,8 @@ const chat = async (
     inputMessage.value = '';
     clearSelectedSkills();
     suggestions.value = [];
-    isResponseSettled.value = true;
-    isLoading.value = false;
-    isThinking.value = false;
     isWaitingForReply.value = false;
+    transitionTo('settled')
     showAgentGuidanceCta.value = true;
     agentGuidancePrompt.value = normalizedMessage;
     return;
@@ -2239,9 +2254,9 @@ const chat = async (
   inputMessage.value = '';
   clearSelectedSkills();
   suggestions.value = [];
-  isResponseSettled.value = false;
-  isLoading.value = true;
+  receivedDoneEvent.value = false;
   isWaitingForReply.value = false;
+  transitionTo('connecting')
 
   // Set initialization state when starting a new chat
   // (when there are no messages or only 1 message which is the user's first message)
@@ -2266,7 +2281,8 @@ const chat = async (
       undefined, // options
       {
         onOpen: () => {
-          isLoading.value = true;
+          // responsePhase already set to 'connecting' in sendMessage
+          // onOpen confirms transport is established, no phase change needed
         },
         onMessage: ({ event, data }) => {
           handleEvent({
@@ -2275,9 +2291,12 @@ const chat = async (
           });
         },
         onClose: () => {
-          isResponseSettled.value = true;
-          isLoading.value = false;
-          isThinking.value = false;
+          // Transport closed. Check if we received a 'done' event.
+          if (!receivedDoneEvent.value && responsePhase.value !== 'settled' && responsePhase.value !== 'error' && responsePhase.value !== 'stopped') {
+            // SSE closed without a done event — timeout or disconnect
+            transitionTo('timed_out')
+          }
+          // Clean up streaming state regardless
           thinkingText.value = '';
           isThinkingStreaming.value = false;
           summaryStreamText.value = '';
@@ -2286,19 +2305,16 @@ const chat = async (
           isInitializing.value = false;
           planningProgress.value = null;
           stopPlanningMessageCycle();
-          // Clear the cancel function when connection is closed normally
           if (cancelCurrentChat.value) {
             cancelCurrentChat.value = null;
           }
-          // Note: Status change is handled by DoneEvent (line 1662)
-          // Don't set COMPLETED here - onClose fires for stops, errors, and refreshes too
-          // Ensure follow-up suggestions are visible so the user has a clear next action
-          ensureCompletionSuggestions();
+          // NO ensureCompletionSuggestions() here — suggestions only on 'done'
         },
         onError: () => {
-          isResponseSettled.value = true;
-          isLoading.value = false;
-          isThinking.value = false;
+          if (responsePhase.value !== 'settled' && responsePhase.value !== 'stopped') {
+            transitionTo('error')
+          }
+          // Clean up streaming state
           thinkingText.value = '';
           isThinkingStreaming.value = false;
           summaryStreamText.value = '';
@@ -2307,13 +2323,10 @@ const chat = async (
           isInitializing.value = false;
           planningProgress.value = null;
           stopPlanningMessageCycle();
-          // Clear the cancel function when there's an error
           if (cancelCurrentChat.value) {
             cancelCurrentChat.value = null;
           }
-          // Ensure follow-up suggestions are visible so the user has a clear next action
-          ensureCompletionSuggestions();
-          // Notify sidebar that session is no longer running
+          // NO ensureCompletionSuggestions() here
           if (sessionId.value) {
             emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
           }
@@ -2322,7 +2335,7 @@ const chat = async (
       followUp
     );
   } catch {
-    isLoading.value = false;
+    transitionTo('error')
     cancelCurrentChat.value = null;
   }
 }
@@ -2643,11 +2656,10 @@ const handleStop = async () => {
     // Notify sidebar that session is no longer running
     emitStatusChange(sessionId.value, SessionStatus.COMPLETED);
   }
-  // Reset loading states
-  isResponseSettled.value = true;
-  isLoading.value = false;
-  isThinking.value = false;
+  // Reset to stopped state
+  transitionTo('stopped')
   isStale.value = false;
+  isWaitingForReply.value = false;
   thinkingText.value = '';
   isThinkingStreaming.value = false;
   summaryStreamText.value = '';
@@ -2656,8 +2668,7 @@ const handleStop = async () => {
   isInitializing.value = false;
   planningProgress.value = null;
   stopPlanningMessageCycle();
-  // Ensure follow-up suggestions are visible so the user has a clear next action
-  ensureCompletionSuggestions();
+  // NO ensureCompletionSuggestions() — user intentionally stopped
   sessionStatus.value = SessionStatus.COMPLETED;
 }
 
