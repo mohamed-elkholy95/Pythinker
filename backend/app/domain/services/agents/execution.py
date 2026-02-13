@@ -156,10 +156,42 @@ class ExecutionAgent(BaseAgent):
         self._response_policy: ResponsePolicy | None = None
         self._output_coverage_validator = OutputCoverageValidator()
         self._response_compressor = ResponseCompressor()
+        # Phase 1/4: Request contract for entity fidelity (set by PlanActFlow)
+        self._request_contract = None
+
+    def set_request_contract(self, contract) -> None:
+        """Set request contract for search fidelity and entity context (Phase 4)."""
+        self._request_contract = contract
 
     def set_response_policy(self, policy: ResponsePolicy | None) -> None:
         """Set per-run response policy for summarize stage."""
         self._response_policy = policy
+
+    async def invoke_tool(
+        self,
+        tool: BaseTool,
+        function_name: str,
+        arguments: dict[str, Any],
+        skip_security: bool = False,
+    ):
+        """Override to apply search fidelity check for search tools (Phase 4)."""
+        from app.core.config import get_settings
+        from app.domain.services.agents.search_fidelity import check_search_fidelity
+
+        settings = get_settings()
+        if (
+            settings.enable_search_fidelity_guardrail
+            and self._request_contract
+            and function_name in ("info_search_web", "search", "wide_research")
+        ):
+            query = arguments.get("query", "")
+            if isinstance(query, str) and query.strip():
+                passed, repaired = check_search_fidelity(query, self._request_contract)
+                if not passed:
+                    arguments = {**arguments, "query": repaired}
+                    logger.info("Search fidelity repair: prepended entity to query")
+
+        return await super().invoke_tool(tool, function_name, arguments, skip_security)
 
     async def execute_step(self, plan: Plan, step: Step, message: Message) -> AsyncGenerator[BaseEvent, None]:
         # Store user request for critic context
@@ -337,6 +369,23 @@ class ExecutionAgent(BaseAgent):
         # Add proactive error warnings if any
         if error_pattern_signal:
             base_prompt = f"{base_prompt}\n\n## Proactive Guidance\n{error_pattern_signal}"
+
+        # Phase 4: Inject locked entities reminder when enabled
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        if (
+            settings.enable_search_fidelity_guardrail
+            and self._request_contract
+            and self._request_contract.locked_entities
+        ):
+            entity_reminder = (
+                "\n\n## IMPORTANT\n"
+                "The user's request specifically mentions: "
+                + ", ".join(self._request_contract.locked_entities)
+                + ". Preserve these exact terms in your response and search queries."
+            )
+            base_prompt = f"{base_prompt}{entity_reminder}"
 
         # Adapt prompt with context-specific guidance if applicable
         if self._prompt_adapter.should_inject_guidance():

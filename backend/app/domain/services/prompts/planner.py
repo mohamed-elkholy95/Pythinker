@@ -267,10 +267,10 @@ For simple web queries (single search, one website):
 
 Response format (JSON only, no other text):
 ```json
-{{"goal": "FULL user request — preserve intent and all details. Correct obvious typos/misspellings to intended terms (e.g. 'devastral'→'Devstral'). NEVER summarize or shorten.", "title": "brief title (3-6 words)", "language": "en", "steps": [{{"id": "1", "description": "...", "phase": "research_foundation", "step_type": "execution"}}]}}
+{{"goal": "FULL user request — preserve intent and all details. Correct obvious typos/misspellings to intended terms (e.g. 'devastral'→'Devstral'). NEVER summarize or shorten.", "title": "brief title (3-6 words)", "language": "en", "steps": [{{"id": "1", "description": "...", "action_verb": "Search", "target_object": "Python 3.12 release notes", "tool_hint": "web_search", "expected_output": "...", "phase": "research_foundation", "step_type": "execution"}}]}}
 ```
 CRITICAL: "goal" = user's COMPLETE original request with intent preserved (correct obvious typos). "title" = short 3-6 word summary.
-Each step should include "phase" (alignment/research_foundation/analysis_synthesis/report_generation/quality_assurance/delivery_feedback) and "step_type" (execution/self_review/alignment/delivery).
+Each step: "description" (required), "action_verb" (e.g. Search, Browse, Analyze, Write), "target_object" (what to act on), "tool_hint" (web_search/browser/file optional), "expected_output" (what success looks like), "phase", "step_type" (execution/self_review/alignment/delivery).
 
 User message: {message}
 Attachments: {attachments}

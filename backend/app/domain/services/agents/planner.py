@@ -162,6 +162,15 @@ def _step_from_description(index: int, desc) -> Step:
     if hasattr(desc, "step_type") and desc.step_type:
         with contextlib.suppress(ValueError):
             step.step_type = StepType(desc.step_type)
+    # Phase 2: Map structured fields from StepDescription
+    if hasattr(desc, "action_verb") and desc.action_verb:
+        step.action_verb = desc.action_verb
+    if hasattr(desc, "target_object") and desc.target_object:
+        step.target_object = desc.target_object
+    if hasattr(desc, "tool_hint") and desc.tool_hint:
+        step.tool_hint = desc.tool_hint
+    if hasattr(desc, "expected_output") and desc.expected_output:
+        step.expected_output = desc.expected_output
     return step
 
 
@@ -617,8 +626,11 @@ class PlannerAgent(BaseAgent):
                 if _matches(next_desc, browse_keywords):
                     # Merge search + browse (and possibly extract) into one
                     merged_from = [steps[i].description, steps[i + 1].description]
+                    targets = [t for t in [steps[i].target_object, steps[i + 1].target_object] if t]
                     merged_step = Step(
-                        description=steps[i].description,  # Keep the search step's description
+                        description=steps[i].description,
+                        action_verb=steps[i].action_verb or "Research",
+                        target_object="; ".join(targets) if targets else None,
                         metadata={"merged_from": len(merged_from), "original_descriptions": merged_from},
                     )
                     consolidated.append(merged_step)
@@ -694,14 +706,20 @@ class PlannerAgent(BaseAgent):
         head = steps[: max_steps - 1]
         tail = steps[max_steps - 1 :]
 
-        # Store original descriptions in metadata when merging
-        merged_desc = "Consolidate remaining items: " + "; ".join(s.description for s in tail if s.description)
+        # Phase 2: Preserve target_objects when merging overflow steps
+        targets = [s.target_object for s in tail if s.target_object]
+        if targets:
+            merged_desc = "Consolidate: " + "; ".join(targets)
+        else:
+            merged_desc = "Consolidate remaining items: " + "; ".join(s.description for s in tail if s.description)
         if len(merged_desc) > MAX_MERGED_STEP_CHARS:
             merged_desc = merged_desc[: MAX_MERGED_STEP_CHARS - 3].rstrip() + "..."
 
         merged_step = Step(
             id=str(max_steps),
             description=merged_desc,
+            target_object="; ".join(targets) if targets else None,
+            action_verb="Complete",
             metadata={
                 "merged_from": len(tail),
                 "original_descriptions": [s.description for s in tail if s.description],

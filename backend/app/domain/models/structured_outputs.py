@@ -122,7 +122,10 @@ class StepDescription(BaseModel):
     """A single step in an execution plan."""
 
     description: str = Field(..., min_length=5, description="Step description")
+    action_verb: str = Field(default="", description="Required action: Search, Browse, Analyze, Write")
+    target_object: str = Field(default="", description="What to act on: Python 3.12 release notes")
     tool_hint: str | None = Field(default=None, description="Suggested tool to use")
+    expected_output: str = Field(default="", description="What success looks like")
     estimated_complexity: str | None = Field(default=None, description="Estimated complexity: low, medium, high")
     dependencies: list[str] = Field(default_factory=list, description="IDs of dependent steps")
     parallel_safe: bool = Field(default=True, description="Whether step can run in parallel")
