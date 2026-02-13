@@ -5,21 +5,23 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     ORIGINS: List[str] = ["*"]
-    
+
     # Service timeout settings (minutes)
     SERVICE_TIMEOUT_MINUTES: Optional[int] = None
 
     # Sandbox framework database (SQLite - lightweight, no separate process)
-    FRAMEWORK_DATABASE_URL: str = "sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db"
+    FRAMEWORK_DATABASE_URL: str = (
+        "sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db"
+    )
     FRAMEWORK_DB_ECHO: bool = False
-    
+
     # Security controls
     ALLOW_SUDO: bool = False
     SHELL_MAX_OUTPUT_CHARS: int = 200000
 
     # Log configuration
     LOG_LEVEL: str = "INFO"
-    
+
     @field_validator("ORIGINS", mode="before")
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
         if isinstance(v, str) and not v.startswith("["):
@@ -33,4 +35,4 @@ class Settings(BaseSettings):
         env_file = ".env"
 
 
-settings = Settings() 
+settings = Settings()

@@ -101,7 +101,7 @@ def test_json_output():
     assert Path(output_path).exists()
 
     # Verify valid JSON
-    with open(output_path, 'r') as f:
+    with open(output_path, "r") as f:
         data = json.load(f)
 
     assert "environment" in data
@@ -121,7 +121,7 @@ def test_markdown_output():
     assert Path(output_md).exists()
 
     # Verify contains expected sections
-    with open(output_md, 'r') as f:
+    with open(output_md, "r") as f:
         content = f.read()
 
     assert "# Sandbox Environment Context" in content
@@ -154,7 +154,14 @@ def validate_structure(context: dict):
         assert key in context, f"Missing top-level key: {key}"
 
     env = context["environment"]
-    required_env_sections = ["os", "python", "nodejs", "system_tools", "capabilities", "directories"]
+    required_env_sections = [
+        "os",
+        "python",
+        "nodejs",
+        "system_tools",
+        "capabilities",
+        "directories",
+    ]
     for key in required_env_sections:
         assert key in env, f"Missing environment section: {key}"
 

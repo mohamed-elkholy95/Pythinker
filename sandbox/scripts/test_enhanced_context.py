@@ -62,7 +62,9 @@ def test_python_stdlib():
     assert "sys" in core_modules
     assert "json" in core_modules
 
-    print(f"✓ Python stdlib: {stdlib['total_count']} modules in {len(categories)} categories")
+    print(
+        f"✓ Python stdlib: {stdlib['total_count']} modules in {len(categories)} categories"
+    )
 
 
 def test_nodejs_builtins():
@@ -86,7 +88,9 @@ def test_nodejs_builtins():
     assert "http" in core_modules
     assert "path" in core_modules
 
-    print(f"✓ Node.js builtins: {builtins['total_count']} modules in {len(categories)} categories")
+    print(
+        f"✓ Node.js builtins: {builtins['total_count']} modules in {len(categories)} categories"
+    )
 
 
 def test_environment_variables():
@@ -239,6 +243,7 @@ def main():
             print(f"✗ {test.__name__} FAILED: {e}")
             failed.append(test.__name__)
             import traceback
+
             traceback.print_exc()
 
     print("\n" + "=" * 60)

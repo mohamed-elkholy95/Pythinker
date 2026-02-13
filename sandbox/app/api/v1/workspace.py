@@ -3,10 +3,13 @@ Workspace API Endpoints
 
 Provides REST API for workspace management operations.
 """
+
 from fastapi import APIRouter
 from app.schemas.workspace import (
-    WorkspaceInitRequest, WorkspaceInfoRequest,
-    WorkspaceTreeRequest, WorkspaceCleanRequest
+    WorkspaceInitRequest,
+    WorkspaceInfoRequest,
+    WorkspaceTreeRequest,
+    WorkspaceCleanRequest,
 )
 from app.schemas.response import Response
 from app.services.workspace import workspace_service
@@ -29,13 +32,13 @@ async def init_workspace(request: WorkspaceInitRequest):
     result = await workspace_service.init_workspace(
         session_id=request.session_id,
         project_name=request.project_name,
-        template=request.template
+        template=request.template,
     )
 
     return Response(
         success=True,
         message=f"Workspace initialized with {request.template.value} template",
-        data=result.model_dump()
+        data=result.model_dump(),
     )
 
 
@@ -49,14 +52,12 @@ async def get_workspace_info(request: WorkspaceInfoRequest):
     if not request.session_id:
         raise BadRequestException("Session ID is required")
 
-    result = await workspace_service.get_workspace_info(
-        session_id=request.session_id
-    )
+    result = await workspace_service.get_workspace_info(session_id=request.session_id)
 
     return Response(
         success=True,
         message="Workspace info retrieved successfully",
-        data=result.model_dump()
+        data=result.model_dump(),
     )
 
 
@@ -73,13 +74,13 @@ async def get_workspace_tree(request: WorkspaceTreeRequest):
     result = await workspace_service.get_workspace_tree(
         session_id=request.session_id,
         depth=request.depth,
-        include_hidden=request.include_hidden
+        include_hidden=request.include_hidden,
     )
 
     return Response(
         success=True,
         message="Workspace tree retrieved successfully",
-        data=result.model_dump()
+        data=result.model_dump(),
     )
 
 
@@ -95,15 +96,10 @@ async def clean_workspace(request: WorkspaceCleanRequest):
         raise BadRequestException("Session ID is required")
 
     result = await workspace_service.clean_workspace(
-        session_id=request.session_id,
-        preserve_config=request.preserve_config
+        session_id=request.session_id, preserve_config=request.preserve_config
     )
 
-    return Response(
-        success=True,
-        message="Workspace cleaned successfully",
-        data=result
-    )
+    return Response(success=True, message="Workspace cleaned successfully", data=result)
 
 
 @router.post("/exists", response_model=Response)
@@ -114,12 +110,10 @@ async def workspace_exists(request: WorkspaceInfoRequest):
     if not request.session_id:
         raise BadRequestException("Session ID is required")
 
-    exists = await workspace_service.workspace_exists(
-        session_id=request.session_id
-    )
+    exists = await workspace_service.workspace_exists(session_id=request.session_id)
 
     return Response(
         success=True,
         message="Workspace existence checked",
-        data={"exists": exists, "session_id": request.session_id}
+        data={"exists": exists, "session_id": request.session_id},
     )

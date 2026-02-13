@@ -1,6 +1,17 @@
 from fastapi import APIRouter
 
-from app.api.v1 import shell, supervisor, file, workspace, git, code_dev, test_runner, export, vnc, screencast
+from app.api.v1 import (
+    shell,
+    supervisor,
+    file,
+    workspace,
+    git,
+    code_dev,
+    test_runner,
+    export,
+    vnc,
+    screencast,
+)
 
 api_router = APIRouter()
 api_router.include_router(shell.router, prefix="/shell", tags=["shell"])

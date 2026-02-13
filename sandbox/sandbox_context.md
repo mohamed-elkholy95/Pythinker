@@ -1,12 +1,12 @@
 # Sandbox Environment Context
 
-**Generated:** 2026-02-13T04:08:57.399919
+**Generated:** 2026-02-13T19:11:53.341828
 **Version:** 1.0.0
 **Checksum:** 08680aa7cbccbd54
 
 ## Operating System
 
-- **Distribution:** Ubuntu 22.04.5 LTS
+- **Distribution:** Ubuntu 22.04
 - **Kernel:** 6.12.67-linuxkit
 - **Architecture:** aarch64
 - **User:** ubuntu
@@ -15,47 +15,41 @@
 ## Python Environment
 
 - **Version:** Python 3.11.14
-- **Path:** /usr/bin/python3
-- **Pip:** pip 26.0.1 from /usr/local/lib/python3.11/dist-packages/pip (python 3.11)
-- **Total Packages:** 165
+- **Path:** /opt/base-python-venv/bin/python3
+- **Pip:** pip 26.0.1 from /opt/base-python-venv/lib/python3.11/site-packages/pip (python 3.11)
+- **Total Packages:** 123
 
 ### Key Python Packages
 
 - **fastapi:** 0.119.0
 - **uvicorn:** 0.37.0
 - **pydantic:** 2.12.1
-- **playwright:** 1.58.0
-- **playwright-stealth:** 2.0.2
+- **playwright:** 1.55.0
 - **pytest:** 9.0.2
-- **black:** 26.1.0
-- **flake8:** 7.3.0
-- **mypy:** 1.19.1
 - **requests:** 2.32.5
 - **httpx:** 0.28.1
 - **aiohttp:** 3.13.3
-- **numpy:** 1.21.5
+- **pandas:** 2.3.3
+- **numpy:** 2.3.3
 
 ## Node.js Environment
 
 - **Version:** v22.13.0
 - **NPM:** 10.9.2
-- **PNPM:** 10.28.1
-- **Yarn:** 1.22.22
-- **Global Packages:** 10
+- **PNPM:** 10.29.2
+- **Yarn:** None
+- **Global Packages:** 8
 
 ## Browser Automation
 
-- **Chrome for Testing:** Chromium 145.0.7632.0
+- **Chrome for Testing:** Chromium 140.0.7339.16
 - **Playwright:** Available (browsers: chromium, firefox, webkit)
-- **Stealth Mode:** Yes
+- **Stealth Mode:** No
 
 ## System Tools
 
 ### Development Tools
 - **git:** git version 2.34.1
-- **gcc:** gcc (Ubuntu 11.4.0-1ubuntu1~22.04.2) 11.4.0
-- **make:** GNU Make 4.3
-- **gh:** gh version 2.86.0 (2026-01-21)
 
 ### Text Processing
 - grep
@@ -172,16 +166,17 @@ No npm install needed for these modules:
 ## Environment Variables
 
 Key variables available:
-- **PATH:** `/home/ubuntu/.local/share/pnpm:/usr/local/nvm/v...`
+- **PATH:** `/opt/base-python-venv/bin:/home/ubuntu/.local/s...`
 - **HOME:** `/home/ubuntu`
 - **DISPLAY:** `:1`
 - **NODE_VERSION:** `22.13.0`
 - **NVM_DIR:** `/usr/local/nvm`
+- **VIRTUAL_ENV:** `/opt/base-python-venv`
 - **PNPM_HOME:** `/home/ubuntu/.local/share/pnpm`
 
 ## Resource Limits
 
-- **Disk Space:** 9.8G available (87% used)
+- **Disk Space:** 27G available (64% used)
 - **Shared Memory:** 2gb
 
 ---

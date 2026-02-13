@@ -9,39 +9,41 @@ import asyncio
 from app.core.config import settings
 from app.api.router import api_router
 from app.core.exceptions import (
-    AppException, 
-    app_exception_handler, 
-    http_exception_handler, 
+    AppException,
+    app_exception_handler,
+    http_exception_handler,
     validation_exception_handler,
-    general_exception_handler
+    general_exception_handler,
 )
 from app.core.middleware import auto_extend_timeout_middleware
+
 
 # Configure logging
 def setup_logging():
     """
     Set up the application logging system
-    
+
     Configures log level, format, and handlers based on application settings.
     Outputs logs to stdout for container compatibility.
     """
     log_level = getattr(logging, settings.LOG_LEVEL)
     log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    
+
     logging.basicConfig(
-        level=log_level,
-        format=log_format,
-        handlers=[logging.StreamHandler(sys.stdout)]
+        level=log_level, format=log_format, handlers=[logging.StreamHandler(sys.stdout)]
     )
     # Get root logger
     root_logger = logging.getLogger()
-    
+
     # Set root log level
     log_level = getattr(logging, settings.LOG_LEVEL)
     root_logger.setLevel(log_level)
-    
+
     # Log setup completion
-    logging.info("Sandbox logging system initialized with level: %s", settings.LOG_LEVEL)
+    logging.info(
+        "Sandbox logging system initialized with level: %s", settings.LOG_LEVEL
+    )
+
 
 # Initialize logging
 setup_logging()
@@ -81,9 +83,12 @@ async def health_check(response: Response):
 
     Returns health status and basic service readiness checks.
     """
+
     async def _check_port(host: str, port: int) -> bool:
         try:
-            reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=1.0)
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port), timeout=1.0
+            )
             writer.close()
             await writer.wait_closed()
             return True

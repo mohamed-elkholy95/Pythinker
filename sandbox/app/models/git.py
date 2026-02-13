@@ -1,12 +1,14 @@
 """
 Git business model definitions
 """
+
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
 class GitCloneResult(BaseModel):
     """Result of git clone operation"""
+
     success: bool = Field(..., description="Whether clone succeeded")
     repo_path: str = Field(..., description="Path to cloned repository")
     repo_url: str = Field(..., description="Repository URL")
@@ -20,6 +22,7 @@ class GitCloneResult(BaseModel):
 
 class GitStatusResult(BaseModel):
     """Result of git status operation"""
+
     branch: str = Field(..., description="Current branch name")
     clean: bool = Field(..., description="Whether working tree is clean")
     ahead: int = Field(default=0, description="Commits ahead of remote")
@@ -32,6 +35,7 @@ class GitStatusResult(BaseModel):
 
 class GitDiffResult(BaseModel):
     """Result of git diff operation"""
+
     files_changed: int = Field(default=0, description="Number of files changed")
     insertions: int = Field(default=0, description="Lines added")
     deletions: int = Field(default=0, description="Lines deleted")
@@ -41,6 +45,7 @@ class GitDiffResult(BaseModel):
 
 class GitLogEntry(BaseModel):
     """Single git log entry"""
+
     commit_hash: str = Field(..., description="Commit hash")
     author: str = Field(..., description="Author name")
     author_email: str = Field(default="", description="Author email")
@@ -50,12 +55,16 @@ class GitLogEntry(BaseModel):
 
 class GitLogResult(BaseModel):
     """Result of git log operation"""
-    commits: List[GitLogEntry] = Field(default_factory=list, description="List of commits")
+
+    commits: List[GitLogEntry] = Field(
+        default_factory=list, description="List of commits"
+    )
     total_count: int = Field(default=0, description="Total number of commits returned")
 
 
 class GitBranchResult(BaseModel):
     """Result of git branch operation"""
+
     current: str = Field(..., description="Current branch name")
     local: List[str] = Field(default_factory=list, description="Local branches")
     remote: List[str] = Field(default_factory=list, description="Remote branches")

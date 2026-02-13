@@ -10,7 +10,14 @@ import logging
 import time
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    HTTPException,
+    Query,
+    Response,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import StreamingResponse
 
 from app.services.cdp_screencast import CDPScreencastService, ScreencastConfig
@@ -47,7 +54,9 @@ async def capture_frame(
 
     try:
         if not await service.connect():
-            raise HTTPException(status_code=503, detail="Failed to connect to Chrome CDP")
+            raise HTTPException(
+                status_code=503, detail="Failed to connect to Chrome CDP"
+            )
 
         image_data = await service.capture_single_frame()
         await service.disconnect()
@@ -56,7 +65,9 @@ async def capture_frame(
             raise HTTPException(status_code=500, detail="Failed to capture frame")
 
         elapsed = time.time() - start_time
-        logger.info(f"[CDP Screenshot] Captured {len(image_data)} bytes in {elapsed*1000:.1f}ms")
+        logger.info(
+            f"[CDP Screenshot] Captured {len(image_data)} bytes in {elapsed * 1000:.1f}ms"
+        )
 
         return Response(
             content=image_data,
@@ -97,7 +108,9 @@ async def stream_frames_ws(
         - Server sends "ping" every 5 seconds, client should respond "pong"
     """
     await websocket.accept()
-    logger.info(f"[CDP Stream] WebSocket connected: quality={quality}, max_fps={max_fps}")
+    logger.info(
+        f"[CDP Stream] WebSocket connected: quality={quality}, max_fps={max_fps}"
+    )
 
     slot_acquired = False
     try:
@@ -106,7 +119,9 @@ async def stream_frames_ws(
     except TimeoutError:
         await websocket.send_json({"error": "Screencast is busy. Please retry."})
         await websocket.close(code=1013, reason="Screencast is busy")
-        logger.warning("[CDP Stream] Rejected connection because screencast slot is busy")
+        logger.warning(
+            "[CDP Stream] Rejected connection because screencast slot is busy"
+        )
         return
 
     config = ScreencastConfig(format="jpeg", quality=quality)
@@ -258,7 +273,10 @@ async def screencast_status():
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get("http://127.0.0.1:9222/json/version", timeout=aiohttp.ClientTimeout(total=2)) as resp:
+            async with session.get(
+                "http://127.0.0.1:9222/json/version",
+                timeout=aiohttp.ClientTimeout(total=2),
+            ) as resp:
                 if resp.status == 200:
                     version_info = await resp.json()
                     return {
@@ -270,6 +288,10 @@ async def screencast_status():
                     }
     except Exception as e:
         logger.warning(f"CDP status check failed: {e}")
-        return {"available": False, "message": "Chrome CDP not available", "error": str(e)}
+        return {
+            "available": False,
+            "message": "Chrome CDP not available",
+            "error": str(e),
+        }
 
     return {"available": False, "message": "Chrome CDP not available"}

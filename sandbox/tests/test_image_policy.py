@@ -44,7 +44,10 @@ def _docker_run(cmd: list[str], image: str = IMAGE) -> tuple[int, str]:
     sys.platform != "linux" and sys.platform != "darwin",
     reason="Docker image tests run on Unix",
 )
-@pytest.mark.skipif(not _image_exists(), reason=f"Image {IMAGE} not built; run: docker build -t {IMAGE} ./sandbox")
+@pytest.mark.skipif(
+    not _image_exists(),
+    reason=f"Image {IMAGE} not built; run: docker build -t {IMAGE} ./sandbox",
+)
 class TestImagePolicy:
     """Hardened image policy checks."""
 
@@ -61,22 +64,30 @@ class TestImagePolicy:
 
     def test_no_nopasswd_sudoers(self) -> None:
         """No NOPASSWD:ALL in sudoers."""
-        code, out = _docker_run(["bash", "-c", "cat /etc/sudoers.d/ubuntu 2>/dev/null || true"])
+        code, out = _docker_run(
+            ["bash", "-c", "cat /etc/sudoers.d/ubuntu 2>/dev/null || true"]
+        )
         assert "NOPASSWD" not in out
 
     def test_dev_tools_absent(self) -> None:
         """Build-only tools absent from runtime."""
-        code, out = _docker_run([
-            "bash", "-c",
-            "which black flake8 pytest eslint jest yarn 2>/dev/null | wc -l",
-        ])
+        code, out = _docker_run(
+            [
+                "bash",
+                "-c",
+                "which black flake8 pytest eslint jest yarn 2>/dev/null | wc -l",
+            ]
+        )
         assert code == 0, out
         assert out.strip() == "0"
 
     def test_reference_packages_present(self) -> None:
         """Key reference packages available."""
-        code, out = _docker_run([
-            "bash", "-c",
-            "dot -V 2>&1 && mysql --version 2>&1 && pdftotext -v 2>&1 | head -1",
-        ])
+        code, out = _docker_run(
+            [
+                "bash",
+                "-c",
+                "dot -V 2>&1 && mysql --version 2>&1 && pdftotext -v 2>&1 | head -1",
+            ]
+        )
         assert code == 0, out

@@ -347,30 +347,78 @@ def run_checks():
 # ============================================================================
 
 COMPLEX_TASK_INDICATORS = [
-    "research", "analyze", "compare", "investigate", "design",
-    "implement", "optimize", "debug", "refactor", "evaluate",
-    "multiple", "comprehensive", "detailed", "thorough", "complete",
-    "security", "performance", "architecture", "integration"
+    "research",
+    "analyze",
+    "compare",
+    "investigate",
+    "design",
+    "implement",
+    "optimize",
+    "debug",
+    "refactor",
+    "evaluate",
+    "multiple",
+    "comprehensive",
+    "detailed",
+    "thorough",
+    "complete",
+    "security",
+    "performance",
+    "architecture",
+    "integration",
 ]
 
 DIAGNOSTIC_TASK_INDICATORS = [
-    "diagnostic", "diagnose", "benchmark", "performance test",
-    "system info", "hardware", "capabilities", "inspect environment",
-    "health check", "stress test", "memory test", "cpu test", "disk test",
-    "environment check", "verify system", "check resources", "measure",
-    "profile", "analyze system", "system analysis", "hallucination",
-    "consistency check", "self-test", "validate environment"
+    "diagnostic",
+    "diagnose",
+    "benchmark",
+    "performance test",
+    "system info",
+    "hardware",
+    "capabilities",
+    "inspect environment",
+    "health check",
+    "stress test",
+    "memory test",
+    "cpu test",
+    "disk test",
+    "environment check",
+    "verify system",
+    "check resources",
+    "measure",
+    "profile",
+    "analyze system",
+    "system analysis",
+    "hallucination",
+    "consistency check",
+    "self-test",
+    "validate environment",
 ]
 
 RESEARCH_INDICATORS = [
-    "research", "search", "find", "browse", "web", "article",
-    "content", "information", "look up", "investigate", "summarize",
-    "extract", "analyze", "review", "read", "fetch", "scrape"
+    "research",
+    "search",
+    "find",
+    "browse",
+    "web",
+    "article",
+    "content",
+    "information",
+    "look up",
+    "investigate",
+    "summarize",
+    "extract",
+    "analyze",
+    "review",
+    "read",
+    "fetch",
+    "scrape",
 ]
 
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
+
 
 def is_complex_task(step_description: str) -> bool:
     """Determine if a task is complex enough to warrant CoT reasoning.
@@ -385,8 +433,7 @@ def is_complex_task(step_description: str) -> bool:
 
     # Check for complexity indicators
     indicator_count = sum(
-        1 for indicator in COMPLEX_TASK_INDICATORS
-        if indicator in step_lower
+        1 for indicator in COMPLEX_TASK_INDICATORS if indicator in step_lower
     )
 
     # Complex if 2+ indicators or description is long (likely detailed task)
@@ -446,7 +493,7 @@ def extract_task_constraints(step_description: str) -> list[str]:
     for pattern, label in constraint_patterns:
         if pattern in step_lower:
             # Find the sentence containing the pattern
-            sentences = step_description.split('.')
+            sentences = step_description.split(".")
             for sentence in sentences:
                 if pattern in sentence.lower():
                     constraints.append(f"{label}: {sentence.strip()}")
@@ -465,8 +512,9 @@ def get_current_date_signal() -> str:
     return CURRENT_DATE_SIGNAL.format(
         current_date=now.strftime("%Y-%m-%d"),
         day_of_week=now.strftime("%A"),
-        full_date=now.strftime("%B %d, %Y")
+        full_date=now.strftime("%B %d, %Y"),
     )
+
 
 # ============================================================================
 # EXECUTION PROMPT
@@ -593,6 +641,7 @@ Response specification:
 # BUILDER FUNCTION
 # ============================================================================
 
+
 def build_execution_prompt(
     step: str,
     message: str,
@@ -603,7 +652,7 @@ def build_execution_prompt(
     memory_context: str | None = None,
     enable_cot: bool = True,
     include_current_date: bool = True,
-    enable_source_attribution: bool = True
+    enable_source_attribution: bool = True,
 ) -> str:
     """Build execution prompt with optional context signals and CoT reasoning.
 
@@ -623,10 +672,7 @@ def build_execution_prompt(
         Formatted execution prompt with injected signals
     """
     prompt = ENHANCED_EXECUTION_PROMPT.format(
-        step=step,
-        message=message,
-        attachments=attachments,
-        language=language
+        step=step, message=message, attachments=attachments, language=language
     )
 
     # Inject diagnostic task guidance for system inspection/benchmark tasks
@@ -636,15 +682,19 @@ def build_execution_prompt(
     # Inject CoT reasoning for complex tasks
     if enable_cot and is_complex_task(step):
         constraints = extract_task_constraints(step)
-        constraints_text = "\n   - ".join(constraints) if constraints else "None explicitly stated"
+        constraints_text = (
+            "\n   - ".join(constraints) if constraints else "None explicitly stated"
+        )
 
         # Extract primary objective (first sentence or up to 100 chars)
-        primary_obj = step.split('.')[0][:100] if '.' in step else step[:100]
+        primary_obj = step.split(".")[0][:100] if "." in step else step[:100]
 
-        prompt = COT_REASONING_SIGNAL.format(
-            primary_objective=primary_obj,
-            constraints=constraints_text
-        ) + prompt
+        prompt = (
+            COT_REASONING_SIGNAL.format(
+                primary_objective=primary_obj, constraints=constraints_text
+            )
+            + prompt
+        )
 
     # Inject source attribution signal for research tasks
     if enable_source_attribution and is_research_task(step):
@@ -652,21 +702,17 @@ def build_execution_prompt(
 
     # Inject memory context if present (Phase 6: Qdrant integration)
     if memory_context:
-        prompt = MEMORY_CONTEXT_SIGNAL.format(
-            memory_context=memory_context
-        ) + prompt
+        prompt = MEMORY_CONTEXT_SIGNAL.format(memory_context=memory_context) + prompt
 
     # Inject pressure signal if present
     if pressure_signal:
-        prompt = CONTEXT_PRESSURE_SIGNAL.format(
-            pressure_signal=pressure_signal
-        ) + prompt
+        prompt = (
+            CONTEXT_PRESSURE_SIGNAL.format(pressure_signal=pressure_signal) + prompt
+        )
 
     # Inject task state for recitation if present
     if task_state:
-        prompt = TASK_STATE_SIGNAL.format(
-            task_state=task_state
-        ) + prompt
+        prompt = TASK_STATE_SIGNAL.format(task_state=task_state) + prompt
 
     # Inject current date context (prepended first, so it appears at the top)
     if include_current_date:
@@ -676,8 +722,7 @@ def build_execution_prompt(
 
 
 def build_execution_system_prompt(
-    base_prompt: str,
-    pressure_signal: str | None = None
+    base_prompt: str, pressure_signal: str | None = None
 ) -> str:
     """Build execution system prompt with optional pressure warning.
 
@@ -689,7 +734,9 @@ def build_execution_system_prompt(
         System prompt with pressure signal if needed
     """
     if pressure_signal:
-        return base_prompt + "\n\n" + CONTEXT_PRESSURE_SIGNAL.format(
-            pressure_signal=pressure_signal
+        return (
+            base_prompt
+            + "\n\n"
+            + CONTEXT_PRESSURE_SIGNAL.format(pressure_signal=pressure_signal)
         )
     return base_prompt

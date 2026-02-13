@@ -1,12 +1,14 @@
 """
 Supervisor business model definitions
 """
+
 from typing import Optional, List
 from pydantic import BaseModel, Field
 
 
 class ProcessInfo(BaseModel):
     """Process information model"""
+
     name: str = Field(..., description="Process name")
     group: str = Field(..., description="Process group")
     description: str = Field(..., description="Process description")
@@ -25,6 +27,7 @@ class ProcessInfo(BaseModel):
 
 class SupervisorActionResult(BaseModel):
     """Supervisor operation result model"""
+
     status: str = Field(..., description="Operation status")
     result: Optional[List[str]] = Field(None, description="Operation result")
     stop_result: Optional[List[str]] = Field(None, description="Stop result")
@@ -34,8 +37,11 @@ class SupervisorActionResult(BaseModel):
 
 class SupervisorTimeout(BaseModel):
     """Supervisor timeout model"""
+
     status: Optional[str] = Field(None, description="Timeout setting status")
     active: bool = Field(False, description="Whether timeout is active")
     shutdown_time: Optional[str] = Field(None, description="Shutdown time")
-    timeout_minutes: Optional[float] = Field(None, description="Timeout duration (minutes)")
-    remaining_seconds: Optional[float] = Field(None, description="Remaining seconds") 
+    timeout_minutes: Optional[float] = Field(
+        None, description="Timeout duration (minutes)"
+    )
+    remaining_seconds: Optional[float] = Field(None, description="Remaining seconds")

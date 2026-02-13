@@ -71,12 +71,16 @@ uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
 
 The sandbox uses a **multi-stage hardened build** (2026-02-13):
 
-- **Builder stage**: Python 3.11, Node.js, Chrome for Testing, Playwright browsers, dev tools (build only)
-- **Runtime stage**: Non-root (`USER ubuntu`), `tini` as PID 1, no dev tools, reference packages (poppler-utils, graphviz, mysql-client, etc.)
+- **Builder stage**: Python 3.11, Node.js, Chrome for Testing, Playwright browsers, toolchain assembly.
+- **Runtime stage (minimal by default)**: Non-root (`USER ubuntu`), `tini` as PID 1, core sandbox services only.
+- **Optional add-ons profile**: extra data/reporting/cloud utilities install only when explicitly enabled.
 
 ```bash
-# Build the image
+# Build minimal profile (default)
 docker build -t pythinker-sandbox .
+
+# Build with optional add-ons (data/reporting/cloud extras)
+docker build --build-arg ENABLE_SANDBOX_ADDONS=1 -t pythinker-sandbox:full .
 
 # Run the container (use compose for proper tmpfs/security opts)
 docker run -p 8080:8080 -p 8082:8082 -p 9222:9222 -p 5900:5900 -p 5901:5901 pythinker-sandbox
