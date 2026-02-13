@@ -19,6 +19,7 @@
     :enabled="enabled"
     :view-only="viewOnly"
     :compact-loading="compactLoading"
+    :reconnect-attempt="vncReconnectAttempts"
     @connected="handleVncConnected"
     @disconnected="handleVncDisconnected"
     @credentialsRequired="emit('credentialsRequired')"
