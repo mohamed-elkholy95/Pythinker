@@ -3,11 +3,11 @@
     <div
       class="flex flex-col h-full flex-1 min-w-0 mx-auto w-full sm:min-w-[390px] px-5 justify-start items-start gap-2 relative max-w-full sm:max-w-full">
       <!-- Minimal header - logo and user avatar, blended into background -->
-      <div class="w-full pt-4 pb-4 px-5 sticky top-0 z-10">
+      <div class="w-full pt-4 pb-4 ps-[8px] pe-[8px] sm:ps-5 sm:pe-5 sticky top-0 z-10">
         <div class="flex justify-between items-center w-full">
           <div class="flex items-center gap-1 flex-shrink-0">
             <button
-              class="sm:hidden h-8 w-8 inline-flex items-center justify-center rounded-lg hover:bg-[var(--fill-tsp-gray-main)] transition-colors"
+              class="sm:hidden h-8 w-8 inline-flex items-center justify-center rounded-lg hover:bg-[var(--fill-tsp-gray-main)] transition-colors -ml-0.5"
               @click="toggleLeftPanel"
               aria-label="Open sidebar"
             >

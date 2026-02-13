@@ -66,11 +66,15 @@ import ConnectorButton from './connectors/ConnectorButton.vue';
 import ConnectorBanner from './connectors/ConnectorBanner.vue';
 import SkillPicker from './SkillPicker.vue';
 import { useSkills } from '@/composables/useSkills';
+import { getCommandMap } from '@/api/skills';
 import type { FileInfo } from '../api/file';
 import { showInfoToast } from '../utils/toast';
 
 const { t } = useI18n();
 const { sessionSkillIds, availableSkills, removeSessionSkill, selectSkill } = useSkills();
+
+// Command -> skill_id map (fetched from backend, includes all commands + aliases)
+const commandSkillMap = ref<Record<string, string>>({});
 const hasTextInput = ref(false);
 const isComposing = ref(false);
 const chatBoxFileListRef = ref();
@@ -84,19 +88,6 @@ const sessionSkillChips = computed(() => {
       return skill ? { id: skill.id, name: skill.name } : { id, name: id };
     });
 });
-
-// Command → skill ID mapping for auto-detection
-const COMMAND_SKILL_MAP: Record<string, string> = {
-  'skill-creator': 'skill-creator',
-  'build-skill': 'skill-creator',
-  'brainstorm': 'brainstorming',
-  'design': 'brainstorming',
-  'write-plan': 'writing-plans',
-  'plan': 'writing-plans',
-  'tdd': 'test-driven-development',
-  'debug': 'systematic-debugging',
-  'verify': 'verification-before-completion',
-};
 
 const props = withDefaults(defineProps<{
     modelValue: string;
@@ -193,11 +184,17 @@ const detectedCommands = ref<Set<string>>(new Set());
 watch(() => props.modelValue, (value) => {
     hasTextInput.value = value.trim() !== '';
 
-    // Auto-detect /commands in input text
-    const commandMatch = value.match(/\/([a-zA-Z0-9_-]+)/);
-    if (commandMatch) {
+    // Reset detected commands when input is cleared (e.g. after send)
+    if (!value.trim()) {
+      detectedCommands.value.clear();
+      return;
+    }
+
+    // Auto-detect slash commands: at start of message or after newline/space
+    const commandMatch = value.match(/(?:^|[\s\n])\/([a-zA-Z0-9_-]+)/);
+    if (commandMatch && Object.keys(commandSkillMap.value).length > 0) {
       const command = commandMatch[1].toLowerCase();
-      const skillId = COMMAND_SKILL_MAP[command];
+      const skillId = commandSkillMap.value[command];
       if (skillId && !detectedCommands.value.has(command)) {
         detectedCommands.value.add(command);
         selectSkill(skillId);
@@ -220,8 +217,13 @@ watch(
   }
 );
 
-onMounted(() => {
+onMounted(async () => {
   resizeTextarea();
+  try {
+    commandSkillMap.value = await getCommandMap();
+  } catch (e) {
+    console.warn('Failed to load command map for slash command detection:', e);
+  }
 });
 </script>
 

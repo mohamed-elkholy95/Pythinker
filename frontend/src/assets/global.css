@@ -22,6 +22,12 @@ body,html {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Dark mode body — deeper base for seamless edge-to-edge feel */
+html[data-theme='dark'] body,
+.dark body {
+  background-color: var(--background-main);
+}
+
 h1,
 h2,
 h3,
@@ -58,16 +64,19 @@ h3,
   background-color: rgba(0, 0, 0, 0.25);
 }
 
-.dark .modern-scrollbar {
-  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+.dark .modern-scrollbar,
+html[data-theme='dark'] .modern-scrollbar {
+  scrollbar-color: rgba(110, 118, 129, 0.5) transparent;
 }
 
-.dark .modern-scrollbar::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.12);
+.dark .modern-scrollbar::-webkit-scrollbar-thumb,
+html[data-theme='dark'] .modern-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(110, 118, 129, 0.4);
 }
 
-.dark .modern-scrollbar::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.25);
+.dark .modern-scrollbar::-webkit-scrollbar-thumb:hover,
+html[data-theme='dark'] .modern-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(110, 118, 129, 0.65);
 }
 
 /* ===== MINIMAL SCROLLBAR (for sidebars) ===== */
@@ -103,16 +112,19 @@ h3,
   background-color: rgba(0, 0, 0, 0.2);
 }
 
-.dark .minimal-scrollbar:hover {
-  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+.dark .minimal-scrollbar:hover,
+html[data-theme='dark'] .minimal-scrollbar:hover {
+  scrollbar-color: rgba(110, 118, 129, 0.35) transparent;
 }
 
-.dark .minimal-scrollbar:hover::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.12);
+.dark .minimal-scrollbar:hover::-webkit-scrollbar-thumb,
+html[data-theme='dark'] .minimal-scrollbar:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(110, 118, 129, 0.35);
 }
 
-.dark .minimal-scrollbar::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.2);
+.dark .minimal-scrollbar::-webkit-scrollbar-thumb:hover,
+html[data-theme='dark'] .minimal-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(110, 118, 129, 0.55);
 }
 
 .clickable {

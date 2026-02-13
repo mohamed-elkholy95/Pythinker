@@ -221,6 +221,18 @@ class CommandRegistry:
 
         return commands
 
+    def get_command_map(self) -> dict[str, str]:
+        """Get full mapping of command/alias -> skill_id for slash command detection.
+
+        Includes both primary commands and aliases so frontend can identify
+        any valid /command string and resolve it to the correct skill.
+
+        Returns:
+            Dict mapping command name (lowercase, no leading slash) to skill_id
+        """
+        self._ensure_initialized()
+        return dict(self._command_map)
+
     def get_command_help(self, command: str) -> str | None:
         """Get help text for a command.
 

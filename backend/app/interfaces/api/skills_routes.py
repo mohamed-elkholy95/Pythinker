@@ -16,6 +16,7 @@ from app.interfaces.dependencies import get_current_user
 from app.interfaces.schemas.base import APIResponse
 from app.interfaces.schemas.skill import (
     CommandListResponse,
+    CommandMapResponse,
     CommandResponse,
     CreateCustomSkillRequest,
     CustomSkillListResponse,
@@ -1178,6 +1179,23 @@ async def get_available_commands(
             count=len(command_responses),
         )
     )
+
+
+@router.get("/commands/map", response_model=APIResponse[CommandMapResponse])
+async def get_command_map(
+    current_user: User = Depends(get_current_user),
+) -> APIResponse[CommandMapResponse]:
+    """Get full command/alias -> skill_id mapping for slash command detection.
+
+    Used by the chat input to identify when user types /brainstorm, /design,
+    /plan-design, etc. and auto-select the corresponding skill.
+    """
+    from app.domain.services.command_registry import get_command_registry
+
+    registry = get_command_registry()
+    command_map = registry.get_command_map()
+
+    return APIResponse.success(CommandMapResponse(command_map=command_map))
 
 
 # =============================================================================

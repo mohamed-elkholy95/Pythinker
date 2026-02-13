@@ -5,7 +5,7 @@ import re
 import time
 from collections.abc import AsyncGenerator, Callable, Coroutine
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import uuid4
 
@@ -16,6 +16,7 @@ from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
 from app.domain.models.event import (
     BaseEvent,
+    ConfidenceEvent,
     DoneEvent,
     ErrorEvent,
     FlowTransitionEvent,
@@ -96,6 +97,7 @@ from app.domain.services.agents.response_policy import (
     ResponsePolicy,
     ResponsePolicyEngine,
     TaskAssessment,
+    VerbosityMode,
 )
 from app.domain.services.agents.task_state_manager import TaskStateManager
 from app.domain.services.agents.verifier import VerifierAgent, VerifierConfig
@@ -1247,7 +1249,13 @@ class PlanActFlow(BaseFlow):
                 artifacts.append({"path": path, "type": "file"})
         return self._compliance_gates.check_all(content, artifacts=artifacts, sources=[])
 
-    def _evaluate_response_policy_for_message(self, message_text: str) -> tuple[TaskAssessment, ResponsePolicy]:
+    def _evaluate_response_policy_for_message(
+        self,
+        message_text: str,
+        *,
+        verbosity_preference: str = "adaptive",
+        quality_floor_enforced: bool = True,
+    ) -> tuple[TaskAssessment, ResponsePolicy]:
         """Evaluate adaptive response policy for the current user message."""
         guardrail_result = self._input_guardrails.analyze(message_text)
         assessment = self._response_policy_engine.assess_task(
@@ -1255,7 +1263,11 @@ class PlanActFlow(BaseFlow):
             complexity_score=self._cached_complexity,
             guardrail_result=guardrail_result,
         )
-        policy = self._response_policy_engine.decide_policy(assessment=assessment)
+        policy = self._response_policy_engine.decide_policy(
+            assessment=assessment,
+            verbosity_preference=verbosity_preference,
+            quality_floor_enforced=quality_floor_enforced,
+        )
 
         self._task_assessment = assessment
         self._response_policy = policy
@@ -1265,11 +1277,18 @@ class PlanActFlow(BaseFlow):
         metrics.record_counter("response_policy_mode_total", labels={"mode": policy.mode.value})
         return assessment, policy
 
-    def _should_pause_for_clarification(self, session_status: SessionStatus, assessment: TaskAssessment) -> bool:
+    def _should_pause_for_clarification(
+        self,
+        session_status: SessionStatus,
+        assessment: TaskAssessment,
+        clarification_policy: str = "auto",
+    ) -> bool:
         """Determine whether we should ask for clarification and pause execution."""
         if session_status != SessionStatus.PENDING:
             return False
-        return self._response_policy_engine.should_request_clarification(assessment, clarification_policy="auto")
+        return self._response_policy_engine.should_request_clarification(
+            assessment, clarification_policy=clarification_policy
+        )
 
     def _build_clarification_question(self, assessment: TaskAssessment) -> str:
         """Build the clarification question shown to the user."""
@@ -1819,23 +1838,82 @@ class PlanActFlow(BaseFlow):
                 self._cached_complexity = session.complexity_score
             logger.debug(f"Applying existing iteration limit: {session.iteration_limit_override}")
 
-        task_assessment, response_policy = self._evaluate_response_policy_for_message(message.message)
+        # Load user settings for adaptive verbosity and clarification policy
+        verbosity_preference = "adaptive"
+        clarification_policy = "auto"
+        quality_floor_enforced = True
+        if self._user_id:
+            try:
+                from app.application.services.settings_service import get_settings_service
+
+                user_settings = await get_settings_service().get_user_settings(self._user_id)
+                verbosity_preference = user_settings.get("response_verbosity_preference", "adaptive")
+                clarification_policy = user_settings.get("clarification_policy", "auto")
+                quality_floor_enforced = user_settings.get("quality_floor_enforced", True)
+            except Exception as e:
+                logger.debug("Could not load user settings for response policy: %s", e)
+
+        task_assessment, response_policy = self._evaluate_response_policy_for_message(
+            message.message,
+            verbosity_preference=verbosity_preference,
+            quality_floor_enforced=quality_floor_enforced,
+        )
+        flags = self._resolve_feature_flags()
+        shadow_mode = flags.get("adaptive_verbosity_shadow", False)
+
         logger.info(
-            "Response policy: mode=%s complexity=%.2f risk=%.2f ambiguity=%.2f confidence=%.2f",
+            "Response policy: mode=%s complexity=%.2f risk=%.2f ambiguity=%.2f confidence=%.2f shadow=%s",
             response_policy.mode.value,
             task_assessment.complexity_score,
             task_assessment.risk_score,
             task_assessment.ambiguity_score,
             task_assessment.confidence_score,
+            shadow_mode,
         )
 
-        if self._should_pause_for_clarification(session.status, task_assessment):
+        would_pause = self._should_pause_for_clarification(session.status, task_assessment, clarification_policy)
+        if shadow_mode and would_pause:
+            logger.info(
+                "Shadow mode: would have requested clarification (ambiguity=%.2f confidence=%.2f), proceeding with standard output",
+                task_assessment.ambiguity_score,
+                task_assessment.confidence_score,
+            )
+            response_policy = ResponsePolicy(
+                mode=VerbosityMode.STANDARD,
+                min_required_sections=["final result"],
+                allow_compression=False,
+            )
+            self._response_policy = response_policy
+            self.executor.set_response_policy(response_policy)
+            would_pause = False
+
+        if would_pause:
             get_metrics().record_counter("clarification_requested_total", labels={"reason": "ambiguous_request"})
             clarification_question = self._build_clarification_question(task_assessment)
             logger.info("Pausing for clarification before execution")
+            yield ConfidenceEvent(
+                decision="clarification_requested",
+                confidence=task_assessment.confidence_score,
+                level="low" if task_assessment.confidence_score < 0.5 else "medium",
+                action_recommendation="ask_user",
+                supporting_factors=[],
+                risk_factors=[
+                    f"ambiguity_score={task_assessment.ambiguity_score:.2f}",
+                    *task_assessment.clarification_questions[:1],
+                ],
+            )
             yield MessageEvent(message=clarification_question)
             yield WaitEvent()
             return
+
+        if shadow_mode:
+            response_policy = ResponsePolicy(
+                mode=VerbosityMode.STANDARD,
+                min_required_sections=response_policy.min_required_sections,
+                allow_compression=False,
+            )
+            self._response_policy = response_policy
+            self.executor.set_response_policy(response_policy)
 
         if session.status != SessionStatus.PENDING:
             logger.debug(f"Session {self._session_id} is not in PENDING status, rolling back")
@@ -1849,6 +1927,13 @@ class PlanActFlow(BaseFlow):
         if session.status == SessionStatus.WAITING:
             logger.debug(f"Session {self._session_id} is in WAITING status")
             get_metrics().record_counter("clarification_resolved_total", labels={"source": "user_reply"})
+            if session.updated_at:
+                updated = (
+                    session.updated_at.replace(tzinfo=UTC) if session.updated_at.tzinfo is None else session.updated_at
+                )
+                wait_seconds = (datetime.now(UTC) - updated).total_seconds()
+                if wait_seconds > 0:
+                    get_metrics().record_histogram("clarification_wait_seconds", value=wait_seconds)
             self._transition_to(AgentStatus.EXECUTING, force=True, reason="resume waiting session")
 
         await self._session_repository.update_status(self._session_id, SessionStatus.RUNNING)
