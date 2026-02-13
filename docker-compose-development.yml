@@ -67,7 +67,7 @@ services:
       - SANDBOX_LIFECYCLE_MODE=static
       - SANDBOX_ADDRESS=sandbox
       - SANDBOX_IMAGE=pythinker/pythinker-sandbox
-      - SANDBOX_CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome
+      - SANDBOX_CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
       - "LOCAL_AUTH_PASSWORD=admin*123"  # Override .env to handle special chars
       - GRPC_ENABLE_FORK_SUPPORT=0  # Suppress gRPC fork warning from qdrant-client
       - NODE_OPTIONS=--no-deprecation  # Suppress Playwright url.parse() deprecation
@@ -87,6 +87,7 @@ services:
         - linux/arm64  # Native on Apple Silicon; uses Chromium from apt (avoids QEMU SIGTRAP crashes)
     # Omit platform to use host architecture (arm64 on Apple Silicon = native Chromium, no QEMU)
     hostname: sandbox
+    init: true  # Prevent zombie Chrome processes (Playwright best practice)
     # Security hardening: align dev with production baseline (2026-02-13)
     # Chrome --no-sandbox is correct: container provides cap_drop+seccomp+no-new-privileges isolation
     security_opt:
@@ -120,7 +121,7 @@ services:
     tmpfs:
       - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
       - /run/user/1000:size=10M,nosuid,nodev,uid=1000,gid=1000,mode=0700
-      - /tmp:size=300M,nosuid,nodev
+      - /tmp:size=1g,nosuid,nodev  # 1GB for Chrome --disable-dev-shm-usage shared memory
       - /home/ubuntu/.cache:size=150M,nosuid,nodev,uid=1000,gid=1000,mode=0700
     # File descriptor limits for browser and node processes
     ulimits:
@@ -144,7 +145,7 @@ services:
       - FRAMEWORK_UVI_ARGS="--reload"
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
       - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
-      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --renderer-process-limit=2 --disable-features=CalculateNativeWinOcclusion --disable-gpu-memory-buffer-compositor-resources --disable-gpu-memory-buffer-video-frames --js-flags=--max-old-space-size=512
+      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --renderer-process-limit=2 --disable-features=CalculateNativeWinOcclusion --disable-gpu-memory-buffer-compositor-resources --disable-gpu-memory-buffer-video-frames --js-flags=--max-old-space-size=512
       - BROWSER_PATH=/opt/chrome-for-testing/chrome
     restart: unless-stopped
     networks:

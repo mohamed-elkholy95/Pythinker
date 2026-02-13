@@ -76,6 +76,7 @@ services:
         platforms:
           - linux/amd64
     hostname: sandbox
+    init: true  # Prevent zombie Chrome processes (Playwright best practice)
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
@@ -87,7 +88,7 @@ services:
       # Openbox config for proper window management - ensures Chrome stays centered at 0,0
       - ./sandbox/openbox-rc.xml:/home/ubuntu/.config/openbox/rc.xml:ro
     environment:
-      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome
+      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
       - BROWSER_PATH=/usr/bin/chromium-browser
     ports:
@@ -95,8 +96,8 @@ services:
       - "8082:8082"  # Sandbox framework API
       - "5902:5900"  # VNC
       - "5901:5901"  # VNC WebSocket
-    # Shared memory: 1.5GB for apt Chromium (lighter than Chrome for Testing)
-    shm_size: '1536m'
+    # Shared memory: 2GB (Playwright recommended minimum)
+    shm_size: '2g'
     # Security hardening
     security_opt:
       - no-new-privileges:true
@@ -113,7 +114,7 @@ services:
     tmpfs:
       - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
       - /run/user/1000:size=10M,nosuid,nodev,uid=1000,gid=1000,mode=0700
-      - /tmp:size=300M,nosuid,nodev
+      - /tmp:size=1g,nosuid,nodev  # 1GB for Chrome --disable-dev-shm-usage shared memory
       - /home/ubuntu/.cache:size=150M,nosuid,nodev,uid=1000,gid=1000,mode=0700
     # File descriptor limits for browser and node processes
     ulimits:
@@ -147,11 +148,12 @@ services:
         platforms:
           - linux/amd64
     hostname: sandbox2
+    init: true  # Prevent zombie Chrome processes (Playwright best practice)
     restart: unless-stopped
     volumes:
       - ./sandbox/openbox-rc.xml:/home/ubuntu/.config/openbox/rc.xml:ro
     environment:
-      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome
+      - CHROME_ARGS=--no-sandbox --disable-setuid-sandbox --disable-crashpad --user-data-dir=/tmp/chrome --no-zygote --js-flags=--max-old-space-size=512
       - FRAMEWORK_DATABASE_URL=sqlite+aiosqlite:////home/ubuntu/.local/pythinker_sandbox.db
       - BROWSER_PATH=/usr/bin/chromium-browser
     ports:
@@ -159,7 +161,7 @@ services:
       - "8085:8082"  # Sandbox framework API
       - "5904:5900"  # VNC native port
       - "5903:5901"  # VNC WebSocket port
-    shm_size: '1536m'
+    shm_size: '2g'  # Playwright recommended minimum
     security_opt:
       - no-new-privileges:true
       - seccomp:./sandbox/seccomp-sandbox.json
@@ -174,7 +176,7 @@ services:
     tmpfs:
       - /run:size=50M,nosuid,nodev,uid=1000,gid=1000
       - /run/user/1000:size=10M,nosuid,nodev,uid=1000,gid=1000,mode=0700
-      - /tmp:size=300M,nosuid,nodev
+      - /tmp:size=1g,nosuid,nodev  # 1GB for Chrome --disable-dev-shm-usage shared memory
       - /home/ubuntu/.cache:size=150M,nosuid,nodev,uid=1000,gid=1000,mode=0700
     ulimits:
       nofile:
