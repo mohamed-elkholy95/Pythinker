@@ -184,8 +184,7 @@ class EmbeddingClient:
                 # Parse Unix timestamp and calculate seconds until reset
                 reset_timestamp = float(reset_time)
                 now = time.time()
-                ttl = max(int(reset_timestamp - now), 60)  # At least 60 seconds
-                return ttl
+                return max(int(reset_timestamp - now), 60)  # At least 60 seconds
             except ValueError:
                 logger.warning(f"Failed to parse X-RateLimit-Reset: {reset_time}")
 

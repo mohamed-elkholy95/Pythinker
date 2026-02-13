@@ -66,6 +66,7 @@ def set_metrics(metrics: MetricsPort) -> None:
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
+    from app.domain.utils.cancellation import CancellationToken
 
 logger = logging.getLogger(__name__)
 

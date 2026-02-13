@@ -41,6 +41,7 @@ from app.domain.services.skill_loader import SkillLoader
 
 if TYPE_CHECKING:
     from app.domain.services.memory_service import MemoryService
+    from app.domain.utils.cancellation import CancellationToken
 from app.domain.models.agent_response import PlanResponse, PlanUpdateResponse
 from app.domain.models.event import (
     BaseEvent,

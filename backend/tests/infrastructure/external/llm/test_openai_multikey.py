@@ -75,7 +75,7 @@ class TestOpenAILLMRateLimitRotation:
 
         # Mock _get_client to return different mocked clients for each key
         clients = []
-        for i in range(3):
+        for _ in range(3):
             mock_client = AsyncMock()
             mock_client.chat = AsyncMock()
             mock_client.chat.completions = AsyncMock()
@@ -140,9 +140,11 @@ class TestOpenAILLMRateLimitRotation:
                 return result
             raise RuntimeError("All 3 OpenAI/OpenRouter API keys exhausted")
 
-        with patch.object(openai_llm_multikey, "_get_client", side_effect=mock_get_client):
-            with pytest.raises(RuntimeError, match="All 3 OpenAI/OpenRouter API keys exhausted"):
-                await openai_llm_multikey.ask(messages)
+        with (
+            patch.object(openai_llm_multikey, "_get_client", side_effect=mock_get_client),
+            pytest.raises(RuntimeError, match="All 3 OpenAI/OpenRouter API keys exhausted"),
+        ):
+            await openai_llm_multikey.ask(messages)
 
     @pytest.mark.asyncio
     async def test_parse_rate_limit_ttl_from_header(self, openai_llm_multikey):
@@ -179,7 +181,7 @@ class TestOpenAILLMAuthenticationRotation:
 
         # Mock clients
         clients = []
-        for i in range(3):
+        for _ in range(3):
             mock_client = AsyncMock()
             mock_client.chat = AsyncMock()
             mock_client.chat.completions = AsyncMock()
@@ -239,9 +241,11 @@ class TestOpenAILLMAuthenticationRotation:
                 return result
             raise RuntimeError("All 3 OpenAI/OpenRouter API keys exhausted")
 
-        with patch.object(openai_llm_multikey, "_get_client", side_effect=mock_get_client):
-            with pytest.raises(RuntimeError, match="All 3 OpenAI/OpenRouter API keys exhausted"):
-                await openai_llm_multikey.ask(messages)
+        with (
+            patch.object(openai_llm_multikey, "_get_client", side_effect=mock_get_client),
+            pytest.raises(RuntimeError, match="All 3 OpenAI/OpenRouter API keys exhausted"),
+        ):
+            await openai_llm_multikey.ask(messages)
 
 
 class TestOpenAILLMStreamRotation:
@@ -254,7 +258,7 @@ class TestOpenAILLMStreamRotation:
 
         # Mock clients
         clients = []
-        for i in range(3):
+        for _ in range(3):
             mock_client = AsyncMock()
             mock_client.chat = AsyncMock()
             mock_client.chat.completions = AsyncMock()
@@ -286,9 +290,7 @@ class TestOpenAILLMStreamRotation:
             return result
 
         with patch.object(openai_llm_multikey, "_get_client", side_effect=mock_get_client):
-            result_parts = []
-            async for chunk in openai_llm_multikey.ask_stream(messages):
-                result_parts.append(chunk)
+            result_parts = [chunk async for chunk in openai_llm_multikey.ask_stream(messages)]
 
         assert "".join(result_parts) == "hello world"
         assert call_count == 2  # Should have rotated to second key
@@ -328,9 +330,7 @@ class TestOpenAILLMStreamRotation:
             return result
 
         with patch.object(openai_llm_multikey, "_get_client", side_effect=mock_get_client):
-            result_parts = []
-            async for chunk in openai_llm_multikey.ask_stream(messages):
-                result_parts.append(chunk)
+            result_parts = [chunk async for chunk in openai_llm_multikey.ask_stream(messages)]
 
         assert "".join(result_parts) == "success"
         assert call_count == 2

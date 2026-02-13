@@ -18,6 +18,7 @@ Run:
 """
 
 import asyncio
+import contextlib
 from collections import Counter
 
 import pytest
@@ -50,10 +51,8 @@ async def redis_client():
     yield client
 
     # Cleanup
-    try:
+    with contextlib.suppress(Exception):
         await client.shutdown()
-    except Exception:
-        pass
 
 
 @pytest.fixture

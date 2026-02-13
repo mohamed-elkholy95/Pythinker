@@ -30,6 +30,7 @@ from app.domain.services.agents.stuck_detector import StuckDetector
 
 if TYPE_CHECKING:
     from app.domain.external.circuit_breaker import CircuitBreakerPort
+    from app.domain.utils.cancellation import CancellationToken
 from app.domain.services.agents.token_manager import TokenManager
 from app.domain.services.context_manager import SandboxContextManager
 from app.domain.services.tools.base import BaseTool
