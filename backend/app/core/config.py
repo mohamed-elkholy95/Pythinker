@@ -197,6 +197,8 @@ class Settings(BaseSettings):
     google_search_api_key: str | None = None
     google_search_engine_id: str | None = None
     brave_search_api_key: str | None = None  # Brave Search API key
+    brave_search_api_key_2: str | None = None  # Fallback Brave key #1
+    brave_search_api_key_3: str | None = None  # Fallback Brave key #2
     tavily_api_key: str | None = None  # Tavily AI Search API key (https://tavily.com)
     tavily_api_key_2: str | None = None  # Fallback Tavily key (auto-rotates on quota/billing errors)
     tavily_api_key_3: str | None = None  # Third fallback Tavily key

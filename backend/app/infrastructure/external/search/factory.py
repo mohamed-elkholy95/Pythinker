@@ -141,7 +141,13 @@ def _provider_kwargs(provider: str, redis_client=None) -> dict | None:
         if not settings.brave_search_api_key:
             logger.warning("Brave Search not configured: missing API key")
             return None
-        return {"api_key": settings.brave_search_api_key}
+        kwargs = {"api_key": settings.brave_search_api_key}
+        fallback_keys = [key for key in [settings.brave_search_api_key_2, settings.brave_search_api_key_3] if key]
+        if fallback_keys:
+            kwargs["fallback_api_keys"] = fallback_keys
+        if redis_client:
+            kwargs["redis_client"] = redis_client
+        return kwargs
 
     if provider == "tavily":
         if not settings.tavily_api_key:
