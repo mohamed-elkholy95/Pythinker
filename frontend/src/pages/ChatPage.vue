@@ -874,8 +874,8 @@ const waitForSessionIfInitializing = async () => {
   isWaitingForSessionReady.value = true;
   sessionInitTimedOut.value = false;
   try {
-    const result = await waitForSessionReady(targetSessionId, agentApi.getSession, {
-      pollIntervalMs: 500,
+    const result = await waitForSessionReady(targetSessionId, agentApi.getSessionStatus, {
+      pollIntervalMs: 2000,
       maxWaitMs: 30000,
     });
     if (sessionId.value === targetSessionId) {
