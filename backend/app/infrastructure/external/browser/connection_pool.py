@@ -17,6 +17,7 @@ import asyncio
 import contextlib
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -31,6 +32,9 @@ from app.infrastructure.external.browser.playwright_browser import PlaywrightBro
 from app.infrastructure.observability.prometheus_metrics import record_error
 
 logger = logging.getLogger(__name__)
+
+# Type alias for progress callback
+ProgressCallback = Callable[[str], Awaitable[None]]
 
 
 @dataclass
@@ -240,6 +244,7 @@ class BrowserConnectionPool:
         cdp_url: str,
         block_resources: bool = False,
         randomize_fingerprint: bool = True,
+        progress_callback: ProgressCallback | None = None,
     ) -> "PooledConnectionContext":
         """Acquire a browser connection from the pool.
 
@@ -247,6 +252,7 @@ class BrowserConnectionPool:
             cdp_url: Chrome DevTools Protocol URL
             block_resources: Whether to block resources
             randomize_fingerprint: Whether to randomize browser fingerprint
+            progress_callback: Optional async callback for progress updates (e.g., retry attempts)
 
         Returns:
             Context manager yielding a PlaywrightBrowser instance
@@ -256,6 +262,7 @@ class BrowserConnectionPool:
             cdp_url=cdp_url,
             block_resources=block_resources,
             randomize_fingerprint=randomize_fingerprint,
+            progress_callback=progress_callback,
         )
 
     async def _acquire_connection(
@@ -265,6 +272,7 @@ class BrowserConnectionPool:
         randomize_fingerprint: bool = True,
         session_id: str | None = None,
         sandbox_id: str | None = None,
+        progress_callback: ProgressCallback | None = None,
     ) -> PooledConnection:
         """Internal method to acquire a connection with robust error handling.
 
@@ -318,7 +326,11 @@ class BrowserConnectionPool:
             if len(pool) < self._max_per_url:
                 try:
                     conn = await self._create_connection_with_retry(
-                        cdp_url, block_resources, randomize_fingerprint, error_context
+                        cdp_url,
+                        block_resources,
+                        randomize_fingerprint,
+                        error_context,
+                        progress_callback=progress_callback,
                     )
                     pool.append(conn)
                     in_use.add(id(conn))
@@ -366,7 +378,11 @@ class BrowserConnectionPool:
                         await self._safe_cleanup_connection(conn)
                         try:
                             new_conn = await self._create_connection_with_retry(
-                                cdp_url, block_resources, randomize_fingerprint, error_context
+                                cdp_url,
+                                block_resources,
+                                randomize_fingerprint,
+                                error_context,
+                                progress_callback=progress_callback,
                             )
                             pool[i] = new_conn
                             in_use.add(id(new_conn))
@@ -399,16 +415,35 @@ class BrowserConnectionPool:
         randomize_fingerprint: bool,
         error_context: BrowserErrorContext,
         max_retries: int = 1,
+        progress_callback: ProgressCallback | None = None,
     ) -> PooledConnection:
         """Create a new browser connection with retry logic.
 
         Note: PlaywrightBrowser.initialize() already implements internal retries.
         Keep this outer retry loop minimal to avoid compounded startup latency.
+
+        Args:
+            cdp_url: Chrome DevTools Protocol URL
+            block_resources: Whether to block resources
+            randomize_fingerprint: Whether to randomize browser fingerprint
+            error_context: Error context for detailed error reporting
+            max_retries: Maximum number of retry attempts
+            progress_callback: Optional async callback for progress updates
         """
         last_error: Exception | None = None
 
         for attempt in range(max_retries):
             error_context.retry_count = attempt
+
+            # Emit progress event on retry attempts (not on first attempt)
+            if attempt > 0 and progress_callback:
+                try:
+                    await progress_callback(
+                        f"Retrying browser connection (attempt {attempt + 1}/{max_retries})..."
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to emit retry progress event: {e}")
+
             try:
                 browser = PlaywrightBrowser(
                     cdp_url=cdp_url,
@@ -503,9 +538,14 @@ class BrowserConnectionPool:
         return cleaned
 
     async def _verify_connection_health(self, conn: PooledConnection) -> bool:
-        """Verify a connection is still healthy."""
+        """Verify a connection is still healthy.
+
+        Phase 1: Enhanced crash detection - check for crash signatures and
+        trigger immediate cleanup of crashed connections.
+        """
         try:
             if not conn.browser.is_connected():
+                logger.debug(f"Connection not connected for {conn.cdp_url}")
                 return False
 
             # Quick health check - verify page is responsive
@@ -518,9 +558,19 @@ class BrowserConnectionPool:
             return False
         except TimeoutError:
             logger.debug(f"Connection health check timed out for {conn.cdp_url}")
+            conn.is_healthy = False
             return False
         except Exception as e:
-            logger.debug(f"Connection health check failed: {e}")
+            # Phase 1: Check for crash signatures
+            if conn.browser._is_crash_error(e):
+                logger.error(f"Browser crash detected in pool health check for {conn.cdp_url}: {e}")
+                conn.is_healthy = False
+                conn.consecutive_failures = 99  # Force immediate removal
+                # Record crash in browser's circuit breaker
+                conn.browser._record_crash()
+            else:
+                logger.debug(f"Connection health check failed: {e}")
+                conn.is_healthy = False
             return False
 
     async def _release_connection(self, cdp_url: str, conn: PooledConnection, had_error: bool = False) -> None:
@@ -808,11 +858,13 @@ class PooledConnectionContext:
         cdp_url: str,
         block_resources: bool = False,
         randomize_fingerprint: bool = True,
+        progress_callback: ProgressCallback | None = None,
     ):
         self._pool = pool
         self._cdp_url = cdp_url
         self._block_resources = block_resources
         self._randomize_fingerprint = randomize_fingerprint
+        self._progress_callback = progress_callback
         self._connection: PooledConnection | None = None
         self._had_error = False
 
@@ -822,6 +874,7 @@ class PooledConnectionContext:
             self._cdp_url,
             self._block_resources,
             self._randomize_fingerprint,
+            progress_callback=self._progress_callback,
         )
         return self._connection.browser
 

@@ -81,6 +81,12 @@ def _safe_exc_text(exc: BaseException) -> str:
     return message[:240]
 
 
+def _is_truthy_header(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 async def _safe_ws_close(websocket: WebSocket, code: int, reason: str) -> None:
     """Best-effort websocket close to avoid raising on already-closed channels."""
     with contextlib.suppress(Exception):
@@ -385,7 +391,8 @@ async def chat(
     send_timeout = 60.0 if use_sse_v2 else None  # 60s for slow networks
 
     # Heartbeat interval: keep connection alive and prevent "stuck" feeling during long ops
-    heartbeat_interval_seconds = 15.0
+    # Set to 30s to prevent SSE timeout during browser recovery (can take >120s)
+    heartbeat_interval_seconds = 30.0
 
     async def event_generator() -> AsyncGenerator[ServerSentEvent, None]:
         try:

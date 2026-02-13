@@ -346,6 +346,26 @@ class AgentService:
                     sandbox = await self._sandbox_cls.create()
                     logger.info(f"Created sandbox {sandbox.id} on-demand for session {session_id}")
 
+                # Set up browser progress callback for retry event emission
+                if hasattr(sandbox, "set_browser_progress_callback"):
+
+                    async def browser_progress_callback(message: str) -> None:
+                        """Emit browser connection retry progress as MessageEvent."""
+                        from app.domain.models.event import MessageEvent
+
+                        try:
+                            event = MessageEvent(
+                                session_id=session_id,
+                                role="assistant",
+                                message=message,
+                            )
+                            await self._session_repository.add_event(session_id, event)
+                            logger.debug(f"Emitted browser progress event: {message}")
+                        except Exception as e:
+                            logger.warning(f"Failed to emit browser progress event: {e}")
+
+                    sandbox.set_browser_progress_callback(browser_progress_callback)
+
                 # Bind sandbox only if session still exists and is still unbound (or already points to this sandbox)
                 session = await self._session_repository.find_by_id(session_id)
                 if not session:

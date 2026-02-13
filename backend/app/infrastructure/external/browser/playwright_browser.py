@@ -285,6 +285,14 @@ class PlaywrightBrowser:
         self._display_failure_count: int = 0
         self._display_failure_threshold: int = 2
 
+        # Circuit breaker for browser crashes (Phase 1: hardening)
+        # Tracks crash timestamps to detect repeated failures and fail-fast
+        self._crash_history: list[float] = []  # Timestamps of recent crashes
+        self._crash_window_seconds: float = self.settings.browser_crash_window_seconds
+        self._crash_threshold: int = self.settings.browser_crash_threshold
+        self._circuit_open_until: float = 0.0  # Timestamp when circuit can close
+        self._circuit_breaker_enabled: bool = self.settings.browser_crash_circuit_breaker_enabled
+
         # Current fingerprint values (randomized on each session)
         self._current_user_agent: str = DEFAULT_USER_AGENT
         self._current_viewport: dict[str, int] = DEFAULT_VIEWPORT
@@ -320,6 +328,98 @@ class PlaywrightBrowser:
         )
 
         return user_agent, viewport, timezone
+
+    def _check_circuit_breaker(self) -> bool:
+        """Check if circuit breaker allows operations (not too many crashes).
+
+        Returns:
+            True if circuit is closed (allow operations), False if open (reject operations)
+        """
+        if not self._circuit_breaker_enabled:
+            return True
+
+        current_time = time.time()
+
+        # Circuit explicitly open with cooldown?
+        if current_time < self._circuit_open_until:
+            remaining = self._circuit_open_until - current_time
+            logger.warning(
+                f"Circuit breaker OPEN: too many crashes. Cooldown: {remaining:.1f}s remaining"
+            )
+            return False
+
+        # Clean old crashes outside tracking window
+        cutoff = current_time - self._crash_window_seconds
+        self._crash_history = [ts for ts in self._crash_history if ts > cutoff]
+
+        # Check if threshold exceeded
+        if len(self._crash_history) >= self._crash_threshold:
+            # Open circuit for cooldown period
+            self._circuit_open_until = current_time + self.settings.browser_crash_cooldown_seconds
+            logger.error(
+                f"Circuit breaker OPEN: {len(self._crash_history)} crashes in "
+                f"{self._crash_window_seconds}s window. Cooldown: "
+                f"{self.settings.browser_crash_cooldown_seconds}s"
+            )
+            return False
+
+        return True  # Circuit closed, allow operations
+
+    def _record_crash(self) -> None:
+        """Record a browser crash for circuit breaker tracking."""
+        if not self._circuit_breaker_enabled:
+            return
+
+        current_time = time.time()
+        self._crash_history.append(current_time)
+
+        # Clean old crashes
+        cutoff = current_time - self._crash_window_seconds
+        self._crash_history = [ts for ts in self._crash_history if ts > cutoff]
+
+        logger.warning(
+            f"Browser crash recorded: {len(self._crash_history)} crashes in last "
+            f"{self._crash_window_seconds}s (threshold: {self._crash_threshold})"
+        )
+
+    async def _quick_health_check(self) -> bool:
+        """Quick health check before operations to detect crashes fast (<5s).
+
+        Returns:
+            True if healthy, False if crashed/unhealthy
+        """
+        if not self.settings.browser_quick_health_check_enabled:
+            # Fast path: skip health check if disabled
+            return self._connection_healthy
+
+        try:
+            if not self.page or self.page.is_closed():
+                logger.debug("Quick health check: page is None or closed")
+                return False
+
+            # Fast evaluation with short timeout
+            await asyncio.wait_for(
+                self.page.evaluate("() => true"),
+                timeout=self.settings.browser_quick_health_check_timeout,
+            )
+            return True
+
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"Quick health check timed out after {self.settings.browser_quick_health_check_timeout}s"
+            )
+            self._connection_healthy = False
+            return False
+
+        except Exception as e:
+            if self._is_crash_error(e):
+                logger.error(f"Browser crash detected in quick health check: {e}")
+                self._connection_healthy = False
+                self._record_crash()
+            else:
+                logger.warning(f"Quick health check failed: {e}")
+                self._connection_healthy = False
+            return False
 
     async def _evaluate_with_timeout(self, script: str, timeout_ms: int = JS_EVAL_TIMEOUT_MS) -> Any:
         """Execute JavaScript with timeout protection.
@@ -994,6 +1094,16 @@ class PlaywrightBrowser:
         logger.error(f"Page crash detected (CDP: {self.cdp_url}) - marking connection unhealthy")
         self._connection_healthy = False
 
+    def _on_browser_disconnected(self) -> None:
+        """Handle browser disconnection event (Playwright best practice).
+
+        Fires when browser application closes, crashes, or CDP connection drops.
+        Different from page.on('crash') which only fires for renderer crashes.
+        This catches browser process death (kill -9, OOM killer, supervisord restart).
+        """
+        logger.error(f"Browser disconnected (CDP: {self.cdp_url}) - marking connection unhealthy")
+        self._connection_healthy = False
+
     def is_healthy(self) -> bool:
         """Synchronous health check for fast-path routing.
 
@@ -1233,8 +1343,9 @@ class PlaywrightBrowser:
                 # Set up automatic dialog/popup handlers
                 await self._setup_dialog_handlers(self.page)
 
-                # Register page crash handler (Playwright best practice)
+                # Register crash handlers (Playwright best practice)
                 self.page.on("crash", lambda: self._on_page_crash())
+                self.browser.on("disconnected", lambda: self._on_browser_disconnected())
 
                 # Configure default timeouts
                 self.page.set_default_timeout(30000)  # 30 seconds for operations
@@ -1255,16 +1366,30 @@ class PlaywrightBrowser:
                 return True
 
             except Exception as e:
+                # Phase 1: Record crash if it's a crash error
+                if self._is_crash_error(e):
+                    self._record_crash()
+
                 # Clean up failed resources
                 await self.cleanup()
 
                 if attempt == max_retries - 1:
-                    logger.error(f"Initialization failed after {max_retries} attempts: {e}")
+                    logger.error(f"Browser initialization failed after {max_retries} attempts: {e}")
                     return False
 
                 # Exponential backoff with cap
                 retry_delay = min(retry_delay * 2, 4)
-                logger.warning(f"Initialization failed (attempt {attempt + 1}), retrying in {retry_delay}s: {e}")
+
+                # Phase 1: Emit progress during recovery
+                # NOTE: Direct event emission not available in browser class
+                # Progress logged here can be picked up by monitoring/logs
+                logger.warning(
+                    f"Browser crashed, recovering... (attempt {attempt + 2}/{max_retries}, "
+                    f"retrying in {retry_delay}s): {e}"
+                )
+                # TODO: Emit ProgressEvent when event emitter is available
+                # self._emit_progress(f"Browser crashed, recovering... (attempt {attempt + 2}/{max_retries})")
+
                 await asyncio.sleep(retry_delay)
 
         return False
@@ -1933,7 +2058,29 @@ class PlaywrightBrowser:
         auto_extract: bool = True,
     ) -> ToolResult:
         """Internal navigate implementation (caller must hold _navigation_lock)."""
+        # Phase 1: Circuit breaker check - fail fast if too many crashes
+        if not self._check_circuit_breaker():
+            from app.domain.exceptions.browser import BrowserCrashedError, BrowserErrorContext
+
+            context = BrowserErrorContext(
+                cdp_url=self.cdp_url,
+                operation="navigate",
+                additional_info={"url": url, "reason": "circuit_breaker_open"},
+            )
+            raise BrowserCrashedError(
+                cdp_url=self.cdp_url,
+                context=context,
+            )
+
         await self._ensure_page()
+
+        # Phase 1: Quick health check before navigation - detect crashes early (<5s vs 120s)
+        is_healthy = await self._quick_health_check()
+        if not is_healthy:
+            logger.warning(f"Browser unhealthy before navigation to {url}, reinitializing...")
+            # Mark for reinitialization
+            self._connection_healthy = False
+            await self._ensure_page()  # Will reinitialize if needed
 
         # Clear cache only if URL changed (Priority 5: improve cache effectiveness)
         current_url = self.page.url if self.page else None
@@ -2102,6 +2249,7 @@ class PlaywrightBrowser:
             if self._is_crash_error(e):
                 logger.error(f"Browser crash detected during navigation to {url}: {e}")
                 self._connection_healthy = False
+                self._record_crash()  # Phase 1: Track crash for circuit breaker
 
                 # Priority 1: Graceful degradation - return partial result instead of failing
                 if settings.browser_graceful_degradation and auto_extract:

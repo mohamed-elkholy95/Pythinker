@@ -3,6 +3,7 @@ import io
 import logging
 import socket
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import Any, BinaryIO, ClassVar
 
 import docker
@@ -50,6 +51,8 @@ class DockerSandbox(Sandbox):
         self._background_tasks: set[asyncio.Task[Any]] = set()
         # Pool client name for HTTPClientPool
         self._pool_client_name = f"sandbox-{self.id}"
+        # Progress callback for browser connection retry events
+        self._browser_progress_callback: Callable[[str], Awaitable[None]] | None = None
 
     async def get_client(self):
         """Get HTTP client from connection pool.
@@ -110,6 +113,16 @@ class DockerSandbox(Sandbox):
     def client(self, value: httpx.AsyncClient | None) -> None:
         """DEPRECATED: Setter for backward compatibility."""
         self._client = value
+
+    def set_browser_progress_callback(
+        self, callback: Callable[[str], Awaitable[None]] | None
+    ) -> None:
+        """Set callback for browser connection retry progress events.
+
+        Args:
+            callback: Async callable that receives progress messages (e.g., "Retrying browser connection (1/3)...")
+        """
+        self._browser_progress_callback = callback
 
     @staticmethod
     def _resolve_to_ip(address: str) -> str:
@@ -1294,6 +1307,7 @@ class DockerSandbox(Sandbox):
                 block_resources=block_resources,
                 session_id=session_id,
                 sandbox_id=self.id,
+                progress_callback=self._browser_progress_callback,
             )
 
             logger.debug(f"Acquired pooled browser for {self.cdp_url} (use count: {connection.use_count})")
@@ -1328,6 +1342,7 @@ class DockerSandbox(Sandbox):
                         block_resources=block_resources,
                         session_id=session_id,
                         sandbox_id=self.id,
+                        progress_callback=self._browser_progress_callback,
                     )
                     return connection.browser
                 except ConnectionPoolExhaustedError:
