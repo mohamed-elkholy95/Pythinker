@@ -332,6 +332,7 @@ class RedisStreamQueue(MessageQueue):
         # Start background lock renewal task to prevent expiration during long ops
         renewal_task: asyncio.Task[None] | None = None
         stop_renewal = asyncio.Event()
+        lock_lost = asyncio.Event()
 
         async def _renew_lock_periodically() -> None:
             """Background task to renew lock periodically."""
@@ -342,6 +343,7 @@ class RedisStreamQueue(MessageQueue):
                         renewed = await self._renew_lock(lock_key, lock_value)
                         if not renewed:
                             logger.warning(f"Lock renewal failed for {lock_key}, another process may have acquired it")
+                            lock_lost.set()
                             break
             except asyncio.CancelledError:
                 pass
@@ -358,10 +360,23 @@ class RedisStreamQueue(MessageQueue):
             if not messages:
                 return None, None
 
+            # If ownership was lost during a long wait/read, abort safely to
+            # avoid deleting or returning data that another consumer may own.
+            if lock_lost.is_set():
+                logger.warning("Aborting pop for %s: lock ownership lost before delete", self._stream_name)
+                return None, None
+
             message_id, message_data = messages[0]
 
             # Delete the message from stream
-            await self._redis.client.xdel(self._stream_name, message_id)
+            deleted_count = await self._redis.client.xdel(self._stream_name, message_id)
+            if deleted_count == 0:
+                logger.warning(
+                    "Aborting pop for %s: message %s was not deleted (already consumed)",
+                    self._stream_name,
+                    message_id,
+                )
+                return None, None
 
             try:
                 # Try both bytes and string keys for compatibility
