@@ -688,6 +688,7 @@ class AgentService:
         if event_id:
             logger.info(f"Event resumption enabled: skipping events until event_id={event_id}")
 
+        cancel_task: asyncio.Task | None = None
         try:
             while True:
                 try:
@@ -753,6 +754,11 @@ class AgentService:
                 yield event
         finally:
             self._session_cancel_events.pop(session_id, None)
+            # Cancel the cancel_task to avoid "Task was destroyed but it is pending" on disconnect
+            if cancel_task is not None and not cancel_task.done():
+                cancel_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await cancel_task
             with contextlib.suppress(Exception):
                 await stream_iter.aclose()
 
