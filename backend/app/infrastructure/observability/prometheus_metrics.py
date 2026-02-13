@@ -572,6 +572,69 @@ cache_size = Gauge(
     labels=["cache_type"],
 )
 
+# Redis Reliability Metrics
+redis_operation_retries_total = Counter(
+    name="pythinker_redis_operation_retries_total",
+    help_text="Redis operation retries triggered by connection/timeouts",
+    labels=["role", "operation"],
+)
+
+redis_operation_failures_total = Counter(
+    name="pythinker_redis_operation_failures_total",
+    help_text="Redis operation final failures after retry exhaustion",
+    labels=["role", "error_type"],
+)
+
+rate_limit_fallback_total = Counter(
+    name="pythinker_rate_limit_fallback_total",
+    help_text="Rate-limit middleware fallbacks when Redis is unavailable",
+    labels=["reason"],
+)
+
+# SSE Streaming Reliability Metrics
+sse_stream_open_total = Counter(
+    name="pythinker_sse_stream_open_total",
+    help_text="Total opened SSE chat streams",
+    labels=["endpoint"],
+)
+
+sse_stream_close_total = Counter(
+    name="pythinker_sse_stream_close_total",
+    help_text="Total closed SSE chat streams by close reason",
+    labels=["endpoint", "reason"],
+)
+
+sse_stream_heartbeat_total = Counter(
+    name="pythinker_sse_stream_heartbeat_total",
+    help_text="Total SSE heartbeats sent",
+    labels=["endpoint"],
+)
+
+sse_stream_error_total = Counter(
+    name="pythinker_sse_stream_error_total",
+    help_text="Total SSE stream errors emitted",
+    labels=["endpoint", "error_type"],
+)
+
+sse_stream_retry_suggested_total = Counter(
+    name="pythinker_sse_stream_retry_suggested_total",
+    help_text="Total retry recommendations emitted from SSE stream errors",
+    labels=["endpoint", "reason"],
+)
+
+sse_stream_duration_seconds = Histogram(
+    name="pythinker_sse_stream_duration_seconds",
+    help_text="SSE stream lifetime in seconds",
+    labels=["endpoint", "close_reason"],
+    buckets=[1.0, 5.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0],
+)
+
+sse_stream_active = Gauge(
+    name="pythinker_sse_stream_active",
+    help_text="Currently active SSE streams",
+    labels=["endpoint"],
+)
+
 
 # Registry of all metrics
 _metrics_registry = [
@@ -617,6 +680,18 @@ _metrics_registry = [
     cache_hits,
     cache_misses,
     cache_size,
+    # Redis reliability
+    redis_operation_retries_total,
+    redis_operation_failures_total,
+    rate_limit_fallback_total,
+    # SSE Streaming Reliability
+    sse_stream_open_total,
+    sse_stream_close_total,
+    sse_stream_heartbeat_total,
+    sse_stream_error_total,
+    sse_stream_retry_suggested_total,
+    sse_stream_duration_seconds,
+    sse_stream_active,
 ]
 
 # Workflow Phase Metrics (Monitoring Enhancement)
@@ -1290,6 +1365,49 @@ def update_active_sessions(count: int) -> None:
 def update_active_agents(count: int) -> None:
     """Update the count of active agents."""
     active_agents.set({}, count)
+
+
+def record_sse_stream_open(endpoint: str = "chat") -> None:
+    """Record a newly opened SSE stream."""
+    normalized_endpoint = (endpoint or "").strip().lower() or "unknown"
+    sse_stream_open_total.inc({"endpoint": normalized_endpoint})
+    sse_stream_active.inc({"endpoint": normalized_endpoint}, 1.0)
+
+
+def record_sse_stream_close(endpoint: str = "chat", reason: str = "unknown", duration_seconds: float = 0.0) -> None:
+    """Record SSE stream closure and duration."""
+    normalized_endpoint = (endpoint or "").strip().lower() or "unknown"
+    normalized_reason = (reason or "").strip().lower() or "unknown"
+    sse_stream_close_total.inc({"endpoint": normalized_endpoint, "reason": normalized_reason})
+    sse_stream_duration_seconds.observe(
+        {"endpoint": normalized_endpoint, "close_reason": normalized_reason},
+        max(0.0, duration_seconds),
+    )
+    current_active = sse_stream_active.get({"endpoint": normalized_endpoint})
+    if current_active <= 1.0:
+        sse_stream_active.set({"endpoint": normalized_endpoint}, 0.0)
+    else:
+        sse_stream_active.dec({"endpoint": normalized_endpoint}, 1.0)
+
+
+def record_sse_stream_heartbeat(endpoint: str = "chat") -> None:
+    """Record heartbeat frames sent over SSE."""
+    normalized_endpoint = (endpoint or "").strip().lower() or "unknown"
+    sse_stream_heartbeat_total.inc({"endpoint": normalized_endpoint})
+
+
+def record_sse_stream_error(endpoint: str = "chat", error_type: str = "unknown") -> None:
+    """Record stream-level SSE error events."""
+    normalized_endpoint = (endpoint or "").strip().lower() or "unknown"
+    normalized_error_type = (error_type or "").strip().lower() or "unknown"
+    sse_stream_error_total.inc({"endpoint": normalized_endpoint, "error_type": normalized_error_type})
+
+
+def record_sse_stream_retry_suggestion(endpoint: str = "chat", reason: str = "unknown") -> None:
+    """Record retry recommendations emitted to clients."""
+    normalized_endpoint = (endpoint or "").strip().lower() or "unknown"
+    normalized_reason = (reason or "").strip().lower() or "unknown"
+    sse_stream_retry_suggested_total.inc({"endpoint": normalized_endpoint, "reason": normalized_reason})
 
 
 # Phase 6: Circuit Breaker Metric Functions
